@@ -9,13 +9,13 @@
 
 ## In progress (v4)
 
-- [ ] Pick a TODO/issue when creating a task to seed the prompt
-- [ ] Browse upstream GitHub issues (list + prompt-infusing selection)
-- [ ] Custom opaque repo dropdown with ~/Work path compaction
+- [x] Pick a TODO/issue when creating a task to seed the prompt
+- [x] Browse upstream GitHub issues (list + prompt-infusing selection)
+- [x] Custom opaque repo dropdown with ~/Work path compaction
 
 ## Next
 
-- [ ] Responsive UI — works perfectly on mobile (v5)
+- [x] Responsive UI — works perfectly on mobile (v5)
 
 ## Backlog (from PRD)
 
@@ -30,3 +30,10 @@
 
 - [ ] HEAD requests to non-API routes return 404 (browsers use GET; cosmetic)
 - [x] Viewport model label is a static "claude-4" hint — now per-session model picker (default/opus/sonnet/haiku)
+- [x] Checking off items doesn't rearrange the to-do list status grouping
+- [x] New task sheet offers all todos, even those checked off. Make sure only open issues are presented as well.
+- [ ] Repo filter should optionally sort by most recently used. It currently defaults to the first in the list. Should default to the last used.
+- [ ] Provide branch drop-down instead of just a text field similar to repo selection
+- [ ] Add clean up action for todo.md removing completed items and making sure the todo.md follows best practices
+- [ ] Can't scroll terminal window
+- [x] Add decommission session UI

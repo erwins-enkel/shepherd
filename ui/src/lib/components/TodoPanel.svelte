@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getTodo, putTodo } from "$lib/api";
+  import { ITEM_RE, toggleItem } from "$lib/todo";
 
   let { repoPath }: { repoPath: string } = $props();
 
@@ -7,8 +8,6 @@
   let exists = $state(false);
   let loading = $state(true);
   let adding = $state("");
-
-  const ITEM_RE = /^(\s*)-\s\[( |x|X)\]\s+(.*)$/;
 
   $effect(() => {
     const rp = repoPath;
@@ -27,14 +26,7 @@
   });
 
   function toggle(i: number) {
-    const lines = content.split("\n");
-    const line = lines[i];
-    if (/\[ \]/.test(line)) {
-      lines[i] = line.replace("[ ]", "[x]");
-    } else {
-      lines[i] = line.replace(/\[x\]/i, "[ ]");
-    }
-    content = lines.join("\n");
+    content = toggleItem(content, i);
     putTodo(repoPath, content).catch(() => {});
   }
 

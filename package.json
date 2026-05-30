@@ -1,0 +1,31 @@
+{
+  "name": "tank",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "lint": "eslint --no-error-on-unmatched-pattern src test",
+    "format": "prettier --write .",
+    "start": "bun run src/index.ts",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,css,html,md}": "prettier --write",
+    "*.ts": "eslint --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "latest",
+    "@types/node": "^25.9.1",
+    "eslint": "^10.4.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.0"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  }
+}

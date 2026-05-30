@@ -3,8 +3,9 @@ import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
-import { validateCreate, isAuthorized, originAllowed } from "./validate";
+import { validateCreate, isAuthorized, originAllowed, safeRepoDir } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
+import { listIssues } from "./github";
 import { join, normalize } from "node:path";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -92,6 +93,12 @@ export function makeApp(deps: AppDeps) {
       }
       if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
         if (req.method === "GET") return json(listRepos(config.repoRoot));
+      }
+
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
+        const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+        if (!dir) return json({ error: "invalid repo" }, 400);
+        return json(listIssues(dir));
       }
 
       if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {

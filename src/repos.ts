@@ -5,9 +5,11 @@ import { safeRepoDir } from "./validate";
 export interface RepoEntry {
   name: string;
   path: string;
+  display: string;
 }
 
 export function listRepos(repoRoot: string): RepoEntry[] {
+  const home = process.env.HOME ?? "";
   let entries: string[];
   try {
     entries = readdirSync(repoRoot);
@@ -15,7 +17,11 @@ export function listRepos(repoRoot: string): RepoEntry[] {
     return [];
   }
   return entries
-    .map((name) => ({ name, path: join(repoRoot, name) }))
+    .map((name) => {
+      const p = join(repoRoot, name);
+      const display = home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
+      return { name, path: p, display };
+    })
     .filter((e) => {
       try {
         return statSync(e.path).isDirectory() && !e.name.startsWith(".");

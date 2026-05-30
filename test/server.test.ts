@@ -238,6 +238,25 @@ test("GET /api/todo?repo=/etc/passwd → 400", async () => {
   expect(res.status).toBe(400);
 });
 
+// ── /api/issues ───────────────────────────────────────────────────────────────
+
+test("GET /api/issues?repo=<validRepo> → 200 with slug + issues array", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request(`http://x/api/issues?repo=${encodeURIComponent(validRepo)}`),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect("slug" in body).toBe(true);
+  expect(Array.isArray(body.issues)).toBe(true);
+});
+
+test("GET /api/issues?repo=/etc → 400", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/api/issues?repo=/etc"));
+  expect(res.status).toBe(400);
+});
+
 test("PUT /api/todo with evil Origin → 403", async () => {
   const app = harness();
   const res = await app.fetch(

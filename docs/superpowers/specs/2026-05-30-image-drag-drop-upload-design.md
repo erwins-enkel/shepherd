@@ -72,12 +72,14 @@ then surface its absolute path to Claude.
   - Add `images` to `ALLOWED_KEYS`.
 - `service.create`: after `worktree.create`, move each staged file into
   `<worktreePath>/.shepherd-uploads/`, then append to the prompt argv:
+
   ```
   <user prompt>
 
   Attached images:
   /abs/worktree/.shepherd-uploads/<uuid>.png
   ```
+
   Move (not copy) so the staging dir self-empties. If a session has no isolated worktree
   (cwd fallback), still write into `<worktreePath>/.shepherd-uploads/`.
 

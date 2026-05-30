@@ -20,6 +20,25 @@ export interface TodoDoc {
   content: string;
 }
 
+export type ForgeKind = "github" | "gitea";
+export type MergeMethod = "merge" | "squash" | "rebase";
+export type ChecksState = "none" | "pending" | "success" | "failure";
+
+export interface PrStatus {
+  state: "none" | "open" | "merged" | "closed";
+  number?: number;
+  url?: string;
+  title?: string;
+  mergeable?: boolean | null;
+  checks: ChecksState;
+  deployConfigured: boolean;
+}
+
+/** GET /api/sessions/:id/git payload: forge kind + current PR status. */
+export interface GitState extends PrStatus {
+  kind: ForgeKind;
+}
+
 export interface Session {
   id: string;
   desig: string;

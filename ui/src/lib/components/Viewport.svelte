@@ -9,6 +9,7 @@
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
+  import GitRail from "$lib/components/GitRail.svelte";
 
   let {
     session,
@@ -275,6 +276,9 @@
     </span>
     {#if session.status === "running" && !compact}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
+    {/if}
+    {#if !compact}
+      <GitRail sessionId={session.id} name={session.name} prompt={session.prompt} />
     {/if}
     <button
       class="decom"

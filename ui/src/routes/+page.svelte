@@ -8,10 +8,12 @@
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
+  import HerdGrid from "$lib/components/HerdGrid.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
+  let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
   let composePrompt = $state("");
@@ -59,6 +61,7 @@
     baseBranch: string;
     prompt: string;
     model: string | null;
+    images: string[];
   }) {
     const s = await createSession(input);
     selectedId = s.id;
@@ -104,6 +107,18 @@
         />
       </div>
     {/if}
+  {:else if viewMode === "all"}
+    <div class="grid-all">
+      <HerdGrid
+        sessions={store.sessions}
+        {selectedId}
+        {nowMs}
+        onselect={(id) => {
+          selectedId = id;
+          viewMode = "focus";
+        }}
+      />
+    </div>
   {:else}
     <div class="grid" class:compact={touch.current}>
       <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
@@ -124,7 +139,13 @@
     </div>
   {/if}
 
-  <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} desktopOnly />
+  <ActionBar
+    onnew={() => (showNew = true)}
+    mode={viewMode}
+    onmode={(m) => (viewMode = m)}
+    mobile={mobile.current}
+    desktopOnly
+  />
 </div>
 
 {#if showNew}
@@ -166,6 +187,15 @@
   .grid.compact {
     grid-template-columns: minmax(220px, 260px) 1fr;
     gap: 10px;
+  }
+  .grid-all {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .grid-all :global(.herd-grid) {
+    flex: 1;
   }
   .empty {
     border: 1px solid var(--color-line);

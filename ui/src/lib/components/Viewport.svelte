@@ -5,7 +5,7 @@
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
-  import { getSessionUsage } from "$lib/api";
+  import { getSessionUsage, uploadImage } from "$lib/api";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -32,6 +32,10 @@
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
   let conn = $state<PtyConn | undefined>();
+  let dragging = $state(false);
+  let uploading = $state(false);
+  let uploadFailed = $state(false);
+  let fileInput = $state<HTMLInputElement>();
 
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
@@ -39,6 +43,12 @@
 
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
+
+  // session:status events replace the Session object on every state change of the
+  // running unit, so the `session` prop reference churns while its id stays put.
+  // Derive the id: a $derived only notifies dependents when its *value* changes,
+  // so effects keyed on it re-run on an actual unit switch — not on status churn.
+  const unitId = $derived(session.id);
 
   // per-session token usage from ~/.claude JSONL; refresh on select + every 5s
   let usage = $state<SessionUsage | null>(null);
@@ -62,10 +72,11 @@
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    session.id; // disarm when the selected unit changes
+    unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
-    return () => clearTimeout(armTimer);
+    tab = "term";
   });
+  $effect(() => () => clearTimeout(armTimer));
   function decommission() {
     if (!armed) {
       armed = true;
@@ -78,8 +89,37 @@
     onarchive?.(session.id);
   }
 
+  // upload image(s) into this session's worktree, then inject their paths into
+  // the PTY — the user adds wording and presses Enter themselves. The path is
+  // wrapped in bracketed-paste markers (ESC[200~ … ESC[201~) so the TUI ingests
+  // it as one atomic paste; injecting it as a fast raw-keystroke burst drops
+  // characters (notably on mobile, racing with resize events).
+  async function attachImages(files: FileList | File[]) {
+    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imgs.length === 0 || !conn) return;
+    uploading = true;
+    uploadFailed = false;
+    try {
+      for (const f of imgs) {
+        const path = await uploadImage(f, session.id);
+        conn.send(` \x1b[200~${path}\x1b[201~ `);
+      }
+    } catch {
+      // surface failure on the button; never inject into the PTY (would pollute the prompt)
+      uploadFailed = true;
+    } finally {
+      uploading = false;
+    }
+  }
+
+  function onTermDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
+  }
+
   $effect(() => {
-    const id = session.id;
+    const id = unitId;
     if (!el) return;
 
     const term = new Terminal({
@@ -101,11 +141,30 @@
     // would make the effect depend on a value it writes → infinite update loop
     const c = connectPty(
       id,
+      term.cols,
+      term.rows,
       (d) => term.write(d),
-      () => {},
+      // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
+      // case the layout changed while away, then resize to repaint the attach
+      () => {
+        fit.fit();
+        c.resize(term.cols, term.rows);
+      },
     );
     conn = c;
     term.onData((d) => c.send(d));
+
+    // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
+    // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
+    // which doesn't always fire visibilitychange.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") c.poke();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) c.poke();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;
@@ -158,6 +217,8 @@
     ro.observe(el);
 
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
@@ -235,8 +296,19 @@
     <div class="scan" aria-hidden="true"></div>
     <div
       class="term-mount"
+      class:dragging
+      role="region"
+      aria-label="Terminal"
       bind:this={el}
       style:display={tab === "term" ? undefined : "none"}
+      ondragover={(e) => {
+        e.preventDefault();
+        dragging = true;
+      }}
+      ondragleave={(e) => {
+        if (e.target === e.currentTarget) dragging = false;
+      }}
+      ondrop={onTermDrop}
     ></div>
     {#if tab === "todo"}
       <div class="panel-wrap">
@@ -256,7 +328,34 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
-    <ControlBar onkey={(seq) => conn?.send(seq)} />
+    <div class="ctrl-row">
+      <button
+        type="button"
+        class="attach"
+        class:failed={uploadFailed}
+        title={uploadFailed ? "Upload failed — tap to retry" : "Attach image"}
+        onpointerdown={(e) => {
+          e.preventDefault();
+          fileInput?.click();
+        }}
+        aria-label="Attach image"
+      >
+        {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
+      </button>
+      <ControlBar onkey={(seq) => conn?.send(seq)} />
+    </div>
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+      onchange={(e) => {
+        const t = e.currentTarget;
+        if (t.files) attachImages(t.files);
+        t.value = "";
+      }}
+    />
   {/if}
 
   <!-- footer -->
@@ -494,5 +593,33 @@
     font-size: 11px;
     color: var(--color-muted);
     flex-shrink: 0;
+  }
+
+  .term-mount.dragging {
+    outline: 2px dashed var(--color-amber);
+    outline-offset: -4px;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .ctrl-row .attach {
+    flex: 0 0 auto;
+    min-width: 44px;
+    height: 36px;
+    margin: 6px 0 6px 10px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-ink);
+    font-size: 16px;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  .ctrl-row .attach.failed {
+    border-color: var(--color-red);
+    color: var(--color-red);
   }
 </style>

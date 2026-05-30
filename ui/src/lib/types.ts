@@ -93,6 +93,7 @@ export interface CreateInput {
   baseBranch: string;
   prompt: string;
   model: string | null;
+  images?: string[]; // absolute staging paths from /api/uploads
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

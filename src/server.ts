@@ -3,10 +3,17 @@ import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
-import { validateCreate, isAuthorized, originAllowed, safeRepoDir } from "./validate";
+import {
+  validateCreate,
+  isAuthorized,
+  originAllowed,
+  safeRepoDir,
+  parseTermDims,
+} from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
+import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
 import type { GitForge, MergeMethod } from "./forge/types";
@@ -165,6 +172,12 @@ export function makeApp(deps: AppDeps) {
         return json(deps.usageLimits.limits(Date.now()));
       }
 
+      if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
+        if (req.method === "POST") {
+          return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
+        }
+      }
+
       if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
         if (req.method === "GET") {
           const lastUsed = deps.store.lastUsedByRepo();
@@ -230,7 +243,9 @@ export function makeApp(deps: AppDeps) {
   };
 }
 
-type WsData = { kind: "events" } | { kind: "pty"; terminalId: string; bridge?: PtyBridge };
+type WsData =
+  | { kind: "events" }
+  | { kind: "pty"; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
 
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
@@ -262,7 +277,16 @@ export function serve(deps: AppDeps, port: number) {
         }
         const s = deps.store.get(m[1]!);
         if (!s) return new Response("no session", { status: 404 });
-        return server.upgrade(req, { data: { kind: "pty", terminalId: s.herdrAgentId } })
+        // attach at the client's actual terminal size so the very first paint
+        // matches; otherwise herdr renders the pane at the default 100×30 and the
+        // view stays mis-sized until a follow-up resize forces a TUI repaint.
+        const { cols, rows } = parseTermDims(
+          url.searchParams.get("cols"),
+          url.searchParams.get("rows"),
+        );
+        return server.upgrade(req, {
+          data: { kind: "pty", terminalId: s.herdrAgentId, cols, rows },
+        })
           ? undefined
           : new Response("upgrade failed", { status: 500 });
       }
@@ -281,7 +305,7 @@ export function serve(deps: AppDeps, port: number) {
             close: () => ws.close(),
           });
           ws.data.bridge = bridge;
-          bridge.open();
+          bridge.open(ws.data.cols, ws.data.rows);
         }
       },
       message(ws, msg) {

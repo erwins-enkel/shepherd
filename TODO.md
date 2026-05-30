@@ -1,39 +1,27 @@
 # Shepherd — Roadmap / TODO
 
+## Backlog (from PRD)
+
+- [ ] Per-project icon picker — F12 (untracked in PRD phasing; not built)
+- [ ] Research chat with sub-agents + searxng; saved history — F9. Confirm searxng is still in stack.
+- [ ] Hermes migration off `claude -p` onto interactive-via-herdr — compliance-critical, likely its own milestone (workstream 3)
+- [ ] Per-agent sandboxing (firejail/bwrap/nspawn) + permission profiles — I3/I4, before any unattended autonomy
+
+## PRD open questions still unresolved
+
+- [ ] Q5: Hermes migration sequencing — same milestone or after the rest of the backlog
+
 ## Done
 
 - [x] Headless core: spawn interactive claude in worktrees via herdr, REST + WS (/events, /pty)
-- [x] HUD UI: SvelteKit5 + Tailwind4 + xterm.js, status lights, live terminal
-- [x] Autocomplete repo picker
-- [x] Per-project TODO.md panel (view + toggle + add)
-
-## In progress (v4)
-
-- [x] Pick a TODO/issue when creating a task to seed the prompt
-- [x] Browse upstream GitHub issues (list + prompt-infusing selection)
-- [x] Custom opaque repo dropdown with ~/Work path compaction
-
-## Next
-
-- [x] Responsive UI — works perfectly on mobile (v5)
-- [x] Real usage/cost tracking from ~/.claude session JSONL — per-session tokens + 5h/weekly limit gauges (daily `/usage` calibration, live recompute)
-
-## Backlog (from PRD)
-
-- [x] Git host buttons: open PR / merge / redeploy (platform-agnostic: GitHub + Gitea/Forgejo)
-- [ ] Research chat with sub-agents + searxng; saved history
-- [ ] Hermes migration off `claude -p` onto interactive-via-herdr (compliance-critical)
-- [ ] Per-agent sandboxing + permission profiles
-- [ ] Drag-and-drop screenshots into the prompt
-
-## Known minor follow-ups
-
-- [x] HEAD requests to non-API routes return 404 (browsers use GET; cosmetic)
-- [x] Viewport model label is a static "claude-4" hint — now per-session model picker (default/opus/sonnet/haiku)
-- [x] Checking off items doesn't rearrange the to-do list status grouping
-- [x] New task sheet offers all todos, even those checked off. Make sure only open issues are presented as well.
-- [x] Repo filter should optionally sort by most recently used. It currently defaults to the first in the list. Should default to the last used.
-- [x] Provide branch drop-down instead of just a text field similar to repo selection
-- [x] Add clean up action for todo.md removing completed items and making sure the todo.md follows best practices
-- [x] Can't scroll terminal window
-- [x] Add decommission session UI
+- [x] HUD UI: SvelteKit5 + Tailwind4 + xterm.js, status lights, live scrollable terminal
+- [x] Repo + branch pickers (autocomplete, ~/Work compaction, most-recently-used default)
+- [x] Per-project TODO.md panel (view + toggle + add + completed-item cleanup) — F8
+- [x] Prompt sources: seed a task from a local TODO/issue or browse issues (GitHub + Gitea/Forgejo) — open-only
+- [x] Per-session model picker (default/opus/sonnet/haiku)
+- [x] Session decommission UI
+- [x] Responsive mobile HUD + horizontally scrollable mobile control-key row — F4/I6
+- [x] All/Focus view modes — read-only live terminal grid of the whole herd — F4 "All view"
+- [x] Image drag-and-drop / paste → staged path injected into the prompt (bracketed-paste) — F11
+- [x] Real usage/cost tracking from ~/.claude JSONL — per-session tokens + 5h/weekly gauges (daily `/usage` calibration, live recompute) — F10/I5
+- [x] Git host PR/merge/redeploy buttons — F6/F7. Platform-agnostic (GitHub via `gh` + Gitea/Forgejo via REST); direct host API (resolves Q3); contextual rail in Viewport header; `~/.shepherd/forges.json` config.

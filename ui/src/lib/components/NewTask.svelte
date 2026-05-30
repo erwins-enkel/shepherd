@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listRepos, listBranches } from "$lib/api";
+  import { listRepos, listBranches, uploadImage } from "$lib/api";
   import { MODELS, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
@@ -16,6 +16,7 @@
       baseBranch: string;
       prompt: string;
       model: string | null;
+      images: string[];
     }) => Promise<void> | void;
     onclose?: () => void;
     initialPrompt?: string;
@@ -32,6 +33,10 @@
   let error = $state<string | null>(null);
   let repos = $state<RepoEntry[]>([]);
   let branches = $state<string[]>([]);
+  let images = $state<{ path: string; name: string }[]>([]);
+  let dragging = $state(false);
+  let uploading = $state(false);
+  let fileInput = $state<HTMLInputElement>();
 
   /** Default to the most-recently-used repo; fall back to the first in the list. */
   function defaultRepoPath(list: RepoEntry[]): string {
@@ -71,6 +76,33 @@
       });
   });
 
+  async function addFiles(files: FileList | File[]) {
+    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imgs.length === 0) return;
+    uploading = true;
+    error = null;
+    try {
+      for (const f of imgs) {
+        const path = await uploadImage(f);
+        images.push({ path, name: f.name });
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "upload failed";
+    } finally {
+      uploading = false;
+    }
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  }
+
+  function removeImage(path: string) {
+    images = images.filter((i) => i.path !== path);
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
@@ -82,6 +114,7 @@
         baseBranch: baseBranch.trim() || "main",
         prompt: prompt.trim(),
         model: model === "default" ? null : model,
+        images: images.map((i) => i.path),
       });
     } catch (err) {
       error = err instanceof Error ? err.message : "failed";
@@ -97,7 +130,19 @@
     if (e.target === e.currentTarget) onclose?.();
   }}
 >
-  <form class="card bracket" onsubmit={submit}>
+  <form
+    class="card bracket"
+    class:dragging
+    onsubmit={submit}
+    ondragover={(e) => {
+      e.preventDefault();
+      dragging = true;
+    }}
+    ondragleave={(e) => {
+      if (e.target === e.currentTarget) dragging = false;
+    }}
+    ondrop={onDrop}
+  >
     <div class="chead">
       <span class="micro">New&nbsp;Task</span>
       <button type="button" class="x" onclick={() => onclose?.()} aria-label="close">✕</button>
@@ -106,6 +151,39 @@
     <label class="micro" for="nt-prompt">Prompt</label>
     <textarea id="nt-prompt" bind:value={prompt} rows="3" placeholder="add a feature that…" required
     ></textarea>
+    <div class="attach-row">
+      <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
+        {uploading ? "Uploading…" : "📎 Attach image"}
+      </button>
+      <span class="hint">or drop screenshots here</span>
+    </div>
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+      onchange={(e) => {
+        const t = e.currentTarget;
+        if (t.files) addFiles(t.files);
+        t.value = "";
+      }}
+    />
+    {#if images.length > 0}
+      <div class="chips">
+        {#each images as img (img.path)}
+          <span class="chip">
+            <span class="chip-name">{img.name}</span>
+            <button
+              type="button"
+              class="chip-x"
+              onclick={() => removeImage(img.path)}
+              aria-label="remove">✕</button
+            >
+          </span>
+        {/each}
+      </div>
+    {/if}
 
     {#if repoPath}
       <PromptSources {repoPath} onpick={(p) => (prompt = p)} />
@@ -279,6 +357,72 @@
     to {
       transform: translateY(0);
       opacity: 1;
+    }
+  }
+  .card.dragging {
+    border-color: var(--color-amber);
+    box-shadow: inset 0 0 30px -16px var(--color-amber);
+  }
+  .attach-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .attach {
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 6px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .attach:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .hint {
+    font-size: 10.5px;
+    color: var(--color-muted);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 3px 7px;
+    font-size: 11px;
+    color: var(--color-ink);
+  }
+  .chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 22ch;
+  }
+  .chip-x {
+    background: transparent;
+    border: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+  }
+  @media (max-width: 768px) {
+    .attach {
+      min-height: 44px;
     }
   }
 </style>

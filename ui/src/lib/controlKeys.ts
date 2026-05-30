@@ -11,6 +11,7 @@ export interface ControlKey {
 export const CONTROL_KEYS: ControlKey[] = [
   { label: "Esc", aria: "Escape", seq: "\x1b" },
   { label: "Tab", aria: "Tab", seq: "\x09" },
+  { label: "⏎", aria: "Enter, submit", seq: "\x0d" },
   { label: "←", aria: "Arrow left", seq: "\x1b[D" },
   { label: "→", aria: "Arrow right", seq: "\x1b[C" },
   { label: "↑", aria: "Arrow up", seq: "\x1b[A" },

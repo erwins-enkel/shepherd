@@ -86,32 +86,28 @@
     };
     el.addEventListener("click", onTap);
 
-    // xterm v6 scrolls via its internal scrollable widget, not native overflow,
-    // and wires no touch handler — so single-finger drags never scroll. Convert
-    // drag distance to rows and drive term.scrollLines() ourselves.
+    // Claude Code runs as a full-screen TUI on the alternate screen (no
+    // scrollback) with mouse tracking on: scrolling means sending wheel input
+    // to the app, which is what the mouse wheel does on desktop. Touch emits no
+    // wheel events, so translate one-finger drags into wheel events on xterm's
+    // screen — xterm then forwards them per the active mode (to the app when
+    // mouse-tracking, otherwise its own scrollback). Matches desktop in both.
     let lastY: number | null = null;
-    let accum = 0; // unconsumed drag pixels
-    const rowPx = () => {
-      const vp = el!.querySelector<HTMLElement>(".xterm-viewport");
-      return vp && term.rows ? vp.clientHeight / term.rows : 17;
-    };
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       lastY = e.touches[0].clientY;
-      accum = 0;
       dragged = false;
     };
     const onTouchMove = (e: TouchEvent) => {
       if (lastY === null || e.touches.length !== 1) return;
       const y = e.touches[0].clientY;
-      accum += lastY - y;
+      const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
       lastY = y;
-      if (Math.abs(accum) > 2) dragged = true;
-      const lines = Math.trunc(accum / rowPx());
-      if (lines !== 0) {
-        term.scrollLines(lines);
-        accum -= lines * rowPx();
-      }
+      if (Math.abs(dy) > 2) dragged = true;
+      const target = el!.querySelector<HTMLElement>(".xterm-screen") ?? el!;
+      target.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true }),
+      );
       e.preventDefault();
     };
     const onTouchEnd = () => {

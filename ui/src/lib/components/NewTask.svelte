@@ -41,7 +41,6 @@
       .catch(() => {});
   });
 
-
   async function submit(e: Event) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
@@ -83,7 +82,7 @@
     {/if}
 
     <label class="micro" for="nt-repo">Repo</label>
-    <RepoSelect repos={repos} value={repoPath} onchange={(p) => (repoPath = p)} />
+    <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} />
 
     <label class="micro" for="nt-base">Base&nbsp;Branch</label>
     <input id="nt-base" bind:value={baseBranch} placeholder="main" />
@@ -223,10 +222,12 @@
       animation: sheet-up 0.18s ease-out;
     }
     textarea,
-    input {
+    input,
+    select {
       font-size: 16px; /* prevents iOS zoom-on-focus */
     }
     input,
+    select,
     .run {
       min-height: 44px;
     }

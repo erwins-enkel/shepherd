@@ -18,9 +18,9 @@ export function isDone(line: string): boolean {
 /** Index where a reactivated (unchecked) item belongs: after a leading H1 title. */
 function topOfListIndex(lines: string[]): number {
   let i = 0;
-  while (i < lines.length && lines[i].trim() === "") i++;
+  while (i < lines.length && lines[i]!.trim() === "") i++;
   // Keep a single leading level-1 document title at the very top.
-  if (i < lines.length && /^#\s/.test(lines[i])) return i + 1;
+  if (i < lines.length && /^#\s/.test(lines[i]!)) return i + 1;
   return i;
 }
 

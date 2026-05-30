@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { HerdStore } from "$lib/store.svelte";
-  import { listSessions, createSession } from "$lib/api";
+  import { listSessions, createSession, archiveSession } from "$lib/api";
   import TopBar from "$lib/components/TopBar.svelte";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
@@ -44,6 +44,12 @@
     composeRepoPath = null;
     composePrompt = "";
   }
+
+  async function onarchive(id: string) {
+    // server stops the agent, removes the worktree, emits session:archived (store drops the row)
+    await archiveSession(id);
+    selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
+  }
 </script>
 
 <div class="shell">
@@ -53,6 +59,7 @@
     {#if selected}
       <Viewport
         session={selected}
+        {onarchive}
         onnewtask={(repoPath, prompt) => {
           composeRepoPath = repoPath;
           composePrompt = prompt;

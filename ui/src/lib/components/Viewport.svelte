@@ -12,10 +12,12 @@
     session,
     nowMs = Date.now(),
     onnewtask,
+    onarchive,
   }: {
     session: Session;
     nowMs?: number;
     onnewtask?: (repoPath: string, prompt: string) => void;
+    onarchive?: (id: string) => void;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -23,6 +25,26 @@
 
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
+
+  // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
+  let armed = $state(false);
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    session.id; // disarm when the selected unit changes
+    armed = false;
+    return () => clearTimeout(armTimer);
+  });
+  function decommission() {
+    if (!armed) {
+      armed = true;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => (armed = false), 3000);
+      return;
+    }
+    clearTimeout(armTimer);
+    armed = false;
+    onarchive?.(session.id);
+  }
 
   $effect(() => {
     const id = session.id;
@@ -97,6 +119,15 @@
     {#if session.status === "running"}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
+    <button
+      class="decom"
+      class:armed
+      type="button"
+      onclick={decommission}
+      title="stop agent + remove worktree"
+    >
+      {armed ? "confirm ✕" : "✕ decommission"}
+    </button>
   </div>
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
@@ -194,6 +225,35 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.08em;
     font-size: 11px;
+  }
+
+  .decom {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+
+  .decom:hover {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+  }
+
+  .decom.armed {
+    color: var(--color-red);
+    border-color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
 
   .vp-body {

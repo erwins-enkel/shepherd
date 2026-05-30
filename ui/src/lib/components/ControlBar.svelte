@@ -28,7 +28,10 @@
     border-top: 1px solid var(--color-line);
     overflow-x: auto;
     white-space: nowrap;
-    flex-shrink: 0;
+    /* take remaining row width and allow shrink-to-fit so the internal
+       overflow-x scroll engages instead of widening the whole row */
+    flex: 1 1 0;
+    min-width: 0;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }

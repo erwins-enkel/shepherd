@@ -83,24 +83,32 @@
     };
     el.addEventListener("click", onTap);
 
-    // xterm v6 wires no touch scrolling and its .xterm-screen overlays the
-    // scrollable .xterm-viewport, so single-finger drags never reach it —
-    // forward the drag to the viewport's scrollTop ourselves
+    // xterm v6 scrolls via its internal scrollable widget, not native overflow,
+    // and wires no touch handler — so single-finger drags never scroll. Convert
+    // drag distance to rows and drive term.scrollLines() ourselves.
     let lastY: number | null = null;
+    let accum = 0; // unconsumed drag pixels
+    const rowPx = () => {
+      const vp = el!.querySelector<HTMLElement>(".xterm-viewport");
+      return vp && term.rows ? vp.clientHeight / term.rows : 17;
+    };
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       lastY = e.touches[0].clientY;
+      accum = 0;
       dragged = false;
     };
     const onTouchMove = (e: TouchEvent) => {
       if (lastY === null || e.touches.length !== 1) return;
-      const vp = el!.querySelector<HTMLElement>(".xterm-viewport");
-      if (!vp) return;
       const y = e.touches[0].clientY;
-      const dy = lastY - y;
-      if (Math.abs(dy) > 2) dragged = true;
-      vp.scrollTop += dy;
+      accum += lastY - y;
       lastY = y;
+      if (Math.abs(accum) > 2) dragged = true;
+      const lines = Math.trunc(accum / rowPx());
+      if (lines !== 0) {
+        term.scrollLines(lines);
+        accum -= lines * rowPx();
+      }
       e.preventDefault();
     };
     const onTouchEnd = () => {
@@ -349,18 +357,8 @@
     height: 100%;
   }
 
-  /* wheel scroll (desktop) + our touch-driven scrollTop (mobile) */
-  .term-mount :global(.xterm-viewport) {
-    overflow-y: auto !important;
-  }
-
-  .term-mount :global(.xterm-viewport)::-webkit-scrollbar {
-    width: 4px;
-  }
-  .term-mount :global(.xterm-viewport)::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .term-mount :global(.xterm-viewport)::-webkit-scrollbar-thumb {
+  /* xterm v6 renders its own scrollbar (vscode scrollable element) */
+  .term-mount :global(.xterm-scrollable-element .scrollbar .slider) {
     background: var(--color-faint);
     border-radius: 2px;
   }

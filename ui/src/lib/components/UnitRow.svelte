@@ -157,9 +157,14 @@
     color: var(--color-muted);
     margin-top: 3px;
     font-size: 12px;
-    white-space: nowrap;
+    line-height: 1.35;
+    /* wrap to a 2nd line — fills the vertical space the right column
+       (badge / elapsed / meta) already occupies, then ellipsis */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
     max-width: 34ch;
   }
 

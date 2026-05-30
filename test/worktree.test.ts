@@ -46,3 +46,13 @@ test("non-git dir falls back to cwd, not isolated", () => {
   expect(r.worktreePath).toBe(plain);
   rmSync(plain, { recursive: true, force: true });
 });
+
+test("create with leading-dash baseBranch throws", () => {
+  const wt = new WorktreeMgr();
+  expect(() => wt.create(repo, "--evil", "x")).toThrow("invalid baseBranch");
+});
+
+test("create with semicolon in baseBranch throws", () => {
+  const wt = new WorktreeMgr();
+  expect(() => wt.create(repo, "feat;rm -rf /", "x")).toThrow("invalid baseBranch");
+});

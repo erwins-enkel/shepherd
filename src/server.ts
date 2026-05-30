@@ -2,6 +2,8 @@ import type { SessionStore } from "./store";
 import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
+import { config } from "./config";
+import { validateCreate, isAuthorized, originAllowed } from "./validate";
 
 export interface AppDeps {
   store: SessionStore;
@@ -12,17 +14,44 @@ export interface AppDeps {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
+function checkAuth(req: Request): Response | null {
+  if (!isAuthorized(req.headers.get("Authorization"), config.token)) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  return null;
+}
+
+function checkOrigin(req: Request): Response | null {
+  const method = req.method;
+  if (method !== "POST" && method !== "DELETE") return null;
+  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts)) {
+    return json({ error: "forbidden: origin not allowed" }, 403);
+  }
+  return null;
+}
+
 /** Returns an object with a `fetch(Request)` method — unit-testable without a port. */
 export function makeApp(deps: AppDeps) {
   return {
     async fetch(req: Request): Promise<Response> {
+      const authErr = checkAuth(req);
+      if (authErr) return authErr;
+
+      const originErr = checkOrigin(req);
+      if (originErr) return originErr;
+
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
 
       if (parts[0] === "api" && parts[1] === "sessions") {
         if (req.method === "POST" && !parts[2]) {
-          const input = await req.json();
-          const s = await deps.service.create(input);
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          const result = validateCreate(body, config.repoRoot);
+          if (!result.ok) return json({ error: result.error }, 400);
+          const s = await deps.service.create(result.value);
           deps.events.emit("session:new", s);
           return json(s, 201);
         }
@@ -49,6 +78,12 @@ export function serve(deps: AppDeps, port: number) {
   return Bun.serve<WsData>({
     port,
     fetch(req, server) {
+      const authErr = checkAuth(req);
+      if (authErr) return authErr;
+
+      const originErr = checkOrigin(req);
+      if (originErr) return originErr;
+
       const url = new URL(req.url);
       if (url.pathname === "/events") {
         return server.upgrade(req, { data: { kind: "events" } })

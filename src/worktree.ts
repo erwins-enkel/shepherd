@@ -19,6 +19,9 @@ export class WorktreeMgr {
   }
 
   create(repoPath: string, baseBranch: string, name: string): WorktreeResult {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) {
+      throw new Error("invalid baseBranch");
+    }
     if (!this.isGit(repoPath)) {
       return { worktreePath: repoPath, branch: null, isolated: false };
     }

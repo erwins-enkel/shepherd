@@ -12,7 +12,7 @@ Two desktop view modes (default `focus`):
 
 - **Focus** — current layout: Herd list (left) + single selected `Viewport`
   (right). Unchanged.
-- **All** — full-width responsive grid of every session's *live, read-only*
+- **All** — full-width responsive grid of every session's _live, read-only_
   terminal. Herd list + single Viewport hidden.
 
 Buttons act as a toggle; the active mode's button is highlighted.

@@ -39,7 +39,7 @@
     {#if loading}
       <div class="muted">loading…</div>
     {:else if slug === null}
-      <div class="muted">no GitHub upstream for this repo</div>
+      <div class="muted">no git host configured for this repo</div>
     {:else if issues.length === 0}
       <div class="muted">no open issues</div>
     {:else}

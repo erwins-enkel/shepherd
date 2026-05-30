@@ -15,10 +15,12 @@
 ## File Structure
 
 **Server (create):**
+
 - `src/uploads.ts` — upload helpers + endpoint handler + staging sweep (one module, image-upload responsibility).
 - `test/uploads.test.ts` — tests for the above.
 
 **Server (modify):**
+
 - `src/types.ts` — add `images?: string[]` to `CreateSessionInput`.
 - `src/validate.ts` — validate optional `images` (staging-dir containment, ≤10, existing files).
 - `src/service.ts` — move staged images into worktree + append paths to prompt argv (injectable `moveUploads`).
@@ -26,6 +28,7 @@
 - `src/index.ts` — call `sweepStaging` on startup.
 
 **Frontend (modify):**
+
 - `ui/src/lib/types.ts` — add `images?: string[]` to `CreateInput`.
 - `ui/src/lib/api.ts` — `uploadImage()`; send `images` in `createSession`.
 - `ui/src/lib/components/NewTask.svelte` — drop zone, 📎 button, chips, forward `images`.
@@ -37,6 +40,7 @@
 ## Task 1: Upload helpers module
 
 **Files:**
+
 - Create: `src/uploads.ts`
 - Test: `test/uploads.test.ts`
 
@@ -230,6 +234,7 @@ git commit -m "feat(uploads): image upload helpers (mime/ext, staging, move, swe
 ## Task 2: Upload endpoint handler
 
 **Files:**
+
 - Modify: `src/uploads.ts`
 - Test: `test/uploads.test.ts`
 
@@ -377,6 +382,7 @@ git commit -m "feat(uploads): POST /api/uploads handler (worktree/staging dest)"
 ## Task 3: Route the endpoint in the server
 
 **Files:**
+
 - Modify: `src/server.ts` (imports near line 1-13; route block near line 117)
 - Test: `test/server.test.ts`
 
@@ -392,9 +398,7 @@ test("POST /api/uploads saves a staged image and returns its path", async () => 
   const app = harness();
   const fd = new FormData();
   fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.png", { type: "image/png" }));
-  const res = await app.fetch(
-    new Request("http://x/api/uploads", { method: "POST", body: fd }),
-  );
+  const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
@@ -406,9 +410,7 @@ test("POST /api/uploads rejects a non-image", async () => {
   const app = harness();
   const fd = new FormData();
   fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
-  const res = await app.fetch(
-    new Request("http://x/api/uploads", { method: "POST", body: fd }),
-  );
+  const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
   expect(res.status).toBe(415);
 });
 ```
@@ -431,11 +433,11 @@ import { handleUpload } from "./uploads";
 Then add this route block immediately before the `if (parts[0] === "api" && parts[1] === "repos" ...)` block (currently near line 117):
 
 ```typescript
-      if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
-        if (req.method === "POST") {
-          return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
-        }
-      }
+if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
+  if (req.method === "POST") {
+    return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
+  }
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -455,6 +457,7 @@ git commit -m "feat(server): route POST /api/uploads"
 ## Task 4: Validate `images` on session create
 
 **Files:**
+
 - Modify: `src/types.ts` (line 26-31), `src/validate.ts` (imports line 1-5; `ALLOWED_KEYS` line 21; validator body)
 - Test: `test/validate.test.ts`
 
@@ -494,7 +497,12 @@ test("validateCreate rejects an image outside the staging dir", () => {
 
 test("validateCreate rejects a non-existent image", () => {
   const r = validateCreate(
-    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [join(stagingDir(root), "nope.png")] },
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      images: [join(stagingDir(root), "nope.png")],
+    },
     root,
   );
   expect(r.ok).toBe(false);
@@ -562,44 +570,44 @@ const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "imag
 4. Add image validation just before the final `return { ok: true, ... }` (currently line 68). Place it after the repoPath block:
 
 ```typescript
-  // images — optional array of staged upload paths, confined to the staging dir
-  const images: string[] = [];
-  if (obj.images != null) {
-    if (!Array.isArray(obj.images)) return err("images must be an array");
-    if (obj.images.length > 10) return err("images must be ≤ 10 entries");
-    let stagingReal: string;
-    try {
-      stagingReal = realpathSync(stagingDir(root));
-    } catch {
-      return err("no staged uploads exist");
-    }
-    for (const it of obj.images) {
-      if (typeof it !== "string") return err("each image must be a string path");
-      let real: string;
-      try {
-        real = realpathSync(resolve(expandHome(it)));
-      } catch {
-        return err("image does not exist");
-      }
-      const inside = real === stagingReal || real.startsWith(stagingReal + sep);
-      if (!inside) return err("image must be inside the staging dir");
-      try {
-        if (!statSync(real).isFile()) return err("image must be a file");
-      } catch {
-        return err("image does not exist");
-      }
-      images.push(real);
-    }
+// images — optional array of staged upload paths, confined to the staging dir
+const images: string[] = [];
+if (obj.images != null) {
+  if (!Array.isArray(obj.images)) return err("images must be an array");
+  if (obj.images.length > 10) return err("images must be ≤ 10 entries");
+  let stagingReal: string;
+  try {
+    stagingReal = realpathSync(stagingDir(root));
+  } catch {
+    return err("no staged uploads exist");
   }
+  for (const it of obj.images) {
+    if (typeof it !== "string") return err("each image must be a string path");
+    let real: string;
+    try {
+      real = realpathSync(resolve(expandHome(it)));
+    } catch {
+      return err("image does not exist");
+    }
+    const inside = real === stagingReal || real.startsWith(stagingReal + sep);
+    if (!inside) return err("image must be inside the staging dir");
+    try {
+      if (!statSync(real).isFile()) return err("image must be a file");
+    } catch {
+      return err("image does not exist");
+    }
+    images.push(real);
+  }
+}
 ```
 
 5. Update the success return (line 68-71) to include `images`:
 
 ```typescript
-  return {
-    ok: true,
-    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model, images },
-  };
+return {
+  ok: true,
+  value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model, images },
+};
 ```
 
 Note: `root` is already defined in `validateCreate` (line 57: `const root = resolve(expandHome(repoRoot));`). The image block must appear **after** line 57 so `root` is in scope — place it directly before the success return.
@@ -621,6 +629,7 @@ git commit -m "feat(validate): validate optional images[] (staging containment, 
 ## Task 5: Move images into worktree + append to prompt
 
 **Files:**
+
 - Modify: `src/service.ts` (imports line 1-6; `ServiceDeps` line 8-13; `create` line 18-39)
 - Test: `test/service.test.ts`
 
@@ -642,7 +651,15 @@ test("createSession: moves images into worktree and appends paths to the prompt"
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
         calls.argv = argv;
-        return { terminalId: "term_y", cwd, agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+        return {
+          terminalId: "term_y",
+          cwd,
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
       },
       list: () => [],
     } as any,
@@ -672,16 +689,33 @@ test("createSession: no images leaves the prompt argv unchanged", async () => {
   const service = new SessionService({
     store,
     namer: async () => "repo-x",
-    worktree: { create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }), remove: () => {} } as any,
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
     herdr: {
       start: (_n: string, _c: string, argv: string[]) => {
         calls.argv = argv;
-        return { terminalId: "t", cwd: "/wt/x", agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+        return {
+          terminalId: "t",
+          cwd: "/wt/x",
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
       },
       list: () => [],
     } as any,
   });
-  await service.create({ repoPath: "/repo", baseBranch: "main", prompt: "go", model: null, images: [] });
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
   expect(calls.argv[calls.argv.length - 1]).toBe("go");
 });
 ```
@@ -762,6 +796,7 @@ git commit -m "feat(service): move staged images into worktree, append paths to 
 ## Task 6: Frontend API client + types
 
 **Files:**
+
 - Modify: `ui/src/lib/types.ts` (lines 72-77), `ui/src/lib/api.ts` (lines 1-19)
 
 No unit tests (no API test harness in `ui/`); verified by `bun run check` and downstream UI tasks.
@@ -827,6 +862,7 @@ git commit -m "feat(ui/api): uploadImage() + images in CreateInput"
 ## Task 7: New Task form — drop zone, button, chips
 
 **Files:**
+
 - Modify: `ui/src/lib/components/NewTask.svelte`
 
 **Use the `svelte-code-writer` / `svelte-core-bestpractices` skill for this edit.** No unit test; verify via `bun run check` + manual.
@@ -844,53 +880,53 @@ import { listRepos, listBranches, uploadImage } from "$lib/api";
 2. Add state after `let branches` (line 34):
 
 ```typescript
-  let images = $state<{ path: string; name: string }[]>([]);
-  let dragging = $state(false);
-  let uploading = $state(false);
-  let fileInput = $state<HTMLInputElement>();
+let images = $state<{ path: string; name: string }[]>([]);
+let dragging = $state(false);
+let uploading = $state(false);
+let fileInput = $state<HTMLInputElement>();
 ```
 
 3. Add upload helpers (after the `$effect` for branches, before `submit`):
 
 ```typescript
-  async function addFiles(files: FileList | File[]) {
-    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (imgs.length === 0) return;
-    uploading = true;
-    error = null;
-    try {
-      for (const f of imgs) {
-        const path = await uploadImage(f);
-        images.push({ path, name: f.name });
-      }
-    } catch (err) {
-      error = err instanceof Error ? err.message : "upload failed";
-    } finally {
-      uploading = false;
+async function addFiles(files: FileList | File[]) {
+  const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
+  if (imgs.length === 0) return;
+  uploading = true;
+  error = null;
+  try {
+    for (const f of imgs) {
+      const path = await uploadImage(f);
+      images.push({ path, name: f.name });
     }
+  } catch (err) {
+    error = err instanceof Error ? err.message : "upload failed";
+  } finally {
+    uploading = false;
   }
+}
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    dragging = false;
-    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
-  }
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  dragging = false;
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+}
 
-  function removeImage(path: string) {
-    images = images.filter((i) => i.path !== path);
-  }
+function removeImage(path: string) {
+  images = images.filter((i) => i.path !== path);
+}
 ```
 
 4. In `submit`, include `images` in the `onsubmit` payload (the call near line 80):
 
 ```typescript
-      await onsubmit({
-        repoPath: repoPath.trim(),
-        baseBranch: baseBranch.trim() || "main",
-        prompt: prompt.trim(),
-        model: model === "default" ? null : model,
-        images: images.map((i) => i.path),
-      });
+await onsubmit({
+  repoPath: repoPath.trim(),
+  baseBranch: baseBranch.trim() || "main",
+  prompt: prompt.trim(),
+  model: model === "default" ? null : model,
+  images: images.map((i) => i.path),
+});
 ```
 
 5. Update the `onsubmit` prop type (lines 14-19) to include `images`:
@@ -928,34 +964,39 @@ On the `<form>` element (line 100), add drag handlers and a dragging class:
 Immediately after the `<textarea>` (line 108), add the attach control + chips:
 
 ```svelte
-    <div class="attach-row">
-      <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
-        {uploading ? "Uploading…" : "📎 Attach image"}
-      </button>
-      <span class="hint">or drop screenshots here</span>
-    </div>
-    <input
-      bind:this={fileInput}
-      type="file"
-      accept="image/*"
-      multiple
-      hidden
-      onchange={(e) => {
-        const t = e.currentTarget;
-        if (t.files) addFiles(t.files);
-        t.value = "";
-      }}
-    />
-    {#if images.length > 0}
-      <div class="chips">
-        {#each images as img (img.path)}
-          <span class="chip">
-            <span class="chip-name">{img.name}</span>
-            <button type="button" class="chip-x" onclick={() => removeImage(img.path)} aria-label="remove">✕</button>
-          </span>
-        {/each}
-      </div>
-    {/if}
+<div class="attach-row">
+  <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
+    {uploading ? "Uploading…" : "📎 Attach image"}
+  </button>
+  <span class="hint">or drop screenshots here</span>
+</div>
+<input
+  bind:this={fileInput}
+  type="file"
+  accept="image/*"
+  multiple
+  hidden
+  onchange={(e) => {
+    const t = e.currentTarget;
+    if (t.files) addFiles(t.files);
+    t.value = "";
+  }}
+/>
+{#if images.length > 0}
+  <div class="chips">
+    {#each images as img (img.path)}
+      <span class="chip">
+        <span class="chip-name">{img.name}</span>
+        <button
+          type="button"
+          class="chip-x"
+          onclick={() => removeImage(img.path)}
+          aria-label="remove">✕</button
+        >
+      </span>
+    {/each}
+  </div>
+{/if}
 ```
 
 - [ ] **Step 3: Add styles**
@@ -963,72 +1004,72 @@ Immediately after the `<textarea>` (line 108), add the attach control + chips:
 Add to the `<style>` block:
 
 ```css
-  .card.dragging {
-    border-color: var(--color-amber);
-    box-shadow: inset 0 0 30px -16px var(--color-amber);
-  }
-  .attach-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-  }
+.card.dragging {
+  border-color: var(--color-amber);
+  box-shadow: inset 0 0 30px -16px var(--color-amber);
+}
+.attach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.attach {
+  background: var(--color-inset);
+  border: 1px solid var(--color-line-bright);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 6px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.attach:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.hint {
+  font-size: 10.5px;
+  color: var(--color-muted);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--color-ink);
+}
+.chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+.chip-x {
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+@media (max-width: 768px) {
   .attach {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-ink);
-    font: inherit;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 6px 10px;
-    border-radius: 2px;
-    cursor: pointer;
+    min-height: 44px;
   }
-  .attach:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .hint {
-    font-size: 10.5px;
-    color: var(--color-muted);
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    padding: 3px 7px;
-    font-size: 11px;
-    color: var(--color-ink);
-  }
-  .chip-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 22ch;
-  }
-  .chip-x {
-    background: transparent;
-    border: 0;
-    color: var(--color-muted);
-    cursor: pointer;
-    font: inherit;
-    line-height: 1;
-  }
-  @media (max-width: 768px) {
-    .attach {
-      min-height: 44px;
-    }
-  }
+}
 ```
 
 - [ ] **Step 4: Verify**
@@ -1048,6 +1089,7 @@ git commit -m "feat(ui): New Task image drop zone, attach button, chips"
 ## Task 8: Forward `images` through the page submit handler
 
 **Files:**
+
 - Modify: `ui/src/routes/+page.svelte` (`onsubmit`, lines 57-68)
 
 - [ ] **Step 1: Widen the `onsubmit` signature**
@@ -1055,19 +1097,19 @@ git commit -m "feat(ui): New Task image drop zone, attach button, chips"
 In `ui/src/routes/+page.svelte`, update `onsubmit` to accept and forward `images`:
 
 ```typescript
-  async function onsubmit(input: {
-    repoPath: string;
-    baseBranch: string;
-    prompt: string;
-    model: string | null;
-    images: string[];
-  }) {
-    const s = await createSession(input);
-    selectedId = s.id;
-    showNew = false;
-    composeRepoPath = null;
-    composePrompt = "";
-  }
+async function onsubmit(input: {
+  repoPath: string;
+  baseBranch: string;
+  prompt: string;
+  model: string | null;
+  images: string[];
+}) {
+  const s = await createSession(input);
+  selectedId = s.id;
+  showNew = false;
+  composeRepoPath = null;
+  composePrompt = "";
+}
 ```
 
 (`createSession(input)` already forwards the whole object, including `images`.)
@@ -1089,6 +1131,7 @@ git commit -m "feat(ui): forward images through new-task submit"
 ## Task 9: Live terminal — drop zone + touch attach button
 
 **Files:**
+
 - Modify: `ui/src/lib/components/Viewport.svelte`
 
 **Use the `svelte-code-writer` / `svelte-core-bestpractices` skill for this edit.**
@@ -1104,37 +1147,37 @@ import { getSessionUsage, uploadImage } from "$lib/api";
 2. Add state near `let conn` (line 33):
 
 ```typescript
-  let dragging = $state(false);
-  let uploading = $state(false);
-  let fileInput = $state<HTMLInputElement>();
+let dragging = $state(false);
+let uploading = $state(false);
+let fileInput = $state<HTMLInputElement>();
 ```
 
 3. Add handlers (after the `decommission` function, before the terminal `$effect`):
 
 ```typescript
-  // upload image(s) into this session's worktree, then inject their paths into
-  // the PTY as if typed — the user adds wording and presses Enter themselves.
-  async function attachImages(files: FileList | File[]) {
-    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (imgs.length === 0 || !conn) return;
-    uploading = true;
-    try {
-      for (const f of imgs) {
-        const path = await uploadImage(f, session.id);
-        conn.send(` ${path} `);
-      }
-    } catch {
-      /* swallow: a failed upload must never wedge the terminal */
-    } finally {
-      uploading = false;
+// upload image(s) into this session's worktree, then inject their paths into
+// the PTY as if typed — the user adds wording and presses Enter themselves.
+async function attachImages(files: FileList | File[]) {
+  const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
+  if (imgs.length === 0 || !conn) return;
+  uploading = true;
+  try {
+    for (const f of imgs) {
+      const path = await uploadImage(f, session.id);
+      conn.send(` ${path} `);
     }
+  } catch {
+    /* swallow: a failed upload must never wedge the terminal */
+  } finally {
+    uploading = false;
   }
+}
 
-  function onTermDrop(e: DragEvent) {
-    e.preventDefault();
-    dragging = false;
-    if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
-  }
+function onTermDrop(e: DragEvent) {
+  e.preventDefault();
+  dragging = false;
+  if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
+}
 ```
 
 - [ ] **Step 2: Add drop handlers to the terminal mount**
@@ -1142,20 +1185,20 @@ import { getSessionUsage, uploadImage } from "$lib/api";
 Update the `term-mount` div (lines 232-236):
 
 ```svelte
-    <div
-      class="term-mount"
-      class:dragging
-      bind:this={el}
-      style:display={tab === "term" ? undefined : "none"}
-      ondragover={(e) => {
-        e.preventDefault();
-        dragging = true;
-      }}
-      ondragleave={(e) => {
-        if (e.target === e.currentTarget) dragging = false;
-      }}
-      ondrop={onTermDrop}
-    ></div>
+<div
+  class="term-mount"
+  class:dragging
+  bind:this={el}
+  style:display={tab === "term" ? undefined : "none"}
+  ondragover={(e) => {
+    e.preventDefault();
+    dragging = true;
+  }}
+  ondragleave={(e) => {
+    if (e.target === e.currentTarget) dragging = false;
+  }}
+  ondrop={onTermDrop}
+></div>
 ```
 
 - [ ] **Step 3: Add the touch attach button next to ControlBar**
@@ -1163,34 +1206,34 @@ Update the `term-mount` div (lines 232-236):
 Replace the ControlBar block (lines 253-256) with a wrapper that adds the 📎 button + hidden input:
 
 ```svelte
-  {#if (mobile || touch) && tab === "term"}
-    <div class="ctrl-row">
-      <button
-        type="button"
-        class="attach"
-        onpointerdown={(e) => {
-          e.preventDefault();
-          fileInput?.click();
-        }}
-        aria-label="Attach image"
-      >
-        {uploading ? "⏳" : "📎"}
-      </button>
-      <ControlBar onkey={(seq) => conn?.send(seq)} />
-    </div>
-    <input
-      bind:this={fileInput}
-      type="file"
-      accept="image/*"
-      multiple
-      hidden
-      onchange={(e) => {
-        const t = e.currentTarget;
-        if (t.files) attachImages(t.files);
-        t.value = "";
+{#if (mobile || touch) && tab === "term"}
+  <div class="ctrl-row">
+    <button
+      type="button"
+      class="attach"
+      onpointerdown={(e) => {
+        e.preventDefault();
+        fileInput?.click();
       }}
-    />
-  {/if}
+      aria-label="Attach image"
+    >
+      {uploading ? "⏳" : "📎"}
+    </button>
+    <ControlBar onkey={(seq) => conn?.send(seq)} />
+  </div>
+  <input
+    bind:this={fileInput}
+    type="file"
+    accept="image/*"
+    multiple
+    hidden
+    onchange={(e) => {
+      const t = e.currentTarget;
+      if (t.files) attachImages(t.files);
+      t.value = "";
+    }}
+  />
+{/if}
 ```
 
 - [ ] **Step 4: Add styles**
@@ -1198,29 +1241,29 @@ Replace the ControlBar block (lines 253-256) with a wrapper that adds the 📎 b
 Add to the `<style>` block:
 
 ```css
-  .term-mount.dragging {
-    outline: 2px dashed var(--color-amber);
-    outline-offset: -4px;
-  }
-  .ctrl-row {
-    display: flex;
-    align-items: stretch;
-    gap: 4px;
-  }
-  .ctrl-row .attach {
-    flex: 0 0 auto;
-    min-width: 44px;
-    height: 36px;
-    margin: 6px 0 6px 10px;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    color: var(--color-ink);
-    font-size: 16px;
-    cursor: pointer;
-    touch-action: manipulation;
-    user-select: none;
-  }
+.term-mount.dragging {
+  outline: 2px dashed var(--color-amber);
+  outline-offset: -4px;
+}
+.ctrl-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.ctrl-row .attach {
+  flex: 0 0 auto;
+  min-width: 44px;
+  height: 36px;
+  margin: 6px 0 6px 10px;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line-bright);
+  border-radius: 3px;
+  color: var(--color-ink);
+  font-size: 16px;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
 ```
 
 - [ ] **Step 5: Verify**
@@ -1240,6 +1283,7 @@ git commit -m "feat(ui): terminal image drop + touch attach button → inject pa
 ## Task 10: Sweep staging dir on startup
 
 **Files:**
+
 - Modify: `src/index.ts` (imports line 1-14; startup body)
 
 - [ ] **Step 1: Add the sweep call**
@@ -1300,6 +1344,7 @@ Expected: no errors; build succeeds.
 - [ ] **Step 5: Manual smoke test (real app)**
 
 Start the app (`bun run start` or the user's deploy), then:
+
 - New Task: drag a PNG onto the form → chip appears; submit → session prompt argv contains `Attached images:` + a `<worktree>/.shepherd-uploads/<uuid>.png` path; Claude reads the image.
 - New Task on mobile/touch: tap 📎 → pick from gallery → chip appears.
 - Live terminal: drag a PNG onto the terminal → its worktree path is typed into the prompt; add wording + Enter → Claude reads it.

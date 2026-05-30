@@ -36,6 +36,7 @@
     align-content: start;
   }
   .empty {
+    flex: 1;
     border: 1px solid var(--color-line);
     background: var(--color-panel);
     display: flex;

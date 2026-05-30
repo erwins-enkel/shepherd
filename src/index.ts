@@ -59,5 +59,14 @@ const calibrate = async () => {
 setTimeout(calibrate, 3_000);
 setInterval(calibrate, 24 * 60 * 60 * 1000);
 
-const server = serve({ store, service, events, usageLimits }, config.port);
+const server = serve(
+  {
+    store,
+    service,
+    events,
+    usageLimits,
+    resolveForge: (repoDir: string) => detectForge(repoDir, config.forges),
+  },
+  config.port,
+);
 console.log(`shepherd core on http://localhost:${server.port}`);

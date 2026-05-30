@@ -1,3 +1,7 @@
+import { loadForgeMap } from "./forge/load-config";
+
+const forgesPath = process.env.SHEPHERD_FORGES ?? `${process.env.HOME}/.shepherd/forges.json`;
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -18,4 +22,7 @@ export const config = {
     ",",
   ),
   token: process.env.SHEPHERD_TOKEN ?? null, // when set, require Authorization: Bearer <token>
+  // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
+  forgesPath,
+  forges: loadForgeMap(forgesPath),
 };

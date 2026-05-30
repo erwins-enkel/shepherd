@@ -174,7 +174,12 @@
         {#each images as img (img.path)}
           <span class="chip">
             <span class="chip-name">{img.name}</span>
-            <button type="button" class="chip-x" onclick={() => removeImage(img.path)} aria-label="remove">✕</button>
+            <button
+              type="button"
+              class="chip-x"
+              onclick={() => removeImage(img.path)}
+              aria-label="remove">✕</button
+            >
           </span>
         {/each}
       </div>

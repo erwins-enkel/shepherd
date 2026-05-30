@@ -111,7 +111,15 @@ test("createSession: moves images into worktree and appends paths to the prompt"
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
         calls.argv = argv;
-        return { terminalId: "term_y", cwd, agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+        return {
+          terminalId: "term_y",
+          cwd,
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
       },
       list: () => [],
     } as any,
@@ -141,16 +149,33 @@ test("createSession: no images leaves the prompt argv unchanged", async () => {
   const service = new SessionService({
     store,
     namer: async () => "repo-x",
-    worktree: { create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }), remove: () => {} } as any,
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
     herdr: {
       start: (_n: string, _c: string, argv: string[]) => {
         calls.argv = argv;
-        return { terminalId: "t", cwd: "/wt/x", agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+        return {
+          terminalId: "t",
+          cwd: "/wt/x",
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
       },
       list: () => [],
     } as any,
   });
-  await service.create({ repoPath: "/repo", baseBranch: "main", prompt: "go", model: null, images: [] });
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
   expect(calls.argv[calls.argv.length - 1]).toBe("go");
 });
 

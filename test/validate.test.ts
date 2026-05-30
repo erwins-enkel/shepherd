@@ -269,7 +269,12 @@ test("validateCreate rejects an image outside the staging dir", () => {
 
 test("validateCreate rejects a non-existent image", () => {
   const r = validateCreate(
-    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [join(stagingDir(root), "nope.png")] },
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      images: [join(stagingDir(root), "nope.png")],
+    },
     root,
   );
   expect(r.ok).toBe(false);

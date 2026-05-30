@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import { listSessions, createSession, archiveSession } from "$lib/api";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -16,6 +17,21 @@
   let composePrompt = $state("");
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+
+  const mobile = new MediaQuery("max-width: 768px");
+  let mobileScreen = $state<"list" | "detail">("list");
+
+  function selectUnit(id: string) {
+    selectedId = id;
+    if (mobile.current) mobileScreen = "detail";
+  }
+
+  // if the selected unit disappears while in mobile detail, fall back to the list
+  $effect(() => {
+    if (mobile.current && mobileScreen === "detail" && !selected) {
+      mobileScreen = "list";
+    }
+  });
 
   onMount(() => {
     listSessions()
@@ -52,25 +68,60 @@
   }
 </script>
 
-<div class="shell">
-  <TopBar sessions={store.sessions} {nowMs} connected={store.connected} />
-  <div class="grid">
-    <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => (selectedId = id)} />
-    {#if selected}
-      <Viewport
-        session={selected}
-        {onarchive}
-        onnewtask={(repoPath, prompt) => {
-          composeRepoPath = repoPath;
-          composePrompt = prompt;
-          showNew = true;
-        }}
-      />
-    {:else}
-      <div class="empty">NO UNIT SELECTED</div>
+<div class="shell" class:mobile={mobile.current}>
+  <TopBar sessions={store.sessions} {nowMs} connected={store.connected} mobile={mobile.current} />
+
+  {#if mobile.current}
+    {#if mobileScreen === "list"}
+      <div class="col">
+        <Herd
+          sessions={store.sessions}
+          {selectedId}
+          {nowMs}
+          onselect={(id) => selectUnit(id)}
+        />
+      </div>
+      <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} />
+    {:else if selected}
+      <div class="col">
+        <Viewport
+          session={selected}
+          mobile={mobile.current}
+          {onarchive}
+          onback={() => (mobileScreen = "list")}
+          onnewtask={(repoPath, prompt) => {
+            composeRepoPath = repoPath;
+            composePrompt = prompt;
+            showNew = true;
+          }}
+        />
+      </div>
     {/if}
-  </div>
-  <ActionBar onnew={() => (showNew = true)} />
+  {:else}
+    <div class="grid">
+      <Herd
+        sessions={store.sessions}
+        {selectedId}
+        {nowMs}
+        onselect={(id) => selectUnit(id)}
+      />
+      {#if selected}
+        <Viewport
+          session={selected}
+          {onarchive}
+          onnewtask={(repoPath, prompt) => {
+            composeRepoPath = repoPath;
+            composePrompt = prompt;
+            showNew = true;
+          }}
+        />
+      {:else}
+        <div class="empty">NO UNIT SELECTED</div>
+      {/if}
+    </div>
+  {/if}
+
+  <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} desktopOnly />
 </div>
 
 {#if showNew}
@@ -114,5 +165,18 @@
     font-size: 10.5px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
+  }
+  .col {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .shell.mobile {
+    max-width: none;
+    padding: 10px;
+    height: 100dvh;
+    gap: 10px;
   }
 </style>

@@ -73,6 +73,11 @@ export function isAuthorized(
   return timingSafeEqual(Buffer.from(provided), Buffer.from(token));
 }
 
+/** Returns true when the terminalId is safe to pass to spawn args. */
+export function isValidTerminalId(id: string): boolean {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) && !id.startsWith("-");
+}
+
 /** Returns true when the request should be allowed through the CSRF origin check. */
 export function originAllowed(
   originHeader: string | null | undefined,

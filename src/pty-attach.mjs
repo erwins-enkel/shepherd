@@ -2,6 +2,9 @@
 import { spawn } from "node-pty";
 
 const [terminalId, colsArg, rowsArg] = process.argv.slice(2);
+if (!/^[A-Za-z0-9_-]{1,64}$/.test(terminalId ?? "") || (terminalId ?? "").startsWith("-")) {
+  process.exit(2);
+}
 const herdrBin = process.env.HERDR_BIN || "herdr";
 
 const pty = spawn(herdrBin, ["agent", "attach", terminalId], {

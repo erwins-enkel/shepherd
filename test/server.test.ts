@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
-import { makeApp } from "../src/server";
+import { makeApp, serve, type AppDeps } from "../src/server";
 import { config } from "../src/config";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
@@ -19,7 +19,7 @@ beforeEach(() => {
 
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function harness() {
+function makeDeps(): AppDeps {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const service = new SessionService({
@@ -42,7 +42,12 @@ function harness() {
       list: () => [],
     } as any,
   });
-  return makeApp({ store, service, events });
+  return { store, service, events };
+}
+
+function harness() {
+  const deps = makeDeps();
+  return makeApp(deps);
 }
 
 function postSessions(app: ReturnType<typeof makeApp>, body: unknown, headers?: HeadersInit) {
@@ -137,4 +142,61 @@ test("GET /api/sessions has no auth/origin restrictions", async () => {
   const app = harness();
   const res = await app.fetch(new Request("http://x/api/sessions"));
   expect(res.status).toBe(200);
+});
+
+// ── WebSocket Origin guard (CSWSH) ────────────────────────────────────────────
+
+test("WS /events with evil Origin → 403", async () => {
+  const deps = makeDeps();
+  const server = serve(deps, 0);
+  try {
+    const port = server.port;
+    const res = await fetch(`http://localhost:${port}/events`, {
+      headers: { Origin: "https://evil.com" },
+    });
+    expect(res.status).toBe(403);
+  } finally {
+    server.stop();
+  }
+});
+
+test("WS /pty/:id with evil Origin → 403", async () => {
+  const deps = makeDeps();
+  // Insert a real session so the route finds it and reaches the origin guard
+  const session = deps.store.create({
+    name: "test",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_65306e7cb9451a",
+  });
+  const server = serve(deps, 0);
+  try {
+    const port = server.port;
+    const res = await fetch(`http://localhost:${port}/pty/${session.id}`, {
+      headers: { Origin: "https://evil.com" },
+    });
+    expect(res.status).toBe(403);
+  } finally {
+    server.stop();
+  }
+});
+
+test("WS /events with allowed Origin → not 403", async () => {
+  const deps = makeDeps();
+  const server = serve(deps, 0);
+  try {
+    const port = server.port;
+    const res = await fetch(`http://localhost:${port}/events`, {
+      headers: { Origin: "http://localhost:7330" },
+    });
+    // The upgrade will fail (plain fetch, not a WS client) → 500, but NOT 403
+    expect(res.status).not.toBe(403);
+  } finally {
+    server.stop();
+  }
 });

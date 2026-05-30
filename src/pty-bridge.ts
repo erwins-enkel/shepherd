@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { isValidTerminalId } from "./validate";
 
 export interface PtySocket {
   send(data: string | Uint8Array): void;
@@ -17,6 +18,7 @@ export class PtyBridge {
   ) {}
 
   open(cols = 100, rows = 30): void {
+    if (!isValidTerminalId(this.terminalId)) throw new Error("invalid terminalId");
     this.proc = Bun.spawn(["node", this.helperPath, this.terminalId, String(cols), String(rows)], {
       stdin: "pipe" as const,
       stdout: "pipe" as const,

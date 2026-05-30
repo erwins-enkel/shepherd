@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateCreate, isAuthorized, originAllowed } from "../src/validate";
+import { validateCreate, isAuthorized, originAllowed, isValidTerminalId } from "../src/validate";
 
 // ── validateCreate ────────────────────────────────────────────────────────────
 
@@ -153,4 +153,38 @@ test("originAllowed: external origin rejected", () => {
 
 test("originAllowed: subdomain of localhost rejected", () => {
   expect(originAllowed("http://attacker.localhost:7330", allowedHosts)).toBe(false);
+});
+
+// ── isValidTerminalId ─────────────────────────────────────────────────────────
+
+test("isValidTerminalId: accepts typical herdr id", () => {
+  expect(isValidTerminalId("term_65306e7cb9451a")).toBe(true);
+});
+
+test("isValidTerminalId: accepts alphanumeric with dash and underscore", () => {
+  expect(isValidTerminalId("a-b_c")).toBe(true);
+});
+
+test("isValidTerminalId: rejects empty string", () => {
+  expect(isValidTerminalId("")).toBe(false);
+});
+
+test("isValidTerminalId: rejects leading-dash (short flag)", () => {
+  expect(isValidTerminalId("-rf")).toBe(false);
+});
+
+test("isValidTerminalId: rejects leading double-dash (long flag)", () => {
+  expect(isValidTerminalId("--help")).toBe(false);
+});
+
+test("isValidTerminalId: rejects 65-char string (too long)", () => {
+  expect(isValidTerminalId("a".repeat(65))).toBe(false);
+});
+
+test("isValidTerminalId: rejects id with space", () => {
+  expect(isValidTerminalId("term x")).toBe(false);
+});
+
+test("isValidTerminalId: rejects id with semicolon", () => {
+  expect(isValidTerminalId("a;b")).toBe(false);
 });

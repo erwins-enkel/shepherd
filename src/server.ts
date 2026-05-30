@@ -86,6 +86,10 @@ export function serve(deps: AppDeps, port: number) {
 
       const url = new URL(req.url);
       if (url.pathname === "/events") {
+        const origin = req.headers.get("Origin");
+        if (!originAllowed(origin, config.allowedOriginHosts)) {
+          return new Response("forbidden: origin not allowed", { status: 403 });
+        }
         return server.upgrade(req, { data: { kind: "events" } })
           ? undefined
           : new Response("upgrade failed", { status: 500 });
@@ -94,6 +98,10 @@ export function serve(deps: AppDeps, port: number) {
       if (m) {
         const s = deps.store.get(m[1]!);
         if (!s) return new Response("no session", { status: 404 });
+        const origin = req.headers.get("Origin");
+        if (!originAllowed(origin, config.allowedOriginHosts)) {
+          return new Response("forbidden: origin not allowed", { status: 403 });
+        }
         return server.upgrade(req, { data: { kind: "pty", terminalId: s.herdrAgentId } })
           ? undefined
           : new Response("upgrade failed", { status: 500 });

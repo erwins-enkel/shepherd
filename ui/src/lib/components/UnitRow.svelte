@@ -186,4 +186,10 @@
     color: var(--color-muted);
     font-size: 11.5px;
   }
+
+  @media (max-width: 768px) {
+    .unit {
+      min-height: 44px;
+    }
+  }
 </style>

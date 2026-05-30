@@ -204,3 +204,34 @@ test("archive stops the herdr agent, removes the worktree, and archives the row"
   expect(calls.removed).toEqual(["/wt"]); // worktree removed
   expect(store.get(s.id)?.status).toBe("archived");
 });
+
+test("reply types the text plus Enter into the agent's PTY", () => {
+  const sent: { target: string; text: string }[] = [];
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [],
+      stop: () => {},
+      send: (target: string, text: string) => sent.push({ target, text }),
+    } as any,
+  });
+
+  expect(svc.reply(s.id, "1")).toBe(true);
+  expect(sent).toEqual([{ target: "term_z", text: "1\r" }]);
+  expect(svc.reply("nope", "1")).toBe(false);
+});

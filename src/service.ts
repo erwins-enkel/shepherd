@@ -9,7 +9,7 @@ import { moveStagedIntoWorktree } from "./uploads";
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<WorktreeMgr, "create" | "remove">;
-  herdr: Pick<HerdrDriver, "start" | "list" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send">;
   namer: (prompt: string) => Promise<string>;
   /** Inject point for tests; defaults to the real fs move. */
   moveUploads?: (images: string[], worktreePath: string) => string[];
@@ -47,6 +47,14 @@ export class SessionService {
       claudeSessionId,
       model: input.model,
     });
+  }
+
+  /** Type a reply into a session's live PTY (human-style steer). Returns false if unknown. */
+  reply(id: string, text: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s) return false;
+    this.deps.herdr.send(s.herdrAgentId, text + "\r");
+    return true;
   }
 
   archive(id: string): void {

@@ -42,6 +42,7 @@ function makeDeps(): AppDeps {
       }),
       list: () => [],
       stop: () => {},
+      send: () => {},
     } as any,
   });
   const usageLimits = {
@@ -342,4 +343,47 @@ test("POST /api/uploads rejects a non-image", async () => {
   fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
   const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
   expect(res.status).toBe(415);
+});
+
+test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", async () => {
+  const app = harness();
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+
+  const ok = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "1" }),
+    }),
+  );
+  expect(ok.status).toBe(200);
+
+  const missing = await app.fetch(
+    new Request(`http://x/api/sessions/does-not-exist/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "1" }),
+    }),
+  );
+  expect(missing.status).toBe(404);
+
+  const bad = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nope: true }),
+    }),
+  );
+  expect(bad.status).toBe(400);
+
+  const wrongType = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "1",
+    }),
+  );
+  expect(wrongType.status).toBe(415);
 });

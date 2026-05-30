@@ -148,7 +148,9 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    height: 100vh;
+    /* dvh, not vh: on mobile/foldable browsers vh includes the area behind the
+       browser chrome, pushing the bottom ActionBar (+ New Task) off-screen */
+    height: 100dvh;
     box-sizing: border-box;
   }
   .grid {
@@ -186,7 +188,6 @@
   .shell.mobile {
     max-width: none;
     padding: 10px;
-    height: 100dvh;
     gap: 10px;
   }
 </style>

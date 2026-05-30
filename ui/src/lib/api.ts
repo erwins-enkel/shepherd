@@ -1,4 +1,4 @@
-import type { Session, CreateInput, RepoEntry } from "./types";
+import type { Session, CreateInput, RepoEntry, Issue } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -42,4 +42,12 @@ export async function putTodo(repoPath: string, content: string): Promise<void> 
     body: JSON.stringify({ content }),
   });
   if (!r.ok) throw new Error(`todo put failed: ${r.status}`);
+}
+
+export async function listIssues(
+  repoPath: string,
+): Promise<{ slug: string | null; issues: Issue[] }> {
+  const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw new Error(`issues failed: ${r.status}`);
+  return r.json();
 }

@@ -3,6 +3,15 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
 export interface RepoEntry {
   name: string;
   path: string;
+  display: string;
+}
+
+export interface Issue {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  labels: string[];
 }
 export interface TodoDoc {
   exists: boolean;

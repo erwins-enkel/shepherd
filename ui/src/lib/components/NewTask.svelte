@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { listRepos } from "$lib/api";
   import type { RepoEntry } from "$lib/types";
+  import RepoSelect from "./RepoSelect.svelte";
 
   let {
     onsubmit,
@@ -58,11 +59,8 @@
     <textarea id="nt-prompt" bind:value={prompt} rows="3" placeholder="add a feature that…" required
     ></textarea>
 
-    <label class="micro" for="nt-repo">Repo&nbsp;Path</label>
-    <input id="nt-repo" bind:value={repoPath} list="repo-list" placeholder="~/Work/…" required autocomplete="off" />
-    <datalist id="repo-list">
-      {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
-    </datalist>
+    <label class="micro" for="nt-repo">Repo</label>
+    <RepoSelect repos={repos} value={repoPath} onchange={(p) => (repoPath = p)} />
 
     <label class="micro" for="nt-base">Base&nbsp;Branch</label>
     <input id="nt-base" bind:value={baseBranch} placeholder="main" />

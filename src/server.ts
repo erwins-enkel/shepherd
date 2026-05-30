@@ -18,6 +18,7 @@ import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
 import type { GitForge, MergeMethod } from "./forge/types";
 import { join, normalize } from "node:path";
+import type { ServerWebSocket } from "bun";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -247,8 +248,16 @@ type WsData =
   | { kind: "events" }
   | { kind: "pty"; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
 
+// A pty WS closed with this code means "a newer client took over this terminal".
+// The client parks (shows a take-over prompt) instead of reconnecting — without
+// it, two devices on the same session ping-pong herdr's --takeover forever.
+// Keep in sync with PTY_SUPERSEDED_CODE in ui/src/lib/pty.ts.
+export const PTY_SUPERSEDED_CODE = 4000;
+
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
+  // current owning socket per terminal — a single owner avoids the takeover war
+  const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -300,7 +309,13 @@ export function serve(deps: AppDeps, port: number) {
           );
           (ws.data as any).unsub = unsub;
         } else {
-          const bridge = new PtyBridge(ws.data.terminalId, {
+          // single owner per terminal: claim it, then bump the previous owner
+          // with a "superseded" close so it parks instead of fighting back.
+          const tid = ws.data.terminalId;
+          const prev = ptyOwners.get(tid);
+          ptyOwners.set(tid, ws);
+          if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
+          const bridge = new PtyBridge(tid, {
             send: (d) => ws.send(d),
             close: () => ws.close(),
           });
@@ -314,7 +329,12 @@ export function serve(deps: AppDeps, port: number) {
       },
       close(ws) {
         if (ws.data.kind === "events") (ws.data as any).unsub?.();
-        else ws.data.bridge?.close();
+        else {
+          // only drop ownership if we're still the owner (a newer client may have
+          // already claimed this terminal before our close fired)
+          if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);
+          ws.data.bridge?.close();
+        }
       },
     },
   });

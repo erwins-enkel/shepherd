@@ -1,5 +1,10 @@
 import { wsUrl } from "./store.svelte";
 
+// Server closes a pty WS with this code when a newer client takes over the
+// terminal. We park instead of reconnecting, so two devices on the same session
+// don't ping-pong the attach. Keep in sync with PTY_SUPERSEDED_CODE in src/server.ts.
+const PTY_SUPERSEDED_CODE = 4000;
+
 export interface PtyConn {
   send(data: string): void;
   resize(c: number, r: number): void;
@@ -10,6 +15,8 @@ export interface PtyConn {
    * running, so a fresh attach (`--takeover`) repaints the live session.
    */
   poke(): void;
+  /** Re-attach after being parked (superseded) — makes this client the owner again. */
+  takeover(): void;
 }
 
 export function connectPty(
@@ -20,10 +27,14 @@ export function connectPty(
   // fired on every reconnect (not the first connect) — caller refits + resizes
   // so a fresh attach repaints at the current size
   onReconnect: () => void = () => {},
+  // fired when the server hands this terminal to another device — caller shows a
+  // "take over" affordance instead of fighting for the attach
+  onParked: () => void = () => {},
   makeWs: (path: string) => WebSocket = (p) => new WebSocket(wsUrl(p)),
 ): PtyConn {
   let ws: WebSocket;
   let stopped = false;
+  let parked = false;
   let everOpened = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   // track the latest fitted size so a reconnect attaches at the right dimensions
@@ -32,6 +43,7 @@ export function connectPty(
   let lastRows = rows;
 
   const open = () => {
+    parked = false;
     if (retry) {
       clearTimeout(retry);
       retry = null;
@@ -44,8 +56,15 @@ export function connectPty(
       if (everOpened) onReconnect();
       everOpened = true;
     };
-    ws.onclose = () => {
-      if (!stopped && !retry) retry = setTimeout(open, 1000);
+    ws.onclose = (e) => {
+      // a newer client took the terminal → park; never auto-reconnect (that would
+      // bump them right back, and they'd bump us: the takeover war)
+      if (e && e.code === PTY_SUPERSEDED_CODE) {
+        parked = true;
+        onParked();
+        return;
+      }
+      if (!stopped && !parked && !retry) retry = setTimeout(open, 1000);
     };
     ws.onerror = () => ws.close();
   };
@@ -64,10 +83,14 @@ export function connectPty(
       ws.close();
     },
     poke: () => {
-      if (stopped) return;
+      if (stopped || parked) return; // parked is deliberate — don't steal back on refocus
       // a scheduled retry → run it immediately; otherwise reconnect only if the
       // socket is actually gone (CLOSING/CLOSED), never disturb a live one
       if (retry || ws.readyState >= ws.CLOSING) open();
+    },
+    takeover: () => {
+      if (stopped) return;
+      open(); // re-attach → server makes us the owner and parks the other device
     },
   };
 }

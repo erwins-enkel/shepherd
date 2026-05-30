@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
@@ -185,6 +185,26 @@ test("WS /pty/:id with evil Origin → 403", async () => {
     server.stop();
   }
 });
+
+// ── Static / SPA serving ──────────────────────────────────────────────────────
+
+const UI_INDEX = join(import.meta.dir, "..", "ui", "build", "index.html");
+
+test.skipIf(!existsSync(UI_INDEX))("GET / serves the SPA index html", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/"));
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type") ?? "").toContain("html");
+});
+
+test("GET /api/unknown still returns JSON 404 (not html)", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/api/unknown"));
+  expect(res.status).toBe(404);
+  expect(res.headers.get("content-type") ?? "").toContain("json");
+});
+
+// ── WebSocket Origin guard (CSWSH) ────────────────────────────────────────────
 
 test("WS /events with allowed Origin → not 403", async () => {
   const deps = makeDeps();

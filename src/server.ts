@@ -4,6 +4,29 @@ import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
 import { validateCreate, isAuthorized, originAllowed } from "./validate";
+import { join, normalize } from "node:path";
+
+const UI_DIR = join(import.meta.dir, "..", "ui", "build");
+
+async function serveStatic(pathname: string): Promise<Response> {
+  // strip leading traversal, normalize
+  const rel = normalize(pathname)
+    .replace(/^(\.\.(\/|\\|$))+/, "")
+    .replace(/^\/+/, "");
+  const target = rel === "" ? "index.html" : rel;
+  const resolved = join(UI_DIR, target);
+  // extra traversal guard: resolved path must stay within UI_DIR
+  if (!resolved.startsWith(UI_DIR + "/") && resolved !== UI_DIR) {
+    return new Response(Bun.file(join(UI_DIR, "index.html")), {
+      headers: { "content-type": "text/html" },
+    });
+  }
+  const file = Bun.file(resolved);
+  if (await file.exists()) return new Response(file);
+  return new Response(Bun.file(join(UI_DIR, "index.html")), {
+    headers: { "content-type": "text/html" },
+  });
+}
 
 export interface AppDeps {
   store: SessionStore;
@@ -66,6 +89,8 @@ export function makeApp(deps: AppDeps) {
           return json({ ok: true });
         }
       }
+      if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);
+      if (req.method === "GET") return serveStatic(url.pathname);
       return json({ error: "not found" }, 404);
     },
   };

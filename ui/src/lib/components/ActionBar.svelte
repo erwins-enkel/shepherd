@@ -1,10 +1,14 @@
 <script lang="ts">
   let {
     onnew,
+    mode = "focus",
+    onmode,
     mobile = false,
     desktopOnly = false,
   }: {
     onnew: () => void;
+    mode?: "focus" | "all";
+    onmode?: (m: "focus" | "all") => void;
     mobile?: boolean;
     desktopOnly?: boolean;
   } = $props();
@@ -14,8 +18,18 @@
   <div class="actions" class:mobile>
     <button class="btn primary" type="button" onclick={onnew}>+ New Task</button>
     {#if !mobile}
-      <button class="btn" type="button">All ▦</button>
-      <button class="btn" type="button">Focus ⌖</button>
+      <button
+        class="btn"
+        class:active={mode === "all"}
+        type="button"
+        onclick={() => onmode?.("all")}>All ▦</button
+      >
+      <button
+        class="btn"
+        class:active={mode === "focus"}
+        type="button"
+        onclick={() => onmode?.("focus")}>Focus ⌖</button
+      >
       <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
     {/if}
   </div>
@@ -47,6 +61,11 @@
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .btn:hover {
+    background: #0c1110;
+  }
+  .btn.active {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
     background: #0c1110;
   }
   .hint {

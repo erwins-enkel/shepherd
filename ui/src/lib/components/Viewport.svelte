@@ -79,7 +79,7 @@
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: mobile ? 12 : 12.5,
+      fontSize: mobile ? 11 : 12.5,
       theme: {
         background: "#070a09",
         foreground: "#b9c7c1",

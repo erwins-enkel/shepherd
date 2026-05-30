@@ -25,6 +25,17 @@ test("create assigns id, sequential desig, timestamps, default status", () => {
   expect(s.create({ ...base, herdrAgentId: "term_2" }).desig).toBe("UNIT-02");
 });
 
+test("lastUsedByRepo returns max createdAt per repoPath", () => {
+  const s = mk();
+  s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });
+  const older = s.get(s.create({ ...base, repoPath: "/b", herdrAgentId: "t2" }).id)!;
+  const newerB = s.create({ ...base, repoPath: "/b", herdrAgentId: "t3" });
+  const map = s.lastUsedByRepo();
+  expect(map["/a"]).toBeGreaterThan(0);
+  expect(map["/b"]).toBe(newerB.createdAt);
+  expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
+});
+
 test("get / list / update / archive", () => {
   const s = mk();
   const a = s.create(base);

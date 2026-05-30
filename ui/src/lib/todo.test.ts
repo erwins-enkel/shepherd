@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toggleItem } from "./todo";
+import { toggleItem, cleanupTodo } from "./todo";
 
 const DOC = `# Shepherd — Roadmap / TODO
 
@@ -50,9 +50,7 @@ describe("toggleItem — unchecking", () => {
     const out = toggleItem(DOC, lines(DOC).indexOf("- [x] already done"));
     const ls = lines(out);
     // first non-empty, non-title line is the reactivated item
-    const firstContent = ls.find(
-      (l, idx) => idx > 0 && l.trim() !== "" && !/^#/.test(l),
-    );
+    const firstContent = ls.find((l, idx) => idx > 0 && l.trim() !== "" && !/^#/.test(l));
     expect(firstContent).toBe("- [ ] already done");
     // it sits above the Done heading now
     expect(ls.indexOf("- [ ] already done")).toBeLessThan(ls.indexOf("## Done"));
@@ -70,5 +68,31 @@ describe("toggleItem — guards", () => {
     const doc = `## Done\n\n- [ ] top\n  - [ ] nested\n`;
     const out = toggleItem(doc, lines(doc).indexOf("  - [ ] nested"));
     expect(out).toContain("  - [x] nested");
+  });
+});
+
+describe("cleanupTodo", () => {
+  it("removes completed items and the emptied Done heading", () => {
+    const out = cleanupTodo(DOC);
+    expect(out).not.toContain("- [x] already done");
+    expect(out).not.toMatch(/^#{1,6}\s+done/im);
+    // open items survive
+    expect(out).toContain("- [ ] alpha");
+    expect(out).toContain("- [ ] beta");
+    // title survives
+    expect(out).toContain("# Shepherd — Roadmap / TODO");
+  });
+
+  it("collapses blank-line runs and ends with a single trailing newline", () => {
+    const out = cleanupTodo("# T\n\n\n\n- [ ] a\n\n\n");
+    expect(out).toBe("# T\n\n- [ ] a\n");
+  });
+
+  it("strips trailing whitespace from lines", () => {
+    expect(cleanupTodo("- [ ] a   \n")).toBe("- [ ] a\n");
+  });
+
+  it("returns empty string when only completed items remain", () => {
+    expect(cleanupTodo("## Done\n\n- [x] one\n- [x] two\n")).toBe("");
   });
 });

@@ -89,6 +89,16 @@ export class SessionStore {
     );
   }
 
+  /** Map of repoPath → most-recent session createdAt (across all sessions, incl. archived). */
+  lastUsedByRepo(): Record<string, number> {
+    const rows = this.db
+      .query(`SELECT repoPath, MAX(createdAt) AS t FROM sessions GROUP BY repoPath`)
+      .all() as { repoPath: string; t: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.repoPath] = r.t;
+    return out;
+  }
+
   archive(id: string) {
     const now = Date.now();
     this.db.run(`UPDATE sessions SET status='archived', archivedAt=?, updatedAt=? WHERE id=?`, [

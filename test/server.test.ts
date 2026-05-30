@@ -232,6 +232,30 @@ test("GET /api/repos → 200 + JSON array", async () => {
   expect(Array.isArray(body)).toBe(true);
 });
 
+test("GET /api/branches?repo=<validRepo> → 200 with branches + current", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request(`http://x/api/branches?repo=${encodeURIComponent(validRepo)}`),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body.branches)).toBe(true);
+  expect("current" in body).toBe(true);
+});
+
+test("GET /api/branches?repo=/etc → 400", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/api/branches?repo=/etc"));
+  expect(res.status).toBe(400);
+});
+
+test("HEAD on a non-API route → 200, no body (not 404)", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/", { method: "HEAD" }));
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("");
+});
+
 test("GET /api/todo?repo=/etc/passwd → 400", async () => {
   const app = harness();
   const res = await app.fetch(new Request("http://x/api/todo?repo=/etc/passwd"));

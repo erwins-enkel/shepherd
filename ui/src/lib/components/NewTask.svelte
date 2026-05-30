@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listRepos } from "$lib/api";
+  import { listRepos, listBranches } from "$lib/api";
   import { MODELS, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
@@ -31,14 +31,44 @@
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let repos = $state<RepoEntry[]>([]);
+  let branches = $state<string[]>([]);
+
+  /** Default to the most-recently-used repo; fall back to the first in the list. */
+  function defaultRepoPath(list: RepoEntry[]): string {
+    let best: RepoEntry | undefined;
+    for (const r of list) {
+      if (r.lastUsedAt != null && (best?.lastUsedAt == null || r.lastUsedAt > best.lastUsedAt)) {
+        best = r;
+      }
+    }
+    return best?.path ?? list[0]?.path ?? "";
+  }
 
   onMount(() => {
     listRepos()
       .then((r) => {
         repos = r;
-        if (!repoPath && r.length > 0) repoPath = r[0].path;
+        if (!repoPath && r.length > 0) repoPath = defaultRepoPath(r);
       })
       .catch(() => {});
+  });
+
+  // load branches for the selected repo; reset base to the repo's current branch
+  $effect(() => {
+    const rp = repoPath;
+    if (!rp) {
+      branches = [];
+      return;
+    }
+    listBranches(rp)
+      .then((b) => {
+        if (rp !== repoPath) return;
+        branches = b.branches;
+        baseBranch = b.current ?? b.branches[0] ?? "main";
+      })
+      .catch(() => {
+        branches = [];
+      });
   });
 
   async function submit(e: Event) {
@@ -85,7 +115,15 @@
     <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} />
 
     <label class="micro" for="nt-base">Base&nbsp;Branch</label>
-    <input id="nt-base" bind:value={baseBranch} placeholder="main" />
+    {#if branches.length > 0}
+      <select id="nt-base" bind:value={baseBranch}>
+        {#each branches as b (b)}
+          <option value={b}>{b}</option>
+        {/each}
+      </select>
+    {:else}
+      <input id="nt-base" bind:value={baseBranch} placeholder="main" />
+    {/if}
 
     <label class="micro" for="nt-model">Model</label>
     <select id="nt-model" bind:value={model}>

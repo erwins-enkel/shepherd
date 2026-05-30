@@ -143,10 +143,27 @@
       term.cols,
       term.rows,
       (d) => term.write(d),
-      () => {},
+      // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
+      // case the layout changed while away, then resize to repaint the attach
+      () => {
+        fit.fit();
+        c.resize(term.cols, term.rows);
+      },
     );
     conn = c;
     term.onData((d) => c.send(d));
+
+    // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
+    // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
+    // which doesn't always fire visibilitychange.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") c.poke();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) c.poke();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;
@@ -199,6 +216,8 @@
     ro.observe(el);
 
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);

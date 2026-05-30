@@ -76,9 +76,39 @@
     );
     term.onData((d) => conn.send(d));
 
-    // tap-to-focus so the mobile on-screen keyboard opens
-    const onTap = () => term.focus();
+    // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
+    let dragged = false;
+    const onTap = () => {
+      if (!dragged) term.focus();
+    };
     el.addEventListener("click", onTap);
+
+    // xterm v6 wires no touch scrolling and its .xterm-screen overlays the
+    // scrollable .xterm-viewport, so single-finger drags never reach it —
+    // forward the drag to the viewport's scrollTop ourselves
+    let lastY: number | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      lastY = e.touches[0].clientY;
+      dragged = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (lastY === null || e.touches.length !== 1) return;
+      const vp = el!.querySelector<HTMLElement>(".xterm-viewport");
+      if (!vp) return;
+      const y = e.touches[0].clientY;
+      const dy = lastY - y;
+      if (Math.abs(dy) > 2) dragged = true;
+      vp.scrollTop += dy;
+      lastY = y;
+      e.preventDefault();
+    };
+    const onTouchEnd = () => {
+      lastY = null;
+    };
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
 
     // refit after layout settles (mount may start hidden during mobile nav)
     requestAnimationFrame(() => {
@@ -94,6 +124,9 @@
 
     return () => {
       el?.removeEventListener("click", onTap);
+      el?.removeEventListener("touchstart", onTouchStart);
+      el?.removeEventListener("touchmove", onTouchMove);
+      el?.removeEventListener("touchend", onTouchEnd);
       ro.disconnect();
       conn.close();
       term.dispose();
@@ -307,6 +340,8 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    /* we drive vertical scroll via touch handlers; keep the browser out of it */
+    touch-action: none;
   }
 
   /* let xterm fill the mount */
@@ -314,10 +349,9 @@
     height: 100%;
   }
 
-  /* allow wheel + touch scroll through xterm's scrollback */
+  /* wheel scroll (desktop) + our touch-driven scrollTop (mobile) */
   .term-mount :global(.xterm-viewport) {
     overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
   }
 
   .term-mount :global(.xterm-viewport)::-webkit-scrollbar {

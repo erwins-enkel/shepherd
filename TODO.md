@@ -20,7 +20,7 @@
 
 ## Backlog (from PRD)
 
-- [ ] Git host buttons: open PR / merge / redeploy (gitea or forgejo)
+- [x] Git host buttons: open PR / merge / redeploy (platform-agnostic: GitHub + Gitea/Forgejo)
 - [ ] Research chat with sub-agents + searxng; saved history
 - [ ] Hermes migration off `claude -p` onto interactive-via-herdr (compliance-critical)
 - [ ] Per-agent sandboxing + permission profiles

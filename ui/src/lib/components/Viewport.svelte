@@ -90,12 +90,14 @@
     term.open(el);
     fit.fit();
 
-    conn = connectPty(
+    // assign the local first; reading the `conn` $state back inside this effect
+    // would make the effect depend on a value it writes → infinite update loop
+    const c = connectPty(
       id,
       (d) => term.write(d),
       () => {},
     );
-    const c = conn;
+    conn = c;
     term.onData((d) => c.send(d));
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag

@@ -7,7 +7,10 @@ if (!/^[A-Za-z0-9_-]{1,64}$/.test(terminalId ?? "") || (terminalId ?? "").starts
 }
 const herdrBin = process.env.HERDR_BIN || "herdr";
 
-const pty = spawn(herdrBin, ["agent", "attach", terminalId], {
+// --takeover: a browser refresh (esp. on mobile after an app-switch) reconnects
+// before herdr sees the old client drop, so the stale attach still holds the
+// terminal. Takeover bumps it; newest tab always owns the terminal.
+const pty = spawn(herdrBin, ["agent", "attach", terminalId, "--takeover"], {
   name: "xterm-color",
   cols: Number(colsArg) || 100,
   rows: Number(rowsArg) || 30,

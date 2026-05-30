@@ -26,3 +26,19 @@ test("PtyBridge rejects an invalid terminalId", () => {
   const bridge = new PtyBridge("-rm-rf", { send: () => {}, close: () => {} });
   expect(() => bridge.open()).toThrow("invalid terminalId");
 });
+
+test("pty-attach invokes herdr with --takeover so browser refresh bumps a stale client", async () => {
+  const attach = new URL("../src/pty-attach.mjs", import.meta.url).pathname;
+  const fakeHerdr = new URL("./fixtures/fake-herdr.mjs", import.meta.url).pathname;
+  const proc = Bun.spawn(["node", attach, "term_test", "100", "30"], {
+    stdout: "pipe",
+    stderr: "inherit",
+    env: { ...process.env, HERDR_BIN: fakeHerdr },
+  });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  const line = out.split("\n").find((l) => l.startsWith("HERDR-ARGV:"));
+  expect(line).toBeDefined();
+  const argv = JSON.parse(line!.slice("HERDR-ARGV:".length));
+  expect(argv).toEqual(["agent", "attach", "term_test", "--takeover"]);
+});

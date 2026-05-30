@@ -61,8 +61,9 @@
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    session.id; // disarm when the selected unit changes
+    session.id; // on unit change: disarm decommission + default back to terminal tab
     armed = false;
+    tab = "term";
     return () => clearTimeout(armTimer);
   });
   function decommission() {

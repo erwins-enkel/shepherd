@@ -68,18 +68,18 @@ include the public hostname (see below).
 
 All via environment variables (`src/config.ts`):
 
-| Variable                 | Default                               | Purpose                                                                     |
-| ------------------------ | ------------------------------------- | --------------------------------------------------------------------------- |
-| `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                         |
-| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)   |
-| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                   |
-| `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                   |
-| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard) |
-| `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                           |
-| `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                    |
-| `HERDR_SESSION`          | `default`                             | herdr session name                                                          |
-| `SHEPHERD_NAMER_MODEL`   | `mistral-small3.1:latest`             | Ollama model used to name sessions                                          |
-| `OLLAMA_URL`             | `http://localhost:11434/api/generate` | Ollama endpoint                                                             |
+| Variable                 | Default                               | Purpose                                                                         |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                             |
+| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
+| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                       |
+| `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                       |
+| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
+| `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                               |
+| `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                        |
+| `HERDR_SESSION`          | `default`                             | herdr session name                                                              |
+| `SHEPHERD_NAMER_MODEL`   | `mistral-small3.1:latest`             | Ollama model used to name sessions                                              |
+| `OLLAMA_URL`             | `http://localhost:11434/api/generate` | Ollama endpoint                                                                 |
 | `SHEPHERD_FORGES`        | `~/.shepherd/forges.json`             | Path to the git-host config (see [Git host integration](#git-host-integration)) |
 
 ### Git host integration
@@ -98,14 +98,14 @@ credentials, never your Claude subscription, so they don't touch the ToS model.
 {
   // self-hosted Gitea/Forgejo — issues, PR, merge, redeploy
   "git.example.com": {
-    "type": "gitea",                       // "gitea" (covers Forgejo) or "github"
-    "baseUrl": "https://git.example.com",  // API base (include :port if non-standard)
-    "token": "<personal-access-token>",    // repo + actions scopes
-    "deployWorkflow": "deploy.yaml",       // workflow_dispatch file for Redeploy (optional)
-    "mergeMethod": "squash"                // squash | merge | rebase (default: squash)
+    "type": "gitea", // "gitea" (covers Forgejo) or "github"
+    "baseUrl": "https://git.example.com", // API base (include :port if non-standard)
+    "token": "<personal-access-token>", // repo + actions scopes
+    "deployWorkflow": "deploy.yaml", // workflow_dispatch file for Redeploy (optional)
+    "mergeMethod": "squash", // squash | merge | rebase (default: squash)
   },
   // github.com entry is OPTIONAL — only needed to enable Redeploy
-  "github.com": { "deployWorkflow": "deploy.yml" }
+  "github.com": { "deployWorkflow": "deploy.yml" },
 }
 ```
 

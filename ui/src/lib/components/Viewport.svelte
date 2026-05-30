@@ -13,11 +13,15 @@
     nowMs = Date.now(),
     onnewtask,
     onarchive,
+    onback,
+    mobile = false,
   }: {
     session: Session;
     nowMs?: number;
     onnewtask?: (repoPath: string, prompt: string) => void;
     onarchive?: (id: string) => void;
+    onback?: () => void;
+    mobile?: boolean;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -52,7 +56,7 @@
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 12.5,
+      fontSize: mobile ? 13 : 12.5,
       theme: {
         background: "#070a09",
         foreground: "#b9c7c1",
@@ -68,6 +72,16 @@
     const conn = connectPty(id, (d) => term.write(d), () => {});
     term.onData((d) => conn.send(d));
 
+    // tap-to-focus so the mobile on-screen keyboard opens
+    const onTap = () => term.focus();
+    el.addEventListener("click", onTap);
+
+    // refit after layout settles (mount may start hidden during mobile nav)
+    requestAnimationFrame(() => {
+      fit.fit();
+      conn.resize(term.cols, term.rows);
+    });
+
     const ro = new ResizeObserver(() => {
       fit.fit();
       conn.resize(term.cols, term.rows);
@@ -75,6 +89,7 @@
     ro.observe(el);
 
     return () => {
+      el?.removeEventListener("click", onTap);
       ro.disconnect();
       conn.close();
       term.dispose();
@@ -84,14 +99,19 @@
 
 <div class="viewport">
   <!-- header -->
-  <div class="vp-head">
+  <div class="vp-head" class:mobile>
+    {#if onback}
+      <button class="back" type="button" onclick={onback} aria-label="Back to herd">‹ Herd</button>
+    {/if}
     <span class="desig">{session.desig}</span>
-    <span class="sep">·</span>
-    <span class="branch">{session.branch ?? session.worktreePath}</span>
-    <span class="sep">·</span>
-    <span class="model">{modelLabel}</span>
+    {#if !mobile}
+      <span class="sep">·</span>
+      <span class="branch">{session.branch ?? session.worktreePath}</span>
+      <span class="sep">·</span>
+      <span class="model">{modelLabel}</span>
+    {/if}
     <div class="spacer"></div>
-    <div class="tab-group">
+    <div class="tab-group" class:mobile>
       <button
         class="tab-btn"
         class:active={tab === "term"}
@@ -108,7 +128,9 @@
         onclick={() => (tab = "issues")}
       >Issues</button>
     </div>
-    <span class="sep">·</span>
+    {#if !mobile}
+      <span class="sep">·</span>
+    {/if}
     <span
       class="status-badge"
       style="color:{STATUS_COLOR[session.status]};border-color:{STATUS_COLOR[session.status]}"
@@ -116,7 +138,7 @@
       {#if session.status === "running"}⠿{/if}
       {statusLabel(session.status)}
     </span>
-    {#if session.status === "running"}
+    {#if session.status === "running" && !mobile}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     <button
@@ -297,6 +319,39 @@
   .tab-group {
     display: flex;
     gap: 2px;
+  }
+
+  .back {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 4px 9px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .back:hover {
+    background: #0c1110;
+  }
+
+  .vp-head.mobile {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 10px;
+  }
+  .tab-group.mobile {
+    order: 10;
+    flex-basis: 100%;
+    gap: 4px;
+  }
+  .vp-head.mobile .tab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 11px;
   }
 
   .tab-btn {

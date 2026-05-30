@@ -4,6 +4,8 @@ export interface RepoEntry {
   name: string;
   path: string;
   display: string;
+  /** Most-recent session createdAt for this repo; undefined if never used. */
+  lastUsedAt?: number;
 }
 
 export interface Issue {

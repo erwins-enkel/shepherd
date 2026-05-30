@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getTodo, putTodo } from "$lib/api";
-  import { ITEM_RE, toggleItem } from "$lib/todo";
+  import { ITEM_RE, isDone, toggleItem, cleanupTodo } from "$lib/todo";
 
   let { repoPath }: { repoPath: string } = $props();
 
@@ -46,10 +46,27 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") addItem();
   }
+
+  const hasDone = $derived(content.split("\n").some(isDone));
+
+  function clearDone() {
+    content = cleanupTodo(content);
+    putTodo(repoPath, content).catch(() => {});
+  }
 </script>
 
 <div class="todo-panel">
-  <div class="todo-header">TO-DO · TODO.md</div>
+  <div class="todo-header">
+    <span>TO-DO · TODO.md</span>
+    {#if hasDone}
+      <button
+        class="cleanup-btn"
+        type="button"
+        onclick={clearDone}
+        title="remove completed items + tidy format">clear done</button
+      >
+    {/if}
+  </div>
 
   <div class="todo-list">
     {#if loading}
@@ -99,6 +116,10 @@
   }
 
   .todo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 6px 12px;
     font-size: 10px;
     letter-spacing: 0.18em;
@@ -106,6 +127,28 @@
     color: var(--color-muted);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
+  }
+
+  .cleanup-btn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .cleanup-btn:hover {
+    border-color: var(--color-green);
+    color: var(--color-green);
   }
 
   .todo-list {

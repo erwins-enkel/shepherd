@@ -5,6 +5,7 @@ import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
 import { validateCreate, isAuthorized, originAllowed, safeRepoDir } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
+import { listBranches } from "./branches";
 import { listIssues } from "./github";
 import { join, normalize } from "node:path";
 
@@ -92,7 +93,20 @@ export function makeApp(deps: AppDeps) {
         }
       }
       if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
-        if (req.method === "GET") return json(listRepos(config.repoRoot));
+        if (req.method === "GET") {
+          const lastUsed = deps.store.lastUsedByRepo();
+          const repos = listRepos(config.repoRoot).map((r) => ({
+            ...r,
+            lastUsedAt: lastUsed[r.path],
+          }));
+          return json(repos);
+        }
+      }
+
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {
+        const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+        if (!dir) return json({ error: "invalid repo" }, 400);
+        return json(listBranches(dir));
       }
 
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
@@ -124,7 +138,13 @@ export function makeApp(deps: AppDeps) {
       }
 
       if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);
-      if (req.method === "GET") return serveStatic(url.pathname);
+      if (req.method === "GET" || req.method === "HEAD") {
+        const res = await serveStatic(url.pathname);
+        // HEAD: same status/headers as GET, but no body
+        return req.method === "HEAD"
+          ? new Response(null, { status: res.status, headers: res.headers })
+          : res;
+      }
       return json({ error: "not found" }, 404);
     },
   };

@@ -314,8 +314,21 @@
     height: 100%;
   }
 
+  /* allow wheel + touch scroll through xterm's scrollback */
   .term-mount :global(.xterm-viewport) {
-    overflow: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .term-mount :global(.xterm-viewport)::-webkit-scrollbar {
+    width: 4px;
+  }
+  .term-mount :global(.xterm-viewport)::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .term-mount :global(.xterm-viewport)::-webkit-scrollbar-thumb {
+    background: var(--color-faint);
+    border-radius: 2px;
   }
 
   .tab-group {

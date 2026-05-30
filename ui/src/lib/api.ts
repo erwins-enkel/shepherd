@@ -29,6 +29,14 @@ export async function listRepos(): Promise<RepoEntry[]> {
   return r.json();
 }
 
+export async function listBranches(
+  repoPath: string,
+): Promise<{ branches: string[]; current: string | null }> {
+  const r = await fetch(`/api/branches?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw new Error(`branches failed: ${r.status}`);
+  return r.json();
+}
+
 export async function getTodo(repoPath: string): Promise<{ exists: boolean; content: string }> {
   const r = await fetch(`/api/todo?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw new Error(`todo get failed: ${r.status}`);

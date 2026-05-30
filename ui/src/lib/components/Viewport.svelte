@@ -82,7 +82,10 @@
   }
 
   // upload image(s) into this session's worktree, then inject their paths into
-  // the PTY as if typed — the user adds wording and presses Enter themselves.
+  // the PTY — the user adds wording and presses Enter themselves. The path is
+  // wrapped in bracketed-paste markers (ESC[200~ … ESC[201~) so the TUI ingests
+  // it as one atomic paste; injecting it as a fast raw-keystroke burst drops
+  // characters (notably on mobile, racing with resize events).
   async function attachImages(files: FileList | File[]) {
     const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (imgs.length === 0 || !conn) return;
@@ -91,7 +94,7 @@
     try {
       for (const f of imgs) {
         const path = await uploadImage(f, session.id);
-        conn.send(` ${path} `);
+        conn.send(` \x1b[200~${path}\x1b[201~ `);
       }
     } catch {
       // surface failure on the button; never inject into the PTY (would pollute the prompt)

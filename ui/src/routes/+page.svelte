@@ -138,7 +138,7 @@
 
 <style>
   .shell {
-    max-width: 1180px;
+    max-width: 1480px;
     margin: 0 auto;
     padding: 22px;
     display: flex;
@@ -149,7 +149,8 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1.15fr;
+    /* session picker stays compact; terminal absorbs all extra width */
+    grid-template-columns: minmax(300px, 360px) 1fr;
     gap: 14px;
     flex: 1;
     min-height: 0;

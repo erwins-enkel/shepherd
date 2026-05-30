@@ -5,10 +5,12 @@
     sessions,
     nowMs,
     connected = false,
+    mobile = false,
   }: {
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
+    mobile?: boolean;
   } = $props();
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
@@ -17,10 +19,12 @@
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
 </script>
 
-<div class="hud bracket">
+<div class="hud bracket" class:mobile>
   <div class="logo">SHEP<b>HERD</b></div>
-  <div class="sep"></div>
-  <div class="micro">Mission&nbsp;Control</div>
+  {#if !mobile}
+    <div class="sep"></div>
+    <div class="micro">Mission&nbsp;Control</div>
+  {/if}
   <div class="sep"></div>
   <div class="tallies">
     <div class="tally"><span class="micro">Herd</span><span class="n">{sessions.length}</span></div>
@@ -115,5 +119,16 @@
   }
   .clock .dot.on {
     color: var(--color-green);
+  }
+  .hud.mobile {
+    gap: 12px;
+    padding: 10px 12px;
+  }
+  .hud.mobile .tallies {
+    gap: 12px;
+  }
+  .hud.mobile .logo {
+    font-size: 13px;
+    letter-spacing: 0.22em;
   }
 </style>

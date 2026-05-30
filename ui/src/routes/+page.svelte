@@ -105,7 +105,7 @@
       </div>
     {/if}
   {:else}
-    <div class="grid">
+    <div class="grid" class:compact={touch.current}>
       <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
       {#if selected}
         <Viewport
@@ -158,6 +158,12 @@
     gap: 14px;
     flex: 1;
     min-height: 0;
+  }
+  /* touch devices on the desktop layout (e.g. unfolded foldables): the picker
+     would otherwise eat too much of a narrow-ish wide screen */
+  .grid.compact {
+    grid-template-columns: minmax(220px, 260px) 1fr;
+    gap: 10px;
   }
   .empty {
     border: 1px solid var(--color-line);

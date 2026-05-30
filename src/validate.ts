@@ -71,30 +71,34 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (obj.images != null) {
     if (!Array.isArray(obj.images)) return err("images must be an array");
     if (obj.images.length > 10) return err("images must be ≤ 10 entries");
-    let stagingReal: string;
-    try {
-      stagingReal = realpathSync(stagingDir(root));
-    } catch {
-      return err("no staged uploads exist");
-    }
-    for (const it of obj.images) {
-      if (typeof it !== "string") return err("each image must be a string path");
-      let real: string;
+    // an empty list needs no confinement — don't require a staging dir to exist
+    // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
+    if (obj.images.length > 0) {
+      let stagingReal: string;
       try {
-        real = realpathSync(resolve(it));
+        stagingReal = realpathSync(stagingDir(root));
       } catch {
-        return err("image does not exist");
+        return err("no staged uploads exist");
       }
-      const inside = real === stagingReal || real.startsWith(stagingReal + sep);
-      if (!inside) return err("image must be inside the staging dir");
-      try {
-        if (!statSync(real).isFile()) return err("image must be a file");
-      } catch {
-        return err("image does not exist");
+      for (const it of obj.images) {
+        if (typeof it !== "string") return err("each image must be a string path");
+        let real: string;
+        try {
+          real = realpathSync(resolve(it));
+        } catch {
+          return err("image does not exist");
+        }
+        const inside = real === stagingReal || real.startsWith(stagingReal + sep);
+        if (!inside) return err("image must be inside the staging dir");
+        try {
+          if (!statSync(real).isFile()) return err("image must be a file");
+        } catch {
+          return err("image does not exist");
+        }
+        images.push(real);
       }
-      images.push(real);
+      if (new Set(images).size !== images.length) return err("duplicate image paths");
     }
-    if (new Set(images).size !== images.length) return err("duplicate image paths");
   }
 
   return {

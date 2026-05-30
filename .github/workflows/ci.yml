@@ -43,7 +43,13 @@ jobs:
         run: cd ui && bun run check
 
       - name: Test (root)
-        run: bun test ./test
+        # server.test.ts creates its temp repo inside repoRoot (default
+        # $HOME/Work, absent on the runner). Point it at a writable temp dir.
+        env:
+          SHEPHERD_REPO_ROOT: ${{ runner.temp }}/reporoot
+        run: |
+          mkdir -p "$SHEPHERD_REPO_ROOT"
+          bun test ./test
 
       - name: Test (ui)
         run: cd ui && bun run test

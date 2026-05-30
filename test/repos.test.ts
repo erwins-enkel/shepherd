@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listRepos, readTodo, writeTodo } from "../src/repos";
@@ -61,4 +61,18 @@ test("writeTodo: content > 100_000 chars → false", () => {
 
 test("writeTodo: content exactly 100_000 chars → true", () => {
   expect(writeTodo(join(root, "alpha"), root, "x".repeat(100_000))).toBe(true);
+});
+
+// ── symlink containment (security) ─────────────────────────────────────────────
+
+test("a symlink inside repoRoot pointing outside is rejected (realpath containment)", () => {
+  const outside = mkdtempSync(join(tmpdir(), "shepherd-outside-"));
+  try {
+    symlinkSync(outside, join(root, "escape"), "dir");
+    // lexically join(root,"escape") looks inside root, but realpath is outside → reject
+    expect(readTodo(join(root, "escape"), root).ok).toBe(false);
+    expect(writeTodo(join(root, "escape"), root, "pwned")).toBe(false);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
 });

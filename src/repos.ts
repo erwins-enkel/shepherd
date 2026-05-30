@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, existsSync, statSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { safeRepoDir } from "./validate";
 
@@ -43,6 +43,13 @@ export function writeTodo(repoPathRaw: string, repoRoot: string, content: string
   const dir = safeRepoDir(repoPathRaw, repoRoot);
   if (!dir) return false;
   if (typeof content !== "string" || content.length > 100_000) return false;
-  writeFileSync(join(dir, TODO), content, "utf8");
+  const file = join(dir, TODO);
+  // refuse to follow a symlinked TODO.md (prevents a symlink-swap write outside the repo)
+  try {
+    if (lstatSync(file).isSymbolicLink()) return false;
+  } catch {
+    /* file doesn't exist yet — fine */
+  }
+  writeFileSync(file, content, "utf8");
   return true;
 }

@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
@@ -89,12 +89,19 @@ export function isValidTerminalId(id: string): boolean {
 /** Resolve a repo path, confined to repoRoot and required to be an existing directory. null if invalid. */
 export function safeRepoDir(repoPathRaw: string, repoRoot: string): string | null {
   if (typeof repoPathRaw !== "string" || repoPathRaw.length === 0) return null;
-  const resolved = resolve(expandHome(repoPathRaw));
-  const root = resolve(expandHome(repoRoot));
-  const inside = resolved === root || resolved.startsWith(root + sep);
+  // realpath both sides so a symlink inside repoRoot can't escape the containment check
+  let resolvedReal: string;
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(resolve(expandHome(repoRoot)));
+    resolvedReal = realpathSync(resolve(expandHome(repoPathRaw)));
+  } catch {
+    return null; // non-existent path (realpath throws) → reject
+  }
+  const inside = resolvedReal === rootReal || resolvedReal.startsWith(rootReal + sep);
   if (!inside) return null;
   try {
-    return statSync(resolved).isDirectory() ? resolved : null;
+    return statSync(resolvedReal).isDirectory() ? resolvedReal : null;
   } catch {
     return null;
   }

@@ -208,4 +208,38 @@
     opacity: 0.5;
     cursor: default;
   }
+
+  @media (max-width: 768px) {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .card {
+      width: 100%;
+      max-width: none;
+      height: 100dvh;
+      border: 0;
+      overflow-y: auto;
+      animation: sheet-up 0.18s ease-out;
+    }
+    textarea,
+    input {
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+    input,
+    .run {
+      min-height: 44px;
+    }
+  }
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(12px);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
 </style>

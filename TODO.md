@@ -14,10 +14,11 @@
 > Observation half is shipped (status lights, terminals, All-view). These close the
 > act/triage half: pull the operator back, and help decide which agent first.
 
-- [ ] Blocked-triage queue — list of red agents + WHY each is blocked (tailed from terminal:
-      permission prompt / question / test fail), batch-answer w/ quick replies. **NEXT.**
+- [x] Blocked-triage queue — list of red agents + WHY each is blocked (tailed from terminal:
+      permission prompt / question / test fail), batch-answer w/ quick replies. Server heuristic
+      classifier + poller emit `session:block` + POST `/reply` (types into PTY) + "Needs you" drawer.
 - [ ] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
-      telemetry + herdr status. Highest leverage; serves core thesis. Pairs w/ triage queue.
+      telemetry + herdr status. Highest leverage; serves core thesis. Pairs w/ triage queue. **NEXT.**
 - [ ] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
       human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
 - [ ] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,

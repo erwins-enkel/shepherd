@@ -47,7 +47,7 @@
     );
     // intentionally no term.onData → send: tiles are read-only monitors
 
-    requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       fit.fit();
       c.resize(term.cols, term.rows);
     });
@@ -59,6 +59,7 @@
     ro.observe(el);
 
     return () => {
+      cancelAnimationFrame(raf);
       ro.disconnect();
       c.close();
       term.dispose();

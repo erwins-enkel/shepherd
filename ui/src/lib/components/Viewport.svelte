@@ -32,6 +32,10 @@
   let tab = $state<"term" | "todo" | "issues">("term");
   let conn = $state<PtyConn | undefined>();
 
+  // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
+  // foldables). Drops secondary fields + wraps so the decommission button never clips.
+  const compact = $derived(mobile || touch);
+
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
 
@@ -167,12 +171,12 @@
 
 <div class="viewport">
   <!-- header -->
-  <div class="vp-head" class:mobile>
+  <div class="vp-head" class:mobile={compact}>
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label="Back to herd">‹ Herd</button>
     {/if}
     <span class="desig">{session.desig}</span>
-    {#if !mobile}
+    {#if !compact}
       <span class="sep">·</span>
       <span class="branch">{session.branch ?? session.worktreePath}</span>
       <span class="sep">·</span>
@@ -187,7 +191,7 @@
       >
     {/if}
     <div class="spacer"></div>
-    <div class="tab-group" class:mobile>
+    <div class="tab-group" class:mobile={compact}>
       <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
         >Terminal</button
       >
@@ -198,7 +202,7 @@
         >Issues</button
       >
     </div>
-    {#if !mobile}
+    {#if !compact}
       <span class="sep">·</span>
     {/if}
     <span
@@ -208,7 +212,7 @@
       {#if session.status === "running"}⠿{/if}
       {statusLabel(session.status)}
     </span>
-    {#if session.status === "running" && !mobile}
+    {#if session.status === "running" && !compact}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     <button

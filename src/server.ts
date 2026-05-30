@@ -14,6 +14,7 @@ import { listRepos, readTodo, writeTodo } from "./repos";
 import { listBranches } from "./branches";
 import { listIssues } from "./github";
 import { sessionTokens, jsonlPathFor } from "./usage";
+import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
 import { join, normalize } from "node:path";
@@ -118,6 +119,12 @@ export function makeApp(deps: AppDeps) {
         parts[2] === "limits"
       ) {
         return json(deps.usageLimits.limits(Date.now()));
+      }
+
+      if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
+        if (req.method === "POST") {
+          return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
+        }
       }
 
       if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {

@@ -61,6 +61,7 @@
     baseBranch: string;
     prompt: string;
     model: string | null;
+    images: string[];
   }) {
     const s = await createSession(input);
     selectedId = s.id;

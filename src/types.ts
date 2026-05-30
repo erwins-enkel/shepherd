@@ -28,6 +28,7 @@ export interface CreateSessionInput {
   baseBranch: string;
   prompt: string;
   model: string | null; // null = claude default (no --model flag)
+  images: string[]; // absolute paths to staged uploads (may be empty)
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag. */

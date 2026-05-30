@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
   expandHome,
   parseTermDims,
 } from "../src/validate";
+import { stagingDir } from "../src/uploads";
 
 test("expandHome expands leading ~ to homedir", () => {
   expect(expandHome("~")).toBe(homedir());
@@ -262,4 +263,82 @@ test("isValidTerminalId: rejects id with space", () => {
 
 test("isValidTerminalId: rejects id with semicolon", () => {
   expect(isValidTerminalId("a;b")).toBe(false);
+});
+
+test("validateCreate accepts images inside the staging dir", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const img = join(staging, "a.png");
+  writeFileSync(img, "x");
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [img] },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.images).toEqual([img]);
+});
+
+test("validateCreate defaults images to [] when omitted", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.images).toEqual([]);
+});
+
+test("validateCreate rejects an image outside the staging dir", () => {
+  const outside = join(root, "evil.png");
+  writeFileSync(outside, "x");
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [outside] },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});
+
+test("validateCreate rejects a non-existent image", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      images: [join(stagingDir(root), "nope.png")],
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});
+
+test("validateCreate rejects more than 10 images", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const imgs: string[] = [];
+  for (let i = 0; i < 11; i++) {
+    const p = join(staging, `i${i}.png`);
+    writeFileSync(p, "x");
+    imgs.push(p);
+  }
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: imgs },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});
+
+test("validateCreate rejects a non-array images value", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: "x" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});
+
+test("validateCreate rejects duplicate image paths", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const img = join(staging, "dup.png");
+  writeFileSync(img, "x");
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [img, img] },
+    root,
+  );
+  expect(r.ok).toBe(false);
 });

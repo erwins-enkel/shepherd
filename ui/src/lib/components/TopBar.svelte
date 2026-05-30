@@ -8,12 +8,14 @@
     connected = false,
     mobile = false,
     limits = null,
+    onsettings,
   }: {
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
     mobile?: boolean;
     limits?: UsageLimits | null;
+    onsettings?: () => void;
   } = $props();
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
@@ -67,28 +69,37 @@
       </div>
     </div>
   {/if}
-  {#if gauges.length}
-    <div class="gauges" class:mobile class:stale={limits?.stale}>
-      {#each gauges as g (g.label)}
-        <div
-          class="gauge"
-          title="{g.label === '5H' ? '5-hour' : 'weekly'} limit · {g.w!
-            .pct}% used · resets {formatReset(g.w!.resetAt, nowMs)}{limits?.stale
-            ? ' · stale'
-            : ''}"
-        >
-          <span class="g-label micro">{g.label}</span>
-          <span class="g-bar"
-            ><span class="g-fill" style="width:{g.w!.pct}%;background:{gaugeColor(g.w!.pct)}"
-            ></span></span
+  <div class="rightside">
+    {#if gauges.length}
+      <div class="gauges" class:mobile class:stale={limits?.stale}>
+        {#each gauges as g (g.label)}
+          <div
+            class="gauge"
+            title="{g.label === '5H' ? '5-hour' : 'weekly'} limit · {g.w!
+              .pct}% used · resets {formatReset(g.w!.resetAt, nowMs)}{limits?.stale
+              ? ' · stale'
+              : ''}"
           >
-          <span class="g-pct" style="color:{gaugeColor(g.w!.pct)}">{g.w!.pct}%</span>
-        </div>
-      {/each}
+            <span class="g-label micro">{g.label}</span>
+            <span class="g-bar"
+              ><span class="g-fill" style="width:{g.w!.pct}%;background:{gaugeColor(g.w!.pct)}"
+              ></span></span
+            >
+            <span class="g-pct" style="color:{gaugeColor(g.w!.pct)}">{g.w!.pct}%</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    <div class="clock">
+      <span class="dot" class:on={connected}>●</span><span>{clock}</span>
     </div>
-  {/if}
-  <div class="clock">
-    <span class="dot" class:on={connected}>●</span><span>{clock}</span>
+    <button
+      class="gear"
+      type="button"
+      onclick={() => onsettings?.()}
+      title="Settings"
+      aria-label="settings">⚙</button
+    >
   </div>
 </div>
 
@@ -156,8 +167,27 @@
     color: var(--color-ink-bright);
     font-weight: 500;
   }
-  .gauges {
+  .rightside {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .gear {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 5px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .gear:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .gauges {
     display: flex;
     gap: 14px;
     align-items: center;
@@ -237,5 +267,8 @@
   }
   .hud.mobile .clock {
     font-size: 12px;
+  }
+  .hud.mobile .rightside {
+    gap: 9px;
   }
 </style>

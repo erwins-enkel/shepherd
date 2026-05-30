@@ -42,8 +42,14 @@
 
     const c = connectPty(
       id,
+      term.cols,
+      term.rows,
       (d) => term.write(d),
-      () => {},
+      // reconnected (e.g. waking from a backgrounded tab): refit + repaint
+      () => {
+        fit.fit();
+        c.resize(term.cols, term.rows);
+      },
     );
     // intentionally no term.onData → send: tiles are read-only monitors
 

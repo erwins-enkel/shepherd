@@ -5,6 +5,7 @@
   import type { Session } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
   import { connectPty } from "$lib/pty";
+  import TodoPanel from "$lib/components/TodoPanel.svelte";
 
   let {
     session,
@@ -15,6 +16,7 @@
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
+  let tab = $state<"term" | "todo">("term");
 
   const modelHint = "claude-4"; // static hint — backend doesn't expose model
 
@@ -63,6 +65,19 @@
     <span class="sep">·</span>
     <span class="model">{modelHint}</span>
     <div class="spacer"></div>
+    <div class="tab-group">
+      <button
+        class="tab-btn"
+        class:active={tab === "term"}
+        onclick={() => (tab = "term")}
+      >Terminal</button>
+      <button
+        class="tab-btn"
+        class:active={tab === "todo"}
+        onclick={() => (tab = "todo")}
+      >To-Do</button>
+    </div>
+    <span class="sep">·</span>
     <span
       class="status-badge"
       style="color:{STATUS_COLOR[session.status]};border-color:{STATUS_COLOR[session.status]}"
@@ -75,10 +90,15 @@
     {/if}
   </div>
 
-  <!-- scan overlay + terminal -->
+  <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body">
     <div class="scan" aria-hidden="true"></div>
-    <div class="term-mount" bind:this={el}></div>
+    <div class="term-mount" bind:this={el} style:display={tab === "term" ? undefined : "none"}></div>
+    {#if tab === "todo"}
+      <div class="todo-wrap">
+        <TodoPanel repoPath={session.repoPath} />
+      </div>
+    {/if}
   </div>
 
   <!-- footer -->
@@ -195,6 +215,40 @@
 
   .term-mount :global(.xterm-viewport) {
     overflow: hidden !important;
+  }
+
+  .tab-group {
+    display: flex;
+    gap: 2px;
+  }
+
+  .tab-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+
+  .tab-btn:hover {
+    color: var(--color-ink);
+  }
+
+  .tab-btn.active {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-inset);
+  }
+
+  .todo-wrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
   }
 
   .vp-foot {

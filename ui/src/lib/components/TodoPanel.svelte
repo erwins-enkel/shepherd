@@ -1,0 +1,267 @@
+<script lang="ts">
+  import { getTodo, putTodo } from "$lib/api";
+
+  let { repoPath }: { repoPath: string } = $props();
+
+  let content = $state("");
+  let exists = $state(false);
+  let loading = $state(true);
+  let adding = $state("");
+
+  const ITEM_RE = /^(\s*)-\s\[( |x|X)\]\s+(.*)$/;
+
+  $effect(() => {
+    const rp = repoPath;
+    loading = true;
+    getTodo(rp)
+      .then((r) => {
+        if (rp !== repoPath) return;
+        content = r.content;
+        exists = r.exists;
+        loading = false;
+      })
+      .catch(() => {
+        loading = false;
+        content = "";
+      });
+  });
+
+  function toggle(i: number) {
+    const lines = content.split("\n");
+    const line = lines[i];
+    if (/\[ \]/.test(line)) {
+      lines[i] = line.replace("[ ]", "[x]");
+    } else {
+      lines[i] = line.replace(/\[x\]/i, "[ ]");
+    }
+    content = lines.join("\n");
+    putTodo(repoPath, content).catch(() => {});
+  }
+
+  function addItem() {
+    const text = adding.trim();
+    if (!text) return;
+    if (content === "") {
+      content = "- [ ] " + text + "\n";
+    } else {
+      content = content.trimEnd() + "\n- [ ] " + text + "\n";
+    }
+    exists = true;
+    putTodo(repoPath, content).catch(() => {});
+    adding = "";
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") addItem();
+  }
+</script>
+
+<div class="todo-panel">
+  <div class="todo-header">TO-DO · TODO.md</div>
+
+  <div class="todo-list">
+    {#if loading}
+      <div class="muted">loading…</div>
+    {:else if !exists || content.trim() === ""}
+      <div class="empty-hint">No TODO.md yet — add the first item</div>
+    {:else}
+      {#each content.split("\n") as line, i (i + ":" + line)}
+        {@const match = ITEM_RE.exec(line)}
+        {#if match}
+          {@const done = match[2] !== " "}
+          <div class="item-row">
+            <input
+              type="checkbox"
+              class="cb"
+              checked={done}
+              onchange={() => toggle(i)}
+            />
+            <span class="item-label" class:done>{match[3]}</span>
+          </div>
+        {:else if line.trim() === ""}
+          <div class="spacer"></div>
+        {:else if line.startsWith("#")}
+          <div class="line-heading">{line.replace(/^#+\s*/, "")}</div>
+        {:else}
+          <div class="line-plain">{line}</div>
+        {/if}
+      {/each}
+    {/if}
+  </div>
+
+  <div class="add-row">
+    <input
+      class="add-input"
+      type="text"
+      placeholder="new item…"
+      bind:value={adding}
+      onkeydown={handleKeydown}
+    />
+    <button class="add-btn" onclick={addItem}>Add</button>
+  </div>
+</div>
+
+<style>
+  .todo-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #070a09;
+    font-family: var(--font-mono);
+    overflow: hidden;
+  }
+
+  .todo-header {
+    padding: 6px 12px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+  }
+
+  .todo-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .todo-list::-webkit-scrollbar {
+    width: 4px;
+  }
+  .todo-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .todo-list::-webkit-scrollbar-thumb {
+    background: var(--color-faint);
+    border-radius: 2px;
+  }
+
+  .item-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0;
+  }
+
+  .cb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--color-faint);
+    border-radius: 2px;
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    top: 1px;
+    transition: border-color 0.1s, background 0.1s;
+  }
+
+  .cb:checked {
+    background: var(--color-green);
+    border-color: var(--color-green);
+  }
+
+  .cb:checked::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 0px;
+    width: 5px;
+    height: 8px;
+    border: 1.5px solid #070a09;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+  }
+
+  .item-label {
+    font-size: 12.5px;
+    color: var(--color-ink);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .item-label.done {
+    color: var(--color-muted);
+    text-decoration: line-through;
+    text-decoration-color: var(--color-faint);
+  }
+
+  .spacer {
+    height: 6px;
+  }
+
+  .line-heading {
+    font-size: 11.5px;
+    color: var(--color-ink-bright);
+    font-weight: bold;
+    padding: 4px 0 2px;
+  }
+
+  .line-plain {
+    font-size: 12px;
+    color: var(--color-muted);
+    padding: 1px 0;
+  }
+
+  .muted,
+  .empty-hint {
+    font-size: 12px;
+    color: var(--color-faint);
+    padding: 4px 0;
+  }
+
+  .add-row {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-line);
+    flex-shrink: 0;
+  }
+
+  .add-input {
+    flex: 1;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 5px 8px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .add-input::placeholder {
+    color: var(--color-faint);
+  }
+
+  .add-input:focus {
+    border-color: var(--color-green);
+  }
+
+  .add-btn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .add-btn:hover {
+    border-color: var(--color-green);
+    color: var(--color-green);
+  }
+</style>

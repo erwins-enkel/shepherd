@@ -5,7 +5,7 @@
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
-  import { getSessionUsage } from "$lib/api";
+  import { getSessionUsage, uploadImage } from "$lib/api";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -31,6 +31,10 @@
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
   let conn = $state<PtyConn | undefined>();
+  let dragging = $state(false);
+  let uploading = $state(false);
+  let uploadFailed = $state(false);
+  let fileInput = $state<HTMLInputElement>();
 
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
@@ -75,6 +79,32 @@
     clearTimeout(armTimer);
     armed = false;
     onarchive?.(session.id);
+  }
+
+  // upload image(s) into this session's worktree, then inject their paths into
+  // the PTY as if typed — the user adds wording and presses Enter themselves.
+  async function attachImages(files: FileList | File[]) {
+    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imgs.length === 0 || !conn) return;
+    uploading = true;
+    uploadFailed = false;
+    try {
+      for (const f of imgs) {
+        const path = await uploadImage(f, session.id);
+        conn.send(` ${path} `);
+      }
+    } catch {
+      // surface failure on the button; never inject into the PTY (would pollute the prompt)
+      uploadFailed = true;
+    } finally {
+      uploading = false;
+    }
+  }
+
+  function onTermDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
   }
 
   $effect(() => {
@@ -231,8 +261,19 @@
     <div class="scan" aria-hidden="true"></div>
     <div
       class="term-mount"
+      class:dragging
+      role="region"
+      aria-label="Terminal"
       bind:this={el}
       style:display={tab === "term" ? undefined : "none"}
+      ondragover={(e) => {
+        e.preventDefault();
+        dragging = true;
+      }}
+      ondragleave={(e) => {
+        if (e.target === e.currentTarget) dragging = false;
+      }}
+      ondrop={onTermDrop}
     ></div>
     {#if tab === "todo"}
       <div class="panel-wrap">
@@ -252,7 +293,34 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
-    <ControlBar onkey={(seq) => conn?.send(seq)} />
+    <div class="ctrl-row">
+      <button
+        type="button"
+        class="attach"
+        class:failed={uploadFailed}
+        title={uploadFailed ? "Upload failed — tap to retry" : "Attach image"}
+        onpointerdown={(e) => {
+          e.preventDefault();
+          fileInput?.click();
+        }}
+        aria-label="Attach image"
+      >
+        {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
+      </button>
+      <ControlBar onkey={(seq) => conn?.send(seq)} />
+    </div>
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+      onchange={(e) => {
+        const t = e.currentTarget;
+        if (t.files) attachImages(t.files);
+        t.value = "";
+      }}
+    />
   {/if}
 
   <!-- footer -->
@@ -490,5 +558,33 @@
     font-size: 11px;
     color: var(--color-muted);
     flex-shrink: 0;
+  }
+
+  .term-mount.dragging {
+    outline: 2px dashed var(--color-amber);
+    outline-offset: -4px;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .ctrl-row .attach {
+    flex: 0 0 auto;
+    min-width: 44px;
+    height: 36px;
+    margin: 6px 0 6px 10px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-ink);
+    font-size: 16px;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  .ctrl-row .attach.failed {
+    border-color: var(--color-red);
+    color: var(--color-red);
   }
 </style>

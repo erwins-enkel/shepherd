@@ -71,6 +71,7 @@ All via environment variables (`src/config.ts`):
 | Variable                 | Default                               | Purpose                                                                     |
 | ------------------------ | ------------------------------------- | --------------------------------------------------------------------------- |
 | `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                         |
+| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)   |
 | `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                   |
 | `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                   |
 | `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard) |
@@ -97,6 +98,41 @@ bun run build         # production SPA build
 
 Prettier + ESLint run on commit via husky + lint-staged. After UI changes, rebuild `ui/build` and
 restart the core (it serves the SPA statically).
+
+## Deployment
+
+Shepherd runs as a **systemd user service** (as your own user, so it keeps your `claude`
+subscription login, `~/Work`, herdr, and ollama). It binds to **loopback only**
+(`SHEPHERD_HOST=127.0.0.1`); reach it over the network by putting it behind a trusted proxy —
+e.g. Tailscale:
+
+```bash
+tailscale serve --bg 7330        # → https://<host>.<tailnet>.ts.net proxies to 127.0.0.1:7330
+```
+
+Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the Tailscale name).
+Access control is **tailnet membership** — there is no app-level password.
+
+Install the unit (`deploy/shepherd.service`):
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/shepherd.service ~/.config/systemd/user/
+loginctl enable-linger "$USER"          # start at boot without an active login
+systemctl --user daemon-reload
+systemctl --user enable --now shepherd
+```
+
+Operate it:
+
+```bash
+systemctl --user status shepherd
+systemctl --user restart shepherd       # after rebuilding ui/ or pulling changes
+journalctl --user -u shepherd -f        # unit lifecycle; app log: ~/.shepherd/shepherd.log
+```
+
+Per-deployment overrides (token, repo root, alternate hosts) go in `~/.shepherd/env`
+(`KEY=value` lines), read by the unit if present.
 
 ## Project layout
 

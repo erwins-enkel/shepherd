@@ -156,6 +156,7 @@ export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   return Bun.serve<WsData>({
     port,
+    hostname: config.host,
     fetch(req, server) {
       const authErr = checkAuth(req);
       if (authErr) return authErr;

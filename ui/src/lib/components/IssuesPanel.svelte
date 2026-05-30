@@ -203,4 +203,18 @@
     color: var(--color-faint);
     padding: 4px 0;
   }
+
+  @media (max-width: 768px) {
+    .issues-list {
+      -webkit-overflow-scrolling: touch;
+    }
+    .task-btn {
+      min-height: 40px;
+      padding: 2px 14px;
+    }
+    .ext-link {
+      font-size: 15px;
+      padding: 0 4px;
+    }
+  }
 </style>

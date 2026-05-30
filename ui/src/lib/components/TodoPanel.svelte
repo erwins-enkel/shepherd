@@ -256,4 +256,31 @@
     border-color: var(--color-green);
     color: var(--color-green);
   }
+
+  @media (max-width: 768px) {
+    .todo-list {
+      -webkit-overflow-scrolling: touch;
+    }
+    .item-row {
+      padding: 6px 0;
+      align-items: center;
+    }
+    .cb {
+      width: 18px;
+      height: 18px;
+      top: 0;
+    }
+    .cb:checked::after {
+      left: 5px;
+      top: 2px;
+      width: 6px;
+      height: 10px;
+    }
+    .add-input {
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+    .add-btn {
+      min-height: 40px;
+    }
+  }
 </style>

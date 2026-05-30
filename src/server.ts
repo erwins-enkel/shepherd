@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { SessionService } from "./service";
 import type { EventHub } from "./events";
+import { PtyBridge } from "./pty-bridge";
 
 export interface AppDeps {
   store: SessionStore;
@@ -39,4 +40,55 @@ export function makeApp(deps: AppDeps) {
       return json({ error: "not found" }, 404);
     },
   };
+}
+
+type WsData = { kind: "events" } | { kind: "pty"; terminalId: string; bridge?: PtyBridge };
+
+export function serve(deps: AppDeps, port: number) {
+  const app = makeApp(deps);
+  return Bun.serve<WsData>({
+    port,
+    fetch(req, server) {
+      const url = new URL(req.url);
+      if (url.pathname === "/events") {
+        return server.upgrade(req, { data: { kind: "events" } })
+          ? undefined
+          : new Response("upgrade failed", { status: 500 });
+      }
+      const m = url.pathname.match(/^\/pty\/([^/]+)$/);
+      if (m) {
+        const s = deps.store.get(m[1]!);
+        if (!s) return new Response("no session", { status: 404 });
+        return server.upgrade(req, { data: { kind: "pty", terminalId: s.herdrAgentId } })
+          ? undefined
+          : new Response("upgrade failed", { status: 500 });
+      }
+      return app.fetch(req);
+    },
+    websocket: {
+      open(ws) {
+        if (ws.data.kind === "events") {
+          const unsub = deps.events.subscribe((event, data) =>
+            ws.send(JSON.stringify({ event, data })),
+          );
+          (ws.data as any).unsub = unsub;
+        } else {
+          const bridge = new PtyBridge(ws.data.terminalId, {
+            send: (d) => ws.send(d),
+            close: () => ws.close(),
+          });
+          ws.data.bridge = bridge;
+          bridge.open();
+        }
+      },
+      message(ws, msg) {
+        if (ws.data.kind !== "pty") return;
+        ws.data.bridge?.write(typeof msg === "string" ? msg : msg.toString());
+      },
+      close(ws) {
+        if (ws.data.kind === "events") (ws.data as any).unsub?.();
+        else ws.data.bridge?.close();
+      },
+    },
+  });
 }

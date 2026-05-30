@@ -1,13 +1,25 @@
 <script lang="ts">
-  let { onnew }: { onnew: () => void } = $props();
+  let {
+    onnew,
+    mobile = false,
+    desktopOnly = false,
+  }: {
+    onnew: () => void;
+    mobile?: boolean;
+    desktopOnly?: boolean;
+  } = $props();
 </script>
 
-<div class="actions">
-  <button class="btn primary" type="button" onclick={onnew}>+ New Task</button>
-  <button class="btn" type="button">All ▦</button>
-  <button class="btn" type="button">Focus ⌖</button>
-  <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
-</div>
+{#if !(desktopOnly && mobile)}
+  <div class="actions" class:mobile>
+    <button class="btn primary" type="button" onclick={onnew}>+ New Task</button>
+    {#if !mobile}
+      <button class="btn" type="button">All ▦</button>
+      <button class="btn" type="button">Focus ⌖</button>
+      <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .actions {
@@ -42,5 +54,14 @@
     color: var(--color-faint);
     font-size: 11px;
     letter-spacing: 0.1em;
+  }
+  .actions.mobile {
+    padding: 10px;
+  }
+  .actions.mobile .btn.primary {
+    flex: 1;
+    text-align: center;
+    padding: 12px;
+    font-size: 12px;
   }
 </style>

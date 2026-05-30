@@ -18,6 +18,18 @@ export async function createSession(input: CreateInput): Promise<Session> {
   return r.json();
 }
 
+/** Upload one image; returns its absolute server path. Pass sessionId to store it
+ *  inside that session's worktree (live terminal); omit for New Task staging. */
+export async function uploadImage(file: File, sessionId?: string): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
+  // no content-type header: the browser sets the multipart boundary
+  const r = await fetch(`/api/uploads${q}`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`upload failed: ${r.status}`);
+  return (await r.json()).path as string;
+}
+
 export async function archiveSession(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`archive failed: ${r.status}`);

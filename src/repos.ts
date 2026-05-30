@@ -1,0 +1,48 @@
+import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { safeRepoDir } from "./validate";
+
+export interface RepoEntry {
+  name: string;
+  path: string;
+}
+
+export function listRepos(repoRoot: string): RepoEntry[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(repoRoot);
+  } catch {
+    return [];
+  }
+  return entries
+    .map((name) => ({ name, path: join(repoRoot, name) }))
+    .filter((e) => {
+      try {
+        return statSync(e.path).isDirectory() && !e.name.startsWith(".");
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const TODO = "TODO.md";
+
+export function readTodo(
+  repoPathRaw: string,
+  repoRoot: string,
+): { ok: boolean; exists: boolean; content: string } {
+  const dir = safeRepoDir(repoPathRaw, repoRoot);
+  if (!dir) return { ok: false, exists: false, content: "" };
+  const file = join(dir, TODO);
+  if (!existsSync(file)) return { ok: true, exists: false, content: "" };
+  return { ok: true, exists: true, content: readFileSync(file, "utf8") };
+}
+
+export function writeTodo(repoPathRaw: string, repoRoot: string, content: string): boolean {
+  const dir = safeRepoDir(repoPathRaw, repoRoot);
+  if (!dir) return false;
+  if (typeof content !== "string" || content.length > 100_000) return false;
+  writeFileSync(join(dir, TODO), content, "utf8");
+  return true;
+}

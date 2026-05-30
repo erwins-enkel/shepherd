@@ -86,6 +86,20 @@ export function isValidTerminalId(id: string): boolean {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) && !id.startsWith("-");
 }
 
+/** Resolve a repo path, confined to repoRoot and required to be an existing directory. null if invalid. */
+export function safeRepoDir(repoPathRaw: string, repoRoot: string): string | null {
+  if (typeof repoPathRaw !== "string" || repoPathRaw.length === 0) return null;
+  const resolved = resolve(expandHome(repoPathRaw));
+  const root = resolve(expandHome(repoRoot));
+  const inside = resolved === root || resolved.startsWith(root + sep);
+  if (!inside) return null;
+  try {
+    return statSync(resolved).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns true when the request should be allowed through the CSRF origin check. */
 export function originAllowed(
   originHeader: string | null | undefined,

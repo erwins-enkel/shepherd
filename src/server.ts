@@ -4,6 +4,7 @@ import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
 import { validateCreate, isAuthorized, originAllowed } from "./validate";
+import { listRepos, readTodo, writeTodo } from "./repos";
 import { join, normalize } from "node:path";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -46,7 +47,7 @@ function checkAuth(req: Request): Response | null {
 
 function checkOrigin(req: Request): Response | null {
   const method = req.method;
-  if (method !== "POST" && method !== "DELETE") return null;
+  if (method !== "POST" && method !== "DELETE" && method !== "PUT") return null;
   if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts)) {
     return json({ error: "forbidden: origin not allowed" }, 403);
   }
@@ -89,6 +90,32 @@ export function makeApp(deps: AppDeps) {
           return json({ ok: true });
         }
       }
+      if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
+        if (req.method === "GET") return json(listRepos(config.repoRoot));
+      }
+
+      if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {
+        const repoParam = url.searchParams.get("repo") ?? "";
+        if (req.method === "GET") {
+          const r = readTodo(repoParam, config.repoRoot);
+          if (!r.ok) return json({ error: "invalid repo path" }, 400);
+          return json(r);
+        }
+        if (req.method === "PUT") {
+          const body = await req.json().catch(() => null);
+          if (
+            body === null ||
+            typeof body !== "object" ||
+            typeof (body as any).content !== "string"
+          ) {
+            return json({ error: "body must be {content: string}" }, 400);
+          }
+          const ok = writeTodo(repoParam, config.repoRoot, (body as any).content);
+          if (!ok) return json({ error: "invalid repo path or content too large" }, 400);
+          return json({ ok: true });
+        }
+      }
+
       if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);
       if (req.method === "GET") return serveStatic(url.pathname);
       return json({ error: "not found" }, 404);

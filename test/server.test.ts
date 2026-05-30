@@ -221,3 +221,34 @@ test("WS /events with allowed Origin → not 403", async () => {
     server.stop();
   }
 });
+
+// ── /api/repos + /api/todo ────────────────────────────────────────────────────
+
+test("GET /api/repos → 200 + JSON array", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/api/repos"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+});
+
+test("GET /api/todo?repo=/etc/passwd → 400", async () => {
+  const app = harness();
+  const res = await app.fetch(new Request("http://x/api/todo?repo=/etc/passwd"));
+  expect(res.status).toBe(400);
+});
+
+test("PUT /api/todo with evil Origin → 403", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request(`http://x/api/todo?repo=${encodeURIComponent(validRepo)}`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        Origin: "https://evil.com",
+      },
+      body: JSON.stringify({ content: "- [ ] test" }),
+    }),
+  );
+  expect(res.status).toBe(403);
+});

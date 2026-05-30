@@ -15,17 +15,21 @@ export class PtyBridge {
     private terminalId: string,
     private ws: PtySocket,
     private helperPath = new URL("./pty-attach.mjs", import.meta.url).pathname,
+    private nodeBin = config.nodeBin,
   ) {}
 
   open(cols = 100, rows = 30): void {
     if (!isValidTerminalId(this.terminalId)) throw new Error("invalid terminalId");
-    this.proc = Bun.spawn(["node", this.helperPath, this.terminalId, String(cols), String(rows)], {
-      stdin: "pipe" as const,
-      stdout: "pipe" as const,
-      stderr: "inherit" as const,
-      env: { ...process.env, HERDR_BIN: config.herdrBin },
-      onExit: () => this.ws.close(),
-    }) as NodeProc;
+    this.proc = Bun.spawn(
+      [this.nodeBin, this.helperPath, this.terminalId, String(cols), String(rows)],
+      {
+        stdin: "pipe" as const,
+        stdout: "pipe" as const,
+        stderr: "inherit" as const,
+        env: { ...process.env, HERDR_BIN: config.herdrBin },
+        onExit: () => this.ws.close(),
+      },
+    ) as NodeProc;
     (async () => {
       for await (const chunk of this.proc!.stdout as ReadableStream<Uint8Array>) {
         this.ws.send(chunk);

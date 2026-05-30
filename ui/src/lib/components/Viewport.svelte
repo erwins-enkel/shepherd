@@ -6,17 +6,20 @@
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
   import { connectPty } from "$lib/pty";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
+  import IssuesPanel from "$lib/components/IssuesPanel.svelte";
 
   let {
     session,
     nowMs = Date.now(),
+    onnewtask,
   }: {
     session: Session;
     nowMs?: number;
+    onnewtask?: (repoPath: string, prompt: string) => void;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
-  let tab = $state<"term" | "todo">("term");
+  let tab = $state<"term" | "todo" | "issues">("term");
 
   const modelHint = "claude-4"; // static hint — backend doesn't expose model
 
@@ -76,6 +79,11 @@
         class:active={tab === "todo"}
         onclick={() => (tab = "todo")}
       >To-Do</button>
+      <button
+        class="tab-btn"
+        class:active={tab === "issues"}
+        onclick={() => (tab = "issues")}
+      >Issues</button>
     </div>
     <span class="sep">·</span>
     <span
@@ -95,8 +103,16 @@
     <div class="scan" aria-hidden="true"></div>
     <div class="term-mount" bind:this={el} style:display={tab === "term" ? undefined : "none"}></div>
     {#if tab === "todo"}
-      <div class="todo-wrap">
+      <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
+      </div>
+    {/if}
+    {#if tab === "issues"}
+      <div class="panel-wrap">
+        <IssuesPanel
+          repoPath={session.repoPath}
+          onnewtask={(p) => onnewtask?.(session.repoPath, p)}
+        />
       </div>
     {/if}
   </div>
@@ -245,7 +261,7 @@
     background: var(--color-inset);
   }
 
-  .todo-wrap {
+  .panel-wrap {
     position: absolute;
     inset: 0;
     overflow: hidden;

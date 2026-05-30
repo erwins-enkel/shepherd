@@ -12,6 +12,8 @@
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
   let nowMs = $state(Date.now());
+  let composeRepoPath = $state<string | null>(null);
+  let composePrompt = $state("");
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
@@ -34,6 +36,8 @@
     const s = await createSession(input);
     selectedId = s.id;
     showNew = false;
+    composeRepoPath = null;
+    composePrompt = "";
   }
 </script>
 
@@ -42,7 +46,14 @@
   <div class="grid">
     <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => (selectedId = id)} />
     {#if selected}
-      <Viewport session={selected} />
+      <Viewport
+        session={selected}
+        onnewtask={(repoPath, prompt) => {
+          composeRepoPath = repoPath;
+          composePrompt = prompt;
+          showNew = true;
+        }}
+      />
     {:else}
       <div class="empty">NO UNIT SELECTED</div>
     {/if}
@@ -51,7 +62,16 @@
 </div>
 
 {#if showNew}
-  <NewTask {onsubmit} onclose={() => (showNew = false)} />
+  <NewTask
+    {onsubmit}
+    initialRepoPath={composeRepoPath ?? undefined}
+    initialPrompt={composePrompt}
+    onclose={() => {
+      showNew = false;
+      composeRepoPath = null;
+      composePrompt = "";
+    }}
+  />
 {/if}
 
 <style>

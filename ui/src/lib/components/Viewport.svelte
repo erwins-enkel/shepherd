@@ -43,6 +43,12 @@
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
 
+  // session:status events replace the Session object on every state change of the
+  // running unit, so the `session` prop reference churns while its id stays put.
+  // Derive the id: a $derived only notifies dependents when its *value* changes,
+  // so effects keyed on it re-run on an actual unit switch — not on status churn.
+  const unitId = $derived(session.id);
+
   // per-session token usage from ~/.claude JSONL; refresh on select + every 5s
   let usage = $state<SessionUsage | null>(null);
   $effect(() => {
@@ -65,11 +71,11 @@
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    session.id; // on unit change: disarm decommission + default back to terminal tab
+    unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
     tab = "term";
-    return () => clearTimeout(armTimer);
   });
+  $effect(() => () => clearTimeout(armTimer));
   function decommission() {
     if (!armed) {
       armed = true;
@@ -112,7 +118,7 @@
   }
 
   $effect(() => {
-    const id = session.id;
+    const id = unitId;
     if (!el) return;
 
     const term = new Terminal({

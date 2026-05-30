@@ -7,6 +7,9 @@ import { validateCreate, isAuthorized, originAllowed, safeRepoDir } from "./vali
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listBranches } from "./branches";
 import { listIssues } from "./github";
+import { sessionTokens, jsonlPathFor } from "./usage";
+import type { UsageLimitsService } from "./usage-limits";
+import type { Session } from "./types";
 import { join, normalize } from "node:path";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -35,7 +38,13 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  usageLimits: Pick<UsageLimitsService, "limits">;
 }
+
+const sessionUsage = (s: Session) =>
+  s.claudeSessionId
+    ? sessionTokens(jsonlPathFor(s.worktreePath, s.claudeSessionId))
+    : sessionTokens("/nonexistent"); // pre-feature session → zeroed usage
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -82,6 +91,10 @@ export function makeApp(deps: AppDeps) {
           return json(s, 201);
         }
         if (req.method === "GET" && !parts[2]) return json(deps.store.list({ activeOnly: true }));
+        if (req.method === "GET" && parts[2] && parts[3] === "usage") {
+          const s = deps.store.get(parts[2]);
+          return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
+        }
         if (req.method === "GET" && parts[2]) {
           const s = deps.store.get(parts[2]);
           return s ? json(s) : json({ error: "not found" }, 404);
@@ -92,6 +105,15 @@ export function makeApp(deps: AppDeps) {
           return json({ ok: true });
         }
       }
+      if (
+        req.method === "GET" &&
+        parts[0] === "api" &&
+        parts[1] === "usage" &&
+        parts[2] === "limits"
+      ) {
+        return json(deps.usageLimits.limits(Date.now()));
+      }
+
       if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
         if (req.method === "GET") {
           const lastUsed = deps.store.lastUsedByRepo();

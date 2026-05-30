@@ -43,13 +43,40 @@ function makeDeps(): AppDeps {
       stop: () => {},
     } as any,
   });
-  return { store, service, events };
+  const usageLimits = {
+    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+  };
+  return { store, service, events, usageLimits };
 }
 
 function harness() {
   const deps = makeDeps();
   return makeApp(deps);
 }
+
+test("GET /api/usage/limits returns the limits snapshot", async () => {
+  const res = await harness().fetch(new Request("http://x/api/usage/limits"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toEqual({ session5h: null, week: null, stale: true, calibratedAt: null });
+});
+
+test("GET /api/sessions/:id/usage returns zeroed usage for a session w/o JSONL", async () => {
+  const app = harness();
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/usage`));
+  expect(res.status).toBe(200);
+  const u = await res.json();
+  expect(u.total).toBe(0);
+  expect(u.messageCount).toBe(0);
+});
+
+test("GET /api/sessions/:id/usage 404s for unknown id", async () => {
+  const res = await harness().fetch(new Request("http://x/api/sessions/nope/usage"));
+  expect(res.status).toBe(404);
+});
 
 function postSessions(app: ReturnType<typeof makeApp>, body: unknown, headers?: HeadersInit) {
   return app.fetch(

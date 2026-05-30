@@ -13,6 +13,8 @@ export interface Session {
   isolated: boolean;
   herdrSession: string;
   herdrAgentId: string; // herdr terminal_id (attach target)
+  claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
+
   model: string | null; // claude --model alias; null = claude's own default (no flag)
   status: SessionStatus;
   lastState: HerdrState;

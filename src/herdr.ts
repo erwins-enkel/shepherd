@@ -58,6 +58,31 @@ export class HerdrDriver {
     return match;
   }
 
+  /** Write literal text to an agent's PTY (no implicit Enter). */
+  send(target: string, text: string): void {
+    this.runner(["agent", "send", target, text]);
+  }
+
+  /** Read an agent's terminal buffer as plain text (default: the visible viewport). */
+  read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
+    const out = this.runner([
+      "agent",
+      "read",
+      target,
+      "--format",
+      "text",
+      "--source",
+      source,
+      "--lines",
+      String(lines),
+    ]);
+    try {
+      return JSON.parse(out)?.result?.read?.text ?? "";
+    } catch {
+      return out;
+    }
+  }
+
   /** Best-effort: stop the live agent backing a terminal id (closes its herdr pane). */
   stop(terminalId: string): void {
     const agent = this.list().find((a) => a.terminalId === terminalId);

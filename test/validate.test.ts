@@ -298,3 +298,15 @@ test("validateCreate rejects a non-array images value", () => {
   );
   expect(r.ok).toBe(false);
 });
+
+test("validateCreate rejects duplicate image paths", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const img = join(staging, "dup.png");
+  writeFileSync(img, "x");
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [img, img] },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});

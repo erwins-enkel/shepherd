@@ -94,6 +94,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       }
       images.push(real);
     }
+    if (new Set(images).size !== images.length) return err("duplicate image paths");
   }
 
   return {

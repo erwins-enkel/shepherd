@@ -36,7 +36,7 @@ export class SessionService {
     const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
     return this.deps.store.create({
       name,
-      prompt: input.prompt,
+      prompt: input.prompt, // store the original user text, not the argv-augmented version
       repoPath: input.repoPath,
       baseBranch: input.baseBranch,
       branch: wt.branch,

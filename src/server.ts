@@ -6,7 +6,6 @@ import { config } from "./config";
 import { validateCreate, isAuthorized, originAllowed, safeRepoDir } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listBranches } from "./branches";
-import { listIssues } from "./github";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
@@ -186,7 +185,14 @@ export function makeApp(deps: AppDeps) {
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
         const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
         if (!dir) return json({ error: "invalid repo" }, 400);
-        return json(listIssues(dir));
+        const forge = deps.resolveForge?.(dir) ?? null;
+        if (!forge) return json({ slug: null, issues: [] });
+        try {
+          return json({ slug: forge.slug, issues: await forge.listIssues() });
+        } catch {
+          // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
+          return json({ slug: forge.slug, issues: [] });
+        }
       }
 
       if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {

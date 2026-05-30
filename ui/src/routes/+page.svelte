@@ -19,6 +19,9 @@
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
   const mobile = new MediaQuery("max-width: 768px");
+  // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):
+  // gets the control-key bar even in desktop layout, since there's no hardware keyboard
+  const touch = new MediaQuery("(pointer: coarse)");
   let mobileScreen = $state<"list" | "detail">("list");
 
   function selectUnit(id: string) {
@@ -107,6 +110,7 @@
       {#if selected}
         <Viewport
           session={selected}
+          touch={touch.current}
           {onarchive}
           onnewtask={(repoPath, prompt) => {
             composeRepoPath = repoPath;

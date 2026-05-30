@@ -42,7 +42,8 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s) return;
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
-    if (s.isolated) this.deps.worktree.remove(s.worktreePath);
+    if (s.isolated)
+      this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
     this.deps.store.archive(id);
   }
 }

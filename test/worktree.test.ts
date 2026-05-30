@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -35,6 +35,58 @@ test("create makes an isolated worktree on a shepherd/ branch", () => {
     cwd: repo,
   }).toString();
   expect(branches).toContain("shepherd/repo-flatten");
+});
+
+test("remove force-deletes the workspace even when git worktree remove refuses", () => {
+  const wt = new WorktreeMgr();
+  // a populated dir inside the repo that git does NOT track as a worktree:
+  // `git worktree remove` errors on it, so cleanup must fall back to the filesystem
+  const stray = join(repo, "stray-workspace");
+  mkdirSync(stray);
+  writeFileSync(join(stray, "f.txt"), "x");
+  wt.remove(stray);
+  expect(existsSync(stray)).toBe(false);
+});
+
+test("remove prunes the stale worktree registration", () => {
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "prune-me");
+  wt.remove(r.worktreePath);
+  // no dangling entry left in `git worktree list`
+  const list = execFileSync("git", ["worktree", "list"], { cwd: repo }).toString();
+  expect(list).not.toContain(r.worktreePath);
+});
+
+test("remove deletes the branch once it's merged into its base", () => {
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "merged");
+  // fresh branch sits at main's tip → already an ancestor of main (nothing to lose)
+  wt.remove(r.worktreePath, { branch: r.branch, baseBranch: "main" });
+  const branches = execFileSync("git", ["branch", "--list", "shepherd/merged"], {
+    cwd: repo,
+  }).toString();
+  expect(branches.trim()).toBe("");
+});
+
+test("remove retains the branch when it has unmerged commits", () => {
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "wip");
+  // a commit that exists only on the session branch → not merged into main
+  writeFileSync(join(r.worktreePath, "wip.txt"), "x");
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  execFileSync("git", ["add", "-A"], { cwd: r.worktreePath });
+  execFileSync("git", ["commit", "-q", "-m", "wip"], { cwd: r.worktreePath, env });
+  wt.remove(r.worktreePath, { branch: r.branch, baseBranch: "main" });
+  const branches = execFileSync("git", ["branch", "--list", "shepherd/wip"], {
+    cwd: repo,
+  }).toString();
+  expect(branches).toContain("shepherd/wip");
 });
 
 test("non-git dir falls back to cwd, not isolated", () => {

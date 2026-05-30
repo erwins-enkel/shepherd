@@ -96,12 +96,12 @@ export function serve(deps: AppDeps, port: number) {
       }
       const m = url.pathname.match(/^\/pty\/([^/]+)$/);
       if (m) {
-        const s = deps.store.get(m[1]!);
-        if (!s) return new Response("no session", { status: 404 });
         const origin = req.headers.get("Origin");
         if (!originAllowed(origin, config.allowedOriginHosts)) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
+        const s = deps.store.get(m[1]!);
+        if (!s) return new Response("no session", { status: 404 });
         return server.upgrade(req, { data: { kind: "pty", terminalId: s.herdrAgentId } })
           ? undefined
           : new Response("upgrade failed", { status: 500 });

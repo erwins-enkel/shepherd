@@ -38,10 +38,6 @@ export class PtyBridge {
     this.proc?.stdin.flush();
   }
 
-  resize(cols: number, rows: number): void {
-    this.write(`\x00resize:${cols}:${rows}\n`);
-  }
-
   close(): void {
     this.proc?.kill();
     this.proc = null;

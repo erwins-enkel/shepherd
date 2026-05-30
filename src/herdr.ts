@@ -48,14 +48,13 @@ export class HerdrDriver {
 
   start(name: string, cwd: string, argv: string[]): HerdrAgent {
     this.runner(["agent", "start", name, "--cwd", cwd, "--no-focus", "--", ...argv]);
+    // NOTE: resolves the just-started agent by its unique worktree cwd; ambiguous only if two
+    // sessions share a cwd (e.g. two non-git cwd-fallbacks on the same repoPath). TODO: prefer a
+    // terminal_id returned directly by `herdr agent start` if herdr exposes it.
     const match = this.list()
       .filter((a) => a.cwd === cwd)
       .at(-1);
     if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
     return match;
-  }
-
-  attachArgv(terminalId: string): string[] {
-    return ["agent", "attach", terminalId];
   }
 }

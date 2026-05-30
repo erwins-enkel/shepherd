@@ -5,9 +5,9 @@ export default [
   js.configs.recommended,
   ...ts.configs.recommended,
   { rules: { "@typescript-eslint/no-explicit-any": "off" } },
-  // pty-attach.mjs runs under Node — needs Node globals
+  // .mjs files run under Node — needs Node globals
   {
-    files: ["src/pty-attach.mjs"],
+    files: ["src/pty-attach.mjs", "test/fixtures/*.mjs"],
     languageOptions: { globals: globals.node },
   },
 ];

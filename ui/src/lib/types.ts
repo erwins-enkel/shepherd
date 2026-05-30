@@ -20,6 +20,17 @@ export interface TodoDoc {
   content: string;
 }
 
+export type BlockShape = "menu" | "yes-no" | "awaiting-input";
+export interface BlockOption {
+  label: string;
+  send: string;
+}
+export interface BlockReason {
+  shape: BlockShape;
+  options: BlockOption[];
+  tail: string[];
+}
+
 export interface Session {
   id: string;
   desig: string;
@@ -67,7 +78,8 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:archived"; data: { id: string } }
-  | { event: "usage:limits"; data: UsageLimits };
+  | { event: "usage:limits"; data: UsageLimits }
+  | { event: "session:block"; data: { id: string; block: BlockReason | null } };
 
 export interface CreateInput {
   repoPath: string;

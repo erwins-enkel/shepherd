@@ -41,6 +41,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     baseBranch: "main",
     prompt: "flatten it",
     model: null,
+    images: [],
   });
   expect(s.name).toBe("repo-flatten");
   expect(s.worktreePath).toBe("/wt/repo-flatten");
@@ -82,6 +83,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     baseBranch: "main",
     prompt: "go",
     model: "opus",
+    images: [],
   });
   expect(s.model).toBe("opus");
   expect(calls.argv).toEqual([
@@ -94,6 +96,62 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     "go",
   ]);
   expect(store.get(s.id)?.model).toBe("opus");
+});
+
+test("createSession: moves images into worktree and appends paths to the prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string, cwd: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_y", cwd, agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+      },
+      list: () => [],
+    } as any,
+    moveUploads: (images: string[], worktreePath: string) =>
+      images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "look at this",
+    model: null,
+    images: ["/stage/a.png", "/stage/b.png"],
+  });
+
+  // prompt argv (last element) carries the user text + the moved image paths
+  expect(calls.argv[calls.argv.length - 1]).toBe(
+    "look at this\n\nAttached images:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/b.png",
+  );
+  // stored prompt stays the clean user text
+  expect(store.get(s.id)?.prompt).toBe("look at this");
+});
+
+test("createSession: no images leaves the prompt argv unchanged", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: { create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }), remove: () => {} } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "t", cwd: "/wt/x", agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w" };
+      },
+      list: () => [],
+    } as any,
+  });
+  await service.create({ repoPath: "/repo", baseBranch: "main", prompt: "go", model: null, images: [] });
+  expect(calls.argv[calls.argv.length - 1]).toBe("go");
 });
 
 test("archive stops the herdr agent, removes the worktree, and archives the row", () => {

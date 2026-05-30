@@ -1,11 +1,15 @@
-import type { Session, WsEvent } from "./types";
+import type { Session, WsEvent, UsageLimits } from "./types";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
   connected = $state(false);
+  usageLimits = $state<UsageLimits | null>(null);
 
   setAll(list: Session[]) {
     this.sessions = list;
+  }
+  setUsageLimits(l: UsageLimits) {
+    this.usageLimits = l;
   }
   byId(id: string) {
     return this.sessions.find((s) => s.id === id);
@@ -20,6 +24,8 @@ export class HerdStore {
       );
     } else if (ev.event === "session:archived") {
       this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
+    } else if (ev.event === "usage:limits") {
+      this.usageLimits = ev.data;
     }
   }
 

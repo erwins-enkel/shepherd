@@ -8,6 +8,10 @@ export const config = {
   herdrSession: process.env.HERDR_SESSION ?? "default",
   ollamaModel: process.env.SHEPHERD_NAMER_MODEL ?? "mistral-small3.1:latest",
   ollamaEndpoint: process.env.OLLAMA_URL ?? "http://localhost:11434/api/generate",
+  // usage tracking: where Claude Code writes its session JSONL
+  claudeProjectsDir:
+    process.env.CLAUDE_PROJECTS_DIR ??
+    `${process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`}/projects`,
   // security
   repoRoot: process.env.SHEPHERD_REPO_ROOT ?? `${process.env.HOME}/Work`,
   allowedOriginHosts: (process.env.SHEPHERD_ALLOWED_HOSTS ?? "localhost,127.0.0.1,::1,[::1]").split(

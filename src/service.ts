@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
@@ -17,7 +18,8 @@ export class SessionService {
   async create(input: CreateSessionInput): Promise<Session> {
     const name = await this.deps.namer(input.prompt);
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
-    const argv = ["claude", "--dangerously-skip-permissions"];
+    const claudeSessionId = randomUUID();
+    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
     if (input.model) argv.push("--model", input.model);
     argv.push(input.prompt);
     const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
@@ -31,6 +33,7 @@ export class SessionService {
       isolated: wt.isolated,
       herdrSession: config.herdrSession,
       herdrAgentId: agent.terminalId,
+      claudeSessionId,
       model: input.model,
     });
   }

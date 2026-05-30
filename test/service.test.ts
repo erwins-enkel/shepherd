@@ -46,9 +46,16 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(s.worktreePath).toBe("/wt/repo-flatten");
   expect(s.herdrAgentId).toBe("term_z");
   expect(s.model).toBeNull();
-  // no --model flag when model is null (claude uses its own default)
-  expect(calls.start.argv).toEqual(["claude", "--dangerously-skip-permissions", "flatten it"]);
-  expect(store.get(s.id)).toBeTruthy();
+  // pins a claude session id; no --model flag when model is null (claude's own default)
+  expect(calls.start.argv).toEqual([
+    "claude",
+    "--dangerously-skip-permissions",
+    "--session-id",
+    s.claudeSessionId,
+    "flatten it",
+  ]);
+  expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
 test("createSession: passes --model and persists it when a model is chosen", async () => {
@@ -77,7 +84,15 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     model: "opus",
   });
   expect(s.model).toBe("opus");
-  expect(calls.argv).toEqual(["claude", "--dangerously-skip-permissions", "--model", "opus", "go"]);
+  expect(calls.argv).toEqual([
+    "claude",
+    "--dangerously-skip-permissions",
+    "--session-id",
+    s.claudeSessionId,
+    "--model",
+    "opus",
+    "go",
+  ]);
   expect(store.get(s.id)?.model).toBe("opus");
 });
 

@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
-  import { listSessions, createSession, archiveSession } from "$lib/api";
+  import { listSessions, createSession, archiveSession, getUsageLimits } from "$lib/api";
   import TopBar from "$lib/components/TopBar.svelte";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
@@ -40,6 +40,9 @@
         if (!selectedId && list[0]) selectedId = list[0].id;
       })
       .catch(() => {});
+    getUsageLimits()
+      .then((l) => store.setUsageLimits(l))
+      .catch(() => {});
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {
@@ -69,7 +72,13 @@
 </script>
 
 <div class="shell" class:mobile={mobile.current}>
-  <TopBar sessions={store.sessions} {nowMs} connected={store.connected} mobile={mobile.current} />
+  <TopBar
+    sessions={store.sessions}
+    {nowMs}
+    connected={store.connected}
+    mobile={mobile.current}
+    limits={store.usageLimits}
+  />
 
   {#if mobile.current}
     {#if mobileScreen === "list"}

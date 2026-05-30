@@ -32,6 +32,7 @@ export interface Session {
   isolated: boolean;
   herdrSession: string;
   herdrAgentId: string;
+  claudeSessionId: string;
   model: string | null;
   status: SessionStatus;
   lastState: string;
@@ -40,10 +41,33 @@ export interface Session {
   archivedAt: number | null;
 }
 
+export interface SessionUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  messageCount: number;
+  lastActivity: number | null;
+  byModel: Record<string, number>;
+}
+
+export interface LimitWindow {
+  pct: number;
+  resetAt: number;
+}
+export interface UsageLimits {
+  session5h: LimitWindow | null;
+  week: LimitWindow | null;
+  stale: boolean;
+  calibratedAt: number | null;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
-  | { event: "session:archived"; data: { id: string } };
+  | { event: "session:archived"; data: { id: string } }
+  | { event: "usage:limits"; data: UsageLimits };
 
 export interface CreateInput {
   repoPath: string;

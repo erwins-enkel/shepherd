@@ -1,0 +1,24 @@
+Settings  Status   Config   Usage Stats
+Session
+
+Totalcost:$0.0000
+Totalduration(API):0s
+Totalduration(wall):4s
+Totalcodechanges:0linesadded,0linesremoved
+Usage:0input,0output,0cacheread,0cachewrite
+
+Currentsession
+█▌                                                3%used
+Resets9:30pm(Europe/Berlin)
+
+Currentweek(allmodels)
+                                                  47%used
+ResetsJun6,5pm(Europe/Berlin)
+
+What'scontributingtoyourlimitsusage?
+Approximate,basedonlocalsessionsonthismachine—doesnotinclude
+otherdevicesorclaude.ai
+
+Usagecredits
+▎                                                 0%used
+€0.29/€50.00spent·ResetsJun1(Europe/Berlin)

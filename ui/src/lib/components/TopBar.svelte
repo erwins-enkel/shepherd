@@ -1,22 +1,38 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, UsageLimits } from "$lib/types";
+  import { formatReset } from "$lib/format";
 
   let {
     sessions,
     nowMs,
     connected = false,
     mobile = false,
+    limits = null,
   }: {
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
     mobile?: boolean;
+    limits?: UsageLimits | null;
   } = $props();
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
   const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
+
+  function gaugeColor(pct: number): string {
+    if (pct >= 90) return "var(--color-red)";
+    if (pct >= 70) return "var(--color-amber)";
+    return "var(--color-green)";
+  }
+
+  const gauges = $derived(
+    [
+      { label: "5H", w: limits?.session5h },
+      { label: "WK", w: limits?.week },
+    ].filter((g) => g.w),
+  );
 </script>
 
 <div class="hud bracket" class:mobile>
@@ -49,6 +65,26 @@
           >{blocked}</span
         >
       </div>
+    </div>
+  {/if}
+  {#if gauges.length}
+    <div class="gauges" class:mobile class:stale={limits?.stale}>
+      {#each gauges as g (g.label)}
+        <div
+          class="gauge"
+          title="{g.label === '5H' ? '5-hour' : 'weekly'} limit · {g.w!
+            .pct}% used · resets {formatReset(g.w!.resetAt, nowMs)}{limits?.stale
+            ? ' · stale'
+            : ''}"
+        >
+          <span class="g-label micro">{g.label}</span>
+          <span class="g-bar"
+            ><span class="g-fill" style="width:{g.w!.pct}%;background:{gaugeColor(g.w!.pct)}"
+            ></span></span
+          >
+          <span class="g-pct" style="color:{gaugeColor(g.w!.pct)}">{g.w!.pct}%</span>
+        </div>
+      {/each}
     </div>
   {/if}
   <div class="clock">
@@ -120,8 +156,52 @@
     color: var(--color-ink-bright);
     font-weight: 500;
   }
-  .clock {
+  .gauges {
     margin-left: auto;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .gauges.stale {
+    opacity: 0.5;
+  }
+  .gauge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .g-label {
+    color: var(--color-muted);
+  }
+  .g-bar {
+    width: 46px;
+    height: 5px;
+    background: var(--color-line);
+    border: 1px solid var(--color-line-bright);
+    overflow: hidden;
+  }
+  .g-fill {
+    display: block;
+    height: 100%;
+    transition: width 0.6s ease;
+  }
+  .g-pct {
+    font-size: 11.5px;
+    min-width: 30px;
+    text-align: right;
+  }
+  .gauges.mobile {
+    gap: 8px;
+  }
+  .gauges.mobile .g-bar {
+    width: 28px;
+  }
+  .gauges.mobile .g-pct {
+    min-width: 26px;
+    font-size: 10.5px;
+  }
+  .clock {
     color: var(--color-ink-bright);
     letter-spacing: 0.16em;
     display: flex;

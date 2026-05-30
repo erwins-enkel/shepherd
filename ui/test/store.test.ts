@@ -14,6 +14,7 @@ const s = (id: string, status: any = "running"): Session => ({
   isolated: true,
   herdrSession: "default",
   herdrAgentId: "term_" + id,
+  claudeSessionId: "cs-" + id,
   model: null,
   status,
   lastState: "working",
@@ -32,4 +33,20 @@ test("applies snapshot, new, status, archived", () => {
   expect(store.byId("a")?.status).toBe("blocked");
   store.apply({ event: "session:archived", data: { id: "b" } });
   expect(store.sessions.find((x) => x.id === "b")).toBeUndefined();
+});
+
+test("applies usage:limits", () => {
+  const store = new HerdStore();
+  expect(store.usageLimits).toBeNull();
+  store.apply({
+    event: "usage:limits",
+    data: {
+      session5h: { pct: 12, resetAt: 1000 },
+      week: { pct: 40, resetAt: 2000 },
+      stale: false,
+      calibratedAt: 5,
+    },
+  });
+  expect(store.usageLimits?.session5h?.pct).toBe(12);
+  expect(store.usageLimits?.week?.pct).toBe(40);
 });

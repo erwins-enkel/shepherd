@@ -42,6 +42,8 @@
 
     const c = connectPty(
       id,
+      term.cols,
+      term.rows,
       (d) => term.write(d),
       () => {},
     );

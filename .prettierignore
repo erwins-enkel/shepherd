@@ -1,0 +1,11 @@
+# Lockfiles
+bun.lock
+
+# Build outputs
+node_modules
+.svelte-kit
+build
+dist
+
+# Agent-generated planning artifacts — leave their formatting alone
+docs/superpowers

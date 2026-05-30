@@ -46,7 +46,7 @@ Desktop branch (`.grid`):
 current. `+ New Task` unchanged.
 
 **`HerdGrid.svelte`** (new) — full-width CSS grid
-(`repeat(auto-fit, minmax(~360px, 1fr))`), one `UnitTile` per session. Empty →
+(`repeat(auto-fit, minmax(280px, 1fr))`), one `UnitTile` per session. Empty →
 `NO UNITS — + New Task`. Props: `sessions`, `selectedId`, `nowMs`, `onselect`.
 
 **`UnitTile.svelte`** (new) — lightweight read-only terminal. Mirrors the

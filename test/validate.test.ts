@@ -8,6 +8,7 @@ import {
   originAllowed,
   isValidTerminalId,
   expandHome,
+  parseTermDims,
 } from "../src/validate";
 
 test("expandHome expands leading ~ to homedir", () => {
@@ -156,6 +157,32 @@ test("path-traversal attempt rejected", () => {
   );
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.error).toMatch(/repoPath/i);
+});
+
+// ── parseTermDims ─────────────────────────────────────────────────────────────
+
+test("parseTermDims: valid numeric strings pass through", () => {
+  expect(parseTermDims("180", "50")).toEqual({ cols: 180, rows: 50 });
+});
+
+test("parseTermDims: missing/null params fall back to 100×30 default", () => {
+  expect(parseTermDims(null, null)).toEqual({ cols: 100, rows: 30 });
+});
+
+test("parseTermDims: non-numeric falls back to default", () => {
+  expect(parseTermDims("abc", "1e9; rm -rf")).toEqual({ cols: 100, rows: 30 });
+});
+
+test("parseTermDims: zero / negative fall back to default", () => {
+  expect(parseTermDims("0", "-5")).toEqual({ cols: 100, rows: 30 });
+});
+
+test("parseTermDims: fractional values floored", () => {
+  expect(parseTermDims("180.9", "50.4")).toEqual({ cols: 180, rows: 50 });
+});
+
+test("parseTermDims: oversized values clamped to 1000", () => {
+  expect(parseTermDims("99999", "99999")).toEqual({ cols: 1000, rows: 1000 });
 });
 
 // ── isAuthorized ─────────────────────────────────────────────────────────────

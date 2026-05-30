@@ -16,10 +16,14 @@ import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging } from "./uploads";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
-// drop abandoned New-Task uploads (attached but never submitted) older than 24h
-sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
 
 const store = new SessionStore(config.dbPath);
+// a repo root chosen in the UI (persisted) overrides the env var / default
+const savedRoot = store.getSetting("repoRoot");
+if (savedRoot) config.repoRoot = savedRoot;
+
+// drop abandoned New-Task uploads (attached but never submitted) older than 24h
+sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
 const herdr = new HerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();

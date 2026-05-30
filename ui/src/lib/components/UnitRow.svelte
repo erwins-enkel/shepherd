@@ -122,6 +122,7 @@
     display: flex;
     align-items: baseline;
     gap: 0;
+    min-width: 0;
   }
 
   .micro {
@@ -133,12 +134,17 @@
 
   .desig {
     margin-right: 9px;
+    flex-shrink: 0;
   }
 
   .name {
     color: var(--color-ink-bright);
     font-weight: 500;
     letter-spacing: 0.04em;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .u-sub {

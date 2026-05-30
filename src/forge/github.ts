@@ -6,6 +6,7 @@ import type {
   GitForge,
   Issue,
   MergeInput,
+  MergeMethod,
   OpenPrInput,
   PrStatus,
   RedeployInput,

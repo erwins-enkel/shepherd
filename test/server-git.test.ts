@@ -60,7 +60,7 @@ function fakeForge(
 
 function makeDeps(forge: GitForge | null, session: Session | null = SESSION): AppDeps {
   const store: Partial<SessionStore> = {
-    get: (id) => (session && id === session.id ? session : undefined),
+    get: (id) => (session && id === session.id ? session : null),
   };
   return {
     store: store as SessionStore,

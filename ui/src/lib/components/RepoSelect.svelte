@@ -226,4 +226,16 @@
     font-style: italic;
     text-align: center;
   }
+
+  @media (max-width: 768px) {
+    .rs-trigger {
+      min-height: 44px;
+    }
+    .rs-filter {
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+    .rs-row {
+      min-height: 44px;
+    }
+  }
 </style>

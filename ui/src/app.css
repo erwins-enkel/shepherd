@@ -69,3 +69,12 @@ body {
     animation: none !important;
   }
 }
+
+/* touch ergonomics (mobile) */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  touch-action: manipulation;
+}

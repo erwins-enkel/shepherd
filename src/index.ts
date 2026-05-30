@@ -13,8 +13,11 @@ import { serve } from "./server";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
+import { sweepStaging } from "./uploads";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
+// drop abandoned New-Task uploads (attached but never submitted) older than 24h
+sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
 
 const store = new SessionStore(config.dbPath);
 const herdr = new HerdrDriver();

@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
@@ -321,4 +322,28 @@ test("PUT /api/todo with evil Origin → 403", async () => {
     }),
   );
   expect(res.status).toBe(403);
+});
+
+test("POST /api/uploads saves a staged image and returns its path", async () => {
+  const app = harness();
+  const fd = new FormData();
+  fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.png", { type: "image/png" }));
+  const res = await app.fetch(
+    new Request("http://x/api/uploads", { method: "POST", body: fd }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
+  expect(existsSync(body.path)).toBe(true);
+  rmSync(body.path, { force: true });
+});
+
+test("POST /api/uploads rejects a non-image", async () => {
+  const app = harness();
+  const fd = new FormData();
+  fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
+  const res = await app.fetch(
+    new Request("http://x/api/uploads", { method: "POST", body: fd }),
+  );
+  expect(res.status).toBe(415);
 });

@@ -44,6 +44,10 @@ export interface RedeployInput {
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
+  /** Default merge method for this host (from config; "squash" if unset). */
+  readonly mergeMethod: MergeMethod;
+  /** Configured deploy workflow filename, or null if redeploy is unavailable. */
+  readonly deployWorkflow: string | null;
   listIssues(): Promise<Issue[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;

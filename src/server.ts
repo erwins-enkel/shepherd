@@ -10,6 +10,7 @@ import { listIssues } from "./github";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
+import type { GitForge, MergeMethod } from "./forge/types";
 import { join, normalize } from "node:path";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -39,6 +40,8 @@ export interface AppDeps {
   service: SessionService;
   events: EventHub;
   usageLimits: Pick<UsageLimitsService, "limits">;
+  /** Resolve the git forge for a repo dir; null when none is configured. */
+  resolveForge?: (repoDir: string) => GitForge | null;
 }
 
 const sessionUsage = (s: Session) =>
@@ -95,7 +98,7 @@ export function makeApp(deps: AppDeps) {
           const s = deps.store.get(parts[2]);
           return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
         }
-        if (req.method === "GET" && parts[2]) {
+        if (req.method === "GET" && parts[2] && !parts[3]) {
           const s = deps.store.get(parts[2]);
           return s ? json(s) : json({ error: "not found" }, 404);
         }
@@ -105,6 +108,55 @@ export function makeApp(deps: AppDeps) {
           return json({ ok: true });
         }
       }
+      // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
+      if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {
+        const session = deps.store.get(parts[2]);
+        if (!session) return json({ error: "not found" }, 404);
+        const forge = deps.resolveForge?.(session.repoPath) ?? null;
+        if (!forge) return json({ error: "no forge for this repo" }, 404);
+        const head = session.branch ?? "";
+        try {
+          if (req.method === "GET" && !parts[4]) {
+            return json({ kind: forge.kind, ...(await forge.prStatus(head)) });
+          }
+          if (req.method === "POST" && parts[4] === "pr") {
+            const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+            return json(
+              await forge.openPr({
+                head,
+                base: session.baseBranch,
+                title: body.title?.trim() || session.name,
+                body: body.body ?? session.prompt,
+              }),
+            );
+          }
+          if (req.method === "POST" && parts[4] === "merge") {
+            const body = (await req.json().catch(() => ({}))) as {
+              method?: MergeMethod;
+              deleteBranch?: boolean;
+            };
+            const cur = await forge.prStatus(head);
+            if (cur.state !== "open" || !cur.number) {
+              return json({ error: "no open PR to merge" }, 409);
+            }
+            await forge.merge(cur.number, {
+              method: body.method ?? forge.mergeMethod,
+              deleteBranch: body.deleteBranch ?? true,
+            });
+            return json(await forge.prStatus(head));
+          }
+          if (req.method === "POST" && parts[4] === "redeploy") {
+            if (!forge.deployWorkflow) {
+              return json({ error: "no deploy workflow configured" }, 400);
+            }
+            await forge.redeploy({ workflow: forge.deployWorkflow, ref: session.baseBranch });
+            return json({ ok: true });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+        }
+      }
+
       if (
         req.method === "GET" &&
         parts[0] === "api" &&

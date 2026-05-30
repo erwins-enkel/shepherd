@@ -4,6 +4,7 @@ import type {
   GitForge,
   Issue,
   MergeInput,
+  MergeMethod,
   OpenPrInput,
   PrStatus,
   RedeployInput,
@@ -38,6 +39,8 @@ function mapCombinedStatus(state: string | undefined): ChecksState {
 /** Gitea/Forgejo forge driven through the /api/v1 REST API (API-compatible). */
 export class GiteaForge implements GitForge {
   readonly kind = "gitea" as const;
+  readonly mergeMethod: MergeMethod;
+  readonly deployWorkflow: string | null;
   private readonly base: string;
 
   constructor(
@@ -46,6 +49,8 @@ export class GiteaForge implements GitForge {
     private readonly fetchFn: typeof fetch = fetch,
   ) {
     this.base = (cfg.baseUrl ?? "").replace(/\/+$/, "");
+    this.mergeMethod = cfg.mergeMethod ?? "squash";
+    this.deployWorkflow = cfg.deployWorkflow ?? null;
   }
 
   private async req(method: string, path: string, body?: unknown): Promise<unknown> {

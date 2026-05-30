@@ -35,11 +35,16 @@ function mapMergeable(v: string | undefined): boolean | null {
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
 export class GithubForge implements GitForge {
   readonly kind = "github" as const;
+  readonly mergeMethod: MergeMethod;
+  readonly deployWorkflow: string | null;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
     private readonly run: GhRunner = defaultRunner,
-  ) {}
+  ) {
+    this.mergeMethod = cfg.mergeMethod ?? "squash";
+    this.deployWorkflow = cfg.deployWorkflow ?? null;
+  }
 
   async listIssues(): Promise<Issue[]> {
     const out = this.run([

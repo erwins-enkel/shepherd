@@ -1,5 +1,8 @@
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
+  // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
+  // set SHEPHERD_HOST=0.0.0.0 to expose on all interfaces (not recommended).
+  host: process.env.SHEPHERD_HOST ?? "127.0.0.1",
   dbPath: process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrSession: process.env.HERDR_SESSION ?? "default",

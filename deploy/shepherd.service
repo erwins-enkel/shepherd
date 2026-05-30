@@ -1,0 +1,28 @@
+[Unit]
+Description=Shepherd — mission control for interactive Claude Code
+Documentation=https://github.com/erwins-enkel/shepherd
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Work/tank
+ExecStart=%h/.bun/bin/bun run src/index.ts
+Restart=on-failure
+RestartSec=2
+
+# herdr lives in ~/.local/bin; bun in ~/.bun/bin — make both resolvable
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=SHEPHERD_PORT=7330
+Environment=SHEPHERD_HOST=127.0.0.1
+Environment=SHEPHERD_ALLOWED_HOSTS=localhost,127.0.0.1,::1,[::1],shepherd.chicken-beardie.ts.net
+# optional overrides (token, repo root, etc.) — file may be absent
+EnvironmentFile=-%h/.shepherd/env
+
+# app output keeps appending to the existing log file; unit lifecycle (start/stop/restart)
+# is still in journald via `journalctl --user -u shepherd`
+StandardOutput=append:%h/.shepherd/shepherd.log
+StandardError=append:%h/.shepherd/shepherd.log
+
+[Install]
+WantedBy=default.target

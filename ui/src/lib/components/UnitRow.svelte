@@ -14,6 +14,12 @@
     nowMs: number;
     onselect: (id: string) => void;
   } = $props();
+
+  // split "UNIT-07" into the constant stem ("UNIT-") and disambiguating number ("07")
+  // so the stem can collapse on a cramped sidebar, leaving the unit name room to breathe
+  const desigParts = $derived(session.desig.match(/^(.*?)(\d+)$/));
+  const desigStem = $derived(desigParts?.[1] ?? "");
+  const desigNum = $derived(desigParts?.[2] ?? session.desig);
 </script>
 
 <button
@@ -29,7 +35,7 @@
 
   <div class="u-main">
     <div class="u-top">
-      <span class="desig micro">{session.desig}</span>
+      <span class="desig micro"><span class="desig-stem">{desigStem}</span>{desigNum}</span>
       <span class="name">{session.name}</span>
     </div>
     <div class="u-sub">
@@ -191,6 +197,15 @@
   .meta {
     color: var(--color-muted);
     font-size: 11.5px;
+  }
+
+  /* cramped sidebar (compact touch layout, narrow phones): drop the constant
+     "UNIT-" stem and keep just the number, handing the reclaimed width to the
+     name. The wide desktop sidebar (>=300px) stays above this threshold. */
+  @container herd (max-width: 270px) {
+    .desig-stem {
+      display: none;
+    }
   }
 
   @media (max-width: 768px) {

@@ -3,17 +3,24 @@
   import { listRepos } from "$lib/api";
   import type { RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
+  import PromptSources from "./PromptSources.svelte";
 
   let {
     onsubmit,
     onclose,
+    initialPrompt,
+    initialRepoPath,
   }: {
     onsubmit: (input: { repoPath: string; baseBranch: string; prompt: string }) => Promise<void> | void;
     onclose?: () => void;
+    initialPrompt?: string;
+    initialRepoPath?: string;
   } = $props();
 
-  let prompt = $state("");
-  let repoPath = $state("");
+  // svelte-ignore state_referenced_locally -- intentional one-time seed; NewTask remounts per open
+  let prompt = $state(initialPrompt ?? "");
+  // svelte-ignore state_referenced_locally -- intentional one-time seed; NewTask remounts per open
+  let repoPath = $state(initialRepoPath ?? "");
   let baseBranch = $state("main");
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -27,6 +34,7 @@
       })
       .catch(() => {});
   });
+
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -58,6 +66,10 @@
     <label class="micro" for="nt-prompt">Prompt</label>
     <textarea id="nt-prompt" bind:value={prompt} rows="3" placeholder="add a feature that…" required
     ></textarea>
+
+    {#if repoPath}
+      <PromptSources {repoPath} onpick={(p) => (prompt = p)} />
+    {/if}
 
     <label class="micro" for="nt-repo">Repo</label>
     <RepoSelect repos={repos} value={repoPath} onchange={(p) => (repoPath = p)} />

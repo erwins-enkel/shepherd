@@ -115,6 +115,7 @@
       <button class="gbtn" type="button" disabled={busy} onclick={startPr}>↟ Open PR</button>
     {:else if git.state === "open"}
       {#if git.url}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
         <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
       {:else}
         <span class="prlink">PR #{git.number}</span>

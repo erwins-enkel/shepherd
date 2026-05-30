@@ -23,9 +23,11 @@
     initialRepoPath?: string;
   } = $props();
 
-  // svelte-ignore state_referenced_locally -- intentional one-time seed; NewTask remounts per open
+  // intentional one-time seed; NewTask remounts per open
+  // svelte-ignore state_referenced_locally
   let prompt = $state(initialPrompt ?? "");
-  // svelte-ignore state_referenced_locally -- intentional one-time seed; NewTask remounts per open
+  // intentional one-time seed; NewTask remounts per open
+  // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
   let baseBranch = $state("main");
   let model = $state("default"); // "default" → claude's own model (no --model flag)

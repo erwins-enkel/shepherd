@@ -72,6 +72,7 @@
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- touch reactive dep
     unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
     tab = "term";

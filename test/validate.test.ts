@@ -47,7 +47,35 @@ test("valid input returns ok with value", () => {
     expect(r.value.repoPath).toBe(validRepo);
     expect(r.value.baseBranch).toBe("main");
     expect(r.value.prompt).toBe("do the thing");
+    expect(r.value.model).toBeNull(); // model omitted → null (claude default)
   }
+});
+
+test("known model accepted and passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "opus" },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.model).toBe("opus");
+});
+
+test('model "default" normalizes to null', () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "default" },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.model).toBeNull();
+});
+
+test("unknown model rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "gpt-4" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/model/i);
 });
 
 test("unknown key is rejected", () => {

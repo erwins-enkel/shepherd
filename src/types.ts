@@ -13,6 +13,7 @@ export interface Session {
   isolated: boolean;
   herdrSession: string;
   herdrAgentId: string; // herdr terminal_id (attach target)
+  model: string | null; // claude --model alias; null = claude's own default (no flag)
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;
@@ -24,4 +25,8 @@ export interface CreateSessionInput {
   repoPath: string;
   baseBranch: string;
   prompt: string;
+  model: string | null; // null = claude default (no --model flag)
 }
+
+/** Selectable claude model aliases; absent/"default" means no --model flag. */
+export const MODELS = ["opus", "sonnet", "haiku"] as const;

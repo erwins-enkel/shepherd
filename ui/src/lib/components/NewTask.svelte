@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listRepos } from "$lib/api";
-  import type { RepoEntry } from "$lib/types";
+  import { MODELS, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
 
@@ -11,7 +11,12 @@
     initialPrompt,
     initialRepoPath,
   }: {
-    onsubmit: (input: { repoPath: string; baseBranch: string; prompt: string }) => Promise<void> | void;
+    onsubmit: (input: {
+      repoPath: string;
+      baseBranch: string;
+      prompt: string;
+      model: string | null;
+    }) => Promise<void> | void;
     onclose?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
@@ -22,6 +27,7 @@
   // svelte-ignore state_referenced_locally -- intentional one-time seed; NewTask remounts per open
   let repoPath = $state(initialRepoPath ?? "");
   let baseBranch = $state("main");
+  let model = $state("default"); // "default" → claude's own model (no --model flag)
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let repos = $state<RepoEntry[]>([]);
@@ -42,7 +48,12 @@
     submitting = true;
     error = null;
     try {
-      await onsubmit({ repoPath: repoPath.trim(), baseBranch: baseBranch.trim() || "main", prompt: prompt.trim() });
+      await onsubmit({
+        repoPath: repoPath.trim(),
+        baseBranch: baseBranch.trim() || "main",
+        prompt: prompt.trim(),
+        model: model === "default" ? null : model,
+      });
     } catch (err) {
       error = err instanceof Error ? err.message : "failed";
       submitting = false;
@@ -76,6 +87,14 @@
 
     <label class="micro" for="nt-base">Base&nbsp;Branch</label>
     <input id="nt-base" bind:value={baseBranch} placeholder="main" />
+
+    <label class="micro" for="nt-model">Model</label>
+    <select id="nt-model" bind:value={model}>
+      <option value="default">default</option>
+      {#each MODELS as m (m)}
+        <option value={m}>{m}</option>
+      {/each}
+    </select>
 
     {#if error}<div class="err">{error}</div>{/if}
 
@@ -146,7 +165,8 @@
     margin-top: 6px;
   }
   textarea,
-  input {
+  input,
+  select {
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
@@ -156,8 +176,13 @@
     border-radius: 2px;
     resize: vertical;
   }
+  select {
+    appearance: none;
+    cursor: pointer;
+  }
   textarea:focus,
-  input:focus {
+  input:focus,
+  select:focus {
     outline: none;
     border-color: var(--color-amber);
   }

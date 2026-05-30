@@ -32,7 +32,12 @@
     };
   });
 
-  async function onsubmit(input: { repoPath: string; baseBranch: string; prompt: string }) {
+  async function onsubmit(input: {
+    repoPath: string;
+    baseBranch: string;
+    prompt: string;
+    model: string | null;
+  }) {
     const s = await createSession(input);
     selectedId = s.id;
     showNew = false;

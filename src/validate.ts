@@ -2,7 +2,7 @@ import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
-import type { CreateSessionInput } from "./types";
+import { MODELS, type CreateSessionInput } from "./types";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/Work/…`). */
 export function expandHome(p: string): string {
@@ -18,7 +18,7 @@ type Result = Ok | Err;
 const err = (error: string): Err => ({ ok: false, error });
 
 const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
-const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt"]);
+const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model"]);
 
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
 export function validateCreate(body: unknown, repoRoot: string): Result {
@@ -41,6 +41,14 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (typeof obj.baseBranch !== "string") return err("baseBranch must be a string");
   if (!BRANCH_RE.test(obj.baseBranch)) return err("baseBranch contains invalid characters");
 
+  // model — optional; absent/null/"default" → null (claude's own default, no --model flag)
+  let model: string | null = null;
+  if (obj.model != null && obj.model !== "default") {
+    if (typeof obj.model !== "string") return err("model must be a string");
+    if (!(MODELS as readonly string[]).includes(obj.model)) return err("unknown model");
+    model = obj.model;
+  }
+
   // repoPath
   if (typeof obj.repoPath !== "string" || obj.repoPath.length === 0) {
     return err("repoPath must be a non-empty string");
@@ -59,7 +67,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
 
   return {
     ok: true,
-    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt },
+    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model },
   };
 }
 

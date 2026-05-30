@@ -29,4 +29,4 @@
 ## Known minor follow-ups
 
 - [ ] HEAD requests to non-API routes return 404 (browsers use GET; cosmetic)
-- [ ] Viewport model label is a static "claude-4" hint
+- [x] Viewport model label is a static "claude-4" hint — now per-session model picker (default/opus/sonnet/haiku)

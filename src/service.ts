@@ -17,7 +17,9 @@ export class SessionService {
   async create(input: CreateSessionInput): Promise<Session> {
     const name = await this.deps.namer(input.prompt);
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
-    const argv = ["claude", "--dangerously-skip-permissions", input.prompt];
+    const argv = ["claude", "--dangerously-skip-permissions"];
+    if (input.model) argv.push("--model", input.model);
+    argv.push(input.prompt);
     const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
     return this.deps.store.create({
       name,
@@ -29,6 +31,7 @@ export class SessionService {
       isolated: wt.isolated,
       herdrSession: config.herdrSession,
       herdrAgentId: agent.terminalId,
+      model: input.model,
     });
   }
 

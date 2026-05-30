@@ -14,6 +14,7 @@ const s = (id: string, status: any = "running"): Session => ({
   isolated: true,
   herdrSession: "default",
   herdrAgentId: "term_" + id,
+  model: null,
   status,
   lastState: "working",
   createdAt: 0,

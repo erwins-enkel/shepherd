@@ -21,7 +21,8 @@
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
 
-  const modelHint = "claude-4"; // static hint — backend doesn't expose model
+  // null model = claude's own default (shepherd passed no --model flag)
+  const modelLabel = $derived(session.model ?? "default");
 
   $effect(() => {
     const id = session.id;
@@ -66,7 +67,7 @@
     <span class="sep">·</span>
     <span class="branch">{session.branch ?? session.worktreePath}</span>
     <span class="sep">·</span>
-    <span class="model">{modelHint}</span>
+    <span class="model">{modelLabel}</span>
     <div class="spacer"></div>
     <div class="tab-group">
       <button

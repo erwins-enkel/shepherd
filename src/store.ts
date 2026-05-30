@@ -4,11 +4,11 @@ import type { Session } from "./types";
 
 type NewSession = Omit<
   Session,
-  "id" | "desig" | "status" | "lastState" | "createdAt" | "updatedAt" | "archivedAt"
->;
+  "id" | "desig" | "status" | "lastState" | "createdAt" | "updatedAt" | "archivedAt" | "model"
+> & { model?: string | null };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
-  isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt, archivedAt`;
+  isolated, herdrSession, herdrAgentId, model, status, lastState, createdAt, updatedAt, archivedAt`;
 
 export class SessionStore {
   private db: Database;
@@ -19,8 +19,13 @@ export class SessionStore {
       repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
       worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
       herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
-      status TEXT NOT NULL, lastState TEXT NOT NULL,
+      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    // migrate older DBs that predate the model column
+    const cols = this.db.query(`PRAGMA table_info(sessions)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === "model")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN model TEXT`);
+    }
   }
 
   create(input: NewSession): Session {
@@ -28,6 +33,7 @@ export class SessionStore {
     const n = (this.db.query(`SELECT COUNT(*) AS c FROM sessions`).get() as { c: number }).c;
     const s: Session = {
       ...input,
+      model: input.model ?? null,
       id: randomUUID(),
       desig: `UNIT-${String(n + 1).padStart(2, "0")}`,
       status: "running",
@@ -36,7 +42,7 @@ export class SessionStore {
       updatedAt: now,
       archivedAt: null,
     };
-    this.db.run(`INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+    this.db.run(`INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       s.id,
       s.desig,
       s.name,
@@ -48,6 +54,7 @@ export class SessionStore {
       s.isolated ? 1 : 0,
       s.herdrSession,
       s.herdrAgentId,
+      s.model,
       s.status,
       s.lastState,
       s.createdAt,

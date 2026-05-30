@@ -36,12 +36,49 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     } as any,
   });
 
-  const s = await service.create({ repoPath: "/repo", baseBranch: "main", prompt: "flatten it" });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    model: null,
+  });
   expect(s.name).toBe("repo-flatten");
   expect(s.worktreePath).toBe("/wt/repo-flatten");
   expect(s.herdrAgentId).toBe("term_z");
+  expect(s.model).toBeNull();
+  // no --model flag when model is null (claude uses its own default)
   expect(calls.start.argv).toEqual(["claude", "--dangerously-skip-permissions", "flatten it"]);
   expect(store.get(s.id)).toBeTruthy();
+});
+
+test("createSession: passes --model and persists it when a model is chosen", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-flatten",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_z", cwd: "/wt/x", agentStatus: "working" };
+      },
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: "opus",
+  });
+  expect(s.model).toBe("opus");
+  expect(calls.argv).toEqual(["claude", "--dangerously-skip-permissions", "--model", "opus", "go"]);
+  expect(store.get(s.id)?.model).toBe("opus");
 });
 
 test("archive stops the herdr agent, removes the worktree, and archives the row", () => {

@@ -30,6 +30,7 @@ export interface Session {
   isolated: boolean;
   herdrSession: string;
   herdrAgentId: string;
+  model: string | null;
   status: SessionStatus;
   lastState: string;
   createdAt: number;
@@ -46,4 +47,8 @@ export interface CreateInput {
   repoPath: string;
   baseBranch: string;
   prompt: string;
+  model: string | null;
 }
+
+/** Selectable claude model aliases; null = claude's own default. */
+export const MODELS = ["opus", "sonnet", "haiku"] as const;

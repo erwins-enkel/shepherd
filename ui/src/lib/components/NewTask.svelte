@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { listRepos } from "$lib/api";
+  import type { RepoEntry } from "$lib/types";
+
   let {
     onsubmit,
     onclose,
@@ -12,6 +16,16 @@
   let baseBranch = $state("main");
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  let repos = $state<RepoEntry[]>([]);
+
+  onMount(() => {
+    listRepos()
+      .then((r) => {
+        repos = r;
+        if (!repoPath && r.length > 0) repoPath = r[0].path;
+      })
+      .catch(() => {});
+  });
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -45,7 +59,10 @@
     ></textarea>
 
     <label class="micro" for="nt-repo">Repo&nbsp;Path</label>
-    <input id="nt-repo" bind:value={repoPath} placeholder="~/Work/…" required />
+    <input id="nt-repo" bind:value={repoPath} list="repo-list" placeholder="~/Work/…" required autocomplete="off" />
+    <datalist id="repo-list">
+      {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
+    </datalist>
 
     <label class="micro" for="nt-base">Base&nbsp;Branch</label>
     <input id="nt-base" bind:value={baseBranch} placeholder="main" />

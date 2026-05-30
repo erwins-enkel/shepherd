@@ -1,5 +1,14 @@
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
 
+export interface RepoEntry {
+  name: string;
+  path: string;
+}
+export interface TodoDoc {
+  exists: boolean;
+  content: string;
+}
+
 export interface Session {
   id: string;
   desig: string;

@@ -17,6 +17,7 @@
     onarchive,
     onback,
     mobile = false,
+    touch = false,
   }: {
     session: Session;
     nowMs?: number;
@@ -24,6 +25,7 @@
     onarchive?: (id: string) => void;
     onback?: () => void;
     mobile?: boolean;
+    touch?: boolean;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -243,8 +245,9 @@
     {/if}
   </div>
 
-  <!-- mobile control-key bar (steer the pane without a hardware keyboard) -->
-  {#if mobile && tab === "term"}
+  <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
+       mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
+  {#if (mobile || touch) && tab === "term"}
     <ControlBar onkey={(seq) => conn?.send(seq)} />
   {/if}
 

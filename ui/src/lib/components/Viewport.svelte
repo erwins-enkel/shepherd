@@ -2,9 +2,10 @@
   import "@xterm/xterm/css/xterm.css";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
-  import type { Session } from "$lib/types";
-  import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
+  import type { Session, SessionUsage } from "$lib/types";
+  import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty } from "$lib/pty";
+  import { getSessionUsage } from "$lib/api";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
 
@@ -29,6 +30,24 @@
 
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
+
+  // per-session token usage from ~/.claude JSONL; refresh on select + every 5s
+  let usage = $state<SessionUsage | null>(null);
+  $effect(() => {
+    const id = session.id;
+    usage = null;
+    let alive = true;
+    const load = () =>
+      getSessionUsage(id)
+        .then((u) => alive && (usage = u))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  });
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -113,6 +132,14 @@
       <span class="branch">{session.branch ?? session.worktreePath}</span>
       <span class="sep">·</span>
       <span class="model">{modelLabel}</span>
+    {/if}
+    {#if usage && usage.total > 0}
+      <span class="sep">·</span>
+      <span
+        class="tokens"
+        title="{usage.input.toLocaleString()} in · {usage.output.toLocaleString()} out · {usage.cacheRead.toLocaleString()} cache read · {usage.cacheWrite.toLocaleString()} cache write"
+        >{formatTokens(usage.total)} tok</span
+      >
     {/if}
     <div class="spacer"></div>
     <div class="tab-group" class:mobile>
@@ -224,6 +251,13 @@
     color: var(--color-muted);
     font-size: 11px;
     letter-spacing: 0.06em;
+  }
+
+  .tokens {
+    color: var(--color-ink);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
   }
 
   .sep {

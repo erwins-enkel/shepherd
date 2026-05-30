@@ -106,6 +106,10 @@ src/                backend (Bun/TS)
   server.ts         HTTP + WebSocket routing (REST API, static SPA, /pty, /events)
   service.ts        session lifecycle (create → worktree → herdr spawn → store)
   herdr.ts          herdr CLI driver
+  usage.ts          per-session token parse + account-wide JSONL index
+  usage-limits.ts   /usage parsing, cap calibration, live 5h/weekly % recompute
+  usage-probe.ts    drives an ephemeral interactive claude to scrape `/usage`
+  pricing.ts        internal per-model weights for the limit-% math (not displayed)
   worktree.ts       per-task git worktrees
   branches.ts       local-branch listing (New Task base-branch dropdown)
   repos.ts          repo discovery + per-repo TODO.md read/write
@@ -127,5 +131,16 @@ TODO.md             roadmap / status
 
 Core through the v5 responsive mobile HUD is shipped: spawn → live PTY → browser, status lights,
 persistence/resume, repo + branch pickers, per-repo TODO sync, GitHub-issue prompt sources,
-per-session model picker, and session decommission. See `TODO.md` for the open backlog and `PRD.md`
-for the full feature set and roadmap.
+per-session model picker, session decommission, and real usage tracking (per-session token counts +
+account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See `TODO.md` for the open backlog and
+`PRD.md` for the full feature set and roadmap.
+
+### Usage tracking
+
+Sessions are spawned with `claude --session-id <uuid>`, so each UNIT maps deterministically to its
+`~/.claude/projects/<cwd>/<uuid>.jsonl`; the Viewport shows live per-session token counts parsed
+from it. The TopBar's 5h/weekly gauges are calibrated once a day by scraping `claude /usage` (driven
+through an ephemeral interactive session — ToS-pure, no `-p`) to learn the plan ceilings, then the
+`%` is recomputed live from local JSONL between calibrations. No dollar figures (you're on a
+subscription); pricing is used only internally as relative weights for the limit math. Override the
+JSONL location with `CLAUDE_CONFIG_DIR` or `CLAUDE_PROJECTS_DIR` if non-default.

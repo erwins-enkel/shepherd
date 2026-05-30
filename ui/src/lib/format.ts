@@ -5,6 +5,22 @@ export function elapsed(fromMs: number, nowMs: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Compact token count: 1234 → "1.2k", 1_500_000 → "1.5M". */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
+}
+
+/** Reset timestamp → short local label, e.g. "21:30" (today) or "Jun 6". */
+export function formatReset(ts: number, nowMs: number): string {
+  const d = new Date(ts);
+  const sameDay = new Date(nowMs).toDateString() === d.toDateString();
+  return sameDay
+    ? d.toTimeString().slice(0, 5)
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export const STATUS_COLOR: Record<SessionStatus, string> = {
   running: "var(--status-running)",
   idle: "var(--status-idle)",

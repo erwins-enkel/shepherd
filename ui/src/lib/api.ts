@@ -1,4 +1,4 @@
-import type { Session, CreateInput, RepoEntry, Issue } from "./types";
+import type { Session, CreateInput, RepoEntry, Issue, SessionUsage, UsageLimits } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -50,6 +50,18 @@ export async function putTodo(repoPath: string, content: string): Promise<void> 
     body: JSON.stringify({ content }),
   });
   if (!r.ok) throw new Error(`todo put failed: ${r.status}`);
+}
+
+export async function getSessionUsage(id: string): Promise<SessionUsage> {
+  const r = await fetch(`/api/sessions/${id}/usage`);
+  if (!r.ok) throw new Error(`usage failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getUsageLimits(): Promise<UsageLimits> {
+  const r = await fetch("/api/usage/limits");
+  if (!r.ok) throw new Error(`limits failed: ${r.status}`);
+  return r.json();
 }
 
 export async function listIssues(

@@ -16,12 +16,12 @@
 ## Next
 
 - [x] Responsive UI — works perfectly on mobile (v5)
+- [x] Real usage/cost tracking from ~/.claude session JSONL — per-session tokens + 5h/weekly limit gauges (daily `/usage` calibration, live recompute)
 
 ## Backlog (from PRD)
 
 - [ ] Git host buttons: open PR / merge / redeploy (gitea or forgejo)
 - [ ] Research chat with sub-agents + searxng; saved history
-- [ ] Real usage/cost tracking from ~/.claude session JSONL
 - [ ] Hermes migration off `claude -p` onto interactive-via-herdr (compliance-critical)
 - [ ] Per-agent sandboxing + permission profiles
 - [ ] Drag-and-drop screenshots into the prompt

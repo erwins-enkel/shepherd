@@ -26,16 +26,25 @@
     <div class="micro">Mission&nbsp;Control</div>
   {/if}
   <div class="sep"></div>
-  <div class="tallies">
-    <div class="tally"><span class="micro">Herd</span><span class="n">{sessions.length}</span></div>
-    <div class="tally">
-      <span class="micro" style="color:var(--color-amber)">Working</span><span class="n">{working}</span>
+  {#if mobile}
+    <div class="tallies compact">
+      <span class="n">{sessions.length}</span>
+      <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
+      <span class="csep">·</span><span class="n">{idle}</span>
+      <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
     </div>
-    <div class="tally"><span class="micro">Idle</span><span class="n">{idle}</span></div>
-    <div class="tally">
-      <span class="micro" style="color:var(--color-red)">Blocked</span><span class="n">{blocked}</span>
+  {:else}
+    <div class="tallies">
+      <div class="tally"><span class="micro">Herd</span><span class="n">{sessions.length}</span></div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-amber)">Working</span><span class="n">{working}</span>
+      </div>
+      <div class="tally"><span class="micro">Idle</span><span class="n">{idle}</span></div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-red)">Blocked</span><span class="n">{blocked}</span>
+      </div>
     </div>
-  </div>
+  {/if}
   <div class="clock">
     <span class="dot" class:on={connected}>●</span><span>{clock}</span>
   </div>
@@ -121,14 +130,26 @@
     color: var(--color-green);
   }
   .hud.mobile {
-    gap: 12px;
+    gap: 10px;
     padding: 10px 12px;
-  }
-  .hud.mobile .tallies {
-    gap: 12px;
   }
   .hud.mobile .logo {
     font-size: 13px;
     letter-spacing: 0.22em;
+  }
+  .tallies.compact {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tallies.compact .cdot {
+    font-size: 9px;
+  }
+  .tallies.compact .csep {
+    color: var(--color-faint);
+  }
+  .hud.mobile .clock {
+    font-size: 12px;
   }
 </style>

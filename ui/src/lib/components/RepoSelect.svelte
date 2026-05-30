@@ -125,6 +125,7 @@
     border-radius: 2px;
     cursor: pointer;
     text-align: left;
+    overflow: hidden;
   }
 
   .rs-trigger:focus {
@@ -134,11 +135,20 @@
 
   .rs-trigger b {
     font-weight: 600;
+    flex-shrink: 0;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .rs-trigger .dim {
     color: var(--color-muted);
     font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .rs-trigger .placeholder {
@@ -189,6 +199,7 @@
     padding: 0;
     max-height: 220px;
     overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .rs-row {
@@ -200,6 +211,15 @@
     border-bottom: 1px solid var(--color-line);
     font-size: 13px;
     color: var(--color-ink-bright);
+    overflow: hidden;
+  }
+
+  .rs-row b {
+    flex-shrink: 0;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .rs-row:last-child {
@@ -217,6 +237,10 @@
   .rs-row .dim {
     color: var(--color-muted);
     font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .rs-empty {

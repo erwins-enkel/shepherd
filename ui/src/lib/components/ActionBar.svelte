@@ -21,12 +21,14 @@
       <button
         class="btn"
         class:active={mode === "all"}
+        aria-pressed={mode === "all"}
         type="button"
         onclick={() => onmode?.("all")}>All ▦</button
       >
       <button
         class="btn"
         class:active={mode === "focus"}
+        aria-pressed={mode === "focus"}
         type="button"
         onclick={() => onmode?.("focus")}>Focus ⌖</button
       >
@@ -66,7 +68,7 @@
   .btn.active {
     border-color: var(--color-amber);
     color: var(--color-amber);
-    background: #0c1110;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .hint {
     margin-left: auto;

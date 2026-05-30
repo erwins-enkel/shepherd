@@ -1,0 +1,19 @@
+{
+  "id": "cli:agent:list",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "agent": "claude",
+        "agent_status": "working",
+        "cwd": "/home/patrick/Work/.tank-worktrees/demo-x",
+        "focused": false,
+        "pane_id": "w1-1",
+        "revision": 0,
+        "tab_id": "w1:1",
+        "terminal_id": "term_demo",
+        "workspace_id": "w1"
+      }
+    ]
+  }
+}

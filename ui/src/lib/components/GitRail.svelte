@@ -6,7 +6,8 @@
     sessionId,
     name = "",
     prompt = "",
-  }: { sessionId: string; name?: string; prompt?: string } = $props();
+    mobile = false,
+  }: { sessionId: string; name?: string; prompt?: string; mobile?: boolean } = $props();
 
   let git = $state<GitState | null>(null);
   let busy = $state(false);
@@ -110,7 +111,7 @@
 </script>
 
 {#if git}
-  <span class="rail">
+  <span class="rail" class:mobile>
     {#if git.state === "none"}
       <button class="gbtn" type="button" disabled={busy} onclick={startPr}>↟ Open PR</button>
     {:else if git.state === "open"}
@@ -206,6 +207,24 @@
   .gbtn.primary {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+
+  /* touch layouts: bigger tap targets + readable PR link/dot */
+  .rail.mobile {
+    gap: 10px;
+  }
+  .rail.mobile .gbtn {
+    min-height: 40px;
+    padding: 6px 14px;
+    font-size: 12px;
+  }
+  .rail.mobile .prlink {
+    font-size: 13px;
+    padding: 4px 2px;
+  }
+  .rail.mobile .dot {
+    width: 9px;
+    height: 9px;
   }
 
   .prlink {

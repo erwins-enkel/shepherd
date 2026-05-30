@@ -292,6 +292,14 @@
     </button>
   </div>
 
+  <!-- compact layouts (mobile + unfolded fold) get the git rail its own strip,
+       since the wrapping header has no room for it -->
+  {#if compact}
+    <div class="vp-git-strip">
+      <GitRail sessionId={session.id} name={session.name} prompt={session.prompt} mobile />
+    </div>
+  {/if}
+
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body">
     <div class="scan" aria-hidden="true"></div>
@@ -534,6 +542,21 @@
   }
   .back:hover {
     background: #0c1110;
+  }
+
+  /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */
+  .vp-git-strip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #0a0f0d;
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+    min-height: 44px;
   }
 
   .vp-head.mobile {

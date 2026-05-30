@@ -4,6 +4,8 @@ import { CONTROL_KEYS } from "./controlKeys";
 // Guard the byte sequences against silent drift — these are the actual control
 // codes a real terminal sends; a wrong byte steers the agent wrong.
 const EXPECTED: Record<string, string> = {
+  Esc: "\x1b",
+  Tab: "\x09",
   "←": "\x1b[D",
   "→": "\x1b[C",
   "↑": "\x1b[A",

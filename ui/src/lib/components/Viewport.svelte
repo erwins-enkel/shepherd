@@ -4,9 +4,10 @@
   import { FitAddon } from "@xterm/addon-fit";
   import type { Session } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
-  import { connectPty } from "$lib/pty";
+  import { connectPty, type PtyConn } from "$lib/pty";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
+  import ControlBar from "$lib/components/ControlBar.svelte";
 
   let {
     session,
@@ -26,6 +27,7 @@
 
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
+  let conn = $state<PtyConn | undefined>();
 
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
@@ -69,12 +71,13 @@
     term.open(el);
     fit.fit();
 
-    const conn = connectPty(
+    conn = connectPty(
       id,
       (d) => term.write(d),
       () => {},
     );
-    term.onData((d) => conn.send(d));
+    const c = conn;
+    term.onData((d) => c.send(d));
 
     // tap-to-focus so the mobile on-screen keyboard opens
     const onTap = () => term.focus();
@@ -83,19 +86,20 @@
     // refit after layout settles (mount may start hidden during mobile nav)
     requestAnimationFrame(() => {
       fit.fit();
-      conn.resize(term.cols, term.rows);
+      c.resize(term.cols, term.rows);
     });
 
     const ro = new ResizeObserver(() => {
       fit.fit();
-      conn.resize(term.cols, term.rows);
+      c.resize(term.cols, term.rows);
     });
     ro.observe(el);
 
     return () => {
       el?.removeEventListener("click", onTap);
       ro.disconnect();
-      conn.close();
+      c.close();
+      conn = undefined;
       term.dispose();
     };
   });
@@ -172,6 +176,11 @@
       </div>
     {/if}
   </div>
+
+  <!-- mobile control-key bar (steer the pane without a hardware keyboard) -->
+  {#if mobile && tab === "term"}
+    <ControlBar onkey={(seq) => conn?.send(seq)} />
+  {/if}
 
   <!-- footer -->
   <div class="vp-foot">

@@ -100,6 +100,8 @@
     // would make the effect depend on a value it writes → infinite update loop
     const c = connectPty(
       id,
+      term.cols,
+      term.rows,
       (d) => term.write(d),
       () => {},
     );

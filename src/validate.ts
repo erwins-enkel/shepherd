@@ -89,6 +89,20 @@ export function isAuthorized(
   return timingSafeEqual(Buffer.from(provided), Buffer.from(token));
 }
 
+/**
+ * Parse + clamp terminal dimensions from untrusted query params.
+ * Garbage / out-of-range falls back to 100×30 (herdr's default attach size).
+ */
+export function parseTermDims(cols: unknown, rows: unknown): { cols: number; rows: number } {
+  return { cols: clampDim(cols, 100), rows: clampDim(rows, 30) };
+}
+
+function clampDim(v: unknown, fallback: number): number {
+  const n = typeof v === "string" || typeof v === "number" ? Math.floor(Number(v)) : NaN;
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, 1000);
+}
+
 /** Returns true when the terminalId is safe to pass to spawn args. */
 export function isValidTerminalId(id: string): boolean {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) && !id.startsWith("-");

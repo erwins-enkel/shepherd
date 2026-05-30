@@ -6,6 +6,7 @@
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { getSessionUsage, uploadImage } from "$lib/api";
+  import { imageFilesFromItems } from "$lib/clipboard";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -174,6 +175,19 @@
     };
     el.addEventListener("click", onTap);
 
+    // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
+    // silently dropped. Intercept in the capture phase (before xterm's textarea
+    // handler), upload any image like a drag-drop, and inject its path. A plain
+    // text paste matches no image item, so it falls through to xterm untouched.
+    const onPaste = (e: ClipboardEvent) => {
+      const imgs = imageFilesFromItems(e.clipboardData?.items);
+      if (imgs.length === 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      attachImages(imgs);
+    };
+    el.addEventListener("paste", onPaste, true);
+
     // Claude Code runs as a full-screen TUI on the alternate screen (no
     // scrollback) with mouse tracking on: scrolling means sending wheel input
     // to the app, which is what the mouse wheel does on desktop. Touch emits no
@@ -221,6 +235,7 @@
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
+      el?.removeEventListener("paste", onPaste, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);

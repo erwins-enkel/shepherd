@@ -2,10 +2,7 @@
   import { getTodo, listIssues } from "$lib/api";
   import type { Issue } from "$lib/types";
 
-  let {
-    repoPath,
-    onpick,
-  }: { repoPath: string; onpick: (prompt: string) => void } = $props();
+  let { repoPath, onpick }: { repoPath: string; onpick: (prompt: string) => void } = $props();
 
   let tab = $state<"todo" | "issues">("todo");
   let todos = $state<string[]>([]);
@@ -86,11 +83,7 @@
         <div class="muted">no open TODO items</div>
       {:else}
         {#each todos as text (text)}
-          <button
-            class="row"
-            type="button"
-            onclick={() => onpick(text)}
-          >
+          <button class="row" type="button" onclick={() => onpick(text)}>
             <span class="row-marker">□</span>
             <span class="row-text">{text}</span>
           </button>
@@ -102,11 +95,7 @@
       <div class="muted">no open issues</div>
     {:else}
       {#each issues as i (i.number)}
-        <button
-          class="row"
-          type="button"
-          onclick={() => onpick(`${i.title}\n\n${i.body}`.trim())}
-        >
+        <button class="row" type="button" onclick={() => onpick(`${i.title}\n\n${i.body}`.trim())}>
           <span class="issue-num">#{i.number}</span>
           <span class="row-text">{i.title}</span>
           {#if i.labels.length > 0}
@@ -167,7 +156,9 @@
     padding: 2px 8px;
     border-radius: 2px;
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
   }
 
   .tab:hover {
@@ -218,7 +209,9 @@
     padding: 4px 10px;
     cursor: pointer;
     border-radius: 2px;
-    transition: background 0.1s, color 0.1s;
+    transition:
+      background 0.1s,
+      color 0.1s;
     width: 100%;
   }
 

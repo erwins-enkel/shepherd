@@ -11,7 +11,7 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,js,json,css,html,md}": "prettier --write",
+    "*.{ts,js,json,css,html,md,svelte}": "prettier --write",
     "*.ts": "eslint --fix"
   },
   "devDependencies": {
@@ -23,6 +23,8 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
+    "prettier-plugin-svelte": "^4.0.1",
+    "svelte": "^5.56.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.0"
   },

@@ -62,12 +62,7 @@
         {#if match}
           {@const done = match[2] !== " "}
           <div class="item-row">
-            <input
-              type="checkbox"
-              class="cb"
-              checked={done}
-              onchange={() => toggle(i)}
-            />
+            <input type="checkbox" class="cb" checked={done} onchange={() => toggle(i)} />
             <span class="item-label" class:done>{match[3]}</span>
           </div>
         {:else if line.trim() === ""}
@@ -152,7 +147,9 @@
     flex-shrink: 0;
     position: relative;
     top: 1px;
-    transition: border-color 0.1s, background 0.1s;
+    transition:
+      border-color 0.1s,
+      background 0.1s;
   }
 
   .cb:checked {
@@ -249,7 +246,9 @@
     letter-spacing: 0.08em;
     padding: 5px 10px;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
   }
 
   .add-btn:hover {

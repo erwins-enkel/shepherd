@@ -69,7 +69,11 @@
     term.open(el);
     fit.fit();
 
-    const conn = connectPty(id, (d) => term.write(d), () => {});
+    const conn = connectPty(
+      id,
+      (d) => term.write(d),
+      () => {},
+    );
     term.onData((d) => conn.send(d));
 
     // tap-to-focus so the mobile on-screen keyboard opens
@@ -112,21 +116,15 @@
     {/if}
     <div class="spacer"></div>
     <div class="tab-group" class:mobile>
-      <button
-        class="tab-btn"
-        class:active={tab === "term"}
-        onclick={() => (tab = "term")}
-      >Terminal</button>
-      <button
-        class="tab-btn"
-        class:active={tab === "todo"}
-        onclick={() => (tab = "todo")}
-      >To-Do</button>
-      <button
-        class="tab-btn"
-        class:active={tab === "issues"}
-        onclick={() => (tab = "issues")}
-      >Issues</button>
+      <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
+        >Terminal</button
+      >
+      <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
+        >To-Do</button
+      >
+      <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
+        >Issues</button
+      >
     </div>
     {#if !mobile}
       <span class="sep">·</span>
@@ -155,7 +153,11 @@
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body">
     <div class="scan" aria-hidden="true"></div>
-    <div class="term-mount" bind:this={el} style:display={tab === "term" ? undefined : "none"}></div>
+    <div
+      class="term-mount"
+      bind:this={el}
+      style:display={tab === "term" ? undefined : "none"}
+    ></div>
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -364,7 +366,9 @@
     letter-spacing: 0.1em;
     padding: 2px 8px;
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
   }
 
   .tab-btn:hover {

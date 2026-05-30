@@ -7,7 +7,7 @@
     session,
     selected,
     nowMs,
-    onselect
+    onselect,
   }: {
     session: Session;
     selected: boolean;

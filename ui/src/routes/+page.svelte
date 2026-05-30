@@ -74,12 +74,7 @@
   {#if mobile.current}
     {#if mobileScreen === "list"}
       <div class="col">
-        <Herd
-          sessions={store.sessions}
-          {selectedId}
-          {nowMs}
-          onselect={(id) => selectUnit(id)}
-        />
+        <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
       </div>
       <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} />
     {:else if selected}
@@ -99,12 +94,7 @@
     {/if}
   {:else}
     <div class="grid">
-      <Herd
-        sessions={store.sessions}
-        {selectedId}
-        {nowMs}
-        onselect={(id) => selectUnit(id)}
-      />
+      <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
       {#if selected}
         <Viewport
           session={selected}

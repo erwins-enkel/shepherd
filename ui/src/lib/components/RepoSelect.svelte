@@ -14,9 +14,7 @@
 
   const selected = $derived(repos.find((r) => r.path === value) ?? null);
   const shown = $derived(
-    repos.filter((r) =>
-      (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase()),
-    ),
+    repos.filter((r) => (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase())),
   );
 
   function toggle() {
@@ -61,7 +59,13 @@
 </script>
 
 <div class="rs-root" bind:this={root}>
-  <button type="button" class="rs-trigger" onclick={toggle} aria-haspopup="listbox" aria-expanded={open}>
+  <button
+    type="button"
+    class="rs-trigger"
+    onclick={toggle}
+    aria-haspopup="listbox"
+    aria-expanded={open}
+  >
     {#if selected}
       <b>{selected.name}</b>
       <span class="dim">{selected.display}</span>
@@ -91,7 +95,9 @@
             aria-selected={r.path === value}
             tabindex="-1"
             onclick={() => pick(r.path)}
-            onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") pick(r.path); }}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") pick(r.path);
+            }}
           >
             <b>{r.name}</b>
             <span class="dim">{r.display}</span>

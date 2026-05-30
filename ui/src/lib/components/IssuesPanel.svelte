@@ -53,8 +53,8 @@
               href={issue.url}
               target="_blank"
               rel="noopener"
-              aria-label="open on GitHub"
-            >↗</a>
+              aria-label="open on GitHub">↗</a
+            >
           </div>
           {#if issue.labels.length > 0}
             <div class="label-row">
@@ -66,9 +66,8 @@
           <div class="issue-actions">
             <button
               class="task-btn"
-              onclick={() =>
-                onnewtask(`${issue.title}\n\n${issue.body}`.trim())}
-            >+ Task</button>
+              onclick={() => onnewtask(`${issue.title}\n\n${issue.body}`.trim())}>+ Task</button
+            >
           </div>
         </div>
       {/each}
@@ -190,7 +189,9 @@
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;
-    transition: border-color 0.12s, color 0.12s;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
   }
 
   .task-btn:hover {

@@ -35,13 +35,19 @@
     </div>
   {:else}
     <div class="tallies">
-      <div class="tally"><span class="micro">Herd</span><span class="n">{sessions.length}</span></div>
       <div class="tally">
-        <span class="micro" style="color:var(--color-amber)">Working</span><span class="n">{working}</span>
+        <span class="micro">Herd</span><span class="n">{sessions.length}</span>
+      </div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-amber)">Working</span><span class="n"
+          >{working}</span
+        >
       </div>
       <div class="tally"><span class="micro">Idle</span><span class="n">{idle}</span></div>
       <div class="tally">
-        <span class="micro" style="color:var(--color-red)">Blocked</span><span class="n">{blocked}</span>
+        <span class="micro" style="color:var(--color-red)">Blocked</span><span class="n"
+          >{blocked}</span
+        >
       </div>
     </div>
   {/if}

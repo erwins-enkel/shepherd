@@ -3,6 +3,7 @@ import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
 import { MODELS, type CreateSessionInput } from "./types";
+import { stagingDir } from "./uploads";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/Work/…`). */
 export function expandHome(p: string): string {
@@ -18,7 +19,7 @@ type Result = Ok | Err;
 const err = (error: string): Err => ({ ok: false, error });
 
 const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
-const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model"]);
+const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "images"]);
 
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
 export function validateCreate(body: unknown, repoRoot: string): Result {
@@ -65,9 +66,39 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
     return err("repoPath does not exist");
   }
 
+  // images — optional array of staged upload paths, confined to the staging dir
+  const images: string[] = [];
+  if (obj.images != null) {
+    if (!Array.isArray(obj.images)) return err("images must be an array");
+    if (obj.images.length > 10) return err("images must be ≤ 10 entries");
+    let stagingReal: string;
+    try {
+      stagingReal = realpathSync(stagingDir(root));
+    } catch {
+      return err("no staged uploads exist");
+    }
+    for (const it of obj.images) {
+      if (typeof it !== "string") return err("each image must be a string path");
+      let real: string;
+      try {
+        real = realpathSync(resolve(it));
+      } catch {
+        return err("image does not exist");
+      }
+      const inside = real === stagingReal || real.startsWith(stagingReal + sep);
+      if (!inside) return err("image must be inside the staging dir");
+      try {
+        if (!statSync(real).isFile()) return err("image must be a file");
+      } catch {
+        return err("image does not exist");
+      }
+      images.push(real);
+    }
+  }
+
   return {
     ok: true,
-    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model },
+    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model, images },
   };
 }
 

@@ -43,3 +43,29 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(calls.start.argv).toEqual(["claude", "--dangerously-skip-permissions", "flatten it"]);
   expect(store.get(s.id)).toBeTruthy();
 });
+
+test("archive stops the herdr agent, removes the worktree, and archives the row", () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = { stopped: [], removed: [] };
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}), remove: (p: string) => calls.removed.push(p) } as any,
+    herdr: { start: () => ({}), list: () => [], stop: (t: string) => calls.stopped.push(t) } as any,
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  service.archive(s.id);
+  expect(calls.stopped).toEqual(["term_z"]); // agent stopped (no leak)
+  expect(calls.removed).toEqual(["/wt"]); // worktree removed
+  expect(store.get(s.id)?.status).toBe("archived");
+});

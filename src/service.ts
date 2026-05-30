@@ -7,7 +7,7 @@ import type { CreateSessionInput, Session } from "./types";
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<WorktreeMgr, "create" | "remove">;
-  herdr: Pick<HerdrDriver, "start" | "list">;
+  herdr: Pick<HerdrDriver, "start" | "list" | "stop">;
   namer: (prompt: string) => Promise<string>;
 }
 
@@ -35,6 +35,7 @@ export class SessionService {
   archive(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;
+    this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     if (s.isolated) this.deps.worktree.remove(s.worktreePath);
     this.deps.store.archive(id);
   }

@@ -56,6 +56,21 @@ test("start runs herdr then resolves the new agent by unique cwd", () => {
   ]);
 });
 
+test("stop closes the pane backing a terminal id", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return FIXTURE;
+  });
+  d.stop("term_a");
+  expect(calls.at(-1)).toEqual(["pane", "close", "p1"]);
+});
+
+test("stop is a no-op for an unknown terminal id", () => {
+  const d = new HerdrDriver(() => FIXTURE);
+  expect(() => d.stop("term_missing")).not.toThrow();
+});
+
 test("mapState maps herdr states to shepherd status", () => {
   expect(mapState("working")).toBe("running");
   expect(mapState("blocked")).toBe("blocked");

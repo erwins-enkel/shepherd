@@ -1,7 +1,15 @@
 import { statSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { resolve, sep, join } from "node:path";
+import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
 import type { CreateSessionInput } from "./types";
+
+/** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/Work/…`). */
+export function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return p;
+}
 
 type Ok = { ok: true; value: CreateSessionInput };
 type Err = { ok: false; error: string };
@@ -37,8 +45,8 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (typeof obj.repoPath !== "string" || obj.repoPath.length === 0) {
     return err("repoPath must be a non-empty string");
   }
-  const resolved = resolve(obj.repoPath);
-  const root = resolve(repoRoot);
+  const resolved = resolve(expandHome(obj.repoPath));
+  const root = resolve(expandHome(repoRoot));
   const inside = resolved === root || resolved.startsWith(root + sep);
   if (!inside) return err("repoPath must be inside the configured repoRoot");
 

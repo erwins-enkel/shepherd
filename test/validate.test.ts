@@ -1,8 +1,28 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import { validateCreate, isAuthorized, originAllowed, isValidTerminalId } from "../src/validate";
+import {
+  validateCreate,
+  isAuthorized,
+  originAllowed,
+  isValidTerminalId,
+  expandHome,
+} from "../src/validate";
+
+test("expandHome expands leading ~ to homedir", () => {
+  expect(expandHome("~")).toBe(homedir());
+  expect(expandHome("~/Work/tank")).toBe(join(homedir(), "Work/tank"));
+  expect(expandHome("/abs/path")).toBe("/abs/path");
+  expect(expandHome("~notme/x")).toBe("~notme/x"); // only bare ~ or ~/ expand
+});
+
+test("validateCreate accepts a ~ path inside repoRoot", () => {
+  // repoRoot = home; repoPath '~' resolves to home (which exists & is a dir)
+  const r = validateCreate({ repoPath: "~", baseBranch: "main", prompt: "go" }, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.repoPath).toBe(homedir());
+});
 
 // ── validateCreate ────────────────────────────────────────────────────────────
 

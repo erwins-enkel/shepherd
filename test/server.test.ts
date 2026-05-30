@@ -40,6 +40,7 @@ function makeDeps(): AppDeps {
         workspaceId: "w",
       }),
       list: () => [],
+      stop: () => {},
     } as any,
   });
   return { store, service, events };

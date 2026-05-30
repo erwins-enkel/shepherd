@@ -57,4 +57,15 @@ export class HerdrDriver {
     if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
     return match;
   }
+
+  /** Best-effort: stop the live agent backing a terminal id (closes its herdr pane). */
+  stop(terminalId: string): void {
+    const agent = this.list().find((a) => a.terminalId === terminalId);
+    if (!agent?.paneId) return;
+    try {
+      this.runner(["pane", "close", agent.paneId]);
+    } catch {
+      /* best-effort; agent may already be gone */
+    }
+  }
 }

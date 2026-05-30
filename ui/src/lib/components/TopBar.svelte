@@ -8,12 +8,14 @@
     connected = false,
     mobile = false,
     limits = null,
+    ontriage,
   }: {
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
     mobile?: boolean;
     limits?: UsageLimits | null;
+    ontriage?: () => void;
   } = $props();
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
@@ -66,6 +68,9 @@
         >
       </div>
     </div>
+  {/if}
+  {#if blocked > 0}
+    <button class="needsyou" onclick={() => ontriage?.()}>NEEDS YOU · {blocked}</button>
   {/if}
   {#if gauges.length}
     <div class="gauges" class:mobile class:stale={limits?.stale}>
@@ -155,6 +160,15 @@
   .tally .n {
     color: var(--color-ink-bright);
     font-weight: 500;
+  }
+  .needsyou {
+    background: color-mix(in srgb, var(--color-red) 18%, transparent);
+    border: 1px solid var(--color-red);
+    color: var(--color-red);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
   }
   .gauges {
     margin-left: auto;

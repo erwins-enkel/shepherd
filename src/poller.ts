@@ -20,7 +20,9 @@ export class StatusPoller {
 
   tick(): void {
     const byTerm = new Map(this.herdr.list().map((a) => [a.terminalId, a]));
+    const activeIds = new Set<string>();
     for (const s of this.store.list({ activeOnly: true })) {
+      activeIds.add(s.id);
       const agent = byTerm.get(s.herdrAgentId);
       if (!agent) continue;
       const status = mapState(agent.agentStatus);
@@ -28,20 +30,28 @@ export class StatusPoller {
         this.store.update(s.id, { status, lastState: agent.agentStatus });
         this.onChange(s.id, status);
       }
-      if (status === "blocked") this.classifyBlocked(s.id, s.herdrAgentId);
+      if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
       else this.clearBlock(s.id);
+    }
+    // prune tracking state for sessions no longer active (archived/removed)
+    for (const id of this.lastSig.keys()) {
+      if (!activeIds.has(id)) {
+        this.lastReadAt.delete(id);
+        this.lastSig.delete(id);
+      }
     }
   }
 
   /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */
-  private classifyBlocked(id: string, term: string): void {
+  private maybeClassify(id: string, term: string): void {
     const t = this.now();
     if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return;
     this.lastReadAt.set(id, t);
     let reason: BlockReason;
     try {
       reason = this.classify(this.herdr.read(term, "visible"));
-    } catch {
+    } catch (err) {
+      console.warn(`[poller] classify failed for ${id}:`, err);
       return; // best-effort; retry next cadence
     }
     const sig = JSON.stringify(reason);

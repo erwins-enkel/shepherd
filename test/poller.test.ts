@@ -102,3 +102,77 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
+
+test("re-emits onBlock when the blocked reason changes after the cadence", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+  let text = "❯ 1. Yes\n  2. No";
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "blocked",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => text,
+  };
+  let clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  text = "Continue? (y/n)";
+  clock += 5000;
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  expect((blocks[1]!.block as any).shape).toBe("yes-no");
+});
+
+test("does not emit onBlock when reading the terminal throws", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: unknown[] = [];
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "blocked",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => {
+      throw new Error("herdr down");
+    },
+  };
+  const clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (_id, block) => blocks.push(block),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+});

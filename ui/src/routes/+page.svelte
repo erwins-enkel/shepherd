@@ -1,1 +1,1 @@
-<h1 class="text-amber-400">SHEP<b>HERD</b></h1>
+<h1 class="font-mono text-amber">SHEP·HERD</h1>

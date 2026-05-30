@@ -1,1 +1,71 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0d0c;
+  --color-panel: #0f1413;
+  --color-inset: #070a09;
+  --color-line: #1b2422;
+  --color-line-bright: #2c3835;
+  --color-ink: #aab8b2;
+  --color-ink-bright: #e9f1ec;
+  --color-muted: #5d6c67;
+  --color-faint: #3a4742;
+  --color-amber: #e8a13a;
+  --color-green: #5ad19a;
+  --color-red: #e5484d;
+  --color-slate: #566460;
+  --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  --status-running: var(--color-amber);
+  --status-done: var(--color-green);
+  --status-blocked: var(--color-red);
+  --status-idle: var(--color-slate);
+}
+
+html,
+body {
+  background:
+    radial-gradient(120% 100% at 50% -10%, #0d1211 0%, var(--color-bg) 60%), var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  margin: 0;
+  height: 100%;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* motion (guarded) */
+@keyframes pip-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 70%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes scan {
+  0% {
+    top: -70px;
+  }
+  100% {
+    top: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
+}

@@ -99,7 +99,13 @@ test("GiteaForge.prStatus: merged PR", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {
       json: [
-        { number: 9, state: "closed", merged: true, head: { ref: "feature", sha: "z" }, html_url: "u" },
+        {
+          number: 9,
+          state: "closed",
+          merged: true,
+          head: { ref: "feature", sha: "z" },
+          html_url: "u",
+        },
       ],
     },
     "GET /api/v1/repos/team/proj/commits/z/status": { json: { state: "success" } },

@@ -93,25 +93,20 @@ export class GiteaForge implements GitForge {
 
   private async checksFor(sha: string | undefined): Promise<ChecksState> {
     if (!sha) return "none";
-    const status = (await this.req(
-      "GET",
-      `/api/v1/repos/${this.slug}/commits/${sha}/status`,
-    )) as { state?: string } | null;
+    const status = (await this.req("GET", `/api/v1/repos/${this.slug}/commits/${sha}/status`)) as {
+      state?: string;
+    } | null;
     return mapCombinedStatus(status?.state);
   }
 
   private async toStatus(pr: GiteaPr): Promise<PrStatus> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
-    const state: PrStatus["state"] = pr.merged
-      ? "merged"
-      : pr.state === "open"
-        ? "open"
-        : "closed";
+    const state: PrStatus["state"] = pr.merged ? "merged" : pr.state === "open" ? "open" : "closed";
     return {
       state,
       number: pr.number,
       url: pr.html_url,
-      title: pr.title,
+      title: pr.title ?? "",
       mergeable: pr.mergeable ?? null,
       checks: await this.checksFor(pr.head?.sha),
       deployConfigured,
@@ -124,7 +119,8 @@ export class GiteaForge implements GitForge {
       `/api/v1/repos/${this.slug}/pulls?state=all&limit=50`,
     )) as GiteaPr[];
     const pr = (prs ?? []).find((p) => p.head?.ref === headBranch);
-    if (!pr) return { state: "none", checks: "none", deployConfigured: Boolean(this.cfg.deployWorkflow) };
+    if (!pr)
+      return { state: "none", checks: "none", deployConfigured: Boolean(this.cfg.deployWorkflow) };
     return this.toStatus(pr);
   }
 

@@ -15,7 +15,7 @@ the UI and server don't branch on host type.
 ## ToS context (the defining constraint)
 
 Shepherd's hard rule: if a feature can't be done by typing into a real terminal,
-it doesn't ship — because the *Claude* work runs on the operator's Claude
+it doesn't ship — because the _Claude_ work runs on the operator's Claude
 subscription (interactive-only, no Agent SDK / `claude -p`).
 
 Forge actions are **orthogonal** to that rule. Opening/merging a PR and triggering
@@ -27,16 +27,16 @@ type-into-claude).
 
 ## Decisions (locked)
 
-| # | Decision |
-|---|----------|
-| Execution | Direct forge API/CLI. No typing into the claude pane. |
-| Auth | Per-forge config file `~/.shepherd/forges.json`. GitHub reuses existing `gh` auth. |
-| Redeploy | Trigger a **named deploy workflow** (`workflow_dispatch` on GitHub; Gitea Actions equivalent). |
-| UI surface | Contextual git rail in the Viewport header that morphs by PR state. |
-| CI checks | Single **worst-of** rollup dot (pending < success, failure dominates). No per-check list in v1. |
-| Merge method | Config default per forge (`mergeMethod`); **no** per-click picker. |
-| Delete branch | Merge deletes the head branch by default. |
-| Token storage | Plaintext in `~/.shepherd/forges.json` (chmod 600). No env indirection in v1. |
+| #             | Decision                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Execution     | Direct forge API/CLI. No typing into the claude pane.                                           |
+| Auth          | Per-forge config file `~/.shepherd/forges.json`. GitHub reuses existing `gh` auth.              |
+| Redeploy      | Trigger a **named deploy workflow** (`workflow_dispatch` on GitHub; Gitea Actions equivalent).  |
+| UI surface    | Contextual git rail in the Viewport header that morphs by PR state.                             |
+| CI checks     | Single **worst-of** rollup dot (pending < success, failure dominates). No per-check list in v1. |
+| Merge method  | Config default per forge (`mergeMethod`); **no** per-click picker.                              |
+| Delete branch | Merge deletes the head branch by default.                                                       |
+| Token storage | Plaintext in `~/.shepherd/forges.json` (chmod 600). No env indirection in v1.                   |
 
 ## Architecture
 
@@ -59,14 +59,14 @@ export interface PrStatus {
   number?: number;
   url?: string;
   title?: string;
-  mergeable?: boolean | null;            // null = host still computing mergeability
-  checks: "none" | "pending" | "success" | "failure";  // worst-of rollup
-  deployConfigured: boolean;             // a deployWorkflow is set for this host
+  mergeable?: boolean | null; // null = host still computing mergeability
+  checks: "none" | "pending" | "success" | "failure"; // worst-of rollup
+  deployConfigured: boolean; // a deployWorkflow is set for this host
 }
 
 export interface GitForge {
   kind: ForgeKind;
-  slug: string | null;                   // "owner/repo"
+  slug: string | null; // "owner/repo"
   listIssues(): Promise<Issue[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: { head: string; base: string; title: string; body: string }): Promise<PrStatus>;
@@ -76,6 +76,7 @@ export interface GitForge {
 ```
 
 **Detection (`detectForge`):**
+
 1. `git -C <repoDir> remote get-url origin` → parse host + `owner/repo` (handle
    both `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`).
 2. Host `github.com` → `GithubForge` (uses `gh`; reads host config only for
@@ -124,12 +125,12 @@ db convention.
 Addressed by **session id** — the session already carries `repoPath`, `branch`,
 `baseBranch`, so no repo query-param to validate.
 
-| Method | Path | Body | Returns |
-|--------|------|------|---------|
-| GET  | `/api/sessions/:id/git` | — | `{ kind, ...PrStatus }` |
-| POST | `/api/sessions/:id/git/pr` | `{ title?, body? }` | `PrStatus` |
-| POST | `/api/sessions/:id/git/merge` | `{ method?, deleteBranch? }` | `PrStatus` |
-| POST | `/api/sessions/:id/git/redeploy` | — | `{ ok: true }` |
+| Method | Path                             | Body                         | Returns                 |
+| ------ | -------------------------------- | ---------------------------- | ----------------------- |
+| GET    | `/api/sessions/:id/git`          | —                            | `{ kind, ...PrStatus }` |
+| POST   | `/api/sessions/:id/git/pr`       | `{ title?, body? }`          | `PrStatus`              |
+| POST   | `/api/sessions/:id/git/merge`    | `{ method?, deleteBranch? }` | `PrStatus`              |
+| POST   | `/api/sessions/:id/git/redeploy` | —                            | `{ ok: true }`          |
 
 - All reuse existing `checkAuth` + `checkOrigin` (POSTs already origin-guarded).
 - Forge resolved per-request via `detectForge(session.repoPath)` using the loaded

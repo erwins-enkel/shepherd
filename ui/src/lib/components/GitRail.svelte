@@ -2,8 +2,11 @@
   import { gitState, openPr, mergePr, redeploy } from "$lib/api";
   import type { GitState } from "$lib/types";
 
-  let { sessionId, name = "", prompt = "" }: { sessionId: string; name?: string; prompt?: string } =
-    $props();
+  let {
+    sessionId,
+    name = "",
+    prompt = "",
+  }: { sessionId: string; name?: string; prompt?: string } = $props();
 
   let git = $state<GitState | null>(null);
   let busy = $state(false);
@@ -63,7 +66,10 @@
     busy = true;
     err = null;
     try {
-      git = { kind: git?.kind ?? "github", ...(await openPr(sessionId, { title: prTitle, body: prBody })) };
+      git = {
+        kind: git?.kind ?? "github",
+        ...(await openPr(sessionId, { title: prTitle, body: prBody })),
+      };
       showPr = false;
     } catch (e) {
       err = e instanceof Error ? e.message : "open PR failed";
@@ -113,7 +119,8 @@
       {:else}
         <span class="prlink">PR #{git.number}</span>
       {/if}
-      <span class="dot dot-{git.checks}" title="CI: {git.checks}" aria-label="CI {git.checks}"></span>
+      <span class="dot dot-{git.checks}" title="CI: {git.checks}" aria-label="CI {git.checks}"
+      ></span>
       <button
         class="gbtn"
         class:armed={armed === "merge"}
@@ -149,7 +156,12 @@
       <textarea class="pr-body" bind:value={prBody} placeholder="Description" rows="4"></textarea>
       <div class="pr-actions">
         <button class="gbtn" type="button" onclick={() => (showPr = false)}>Cancel</button>
-        <button class="gbtn primary" type="button" disabled={busy || !prTitle.trim()} onclick={submitPr}>
+        <button
+          class="gbtn primary"
+          type="button"
+          disabled={busy || !prTitle.trim()}
+          onclick={submitPr}
+        >
           Create PR
         </button>
       </div>

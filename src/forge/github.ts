@@ -125,7 +125,8 @@ export class GithubForge implements GitForge {
   }
 
   async merge(prNumber: number, o: MergeInput): Promise<void> {
-    const method = o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";
+    const method =
+      o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";
     const args = ["pr", "merge", String(prNumber), "--repo", this.slug, method];
     if (o.deleteBranch) args.push("--delete-branch");
     this.run(args);

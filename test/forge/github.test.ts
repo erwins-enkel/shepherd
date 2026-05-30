@@ -21,7 +21,9 @@ test("GithubForge.listIssues: parses gh issue list output", async () => {
   const { run } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);
   const issues = await forge.listIssues();
-  expect(issues).toEqual([{ number: 1, title: "Fix crash", body: "boom", url: "u1", labels: ["bug"] }]);
+  expect(issues).toEqual([
+    { number: 1, title: "Fix crash", body: "boom", url: "u1", labels: ["bug"] },
+  ]);
 });
 
 test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () => {

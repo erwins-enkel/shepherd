@@ -9,6 +9,7 @@ import {
   existsSync,
 } from "node:fs";
 import { join, basename } from "node:path";
+import type { SessionStore } from "./store";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -71,4 +72,38 @@ export function sweepStaging(repoRoot: string, maxAgeMs: number, now: number): v
       /* best-effort */
     }
   }
+}
+
+const j = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+export interface UploadDeps {
+  store: Pick<SessionStore, "get">;
+  repoRoot: string;
+}
+
+/** POST /api/uploads — multipart `file`; optional `?session=<id>`. Returns { path }. */
+export async function handleUpload(req: Request, deps: UploadDeps): Promise<Response> {
+  const form = await req.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File)) return j({ error: "missing file field" }, 400);
+
+  const ext = extForMime(file.type);
+  if (!ext) return j({ error: "unsupported image type" }, 415);
+  if (file.size > MAX_UPLOAD_BYTES) return j({ error: "file too large" }, 413);
+
+  const sessionId = new URL(req.url).searchParams.get("session");
+  let destDir: string;
+  if (sessionId) {
+    const s = deps.store.get(sessionId);
+    if (!s) return j({ error: "unknown session" }, 404);
+    destDir = worktreeUploadsDir(s.worktreePath);
+  } else {
+    destDir = stagingDir(deps.repoRoot);
+  }
+
+  mkdirSync(destDir, { recursive: true });
+  const path = join(destDir, uploadFilename(ext));
+  await Bun.write(path, file);
+  return j({ path });
 }

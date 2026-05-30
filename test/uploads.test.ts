@@ -10,7 +10,9 @@ import {
   moveStagedIntoWorktree,
   sweepStaging,
   uploadFilename,
+  handleUpload,
 } from "../src/uploads";
+import { SessionStore } from "../src/store";
 
 test("extForMime maps supported image types, rejects others", () => {
   expect(extForMime("image/png")).toBe("png");
@@ -83,4 +85,75 @@ test("sweepStaging is a no-op when staging dir is absent", () => {
 
 test("uploadFilename returns <uuid>.<ext>", () => {
   expect(uploadFilename("png")).toMatch(/^[0-9a-f-]{36}\.png$/);
+});
+
+function uploadReq(file: File | null, query = ""): Request {
+  const fd = new FormData();
+  if (file) fd.append("file", file);
+  return new Request(`http://x/api/uploads${query}`, { method: "POST", body: fd });
+}
+
+test("handleUpload saves to staging dir when no session given", async () => {
+  const store = new SessionStore(":memory:");
+  const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+  const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.path.startsWith(stagingDir(root) + "/")).toBe(true);
+  expect(body.path.endsWith(".png")).toBe(true);
+  expect(existsSync(body.path)).toBe(true);
+  // generated name, not the client filename
+  expect(body.path.includes("shot.png")).toBe(false);
+});
+
+test("handleUpload saves into the session worktree when ?session= is valid", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-sess");
+  mkdirSync(wt);
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const file = new File([new Uint8Array([9])], "x.webp", { type: "image/webp" });
+  const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.path.startsWith(worktreeUploadsDir(wt) + "/")).toBe(true);
+  expect(existsSync(body.path)).toBe(true);
+});
+
+test("handleUpload 404s for an unknown session", async () => {
+  const store = new SessionStore(":memory:");
+  const file = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+  const res = await handleUpload(uploadReq(file, "?session=nope"), { store, repoRoot: root });
+  expect(res.status).toBe(404);
+});
+
+test("handleUpload 415s an unsupported type", async () => {
+  const store = new SessionStore(":memory:");
+  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
+  const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
+  expect(res.status).toBe(415);
+});
+
+test("handleUpload 413s a file over the size cap", async () => {
+  const store = new SessionStore(":memory:");
+  const big = new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "x.png", { type: "image/png" });
+  const res = await handleUpload(uploadReq(big), { store, repoRoot: root });
+  expect(res.status).toBe(413);
+});
+
+test("handleUpload 400s when the file field is missing", async () => {
+  const store = new SessionStore(":memory:");
+  const res = await handleUpload(uploadReq(null), { store, repoRoot: root });
+  expect(res.status).toBe(400);
 });

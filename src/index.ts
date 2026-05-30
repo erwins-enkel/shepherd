@@ -32,4 +32,4 @@ const poller = new StatusPoller(store, herdr, (id, status) =>
 poller.start();
 
 const server = serve({ store, service, events }, config.port);
-console.log(`tank core on http://localhost:${server.port}`);
+console.log(`shepherd core on http://localhost:${server.port}`);

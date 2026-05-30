@@ -8,7 +8,7 @@ const baseSession = {
   prompt: "x",
   repoPath: "/r",
   baseBranch: "main",
-  branch: "tank/x",
+  branch: "shepherd/x",
   worktreePath: "/wt",
   isolated: true,
   herdrSession: "default",

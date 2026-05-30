@@ -9,7 +9,7 @@ const base = {
   prompt: "flatten repo",
   repoPath: "/r",
   baseBranch: "main",
-  branch: "tank/repo-flatten",
+  branch: "shepherd/repo-flatten",
   worktreePath: "/r-wt",
   isolated: true,
   herdrSession: "default",

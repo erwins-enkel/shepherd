@@ -12,7 +12,7 @@ let tmpRoot: string;
 let validRepo: string;
 
 beforeEach(() => {
-  tmpRoot = mkdtempSync(join(config.repoRoot, "tank-srv-test-"));
+  tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-srv-test-"));
   validRepo = join(tmpRoot, "repo");
   mkdirSync(validRepo);
 });
@@ -26,7 +26,7 @@ function makeDeps(): AppDeps {
     store,
     namer: async () => "x",
     worktree: {
-      create: () => ({ worktreePath: "/wt", branch: "tank/x", isolated: true }),
+      create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
     herdr: {

@@ -1,9 +1,9 @@
-# Tank v2 — HUD UI Implementation Plan
+# Shepherd v2 — HUD UI Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 > **Svelte note:** Every task that writes `.svelte`/`.svelte.ts` MUST use the `svelte-code-writer` skill (and Context7 for Svelte 5 / Tailwind 4 / xterm APIs). Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`); NEVER Svelte 4 stores syntax or `export let`.
 
-**Goal:** A monospace "Tank HUD" web UI (SvelteKit 5 + Tailwind 4 + xterm.js) on top of the Plan-1 backend — spawn tasks, watch the herd with live status lights, and open a live, steerable terminal per session.
+**Goal:** A monospace "Shepherd HUD" web UI (SvelteKit 5 + Tailwind 4 + xterm.js) on top of the Plan-1 backend — spawn tasks, watch the herd with live status lights, and open a live, steerable terminal per session.
 
 **Architecture:** A SvelteKit 5 **SPA** in `ui/` (adapter-static, Svelte 5 runes). In dev, Vite proxies `/api`, `/events`, `/pty` to the Bun backend (`:7330`). In prod, the Bun server serves `ui/build` as static files. State of record is the backend; the UI holds a reactive mirror updated by an initial REST fetch + the `/events` WebSocket. The live terminal is xterm.js over the `/pty/:id` WebSocket. Visual language is ported from `mockup/hud.html`.
 
@@ -29,7 +29,7 @@ tank/
     vite.config.ts            # tailwind plugin + dev proxy to :7330
     src/
       app.html
-      app.css                 # Tank HUD tokens (ported from mockup/hud.html) + tailwind
+      app.css                 # Shepherd HUD tokens (ported from mockup/hud.html) + tailwind
       lib/
         types.ts              # Session, WS event types (mirror backend)
         api.ts                # REST client
@@ -135,7 +135,7 @@ git add -A && git commit -m "chore(ui): scaffold sveltekit5 spa (tailwind4, xter
 
 ---
 
-## Task 2: Tank HUD design tokens
+## Task 2: Shepherd HUD design tokens
 
 **Files:** Modify `ui/src/app.css`. Reference: `mockup/hud.html` (the `:root` token block + component CSS already prototyped there).
 
@@ -476,7 +476,7 @@ git add ui/src/lib/store.svelte.ts ui/test/store.test.ts && git commit -m "feat(
 
 - [ ] **Step 3: Herd.svelte** — the list panel: header (`THE HERD`), maps `sessions` → `UnitRow`. Props `{ sessions, selectedId, nowMs, onselect }`.
 
-- [ ] **Step 4: TopBar.svelte** — HUD bar: `TANK` callsign, herd count, working/idle/blocked tallies (derived from sessions), live clock. Props `{ sessions, nowMs }`; compute tallies with `$derived`.
+- [ ] **Step 4: TopBar.svelte** — HUD bar: `SHEPHERD` callsign, herd count, working/idle/blocked tallies (derived from sessions), live clock. Props `{ sessions, nowMs }`; compute tallies with `$derived`.
 
 - [ ] **Step 5: NewTask.svelte** — a form: prompt textarea, repoPath input (default `~/Work/...`), baseBranch input (default `main`); on submit calls `onsubmit({repoPath, baseBranch, prompt})`. Disable while submitting. Props: `{ onsubmit }`.
 
@@ -648,7 +648,7 @@ git add src/server.ts test/server.test.ts && git commit -m "feat: backend serves
 
 ```bash
 cd ~/Work/tank/ui && bun run build
-cd ~/Work/tank && TANK_DB=/tmp/tank-e2e.db TANK_PORT=7346 TANK_REPO_ROOT=/tmp bun run src/index.ts &
+cd ~/Work/tank && SHEPHERD_DB=/tmp/tank-e2e.db SHEPHERD_PORT=7346 SHEPHERD_REPO_ROOT=/tmp bun run src/index.ts &
 sleep 1.5
 ```
 

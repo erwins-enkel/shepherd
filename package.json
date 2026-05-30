@@ -1,5 +1,5 @@
 {
-  "name": "tank",
+  "name": "shepherd",
   "module": "src/index.ts",
   "type": "module",
   "private": true,

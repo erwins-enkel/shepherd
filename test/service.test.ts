@@ -11,7 +11,11 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     worktree: {
       create: (repo: string, base: string, name: string) => {
         calls.wt = { repo, base, name };
-        return { worktreePath: "/wt/repo-flatten", branch: "tank/repo-flatten", isolated: true };
+        return {
+          worktreePath: "/wt/repo-flatten",
+          branch: "shepherd/repo-flatten",
+          isolated: true,
+        };
       },
       remove: () => {},
     } as any,

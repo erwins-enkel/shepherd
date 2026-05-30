@@ -25,8 +25,8 @@ export class WorktreeMgr {
     if (!this.isGit(repoPath)) {
       return { worktreePath: repoPath, branch: null, isolated: false };
     }
-    const branch = `tank/${name}`;
-    const parent = join(dirname(repoPath), ".tank-worktrees");
+    const branch = `shepherd/${name}`;
+    const parent = join(dirname(repoPath), ".shepherd-worktrees");
     const worktreePath = join(parent, `${basename(repoPath)}-${name}`);
     try {
       mkdirSync(parent, { recursive: true });

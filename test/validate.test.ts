@@ -10,7 +10,7 @@ let root: string;
 let validRepo: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "tank-val-root-"));
+  root = mkdtempSync(join(tmpdir(), "shepherd-val-root-"));
   validRepo = join(root, "myrepo");
   mkdirSync(validRepo);
 });

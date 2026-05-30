@@ -7,7 +7,7 @@ import { WorktreeMgr } from "../src/worktree";
 
 let repo: string;
 beforeEach(() => {
-  repo = mkdtempSync(join(tmpdir(), "tank-wt-"));
+  repo = mkdtempSync(join(tmpdir(), "shepherd-wt-"));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
   execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "init"], {
     cwd: repo,
@@ -22,23 +22,23 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
-test("create makes an isolated worktree on a tank/ branch", () => {
+test("create makes an isolated worktree on a shepherd/ branch", () => {
   const wt = new WorktreeMgr();
   const r = wt.create(repo, "main", "repo-flatten");
   expect(r.isolated).toBe(true);
-  expect(r.branch).toBe("tank/repo-flatten");
+  expect(r.branch).toBe("shepherd/repo-flatten");
   expect(existsSync(r.worktreePath)).toBe(true);
   wt.remove(r.worktreePath);
   expect(existsSync(r.worktreePath)).toBe(false);
   // branch must be retained after worktree removal
-  const branches = execFileSync("git", ["branch", "--list", "tank/repo-flatten"], {
+  const branches = execFileSync("git", ["branch", "--list", "shepherd/repo-flatten"], {
     cwd: repo,
   }).toString();
-  expect(branches).toContain("tank/repo-flatten");
+  expect(branches).toContain("shepherd/repo-flatten");
 });
 
 test("non-git dir falls back to cwd, not isolated", () => {
-  const plain = mkdtempSync(join(tmpdir(), "tank-plain-"));
+  const plain = mkdtempSync(join(tmpdir(), "shepherd-plain-"));
   const wt = new WorktreeMgr();
   const r = wt.create(plain, "main", "x");
   expect(r.isolated).toBe(false);

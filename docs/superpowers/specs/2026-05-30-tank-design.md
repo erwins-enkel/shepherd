@@ -1,4 +1,4 @@
-# Tank v1 — Design Spec
+# Shepherd v1 — Design Spec
 
 **Date:** 2026-05-30
 **Status:** Approved (design), pending implementation plan
@@ -8,21 +8,23 @@
 
 ## 1. Goal & scope
 
-Tank v1 is a self-hosted, single-operator dashboard that spawns **genuinely interactive**
+Shepherd v1 is a self-hosted, single-operator dashboard that spawns **genuinely interactive**
 `claude` (Claude Code) sessions, each isolated in its own git worktree, and lets the operator
 watch and steer them live in the browser. It exists because Anthropic permits interactive
 terminal use on a subscription but restricts programmatic use (Agent SDK / `claude -p`, cut off
-2026-06-15); Tank only *observes and steers* real PTYs, never drives Claude programmatically.
+2026-06-15); Shepherd only _observes and steers_ real PTYs, never drives Claude programmatically.
 
 **In scope (v1):**
+
 - Spawn a task → auto-named session → `claude` running in an isolated worktree.
 - Live, bidirectional terminal in the browser (real PTY).
 - Status lights (working / idle / blocked / done) sourced from herdr.
-- Persistence: sessions survive a Tank restart; reconcile on boot.
+- Persistence: sessions survive a Shepherd restart; reconcile on boot.
 - Multi-session "All / Herd" view.
-- The "Tank HUD" visual design language (§9), applied from the first build.
+- The "Shepherd HUD" visual design language (§9), applied from the first build.
 
 **Out of scope (later milestones, each its own spec):**
+
 - Git host integration — PR/merge/redeploy buttons (gitea **or** forgejo; undecided, deferred).
 - Research chat, saved history, searxng wiring.
 - Usage / cost tracking from `~/.claude` JSONL.
@@ -30,6 +32,7 @@ terminal use on a subscription but restricts programmatic use (Agent SDK / `clau
 - Mobile/PWA, kanban-api integration, sandboxing, permission profiles.
 
 **Hard constraints:**
+
 - Runs on the operator's Claude **subscription** → sessions MUST be real interactive PTYs.
 - No Agent SDK, no `claude -p`, anywhere — including incidental uses (e.g. task naming).
 - Single operator. No multi-user, no token relay.
@@ -46,7 +49,7 @@ Browser (SvelteKit 5 + xterm.js)
    │  REST /api/sessions (CRUD)
    │  WS /events          (status pushes, fan-out)
    │  WS /pty/:id         (raw terminal bytes, bidirectional)
-┌──┴─────────────────── Tank Server (Bun/TS) ───────────────────┐
+┌──┴─────────────────── Shepherd Server (Bun/TS) ───────────────────┐
 │  HerdrDriver   — wraps herdr CLI (start / list / get / wait)   │
 │  PtyBridge     — node-pty ⇄ `herdr agent attach <id>`          │
 │  WorktreeMgr   — git worktree create / remove                  │
@@ -71,21 +74,25 @@ Everything else stays Bun regardless.
 ## 3. Components
 
 ### 3.1 HerdrDriver
+
 Thin wrapper over the herdr CLI (chosen over the raw socket protocol for robustness against
 herdr internals). Surface used:
+
 - `herdr agent start <name> --cwd <worktree> -- claude --dangerously-skip-permissions "<prompt>"`
 - `herdr agent list` / `herdr agent get <id>` — enumerate / inspect the herd.
 - `herdr agent wait <id> --status <s> [--timeout MS]` — efficient state-change waits.
 - `herdr agent attach <id> [--takeover]` — used by PtyBridge.
-Parses CLI output (prefer `--json` where available); covered by golden-fixture unit tests.
+  Parses CLI output (prefer `--json` where available); covered by golden-fixture unit tests.
 
 ### 3.2 PtyBridge
+
 On a `/pty/:id` WS connection: spawns `node-pty` running `herdr agent attach <herdr_agent_id>`,
 pipes PTY→WS (bytes out) and WS→PTY (keystrokes in). One **active** attach per session; a second
 viewer gets a read-only view (polled `herdr agent read --source recent`) with an explicit
 "Take over" action (`--takeover`). Handles resize (`SIGWINCH`) from xterm `cols/rows`.
 
 ### 3.3 WorktreeMgr
+
 - `create(repo_path, base_branch, name)` → `git worktree add` a new branch `tank/<name>` off
   base; returns `{ worktree_path, branch }`.
 - Non-git directory → fall back to running in the directory directly (plain cwd) and flag the
@@ -94,30 +101,33 @@ viewer gets a read-only view (polled `herdr agent read --source recent`) with an
   later inspection. Called on archive.
 
 ### 3.4 Namer
+
 `name(prompt)` → short kebab/space label via ollama (`mistral-small3.1`, local, ToS-safe).
 On any failure/timeout → fall back to a cleaned first line of the prompt (truncated). Never uses
 Anthropic models. Each session is also assigned a sequential **designation** `UNIT-NN` at create
 (ordinal within the herd), stored on the row.
 
 ### 3.5 SessionStore
-Interface (`create / get / list / update / archive`) backed by Tank-local **SQLite**. The
+
+Interface (`create / get / list / update / archive`) backed by Shepherd-local **SQLite**. The
 interface boundary exists so a future milestone can swap in kanban-api without touching the UI
 or other components.
 
 ### 3.6 StatusPoller
+
 Watches herdr agent state (via herdr's already-installed Claude integration —
 `~/.claude/hooks/herdr-agent-state.sh`, so **no custom Claude hooks in v1**). Maps state →
 status, writes to SessionStore, and fans out compact updates over `/events`. Implementation uses
 `herdr agent wait --status` where possible, falling back to a short poll of `herdr agent get`.
 
 **State → status mapping:**
-| herdr state | Tank status | HUD color |
+| herdr state | Shepherd status | HUD color |
 |---|---|---|
 | working | `running` | amber (pip pulses) |
 | blocked | `blocked` | red (steady) |
-| idle    | `idle`    | dim slate |
-| done    | `done`    | green |
-| unknown | `idle`    | dim slate |
+| idle | `idle` | dim slate |
+| done | `done` | green |
+| unknown | `idle` | dim slate |
 
 ---
 
@@ -125,22 +135,22 @@ status, writes to SessionStore, and fans out compact updates over `/events`. Imp
 
 `sessions` (SQLite):
 
-| column | notes |
-|---|---|
-| `id` | uuid, pk |
-| `desig` | `UNIT-NN`, sequential ordinal |
-| `name` | auto-generated label |
-| `prompt` | original prompt text |
-| `repo_path` | operator-chosen source dir |
-| `base_branch` | branch worktree was cut from |
-| `branch` | `tank/<name>` (null if cwd fallback) |
-| `worktree_path` | actual cwd of the session |
-| `isolated` | bool; false = cwd fallback |
-| `herdr_session` | herdr session name |
-| `herdr_agent_id` | herdr agent/terminal id |
-| `status` | running / idle / blocked / done / archived |
-| `last_state` | raw herdr state (debug) |
-| `created_at` / `updated_at` / `archived_at` | timestamps |
+| column                                      | notes                                      |
+| ------------------------------------------- | ------------------------------------------ |
+| `id`                                        | uuid, pk                                   |
+| `desig`                                     | `UNIT-NN`, sequential ordinal              |
+| `name`                                      | auto-generated label                       |
+| `prompt`                                    | original prompt text                       |
+| `repo_path`                                 | operator-chosen source dir                 |
+| `base_branch`                               | branch worktree was cut from               |
+| `branch`                                    | `tank/<name>` (null if cwd fallback)       |
+| `worktree_path`                             | actual cwd of the session                  |
+| `isolated`                                  | bool; false = cwd fallback                 |
+| `herdr_session`                             | herdr session name                         |
+| `herdr_agent_id`                            | herdr agent/terminal id                    |
+| `status`                                    | running / idle / blocked / done / archived |
+| `last_state`                                | raw herdr state (debug)                    |
+| `created_at` / `updated_at` / `archived_at` | timestamps                                 |
 
 ---
 
@@ -156,8 +166,8 @@ raw bytes both ways → xterm.js. Operator keystrokes flow through the PTY into 
 **Status:** `StatusPoller` observes herdr state → maps → persists → pushes over `/events` →
 status pips / badges / All-grid update in real time.
 
-**Persistence / resume:** herdr owns the PTYs, so sessions survive a Tank server restart. On
-boot, Tank reconciles `SessionStore` against `herdr agent list`: live agents re-linked, dead
+**Persistence / resume:** herdr owns the PTYs, so sessions survive a Shepherd server restart. On
+boot, Shepherd reconciles `SessionStore` against `herdr agent list`: live agents re-linked, dead
 agents marked `done`/`archived`, orphaned worktrees flagged.
 
 ---
@@ -196,13 +206,14 @@ agents marked `done`/`archived`, orphaned worktrees flagged.
 
 ---
 
-## 9. Visual design language — "Tank HUD"
+## 9. Visual design language — "Shepherd HUD"
 
 A thin, purely presentational layer: a `theme.css` token sheet + a matching xterm.js theme + ~5
 styled component shells. Rides on top of §3 components untouched. Reference mockup:
 `../../../mockup/hud.html`.
 
 **Tokens**
+
 - **Type:** one monospace family throughout — Berkeley Mono if licensed, else JetBrains Mono /
   IBM Plex Mono. Uppercase micro-labels (`HERD`, `UNIT`, `ELAPSED`), tight tracking.
 - **Surface:** base `#0a0d0c`, panel `#0f1413`, terminal inset `#070a09`, hairline borders
@@ -216,7 +227,8 @@ styled component shells. Rides on top of §3 components untouched. Reference moc
   top bar, cards, and viewport into one instrument family.
 
 **Screens (v1)**
-- **Top HUD bar:** callsign `TANK`, herd count + amber bar-meter, working/idle/blocked tallies,
+
+- **Top HUD bar:** callsign `SHEPHERD`, herd count + amber bar-meter, working/idle/blocked tallies,
   live clock.
 - **The Herd (list):** compact `UNIT-NN` rows — pip, name, last-line (live for working), badge,
   ticking elapsed, model. Selected row gets the bracket + glow.
@@ -224,7 +236,7 @@ styled component shells. Rides on top of §3 components untouched. Reference moc
   elapsed), terminal body with `+/−` diff coloring, amber prompt caret, footer steer-bar.
 - **Action bar:** primary `+ NEW TASK`, `All ▦`, `Focus ⌖`.
 
-**v1 framing note:** keep the instrument *frame* but leave v2+ slots empty/hidden in the build —
+**v1 framing note:** keep the instrument _frame_ but leave v2+ slots empty/hidden in the build —
 the context gauge (`CTX %`), and `searxng`/`sub-agents` hints are placeholders for later
 milestones, not wired in v1.
 

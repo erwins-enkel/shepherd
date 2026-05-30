@@ -56,7 +56,7 @@ test("start runs herdr then resolves the new agent by unique cwd", () => {
   ]);
 });
 
-test("mapState maps herdr states to tank status", () => {
+test("mapState maps herdr states to shepherd status", () => {
   expect(mapState("working")).toBe("running");
   expect(mapState("blocked")).toBe("blocked");
   expect(mapState("done")).toBe("done");

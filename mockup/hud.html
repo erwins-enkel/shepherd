@@ -1,217 +1,677 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TANK — Mission Control (mockup)</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --bg:#0a0d0c; --panel:#0f1413; --panel-2:#0c100f; --inset:#070a09;
-    --line:#1b2422; --line-bright:#2c3835;
-    --ink:#aab8b2; --ink-bright:#e9f1ec; --muted:#5d6c67; --faint:#3a4742;
-    --amber:#e8a13a; --green:#5ad19a; --red:#e5484d; --slate:#566460;
-    --font:"Berkeley Mono","JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{
-    background:
-      radial-gradient(120% 100% at 50% -10%, #0d1211 0%, var(--bg) 60%),
-      var(--bg);
-    color:var(--ink); font-family:var(--font); font-size:13px; line-height:1.5;
-    letter-spacing:.02em; -webkit-font-smoothing:antialiased;
-    padding:22px; height:100%;
-  }
-  /* faint grid texture */
-  body::before{
-    content:""; position:fixed; inset:0; pointer-events:none; opacity:.35;
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),
-                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:46px 46px; mask:radial-gradient(120% 90% at 50% 0%,#000 30%,transparent 75%);
-  }
-  .wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px;height:100%}
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SHEPHERD — Mission Control (mockup)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0d0c;
+        --panel: #0f1413;
+        --panel-2: #0c100f;
+        --inset: #070a09;
+        --line: #1b2422;
+        --line-bright: #2c3835;
+        --ink: #aab8b2;
+        --ink-bright: #e9f1ec;
+        --muted: #5d6c67;
+        --faint: #3a4742;
+        --amber: #e8a13a;
+        --green: #5ad19a;
+        --red: #e5484d;
+        --slate: #566460;
+        --font: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background: radial-gradient(120% 100% at 50% -10%, #0d1211 0%, var(--bg) 60%), var(--bg);
+        color: var(--ink);
+        font-family: var(--font);
+        font-size: 13px;
+        line-height: 1.5;
+        letter-spacing: 0.02em;
+        -webkit-font-smoothing: antialiased;
+        padding: 22px;
+        height: 100%;
+      }
+      /* faint grid texture */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.35;
+        background-image:
+          linear-gradient(var(--line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line) 1px, transparent 1px);
+        background-size: 46px 46px;
+        mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 75%);
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        height: 100%;
+      }
 
-  .micro{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
-  .bracket{position:relative}
-  .bracket::before,.bracket::after{
-    content:"";position:absolute;width:9px;height:9px;border:1px solid var(--line-bright);
-  }
-  .bracket::before{top:-1px;left:-1px;border-right:0;border-bottom:0}
-  .bracket::after{bottom:-1px;right:-1px;border-left:0;border-top:0}
+      .micro {
+        font-size: 10.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .bracket {
+        position: relative;
+      }
+      .bracket::before,
+      .bracket::after {
+        content: "";
+        position: absolute;
+        width: 9px;
+        height: 9px;
+        border: 1px solid var(--line-bright);
+      }
+      .bracket::before {
+        top: -1px;
+        left: -1px;
+        border-right: 0;
+        border-bottom: 0;
+      }
+      .bracket::after {
+        bottom: -1px;
+        right: -1px;
+        border-left: 0;
+        border-top: 0;
+      }
 
-  /* ── top HUD bar ── */
-  .hud{
-    border:1px solid var(--line); background:linear-gradient(180deg,var(--panel),var(--panel-2));
-    padding:12px 16px; display:flex;align-items:center;gap:22px;position:relative;
-  }
-  .hud .logo{font-weight:700;letter-spacing:.34em;color:var(--ink-bright);font-size:15px}
-  .hud .logo b{color:var(--amber)}
-  .hud .sep{width:1px;height:20px;background:var(--line-bright)}
-  .tallies{display:flex;gap:18px;align-items:center}
-  .tally{display:flex;gap:7px;align-items:center}
-  .tally .n{color:var(--ink-bright);font-weight:500}
-  .bars{display:inline-flex;gap:2px;margin-right:2px}
-  .bars i{width:5px;height:12px;background:var(--faint);display:inline-block}
-  .bars i.on{background:var(--amber);box-shadow:0 0 7px -1px var(--amber)}
-  .clock{margin-left:auto;color:var(--ink-bright);letter-spacing:.16em;display:flex;gap:9px;align-items:center}
-  .clock .dot{color:var(--green)}
+      /* ── top HUD bar ── */
+      .hud {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        position: relative;
+      }
+      .hud .logo {
+        font-weight: 700;
+        letter-spacing: 0.34em;
+        color: var(--ink-bright);
+        font-size: 15px;
+      }
+      .hud .logo b {
+        color: var(--amber);
+      }
+      .hud .sep {
+        width: 1px;
+        height: 20px;
+        background: var(--line-bright);
+      }
+      .tallies {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+      }
+      .tally {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+      }
+      .tally .n {
+        color: var(--ink-bright);
+        font-weight: 500;
+      }
+      .bars {
+        display: inline-flex;
+        gap: 2px;
+        margin-right: 2px;
+      }
+      .bars i {
+        width: 5px;
+        height: 12px;
+        background: var(--faint);
+        display: inline-block;
+      }
+      .bars i.on {
+        background: var(--amber);
+        box-shadow: 0 0 7px -1px var(--amber);
+      }
+      .clock {
+        margin-left: auto;
+        color: var(--ink-bright);
+        letter-spacing: 0.16em;
+        display: flex;
+        gap: 9px;
+        align-items: center;
+      }
+      .clock .dot {
+        color: var(--green);
+      }
 
-  /* ── content grid ── */
-  .grid{display:grid;grid-template-columns:1fr 1.15fr;gap:14px;flex:1;min-height:0}
-  .panel{border:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
-  .phead{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line);color:var(--muted)}
-  .phead .right{margin-left:auto;display:flex;gap:8px}
+      /* ── content grid ── */
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1.15fr;
+        gap: 14px;
+        flex: 1;
+        min-height: 0;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .phead {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 14px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+      }
+      .phead .right {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
 
-  /* ── unit rows ── */
-  .units{overflow:auto;padding:6px}
-  .unit{
-    position:relative;display:grid;grid-template-columns:14px 1fr auto;gap:12px;align-items:start;
-    padding:11px 13px 11px 14px;border:1px solid transparent;border-radius:2px;cursor:pointer;
-  }
-  .unit + .unit{margin-top:2px}
-  .unit::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--rule,var(--faint))}
-  .unit:hover{border-color:var(--line);background:#0c1110}
-  .unit.sel{border-color:var(--line-bright);background:
-      radial-gradient(120% 140% at 0% 50%, color-mix(in srgb,var(--rule) 9%,transparent), transparent 70%),#0c1211;}
-  .pip{width:9px;height:9px;border-radius:50%;background:var(--rule);margin-top:5px;box-shadow:0 0 0 0 var(--rule)}
-  .unit.work .pip{animation:pulse 1.5s ease-out infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--amber) 70%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
-  .u-main .name{color:var(--ink-bright);font-weight:500;letter-spacing:.04em}
-  .u-main .desig{color:var(--muted);margin-right:9px}
-  .u-sub{color:var(--muted);margin-top:3px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34ch}
-  .u-sub .car{color:var(--amber);animation:blink 1.1s steps(1) infinite}
-  @keyframes blink{50%{opacity:0}}
-  .u-right{text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
-  .badge{font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:2px 7px;border:1px solid var(--rule);color:var(--rule);border-radius:2px;white-space:nowrap}
-  .elapsed{color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.08em}
-  .meta{color:var(--muted);font-size:11.5px}
-  .act{color:var(--green);font-size:11.5px}
+      /* ── unit rows ── */
+      .units {
+        overflow: auto;
+        padding: 6px;
+      }
+      .unit {
+        position: relative;
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        gap: 12px;
+        align-items: start;
+        padding: 11px 13px 11px 14px;
+        border: 1px solid transparent;
+        border-radius: 2px;
+        cursor: pointer;
+      }
+      .unit + .unit {
+        margin-top: 2px;
+      }
+      .unit::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        background: var(--rule, var(--faint));
+      }
+      .unit:hover {
+        border-color: var(--line);
+        background: #0c1110;
+      }
+      .unit.sel {
+        border-color: var(--line-bright);
+        background:
+          radial-gradient(
+            120% 140% at 0% 50%,
+            color-mix(in srgb, var(--rule) 9%, transparent),
+            transparent 70%
+          ),
+          #0c1211;
+      }
+      .pip {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--rule);
+        margin-top: 5px;
+        box-shadow: 0 0 0 0 var(--rule);
+      }
+      .unit.work .pip {
+        animation: pulse 1.5s ease-out infinite;
+      }
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+        }
+        70% {
+          box-shadow: 0 0 0 7px transparent;
+        }
+        100% {
+          box-shadow: 0 0 0 0 transparent;
+        }
+      }
+      .u-main .name {
+        color: var(--ink-bright);
+        font-weight: 500;
+        letter-spacing: 0.04em;
+      }
+      .u-main .desig {
+        color: var(--muted);
+        margin-right: 9px;
+      }
+      .u-sub {
+        color: var(--muted);
+        margin-top: 3px;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 34ch;
+      }
+      .u-sub .car {
+        color: var(--amber);
+        animation: blink 1.1s steps(1) infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+      .u-right {
+        text-align: right;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-end;
+      }
+      .badge {
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        padding: 2px 7px;
+        border: 1px solid var(--rule);
+        color: var(--rule);
+        border-radius: 2px;
+        white-space: nowrap;
+      }
+      .elapsed {
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.08em;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .act {
+        color: var(--green);
+        font-size: 11.5px;
+      }
 
-  .work{--rule:var(--amber)} .done{--rule:var(--green)} .idle{--rule:var(--slate)} .block{--rule:var(--red)}
+      .work {
+        --rule: var(--amber);
+      }
+      .done {
+        --rule: var(--green);
+      }
+      .idle {
+        --rule: var(--slate);
+      }
+      .block {
+        --rule: var(--red);
+      }
 
-  /* ── terminal viewport ── */
-  .viewport{position:relative;background:var(--inset);overflow:hidden}
-  .vp-head{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);color:var(--muted)}
-  .vp-head .t{color:var(--ink-bright)} .vp-head .br{color:var(--amber)} .vp-head .r{margin-left:auto;color:var(--amber);display:flex;gap:8px;align-items:center}
-  .term{padding:14px 16px;font-size:12.5px;line-height:1.65;overflow:auto;flex:1;color:#b9c7c1}
-  .term .ln{white-space:pre-wrap}
-  .term .p{color:var(--ink-bright)} .term .dot{color:var(--green)}
-  .term .tool{color:var(--muted)} .term .add{color:var(--green)} .term .del{color:var(--red)}
-  .term .prompt{color:var(--amber)}
-  .caret{display:inline-block;width:8px;height:15px;background:var(--amber);vertical-align:-3px;margin-left:2px;animation:blink 1.1s steps(1) infinite;box-shadow:0 0 8px -1px var(--amber)}
-  .scan{position:absolute;left:0;right:0;height:64px;pointer-events:none;
-    background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--amber) 7%,transparent),transparent);
-    animation:scan 5.5s linear infinite}
-  @keyframes scan{0%{top:-70px}100%{top:100%}}
-  .vp-foot{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:11.5px}
-  .vp-foot .k{color:var(--ink)}
-  .gauge{margin-left:auto;display:flex;gap:6px;align-items:center}
-  .gauge .bar{width:90px;height:6px;border:1px solid var(--line-bright);position:relative}
-  .gauge .bar i{position:absolute;left:0;top:0;bottom:0;width:31%;background:var(--green)}
+      /* ── terminal viewport ── */
+      .viewport {
+        position: relative;
+        background: var(--inset);
+        overflow: hidden;
+      }
+      .vp-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 14px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+      }
+      .vp-head .t {
+        color: var(--ink-bright);
+      }
+      .vp-head .br {
+        color: var(--amber);
+      }
+      .vp-head .r {
+        margin-left: auto;
+        color: var(--amber);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .term {
+        padding: 14px 16px;
+        font-size: 12.5px;
+        line-height: 1.65;
+        overflow: auto;
+        flex: 1;
+        color: #b9c7c1;
+      }
+      .term .ln {
+        white-space: pre-wrap;
+      }
+      .term .p {
+        color: var(--ink-bright);
+      }
+      .term .dot {
+        color: var(--green);
+      }
+      .term .tool {
+        color: var(--muted);
+      }
+      .term .add {
+        color: var(--green);
+      }
+      .term .del {
+        color: var(--red);
+      }
+      .term .prompt {
+        color: var(--amber);
+      }
+      .caret {
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        background: var(--amber);
+        vertical-align: -3px;
+        margin-left: 2px;
+        animation: blink 1.1s steps(1) infinite;
+        box-shadow: 0 0 8px -1px var(--amber);
+      }
+      .scan {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 64px;
+        pointer-events: none;
+        background: linear-gradient(
+          180deg,
+          transparent,
+          color-mix(in srgb, var(--amber) 7%, transparent),
+          transparent
+        );
+        animation: scan 5.5s linear infinite;
+      }
+      @keyframes scan {
+        0% {
+          top: -70px;
+        }
+        100% {
+          top: 100%;
+        }
+      }
+      .vp-foot {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .vp-foot .k {
+        color: var(--ink);
+      }
+      .gauge {
+        margin-left: auto;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .gauge .bar {
+        width: 90px;
+        height: 6px;
+        border: 1px solid var(--line-bright);
+        position: relative;
+      }
+      .gauge .bar i {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 31%;
+        background: var(--green);
+      }
 
-  /* ── action bar ── */
-  .actions{display:flex;gap:10px;align-items:center;border:1px solid var(--line);background:var(--panel);padding:10px 14px}
-  .btn{border:1px solid var(--line-bright);color:var(--ink);padding:7px 14px;letter-spacing:.12em;text-transform:uppercase;font-size:11px;cursor:pointer;background:transparent}
-  .btn.primary{border-color:var(--amber);color:var(--amber);box-shadow:inset 0 0 18px -10px var(--amber)}
-  .btn:hover{background:#0c1110}
-  .hint{margin-left:auto;color:var(--faint);font-size:11px;letter-spacing:.1em}
+      /* ── action bar ── */
+      .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        padding: 10px 14px;
+      }
+      .btn {
+        border: 1px solid var(--line-bright);
+        color: var(--ink);
+        padding: 7px 14px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 11px;
+        cursor: pointer;
+        background: transparent;
+      }
+      .btn.primary {
+        border-color: var(--amber);
+        color: var(--amber);
+        box-shadow: inset 0 0 18px -10px var(--amber);
+      }
+      .btn:hover {
+        background: #0c1110;
+      }
+      .hint {
+        margin-left: auto;
+        color: var(--faint);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+      }
 
-  /* boot sweep */
-  #boot{position:fixed;inset:0;background:var(--bg);z-index:9;display:flex;align-items:center;justify-content:center;color:var(--amber);letter-spacing:.4em;font-size:12px;animation:boot .9s ease forwards .25s}
-  @keyframes boot{to{opacity:0;visibility:hidden}}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
-</style>
-</head>
-<body>
-  <div id="boot" class="micro">INITIALIZING HERD…</div>
-  <div class="wrap">
-
-    <!-- top HUD -->
-    <div class="hud bracket">
-      <div class="logo">T<b>A</b>NK</div>
-      <div class="sep"></div>
-      <div class="micro">Mission&nbsp;Control</div>
-      <div class="sep"></div>
-      <div class="tallies">
-        <div class="tally"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="micro">Herd</span><span class="n">04</span></div>
-        <div class="tally"><span class="micro" style="color:var(--amber)">Working</span><span class="n">2</span></div>
-        <div class="tally"><span class="micro">Idle</span><span class="n">1</span></div>
-        <div class="tally"><span class="micro" style="color:var(--red)">Blocked</span><span class="n">1</span></div>
+      /* boot sweep */
+      #boot {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        z-index: 9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--amber);
+        letter-spacing: 0.4em;
+        font-size: 12px;
+        animation: boot 0.9s ease forwards 0.25s;
+      }
+      @keyframes boot {
+        to {
+          opacity: 0;
+          visibility: hidden;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot" class="micro">INITIALIZING HERD…</div>
+    <div class="wrap">
+      <!-- top HUD -->
+      <div class="hud bracket">
+        <div class="logo">SHEP<b>HERD</b></div>
+        <div class="sep"></div>
+        <div class="micro">Mission&nbsp;Control</div>
+        <div class="sep"></div>
+        <div class="tallies">
+          <div class="tally">
+            <span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span
+            ><span class="micro">Herd</span><span class="n">04</span>
+          </div>
+          <div class="tally">
+            <span class="micro" style="color: var(--amber)">Working</span><span class="n">2</span>
+          </div>
+          <div class="tally"><span class="micro">Idle</span><span class="n">1</span></div>
+          <div class="tally">
+            <span class="micro" style="color: var(--red)">Blocked</span><span class="n">1</span>
+          </div>
+        </div>
+        <div class="clock"><span class="dot">●</span><span id="clk">14:22:07</span></div>
       </div>
-      <div class="clock"><span class="dot">●</span><span id="clk">14:22:07</span></div>
-    </div>
 
-    <div class="grid">
-      <!-- herd list -->
-      <div class="panel bracket">
-        <div class="phead"><span class="micro">The&nbsp;Herd</span><span class="right micro">▦ all · ⌖ focus</span></div>
-        <div class="units">
-          <div class="unit work sel">
-            <div class="pip"></div>
-            <div class="u-main"><div><span class="desig micro">Unit-07</span><span class="name">repo-flatten</span></div>
-              <div class="u-sub">· adding /api/flatten route<span class="car">▏</span></div></div>
-            <div class="u-right"><span class="badge">Working</span><span class="elapsed" data-t="194">03:14</span><span class="meta">opus-4.8</span></div>
+      <div class="grid">
+        <!-- herd list -->
+        <div class="panel bracket">
+          <div class="phead">
+            <span class="micro">The&nbsp;Herd</span><span class="right micro">▦ all · ⌖ focus</span>
           </div>
-          <div class="unit done">
-            <div class="pip"></div>
-            <div class="u-main"><div><span class="desig micro">Unit-04</span><span class="name">favicon-gen</span></div>
-              <div class="u-sub">created app favicon · 1 file</div></div>
-            <div class="u-right"><span class="badge">✓ Done</span><span class="elapsed" data-t="168">02:48</span><span class="act">› merge?</span></div>
+          <div class="units">
+            <div class="unit work sel">
+              <div class="pip"></div>
+              <div class="u-main">
+                <div>
+                  <span class="desig micro">Unit-07</span><span class="name">repo-flatten</span>
+                </div>
+                <div class="u-sub">· adding /api/flatten route<span class="car">▏</span></div>
+              </div>
+              <div class="u-right">
+                <span class="badge">Working</span><span class="elapsed" data-t="194">03:14</span
+                ><span class="meta">opus-4.8</span>
+              </div>
+            </div>
+            <div class="unit done">
+              <div class="pip"></div>
+              <div class="u-main">
+                <div>
+                  <span class="desig micro">Unit-04</span><span class="name">favicon-gen</span>
+                </div>
+                <div class="u-sub">created app favicon · 1 file</div>
+              </div>
+              <div class="u-right">
+                <span class="badge">✓ Done</span><span class="elapsed" data-t="168">02:48</span
+                ><span class="act">› merge?</span>
+              </div>
+            </div>
+            <div class="unit idle">
+              <div class="pip"></div>
+              <div class="u-main">
+                <div>
+                  <span class="desig micro">Unit-02</span
+                  ><span class="name">mex-food-research</span>
+                </div>
+                <div class="u-sub">sub-agents · 14 sources</div>
+              </div>
+              <div class="u-right">
+                <span class="badge">Idle</span><span class="elapsed" data-t="541">09:01</span
+                ><span class="meta">searxng</span>
+              </div>
+            </div>
+            <div class="unit block">
+              <div class="pip"></div>
+              <div class="u-main">
+                <div>
+                  <span class="desig micro">Unit-01</span><span class="name">drag-drop-images</span>
+                </div>
+                <div class="u-sub">awaiting confirmation…</div>
+              </div>
+              <div class="u-right">
+                <span class="badge">⚠ Blocked</span
+                ><span class="act" style="color: var(--red)">needs input ↵</span>
+              </div>
+            </div>
           </div>
-          <div class="unit idle">
-            <div class="pip"></div>
-            <div class="u-main"><div><span class="desig micro">Unit-02</span><span class="name">mex-food-research</span></div>
-              <div class="u-sub">sub-agents · 14 sources</div></div>
-            <div class="u-right"><span class="badge">Idle</span><span class="elapsed" data-t="541">09:01</span><span class="meta">searxng</span></div>
+        </div>
+
+        <!-- terminal viewport -->
+        <div class="panel viewport bracket" style="flex-direction: column">
+          <div class="vp-head">
+            <span class="micro t">Unit-07</span><span class="br">shepherd/repo-flatten</span
+            ><span class="micro">opus-4.8</span>
+            <span class="r micro">⠿ Working <span class="elapsed" data-t="194">03:14</span></span>
           </div>
-          <div class="unit block">
-            <div class="pip"></div>
-            <div class="u-main"><div><span class="desig micro">Unit-01</span><span class="name">drag-drop-images</span></div>
-              <div class="u-sub">awaiting confirmation…</div></div>
-            <div class="u-right"><span class="badge">⚠ Blocked</span><span class="act" style="color:var(--red)">needs input ↵</span></div>
+          <div class="scan"></div>
+          <div class="term">
+            <div class="ln">
+              <span class="dot">●</span>
+              <span class="p">flatten any forgejo repo into a single text file</span>
+            </div>
+            <div class="ln tool">
+              ⎿ Read src/routes/api/+server.ts <span style="color: var(--faint)">(142 lines)</span>
+            </div>
+            <div class="ln tool">
+              ⎿ Read src/lib/forgejo.ts <span style="color: var(--faint)">(88 lines)</span>
+            </div>
+            <div class="ln">
+              I'll add a <span class="p">/api/flatten</span> route that walks the repo tree and
+            </div>
+            <div class="ln">concatenates blobs into one annotated text file.</div>
+            <div class="ln tool">
+              ⎿ Edit src/lib/flatten.ts ……………… <span class="add">+63</span>
+              <span class="del">−0</span>
+            </div>
+            <div class="ln tool">
+              ⎿ Edit src/routes/api/flatten/+server.ts … <span class="add">+41</span>
+              <span class="del">−0</span>
+            </div>
+            <div class="ln" style="margin-top: 6px">
+              <span class="prompt">›</span> running smoke test<span class="caret"></span>
+            </div>
+          </div>
+          <div class="vp-foot">
+            <span class="k">⌁</span> type to steer · <span class="k">⇥</span> detach ·
+            <span class="k">↵</span> send
+            <span class="gauge"
+              ><span class="micro">ctx</span><span class="bar"><i></i></span
+              ><span class="meta">31%</span></span
+            >
           </div>
         </div>
       </div>
 
-      <!-- terminal viewport -->
-      <div class="panel viewport bracket" style="flex-direction:column">
-        <div class="vp-head"><span class="micro t">Unit-07</span><span class="br">tank/repo-flatten</span><span class="micro">opus-4.8</span>
-          <span class="r micro">⠿ Working <span class="elapsed" data-t="194">03:14</span></span></div>
-        <div class="scan"></div>
-        <div class="term">
-          <div class="ln"><span class="dot">●</span> <span class="p">flatten any forgejo repo into a single text file</span></div>
-          <div class="ln tool">  ⎿ Read  src/routes/api/+server.ts <span style="color:var(--faint)">(142 lines)</span></div>
-          <div class="ln tool">  ⎿ Read  src/lib/forgejo.ts <span style="color:var(--faint)">(88 lines)</span></div>
-          <div class="ln">  I'll add a <span class="p">/api/flatten</span> route that walks the repo tree and</div>
-          <div class="ln">  concatenates blobs into one annotated text file.</div>
-          <div class="ln tool">  ⎿ Edit  src/lib/flatten.ts ……………… <span class="add">+63</span> <span class="del">−0</span></div>
-          <div class="ln tool">  ⎿ Edit  src/routes/api/flatten/+server.ts … <span class="add">+41</span> <span class="del">−0</span></div>
-          <div class="ln" style="margin-top:6px"><span class="prompt">›</span> running smoke test<span class="caret"></span></div>
-        </div>
-        <div class="vp-foot"><span class="k">⌁</span> type to steer · <span class="k">⇥</span> detach · <span class="k">↵</span> send
-          <span class="gauge"><span class="micro">ctx</span><span class="bar"><i></i></span><span class="meta">31%</span></span></div>
+      <!-- actions -->
+      <div class="actions">
+        <button class="btn primary">+ New Task</button>
+        <button class="btn">All ▦</button>
+        <button class="btn">Focus ⌖</button>
+        <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
       </div>
     </div>
-
-    <!-- actions -->
-    <div class="actions">
-      <button class="btn primary">+ New Task</button>
-      <button class="btn">All ▦</button>
-      <button class="btn">Focus ⌖</button>
-      <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
-    </div>
-
-  </div>
-<script>
-  // live clock
-  function tick(){const d=new Date();document.getElementById('clk').textContent=d.toTimeString().slice(0,8);}
-  setInterval(tick,1000);
-  // ticking elapsed timers
-  function mmss(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-  setInterval(()=>document.querySelectorAll('.elapsed').forEach(e=>{let t=+e.dataset.t+1;e.dataset.t=t;e.textContent=mmss(t);}),1000);
-</script>
-</body>
+    <script>
+      // live clock
+      function tick() {
+        const d = new Date();
+        document.getElementById("clk").textContent = d.toTimeString().slice(0, 8);
+      }
+      setInterval(tick, 1000);
+      // ticking elapsed timers
+      function mmss(s) {
+        return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+      }
+      setInterval(
+        () =>
+          document.querySelectorAll(".elapsed").forEach((e) => {
+            let t = +e.dataset.t + 1;
+            e.dataset.t = t;
+            e.textContent = mmss(t);
+          }),
+        1000,
+      );
+    </script>
+  </body>
 </html>

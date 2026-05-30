@@ -8,6 +8,7 @@
     "lint": "eslint --no-error-on-unmatched-pattern src test",
     "format": "prettier --write .",
     "start": "bun run src/index.ts",
+    "update": "bash deploy/update.sh",
     "prepare": "husky"
   },
   "lint-staged": {

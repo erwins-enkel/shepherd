@@ -127,9 +127,22 @@ Operate it:
 
 ```bash
 systemctl --user status shepherd
-systemctl --user restart shepherd       # after rebuilding ui/ or pulling changes
 journalctl --user -u shepherd -f        # unit lifecycle; app log: ~/.shepherd/shepherd.log
 ```
+
+### Shipping a code change
+
+The unit runs straight from the working tree, so **whatever is checked out is what runs**. To
+deploy local changes in one shot (install deps → build UI → restart → health check):
+
+```bash
+bun run update          # deploy the current working tree (warns if dirty / off main)
+bun run update --pull   # fast-forward main from origin first (skip on a dev==prod box)
+```
+
+It's idempotent and safe to re-run — sessions survive the restart (herdr owns the PTYs). UI-only
+changes don't strictly need it: a fresh `cd ui && bun run build` is served on the next request,
+since the core reads `ui/build` from disk per request.
 
 Per-deployment overrides (token, repo root, alternate hosts) go in `~/.shepherd/env`
 (`KEY=value` lines), read by the unit if present.

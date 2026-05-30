@@ -28,6 +28,7 @@
 <style>
   .herd-grid {
     display: grid;
+    min-height: 0;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     grid-auto-rows: 240px;
     gap: 12px;

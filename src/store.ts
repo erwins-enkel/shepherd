@@ -3,6 +3,20 @@ import { randomUUID } from "node:crypto";
 import type { Session } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
+export interface PushSubInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  locale?: string;
+}
+export interface StoredPushSub {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  ua: string;
+  locale: string;
+  createdAt: number;
+}
+
 type NewSession = Omit<
   Session,
   | "id"
@@ -45,6 +59,17 @@ export class SessionStore implements CapStore {
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+      ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
+      createdAt INTEGER NOT NULL)`);
+    // migrate push tables that predate per-device locale (drives notification language)
+    const pushCols = this.db.query(`PRAGMA table_info(push_subscriptions)`).all() as {
+      name: string;
+    }[];
+    if (!pushCols.some((c) => c.name === "locale")) {
+      this.db.run(`ALTER TABLE push_subscriptions ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'`);
+    }
   }
 
   // ── settings (key/value) ──────────────────────────────────────────────────
@@ -61,6 +86,27 @@ export class SessionStore implements CapStore {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
     );
+  }
+
+  // ── web push subscriptions ────────────────────────────────────────────────
+  putPushSub(sub: PushSubInput, ua: string): void {
+    this.db.run(
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, ua, locale, createdAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, locale = excluded.locale`,
+      [sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua, sub.locale ?? "en", Date.now()],
+    );
+  }
+
+  deletePushSub(endpoint: string): void {
+    this.db.run(`DELETE FROM push_subscriptions WHERE endpoint = ?`, [endpoint]);
+  }
+
+  listPushSubs(): StoredPushSub[] {
+    return this.db
+      .query(`SELECT endpoint, p256dh, auth, ua, locale, createdAt FROM push_subscriptions`)
+      .all() as StoredPushSub[];
   }
 
   create(input: NewSession): Session {

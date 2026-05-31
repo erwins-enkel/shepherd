@@ -25,6 +25,7 @@ import type { Session } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
+import type { PushService } from "./push";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -44,7 +45,9 @@ async function serveStatic(pathname: string): Promise<Response> {
     });
   }
   const file = Bun.file(resolved);
-  if (await file.exists()) return new Response(file);
+  const headers: Record<string, string> = {};
+  if (target.endsWith(".webmanifest")) headers["content-type"] = "application/manifest+json";
+  if (await file.exists()) return new Response(file, { headers });
   return new Response(Bun.file(join(UI_DIR, "index.html")), {
     headers: { "content-type": "text/html" },
   });
@@ -64,6 +67,8 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** Web Push delivery; absent in tests that don't exercise notifications. */
+  push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
 }
 
 const sessionUsage = (s: Session) =>
@@ -105,6 +110,47 @@ export function makeApp(deps: AppDeps) {
 
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
         return json(deps.prCache?.snapshot() ?? {});
+      }
+
+      if (parts[0] === "api" && parts[1] === "push") {
+        if (req.method === "GET" && parts[2] === "vapid") {
+          return json({ publicKey: deps.push?.publicKey() ?? null });
+        }
+        if (req.method === "POST" && parts[2] === "subscribe") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = (await req.json().catch(() => null)) as {
+            endpoint?: unknown;
+            keys?: { p256dh?: unknown; auth?: unknown };
+            locale?: unknown;
+          } | null;
+          if (
+            !body ||
+            typeof body.endpoint !== "string" ||
+            typeof body.keys?.p256dh !== "string" ||
+            typeof body.keys?.auth !== "string"
+          ) {
+            return json({ error: "body must be a PushSubscription" }, 400);
+          }
+          deps.push?.subscribe(
+            {
+              endpoint: body.endpoint,
+              keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
+              locale: typeof body.locale === "string" ? body.locale : undefined,
+            },
+            req.headers.get("User-Agent") ?? "",
+          );
+          return json({ ok: true });
+        }
+        if (req.method === "POST" && parts[2] === "unsubscribe") {
+          const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
+          if (!body || typeof body.endpoint !== "string") {
+            return json({ error: "body must be {endpoint: string}" }, 400);
+          }
+          deps.push?.unsubscribe(body.endpoint);
+          return json({ ok: true });
+        }
       }
 
       if (parts[0] === "api" && parts[1] === "sessions") {

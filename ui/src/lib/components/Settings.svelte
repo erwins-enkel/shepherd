@@ -4,6 +4,7 @@
   import type { DirListing } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { pushState, enablePush, disablePush, type PushStatus } from "$lib/push";
 
   let { onclose, onsaved }: { onclose?: () => void; onsaved?: (root: string) => void } = $props();
 
@@ -12,6 +13,24 @@
   let loading = $state(false);
   let saving = $state(false);
   let error = $state<string | null>(null);
+  let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
+  let pushBusy = $state(false);
+
+  async function refreshPush() {
+    push = await pushState();
+  }
+
+  async function togglePush() {
+    if (pushBusy) return;
+    pushBusy = true;
+    try {
+      if (push.subscribed) await disablePush();
+      else await enablePush();
+      await refreshPush();
+    } finally {
+      pushBusy = false;
+    }
+  }
 
   async function browse(path?: string) {
     loading = true;
@@ -26,6 +45,7 @@
   }
 
   onMount(async () => {
+    await refreshPush();
     try {
       const s = await getSettings();
       currentRoot = s.repoRootDisplay;
@@ -120,6 +140,18 @@
         {m.settings_use_folder()}
       {/if}
     </button>
+    <div class="push">
+      <span class="micro">{m.settings_push_title()}</span>
+      {#if !push.supported}
+        <p class="hint">{m.settings_push_unsupported()}</p>
+      {:else if push.permission === "denied"}
+        <p class="hint">{m.settings_push_denied()}</p>
+      {:else}
+        <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
+          {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
+        </button>
+      {/if}
+    </div>
     <SteersEditor />
   </div>
 </div>
@@ -294,6 +326,17 @@
     opacity: 0.5;
     cursor: default;
     box-shadow: none;
+  }
+  .push {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .push .hint {
+    color: var(--color-faint);
+    font-size: 11.5px;
+    margin: 0;
   }
 
   @media (max-width: 768px) {

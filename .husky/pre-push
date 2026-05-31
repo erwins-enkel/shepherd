@@ -12,6 +12,9 @@ unset $(git rev-parse --local-env-vars) 2>/dev/null || true
 
 echo "▶ pre-push: lint · typecheck · tests · build"
 
+echo "→ branch hygiene (linear off main, no merge commits)"
+bash scripts/check-branch-hygiene.sh
+
 echo "→ prettier --check"
 bunx prettier --check .
 

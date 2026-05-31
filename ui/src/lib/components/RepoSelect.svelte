@@ -233,7 +233,7 @@
   }
 
   .rs-row:hover {
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   .rs-row.active {

@@ -24,7 +24,7 @@
     display: flex;
     gap: 4px;
     padding: 6px 10px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-top: 1px solid var(--color-line);
     overflow-x: auto;
     white-space: nowrap;

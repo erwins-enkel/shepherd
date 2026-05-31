@@ -5,6 +5,7 @@
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
+  import { theme, xtermTheme } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
@@ -35,6 +36,9 @@
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
+  // mirror the live terminal so the theme effect can repaint it without
+  // recreating it (recreating would tear down the PTY socket)
+  let termRef = $state<Terminal | undefined>();
   let dragging = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
@@ -132,15 +136,17 @@
     if (!el) return;
     parked = false; // fresh attach for this unit
 
+    // initial palette: non-reactive DOM read so this effect doesn't depend on
+    // theme.resolved (which would recreate the whole terminal — and its PTY —
+    // on every theme switch). Live updates are handled by the effect below.
+    const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: mobile || touch ? 11 : 12.5,
-      theme: {
-        background: "#070a09",
-        foreground: "#b9c7c1",
-      },
+      theme: xtermTheme(initialTheme),
       cursorBlink: true,
     });
+    termRef = term;
 
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -259,8 +265,18 @@
       ro.disconnect();
       c.close();
       conn = undefined;
+      termRef = undefined;
       term.dispose();
     };
+  });
+
+  // repaint the live terminal when the active theme changes (no recreation)
+  $effect(() => {
+    const resolved = theme.resolved;
+    const term = termRef;
+    if (!term) return;
+    term.options.theme = xtermTheme(resolved);
+    term.refresh(0, Math.max(0, term.rows - 1));
   });
 </script>
 
@@ -419,7 +435,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #070a09;
+    background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
     overflow: hidden;
@@ -430,7 +446,7 @@
     align-items: center;
     gap: 7px;
     padding: 6px 12px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
     font-size: 11.5px;
     flex-shrink: 0;
@@ -614,7 +630,7 @@
     flex-shrink: 0;
   }
   .back:hover {
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */
@@ -626,7 +642,7 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 6px 10px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     min-height: 44px;
@@ -685,7 +701,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 12px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-top: 1px solid var(--color-line);
     font-size: 11px;
     color: var(--color-muted);

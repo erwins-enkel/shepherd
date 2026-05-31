@@ -16,6 +16,8 @@
     "*.{ts,svelte}": "eslint --fix"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/node": "^25.9.1",

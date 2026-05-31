@@ -221,5 +221,9 @@
   "updatemodal_update_failed": "update failed",
   "updatemodal_later": "Later",
   "updatemodal_updating": "Updating…",
-  "updatemodal_update_now": "Update now"
+  "updatemodal_update_now": "Update now",
+  "updatemodal_deploy_failed": "The update could not be completed — the deploy stopped before the server restarted.",
+  "updatemodal_exit_code": "Exit code {code}",
+  "updatemodal_deploy_log": "Deploy output",
+  "updatemodal_retry": "Retry"
 }

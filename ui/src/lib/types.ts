@@ -126,6 +126,15 @@ export interface UpdateStatus {
   error?: string;
 }
 
+/** Live state of the detached deploy launched by an update apply. */
+export type DeployPhase = "idle" | "running" | "done" | "failed";
+
+export interface DeployState {
+  phase: DeployPhase;
+  exitCode: number | null;
+  log: string;
+}
+
 /** Informational herdr-version update check (no auto-apply). */
 export interface HerdrUpdateStatus {
   current: string | null;

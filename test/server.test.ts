@@ -642,3 +642,34 @@ test("POST /api/update when behind triggers apply → 202", async () => {
   expect(res.status).toBe(202);
   expect(applied).toBe(1);
 });
+
+test("POST /api/update that can't start → 409 carries the reason (not a bare code)", async () => {
+  const app = harnessWithUpdates({
+    current: () => ({ behind: 1, current: "a", latest: "b", commits: [], checkedAt: 1 }),
+    apply: () => ({ started: false, error: "a deploy is already running" }),
+  });
+  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toBe("a deploy is already running");
+});
+
+test("GET /api/update/log returns the deploy state", async () => {
+  const app = harnessWithUpdates({
+    current: () => ({ behind: 1, current: "a", latest: "b", commits: [], checkedAt: 1 }),
+    apply: () => ({ started: true }),
+    applyState: () => ({ phase: "failed", exitCode: 1, log: "build failed: tsc error" }),
+  });
+  const res = await app.fetch(new Request("http://x/api/update/log"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    phase: "failed",
+    exitCode: 1,
+    log: "build failed: tsc error",
+  });
+});
+
+test("GET /api/update/log with no updater → idle", async () => {
+  const res = await harness().fetch(new Request("http://x/api/update/log"));
+  expect(res.status).toBe(200);
+  expect((await res.json()).phase).toBe("idle");
+});

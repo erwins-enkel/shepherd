@@ -66,7 +66,7 @@ export interface AppDeps {
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
-  updates?: Pick<UpdateService, "current" | "apply">;
+  updates?: Pick<UpdateService, "current" | "apply"> & Partial<Pick<UpdateService, "applyState">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
@@ -413,13 +413,25 @@ function updateApply(deps: AppDeps): Response {
   const status = deps.updates.current();
   if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
   const r = deps.updates.apply();
-  return json({ ok: r.started }, r.started ? 202 : 409);
+  if (r.started) return json({ ok: true }, 202);
+  // never a bare status: carry the real reason so the UI can show it
+  return json({ error: r.error ?? "could not start the update" }, 409);
 }
 
 function handleUpdate({ req, parts, deps }: Ctx): Response | null {
   if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
     if (req.method === "GET") return updateStatus(deps);
     if (req.method === "POST") return updateApply(deps);
+  }
+  // live state of an in-flight/failed deploy so the modal can show why it failed
+  if (
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "update" &&
+    parts[2] === "log" &&
+    !parts[3]
+  ) {
+    return json(deps.updates?.applyState?.() ?? { phase: "idle", exitCode: null, log: "" });
   }
   return null;
 }

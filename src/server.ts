@@ -212,8 +212,10 @@ export function makeApp(deps: AppDeps) {
         }
         if (req.method === "PUT") {
           const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
-          const root = validateRoot(body?.repoRoot);
-          if (!root) return json({ error: "repoRoot must be an existing directory" }, 400);
+          const root = validateRoot(body?.repoRoot, config.rootCeiling);
+          if (!root) {
+            return json({ error: "repoRoot must be an existing directory within the root" }, 400);
+          }
           config.repoRoot = root; // live: every later read picks it up
           deps.store.setSetting("repoRoot", root); // persist across restarts
           return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
@@ -222,7 +224,7 @@ export function makeApp(deps: AppDeps) {
 
       // ── filesystem browser: list sub-directories for the root picker ──
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
-        return json(listDirs(url.searchParams.get("path") ?? ""));
+        return json(listDirs(url.searchParams.get("path") ?? "", config.rootCeiling));
       }
 
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {

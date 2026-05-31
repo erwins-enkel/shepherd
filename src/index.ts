@@ -15,13 +15,19 @@ import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging } from "./uploads";
+import { validateRoot } from "./dirs";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
-// a repo root chosen in the UI (persisted) overrides the env var / default
+// a repo root chosen in the UI (persisted) overrides the env var / default — but
+// only if it still sits within the immutable ceiling; a stale/escaping value is
+// ignored so the active root can never climb above the ceiling across restarts.
 const savedRoot = store.getSetting("repoRoot");
-if (savedRoot) config.repoRoot = savedRoot;
+if (savedRoot) {
+  const clamped = validateRoot(savedRoot, config.rootCeiling);
+  if (clamped) config.repoRoot = clamped;
+}
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());

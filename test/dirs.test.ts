@@ -1,60 +1,88 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { listDirs, validateRoot, collapseHome } from "../src/dirs";
 
-let root: string;
+// `ceiling` is the immutable repo-root ceiling for these tests; the dir browser
+// and validateRoot must never resolve outside it.
+let ceiling: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "shepherd-dirs-test-"));
-  mkdirSync(join(root, "alpha"));
-  mkdirSync(join(root, "beta"));
-  mkdirSync(join(root, ".hidden"));
-  writeFileSync(join(root, "file.txt"), "not a dir");
+  // realpath so comparisons hold on platforms where tmpdir() is a symlink (macOS)
+  ceiling = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-dirs-test-")));
+  mkdirSync(join(ceiling, "alpha"));
+  mkdirSync(join(ceiling, "beta"));
+  mkdirSync(join(ceiling, ".hidden"));
+  mkdirSync(join(ceiling, "alpha", "nested"));
+  writeFileSync(join(ceiling, "file.txt"), "not a dir");
 });
 
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => rmSync(ceiling, { recursive: true, force: true }));
 
 // ── listDirs ──────────────────────────────────────────────────────────────────
 
-test("listDirs returns sorted sub-dirs, excludes files and dotdirs", () => {
-  const l = listDirs(root);
-  expect(l.path).toBe(root);
+test("listDirs lists real sub-dirs within the ceiling (excludes files/dotdirs)", () => {
+  const l = listDirs(ceiling, ceiling);
+  expect(l.path).toBe(ceiling);
   expect(l.entries.map((e) => e.name)).toEqual(["alpha", "beta"]);
-  expect(l.entries[0]!.path).toBe(join(root, "alpha"));
-  expect(l.parent).toBe(dirname(root));
+  expect(l.entries[0]!.path).toBe(join(ceiling, "alpha"));
 });
 
-test("listDirs climbs to parent when the path is a file", () => {
-  const l = listDirs(join(root, "file.txt"));
-  expect(l.path).toBe(root);
-  expect(l.entries.map((e) => e.name)).toEqual(["alpha", "beta"]);
+test("listDirs at the ceiling returns parent === null (never exposes the ceiling's parent)", () => {
+  const l = listDirs(ceiling, ceiling);
+  expect(l.parent).toBeNull();
 });
 
-test("listDirs on a leaf dir returns empty entries but a valid parent", () => {
-  const l = listDirs(join(root, "alpha"));
-  expect(l.entries).toEqual([]);
-  expect(l.parent).toBe(root);
+test("listDirs lists a nested subdir within the ceiling and exposes its parent up to the ceiling", () => {
+  const l = listDirs(join(ceiling, "alpha"), ceiling);
+  expect(l.path).toBe(join(ceiling, "alpha"));
+  expect(l.entries.map((e) => e.name)).toEqual(["nested"]);
+  expect(l.parent).toBe(ceiling);
 });
 
-test("listDirs falls back to $HOME for empty input", () => {
-  const l = listDirs("");
-  expect(l.path).toBe(process.env.HOME ?? "/");
+test("listDirs clamps a path OUTSIDE the ceiling back to the ceiling", () => {
+  for (const outside of ["/etc", "/", "/tmp", "/usr/bin"]) {
+    const l = listDirs(outside, ceiling);
+    expect(l.path).toBe(ceiling);
+    expect(l.parent).toBeNull();
+    expect(l.entries.map((e) => e.name)).toEqual(["alpha", "beta"]);
+  }
+});
+
+test("listDirs clamps empty input to the ceiling (not $HOME)", () => {
+  const l = listDirs("", ceiling);
+  expect(l.path).toBe(ceiling);
+  expect(l.parent).toBeNull();
+});
+
+test("listDirs climbs to the parent when the path is a file (staying within the ceiling)", () => {
+  const l = listDirs(join(ceiling, "file.txt"), ceiling);
+  expect(l.path).toBe(ceiling);
 });
 
 // ── validateRoot ────────────────────────────────────────────────────────────────
 
-test("validateRoot accepts an existing directory and returns the resolved path", () => {
-  expect(validateRoot(join(root, "alpha"))).toBe(join(root, "alpha"));
+test("validateRoot ACCEPTS a dir inside the ceiling (and the ceiling itself)", () => {
+  expect(validateRoot(join(ceiling, "alpha"), ceiling)).toBe(join(ceiling, "alpha"));
+  expect(validateRoot(join(ceiling, "alpha", "nested"), ceiling)).toBe(
+    join(ceiling, "alpha", "nested"),
+  );
+  expect(validateRoot(ceiling, ceiling)).toBe(ceiling);
+});
+
+test("validateRoot REJECTS a dir outside the ceiling", () => {
+  expect(validateRoot("/tmp", ceiling)).toBeNull();
+  expect(validateRoot("/etc", ceiling)).toBeNull();
+  expect(validateRoot("/", ceiling)).toBeNull();
 });
 
 test("validateRoot rejects a file, a non-existent path, and non-strings", () => {
-  expect(validateRoot(join(root, "file.txt"))).toBeNull();
-  expect(validateRoot(join(root, "nope"))).toBeNull();
-  expect(validateRoot("")).toBeNull();
-  expect(validateRoot(null)).toBeNull();
-  expect(validateRoot(42)).toBeNull();
+  expect(validateRoot(join(ceiling, "file.txt"), ceiling)).toBeNull();
+  expect(validateRoot(join(ceiling, "nope"), ceiling)).toBeNull();
+  expect(validateRoot("", ceiling)).toBeNull();
+  expect(validateRoot(null, ceiling)).toBeNull();
+  expect(validateRoot(42, ceiling)).toBeNull();
 });
 
 // ── collapseHome ────────────────────────────────────────────────────────────────

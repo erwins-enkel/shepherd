@@ -57,6 +57,13 @@ export class SessionService {
     return true;
   }
 
+  /** Fan a steer out to many sessions (human-style). Skips unknown ids. */
+  broadcast(ids: string[], text: string): { sent: number; total: number } {
+    let sent = 0;
+    for (const id of ids) if (this.reply(id, text)) sent++;
+    return { sent, total: ids.length };
+  }
+
   archive(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;

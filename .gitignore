@@ -9,8 +9,9 @@ dist/
 *.db-wal
 .DS_Store
 
-# Planning docs — not part of the shipped app
+# Planning docs / brainstorm artifacts — not part of the shipped app
 /docs/superpowers/
+.superpowers/
 
 # Transient agent worktrees (Claude Code isolation checkouts)
 /.claude/worktrees/

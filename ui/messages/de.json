@@ -174,5 +174,9 @@
   "broadcast_sending": "Sendet…",
   "broadcast_send_to": "An {count} senden",
   "broadcast_result_sent": "{sent}/{total} gesendet",
-  "broadcast_failed": "Broadcast fehlgeschlagen"
+  "broadcast_failed": "Broadcast fehlgeschlagen",
+  "emojipicker_search": "Emoji suchen…",
+  "emojipicker_custom": "Emoji einfügen",
+  "emojipicker_clear": "Symbol entfernen",
+  "reposelect_set_icon": "Projektsymbol setzen"
 }

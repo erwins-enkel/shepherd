@@ -1,5 +1,6 @@
 import type { Session, WsEvent, UsageLimits, UpdateStatus, GitState } from "./types";
 import type { BlockState } from "./triage";
+import { projectIcons } from "./projectIcons.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -76,6 +77,8 @@ export class HerdStore {
       this.usageLimits = ev.data;
     } else if (ev.event === "update:status") {
       this.setUpdate(ev.data);
+    } else if (ev.event === "project-icons:update") {
+      projectIcons.apply(ev.data);
     }
   }
 

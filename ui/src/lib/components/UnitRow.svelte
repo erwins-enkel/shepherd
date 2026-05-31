@@ -3,6 +3,7 @@
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
 
   let {
     session,
@@ -26,6 +27,7 @@
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
+  const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
 </script>
 
 <button
@@ -45,7 +47,8 @@
       <span class="name">{session.name}</span>
     </div>
     <div class="u-repo" title={session.repoPath}>
-      <span class="repo-glyph" aria-hidden="true">▣</span>{repoName}
+      <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
+      >{repoName}
     </div>
     <div class="u-sub">
       {session.prompt}
@@ -180,6 +183,9 @@
     color: var(--color-amber);
     font-size: 10px;
     flex-shrink: 0;
+  }
+  .repo-glyph.emoji {
+    font-size: 12px;
   }
 
   .u-sub {

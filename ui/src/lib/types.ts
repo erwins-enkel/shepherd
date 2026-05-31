@@ -131,6 +131,9 @@ export interface UpdateStatus {
   error?: string;
 }
 
+/** repoPath → emoji map for per-project icons. */
+export type ProjectIcons = Record<string, string>;
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
@@ -138,7 +141,8 @@ export type WsEvent =
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:git"; data: { id: string; git: GitState } }
-  | { event: "update:status"; data: UpdateStatus };
+  | { event: "update:status"; data: UpdateStatus }
+  | { event: "project-icons:update"; data: ProjectIcons };
 
 export interface CreateInput {
   repoPath: string;

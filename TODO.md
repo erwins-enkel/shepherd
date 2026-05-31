@@ -2,7 +2,7 @@
 
 ## Backlog (from PRD)
 
-- [ ] Per-project icon picker — F12 (untracked in PRD phasing; not built)
+- [x] Per-project icon picker — F12 (emoji icon per repo, shown in the session list)
 - [ ] Research chat with sub-agents + searxng; saved history — F9. Confirm searxng is still in stack.
 - [ ] Hermes migration off `claude -p` onto interactive-via-herdr — compliance-critical, likely its own milestone (workstream 3)
 - [ ] Per-agent sandboxing (firejail/bwrap/nspawn) + permission profiles — I3/I4, before any unattended autonomy

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same PR / branch when a new commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Two packages, each with its own lockfile (root server + ui/).
+      - name: Install (root)
+        run: bun install --frozen-lockfile
+
+      - name: Install (ui)
+        run: cd ui && bun install --frozen-lockfile
+
+      - name: Lint (prettier + eslint)
+        run: |
+          bunx prettier --check .
+          bun run lint
+
+      - name: Typecheck (root tsc)
+        run: bun run typecheck
+
+      - name: Typecheck (ui svelte-check)
+        run: cd ui && bun run check
+
+      - name: Test (root)
+        # server.test.ts creates its temp repo inside repoRoot (default
+        # $HOME/Work, absent on the runner). Point it at a writable temp dir.
+        env:
+          SHEPHERD_REPO_ROOT: ${{ runner.temp }}/reporoot
+        run: |
+          mkdir -p "$SHEPHERD_REPO_ROOT"
+          bun test ./test
+
+      - name: Test (ui)
+        run: cd ui && bun run test
+
+      - name: Build (ui)
+        run: cd ui && bun run build

@@ -3,9 +3,11 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "test": "bun test ./test",
-    "lint": "eslint --no-error-on-unmatched-pattern src test",
+    "lint": "eslint --no-error-on-unmatched-pattern src test ui/src",
+    "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "start": "bun run src/index.ts",
     "update": "bash deploy/update.sh",
@@ -13,18 +15,22 @@
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write",
-    "*.ts": "eslint --fix"
+    "*.{ts,svelte}": "eslint --fix"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/node": "^25.9.1",
     "eslint": "^10.4.1",
+    "eslint-plugin-svelte": "^3.19.0",
     "globals": "^17.6.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
     "prettier-plugin-svelte": "^4.0.1",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "svelte": "^5.56.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.0"

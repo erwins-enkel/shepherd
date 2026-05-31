@@ -1,4 +1,14 @@
-import type { Session, CreateInput, RepoEntry, Issue, SessionUsage, UsageLimits } from "./types";
+import type {
+  Session,
+  CreateInput,
+  RepoEntry,
+  Issue,
+  SessionUsage,
+  UsageLimits,
+  GitState,
+  PrStatus,
+  MergeMethod,
+} from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -91,4 +101,48 @@ export async function listIssues(
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw new Error(`issues failed: ${r.status}`);
   return r.json();
+}
+
+const JSON_POST = (body?: unknown): RequestInit => ({
+  method: "POST",
+  headers: JSON_HEADERS,
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+/** Read PR/CI/deploy state for a session's branch, or null when no forge is configured. */
+export async function gitState(id: string): Promise<GitState | null> {
+  const r = await fetch(`/api/sessions/${id}/git`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`git status failed: ${r.status}`);
+  return r.json();
+}
+
+async function gitJson(res: Response): Promise<PrStatus> {
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({ error: `${res.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function openPr(
+  id: string,
+  body?: { title?: string; body?: string },
+): Promise<PrStatus> {
+  return gitJson(await fetch(`/api/sessions/${id}/git/pr`, JSON_POST(body ?? {})));
+}
+
+export async function mergePr(
+  id: string,
+  body?: { method?: MergeMethod; deleteBranch?: boolean },
+): Promise<PrStatus> {
+  return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
+}
+
+export async function redeploy(id: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/git/redeploy`, JSON_POST());
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
 }

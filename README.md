@@ -68,18 +68,55 @@ include the public hostname (see below).
 
 All via environment variables (`src/config.ts`):
 
-| Variable                 | Default                               | Purpose                                                                     |
-| ------------------------ | ------------------------------------- | --------------------------------------------------------------------------- |
-| `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                         |
-| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)   |
-| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                   |
-| `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                   |
-| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard) |
-| `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                           |
-| `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                    |
-| `HERDR_SESSION`          | `default`                             | herdr session name                                                          |
-| `SHEPHERD_NAMER_MODEL`   | `mistral-small3.1:latest`             | Ollama model used to name sessions                                          |
-| `OLLAMA_URL`             | `http://localhost:11434/api/generate` | Ollama endpoint                                                             |
+| Variable                 | Default                               | Purpose                                                                         |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                             |
+| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
+| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                       |
+| `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                       |
+| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
+| `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                               |
+| `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                        |
+| `HERDR_SESSION`          | `default`                             | herdr session name                                                              |
+| `SHEPHERD_NAMER_MODEL`   | `mistral-small3.1:latest`             | Ollama model used to name sessions                                              |
+| `OLLAMA_URL`             | `http://localhost:11434/api/generate` | Ollama endpoint                                                                 |
+| `SHEPHERD_FORGES`        | `~/.shepherd/forges.json`             | Path to the git-host config (see [Git host integration](#git-host-integration)) |
+
+### Git host integration
+
+The Viewport header shows a contextual git rail — **Open PR → Merge → Redeploy** —
+that works against GitHub, Gitea, and Forgejo. Actions use your **git-host**
+credentials, never your Claude subscription, so they don't touch the ToS model.
+
+- **GitHub** works out of the box via the `gh` CLI (must be installed and
+  authenticated: `gh auth login`). No config entry is required for PR/merge — add
+  one only to enable Redeploy or override the merge method.
+- **Gitea / Forgejo** (and GitHub Enterprise) need an entry in `~/.shepherd/forges.json`,
+  keyed by the remote host. The host is auto-detected from the repo's `origin` remote.
+
+```jsonc
+{
+  // self-hosted Gitea/Forgejo — issues, PR, merge, redeploy
+  "git.example.com": {
+    "type": "gitea", // "gitea" (covers Forgejo) or "github"
+    "baseUrl": "https://git.example.com", // API base (include :port if non-standard)
+    "token": "<personal-access-token>", // repo + actions scopes
+    "deployWorkflow": "deploy.yaml", // workflow_dispatch file for Redeploy (optional)
+    "mergeMethod": "squash", // squash | merge | rebase (default: squash)
+  },
+  // github.com entry is OPTIONAL — only needed to enable Redeploy
+  "github.com": { "deployWorkflow": "deploy.yml" },
+}
+```
+
+Notes:
+
+- The file holds a token in plaintext — `chmod 600 ~/.shepherd/forges.json`.
+- A missing or malformed file is non-fatal: GitHub PR/merge still work via `gh`;
+  self-hosted hosts simply show no rail.
+- Merge deletes the head branch by default. Redeploy targets the session's base
+  branch and requires `deployWorkflow` (the host's CI must support
+  `workflow_dispatch`).
 
 ## Development
 
@@ -162,7 +199,11 @@ src/                backend (Bun/TS)
   worktree.ts       per-task git worktrees
   branches.ts       local-branch listing (New Task base-branch dropdown)
   repos.ts          repo discovery + per-repo TODO.md read/write
-  github.ts         GitHub issues as task prompt sources
+  forge/            platform-agnostic git host layer (issues, PR, merge, redeploy)
+    index.ts          detectForge factory (origin remote + forges.json → GitForge)
+    github.ts         GithubForge (gh CLI) · gitea.ts  GiteaForge (Gitea/Forgejo REST)
+    remote.ts         remote-URL parser · checks.ts  worst-of CI rollup
+    load-config.ts    reads ~/.shepherd/forges.json
   pty-bridge.ts     PTY ↔ WebSocket bridge
   pty-attach.mjs    Node helper that owns node-pty (Bun can't)
   store.ts          SQLite session store
@@ -179,7 +220,8 @@ TODO.md             roadmap / status
 ## Status
 
 Core through the v5 responsive mobile HUD is shipped: spawn → live PTY → browser, status lights,
-persistence/resume, repo + branch pickers, per-repo TODO sync, GitHub-issue prompt sources,
+persistence/resume, repo + branch pickers, per-repo TODO sync, issue prompt sources (GitHub +
+Gitea/Forgejo), platform-agnostic git host buttons (open PR / merge / redeploy),
 per-session model picker, session decommission, and real usage tracking (per-session token counts +
 account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See `TODO.md` for the open backlog and
 `PRD.md` for the full feature set and roadmap.
@@ -193,3 +235,7 @@ through an ephemeral interactive session — ToS-pure, no `-p`) to learn the pla
 `%` is recomputed live from local JSONL between calibrations. No dollar figures (you're on a
 subscription); pricing is used only internally as relative weights for the limit math. Override the
 JSONL location with `CLAUDE_CONFIG_DIR` or `CLAUDE_PROJECTS_DIR` if non-default.
+
+## License
+
+[Apache-2.0](./LICENSE) © 2026 Erwins Enkel GmbH

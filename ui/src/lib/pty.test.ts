@@ -19,7 +19,7 @@ class FakeWs {
   sent: (string | ArrayBufferLike | ArrayBufferView)[] = [];
   onmessage: ((e: { data: unknown }) => void) | null = null;
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((e?: { code?: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(public url: string) {
@@ -33,6 +33,11 @@ class FakeWs {
     this.readyState = this.CLOSED;
     this.onclose?.();
   }
+  /** server bumped us with the superseded close code (another device took over) */
+  supersede(code = 4000) {
+    this.readyState = this.CLOSED;
+    this.onclose?.({ code });
+  }
   send(d: string | ArrayBufferLike | ArrayBufferView) {
     this.sent.push(d);
   }
@@ -41,7 +46,7 @@ class FakeWs {
   }
 }
 
-function make(onReconnect = () => {}) {
+function make(onReconnect = () => {}, onParked = () => {}) {
   FakeWs.instances = [];
   const onData = vi.fn();
   const conn = connectPty(
@@ -50,9 +55,10 @@ function make(onReconnect = () => {}) {
     30,
     onData,
     onReconnect,
+    onParked,
     (path) => new FakeWs(path) as unknown as WebSocket,
   );
-  return { conn, onData, last: () => FakeWs.instances[FakeWs.instances.length - 1] };
+  return { conn, onData, last: () => FakeWs.instances[FakeWs.instances.length - 1]! };
 }
 
 describe("connectPty", () => {
@@ -95,6 +101,37 @@ describe("connectPty", () => {
     last().open();
     conn.poke();
     expect(FakeWs.instances).toHaveLength(1);
+  });
+
+  it("parks on a superseded close and does NOT reconnect", () => {
+    vi.useFakeTimers();
+    const onParked = vi.fn();
+    const { last } = make(() => {}, onParked);
+    last().open();
+
+    last().supersede(); // another device took over (close code 4000)
+    expect(onParked).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(5000);
+    expect(FakeWs.instances).toHaveLength(1); // never reconnected — no takeover war
+    vi.useRealTimers();
+  });
+
+  it("poke does not steal back a parked terminal", () => {
+    const { conn, last } = make();
+    last().open();
+    last().supersede();
+    conn.poke();
+    expect(FakeWs.instances).toHaveLength(1); // still parked, no new socket
+  });
+
+  it("takeover re-attaches after being parked", () => {
+    const { conn, last } = make();
+    last().open();
+    last().supersede();
+    conn.takeover();
+    expect(FakeWs.instances).toHaveLength(2); // new attach → becomes owner again
+    expect(last().url).toBe("/pty/abc?cols=100&rows=30");
   });
 
   it("close stops reconnection", () => {

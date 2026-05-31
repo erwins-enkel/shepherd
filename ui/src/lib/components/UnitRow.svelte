@@ -14,6 +14,15 @@
     nowMs: number;
     onselect: (id: string) => void;
   } = $props();
+
+  // split "UNIT-07" into the constant stem ("UNIT-") and disambiguating number ("07")
+  // so the stem can collapse on a cramped sidebar, leaving the unit name room to breathe
+  const desigParts = $derived(session.desig.match(/^(.*?)(\d+)$/));
+  const desigStem = $derived(desigParts?.[1] ?? "");
+  const desigNum = $derived(desigParts?.[2] ?? session.desig);
+
+  // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
+  const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
 </script>
 
 <button
@@ -29,8 +38,11 @@
 
   <div class="u-main">
     <div class="u-top">
-      <span class="desig micro">{session.desig}</span>
+      <span class="desig micro"><span class="desig-stem">{desigStem}</span>{desigNum}</span>
       <span class="name">{session.name}</span>
+    </div>
+    <div class="u-repo" title={session.repoPath}>
+      <span class="repo-glyph" aria-hidden="true">▣</span>{repoName}
     </div>
     <div class="u-sub">
       {session.prompt}
@@ -81,7 +93,7 @@
 
   .unit:hover {
     border-color: var(--color-line);
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   .unit.sel {
@@ -92,7 +104,7 @@
         color-mix(in srgb, var(--rule) 9%, transparent),
         transparent 70%
       ),
-      #0c1211;
+      var(--color-hover);
   }
 
   /* bracket corners on selected */
@@ -147,13 +159,37 @@
     text-overflow: ellipsis;
   }
 
+  .u-repo {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    color: var(--color-ink);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 34ch;
+  }
+  .repo-glyph {
+    color: var(--color-amber);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
   .u-sub {
     color: var(--color-muted);
     margin-top: 3px;
     font-size: 12px;
-    white-space: nowrap;
+    line-height: 1.35;
+    /* wrap to a 2nd line — fills the vertical space the right column
+       (badge / elapsed / meta) already occupies, then ellipsis */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
     max-width: 34ch;
   }
 
@@ -191,6 +227,15 @@
   .meta {
     color: var(--color-muted);
     font-size: 11.5px;
+  }
+
+  /* cramped sidebar (compact touch layout, narrow phones): drop the constant
+     "UNIT-" stem and keep just the number, handing the reclaimed width to the
+     name. The wide desktop sidebar (>=300px) stays above this threshold. */
+  @container herd (max-width: 270px) {
+    .desig-stem {
+      display: none;
+    }
   }
 
   @media (max-width: 768px) {

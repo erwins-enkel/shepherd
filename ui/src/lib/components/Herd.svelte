@@ -86,6 +86,9 @@
     padding: 6px;
     flex: 1;
     min-height: 0;
+    /* size context for UnitRow's container queries — lets rows adapt the
+       designator to the actual sidebar width (compact vs desktop) */
+    container: herd / inline-size;
   }
 
   .empty {

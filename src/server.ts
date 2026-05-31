@@ -12,12 +12,13 @@ import {
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listBranches } from "./branches";
-import { listIssues } from "./github";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { Session } from "./types";
+import type { GitForge, MergeMethod } from "./forge/types";
 import { join, normalize } from "node:path";
+import type { ServerWebSocket } from "bun";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -46,6 +47,8 @@ export interface AppDeps {
   service: SessionService;
   events: EventHub;
   usageLimits: Pick<UsageLimitsService, "limits">;
+  /** Resolve the git forge for a repo dir; null when none is configured. */
+  resolveForge?: (repoDir: string) => GitForge | null;
 }
 
 const sessionUsage = (s: Session) =>
@@ -102,7 +105,7 @@ export function makeApp(deps: AppDeps) {
           const s = deps.store.get(parts[2]);
           return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
         }
-        if (req.method === "GET" && parts[2]) {
+        if (req.method === "GET" && parts[2] && !parts[3]) {
           const s = deps.store.get(parts[2]);
           return s ? json(s) : json({ error: "not found" }, 404);
         }
@@ -123,6 +126,55 @@ export function makeApp(deps: AppDeps) {
           return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
         }
       }
+      // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
+      if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {
+        const session = deps.store.get(parts[2]);
+        if (!session) return json({ error: "not found" }, 404);
+        const forge = deps.resolveForge?.(session.repoPath) ?? null;
+        if (!forge) return json({ error: "no forge for this repo" }, 404);
+        const head = session.branch ?? "";
+        try {
+          if (req.method === "GET" && !parts[4]) {
+            return json({ kind: forge.kind, ...(await forge.prStatus(head)) });
+          }
+          if (req.method === "POST" && parts[4] === "pr") {
+            const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+            return json(
+              await forge.openPr({
+                head,
+                base: session.baseBranch,
+                title: body.title?.trim() || session.name,
+                body: body.body ?? session.prompt,
+              }),
+            );
+          }
+          if (req.method === "POST" && parts[4] === "merge") {
+            const body = (await req.json().catch(() => ({}))) as {
+              method?: MergeMethod;
+              deleteBranch?: boolean;
+            };
+            const cur = await forge.prStatus(head);
+            if (cur.state !== "open" || !cur.number) {
+              return json({ error: "no open PR to merge" }, 409);
+            }
+            await forge.merge(cur.number, {
+              method: body.method ?? forge.mergeMethod,
+              deleteBranch: body.deleteBranch ?? true,
+            });
+            return json(await forge.prStatus(head));
+          }
+          if (req.method === "POST" && parts[4] === "redeploy") {
+            if (!forge.deployWorkflow) {
+              return json({ error: "no deploy workflow configured" }, 400);
+            }
+            await forge.redeploy({ workflow: forge.deployWorkflow, ref: session.baseBranch });
+            return json({ ok: true });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+        }
+      }
+
       if (
         req.method === "GET" &&
         parts[0] === "api" &&
@@ -158,7 +210,14 @@ export function makeApp(deps: AppDeps) {
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
         const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
         if (!dir) return json({ error: "invalid repo" }, 400);
-        return json(listIssues(dir));
+        const forge = deps.resolveForge?.(dir) ?? null;
+        if (!forge) return json({ slug: null, issues: [] });
+        try {
+          return json({ slug: forge.slug, issues: await forge.listIssues() });
+        } catch {
+          // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
+          return json({ slug: forge.slug, issues: [] });
+        }
       }
 
       if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {
@@ -200,8 +259,16 @@ type WsData =
   | { kind: "events" }
   | { kind: "pty"; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
 
+// A pty WS closed with this code means "a newer client took over this terminal".
+// The client parks (shows a take-over prompt) instead of reconnecting — without
+// it, two devices on the same session ping-pong herdr's --takeover forever.
+// Keep in sync with PTY_SUPERSEDED_CODE in ui/src/lib/pty.ts.
+export const PTY_SUPERSEDED_CODE = 4000;
+
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
+  // current owning socket per terminal — a single owner avoids the takeover war
+  const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -253,7 +320,13 @@ export function serve(deps: AppDeps, port: number) {
           );
           (ws.data as any).unsub = unsub;
         } else {
-          const bridge = new PtyBridge(ws.data.terminalId, {
+          // single owner per terminal: claim it, then bump the previous owner
+          // with a "superseded" close so it parks instead of fighting back.
+          const tid = ws.data.terminalId;
+          const prev = ptyOwners.get(tid);
+          ptyOwners.set(tid, ws);
+          if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
+          const bridge = new PtyBridge(tid, {
             send: (d) => ws.send(d),
             close: () => ws.close(),
           });
@@ -267,7 +340,12 @@ export function serve(deps: AppDeps, port: number) {
       },
       close(ws) {
         if (ws.data.kind === "events") (ws.data as any).unsub?.();
-        else ws.data.bridge?.close();
+        else {
+          // only drop ownership if we're still the owner (a newer client may have
+          // already claimed this terminal before our close fired)
+          if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);
+          ws.data.bridge?.close();
+        }
       },
     },
   });

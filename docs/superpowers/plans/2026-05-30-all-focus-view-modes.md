@@ -17,6 +17,7 @@
 ### Task 1: `UnitTile` — read-only live terminal tile
 
 **Files:**
+
 - Create: `ui/src/lib/components/UnitTile.svelte`
 
 This is the core new unit: a lightweight, read-only version of `Viewport`'s terminal. It streams PTY output but never sends keystrokes (`disableStdin: true`, no `term.onData → send`). It mirrors `Viewport.svelte:80-169` for the xterm + FitAddon + ResizeObserver lifecycle and teardown, but drops the header tabs, todo/issues panels, control bar, usage polling, and decommission logic.
@@ -226,6 +227,7 @@ git commit -m "feat(ui): read-only live terminal tile for All view"
 ### Task 2: `HerdGrid` — responsive grid of tiles
 
 **Files:**
+
 - Create: `ui/src/lib/components/HerdGrid.svelte`
 
 Full-width responsive grid, one `UnitTile` per session, with an empty state. Mirrors the empty-state copy from `Herd.svelte:25` (`No units — + New Task`).
@@ -301,6 +303,7 @@ git commit -m "feat(ui): HerdGrid responsive tile grid for All view"
 ### Task 3: `ActionBar` — All/Focus toggle buttons
 
 **Files:**
+
 - Modify: `ui/src/lib/components/ActionBar.svelte`
 
 Add `mode` + `onmode` props. The two desktop buttons set the mode and show `.active` styling when current. `+ New Task` and mobile behavior unchanged. Provide safe defaults so the mobile/desktopOnly instance (which doesn't pass these) still compiles.
@@ -332,18 +335,12 @@ Replace `ActionBar.svelte:1-11` with:
 Replace `ActionBar.svelte:17-18` (the `All ▦` and `Focus ⌖` buttons) with:
 
 ```svelte
-      <button
-        class="btn"
-        class:active={mode === "all"}
-        type="button"
-        onclick={() => onmode?.("all")}>All ▦</button
-      >
-      <button
-        class="btn"
-        class:active={mode === "focus"}
-        type="button"
-        onclick={() => onmode?.("focus")}>Focus ⌖</button
-      >
+<button class="btn" class:active={mode === "all"} type="button" onclick={() => onmode?.("all")}
+  >All ▦</button
+>
+<button class="btn" class:active={mode === "focus"} type="button" onclick={() => onmode?.("focus")}
+  >Focus ⌖</button
+>
 ```
 
 - [ ] **Step 3: Add `.active` style**
@@ -351,11 +348,11 @@ Replace `ActionBar.svelte:17-18` (the `All ▦` and `Focus ⌖` buttons) with:
 Add this rule to the `<style>` block, immediately after the `.btn:hover` rule (after `ActionBar.svelte:51`):
 
 ```css
-  .btn.active {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-    background: #0c1110;
-  }
+.btn.active {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+  background: #0c1110;
+}
 ```
 
 - [ ] **Step 4: Verify it type-checks**
@@ -375,6 +372,7 @@ git commit -m "feat(ui): wire All/Focus toggle buttons in ActionBar"
 ### Task 4: `+page.svelte` — drive the desktop pane with `viewMode`
 
 **Files:**
+
 - Modify: `ui/src/routes/+page.svelte`
 
 Add `viewMode` state, render `HerdGrid` full-width when `all`, and make tile clicks drop back to Focus. Wire the bottom `ActionBar` toggle.
@@ -384,7 +382,7 @@ Add `viewMode` state, render `HerdGrid` full-width when `all`, and make tile cli
 Add to the imports (after `+page.svelte:10`):
 
 ```svelte
-  import HerdGrid from "$lib/components/HerdGrid.svelte";
+import HerdGrid from "$lib/components/HerdGrid.svelte";
 ```
 
 Add the state declaration after `let showNew = $state(false);` (`+page.svelte:14`):
@@ -436,13 +434,13 @@ Replace the desktop `.grid` block (`+page.svelte:107-125`, the `{:else} ... {/if
 Replace the bottom `ActionBar` (`+page.svelte:127`) with:
 
 ```svelte
-  <ActionBar
-    onnew={() => (showNew = true)}
-    mode={viewMode}
-    onmode={(m) => (viewMode = m)}
-    mobile={mobile.current}
-    desktopOnly
-  />
+<ActionBar
+  onnew={() => (showNew = true)}
+  mode={viewMode}
+  onmode={(m) => (viewMode = m)}
+  mobile={mobile.current}
+  desktopOnly
+/>
 ```
 
 - [ ] **Step 4: Add `.grid-all` layout style**
@@ -450,15 +448,15 @@ Replace the bottom `ActionBar` (`+page.svelte:127`) with:
 Add to the `<style>` block, immediately after the `.grid.compact` rule (after `+page.svelte:169`):
 
 ```css
-  .grid-all {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .grid-all :global(.herd-grid) {
-    flex: 1;
-  }
+.grid-all {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.grid-all :global(.herd-grid) {
+  flex: 1;
+}
 ```
 
 - [ ] **Step 5: Verify it type-checks**

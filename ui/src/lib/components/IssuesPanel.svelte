@@ -39,7 +39,7 @@
     {#if loading}
       <div class="muted">loading…</div>
     {:else if slug === null}
-      <div class="muted">no GitHub upstream for this repo</div>
+      <div class="muted">no git host configured for this repo</div>
     {:else if issues.length === 0}
       <div class="muted">no open issues</div>
     {:else}
@@ -48,6 +48,7 @@
           <div class="issue-top">
             <span class="issue-num">#{issue.number}</span>
             <span class="issue-title">{issue.title}</span>
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
             <a
               class="ext-link"
               href={issue.url}
@@ -55,6 +56,7 @@
               rel="noopener"
               aria-label="open on GitHub">↗</a
             >
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
           </div>
           {#if issue.labels.length > 0}
             <div class="label-row">
@@ -80,7 +82,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #070a09;
+    background: var(--color-inset);
     font-family: var(--font-mono);
     overflow: hidden;
   }

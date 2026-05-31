@@ -8,3 +8,6 @@ dist/
 *.db-shm
 *.db-wal
 .DS_Store
+
+# Planning docs — not part of the shipped app
+/docs/superpowers/

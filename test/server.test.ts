@@ -75,6 +75,21 @@ test("GET /api/sessions/:id/usage returns zeroed usage for a session w/o JSONL",
   expect(u.messageCount).toBe(0);
 });
 
+test("GET /api/sessions/:id/activity returns [] for a session w/o JSONL", async () => {
+  const app = harness();
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/activity`));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
+test("GET /api/sessions/:id/activity 404s for unknown id", async () => {
+  const res = await harness().fetch(new Request("http://x/api/sessions/nope/activity"));
+  expect(res.status).toBe(404);
+});
+
 test("GET /api/sessions/:id/usage 404s for unknown id", async () => {
   const res = await harness().fetch(new Request("http://x/api/sessions/nope/usage"));
   expect(res.status).toBe(404);

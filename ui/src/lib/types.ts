@@ -8,6 +8,23 @@ export interface RepoEntry {
   lastUsedAt?: number;
 }
 
+export interface Settings {
+  repoRoot: string;
+  repoRootDisplay: string;
+}
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+export interface DirListing {
+  path: string;
+  display: string;
+  parent: string | null;
+  entries: DirEntry[];
+}
+
 export interface Issue {
   number: number;
   title: string;

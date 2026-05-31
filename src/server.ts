@@ -11,6 +11,7 @@ import {
   parseTermDims,
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
+import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { handleUpload } from "./uploads";
@@ -199,6 +200,31 @@ export function makeApp(deps: AppDeps) {
           }));
           return json(repos);
         }
+      }
+
+      // ── settings: read/update the repo root (persisted, applied at runtime) ──
+      if (parts[0] === "api" && parts[1] === "settings" && !parts[2]) {
+        if (req.method === "GET") {
+          return json({
+            repoRoot: config.repoRoot,
+            repoRootDisplay: collapseHome(config.repoRoot),
+          });
+        }
+        if (req.method === "PUT") {
+          const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
+          const root = validateRoot(body?.repoRoot, config.rootCeiling);
+          if (!root) {
+            return json({ error: "repoRoot must be an existing directory within the root" }, 400);
+          }
+          config.repoRoot = root; // live: every later read picks it up
+          deps.store.setSetting("repoRoot", root); // persist across restarts
+          return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
+        }
+      }
+
+      // ── filesystem browser: list sub-directories for the root picker ──
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
+        return json(listDirs(url.searchParams.get("path") ?? "", config.rootCeiling));
       }
 
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {

@@ -15,12 +15,14 @@
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
+  import Settings from "$lib/components/Settings.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
+  let showSettings = $state(false);
   let showTriage = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   let viewMode = $state<"focus" | "all">("focus");
@@ -94,6 +96,7 @@
     connected={store.connected}
     mobile={mobile.current}
     limits={store.usageLimits}
+    onsettings={() => (showSettings = true)}
     needsYou={blockedEntries.length}
     ontriage={() => (showTriage = true)}
   />
@@ -180,6 +183,10 @@
       composePrompt = "";
     }}
   />
+{/if}
+
+{#if showSettings}
+  <Settings onclose={() => (showSettings = false)} />
 {/if}
 
 <style>

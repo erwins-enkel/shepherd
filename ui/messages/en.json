@@ -113,6 +113,8 @@
   "triage_close_aria": "Close",
   "triage_empty": "No agents are waiting on you.",
   "triage_stall_note": "Quiet — no activity for a while. May be stuck; nudge it or open the terminal.",
+  "triage_dismiss_button": "Dismiss",
+  "triage_dismiss_aria": "Dismiss stall flag for {desig}",
   "triage_checkbox_aria": "Select {desig}",
   "triage_reply_placeholder": "Type a reply…",
   "triage_reply_aria": "Reply to {desig}",

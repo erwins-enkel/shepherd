@@ -118,6 +118,29 @@ export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntr
   return limit >= 0 ? entries.slice(-limit) : entries;
 }
 
+/**
+ * Newest record timestamp across the whole transcript — assistant turns AND the
+ * user records that carry tool_results. Unlike a tool_use entry's `ts` (the
+ * tool's *start*), this advances on tool completions and resumed output, so it
+ * reflects genuine forward progress. 0 when no record has a parseable timestamp.
+ */
+export function latestRecordTs(text: string): number {
+  let max = 0;
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let o: any;
+    try {
+      o = JSON.parse(t);
+    } catch {
+      continue;
+    }
+    const ts = Date.parse(o?.timestamp) || 0;
+    if (ts > max) max = ts;
+  }
+  return max;
+}
+
 /** Read + parse one session's JSONL. Missing/unreadable file → []. */
 export async function sessionActivity(
   path: string,

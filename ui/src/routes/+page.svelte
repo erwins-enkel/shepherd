@@ -8,6 +8,7 @@
     archiveSession,
     getUsageLimits,
     replySession,
+    dismissStall,
     getUpdate,
     gitStates,
   } from "$lib/api";
@@ -216,6 +217,7 @@
       entries={blockedEntries}
       {nowMs}
       onreply={(id, text) => replySession(id, text).catch(() => {})}
+      ondismiss={(id) => dismissStall(id).catch(() => {})}
       onclose={() => (showTriage = false)}
     />
   {/if}

@@ -2,6 +2,7 @@
   import "@xterm/xterm/css/xterm.css";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
+  import { WebLinksAddon } from "@xterm/addon-web-links";
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
@@ -201,6 +202,16 @@
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Linkify URLs in the terminal so they're tappable — on a phone a plain-text
+    // URL can't be opened at all (no text-selection affordance inside xterm's
+    // canvas), and even on desktop a click beats copy-paste. Plain tap/click
+    // opens in a new tab; noopener so the opened page can't reach back via
+    // window.opener.
+    term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     term.open(el);
     fit.fit();
 

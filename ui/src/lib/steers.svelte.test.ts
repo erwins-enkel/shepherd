@@ -26,7 +26,7 @@ describe("steers store", () => {
       return new Response(JSON.stringify(normalized), { status: 200 });
     }) as unknown as typeof fetch;
     await steers.save([{ id: "tmp", label: "a", text: "b" }]);
-    expect(calls[0].method).toBe("PUT");
+    expect(calls[0]!.method).toBe("PUT");
     expect(steers.list).toEqual(normalized);
   });
 });

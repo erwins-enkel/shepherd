@@ -363,10 +363,10 @@ test("validateSteers normalizes valid entries and assigns missing ids", () => {
     { id: "keep", label: "rebase", text: "rebase onto main" },
   ]);
   expect(out).not.toBeNull();
-  expect(out![0].label).toBe("run tests");
-  expect(out![0].text).toBe("run the tests");
-  expect(out![0].id).toMatch(/^[0-9a-f-]{36}$/);
-  expect(out![1].id).toBe("keep");
+  expect(out![0]!.label).toBe("run tests");
+  expect(out![0]!.text).toBe("run the tests");
+  expect(out![0]!.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(out![1]!.id).toBe("keep");
 });
 
 test("validateSteers rejects bad shapes", () => {

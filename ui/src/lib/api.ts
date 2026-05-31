@@ -17,6 +17,8 @@ import type {
   Steer,
   DiffResult,
   ProjectIcons,
+  ReviewVerdict,
+  RepoConfig,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -316,5 +318,27 @@ export async function putProjectIcon(path: string, emoji: string): Promise<Proje
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
     throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
   }
+  return r.json();
+}
+
+export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
+  const r = await fetch("/api/reviews");
+  if (!r.ok) throw new Error(`reviews failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
+  const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw new Error(`repo-config failed: ${r.status}`);
+  return r.json();
+}
+
+export async function putRepoConfig(repoPath: string, criticEnabled: boolean): Promise<RepoConfig> {
+  const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ criticEnabled }),
+  });
+  if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();
 }

@@ -5,7 +5,7 @@
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
-  import { theme, xtermTheme } from "$lib/theme.svelte";
+  import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
@@ -150,6 +150,7 @@
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: mobile || touch ? 11 : 12.5,
       theme: xtermTheme(initialTheme),
+      minimumContrastRatio: xtermMinContrast(initialTheme),
       cursorBlink: true,
     });
     termRef = term;
@@ -315,6 +316,7 @@
     const term = termRef;
     if (!term) return;
     term.options.theme = xtermTheme(resolved);
+    term.options.minimumContrastRatio = xtermMinContrast(resolved);
     term.refresh(0, Math.max(0, term.rows - 1));
   });
 </script>

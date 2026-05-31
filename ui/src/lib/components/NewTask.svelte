@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listRepos, listBranches, uploadImage } from "$lib/api";
+  import { handleImagePaste } from "$lib/clipboard";
   import { MODELS, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
@@ -61,6 +62,9 @@
         if (!repoPath && r.length > 0) repoPath = defaultRepoPath(r);
       })
       .catch(() => {});
+    // Paste anywhere in the modal (the textarea need not be focused first).
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
   });
 
   // load branches for the selected repo; reset base to the repo's current branch
@@ -102,6 +106,12 @@
     e.preventDefault();
     dragging = false;
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  }
+
+  // Cmd/Ctrl+V of a screenshot: upload any image on the clipboard. A plain-text
+  // paste carries no image item, so handleImagePaste leaves it alone.
+  function onPaste(e: ClipboardEvent) {
+    handleImagePaste(e, addFiles);
   }
 
   function removeImage(path: string) {

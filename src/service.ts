@@ -21,32 +21,50 @@ export class SessionService {
   async create(input: CreateSessionInput): Promise<Session> {
     const name = this.uniqueName(await this.deps.namer(input.prompt));
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
-    const claudeSessionId = randomUUID();
+    // The worktree is created before the agent can start, so any failure past this
+    // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
+    // worktree with no session row. Roll it back so a failed create leaves nothing.
+    try {
+      const claudeSessionId = randomUUID();
 
-    let promptArg = input.prompt;
-    if (input.images.length > 0) {
-      const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
-      const moved = move(input.images, wt.worktreePath);
-      promptArg = `${input.prompt}\n\nAttached images:\n${moved.join("\n")}`;
+      let promptArg = input.prompt;
+      if (input.images.length > 0) {
+        const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
+        const moved = move(input.images, wt.worktreePath);
+        promptArg = `${input.prompt}\n\nAttached images:\n${moved.join("\n")}`;
+      }
+
+      const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
+      if (input.model) argv.push("--model", input.model);
+      argv.push(promptArg);
+      const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
+      return this.deps.store.create({
+        name,
+        prompt: input.prompt, // store the original user text, not the argv-augmented version
+        repoPath: input.repoPath,
+        baseBranch: input.baseBranch,
+        branch: wt.branch,
+        worktreePath: wt.worktreePath,
+        isolated: wt.isolated,
+        herdrSession: config.herdrSession,
+        herdrAgentId: agent.terminalId,
+        claudeSessionId,
+        model: input.model,
+      });
+    } catch (e) {
+      // best-effort rollback; surface the original failure, not any cleanup error
+      if (wt.isolated) {
+        try {
+          this.deps.worktree.remove(wt.worktreePath, {
+            branch: wt.branch,
+            baseBranch: input.baseBranch,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+      throw e;
     }
-
-    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
-    if (input.model) argv.push("--model", input.model);
-    argv.push(promptArg);
-    const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
-    return this.deps.store.create({
-      name,
-      prompt: input.prompt, // store the original user text, not the argv-augmented version
-      repoPath: input.repoPath,
-      baseBranch: input.baseBranch,
-      branch: wt.branch,
-      worktreePath: wt.worktreePath,
-      isolated: wt.isolated,
-      herdrSession: config.herdrSession,
-      herdrAgentId: agent.terminalId,
-      claudeSessionId,
-      model: input.model,
-    });
   }
 
   /**

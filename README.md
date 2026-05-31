@@ -118,6 +118,12 @@ Notes:
   branch and requires `deployWorkflow` (the host's CI must support
   `workflow_dispatch`).
 
+### Submitting tasks from external agents
+
+The HTTP API the UI uses is open to any client that can reach the core — no
+separate endpoint or CORS exception is required. Agents like Hermes can queue
+work via `POST /api/sessions`. See [docs/external-task-api.md](docs/external-task-api.md).
+
 ## Development
 
 ```bash

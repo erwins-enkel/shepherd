@@ -327,6 +327,9 @@
       >
     {/if}
     <span class="desig">{session.desig}</span>
+    {#if compact}
+      <span class="vp-name" title={session.name}>{session.name}</span>
+    {/if}
     {#if !compact}
       <span class="sep">·</span>
       <span class="branch">{session.branch ?? session.worktreePath}</span>
@@ -526,6 +529,19 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+    flex-shrink: 0;
+  }
+
+  /* full task name — surfaced in compact headers where the session list is
+     hidden, so the desig number alone can't identify the session */
+  .vp-name {
+    color: var(--color-ink);
+    font-size: 12px;
+    min-width: 4ch;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .branch {
@@ -719,6 +735,11 @@
     flex-wrap: wrap;
     row-gap: 6px;
     padding: 8px 10px;
+  }
+  /* let the task name claim the free space instead of splitting it with the
+     spacer; its flex-grow still pushes the status badge + decom to the right */
+  .vp-head.mobile .spacer {
+    display: none;
   }
   .tab-group.mobile {
     order: 10;

@@ -9,6 +9,11 @@
 // terminal. This splits the buffer at NUL boundaries so that can't happen.
 export function createDemux({ onInput, onResize }) {
   let buf = "";
+  // last forwarded size; mobile storms identical resize frames on keyboard /
+  // URL-bar toggles — forwarding each one repaints the TUI (and can poke a
+  // transiently-dead pty), so only forward genuine size changes.
+  let lastC = -1;
+  let lastR = -1;
   return {
     feed(chunk) {
       buf += chunk;
@@ -20,7 +25,13 @@ export function createDemux({ onInput, onResize }) {
         while (buf.startsWith("\x00resize:") && (nl = buf.indexOf("\n")) !== -1) {
           const [, c, r] = buf.slice(0, nl).split(":");
           buf = buf.slice(nl + 1);
-          onResize(Number(c) || 100, Number(r) || 30);
+          const cols = Number(c) || 100;
+          const rows = Number(r) || 30;
+          if (cols !== lastC || rows !== lastR) {
+            lastC = cols;
+            lastR = rows;
+            onResize(cols, rows);
+          }
           progressed = true;
         }
         // forward the leading run of input, stopping at the next NUL (which

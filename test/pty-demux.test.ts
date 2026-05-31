@@ -34,6 +34,28 @@ test("LEAK BUG: text before a resize frame must NOT leak control bytes", () => {
   expect(resizes).toEqual([[90, 28]]);
 });
 
+test("suppresses identical consecutive resizes, forwards real changes", () => {
+  // mobile storms the same size on keyboard/URL-bar toggles; only real changes
+  // should reach the pty (each forwarded resize repaints the TUI)
+  const { resizes } = run([
+    "\x00resize:90:28\n",
+    "\x00resize:90:28\n",
+    "\x00resize:100:30\n",
+    "\x00resize:100:30\n",
+    "\x00resize:90:28\n",
+  ]);
+  expect(resizes).toEqual([
+    [90, 28],
+    [100, 30],
+    [90, 28],
+  ]);
+});
+
+test("dedup holds across a chunk split mid-frame", () => {
+  const { resizes } = run(["\x00resize:90:28\n\x00resize:90:", "28\n"]);
+  expect(resizes).toEqual([[90, 28]]); // second (identical) frame suppressed
+});
+
 test("buffers a resize frame split across chunks", () => {
   const { input, resizes } = run(["\x00resize:90:", "28\nX"]);
   expect(resizes).toEqual([[90, 28]]);

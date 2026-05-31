@@ -21,9 +21,26 @@ const pty = spawn(herdrBin, ["agent", "attach", terminalId, "--takeover"], {
 pty.onData((d) => process.stdout.write(d));
 pty.onExit(({ exitCode }) => process.exit(exitCode ?? 0));
 
+// Guard write/resize: when the herdr attach pty is transiently gone (e.g. a
+// takeover bumped this client between frames), node-pty throws EBADF. Letting
+// that propagate crashes the helper → the WS closes → the client reconnects →
+// on mobile, resize storms re-trigger it instantly: a visible jump loop. Swallow
+// it; pty.onExit handles a genuine exit cleanly.
 const demux = createDemux({
-  onInput: (data) => pty.write(data),
-  onResize: (c, r) => pty.resize(c, r),
+  onInput: (data) => {
+    try {
+      pty.write(data);
+    } catch {
+      /* pty gone; onExit will fire */
+    }
+  },
+  onResize: (c, r) => {
+    try {
+      pty.resize(c, r);
+    } catch {
+      /* pty gone; onExit will fire */
+    }
+  },
 });
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => demux.feed(chunk));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, GitState } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -8,11 +8,13 @@
     selectedId,
     nowMs,
     onselect,
+    git,
   }: {
     sessions: Session[];
     selectedId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
+    git: Record<string, GitState>;
   } = $props();
 </script>
 
@@ -26,7 +28,13 @@
       <div class="empty micro">{m.herd_empty()}</div>
     {:else}
       {#each sessions as session (session.id)}
-        <UnitRow {session} selected={session.id === selectedId} {nowMs} {onselect} />
+        <UnitRow
+          {session}
+          selected={session.id === selectedId}
+          {nowMs}
+          {onselect}
+          git={git[session.id]}
+        />
       {/each}
     {/if}
   </div>

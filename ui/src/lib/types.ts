@@ -137,6 +137,7 @@ export type WsEvent =
   | { event: "session:archived"; data: { id: string } }
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
+  | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "update:status"; data: UpdateStatus };
 
 export interface CreateInput {

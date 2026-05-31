@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, GitState } from "$lib/types";
   import UnitTile from "./UnitTile.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -8,11 +8,13 @@
     selectedId,
     nowMs,
     onselect,
+    git,
   }: {
     sessions: Session[];
     selectedId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
+    git: Record<string, GitState>;
   } = $props();
 </script>
 
@@ -21,7 +23,13 @@
 {:else}
   <div class="herd-grid">
     {#each sessions as session (session.id)}
-      <UnitTile {session} selected={session.id === selectedId} {nowMs} {onselect} />
+      <UnitTile
+        {session}
+        selected={session.id === selectedId}
+        {nowMs}
+        {onselect}
+        git={git[session.id]}
+      />
     {/each}
   </div>
 {/if}

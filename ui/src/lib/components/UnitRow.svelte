@@ -1,18 +1,21 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, GitState } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
   import StatusPip from "./StatusPip.svelte";
+  import PrBadge from "./PrBadge.svelte";
 
   let {
     session,
     selected,
     nowMs,
     onselect,
+    git,
   }: {
     session: Session;
     selected: boolean;
     nowMs: number;
     onselect: (id: string) => void;
+    git?: GitState;
   } = $props();
 
   // split "UNIT-07" into the constant stem ("UNIT-") and disambiguating number ("07")
@@ -53,6 +56,7 @@
   </div>
 
   <div class="u-right">
+    <PrBadge {git} />
     <span class="badge">{statusLabel(session.status)}</span>
     <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     <span class="meta">{session.herdrSession || "—"}</span>

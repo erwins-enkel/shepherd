@@ -1,4 +1,4 @@
-import type { Session, WsEvent, UsageLimits, UpdateStatus } from "./types";
+import type { Session, WsEvent, UsageLimits, UpdateStatus, GitState } from "./types";
 import type { BlockState } from "./triage";
 
 export class HerdStore {
@@ -7,6 +7,7 @@ export class HerdStore {
   connected = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
+  git = $state<Record<string, GitState>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -14,6 +15,9 @@ export class HerdStore {
 
   setAll(list: Session[]) {
     this.sessions = list;
+  }
+  setGit(map: Record<string, GitState>) {
+    this.git = map;
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -55,6 +59,9 @@ export class HerdStore {
     } else if (ev.event === "session:archived") {
       this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
       this.blocks = dropKey(this.blocks, ev.data.id);
+      this.git = dropKey(this.git, ev.data.id);
+    } else if (ev.event === "session:git") {
+      this.git = { ...this.git, [ev.data.id]: ev.data.git };
     } else if (ev.event === "session:block") {
       if (ev.data.block) {
         const prev = this.blocks[ev.data.id];

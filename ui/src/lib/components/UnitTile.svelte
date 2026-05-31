@@ -2,21 +2,24 @@
   import "@xterm/xterm/css/xterm.css";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
-  import type { Session } from "$lib/types";
+  import type { Session, GitState } from "$lib/types";
   import { STATUS_COLOR, statusLabel, elapsed } from "$lib/format";
   import { connectPty } from "$lib/pty";
   import { theme, xtermTheme } from "$lib/theme.svelte";
+  import PrBadge from "./PrBadge.svelte";
 
   let {
     session,
     selected = false,
     nowMs = Date.now(),
     onselect,
+    git,
   }: {
     session: Session;
     selected?: boolean;
     nowMs?: number;
     onselect: (id: string) => void;
+    git?: GitState;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -101,6 +104,7 @@
     {#if session.status === "running"}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
+    <PrBadge {git} />
     <span class="badge">{statusLabel(session.status)}</span>
   </div>
   <div class="t-body">

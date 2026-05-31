@@ -23,7 +23,8 @@ import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { Session } from "./types";
 import type { HerdrDriver } from "./herdr";
-import type { GitForge, MergeMethod } from "./forge/types";
+import type { GitForge, GitState, MergeMethod } from "./forge/types";
+import type { PrCache } from "./pr-poller";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -60,6 +61,9 @@ export interface AppDeps {
   updates?: Pick<UpdateService, "current" | "apply">;
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
   herdr?: Pick<HerdrDriver, "list">;
+  /** In-memory PR-status cache surfaced in the list overview; absent in tests
+   *  that don't exercise it. */
+  prCache?: PrCache;
 }
 
 const sessionUsage = (s: Session) =>
@@ -99,6 +103,10 @@ export function makeApp(deps: AppDeps) {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
 
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
+        return json(deps.prCache?.snapshot() ?? {});
+      }
+
       if (parts[0] === "api" && parts[1] === "sessions") {
         if (req.method === "POST" && !parts[2]) {
           if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
@@ -129,6 +137,7 @@ export function makeApp(deps: AppDeps) {
         }
         if (req.method === "DELETE" && parts[2]) {
           deps.service.archive(parts[2]);
+          deps.prCache?.drop(parts[2]);
           deps.events.emit("session:archived", { id: parts[2] });
           return json({ ok: true });
         }
@@ -157,14 +166,16 @@ export function makeApp(deps: AppDeps) {
           }
           if (req.method === "POST" && parts[4] === "pr") {
             const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
-            return json(
-              await forge.openPr({
-                head,
-                base: session.baseBranch,
-                title: body.title?.trim() || session.name,
-                body: body.body ?? session.prompt,
-              }),
-            );
+            const status = await forge.openPr({
+              head,
+              base: session.baseBranch,
+              title: body.title?.trim() || session.name,
+              body: body.body ?? session.prompt,
+            });
+            const git: GitState = { kind: forge.kind, ...status };
+            deps.prCache?.set(session.id, git);
+            deps.events.emit("session:git", { id: session.id, git });
+            return json(status);
           }
           if (req.method === "POST" && parts[4] === "merge") {
             const body = (await req.json().catch(() => ({}))) as {
@@ -179,7 +190,11 @@ export function makeApp(deps: AppDeps) {
               method: body.method ?? forge.mergeMethod,
               deleteBranch: body.deleteBranch ?? true,
             });
-            return json(await forge.prStatus(head));
+            const status = await forge.prStatus(head);
+            const git: GitState = { kind: forge.kind, ...status };
+            deps.prCache?.set(session.id, git);
+            deps.events.emit("session:git", { id: session.id, git });
+            return json(status);
           }
           if (req.method === "POST" && parts[4] === "redeploy") {
             if (!forge.deployWorkflow) {

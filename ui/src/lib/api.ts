@@ -154,6 +154,14 @@ export async function gitState(id: string): Promise<GitState | null> {
   return r.json();
 }
 
+/** Snapshot of every active session's PR state, keyed by session id (for the
+ *  list overview). Empty object when no forge is configured anywhere. */
+export async function gitStates(): Promise<Record<string, GitState>> {
+  const r = await fetch("/api/git");
+  if (!r.ok) throw new Error(`git states failed: ${r.status}`);
+  return r.json();
+}
+
 async function gitJson(res: Response): Promise<PrStatus> {
   if (!res.ok) {
     const msg = await res.json().catch(() => ({ error: `${res.status}` }));

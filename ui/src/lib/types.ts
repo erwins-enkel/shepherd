@@ -157,6 +157,7 @@ export type WsEvent =
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
+  | { event: "herdr-update:log"; data: { line: string } }
   | { event: "project-icons:update"; data: ProjectIcons };
 
 export interface CreateInput {

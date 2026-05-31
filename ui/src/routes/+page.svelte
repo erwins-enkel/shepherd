@@ -321,6 +321,7 @@
   <HerdrUpdateModal
     update={store.herdrUpdate}
     sessions={store.sessions.filter((s) => s.status === "running").length}
+    log={store.herdrUpdateLog}
     onconfirm={() => (herdrUpdating = true)}
     onclose={() => {
       showHerdrUpdate = false;

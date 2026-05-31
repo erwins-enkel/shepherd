@@ -16,6 +16,7 @@ export class HerdStore {
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
+  herdrUpdateLog = $state<string[]>([]);
   git = $state<Record<string, GitState>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
@@ -87,6 +88,8 @@ export class HerdStore {
       this.setUpdate(ev.data);
     } else if (ev.event === "herdr-update:status") {
       this.herdrUpdate = ev.data;
+    } else if (ev.event === "herdr-update:log") {
+      this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
     } else if (ev.event === "project-icons:update") {
       projectIcons.apply(ev.data);
     }

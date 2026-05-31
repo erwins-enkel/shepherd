@@ -23,6 +23,14 @@ export interface HerdrUpdateDeps {
   fetchLatest?: () => Promise<{ version: string; notes?: string }>;
   /** inject point for tests; defaults to launching `herdr update` detached */
   launch?: () => void;
+  /** called for each log line streamed from the running update; default: no-op */
+  onLog?: (line: string) => void;
+  /**
+   * inject point for tests: start following the update log and call onLine for
+   * each line. Defaults to tailing `journalctl --user -u herdr-update`.
+   * Wrapped in try/catch so a missing journalctl never breaks apply().
+   */
+  follow?: (onLine: (line: string) => void) => void;
 }
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
@@ -47,6 +55,8 @@ export class HerdrUpdateService {
   private versionRunner: () => string;
   private fetchLatest: () => Promise<{ version: string; notes?: string }>;
   private launch: () => void;
+  private onLog: (line: string) => void;
+  private follow: (onLine: (line: string) => void) => void;
   private last: HerdrUpdateStatus | null = null;
   private applying = false;
 
@@ -59,6 +69,39 @@ export class HerdrUpdateService {
       (() =>
         fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string; notes?: string }>));
     this.launch = deps.launch ?? (() => this.defaultLaunch());
+    this.onLog = deps.onLog ?? (() => {});
+    this.follow = deps.follow ?? ((onLine) => this.defaultFollow(onLine));
+  }
+
+  /**
+   * Tail the systemd journal for the herdr-update transient unit and call
+   * onLine for each non-empty output line. Runs entirely in the background;
+   * errors (e.g. journalctl not found) are swallowed so they never affect apply().
+   */
+  private defaultFollow(onLine: (line: string) => void): void {
+    try {
+      const child = spawn(
+        "journalctl",
+        ["--user", "-u", "herdr-update", "-f", "-o", "cat", "-n", "0"],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let buf = "";
+      const handleChunk = (chunk: Buffer | string) => {
+        buf += chunk.toString();
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trimEnd();
+          if (trimmed) onLine(trimmed);
+        }
+      };
+      child.stdout?.on("data", handleChunk);
+      child.stderr?.on("data", handleChunk);
+      // keep a ref so GC doesn't collect the child before shepherd restarts
+      child.unref();
+    } catch {
+      // journalctl not available — fall back silently to the static busy text
+    }
   }
 
   /** Launch `herdr update` in its own transient systemd scope so it survives the
@@ -88,6 +131,12 @@ export class HerdrUpdateService {
     if (this.applying) return { started: false };
     this.applying = true;
     this.launch();
+    // Start streaming the journal output; wrapped so a failure never surfaces.
+    try {
+      this.follow((line) => this.onLog(line));
+    } catch {
+      // follow implementation threw synchronously — ignore
+    }
     return { started: true };
   }
 

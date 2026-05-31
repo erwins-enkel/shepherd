@@ -435,7 +435,9 @@
     font-size: 11.5px;
     flex-shrink: 0;
     white-space: nowrap;
-    overflow: hidden;
+    /* not overflow:hidden — the Open-PR popover drops below the header and must
+       escape it; long content is still clipped by .viewport's overflow */
+    overflow: visible;
   }
 
   .desig {

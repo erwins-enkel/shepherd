@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { config } from "./config";
 import { SessionStore } from "./store";
 import { WorktreeMgr } from "./worktree";
@@ -11,7 +11,6 @@ import { StatusPoller } from "./poller";
 import { reconcile } from "./reconcile";
 import { serve } from "./server";
 import { detectForge } from "./forge";
-import { loadForgeMap } from "./forge/load-config";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
@@ -62,12 +61,10 @@ setTimeout(calibrate, 3_000);
 setInterval(calibrate, 24 * 60 * 60 * 1000);
 
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
-// Per-host config (tokens, gitea base URLs) is optional — github.com works through
-// the operator's existing `gh` CLI auth, so an absent forges.json is fine.
-const forgeMap = loadForgeMap(join(dirname(config.dbPath), "forges.json"));
-
+// Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
+// github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
 const server = serve(
-  { store, service, events, usageLimits, resolveForge: (dir) => detectForge(dir, forgeMap) },
+  { store, service, events, usageLimits, resolveForge: (dir) => detectForge(dir, config.forges) },
   config.port,
 );
 console.log(`shepherd core on http://localhost:${server.port}`);

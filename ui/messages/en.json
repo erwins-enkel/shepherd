@@ -147,6 +147,7 @@
   "steerseditor_label_placeholder": "label",
   "steerseditor_text_placeholder": "prompt text",
   "steerseditor_delete_aria": "delete steer",
+  "steerseditor_reorder_aria": "reorder steer",
   "steerseditor_empty": "no steers yet",
   "steerseditor_add": "+ Add",
   "steerseditor_saving": "Saving…",

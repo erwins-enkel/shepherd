@@ -1,13 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { flip } from "svelte/animate";
+  import { dragHandleZone, dragHandle } from "svelte-dnd-action";
+  import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "$lib/steers.svelte";
   import type { Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+
+  const flipDurationMs = 150;
 
   let draft = $state<Steer[]>([]);
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
+
+  function reorder(e: CustomEvent<DndEvent<Steer>>) {
+    draft = e.detail.items;
+    saved = false;
+  }
 
   function syncFromStore() {
     draft = steers.list.map((s) => ({ ...s }));
@@ -49,9 +59,20 @@
 
 <div class="editor">
   <span class="micro">{m.steerseditor_title()}</span>
-  <div class="rows">
+  <div
+    class="rows"
+    use:dragHandleZone={{ items: draft, flipDurationMs }}
+    onconsider={reorder}
+    onfinalize={reorder}
+  >
     {#each draft as s (s.id)}
-      <div class="srow">
+      <div class="srow" animate:flip={{ duration: flipDurationMs }}>
+        <span
+          class="grip"
+          use:dragHandle
+          aria-label={m.steerseditor_reorder_aria()}
+          title={m.steerseditor_reorder_aria()}>⠿</span
+        >
         <input
           class="label"
           bind:value={s.label}
@@ -113,6 +134,22 @@
     display: flex;
     gap: 4px;
     align-items: center;
+  }
+  .grip {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    padding: 0 6px;
+    color: var(--color-muted);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    line-height: 1;
+  }
+  .grip:active {
+    cursor: grabbing;
   }
   .srow input {
     background: var(--color-inset);
@@ -182,6 +219,9 @@
     .save,
     .del {
       min-height: 40px;
+    }
+    .grip {
+      min-width: 40px;
     }
   }
 </style>

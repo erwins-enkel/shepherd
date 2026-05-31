@@ -34,7 +34,7 @@ const defaultSend: SendFn = (sub, payload) =>
 type NotifyLocale = "en" | "de";
 const NOTIFY_TEXT = {
   en: {
-    doneTitle: (name: string) => `${name} — finished`,
+    doneTitle: (name: string) => `${name} — waiting`,
     doneBody: "Agent finished its turn.",
     blockedTitle: (name: string) => `${name} — needs you`,
     menu: "Waiting on a menu choice.",
@@ -43,7 +43,7 @@ const NOTIFY_TEXT = {
     other: "Waiting on your input.",
   },
   de: {
-    doneTitle: (name: string) => `${name} — fertig`,
+    doneTitle: (name: string) => `${name} — wartet`,
     doneBody: "Agent hat seinen Zug beendet.",
     blockedTitle: (name: string) => `${name} — braucht dich`,
     menu: "Wartet auf eine Menüauswahl.",

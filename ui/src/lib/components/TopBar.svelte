@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
+  import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { m } from "$lib/paraglide/messages";
@@ -16,6 +16,8 @@
     ontriage,
     update = null,
     onupdate,
+    herdrUpdate = null,
+    onherdrupdate,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -28,9 +30,12 @@
     ontriage?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
+    herdrUpdate?: HerdrUpdateStatus | null;
+    onherdrupdate?: () => void;
   } = $props();
 
   const updateAvailable = $derived(!!update && update.behind > 0);
+  const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
@@ -210,6 +215,20 @@
         <span class="up-dot">▲</span>
         {#if !mobile}<span class="up-label">Update</span>{/if}
         <span class="up-n">{update!.behind}</span>
+      </button>
+    {/if}
+    {#if herdrUpdateAvailable}
+      <button
+        class="update-badge herdr"
+        class:mobile
+        onclick={() => onherdrupdate?.()}
+        title={m.topbar_herdr_update_title({
+          current: herdrUpdate!.current ?? "?",
+          latest: herdrUpdate!.latest ?? "?",
+        })}
+      >
+        <span class="up-dot">▲</span>
+        <span class="up-label">{m.topbar_herdr_update_badge()}</span>
       </button>
     {/if}
     <button
@@ -445,6 +464,14 @@
     padding: 4px 8px;
     gap: 4px;
     letter-spacing: 0.08em;
+  }
+  /* herdr badge: informational (operator updates manually), so it reads as a
+     calmer green and doesn't pulse like the actionable self-update badge */
+  .update-badge.herdr {
+    background: color-mix(in srgb, var(--color-green) 14%, transparent);
+    border-color: var(--color-green);
+    color: var(--color-green);
+    animation: none;
   }
   @keyframes update-pulse {
     0%,

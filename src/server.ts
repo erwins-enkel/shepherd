@@ -114,6 +114,17 @@ export function makeApp(deps: AppDeps) {
           deps.events.emit("session:archived", { id: parts[2] });
           return json({ ok: true });
         }
+        if (req.method === "POST" && parts[2] && parts[3] === "reply") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          if (!body || typeof (body as { text?: unknown }).text !== "string") {
+            return json({ error: "body must be {text: string}" }, 400);
+          }
+          const ok = deps.service.reply(parts[2], (body as { text: string }).text);
+          return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+        }
       }
       // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
       if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {

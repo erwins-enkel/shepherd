@@ -7,6 +7,23 @@
 - [ ] Hermes migration off `claude -p` onto interactive-via-herdr — compliance-critical, likely its own milestone (workstream 3)
 - [ ] Per-agent sandboxing (firejail/bwrap/nspawn) + permission profiles — I3/I4, before any unattended autonomy
 
+## Attention-routing (new — not in PRD; the "don't be the bottleneck" gap)
+
+> Observation half is shipped (status lights, terminals, All-view). These close the
+> act/triage half: pull the operator back, and help decide which agent first.
+
+- [x] Blocked-triage queue — list of red agents + WHY each is blocked (tailed from terminal:
+      permission prompt / question / test fail), batch-answer w/ quick replies. Server heuristic
+      classifier + poller emit `session:block` + POST `/reply` (types into PTY) + "Needs you" drawer.
+- [ ] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
+      telemetry + herdr status. Highest leverage; serves core thesis. Pairs w/ triage queue. **NEXT.**
+- [ ] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
+      human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
+- [ ] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,
+      ToS-clean (read-only git). Precursor to F6 merge buttons.
+- [ ] Saved steers / broadcast — canned prompts ("commit & push", "rebase", "run tests")
+      as one-tap buttons; optional fan-out to N selected agents. Mobile-critical.
+
 ## PRD open questions still unresolved
 
 - [ ] Q5: Hermes migration sequencing — same milestone or after the rest of the backlog

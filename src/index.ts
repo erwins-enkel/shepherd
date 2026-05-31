@@ -36,8 +36,11 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
 
 reconcile(store, herdr);
 
-const poller = new StatusPoller(store, herdr, (id, status) =>
-  events.emit("session:status", { id, status }),
+const poller = new StatusPoller(
+  store,
+  herdr,
+  (id, status) => events.emit("session:status", { id, status }),
+  (id, block) => events.emit("session:block", { id, block }),
 );
 poller.start();
 

@@ -1,7 +1,9 @@
 import type { Session, WsEvent, UsageLimits } from "./types";
+import type { BlockState } from "./triage";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
+  blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
 
@@ -24,6 +26,17 @@ export class HerdStore {
       );
     } else if (ev.event === "session:archived") {
       this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
+      this.blocks = dropKey(this.blocks, ev.data.id);
+    } else if (ev.event === "session:block") {
+      if (ev.data.block) {
+        const prev = this.blocks[ev.data.id];
+        this.blocks = {
+          ...this.blocks,
+          [ev.data.id]: { reason: ev.data.block, since: prev?.since ?? Date.now() },
+        };
+      } else {
+        this.blocks = dropKey(this.blocks, ev.data.id);
+      }
     } else if (ev.event === "usage:limits") {
       this.usageLimits = ev.data;
     }
@@ -55,6 +68,12 @@ export class HerdStore {
       ws?.close();
     };
   }
+}
+
+function dropKey<T>(rec: Record<string, T>, id: string): Record<string, T> {
+  const copy = { ...rec };
+  delete copy[id];
+  return copy;
 }
 
 export function wsUrl(path: string): string {

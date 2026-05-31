@@ -120,6 +120,39 @@ test("POST /api/sessions creates, GET lists", async () => {
   expect(list.length).toBe(1);
 });
 
+test("POST /api/sessions surfaces a herdr failure with its real message (not a bare status)", async () => {
+  const deps = makeDeps();
+  // mirror herdr rejecting `tab create` — the create path throws past validation
+  deps.service = {
+    create: async () => {
+      throw new Error("Command failed: herdr tab create … no active workspace");
+    },
+  } as any;
+  const res = await postSessions(makeApp(deps), {
+    repoPath: validRepo,
+    baseBranch: "main",
+    prompt: "go",
+  });
+  expect(res.status).toBe(502); // herdr/git failure
+  const body = await res.json();
+  expect(body.error).toContain("no active workspace"); // real cause reaches the client
+});
+
+test("an unhandled throw on any route becomes a JSON 500, not Bun's HTML error page", async () => {
+  const deps = makeDeps();
+  // a route with no local try/catch (GET /api/sessions) — exercise the global safety net
+  deps.store = {
+    list: () => {
+      throw new Error("db exploded");
+    },
+  } as any;
+  const res = await makeApp(deps).fetch(new Request("http://x/api/sessions"));
+  expect(res.status).toBe(500);
+  expect(res.headers.get("content-type")).toContain("application/json");
+  const body = await res.json();
+  expect(body.error).toBe("db exploded"); // message preserved as JSON, parseable by the UI
+});
+
 test("DELETE /api/sessions/:id archives", async () => {
   const app = harness();
   const created = await (

@@ -11,6 +11,7 @@
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
+  import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
@@ -37,7 +38,7 @@
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
-  let tab = $state<"term" | "todo" | "issues" | "activity">("term");
+  let tab = $state<"term" | "todo" | "issues" | "activity" | "diff">("term");
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
@@ -362,6 +363,9 @@
       <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
         >{m.viewport_activity_tab()}</button
       >
+      <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
+        >{m.viewport_diff_tab()}</button
+      >
     </div>
     {#if !compact}
       <span class="sep">·</span>
@@ -445,6 +449,11 @@
     {#if tab === "activity"}
       <div class="panel-wrap">
         <ActivityFeed sessionId={session.id} />
+      </div>
+    {/if}
+    {#if tab === "diff"}
+      <div class="panel-wrap">
+        <DiffPanel sessionId={session.id} />
       </div>
     {/if}
   </div>

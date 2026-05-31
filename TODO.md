@@ -19,7 +19,7 @@
       human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
 - [x] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
       telemetry + herdr status. Per-device locale → localized notification payloads (EN/DE).
-- [ ] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,
+- [x] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,
       ToS-clean (read-only git). Precursor to F6 merge buttons.
 - [x] Saved steers / broadcast — canned prompts ("commit & push", "rebase", "run tests")
       as one-tap buttons; optional fan-out to N selected agents. Mobile-critical.

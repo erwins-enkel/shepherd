@@ -16,6 +16,7 @@ import { listRepos, readTodo, writeTodo } from "./repos";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
 import { listBranches } from "./branches";
+import { computeDiff } from "./diff";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
@@ -176,6 +177,15 @@ export function makeApp(deps: AppDeps) {
           // pre-feature session (no pinned id) → no transcript to read
           const path = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
           return json(path ? await sessionActivity(path) : []);
+        }
+        if (req.method === "GET" && parts[2] && parts[3] === "diff") {
+          const s = deps.store.get(parts[2]);
+          if (!s) return json({ error: "not found" }, 404);
+          try {
+            return json(computeDiff(s.worktreePath, s.baseBranch, s.branch));
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
+          }
         }
         if (req.method === "GET" && parts[2] && !parts[3]) {
           const s = deps.store.get(parts[2]);

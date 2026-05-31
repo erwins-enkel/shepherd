@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { UpdateStatus } from "$lib/types";
   import { applyUpdate } from "$lib/api";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     update,
@@ -24,7 +25,7 @@
       await applyUpdate();
       onconfirm?.(); // store marks `updating`; the page reloads once the new build is live
     } catch (e) {
-      error = e instanceof Error ? e.message : "update failed";
+      error = e instanceof Error ? e.message : m.updatemodal_update_failed();
       submitting = false;
     }
   }
@@ -41,16 +42,18 @@
 >
   <div class="card bracket">
     <div class="chead">
-      <span class="micro">Update&nbsp;verfügbar</span>
+      <span class="micro">{m.updatemodal_available()}</span>
       {#if !busy}
-        <button type="button" class="x" onclick={() => onclose?.()} aria-label="close">✕</button>
+        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+          >✕</button
+        >
       {/if}
     </div>
 
     <div class="summary">
       <span class="count">{update.behind}</span>
       <span class="micro"
-        >{update.behind === 1 ? "neuer Commit" : "neue Commits"} auf&nbsp;main</span
+        >{update.behind === 1 ? m.updatemodal_commits_one() : m.updatemodal_commits_other()}</span
       >
       {#if update.current && update.latest}
         <span class="shas micro">{update.current} → {update.latest}</span>
@@ -67,18 +70,18 @@
     </div>
 
     {#if busy}
-      <div class="status">
-        ⟳ Wird aktualisiert… Server startet neu, die Seite lädt automatisch neu.
-      </div>
+      <div class="status">{m.updatemodal_status()}</div>
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 
     <div class="actions">
       {#if !busy}
-        <button type="button" class="later" onclick={() => onclose?.()}>Später</button>
+        <button type="button" class="later" onclick={() => onclose?.()}
+          >{m.updatemodal_later()}</button
+        >
       {/if}
       <button type="button" class="run" onclick={confirm} disabled={busy}>
-        {busy ? "Aktualisiere…" : "Update jetzt"}
+        {busy ? m.updatemodal_updating() : m.updatemodal_update_now()}
       </button>
     </div>
   </div>

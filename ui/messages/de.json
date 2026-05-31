@@ -182,5 +182,13 @@
   "emojipicker_search": "Emoji suchen…",
   "emojipicker_custom": "Emoji einfügen",
   "emojipicker_clear": "Symbol entfernen",
-  "reposelect_set_icon": "Projektsymbol setzen"
+  "reposelect_set_icon": "Projektsymbol setzen",
+  "updatemodal_available": "Update verfügbar",
+  "updatemodal_commits_one": "neuer Commit auf main",
+  "updatemodal_commits_other": "neue Commits auf main",
+  "updatemodal_status": "⟳ Wird aktualisiert… Server startet neu, die Seite lädt automatisch neu.",
+  "updatemodal_update_failed": "Update fehlgeschlagen",
+  "updatemodal_later": "Später",
+  "updatemodal_updating": "Aktualisiere…",
+  "updatemodal_update_now": "Update jetzt"
 }

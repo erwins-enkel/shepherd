@@ -18,8 +18,6 @@ export const config = {
   // otherwise the helper can't spawn and every session pane stays black.
   nodeBin: resolveNodeBin({ override: process.env.SHEPHERD_NODE_BIN }),
   herdrSession: process.env.HERDR_SESSION ?? "default",
-  ollamaModel: process.env.SHEPHERD_NAMER_MODEL ?? "mistral-small3.1:latest",
-  ollamaEndpoint: process.env.OLLAMA_URL ?? "http://localhost:11434/api/generate",
   // usage tracking: where Claude Code writes its session JSONL
   claudeProjectsDir:
     process.env.CLAUDE_PROJECTS_DIR ??

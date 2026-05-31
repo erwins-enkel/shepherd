@@ -1,4 +1,17 @@
 <script lang="ts">
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+
+  const REPO = "erwins-enkel/shepherd";
+  const REPO_URL = `https://github.com/${REPO}`;
+  const sha = __GIT_SHA__;
+  const commitUrl = sha === "unknown" ? REPO_URL : `https://github.com/${REPO}/commit/${sha}`;
+
+  const THEMES: { pref: ThemePref; glyph: string; label: string }[] = [
+    { pref: "dark", glyph: "☾", label: "Dark" },
+    { pref: "light", glyph: "☀", label: "Light" },
+    { pref: "system", glyph: "◐", label: "System" },
+  ];
+
   let {
     onnew,
     mode = "focus",
@@ -32,7 +45,31 @@
         type="button"
         onclick={() => onmode?.("focus")}>Focus ⌖</button
       >
-      <span class="hint">node-pty ⇄ herdr · sub · skip-permissions</span>
+      <div class="meta">
+        <a class="repo" href={REPO_URL} target="_blank" rel="external noreferrer noopener">{REPO}</a
+        >
+        <span class="dot">·</span>
+        <a
+          class="sha"
+          href={commitUrl}
+          target="_blank"
+          rel="external noreferrer noopener"
+          title="commit {sha}">{sha}</a
+        >
+        <div class="theme-seg" role="group" aria-label="Theme">
+          {#each THEMES as t (t.pref)}
+            <button
+              type="button"
+              class="t-opt"
+              class:on={theme.pref === t.pref}
+              aria-pressed={theme.pref === t.pref}
+              title="{t.label} theme"
+              aria-label="{t.label} theme"
+              onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+            >
+          {/each}
+        </div>
+      </div>
     {/if}
   </div>
 {/if}
@@ -70,11 +107,55 @@
     color: var(--color-amber);
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
-  .hint {
+  .meta {
     margin-left: auto;
-    color: var(--color-faint);
+    display: flex;
+    align-items: center;
+    gap: 10px;
     font-size: 11px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.06em;
+    font-variant-numeric: tabular-nums;
+  }
+  .repo,
+  .sha {
+    color: var(--color-muted);
+    text-decoration: none;
+  }
+  .sha {
+    color: var(--color-ink);
+  }
+  .repo:hover,
+  .sha:hover {
+    color: var(--color-amber);
+  }
+  .dot {
+    color: var(--color-faint);
+  }
+  .theme-seg {
+    display: flex;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .t-opt {
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .t-opt:first-child {
+    border-left: 0;
+  }
+  .t-opt:hover {
+    color: var(--color-ink-bright);
+  }
+  .t-opt.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
   }
   .actions.mobile {
     padding: 10px;

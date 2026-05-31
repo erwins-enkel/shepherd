@@ -25,6 +25,7 @@ interface GhPr {
   state: string; // OPEN | MERGED | CLOSED
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
   statusCheckRollup?: CheckRun[];
+  headRefOid?: string;
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -88,7 +89,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,statusCheckRollup",
+      "number,url,title,state,mergeable,statusCheckRollup,headRefOid",
       "--limit",
       "1",
     ]);
@@ -103,6 +104,7 @@ export class GithubForge implements GitForge {
       title: pr.title,
       mergeable: mapMergeable(pr.mergeable),
       checks: rollupChecks(pr.statusCheckRollup ?? []),
+      headSha: pr.headRefOid,
       deployConfigured,
     };
   }

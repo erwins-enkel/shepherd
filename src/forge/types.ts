@@ -20,6 +20,9 @@ export interface PrStatus {
   /** null = host still computing mergeability. */
   mergeable?: boolean | null;
   checks: ChecksState;
+  /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
+   *  "review this head once" dedup and per-push re-review. */
+  headSha?: string;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

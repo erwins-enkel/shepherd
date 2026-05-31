@@ -109,6 +109,7 @@ export class GiteaForge implements GitForge {
       title: pr.title ?? "",
       mergeable: pr.mergeable ?? null,
       checks: await this.checksFor(pr.head?.sha),
+      headSha: pr.head?.sha,
       deployConfigured,
     };
   }

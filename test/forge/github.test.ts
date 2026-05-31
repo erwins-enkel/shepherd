@@ -88,3 +88,22 @@ test("GithubForge.kind + slug", () => {
   expect(forge.kind).toBe("github");
   expect(forge.slug).toBe("o/r");
 });
+
+test("GithubForge.prStatus: surfaces head SHA from headRefOid", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 7,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
+      headRefOid: "abc123",
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("feature");
+  expect(st.headSha).toBe("abc123");
+  expect(calls[0]!.join(" ")).toContain("headRefOid");
+});

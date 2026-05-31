@@ -12,6 +12,7 @@
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
+  import SteerBar from "$lib/components/SteerBar.svelte";
 
   let {
     session,
@@ -19,6 +20,7 @@
     onnewtask,
     onarchive,
     onback,
+    onbroadcast,
     mobile = false,
     touch = false,
   }: {
@@ -27,6 +29,7 @@
     onnewtask?: (repoPath: string, prompt: string) => void;
     onarchive?: (id: string) => void;
     onback?: () => void;
+    onbroadcast?: () => void;
     mobile?: boolean;
     touch?: boolean;
   } = $props();
@@ -412,6 +415,10 @@
       </div>
     {/if}
   </div>
+
+  {#if tab === "term"}
+    <SteerBar focusedId={session.id} onbroadcast={() => onbroadcast?.()} />
+  {/if}
 
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->

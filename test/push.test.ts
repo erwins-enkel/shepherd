@@ -108,6 +108,9 @@ test("blockSummary maps shapes to human text", () => {
   expect(blockSummary({ shape: "menu", options: [], tail: [] })).toMatch(/menu/i);
   expect(blockSummary({ shape: "yes-no", options: [], tail: [] })).toMatch(/yes/i);
   expect(blockSummary({ shape: "awaiting-input", options: [], tail: [] })).toMatch(/input/i);
+  // a stall reads as quiet/stuck, not a generic input prompt (EN + DE)
+  expect(blockSummary({ shape: "stall", options: [], tail: [] })).toMatch(/quiet|stuck/i);
+  expect(blockSummary({ shape: "stall", options: [], tail: [] }, "de")).toMatch(/ruhig|hängen/i);
 });
 
 test("buildPayload localizes title + body by subscriber locale", () => {

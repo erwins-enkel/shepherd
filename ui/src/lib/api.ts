@@ -13,6 +13,7 @@ import type {
   DirListing,
   UpdateStatus,
   Steer,
+  DiffResult,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -114,6 +115,12 @@ export async function getSessionUsage(id: string): Promise<SessionUsage> {
 export async function getActivity(id: string): Promise<ActivityEntry[]> {
   const r = await fetch(`/api/sessions/${id}/activity`);
   if (!r.ok) throw new Error(`activity failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getDiff(id: string): Promise<DiffResult> {
+  const r = await fetch(`/api/sessions/${id}/diff`);
+  if (!r.ok) throw new Error(`diff failed: ${r.status}`);
   return r.json();
 }
 

@@ -156,3 +156,40 @@ export interface Steer {
   label: string;
   text: string;
 }
+
+// ── git diff review panel ──────────────────────────────────────────────────
+export type DiffLineKind = "add" | "del" | "ctx";
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  content: string; // line text WITHOUT the leading +/-/space marker
+  oldNo?: number; // 1-based line number on the old side (absent for adds)
+  newNo?: number; // 1-based line number on the new side (absent for dels)
+}
+
+export interface DiffHunk {
+  header: string; // the raw "@@ -a,b +c,d @@ …" line
+  lines: DiffLine[];
+}
+
+export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface DiffFile {
+  path: string; // new path ("/dev/null" side resolved away)
+  oldPath?: string; // set only when renamed
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  truncated?: boolean; // hunks dropped because the file exceeded the line cap
+  hunks: DiffHunk[]; // empty when binary or truncated
+}
+
+export interface DiffResult {
+  base: string; // logical base branch, e.g. "main"
+  baseRef: string; // ref actually diffed against, e.g. "origin/main" or "main"
+  head: string | null; // session branch; null for non-isolated sessions
+  fetchFailed: boolean; // true when `git fetch` failed and we fell back to local base
+  truncated: boolean; // true when any file was truncated
+  files: DiffFile[];
+}

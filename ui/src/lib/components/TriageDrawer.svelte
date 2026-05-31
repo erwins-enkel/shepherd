@@ -7,12 +7,14 @@
     nowMs,
     onreply,
     ondismiss,
+    onopen,
     onclose,
   }: {
     entries: BlockedEntry[];
     nowMs: number;
     onreply: (id: string, text: string) => void;
     ondismiss: (id: string) => void;
+    onopen: (id: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -47,6 +49,17 @@
   {#if entries.length === 0}
     <p class="empty">{m.triage_empty()}</p>
   {/if}
+
+  {#snippet consoleBtn(id: string, desig: string)}
+    <button
+      type="button"
+      class="to-console"
+      onclick={() => onopen(id)}
+      aria-label={m.triage_open_console_aria({ desig })}
+    >
+      ⤢ {m.triage_open_console()}
+    </button>
+  {/snippet}
 
   {#each entries as e (e.session.id)}
     <section class="row">
@@ -92,12 +105,14 @@
             bind:value={drafts[e.session.id]}
           />
           <button type="submit">{m.triage_send_button()}</button>
+          {@render consoleBtn(e.session.id, e.session.desig)}
         </form>
       {:else}
         <div class="opts">
           {#each e.reason.options as o (o.send)}
             <button onclick={() => onreply(e.session.id, o.send)}>{o.label}</button>
           {/each}
+          {@render consoleBtn(e.session.id, e.session.desig)}
         </div>
       {/if}
     </section>
@@ -236,6 +251,19 @@
   .batch button,
   .batch input {
     min-height: 40px;
+  }
+  /* secondary action: jump into this session's full console (with the
+     ↑↓←→/Esc/Ctrl bar) — the inline reply only covers one-liners */
+  .to-console {
+    flex: 0 0 auto;
+    background: transparent;
+    border-color: var(--color-line-bright);
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  .to-console:active {
+    background: var(--color-line);
+    color: var(--color-ink-bright);
   }
   input {
     flex: 1;

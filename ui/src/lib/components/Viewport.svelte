@@ -31,6 +31,8 @@
     onbroadcast,
     mobile = false,
     touch = false,
+    queue = [],
+    onnavigate,
   }: {
     session: Session;
     nowMs?: number;
@@ -44,6 +46,10 @@
     onbroadcast?: () => void;
     mobile?: boolean;
     touch?: boolean;
+    // ordered ids of sessions currently waiting on the operator ("needs you"),
+    // so the console can page through that queue without a trip back to the list
+    queue?: string[];
+    onnavigate?: (id: string) => void;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -82,6 +88,17 @@
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
   const compact = $derived(mobile || touch);
+
+  // "needs you" queue paging: only on compact layouts (the list isn't visible there),
+  // and only when more than one session waits. Wraps around so ‹/› always advance.
+  const queueIdx = $derived(queue.indexOf(session.id));
+  const showQueueNav = $derived(compact && queue.length > 1 && !!onnavigate);
+  function gotoQueue(step: number) {
+    if (queue.length === 0) return;
+    const base = queueIdx === -1 ? (step > 0 ? -1 : 0) : queueIdx;
+    const next = (base + step + queue.length) % queue.length;
+    onnavigate?.(queue[next]);
+  }
 
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
@@ -467,6 +484,23 @@
         {m.viewport_next_needs_you()}
         <span class="nyu-count">{nextNeedsYou}</span>
       </button>
+    {/if}
+    {#if showQueueNav}
+      <div class="queue-nav" role="group" aria-label={m.common_needs_you({ count: queue.length })}>
+        <button
+          type="button"
+          onclick={() => gotoQueue(-1)}
+          aria-label={m.viewport_queue_prev_aria()}>‹</button
+        >
+        {#if queueIdx >= 0}
+          <span class="queue-pos"
+            >{m.viewport_queue_position({ idx: queueIdx + 1, total: queue.length })}</span
+          >
+        {/if}
+        <button type="button" onclick={() => gotoQueue(1)} aria-label={m.viewport_queue_next_aria()}
+          >›</button
+        >
+      </div>
     {/if}
     <span class="desig">{session.desig}</span>
     {#if compact && !mobile}
@@ -965,6 +999,36 @@
     border-radius: 999px;
     background: var(--color-amber);
     color: var(--color-bg);
+  }
+
+  /* ‹ n/total › paging through the "needs you" queue — compact layouts only */
+  .queue-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .queue-nav button {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    min-width: 40px;
+    min-height: 40px;
+    cursor: pointer;
+  }
+  .queue-nav button:active {
+    background: var(--color-line-bright);
+  }
+  .queue-pos {
+    color: var(--color-amber);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    min-width: 28px;
+    text-align: center;
   }
 
   /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */

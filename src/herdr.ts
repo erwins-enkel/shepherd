@@ -47,7 +47,42 @@ export class HerdrDriver {
   }
 
   start(name: string, cwd: string, argv: string[]): HerdrAgent {
-    this.runner(["agent", "start", name, "--cwd", cwd, "--no-focus", "--", ...argv]);
+    // Give each agent its OWN tab so its pane spans the full herdr window width.
+    // `agent start` with no --tab splits the active tab, so agents pile up as
+    // side-by-side panes each ~window/N wide — and that split-fixed width (not the
+    // browser's attach size) is what the PTY renders at, so the HUD terminal comes
+    // out tall-and-narrow and resizing the browser can't widen it. A dedicated tab
+    // keeps every agent full-width regardless of how many are running.
+    const created = JSON.parse(
+      this.runner(["tab", "create", "--cwd", cwd, "--label", name, "--no-focus"]),
+    );
+    const tabId: string | undefined = created?.result?.tab?.tab_id;
+    // a fresh tab opens with an empty shell pane; `agent start --tab` splits it, so
+    // we close that leftover pane afterward to leave the agent as the sole pane
+    const rootPaneId: string | undefined = created?.result?.root_pane?.pane_id;
+    if (!tabId) throw new Error(`herdr: tab create returned no tab_id for ${name}`);
+
+    this.runner([
+      "agent",
+      "start",
+      name,
+      "--tab",
+      tabId,
+      "--cwd",
+      cwd,
+      "--no-focus",
+      "--",
+      ...argv,
+    ]);
+
+    if (rootPaneId) {
+      try {
+        this.runner(["pane", "close", rootPaneId]);
+      } catch {
+        /* best-effort: agent still runs if the shell pane lingers, just at split width */
+      }
+    }
+
     // NOTE: resolves the just-started agent by its unique worktree cwd; ambiguous only if two
     // sessions share a cwd (e.g. two non-git cwd-fallbacks on the same repoPath). TODO: prefer a
     // terminal_id returned directly by `herdr agent start` if herdr exposes it.

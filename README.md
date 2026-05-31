@@ -235,3 +235,7 @@ through an ephemeral interactive session — ToS-pure, no `-p`) to learn the pla
 `%` is recomputed live from local JSONL between calibrations. No dollar figures (you're on a
 subscription); pricing is used only internally as relative weights for the limit math. Override the
 JSONL location with `CLAUDE_CONFIG_DIR` or `CLAUDE_PROJECTS_DIR` if non-default.
+
+## License
+
+[Apache-2.0](./LICENSE) © 2026 Erwins Enkel GmbH

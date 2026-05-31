@@ -8,11 +8,13 @@
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
+  import { composeKeystrokes } from "$lib/compose";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
+  import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -162,6 +164,13 @@
     } finally {
       resuming = false;
     }
+  }
+
+  // mobile compose bar submit. Routing the composed line through here (as an
+  // atomic bracketed paste) instead of xterm's textarea sidesteps the Android
+  // IME duplication bug. See composeKeystrokes for the byte mapping.
+  function sendComposed(text: string) {
+    conn?.send(composeKeystrokes(text));
   }
 
   $effect(() => {
@@ -506,6 +515,7 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
+    <ComposeBar onsend={sendComposed} />
     <div class="ctrl-row">
       <button
         type="button"

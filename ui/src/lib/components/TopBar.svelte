@@ -216,6 +216,8 @@
     font-size: 11px;
     padding: 5px 10px;
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .rightside {
     margin-left: auto;

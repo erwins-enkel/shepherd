@@ -110,6 +110,32 @@ test("snapshot/set/drop manage the cache", async () => {
   expect(poller.snapshot()[s.id]).toBeUndefined();
 });
 
+test("re-emits when checks or head SHA change on the same PR", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { state: string; checks: string; headSha?: string }[] = [];
+  let cur: PrStatus = {
+    state: "open",
+    number: 7,
+    checks: "pending",
+    headSha: "aaa",
+    deployConfigured: false,
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (_id, git) => emitted.push({ state: git.state, checks: git.checks, headSha: git.headSha }),
+  );
+  await poller.tick(); // first emit
+  cur = { ...cur, checks: "success" };
+  await poller.tick(); // checks changed → emit
+  cur = { ...cur, headSha: "bbb" };
+  await poller.tick(); // head changed → emit
+  await poller.tick(); // unchanged → no emit
+  expect(emitted.map((e) => e.checks)).toEqual(["pending", "success", "success"]);
+  expect(emitted.map((e) => e.headSha)).toEqual(["aaa", "aaa", "bbb"]);
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

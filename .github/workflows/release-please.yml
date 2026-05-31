@@ -1,0 +1,29 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+# Avoid two release runs racing on the manifest.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # Maintains a release PR that accrues a CHANGELOG from conventional
+      # commits; merging it tags the version and cuts a GitHub release.
+      # Uses the default GITHUB_TOKEN — note that release PRs it opens will
+      # not trigger the `verify` CI workflow. Swap in a PAT via
+      # `token: ${{ secrets.RELEASE_PLEASE_TOKEN }}` if you need CI on them.
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

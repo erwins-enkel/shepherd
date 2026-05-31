@@ -59,8 +59,8 @@
   }
   .chip {
     flex: 0 0 auto;
-    height: 32px;
-    padding: 0 12px;
+    height: 38px;
+    padding: 0 14px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     border-radius: 3px;

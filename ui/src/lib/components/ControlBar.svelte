@@ -42,8 +42,8 @@
 
   .key {
     flex: 0 0 auto;
-    min-width: 40px;
-    height: 36px;
+    min-width: 42px;
+    height: 40px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     border-radius: 3px;

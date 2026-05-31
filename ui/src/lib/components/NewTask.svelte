@@ -391,6 +391,11 @@
     .run {
       min-height: 44px;
     }
+    .x {
+      min-width: 44px;
+      min-height: 44px;
+      font-size: 16px;
+    }
   }
 
   @keyframes sheet-up {

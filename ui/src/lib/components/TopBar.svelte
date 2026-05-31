@@ -186,6 +186,7 @@
     letter-spacing: 0.34em;
     color: var(--color-ink-bright);
     font-size: 15px;
+    flex-shrink: 0;
   }
   .logo b {
     color: var(--color-amber);
@@ -356,7 +357,12 @@
     color: var(--color-green);
   }
   .hud.mobile {
+    /* wrap instead of overflowing: on fold-cover (~280px) and phones the
+       logo+tallies sit on line 1, the right-side controls drop to line 2
+       rather than forcing horizontal page scroll or clipping the gear */
+    flex-wrap: wrap;
     gap: 10px;
+    row-gap: 8px;
     padding: 10px 12px;
   }
   .hud.mobile .logo {
@@ -368,6 +374,7 @@
     align-items: center;
     gap: 5px;
     font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
   }
   .tallies.compact .cdot {
     font-size: 9px;
@@ -380,7 +387,26 @@
     display: none;
   }
   .hud.mobile .rightside {
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 9px;
+    row-gap: 8px;
+  }
+  /* finger-sized tap targets on touch HUDs (≥40px) — the desktop sizes are
+     tuned for a cursor and are too small to hit reliably on a phone */
+  .hud.mobile .gear,
+  .hud.mobile .theme-cycle {
+    min-height: 40px;
+    min-width: 40px;
+    padding: 5px 11px;
+    font-size: 16px;
+  }
+  .hud.mobile .needsyou {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+  .hud.mobile .update-badge {
+    min-height: 40px;
   }
 
   /* Desktop-only hover tooltips — never shown on touch / mobile devices. */

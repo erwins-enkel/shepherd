@@ -17,6 +17,11 @@
       classifier + poller emit `session:block` + POST `/reply` (types into PTY) + "Needs you" drawer.
 - [x] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
       human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
+- [x] Silent-stall detection — flag a "working" agent gone quiet (no new tool-use in 8m;
+      hung-command ceiling 20m, pending-tool guard avoids false positives on long builds) as
+      a `stall` "needs you" reason in the triage drawer; fires once/episode, re-arms on resume.
+      Poller reads session JSONL (`src/stall.ts`); ToS-clean (observe-only). Catches the silent
+      wedge that blocked-triage (explicit asks) misses.
 - [x] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
       telemetry + herdr status. Per-device locale → localized notification payloads (EN/DE).
 - [x] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,

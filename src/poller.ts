@@ -1,11 +1,17 @@
 import type { SessionStore } from "./store";
+import type { Session } from "./types";
 import { mapState, type HerdrDriver } from "./herdr";
-import { classifyBlocked, type BlockReason } from "./blocked";
+import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
+import { isStalled, readSnapshot, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
+import { jsonlPathFor } from "./usage";
+
+const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
 export class StatusPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastReadAt = new Map<string, number>();
   private lastSig = new Map<string, string>();
+  private lastStallAt = new Map<string, number>();
 
   constructor(
     private store: SessionStore,
@@ -16,6 +22,11 @@ export class StatusPoller {
     private reclassifyMs = 3000,
     private classify: (text: string) => BlockReason = classifyBlocked,
     private now: () => number = Date.now,
+    /** Latest tool-activity snapshot for a session; defaults to reading its JSONL. */
+    private stallProbe: (s: Session) => ActivitySnapshot | null = (s) =>
+      s.claudeSessionId ? readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId)) : null,
+    private stallCfg = DEFAULT_STALL,
+    private stallCheckMs = 30_000,
   ) {}
 
   tick(): void {
@@ -42,6 +53,7 @@ export class StatusPoller {
         this.onChange(s.id, status);
       }
       if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
+      else if (status === "running") this.maybeStall(s);
       else this.clearBlock(s.id);
     }
     // prune tracking state for sessions no longer active (archived/removed)
@@ -49,8 +61,41 @@ export class StatusPoller {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
+        this.lastStallAt.delete(id);
       }
     }
+  }
+
+  /**
+   * Flag a *working* agent that has gone silent — no new tool-use within the
+   * stall window (a tool still running is excluded until the hung-command
+   * ceiling). Surfaces as a "needs you" reason; fires once until activity
+   * resumes, then re-arms. Throttled to `stallCheckMs` per session.
+   */
+  private maybeStall(s: Session): void {
+    const t = this.now();
+    if (t - (this.lastStallAt.get(s.id) ?? 0) < this.stallCheckMs) return;
+    this.lastStallAt.set(s.id, t);
+    let snap: ActivitySnapshot | null;
+    try {
+      snap = this.stallProbe(s);
+    } catch (err) {
+      console.warn(`[poller] stall probe failed for ${s.id}:`, err);
+      return; // best-effort; retry next cadence
+    }
+    if (!snap || !isStalled(snap, t, this.stallCfg)) {
+      this.clearBlock(s.id); // activity resumed (or never stalled) → re-arm
+      return;
+    }
+    if (this.lastSig.get(s.id) === STALL_SIG) return; // already announced this episode
+    this.lastSig.set(s.id, STALL_SIG);
+    let tail: string[] = [];
+    try {
+      tail = tailLines(this.herdr.read(s.herdrAgentId, "visible"));
+    } catch {
+      // terminal read is best-effort context; an empty tail still flags the stall
+    }
+    this.onBlock(s.id, { shape: "stall", options: [], tail });
   }
 
   /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */

@@ -202,6 +202,71 @@ test("clears an active block when the agent disappears", () => {
   expect(blocks[blocks.length - 1]).toEqual({ id: s.id, block: null }); // block cleared
 });
 
+test("flags a silent working agent as a stall, fires once, re-arms on resume", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "still chewing on it",
+  };
+
+  let clock = 1_700_000_000_000; // realistic ms epoch so a past lastTs stays positive
+  let stalled = true;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ lastTs: stalled ? clock - 600_000 : clock, pending: false }),
+    { stallMs: 1, pendingStallMs: 1 }, // 10m-old activity counts as stalled; fresh does not
+    30_000,
+  );
+
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+  expect((blocks[0]!.block as any).tail).toEqual(["still chewing on it"]);
+
+  // throttled within stallCheckMs → no re-probe
+  clock += 1000;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+
+  // past the throttle, still stalled → fires only once per episode
+  clock += 30_000;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+
+  // activity resumes → one clear, then re-arms for the next episode
+  stalled = false;
+  clock += 30_000;
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  expect(blocks[1]).toEqual({ id: s.id, block: null });
+
+  stalled = true;
+  clock += 30_000;
+  poller.tick();
+  expect(blocks).toHaveLength(3);
+  expect((blocks[2]!.block as any).shape).toBe("stall");
+});
+
 test("does not emit onBlock when reading the terminal throws", () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);

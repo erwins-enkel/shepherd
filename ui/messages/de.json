@@ -112,6 +112,7 @@
   "topbar_settings_aria": "Einstellungen",
   "triage_close_aria": "Schließen",
   "triage_empty": "Keine Agenten warten auf dich.",
+  "triage_stall_note": "Still — seit einer Weile keine Aktivität. Möglicherweise hängt er; anstoßen oder Terminal öffnen.",
   "triage_checkbox_aria": "{desig} auswählen",
   "triage_reply_placeholder": "Antwort eingeben…",
   "triage_reply_aria": "Auf {desig} antworten",

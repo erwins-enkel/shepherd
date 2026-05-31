@@ -1,4 +1,4 @@
-export type BlockShape = "menu" | "yes-no" | "awaiting-input";
+export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 
 export interface BlockOption {
   label: string;
@@ -20,13 +20,18 @@ const YES_NO_RE = /\(\s*y\s*\/\s*n\s*\)|\[\s*y\s*\/\s*n\s*\]/i;
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
-/** Classify a blocked agent's terminal tail into an actionable shape. Never throws. */
-export function classifyBlocked(text: string): BlockReason {
-  const tail = text
+/** Strip ANSI + trailing whitespace, drop blank lines, keep the last `n` lines. */
+export function tailLines(text: string, n = TAIL_LINES): string[] {
+  return text
     .split("\n")
     .map((l) => l.replace(ANSI_RE, "").replace(/\s+$/, ""))
     .filter((l) => l.trim() !== "")
-    .slice(-TAIL_LINES);
+    .slice(-n);
+}
+
+/** Classify a blocked agent's terminal tail into an actionable shape. Never throws. */
+export function classifyBlocked(text: string): BlockReason {
+  const tail = tailLines(text);
 
   // Capture the last contiguous 1..n run of numbered options.
   let run: BlockOption[] = [];

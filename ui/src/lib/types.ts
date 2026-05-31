@@ -37,7 +37,7 @@ export interface TodoDoc {
   content: string;
 }
 
-export type BlockShape = "menu" | "yes-no" | "awaiting-input";
+export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {
   label: string;
   send: string;

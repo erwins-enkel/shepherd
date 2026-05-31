@@ -56,7 +56,7 @@ function fakeForge(rec: { event?: string; body?: string }): GitForge {
 
 function makeDeps(over: any) {
   const reviews: Record<string, ReviewVerdict> = {};
-  const started: { name: string; cwd: string }[] = [];
+  const started: { name: string; cwd: string; argv: string[] }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
   const rec: { event?: string; body?: string } = {};
@@ -73,8 +73,8 @@ function makeDeps(over: any) {
       snapshotReviews: () => reviews,
     },
     herdr: {
-      start: (name: string, cwd: string) => {
-        started.push({ name, cwd });
+      start: (name: string, cwd: string, argv: string[]) => {
+        started.push({ name, cwd, argv });
         return { terminalId: "rt" } as any;
       },
       stop: (t: string) => stopped.push(t),
@@ -112,6 +112,21 @@ test("consider → tick: posts request-changes, persists, reaps", async () => {
   expect(reviews["s1"]?.url).toBe("ru");
   expect(stopped).toEqual(["rt"]);
   expect(removed).toEqual(["/review-wt"]);
+});
+
+test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist", () => {
+  const { deps: d, started } = makeDeps({});
+  new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const argv = started[0]!.argv;
+  // an untrusted PR diff must not be able to escalate to command execution
+  expect(argv).not.toContain("--dangerously-skip-permissions");
+  expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+  expect(argv).toContain("Read");
+  expect(argv).toContain("Write(.shepherd-review.json)");
+  // no broad write/edit/bash capability (only path-/subcommand-scoped entries)
+  expect(argv).not.toContain("Write");
+  expect(argv).not.toContain("Edit");
+  expect(argv).not.toContain("Bash");
 });
 
 test("does not review the same head twice", async () => {

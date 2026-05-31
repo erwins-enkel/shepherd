@@ -88,7 +88,28 @@ export class ReviewService {
       console.warn(`[review] worktree failed for ${session.id}:`, err);
       return;
     }
-    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", randomUUID()];
+    // Read-only critic — deliberately NOT --dangerously-skip-permissions. It
+    // inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff
+    // must not be able to run commands or edit files. `dontAsk` auto-denies
+    // anything off the allowlist (an unattended PTY would otherwise hang on a
+    // permission prompt); the allowlist is read-only inspection + read-only git
+    // + writing ONLY its own verdict file. Keep in sync with VERDICT_FILE.
+    const argv = [
+      "claude",
+      "--session-id",
+      randomUUID(),
+      "--permission-mode",
+      "dontAsk",
+      "--allowedTools",
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git status)",
+      `Write(${VERDICT_FILE})`,
+    ];
     if (this.deps.model) argv.push("--model", this.deps.model);
     argv.push(reviewPrompt(session.baseBranch, session.prompt));
     let terminalId: string;

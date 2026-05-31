@@ -1,22 +1,27 @@
 <script lang="ts">
-  import type { UpdateStatus } from "$lib/types";
+  import type { UpdateStatus, DeployState } from "$lib/types";
   import { applyUpdate } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
 
   let {
     update,
     updating = false,
+    deploy = null,
     onconfirm,
     onclose,
   }: {
     update: UpdateStatus;
     updating?: boolean;
+    /** set once a launched deploy reports failure → show the captured reason */
+    deploy?: DeployState | null;
     onconfirm?: () => void;
     onclose?: () => void;
   } = $props();
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
+
+  const failed = $derived(deploy?.phase === "failed");
 
   async function confirm() {
     submitting = true;
@@ -74,6 +79,21 @@
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 
+    {#if failed}
+      <div class="failure">
+        <div class="err">
+          {m.updatemodal_deploy_failed()}
+          {#if deploy?.exitCode != null}
+            <span class="code">{m.updatemodal_exit_code({ code: deploy.exitCode })}</span>
+          {/if}
+        </div>
+        {#if deploy?.log}
+          <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+          <pre class="log">{deploy.log}</pre>
+        {/if}
+      </div>
+    {/if}
+
     <div class="actions">
       {#if !busy}
         <button type="button" class="later" onclick={() => onclose?.()}
@@ -81,7 +101,11 @@
         >
       {/if}
       <button type="button" class="run" onclick={confirm} disabled={busy}>
-        {busy ? m.updatemodal_updating() : m.updatemodal_update_now()}
+        {busy
+          ? m.updatemodal_updating()
+          : failed
+            ? m.updatemodal_retry()
+            : m.updatemodal_update_now()}
       </button>
     </div>
   </div>
@@ -197,6 +221,32 @@
   .err {
     color: var(--color-red);
     font-size: 12px;
+  }
+  .failure {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .failure .code {
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+    margin-left: 6px;
+  }
+  .loghead {
+    color: var(--color-muted);
+  }
+  .log {
+    margin: 0;
+    max-height: 200px;
+    overflow: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-size: 11.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .actions {
     display: flex;

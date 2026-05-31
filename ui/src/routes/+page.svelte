@@ -10,9 +10,11 @@
     replySession,
     dismissStall,
     getUpdate,
+    getUpdateLog,
     getHerdrUpdate,
     gitStates,
   } from "$lib/api";
+  import type { DeployState } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -37,6 +39,9 @@
   let showBroadcast = $state(false);
   let showTriage = $state(false);
   let showUpdate = $state(false);
+  // set when a launched deploy reports failure → modal shows the captured reason
+  let deployFailure = $state<DeployState | null>(null);
+  let deployPollTimer: ReturnType<typeof setTimeout> | null = null;
   let showHerdrUpdate = $state(false);
   // set once the operator confirms the herdr update; herdr+shepherd restart drops
   // the WS and the store auto-reconnects, refreshing state once the new build is live.
@@ -144,6 +149,42 @@
     // server stops the agent, removes the worktree, emits session:archived (store drops the row)
     await archiveSession(id);
     selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
+  }
+
+  // The deploy runs detached and only restarts the server on success — on a
+  // success the store reloads (new SHA); on a failure nothing else fires, so we
+  // poll the captured deploy log and surface the reason in the modal.
+  function watchDeploy() {
+    if (deployPollTimer) clearTimeout(deployPollTimer);
+    const startedAt = Date.now();
+    const tick = async () => {
+      try {
+        const st = await getUpdateLog();
+        if (st.phase === "failed") {
+          deployFailure = st;
+          store.updating = false; // unstick the spinner so the user can read + retry
+          return;
+        }
+        if (st.phase === "done") return; // success → SHA change reloads the page
+      } catch {
+        /* transient (e.g. server mid-restart) — keep polling */
+      }
+      if (Date.now() - startedAt > 5 * 60_000) return; // give up after 5 min
+      deployPollTimer = setTimeout(tick, 2000);
+    };
+    deployPollTimer = setTimeout(tick, 2000);
+  }
+
+  function onUpdateConfirm() {
+    deployFailure = null;
+    store.beginUpdate();
+    watchDeploy();
+  }
+
+  function closeUpdate() {
+    showUpdate = false;
+    deployFailure = null;
+    if (deployPollTimer) clearTimeout(deployPollTimer);
   }
 </script>
 
@@ -270,8 +311,9 @@
   <UpdateModal
     update={store.update}
     updating={store.updating}
-    onconfirm={() => store.beginUpdate()}
-    onclose={() => (showUpdate = false)}
+    deploy={deployFailure}
+    onconfirm={onUpdateConfirm}
+    onclose={closeUpdate}
   />
 {/if}
 

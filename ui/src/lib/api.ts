@@ -12,6 +12,7 @@ import type {
   Settings,
   DirListing,
   UpdateStatus,
+  DeployState,
   HerdrUpdateStatus,
   Steer,
   DiffResult,
@@ -223,6 +224,14 @@ export async function mergePr(
 export async function getUpdate(): Promise<UpdateStatus> {
   const r = await fetch("/api/update");
   if (!r.ok) throw await failed(r, "update status");
+  return r.json();
+}
+
+/** Live state of the detached deploy (running / done / failed + captured log),
+ *  so the UI can surface *why* an update failed instead of a bare status code. */
+export async function getUpdateLog(): Promise<DeployState> {
+  const r = await fetch("/api/update/log");
+  if (!r.ok) throw await failed(r, "update log");
   return r.json();
 }
 

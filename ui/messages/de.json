@@ -221,5 +221,9 @@
   "updatemodal_update_failed": "Update fehlgeschlagen",
   "updatemodal_later": "Später",
   "updatemodal_updating": "Aktualisiere…",
-  "updatemodal_update_now": "Update jetzt"
+  "updatemodal_update_now": "Update jetzt",
+  "updatemodal_deploy_failed": "Das Update konnte nicht abgeschlossen werden — der Deploy ist abgebrochen, bevor der Server neu gestartet wurde.",
+  "updatemodal_exit_code": "Exit-Code {code}",
+  "updatemodal_deploy_log": "Deploy-Ausgabe",
+  "updatemodal_retry": "Erneut versuchen"
 }

@@ -77,6 +77,27 @@ export class WorktreeMgr {
     }
   }
 
+  /** Detached worktree at a specific commit, fetching it from origin first so a
+   *  PR head pushed by the agent is present even when the local repo is behind.
+   *  Used by the critic to review the exact PR head. */
+  createDetached(repoPath: string, branch: string, sha: string): WorktreeResult {
+    if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
+    const parent = join(dirname(repoPath), ".shepherd-worktrees");
+    const worktreePath = join(parent, `${basename(repoPath)}-review-${sha.slice(0, 8)}`);
+    mkdirSync(parent, { recursive: true });
+    try {
+      // best-effort: pull the PR head into the local object store (no-op if local)
+      execFileSync("git", ["fetch", "origin", branch], { cwd: repoPath, stdio: "pipe" });
+    } catch {
+      /* offline / no origin — the sha may already be local; let worktree add decide */
+    }
+    execFileSync("git", ["worktree", "add", "--detach", worktreePath, sha], {
+      cwd: repoPath,
+      stdio: "pipe",
+    });
+    return { worktreePath, branch: null, isolated: true };
+  }
+
   /** Delete `branch` iff it is fully merged into `baseBranch`; otherwise retain it. */
   private pruneMergedBranch(mainRepo: string, branch: string, baseBranch: string): void {
     try {

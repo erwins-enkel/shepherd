@@ -108,3 +108,33 @@ test("create with semicolon in baseBranch throws", () => {
   const wt = new WorktreeMgr();
   expect(() => wt.create(repo, "feat;rm -rf /", "x")).toThrow("invalid baseBranch");
 });
+
+test("createDetached: checks out a detached worktree at the given sha", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  // create a branch with a commit so we have a sha to detach at
+  execFileSync("git", ["checkout", "-b", "feat/x"], { cwd: repo });
+  writeFileSync(join(repo, "feat.txt"), "hello");
+  execFileSync("git", ["add", "feat.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+
+  const mgr = new WorktreeMgr();
+  const wt = mgr.createDetached(repo, "feat/x", sha);
+
+  expect(existsSync(wt.worktreePath)).toBe(true);
+  expect(wt.branch).toBeNull();
+  expect(wt.isolated).toBe(true);
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: wt.worktreePath })
+    .toString()
+    .trim();
+  expect(head).toBe(sha);
+
+  mgr.remove(wt.worktreePath);
+  expect(existsSync(wt.worktreePath)).toBe(false);
+});

@@ -3,6 +3,7 @@
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
+  import CriticBadge from "./CriticBadge.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
 
   let {
@@ -53,6 +54,7 @@
 
   <div class="u-right">
     <PrBadge {git} />
+    <CriticBadge sessionId={session.id} />
     <span class="badge">{statusLabel(session.status)}</span>
     <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     <span class="meta"

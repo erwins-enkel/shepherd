@@ -45,6 +45,29 @@ test("repo_config: defaults to critic enabled, persists toggles", () => {
   expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: true });
 });
 
+test("reviews: upsert + read by session, snapshot all", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getReview("s1")).toBeNull();
+  const v = {
+    sessionId: "s1",
+    headSha: "abc",
+    decision: "changes_requested" as const,
+    summary: "2 issues",
+    body: "## findings",
+    url: "u",
+    updatedAt: 100,
+  };
+  store.putReview(v);
+  expect(store.getReview("s1")).toEqual(v);
+  store.putReview({ ...v, headSha: "def", decision: "commented", updatedAt: 200 });
+  expect(store.getReview("s1")?.headSha).toBe("def");
+  expect(store.snapshotReviews()).toEqual({
+    s1: { ...v, headSha: "def", decision: "commented", updatedAt: 200 },
+  });
+  store.dropReview("s1");
+  expect(store.getReview("s1")).toBeNull();
+});
+
 test("get / list / update / archive", () => {
   const s = mk();
   const a = s.create(base);

@@ -11,7 +11,7 @@ const ORIGIN = "http://localhost";
 
 const SESSION: Session = {
   id: "s1",
-  desig: "UNIT-01",
+  desig: "TASK-01",
   name: "Add feature",
   prompt: "Add the feature",
   repoPath: "/repo",

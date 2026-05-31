@@ -228,7 +228,7 @@ account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See `TODO.md` for t
 
 ### Usage tracking
 
-Sessions are spawned with `claude --session-id <uuid>`, so each UNIT maps deterministically to its
+Sessions are spawned with `claude --session-id <uuid>`, so each TASK maps deterministically to its
 `~/.claude/projects/<cwd>/<uuid>.jsonl`; the Viewport shows live per-session token counts parsed
 from it. The TopBar's 5h/weekly gauges are calibrated once a day by scraping `claude /usage` (driven
 through an ephemeral interactive session — ToS-pure, no `-p`) to learn the plan ceilings, then the

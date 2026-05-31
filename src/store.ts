@@ -71,7 +71,7 @@ export class SessionStore implements CapStore {
       model: input.model ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
       id: randomUUID(),
-      desig: `UNIT-${String(n + 1).padStart(2, "0")}`,
+      desig: `TASK-${String(n + 1).padStart(2, "0")}`,
       status: "running",
       lastState: "idle",
       createdAt: now,

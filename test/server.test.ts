@@ -233,7 +233,35 @@ test("WS /pty/:id with evil Origin → 403", async () => {
 
 // ── PTY: terminated session must not attach (would loop on agent_not_found) ────
 
-test("WS /pty/:id for a terminated (done) session closes with PTY_GONE_CODE", async () => {
+// Build a herdr stub whose live list contains exactly the given terminal ids.
+function herdrWith(...liveTerminalIds: string[]): AppDeps["herdr"] {
+  return {
+    list: () =>
+      liveTerminalIds.map((terminalId) => ({
+        agent: "claude",
+        agentStatus: "done",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        terminalId,
+        workspaceId: "w",
+      })),
+  };
+}
+
+// Wait for a gone/archived session's pty WS to be rejected, resolving the close
+// code. Only listens for onclose (the server closes immediately) — never onopen,
+// which under a loaded full-suite run can race ahead of the server's close frame.
+function expectPtyClose(port: number | undefined, id: string): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${port}/pty/${id}`);
+    ws.onclose = (e) => resolve(e.code);
+    ws.onerror = () => {};
+    setTimeout(() => reject(new Error("timed out waiting for close")), 3000);
+  });
+}
+
+test("WS /pty/:id for a done session whose herdr agent is GONE closes with PTY_GONE_CODE", async () => {
   const deps = makeDeps();
   const session = deps.store.create({
     name: "test",
@@ -246,18 +274,80 @@ test("WS /pty/:id for a terminated (done) session closes with PTY_GONE_CODE", as
     herdrSession: "default",
     herdrAgentId: "term_dead",
   });
-  // claude exited / ctrl-c → the poller (or reconcile) has marked it done
+  // claude exited / ctrl-c: the poller (or reconcile) has marked it done AND the
+  // herdr agent has been reaped (absent from the live list).
   deps.store.update(session.id, { status: "done", lastState: "done" });
 
-  const server = serve(deps, 0);
+  const server = serve({ ...deps, herdr: herdrWith() }, 0);
   try {
-    const code = await new Promise<number>((resolve, reject) => {
+    expect(await expectPtyClose(server.port, session.id)).toBe(PTY_GONE_CODE);
+  } finally {
+    server.stop();
+  }
+});
+
+test("WS /pty/:id for an archived session closes with PTY_GONE_CODE even if its agent is live", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "test",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_archived",
+  });
+  deps.store.update(session.id, { status: "archived", lastState: "done" });
+
+  const server = serve({ ...deps, herdr: herdrWith("term_archived") }, 0);
+  try {
+    expect(await expectPtyClose(server.port, session.id)).toBe(PTY_GONE_CODE);
+  } finally {
+    server.stop();
+  }
+});
+
+test("WS /pty/:id for a done session whose herdr agent is STILL ALIVE is allowed to attach", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "test",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_alive",
+  });
+  // 'done' means the agent finished its turn and is idle at the prompt, but the
+  // herdr pane is still alive (listed by `herdr agent list`). It must attach.
+  deps.store.update(session.id, { status: "done", lastState: "done" });
+
+  const server = serve({ ...deps, herdr: herdrWith("term_alive") }, 0);
+  try {
+    // A live-but-done session must NOT be closed with PTY_GONE_CODE. The attach
+    // is allowed (socket opens); resolve with the close code only if the server
+    // rejects it, else "open".
+    const outcome = await new Promise<number | "open">((resolve, reject) => {
       const ws = new WebSocket(`ws://localhost:${server.port}/pty/${session.id}`);
-      ws.onclose = (e) => resolve(e.code);
+      let settled = false;
+      const done = (v: number | "open") => {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      };
+      ws.onopen = () => {
+        ws.close();
+        done("open");
+      };
+      ws.onclose = (e) => done(e.code);
       ws.onerror = () => {};
-      setTimeout(() => reject(new Error("timed out waiting for close")), 3000);
+      setTimeout(() => reject(new Error("timed out waiting for open/close")), 3000);
     });
-    expect(code).toBe(PTY_GONE_CODE);
+    expect(outcome).not.toBe(PTY_GONE_CODE);
   } finally {
     server.stop();
   }

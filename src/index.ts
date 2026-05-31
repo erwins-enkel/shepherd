@@ -91,6 +91,7 @@ const server = serve(
     events,
     usageLimits,
     updates,
+    herdr,
     resolveForge: (dir) => detectForge(dir, config.forges),
   },
   config.port,

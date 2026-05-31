@@ -111,7 +111,7 @@
       </div>
     {/if}
     <div class="clock tip" data-tip={connText} aria-label={connText}>
-      <span class="dot" class:on={connected}>●</span><span>{clock}</span>
+      <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
     </div>
     {#if updateAvailable}
       <button
@@ -366,8 +366,9 @@
   .tallies.compact .csep {
     color: var(--color-faint);
   }
-  .hud.mobile .clock {
-    font-size: 12px;
+  /* Mobile keeps the connection dot but hides the time to save space. */
+  .hud.mobile .clock .time {
+    display: none;
   }
   .hud.mobile .rightside {
     gap: 9px;

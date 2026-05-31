@@ -58,7 +58,7 @@ function make(onReconnect = () => {}, onParked = () => {}) {
     onParked,
     (path) => new FakeWs(path) as unknown as WebSocket,
   );
-  return { conn, onData, last: () => FakeWs.instances[FakeWs.instances.length - 1] };
+  return { conn, onData, last: () => FakeWs.instances[FakeWs.instances.length - 1]! };
 }
 
 describe("connectPty", () => {

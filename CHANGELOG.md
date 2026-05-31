@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.1.0](https://github.com/erwins-enkel/shepherd/compare/v1.0.0...v1.1.0) (2026-05-31)
+
+
+### Features
+
+* **herdr:** in-app herdr version update check with guarded apply ([#70](https://github.com/erwins-enkel/shepherd/issues/70)) ([b7a0f74](https://github.com/erwins-enkel/shepherd/commit/b7a0f74248e13a83fe94272c5dcba354881a5b9e))
+* **mobile:** compose bar to fix terminal autocomplete duplication ([#74](https://github.com/erwins-enkel/shepherd/issues/74)) ([60de78b](https://github.com/erwins-enkel/shepherd/commit/60de78b0c9e755c78f3b6a9267a5f576ebd35efd))
+* **newtask:** paste a screenshot (Cmd/Ctrl+V) to attach it ([#65](https://github.com/erwins-enkel/shepherd/issues/65)) ([9f89eb2](https://github.com/erwins-enkel/shepherd/commit/9f89eb2f010820f1ca6557ee6ea48e0e2f328aff))
+* **session:** resume a finished session from the terminal pane ([#75](https://github.com/erwins-enkel/shepherd/issues/75)) ([0e0c7e9](https://github.com/erwins-enkel/shepherd/commit/0e0c7e9ed73abf4fb07432df131e654221f3729d))
+* **ui:** autofocus the prompt field when the new-task dialog opens ([#79](https://github.com/erwins-enkel/shepherd/issues/79)) ([b4563d7](https://github.com/erwins-enkel/shepherd/commit/b4563d7e6bfe86d6e14000d777e41e81ddd517e4))
+* **ui:** stronger active-agent highlight + tailnet dev access ([#68](https://github.com/erwins-enkel/shepherd/issues/68)) ([5064135](https://github.com/erwins-enkel/shepherd/commit/5064135d199701ac3cae6b9a18903e38144dff53))
+
+
+### Bug Fixes
+
+* **create:** dedupe agent name to prevent herdr collision 500 ([#69](https://github.com/erwins-enkel/shepherd/issues/69)) ([ccb5070](https://github.com/erwins-enkel/shepherd/commit/ccb507055313fb35289dfa7a100651928bbf9274))
+* **herdr:** give each agent its own tab so HUD terminal is full-width ([#66](https://github.com/erwins-enkel/shepherd/issues/66)) ([0b007c1](https://github.com/erwins-enkel/shepherd/commit/0b007c1d43bd1195eb3fa9ccce9117aa199c0adb))
+* **newtask:** New Task create after herdr 0.6 update + real error messages ([#72](https://github.com/erwins-enkel/shepherd/issues/72)) ([caa969b](https://github.com/erwins-enkel/shepherd/commit/caa969b3b4676aeac2e9c206a289a947b2f6d4f4))
+* **stall:** clear flag on resumed activity + manual dismiss ([#64](https://github.com/erwins-enkel/shepherd/issues/64)) ([f97f745](https://github.com/erwins-enkel/shepherd/commit/f97f7456ce9945fb877ab5e926b9c4de8442ef97))
+* **todo:** drop wrapped continuation lines on completed-item cleanup ([#81](https://github.com/erwins-enkel/shepherd/issues/81)) ([0da2137](https://github.com/erwins-enkel/shepherd/commit/0da2137989854a253bc47889fa7891fc89a698a5))
+* **topbar:** keep mobile top bar on one line when "needs you" active ([#71](https://github.com/erwins-enkel/shepherd/issues/71)) ([cefa2bf](https://github.com/erwins-enkel/shepherd/commit/cefa2bf1fbd7017229353dd4022783617313a4f1))
+* **ui:** i18n the update-available modal (was hardcoded German) ([#62](https://github.com/erwins-enkel/shepherd/issues/62)) ([7e98646](https://github.com/erwins-enkel/shepherd/commit/7e98646489ad017e651182e89ef031bf73c75e1d))
+* **ui:** respect iOS safe-area insets on Dynamic Island iPhones ([#67](https://github.com/erwins-enkel/shepherd/issues/67)) ([062f35f](https://github.com/erwins-enkel/shepherd/commit/062f35fec8c0470f4cfeb848df2d42381e8e4234))
+* **viewport:** open attach picker via onclick so it works on iOS ([#82](https://github.com/erwins-enkel/shepherd/issues/82)) ([9d8394d](https://github.com/erwins-enkel/shepherd/commit/9d8394daafa27b19ead9ed5cc9f7cbfcb1c43de7))
+
+
+### Documentation
+
+* tidy TODO roadmap after completed-item cleanup ([#77](https://github.com/erwins-enkel/shepherd/issues/77)) ([6f64557](https://github.com/erwins-enkel/shepherd/commit/6f645572d995a3c7c9e3983b07eb683947bdab80))
+
 ## 1.0.0 (2026-05-31)
 
 

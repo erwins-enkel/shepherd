@@ -174,6 +174,25 @@
     conn = c;
     term.onData((d) => c.send(d));
 
+    // Shift+Enter → newline: xterm emits a bare CR for both Enter and
+    // Shift+Enter, so Claude Code can't tell them apart and submits. Send a
+    // line feed (0x0A, same byte as Ctrl+J / chat:newline) instead and swallow
+    // xterm's default CR. keydown-only so the keyup doesn't double-send.
+    term.attachCustomKeyEventHandler((e) => {
+      if (
+        e.type === "keydown" &&
+        e.key === "Enter" &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey
+      ) {
+        c.send("\n");
+        return false;
+      }
+      return true;
+    });
+
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
     // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
     // which doesn't always fire visibilitychange.

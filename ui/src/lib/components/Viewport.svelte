@@ -26,6 +26,8 @@
     onnewtask,
     onarchive,
     onback,
+    onnextneedsyou,
+    nextNeedsYou = 0,
     onbroadcast,
     mobile = false,
     touch = false,
@@ -35,6 +37,10 @@
     onnewtask?: (repoPath: string, prompt: string) => void;
     onarchive?: (id: string) => void;
     onback?: () => void;
+    /** Jump to the next session waiting for a reply (header shortcut). */
+    onnextneedsyou?: () => void;
+    /** How many *other* sessions are waiting on the operator; gates the button. */
+    nextNeedsYou?: number;
     onbroadcast?: () => void;
     mobile?: boolean;
     touch?: boolean;
@@ -384,6 +390,17 @@
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
         >{m.viewport_back_button()}</button
       >
+    {/if}
+    {#if onnextneedsyou && nextNeedsYou > 0}
+      <button
+        class="next-yu"
+        type="button"
+        onclick={onnextneedsyou}
+        aria-label={m.viewport_next_needs_you_aria()}
+      >
+        {m.viewport_next_needs_you()}
+        <span class="nyu-count">{nextNeedsYou}</span>
+      </button>
     {/if}
     <span class="desig">{session.desig}</span>
     {#if compact}
@@ -797,6 +814,36 @@
   .back:hover {
     background: var(--color-hover);
   }
+  /* amber accent: this jumps to a session that's actively waiting on the operator */
+  .next-yu {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 4px 9px;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 18px -12px var(--color-amber);
+  }
+  .next-yu:hover {
+    background: var(--color-hover);
+  }
+  .nyu-count {
+    font-size: 10px;
+    line-height: 1;
+    min-width: 15px;
+    text-align: center;
+    padding: 2px 4px;
+    border-radius: 999px;
+    background: var(--color-amber);
+    color: var(--color-bg);
+  }
 
   /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */
   .vp-git-strip {
@@ -836,6 +883,7 @@
   }
   /* finger-sized header controls on touch layouts (≥40px) */
   .vp-head.mobile .back,
+  .vp-head.mobile .next-yu,
   .vp-head.mobile .decom {
     min-height: 40px;
     padding: 8px 12px;

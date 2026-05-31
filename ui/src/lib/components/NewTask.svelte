@@ -407,10 +407,30 @@
     .run {
       min-height: 44px;
     }
+    /* Compact head on phones: the "New Task" title is redundant once the
+       sheet is open and the prompt label is obvious from the placeholder.
+       Drop both and float the close ✕ into the corner so the prompt leads
+       the sheet and we don't burn 2–3 rows above the fold. */
+    .chead {
+      margin-bottom: 0;
+    }
+    .chead .micro {
+      display: none;
+    }
     .x {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      z-index: 1;
       min-width: 44px;
       min-height: 44px;
       font-size: 16px;
+    }
+    label[for="nt-prompt"] {
+      display: none;
+    }
+    textarea {
+      padding-right: 44px; /* keep typed text clear of the floating ✕ */
     }
   }
 

@@ -9,6 +9,7 @@
     getUsageLimits,
     replySession,
     getUpdate,
+    gitStates,
   } from "$lib/api";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
@@ -70,6 +71,9 @@
     getUpdate()
       .then((u) => store.setUpdate(u))
       .catch(() => {});
+    gitStates()
+      .then((m) => store.setGit(m))
+      .catch(() => {});
     steers.load();
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
@@ -117,7 +121,13 @@
   {#if mobile.current}
     {#if mobileScreen === "list"}
       <div class="col">
-        <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
+        <Herd
+          sessions={store.sessions}
+          {selectedId}
+          {nowMs}
+          onselect={(id) => selectUnit(id)}
+          git={store.git}
+        />
       </div>
       <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} />
     {:else if selected}
@@ -142,6 +152,7 @@
         sessions={store.sessions}
         {selectedId}
         {nowMs}
+        git={store.git}
         onselect={(id) => {
           selectedId = id;
           viewMode = "focus";
@@ -150,7 +161,13 @@
     </div>
   {:else}
     <div class="grid" class:compact={touch.current}>
-      <Herd sessions={store.sessions} {selectedId} {nowMs} onselect={(id) => selectUnit(id)} />
+      <Herd
+        sessions={store.sessions}
+        {selectedId}
+        {nowMs}
+        onselect={(id) => selectUnit(id)}
+        git={store.git}
+      />
       {#if selected}
         <Viewport
           session={selected}

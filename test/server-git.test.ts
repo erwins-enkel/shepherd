@@ -4,7 +4,8 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { Session } from "../src/types";
-import type { GitForge, MergeMethod, PrStatus } from "../src/forge/types";
+import type { GitForge, GitState, MergeMethod, PrStatus } from "../src/forge/types";
+import type { PrCache } from "../src/pr-poller";
 
 const ORIGIN = "http://localhost";
 
@@ -58,17 +59,34 @@ function fakeForge(
   return Object.assign(base, over, { log });
 }
 
-function makeDeps(forge: GitForge | null, session: Session | null = SESSION): AppDeps {
+function makeDeps(
+  forge: GitForge | null,
+  session: Session | null = SESSION,
+): AppDeps & { emitted: { event: string; data: unknown }[]; cacheWrites: string[] } {
   const store: Partial<SessionStore> = {
     get: (id) => (session && id === session.id ? session : null),
   };
-  return {
-    store: store as SessionStore,
-    service: {} as SessionService,
-    events: { emit: () => {} } as unknown as EventHub,
-    usageLimits: { limits: () => ({}) } as never,
-    resolveForge: () => forge,
+  const emitted: { event: string; data: unknown }[] = [];
+  const cacheWrites: string[] = [];
+  const snap: Record<string, GitState> = {};
+  const prCache: PrCache = {
+    snapshot: () => snap,
+    set: (id: string) => cacheWrites.push(id),
+    drop: (id: string) => cacheWrites.push(`drop:${id}`),
   };
+  return Object.assign(
+    {
+      store: store as SessionStore,
+      service: {} as SessionService,
+      events: {
+        emit: (event: string, data: unknown) => emitted.push({ event, data }),
+      } as unknown as EventHub,
+      usageLimits: { limits: () => ({}) } as never,
+      resolveForge: () => forge,
+      prCache,
+    },
+    { emitted, cacheWrites },
+  );
 }
 
 function post(path: string, body?: unknown): Request {
@@ -157,4 +175,29 @@ test("POST git/redeploy → 400 when no deployWorkflow configured", async () => 
   const app = makeApp(makeDeps(f));
   const res = await app.fetch(post("/api/sessions/s1/git/redeploy"));
   expect(res.status).toBe(400);
+});
+
+test("GET /api/git returns the prCache snapshot", async () => {
+  const deps = makeDeps(fakeForge());
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/git"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
+});
+
+test("POST git/pr writes cache + emits session:git", async () => {
+  const deps = makeDeps(fakeForge());
+  const app = makeApp(deps);
+  await app.fetch(post("/api/sessions/s1/git/pr", {}));
+  expect(deps.cacheWrites).toContain("s1");
+  const ev = deps.emitted.find((e) => e.event === "session:git");
+  expect(ev?.data).toMatchObject({ id: "s1", git: { kind: "gitea", state: "open" } });
+});
+
+test("POST git/merge writes cache + emits session:git", async () => {
+  const deps = makeDeps(fakeForge());
+  const app = makeApp(deps);
+  await app.fetch(post("/api/sessions/s1/git/merge", {}));
+  const ev = deps.emitted.find((e) => e.event === "session:git");
+  expect(ev?.data).toMatchObject({ id: "s1", git: { kind: "gitea" } });
 });

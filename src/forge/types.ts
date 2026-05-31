@@ -24,6 +24,12 @@ export interface PrStatus {
   deployConfigured: boolean;
 }
 
+/** A session's forge kind plus its current PR status — the GET /api/sessions/:id/git
+ *  payload and the value cached/pushed for the list overview. */
+export interface GitState extends PrStatus {
+  kind: ForgeKind;
+}
+
 export interface OpenPrInput {
   head: string;
   base: string;

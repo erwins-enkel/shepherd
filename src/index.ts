@@ -8,6 +8,7 @@ import { generateName } from "./namer";
 import { EventHub } from "./events";
 import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
+import { PrPoller } from "./pr-poller";
 import { reconcile } from "./reconcile";
 import { serve } from "./server";
 import { detectForge } from "./forge";
@@ -55,6 +56,16 @@ const poller = new StatusPoller(
 );
 poller.start();
 
+// poll PR status for active sessions every 120s; push session:git on change so
+// the list overview badges stay current without opening each session's detail.
+const prPoller = new PrPoller(
+  store,
+  (dir) => detectForge(dir, config.forges),
+  (id, git) => events.emit("session:git", { id, git }),
+);
+setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
+prPoller.start();
+
 // recompute live limit % from local JSONL ~every 30s; push to clients
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
@@ -93,6 +104,7 @@ const server = serve(
     updates,
     herdr,
     resolveForge: (dir) => detectForge(dir, config.forges),
+    prCache: prPoller,
   },
   config.port,
 );

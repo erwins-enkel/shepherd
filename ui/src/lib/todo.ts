@@ -57,16 +57,30 @@ export function toggleItem(content: string, index: number): string {
 
 /**
  * Remove completed items and tidy the document:
- * - drop every `- [x]` line and an emptied `## Done` heading
+ * - drop every `- [x]` line *and its wrapped continuation lines* (the indented
+ *   soft-wrap that belongs to the dropped item), plus an emptied `## Done` heading
  * - strip trailing whitespace, collapse blank-line runs, single trailing newline
  * Returns "" if nothing remains.
  */
 export function cleanupTodo(content: string): string {
   const out: string[] = [];
+  // While inside a dropped `- [x]` item, also drop its indented continuation lines.
+  // A blank line, heading, or a new item ends the item and stops the dropping.
+  let droppingItem = false;
   for (const raw of content.split("\n")) {
     const line = raw.replace(/\s+$/, "");
-    if (isDone(line)) continue; // drop completed items
-    if (DONE_HEADING_RE.test(line)) continue; // drop the now-empty Done section
+    if (isItem(line)) {
+      droppingItem = isDone(line);
+      if (droppingItem) continue; // drop completed item
+      out.push(line);
+      continue;
+    }
+    if (DONE_HEADING_RE.test(line)) {
+      droppingItem = false;
+      continue; // drop the now-empty Done section
+    }
+    if (droppingItem && /^\s+\S/.test(line)) continue; // wrapped continuation of dropped item
+    droppingItem = false;
     if (line === "" && out[out.length - 1] === "") continue; // collapse blank runs
     out.push(line);
   }

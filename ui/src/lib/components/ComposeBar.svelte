@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
 
   // Mobile compose bar: a real <textarea> (not xterm's hidden one) so Android
@@ -12,6 +13,54 @@
 
   let value = $state("");
   let ta = $state<HTMLTextAreaElement>();
+
+  // In-browser dictation via the Web Speech API (Chrome/Android, Safari/iOS).
+  // This is NOT the iOS keyboard's native dictation mic — no web API can summon
+  // that — but it's the standards-based equivalent: one tap starts listening and
+  // transcribes straight into this field, so there's no need to open the keyboard
+  // and find its mic. Known gap: WebKit doesn't expose it inside an iOS
+  // home-screen PWA (standalone display mode), only in the Safari browser tab —
+  // so the button hides itself when unsupported rather than appearing dead.
+  const SpeechRec: any =
+    typeof window !== "undefined"
+      ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
+      : undefined;
+  let speechSupported = $state(!!SpeechRec);
+  let listening = $state(false);
+  let recog: any = null;
+
+  function toggleDictation() {
+    if (!SpeechRec) return;
+    if (listening) {
+      recog?.stop();
+      return;
+    }
+    recog = new SpeechRec();
+    recog.lang = getLocale() === "de" ? "de-DE" : "en-US";
+    recog.interimResults = true;
+    recog.continuous = true;
+    let base = value; // text already typed before dictation started
+    recog.onresult = (e: any) => {
+      let finalChunk = "";
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalChunk += t;
+        else interim += t;
+      }
+      if (finalChunk) base = (base ? base.trimEnd() + " " : "") + finalChunk.trim();
+      value = interim ? (base ? base.trimEnd() + " " : "") + interim.trim() : base;
+      queueMicrotask(autogrow);
+    };
+    recog.onend = () => {
+      listening = false;
+    };
+    recog.onerror = () => {
+      listening = false;
+    };
+    recog.start();
+    listening = true;
+  }
 
   // grow with content (1 line → capped by CSS max-height, then scrolls)
   function autogrow() {
@@ -54,6 +103,10 @@
     e.preventDefault();
     insertNewline();
   }
+  function tapMic(e: PointerEvent) {
+    e.preventDefault();
+    toggleDictation();
+  }
   function tapSend(e: PointerEvent) {
     e.preventDefault();
     submit();
@@ -75,6 +128,16 @@
     onkeydown={onKeydown}
     oninput={autogrow}
   ></textarea>
+  {#if speechSupported}
+    <button
+      type="button"
+      class="btn mic"
+      class:listening
+      aria-label={listening ? m.composebar_dictate_stop_aria() : m.composebar_dictate_aria()}
+      aria-pressed={listening}
+      onpointerdown={tapMic}>{m.composebar_dictate()}</button
+    >
+  {/if}
   <button
     type="button"
     class="btn"
@@ -147,5 +210,29 @@
   .btn:active {
     background: var(--color-line-bright);
     border-color: var(--color-ink);
+  }
+  .btn.mic {
+    font-size: 16px;
+    line-height: 1;
+  }
+  /* while listening: highlighted + a soft pulse so it reads as "recording" */
+  .btn.mic.listening {
+    background: var(--color-line-bright);
+    border-color: var(--color-ink);
+    animation: micPulse 1s ease-in-out infinite;
+  }
+  @keyframes micPulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .btn.mic.listening {
+      animation: none;
+    }
   }
 </style>

@@ -387,3 +387,57 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   );
   expect(wrongType.status).toBe(415);
 });
+
+// ── self-update routes ─────────────────────────────────────────────────────
+function harnessWithUpdates(updates: AppDeps["updates"]) {
+  return makeApp({ ...makeDeps(), updates });
+}
+
+test("GET /api/update with no updater returns a zeroed status", async () => {
+  const res = await harness().fetch(new Request("http://x/api/update"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.behind).toBe(0);
+});
+
+test("GET /api/update returns the updater's current status", async () => {
+  const status = {
+    behind: 2,
+    current: "abc1234",
+    latest: "def5678",
+    commits: [{ sha: "def5678", subject: "feat: x" }],
+    checkedAt: 1,
+  };
+  const app = harnessWithUpdates({ current: () => status, apply: () => ({ started: true }) });
+  const res = await app.fetch(new Request("http://x/api/update"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(status);
+});
+
+test("POST /api/update with no updater → 503", async () => {
+  const res = await harness().fetch(new Request("http://x/api/update", { method: "POST" }));
+  expect(res.status).toBe(503);
+});
+
+test("POST /api/update when up to date → 409", async () => {
+  const app = harnessWithUpdates({
+    current: () => ({ behind: 0, current: "a", latest: "a", commits: [], checkedAt: 1 }),
+    apply: () => ({ started: true }),
+  });
+  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  expect(res.status).toBe(409);
+});
+
+test("POST /api/update when behind triggers apply → 202", async () => {
+  let applied = 0;
+  const app = harnessWithUpdates({
+    current: () => ({ behind: 1, current: "a", latest: "b", commits: [], checkedAt: 1 }),
+    apply: () => {
+      applied++;
+      return { started: true };
+    },
+  });
+  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  expect(res.status).toBe(202);
+  expect(applied).toBe(1);
+});

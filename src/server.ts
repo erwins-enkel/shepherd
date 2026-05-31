@@ -16,6 +16,7 @@ import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
+import type { UpdateService } from "./update";
 import type { Session } from "./types";
 import type { GitForge, MergeMethod } from "./forge/types";
 import { join, normalize } from "node:path";
@@ -50,6 +51,8 @@ export interface AppDeps {
   usageLimits: Pick<UsageLimitsService, "limits">;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
+  /** Self-update tracker; absent in environments where it isn't wired. */
+  updates?: Pick<UpdateService, "current" | "apply">;
 }
 
 const sessionUsage = (s: Session) =>
@@ -183,6 +186,28 @@ export function makeApp(deps: AppDeps) {
         parts[2] === "limits"
       ) {
         return json(deps.usageLimits.limits(Date.now()));
+      }
+
+      // ── self-update: status + trigger ──────────────────────────────────────
+      if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
+        if (req.method === "GET") {
+          return json(
+            deps.updates?.current() ?? {
+              behind: 0,
+              current: null,
+              latest: null,
+              commits: [],
+              checkedAt: Date.now(),
+            },
+          );
+        }
+        if (req.method === "POST") {
+          if (!deps.updates) return json({ error: "updates not available" }, 503);
+          const status = deps.updates.current();
+          if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
+          const r = deps.updates.apply();
+          return json({ ok: r.started }, r.started ? 202 : 409);
+        }
       }
 
       if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {

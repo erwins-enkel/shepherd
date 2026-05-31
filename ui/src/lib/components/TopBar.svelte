@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, UsageLimits } from "$lib/types";
+  import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
   import { theme } from "$lib/theme.svelte";
 
@@ -16,6 +16,8 @@
     onsettings,
     needsYou = 0,
     ontriage,
+    update = null,
+    onupdate,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -25,7 +27,11 @@
     onsettings?: () => void;
     needsYou?: number;
     ontriage?: () => void;
+    update?: UpdateStatus | null;
+    onupdate?: () => void;
   } = $props();
+
+  const updateAvailable = $derived(!!update && update.behind > 0);
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
@@ -105,6 +111,18 @@
     <div class="clock">
       <span class="dot" class:on={connected}>●</span><span>{clock}</span>
     </div>
+    {#if updateAvailable}
+      <button
+        class="update-badge"
+        class:mobile
+        onclick={() => onupdate?.()}
+        title="{update!.behind} {update!.behind === 1 ? 'neuer Commit' : 'neue Commits'} auf main"
+      >
+        <span class="up-dot">▲</span>
+        {#if !mobile}<span class="up-label">Update</span>{/if}
+        <span class="up-n">{update!.behind}</span>
+      </button>
+    {/if}
     {#if mobile}
       <button
         class="theme-cycle"
@@ -274,6 +292,43 @@
   .theme-cycle:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
+  }
+  .update-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    animation: update-pulse 2.4s ease-in-out infinite;
+  }
+  .update-badge .up-dot {
+    font-size: 8px;
+  }
+  .update-badge .up-n {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+  .update-badge.mobile {
+    padding: 4px 8px;
+    gap: 4px;
+    letter-spacing: 0.08em;
+  }
+  @keyframes update-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 4px transparent;
+    }
   }
   .clock {
     color: var(--color-ink-bright);

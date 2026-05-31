@@ -142,6 +142,8 @@
   "triage_batch_label": "An {count} ausgewählte antworten:",
   "viewport_back_aria": "Zurück zum Herd",
   "viewport_back_button": "‹ Herd",
+  "viewport_next_needs_you": "Wartet ›",
+  "viewport_next_needs_you_aria": "Zur nächsten Sitzung springen, die auf deine Antwort wartet",
   "viewport_usage_title": "{input} rein · {output} raus · {cacheRead} Cache gelesen · {cacheWrite} Cache geschrieben",
   "viewport_tokens_label": "{tokens} tok",
   "viewport_terminal_tab": "Terminal",

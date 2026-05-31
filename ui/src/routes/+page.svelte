@@ -64,6 +64,26 @@
     if (mobile.current) mobileScreen = "detail";
   }
 
+  // sessions waiting on the operator other than the one on screen — gates the
+  // header "needs you" jump and tells the operator how many remain.
+  const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
+
+  // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
+  // as the NEEDS YOU badge) starting after the current one, wrapping around.
+  function jumpNextNeedsYou() {
+    const entries = blockedEntries;
+    if (entries.length === 0) return;
+    const idx = entries.findIndex((e) => e.session.id === selectedId);
+    const start = idx === -1 ? 0 : idx + 1;
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[(start + i) % entries.length];
+      if (e.session.id !== selectedId) {
+        selectUnit(e.session.id);
+        return;
+      }
+    }
+  }
+
   // if the selected unit disappears while in mobile detail, fall back to the list
   $effect(() => {
     if (mobile.current && mobileScreen === "detail" && !selected) {
@@ -164,6 +184,8 @@
           mobile={mobile.current}
           {onarchive}
           onback={() => (mobileScreen = "list")}
+          nextNeedsYou={otherNeedsYou.length}
+          onnextneedsyou={jumpNextNeedsYou}
           onbroadcast={() => (showBroadcast = true)}
           onnewtask={(repoPath, prompt) => {
             composeRepoPath = repoPath;

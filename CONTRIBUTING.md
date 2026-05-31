@@ -110,3 +110,8 @@ at a temp dir so your real working tree is never touched.
 
 Open a GitHub issue. For features, state how the behavior is achievable purely by
 _typing into a real interactive terminal_ — that's the bar every feature must clear.
+
+## License
+
+Shepherd is licensed under [Apache-2.0](./LICENSE). By submitting a contribution
+you agree it is licensed under the same terms.

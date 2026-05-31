@@ -3,6 +3,7 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "test": "bun test ./test",
     "lint": "eslint --no-error-on-unmatched-pattern src test ui/src",

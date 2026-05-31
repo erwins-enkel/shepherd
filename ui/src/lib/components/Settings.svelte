@@ -5,6 +5,16 @@
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
   import { pushState, enablePush, disablePush, type PushStatus } from "$lib/push";
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+
+  // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
+  // but on phones the ActionBar hides it and it was dropped from the top bar,
+  // so Settings (reachable via the gear from any mobile screen) is its home.
+  const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
+    { pref: "dark", glyph: "☾", label: m.theme_dark },
+    { pref: "light", glyph: "☀", label: m.theme_light },
+    { pref: "system", glyph: "◐", label: m.theme_system },
+  ];
 
   let { onclose, onsaved }: { onclose?: () => void; onsaved?: (root: string) => void } = $props();
 
@@ -140,6 +150,21 @@
         {m.settings_use_folder()}
       {/if}
     </button>
+    <div class="theme-row">
+      <span class="micro">{m.actionbar_theme_group_aria()}</span>
+      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+        {#each THEMES as t (t.pref)}
+          <button
+            type="button"
+            class="t-opt"
+            class:on={theme.pref === t.pref}
+            aria-pressed={theme.pref === t.pref}
+            aria-label={m.actionbar_theme_option({ label: t.label() })}
+            onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+          >
+        {/each}
+      </div>
+    </div>
     <div class="push">
       <span class="micro">{m.settings_push_title()}</span>
       {#if !push.supported}
@@ -338,11 +363,47 @@
     font-size: 11.5px;
     margin: 0;
   }
+  /* Desktop hosts the theme switcher in the ActionBar; only surface it here on
+     mobile, where the ActionBar hides it and the top bar no longer carries it. */
+  .theme-row {
+    display: none;
+  }
+  .theme-seg {
+    display: flex;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    overflow: hidden;
+    align-self: flex-start;
+  }
+  .t-opt {
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 16px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  .t-opt:first-child {
+    border-left: 0;
+  }
+  .t-opt.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+  }
 
   @media (max-width: 768px) {
     .overlay {
       align-items: stretch;
       justify-content: stretch;
+    }
+    .theme-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
     }
     .card {
       width: 100%;

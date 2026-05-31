@@ -2,13 +2,7 @@
   import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
-
-  // mobile shows a single compact cycle glyph; desktop's switcher lives in the ActionBar
-  const GLYPHS = { dark: "☾", light: "☀", system: "◐" } as const;
-  const themeLabel = (p: ThemePref) =>
-    p === "dark" ? m.theme_dark() : p === "light" ? m.theme_light() : m.theme_system();
 
   let {
     sessions,
@@ -128,9 +122,18 @@
   {/if}
   <div class="rightside">
     {#if needsYou > 0}
-      <button class="needsyou" onclick={() => ontriage?.()}
-        >{m.common_needs_you({ count: needsYou })}</button
+      <button
+        class="needsyou"
+        class:compact={mobile}
+        onclick={() => ontriage?.()}
+        aria-label={m.common_needs_you({ count: needsYou })}
       >
+        {#if mobile}
+          <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{needsYou}</span>
+        {:else}
+          {m.common_needs_you({ count: needsYou })}
+        {/if}
+      </button>
     {/if}
     {#if touch}
       {#if hotter}
@@ -227,16 +230,6 @@
         <span class="up-dot">▲</span>
         <span class="up-label">{m.topbar_herdr_update_badge()}</span>
       </button>
-    {/if}
-    {#if mobile}
-      <button
-        class="theme-cycle"
-        type="button"
-        onclick={() => theme.cycle()}
-        title={m.topbar_theme_cycle({ label: themeLabel(theme.pref) })}
-        aria-label={m.topbar_theme_cycle_aria({ label: themeLabel(theme.pref) })}
-        >{GLYPHS[theme.pref]}</button
-      >
     {/if}
     <button
       class="gear tip"
@@ -388,7 +381,7 @@
     border-radius: 2px;
     cursor: pointer;
     font: inherit;
-    /* finger-sized tap target, matching the gear / theme-cycle on touch HUDs */
+    /* finger-sized tap target, matching the gear on touch HUDs */
     min-height: 40px;
     padding: 0 8px;
   }
@@ -443,20 +436,6 @@
   }
   .gauge-pop-reset:last-child {
     margin-bottom: 0;
-  }
-  .theme-cycle {
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: 13px;
-    line-height: 1;
-    padding: 5px 8px;
-    border-radius: 2px;
-    cursor: pointer;
-  }
-  .theme-cycle:hover {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
   }
   .update-badge {
     display: flex;
@@ -522,18 +501,18 @@
        logo+tallies sit on line 1, the right-side controls drop to line 2
        rather than forcing horizontal page scroll or clipping the gear */
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 7px;
     row-gap: 8px;
     padding: 10px 12px;
   }
   .hud.mobile .logo {
     font-size: 13px;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.12em;
   }
   .tallies.compact {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
@@ -543,32 +522,70 @@
   .tallies.compact .csep {
     color: var(--color-faint);
   }
-  /* Mobile keeps the connection dot but hides the time to save space. */
+  /* Mobile: the connection dot floats in the top-left corner, out of the flex
+     flow, so it stays visible without consuming a slot in the control row. The
+     numeric time is hidden to save space. */
+  .hud.mobile .clock {
+    position: absolute;
+    top: 4px;
+    left: 5px;
+    z-index: 2;
+  }
   .hud.mobile .clock .time {
     display: none;
   }
   .hud.mobile .rightside {
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 9px;
+    gap: 5px;
     row-gap: 8px;
   }
   /* finger-sized tap targets on touch HUDs (≥40px) — the desktop sizes are
      tuned for a cursor and are too small to hit reliably on a phone */
-  .hud.mobile .gear,
-  .hud.mobile .theme-cycle {
+  .hud.mobile .gear {
     min-height: 40px;
     min-width: 40px;
     padding: 5px 11px;
     font-size: 16px;
   }
-  /* Widen the collapsed gauge bar on phones so the single bar reads clearly. */
+  .hud.mobile .gauge-btn {
+    padding: 0 6px;
+    gap: 5px;
+  }
   .hud.mobile .gauge-btn .g-bar {
-    width: 38px;
+    width: 28px;
+  }
+  /* Phone: collapse the gauge to a bare colour bar — drop both the numeric
+     percentage and the period label. The bar fill + colour carry the level at a
+     glance and the tap popover still shows the labelled windows with exact
+     numbers — so the control row holds one line down to ~360px phones. */
+  .hud.mobile .gauge-btn .g-pct,
+  .hud.mobile .gauge-btn .g-label {
+    display: none;
   }
   .hud.mobile .needsyou {
     min-height: 40px;
     padding: 8px 12px;
+  }
+  /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
+     fits on line 1 next to the gauge/gear instead of forcing the right-side
+     controls to wrap to a second row. Full label stays as the aria-label. */
+  .needsyou.compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 40px;
+    padding: 8px 10px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .needsyou.compact .ny-icon {
+    font-weight: 700;
+    line-height: 1;
+  }
+  .needsyou.compact .ny-n {
+    font-weight: 600;
   }
   .hud.mobile .update-badge {
     min-height: 40px;

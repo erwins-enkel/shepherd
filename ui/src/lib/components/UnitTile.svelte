@@ -98,7 +98,6 @@
   onclick={() => onselect(session.id)}
 >
   <div class="t-head">
-    <span class="desig">{session.desig}</span>
     <span class="name">{session.name}</span>
     <span class="spacer"></span>
     {#if session.status === "running"}
@@ -106,6 +105,7 @@
     {/if}
     <PrBadge {git} />
     <span class="badge">{statusLabel(session.status)}</span>
+    <span class="desig">{session.desig}</span>
   </div>
   <div class="t-body">
     <div class="t-mount" bind:this={el}></div>
@@ -158,17 +158,20 @@
     white-space: nowrap;
     overflow: hidden;
   }
+  /* designation is metadata: demoted to the end of the header, quietest tone */
   .desig {
-    font-size: 10px;
-    letter-spacing: 0.16em;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--color-muted);
+    color: var(--color-faint);
+    flex-shrink: 0;
   }
   .name {
     color: var(--color-ink-bright);
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.04em;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }

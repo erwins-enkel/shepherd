@@ -19,12 +19,6 @@
     git?: GitState;
   } = $props();
 
-  // split "TASK-07" into the constant stem ("TASK-") and disambiguating number ("07")
-  // so the stem can collapse on a cramped sidebar, leaving the unit name room to breathe
-  const desigParts = $derived(session.desig.match(/^(.*?)(\d+)$/));
-  const desigStem = $derived(desigParts?.[1] ?? "");
-  const desigNum = $derived(desigParts?.[2] ?? session.desig);
-
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
@@ -43,7 +37,6 @@
 
   <div class="u-main">
     <div class="u-top">
-      <span class="desig micro"><span class="desig-stem">{desigStem}</span>{desigNum}</span>
       <span class="name">{session.name}</span>
     </div>
     <div class="u-repo" title={session.repoPath}>
@@ -62,7 +55,9 @@
     <PrBadge {git} />
     <span class="badge">{statusLabel(session.status)}</span>
     <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
-    <span class="meta">{session.herdrSession || "—"}</span>
+    <span class="meta"
+      ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+    >
   </div>
 </button>
 
@@ -142,18 +137,6 @@
     align-items: baseline;
     gap: 0;
     min-width: 0;
-  }
-
-  .micro {
-    font-size: 10.5px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-
-  .desig {
-    margin-right: 9px;
-    flex-shrink: 0;
   }
 
   .name {
@@ -238,14 +221,11 @@
     color: var(--color-muted);
     font-size: 11.5px;
   }
-
-  /* cramped sidebar (compact touch layout, narrow phones): drop the constant
-     "TASK-" stem and keep just the number, handing the reclaimed width to the
-     name. The wide desktop sidebar (>=300px) stays above this threshold. */
-  @container herd (max-width: 270px) {
-    .desig-stem {
-      display: none;
-    }
+  /* the task designation is metadata, not the human marker — demoted to the
+     quietest spot, the bottom-right meta line, next to the herdr session */
+  .meta .desig {
+    color: var(--color-faint);
+    letter-spacing: 0.1em;
   }
 
   @media (max-width: 768px) {

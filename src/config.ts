@@ -26,12 +26,13 @@ export const config = {
     `${process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`}/projects`,
   // security
   // immutable ceiling: the absolute outermost dir the UI may ever reach. captured
-  // once from the env (or ~/Work) and NEVER mutated by settings. the settable
-  // `repoRoot` below and the dir browser must always stay within this.
-  rootCeiling: process.env.SHEPHERD_REPO_ROOT ?? `${process.env.HOME}/Work`,
+  // once from the env (or $HOME) and NEVER mutated by settings. the settable
+  // `repoRoot` below and the dir browser must always stay within this. defaults to
+  // $HOME so a fresh install can reach any repo without needing SHEPHERD_REPO_ROOT.
+  rootCeiling: process.env.SHEPHERD_REPO_ROOT ?? process.env.HOME ?? "/",
   // active repo root: defaults to the ceiling, but is UI-configurable (boot-override
   // from the store + PUT /api/settings) so long as it stays inside `rootCeiling`.
-  repoRoot: process.env.SHEPHERD_REPO_ROOT ?? `${process.env.HOME}/Work`,
+  repoRoot: process.env.SHEPHERD_REPO_ROOT ?? process.env.HOME ?? "/",
   allowedOriginHosts: (process.env.SHEPHERD_ALLOWED_HOSTS ?? "localhost,127.0.0.1,::1,[::1]").split(
     ",",
   ),

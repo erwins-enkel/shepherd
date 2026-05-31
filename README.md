@@ -73,7 +73,7 @@ All via environment variables (`src/config.ts`):
 | `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                             |
 | `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
 | `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                       |
-| `SHEPHERD_REPO_ROOT`     | `~/Work`                              | Repos must live under this root (spawn is confined to it)                       |
+| `SHEPHERD_REPO_ROOT`     | `~` (home)                            | Repos must live under this root (spawn is confined to it)                       |
 | `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
 | `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                               |
 | `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                        |

@@ -21,6 +21,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { Session } from "./types";
+import type { HerdrDriver } from "./herdr";
 import type { GitForge, MergeMethod } from "./forge/types";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
@@ -56,6 +57,8 @@ export interface AppDeps {
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
   updates?: Pick<UpdateService, "current" | "apply">;
+  /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
+  herdr?: Pick<HerdrDriver, "list">;
 }
 
 const sessionUsage = (s: Session) =>
@@ -408,12 +411,24 @@ export function serve(deps: AppDeps, port: number) {
           );
           (ws.data as any).unsub = unsub;
         } else {
-          // session ended (claude quit / ctrl-c → herdr agent reaped): don't
-          // attach a dead terminal. Attaching would make herdr reply
-          // agent_not_found and the client would reconnect-loop on it. Tell the
-          // client it's gone so it stops and shows an ended state.
+          // Don't attach a terminal whose herdr agent is gone: attaching would make
+          // herdr reply agent_not_found and the client would reconnect-loop on it.
+          // A "done" status only means the agent finished its turn (idle at the
+          // prompt) — its herdr pane may still be alive and attachable. So gate on
+          // herdr LIVENESS, not on status: block only when the session is missing,
+          // archived, or its herdr agent is no longer listed by `herdr agent list`.
           const cur = deps.store.get(ws.data.id);
-          if (!cur || cur.status === "done" || cur.status === "archived") {
+          if (!cur || cur.status === "archived") {
+            ws.close(PTY_GONE_CODE, "ended");
+            return;
+          }
+          let agentLive: boolean;
+          try {
+            agentLive = deps.herdr?.list().some((a) => a.terminalId === cur.herdrAgentId) ?? true;
+          } catch {
+            agentLive = true; // a herdr CLI hiccup shouldn't strand a live session
+          }
+          if (!agentLive) {
             ws.close(PTY_GONE_CODE, "ended");
             return;
           }

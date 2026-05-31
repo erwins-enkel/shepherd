@@ -104,6 +104,478 @@ function checkOrigin(req: Request): Response | null {
   return null;
 }
 
+// ── per-resource route handlers ────────────────────────────────────────────
+// Each handler matches its own resource group and returns a Response when it
+// owns the request, or `null` to fall through to the next handler — mirroring
+// the original sequential `if`-guard chain exactly. Ordering is significant:
+// some groups share a `parts[1]` prefix (e.g. `sessions`), and a handler must
+// return `null` (not a 404) for sub-routes it doesn't own so a later handler
+// can claim them.
+
+type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps };
+
+function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
+    return json(deps.prCache?.snapshot() ?? {});
+  }
+  return null;
+}
+
+async function handlePush({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "push") {
+    if (req.method === "GET" && parts[2] === "vapid") {
+      return json({ publicKey: deps.push?.publicKey() ?? null });
+    }
+    if (req.method === "POST" && parts[2] === "subscribe") {
+      if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+        return json({ error: "Content-Type must be application/json" }, 415);
+      }
+      const body = (await req.json().catch(() => null)) as {
+        endpoint?: unknown;
+        keys?: { p256dh?: unknown; auth?: unknown };
+        locale?: unknown;
+      } | null;
+      if (
+        !body ||
+        typeof body.endpoint !== "string" ||
+        typeof body.keys?.p256dh !== "string" ||
+        typeof body.keys?.auth !== "string"
+      ) {
+        return json({ error: "body must be a PushSubscription" }, 400);
+      }
+      deps.push?.subscribe(
+        {
+          endpoint: body.endpoint,
+          keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
+          locale: typeof body.locale === "string" ? body.locale : undefined,
+        },
+        req.headers.get("User-Agent") ?? "",
+      );
+      return json({ ok: true });
+    }
+    if (req.method === "POST" && parts[2] === "unsubscribe") {
+      const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
+      if (!body || typeof body.endpoint !== "string") {
+        return json({ error: "body must be {endpoint: string}" }, 400);
+      }
+      deps.push?.unsubscribe(body.endpoint);
+      return json({ ok: true });
+    }
+  }
+  return null;
+}
+
+// POST /api/sessions — create a session.
+async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && !parts[2])) return null;
+  if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+    return json({ error: "Content-Type must be application/json" }, 415);
+  }
+  const body = await req.json().catch(() => null);
+  const result = validateCreate(body, config.repoRoot);
+  if (!result.ok) return json({ error: result.error }, 400);
+  let s;
+  try {
+    s = await deps.service.create(result.value);
+  } catch (e) {
+    // create shells out to herdr (and git); surface the real reason instead of a
+    // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
+    // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).
+    const msg = e instanceof Error ? e.message : "create failed";
+    const taken = /agent_name_taken/.test(msg);
+    return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+  }
+  deps.events.emit("session:new", s);
+  return json(s, 201);
+}
+
+// GET reads on /api/sessions[/:id[/usage|/activity|/diff]].
+async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET") return null;
+  if (!parts[2]) return json(deps.store.list({ activeOnly: true }));
+  if (parts[3] === "usage") {
+    const s = deps.store.get(parts[2]);
+    return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
+  }
+  if (parts[3] === "activity") {
+    const s = deps.store.get(parts[2]);
+    if (!s) return json({ error: "not found" }, 404);
+    // pre-feature session (no pinned id) → no transcript to read
+    const path = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
+    return json(path ? await sessionActivity(path) : []);
+  }
+  if (parts[3] === "diff") {
+    const s = deps.store.get(parts[2]);
+    if (!s) return json({ error: "not found" }, 404);
+    try {
+      return json(computeDiff(s.worktreePath, s.baseBranch, s.branch));
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
+    }
+  }
+  if (!parts[3]) {
+    const s = deps.store.get(parts[2]);
+    return s ? json(s) : json({ error: "not found" }, 404);
+  }
+  return null;
+}
+
+// DELETE /api/sessions/:id — archive.
+function handleSessionDelete({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "DELETE" && parts[2])) return null;
+  deps.service.archive(parts[2]);
+  deps.prCache?.drop(parts[2]);
+  deps.events.emit("session:archived", { id: parts[2] });
+  return json({ ok: true });
+}
+
+// POST /api/sessions/:id/reply — steer a running session.
+async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "reply")) return null;
+  if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+    return json({ error: "Content-Type must be application/json" }, 415);
+  }
+  const body = await req.json().catch(() => null);
+  if (!body || typeof (body as { text?: unknown }).text !== "string") {
+    return json({ error: "body must be {text: string}" }, 400);
+  }
+  const ok = deps.service.reply(parts[2], (body as { text: string }).text);
+  return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+}
+
+// POST /api/sessions/:id/resume — resume a finished session in a fresh agent.
+function handleSessionResume({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "resume")) return null;
+  const s = deps.service.resume(parts[2]);
+  if (!s) return json({ error: "cannot resume" }, 409);
+  // flip the badge back to running + nudge clients to re-attach to the fresh agent
+  deps.events.emit("session:status", { id: s.id, status: s.status });
+  return json(s);
+}
+
+// POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.
+function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "dismiss-stall")) return null;
+  const ok = deps.poller?.acknowledgeStall(parts[2]) ?? false;
+  return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);
+}
+
+// Sessions core: dispatch to the create / read / delete / reply sub-handlers,
+// preserving the original inner guard order. Returns null for anything those
+// don't claim (e.g. `…/git` sub-routes), so handleSessionGit can pick it up.
+async function handleSessions(ctx: Ctx): Promise<Response | null> {
+  const { parts } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "sessions") return null;
+  for (const sub of [
+    handleSessionCreate,
+    handleSessionReads,
+    handleSessionDelete,
+    handleSessionReply,
+    handleSessionResume,
+    handleSessionDismissStall,
+  ]) {
+    const res = await sub(ctx);
+    if (res) return res;
+  }
+  return null;
+}
+
+// ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
+async function handleSessionGit({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {
+    const session = deps.store.get(parts[2]);
+    if (!session) return json({ error: "not found" }, 404);
+    const forge = deps.resolveForge?.(session.repoPath) ?? null;
+    if (!forge) return json({ error: "no forge for this repo" }, 404);
+    const head = session.branch ?? "";
+    try {
+      if (req.method === "GET" && !parts[4]) {
+        return json({ kind: forge.kind, ...(await forge.prStatus(head)) });
+      }
+      if (req.method === "POST" && parts[4] === "pr") {
+        const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+        const status = await forge.openPr({
+          head,
+          base: session.baseBranch,
+          title: body.title?.trim() || session.name,
+          body: body.body ?? session.prompt,
+        });
+        const git: GitState = { kind: forge.kind, ...status };
+        deps.prCache?.set(session.id, git);
+        deps.events.emit("session:git", { id: session.id, git });
+        return json(status);
+      }
+      if (req.method === "POST" && parts[4] === "merge") {
+        const body = (await req.json().catch(() => ({}))) as {
+          method?: MergeMethod;
+          deleteBranch?: boolean;
+        };
+        const cur = await forge.prStatus(head);
+        if (cur.state !== "open" || !cur.number) {
+          return json({ error: "no open PR to merge" }, 409);
+        }
+        await forge.merge(cur.number, {
+          method: body.method ?? forge.mergeMethod,
+          deleteBranch: body.deleteBranch ?? true,
+        });
+        const status = await forge.prStatus(head);
+        const git: GitState = { kind: forge.kind, ...status };
+        deps.prCache?.set(session.id, git);
+        deps.events.emit("session:git", { id: session.id, git });
+        return json(status);
+      }
+      if (req.method === "POST" && parts[4] === "redeploy") {
+        if (!forge.deployWorkflow) {
+          return json({ error: "no deploy workflow configured" }, 400);
+        }
+        await forge.redeploy({ workflow: forge.deployWorkflow, ref: session.baseBranch });
+        return json({ ok: true });
+      }
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+    }
+  }
+  return null;
+}
+
+function handleUsageLimits({ req, parts, deps }: Ctx): Response | null {
+  if (
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "limits"
+  ) {
+    return json(deps.usageLimits.limits(Date.now()));
+  }
+  return null;
+}
+
+// ── self-update: status + trigger ──────────────────────────────────────
+function handleUpdate({ req, parts, deps }: Ctx): Response | null {
+  if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
+    if (req.method === "GET") {
+      return json(
+        deps.updates?.current() ?? {
+          behind: 0,
+          current: null,
+          latest: null,
+          commits: [],
+          checkedAt: Date.now(),
+        },
+      );
+    }
+    if (req.method === "POST") {
+      if (!deps.updates) return json({ error: "updates not available" }, 503);
+      const status = deps.updates.current();
+      if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
+      const r = deps.updates.apply();
+      return json({ ok: r.started }, r.started ? 202 : 409);
+    }
+  }
+  return null;
+}
+
+const HERDR_UPDATE_IDLE = {
+  current: null,
+  latest: null,
+  updateAvailable: false,
+  notes: null,
+  checkedAt: 0,
+} as const;
+
+// ── herdr update: status + (destructive) apply ─────────────────────────
+function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
+  if (!(parts[0] === "api" && parts[1] === "herdr-update" && !parts[2])) return null;
+  if (req.method === "GET") {
+    return json(deps.herdrUpdates?.current() ?? { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() });
+  }
+  if (req.method !== "POST") return null;
+  if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
+  if (!deps.herdrUpdates.current()?.updateAvailable) {
+    return json({ error: "no update available" }, 409);
+  }
+  const r = deps.herdrUpdates.apply();
+  return json({ ok: r.started }, r.started ? 202 : 409);
+}
+
+function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
+  if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
+    if (req.method === "POST") {
+      return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
+    }
+  }
+  return null;
+}
+
+function handleRepos({ req, parts, deps }: Ctx): Response | null {
+  if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
+    if (req.method === "GET") {
+      const lastUsed = deps.store.lastUsedByRepo();
+      const repos = listRepos(config.repoRoot).map((r) => ({
+        ...r,
+        lastUsedAt: lastUsed[r.path],
+      }));
+      return json(repos);
+    }
+  }
+  return null;
+}
+
+// ── settings: read/update the repo root (persisted, applied at runtime) ──
+async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "settings" && !parts[2]) {
+    if (req.method === "GET") {
+      return json({
+        repoRoot: config.repoRoot,
+        repoRootDisplay: collapseHome(config.repoRoot),
+      });
+    }
+    if (req.method === "PUT") {
+      const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
+      const root = validateRoot(body?.repoRoot, config.rootCeiling);
+      if (!root) {
+        return json({ error: "repoRoot must be an existing directory within the root" }, 400);
+      }
+      config.repoRoot = root; // live: every later read picks it up
+      deps.store.setSetting("repoRoot", root); // persist across restarts
+      return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
+    }
+  }
+  return null;
+}
+
+// ── saved steers (canned prompts): list / replace ──
+async function handleSteers({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "steers" && !parts[2]) {
+    if (req.method === "GET") return json(loadSteers(deps.store));
+    if (req.method === "PUT") {
+      if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+        return json({ error: "Content-Type must be application/json" }, 415);
+      }
+      const body = await req.json().catch(() => null);
+      const steers = validateSteers(body);
+      if (!steers) return json({ error: "invalid steers payload" }, 400);
+      saveSteers(deps.store, steers);
+      return json(steers);
+    }
+  }
+  return null;
+}
+
+// ── per-project icons: read full map / patch one entry ──
+async function handleProjectIcons({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "project-icons" && !parts[2]) {
+    if (req.method === "GET") return json(loadIcons(deps.store));
+    if (req.method === "PUT") {
+      if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+        return json({ error: "Content-Type must be application/json" }, 415);
+      }
+      const body = await req.json().catch(() => null);
+      const patch = validateIconPatch(body);
+      if (!patch) return json({ error: "invalid project-icon payload" }, 400);
+      const map = setIcon(deps.store, patch.path, patch.emoji);
+      deps.events.emit("project-icons:update", map);
+      return json(map);
+    }
+  }
+  return null;
+}
+
+// ── broadcast a steer to many sessions ──
+async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "broadcast" && !parts[2]) {
+    if (req.method === "POST") {
+      if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+        return json({ error: "Content-Type must be application/json" }, 415);
+      }
+      const body = await req.json().catch(() => null);
+      const parsed = validateBroadcast(body);
+      if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
+      return json(deps.service.broadcast(parsed.ids, parsed.text));
+    }
+  }
+  return null;
+}
+
+// ── filesystem browser: list sub-directories for the root picker ──
+function handleFsDirs({ req, parts, url }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
+    return json(listDirs(url.searchParams.get("path") ?? "", config.rootCeiling));
+  }
+  return null;
+}
+
+function handleBranches({ req, parts, url }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    return json(listBranches(dir));
+  }
+  return null;
+}
+
+async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    const forge = deps.resolveForge?.(dir) ?? null;
+    if (!forge) return json({ slug: null, issues: [] });
+    try {
+      return json({ slug: forge.slug, issues: await forge.listIssues() });
+    } catch {
+      // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
+      return json({ slug: forge.slug, issues: [] });
+    }
+  }
+  return null;
+}
+
+async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {
+    const repoParam = url.searchParams.get("repo") ?? "";
+    if (req.method === "GET") {
+      const r = readTodo(repoParam, config.repoRoot);
+      if (!r.ok) return json({ error: "invalid repo path" }, 400);
+      return json(r);
+    }
+    if (req.method === "PUT") {
+      const body = await req.json().catch(() => null);
+      if (
+        body === null ||
+        typeof body !== "object" ||
+        typeof (body as any).content !== "string"
+      ) {
+        return json({ error: "body must be {content: string}" }, 400);
+      }
+      const ok = writeTodo(repoParam, config.repoRoot, (body as any).content);
+      if (!ok) return json({ error: "invalid repo path or content too large" }, 400);
+      return json({ ok: true });
+    }
+  }
+  return null;
+}
+
+// Ordered dispatch chain — preserves the original guard sequence verbatim.
+const ROUTE_HANDLERS = [
+  handleGitSnapshot,
+  handlePush,
+  handleSessions,
+  handleSessionGit,
+  handleUsageLimits,
+  handleUpdate,
+  handleHerdrUpdate,
+  handleUploads,
+  handleRepos,
+  handleSettings,
+  handleSteers,
+  handleProjectIcons,
+  handleBroadcast,
+  handleFsDirs,
+  handleBranches,
+  handleIssues,
+  handleTodo,
+] as const;
+
 /** Returns an object with a `fetch(Request)` method — unit-testable without a port. */
 export function makeApp(deps: AppDeps) {
   const app = {
@@ -116,364 +588,11 @@ export function makeApp(deps: AppDeps) {
 
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
+      const ctx: Ctx = { req, parts, url, deps };
 
-      if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
-        return json(deps.prCache?.snapshot() ?? {});
-      }
-
-      if (parts[0] === "api" && parts[1] === "push") {
-        if (req.method === "GET" && parts[2] === "vapid") {
-          return json({ publicKey: deps.push?.publicKey() ?? null });
-        }
-        if (req.method === "POST" && parts[2] === "subscribe") {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = (await req.json().catch(() => null)) as {
-            endpoint?: unknown;
-            keys?: { p256dh?: unknown; auth?: unknown };
-            locale?: unknown;
-          } | null;
-          if (
-            !body ||
-            typeof body.endpoint !== "string" ||
-            typeof body.keys?.p256dh !== "string" ||
-            typeof body.keys?.auth !== "string"
-          ) {
-            return json({ error: "body must be a PushSubscription" }, 400);
-          }
-          deps.push?.subscribe(
-            {
-              endpoint: body.endpoint,
-              keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
-              locale: typeof body.locale === "string" ? body.locale : undefined,
-            },
-            req.headers.get("User-Agent") ?? "",
-          );
-          return json({ ok: true });
-        }
-        if (req.method === "POST" && parts[2] === "unsubscribe") {
-          const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
-          if (!body || typeof body.endpoint !== "string") {
-            return json({ error: "body must be {endpoint: string}" }, 400);
-          }
-          deps.push?.unsubscribe(body.endpoint);
-          return json({ ok: true });
-        }
-      }
-
-      if (parts[0] === "api" && parts[1] === "sessions") {
-        if (req.method === "POST" && !parts[2]) {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = await req.json().catch(() => null);
-          const result = validateCreate(body, config.repoRoot);
-          if (!result.ok) return json({ error: result.error }, 400);
-          let s;
-          try {
-            s = await deps.service.create(result.value);
-          } catch (e) {
-            // create shells out to herdr (and git); surface the real reason instead of a
-            // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
-            // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).
-            const msg = e instanceof Error ? e.message : "create failed";
-            const taken = /agent_name_taken/.test(msg);
-            return json(
-              { error: taken ? "task name already in use, retry" : msg },
-              taken ? 409 : 502,
-            );
-          }
-          deps.events.emit("session:new", s);
-          return json(s, 201);
-        }
-        if (req.method === "GET" && !parts[2]) return json(deps.store.list({ activeOnly: true }));
-        if (req.method === "GET" && parts[2] && parts[3] === "usage") {
-          const s = deps.store.get(parts[2]);
-          return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
-        }
-        if (req.method === "GET" && parts[2] && parts[3] === "activity") {
-          const s = deps.store.get(parts[2]);
-          if (!s) return json({ error: "not found" }, 404);
-          // pre-feature session (no pinned id) → no transcript to read
-          const path = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
-          return json(path ? await sessionActivity(path) : []);
-        }
-        if (req.method === "GET" && parts[2] && parts[3] === "diff") {
-          const s = deps.store.get(parts[2]);
-          if (!s) return json({ error: "not found" }, 404);
-          try {
-            return json(computeDiff(s.worktreePath, s.baseBranch, s.branch));
-          } catch (e) {
-            return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
-          }
-        }
-        if (req.method === "GET" && parts[2] && !parts[3]) {
-          const s = deps.store.get(parts[2]);
-          return s ? json(s) : json({ error: "not found" }, 404);
-        }
-        if (req.method === "DELETE" && parts[2]) {
-          deps.service.archive(parts[2]);
-          deps.prCache?.drop(parts[2]);
-          deps.events.emit("session:archived", { id: parts[2] });
-          return json({ ok: true });
-        }
-        if (req.method === "POST" && parts[2] && parts[3] === "reply") {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = await req.json().catch(() => null);
-          if (!body || typeof (body as { text?: unknown }).text !== "string") {
-            return json({ error: "body must be {text: string}" }, 400);
-          }
-          const ok = deps.service.reply(parts[2], (body as { text: string }).text);
-          return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
-        }
-        if (req.method === "POST" && parts[2] && parts[3] === "resume") {
-          const s = deps.service.resume(parts[2]);
-          if (!s) return json({ error: "cannot resume" }, 409);
-          // flip the badge back to running + nudge clients to re-attach to the fresh agent
-          deps.events.emit("session:status", { id: s.id, status: s.status });
-          return json(s);
-        }
-        if (req.method === "POST" && parts[2] && parts[3] === "dismiss-stall") {
-          const ok = deps.poller?.acknowledgeStall(parts[2]) ?? false;
-          return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);
-        }
-      }
-      // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
-      if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {
-        const session = deps.store.get(parts[2]);
-        if (!session) return json({ error: "not found" }, 404);
-        const forge = deps.resolveForge?.(session.repoPath) ?? null;
-        if (!forge) return json({ error: "no forge for this repo" }, 404);
-        const head = session.branch ?? "";
-        try {
-          if (req.method === "GET" && !parts[4]) {
-            return json({ kind: forge.kind, ...(await forge.prStatus(head)) });
-          }
-          if (req.method === "POST" && parts[4] === "pr") {
-            const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
-            const status = await forge.openPr({
-              head,
-              base: session.baseBranch,
-              title: body.title?.trim() || session.name,
-              body: body.body ?? session.prompt,
-            });
-            const git: GitState = { kind: forge.kind, ...status };
-            deps.prCache?.set(session.id, git);
-            deps.events.emit("session:git", { id: session.id, git });
-            return json(status);
-          }
-          if (req.method === "POST" && parts[4] === "merge") {
-            const body = (await req.json().catch(() => ({}))) as {
-              method?: MergeMethod;
-              deleteBranch?: boolean;
-            };
-            const cur = await forge.prStatus(head);
-            if (cur.state !== "open" || !cur.number) {
-              return json({ error: "no open PR to merge" }, 409);
-            }
-            await forge.merge(cur.number, {
-              method: body.method ?? forge.mergeMethod,
-              deleteBranch: body.deleteBranch ?? true,
-            });
-            const status = await forge.prStatus(head);
-            const git: GitState = { kind: forge.kind, ...status };
-            deps.prCache?.set(session.id, git);
-            deps.events.emit("session:git", { id: session.id, git });
-            return json(status);
-          }
-          if (req.method === "POST" && parts[4] === "redeploy") {
-            if (!forge.deployWorkflow) {
-              return json({ error: "no deploy workflow configured" }, 400);
-            }
-            await forge.redeploy({ workflow: forge.deployWorkflow, ref: session.baseBranch });
-            return json({ ok: true });
-          }
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
-        }
-      }
-
-      if (
-        req.method === "GET" &&
-        parts[0] === "api" &&
-        parts[1] === "usage" &&
-        parts[2] === "limits"
-      ) {
-        return json(deps.usageLimits.limits(Date.now()));
-      }
-
-      // ── self-update: status + trigger ──────────────────────────────────────
-      if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
-        if (req.method === "GET") {
-          return json(
-            deps.updates?.current() ?? {
-              behind: 0,
-              current: null,
-              latest: null,
-              commits: [],
-              checkedAt: Date.now(),
-            },
-          );
-        }
-        if (req.method === "POST") {
-          if (!deps.updates) return json({ error: "updates not available" }, 503);
-          const status = deps.updates.current();
-          if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
-          const r = deps.updates.apply();
-          return json({ ok: r.started }, r.started ? 202 : 409);
-        }
-      }
-
-      // ── herdr update: status + (destructive) apply ─────────────────────────
-      if (parts[0] === "api" && parts[1] === "herdr-update" && !parts[2]) {
-        if (req.method === "GET") {
-          return json(
-            deps.herdrUpdates?.current() ?? {
-              current: null,
-              latest: null,
-              updateAvailable: false,
-              notes: null,
-              checkedAt: Date.now(),
-            },
-          );
-        }
-        if (req.method === "POST") {
-          if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
-          if (!deps.herdrUpdates.current()?.updateAvailable)
-            return json({ error: "no update available" }, 409);
-          const r = deps.herdrUpdates.apply();
-          return json({ ok: r.started }, r.started ? 202 : 409);
-        }
-      }
-
-      if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
-        if (req.method === "POST") {
-          return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
-        }
-      }
-
-      if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
-        if (req.method === "GET") {
-          const lastUsed = deps.store.lastUsedByRepo();
-          const repos = listRepos(config.repoRoot).map((r) => ({
-            ...r,
-            lastUsedAt: lastUsed[r.path],
-          }));
-          return json(repos);
-        }
-      }
-
-      // ── settings: read/update the repo root (persisted, applied at runtime) ──
-      if (parts[0] === "api" && parts[1] === "settings" && !parts[2]) {
-        if (req.method === "GET") {
-          return json({
-            repoRoot: config.repoRoot,
-            repoRootDisplay: collapseHome(config.repoRoot),
-          });
-        }
-        if (req.method === "PUT") {
-          const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
-          const root = validateRoot(body?.repoRoot, config.rootCeiling);
-          if (!root) {
-            return json({ error: "repoRoot must be an existing directory within the root" }, 400);
-          }
-          config.repoRoot = root; // live: every later read picks it up
-          deps.store.setSetting("repoRoot", root); // persist across restarts
-          return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
-        }
-      }
-
-      // ── saved steers (canned prompts): list / replace ──
-      if (parts[0] === "api" && parts[1] === "steers" && !parts[2]) {
-        if (req.method === "GET") return json(loadSteers(deps.store));
-        if (req.method === "PUT") {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = await req.json().catch(() => null);
-          const steers = validateSteers(body);
-          if (!steers) return json({ error: "invalid steers payload" }, 400);
-          saveSteers(deps.store, steers);
-          return json(steers);
-        }
-      }
-
-      // ── per-project icons: read full map / patch one entry ──
-      if (parts[0] === "api" && parts[1] === "project-icons" && !parts[2]) {
-        if (req.method === "GET") return json(loadIcons(deps.store));
-        if (req.method === "PUT") {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = await req.json().catch(() => null);
-          const patch = validateIconPatch(body);
-          if (!patch) return json({ error: "invalid project-icon payload" }, 400);
-          const map = setIcon(deps.store, patch.path, patch.emoji);
-          deps.events.emit("project-icons:update", map);
-          return json(map);
-        }
-      }
-
-      // ── broadcast a steer to many sessions ──
-      if (parts[0] === "api" && parts[1] === "broadcast" && !parts[2]) {
-        if (req.method === "POST") {
-          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-            return json({ error: "Content-Type must be application/json" }, 415);
-          }
-          const body = await req.json().catch(() => null);
-          const parsed = validateBroadcast(body);
-          if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
-          return json(deps.service.broadcast(parsed.ids, parsed.text));
-        }
-      }
-
-      // ── filesystem browser: list sub-directories for the root picker ──
-      if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
-        return json(listDirs(url.searchParams.get("path") ?? "", config.rootCeiling));
-      }
-
-      if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {
-        const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-        if (!dir) return json({ error: "invalid repo" }, 400);
-        return json(listBranches(dir));
-      }
-
-      if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
-        const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-        if (!dir) return json({ error: "invalid repo" }, 400);
-        const forge = deps.resolveForge?.(dir) ?? null;
-        if (!forge) return json({ slug: null, issues: [] });
-        try {
-          return json({ slug: forge.slug, issues: await forge.listIssues() });
-        } catch {
-          // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
-          return json({ slug: forge.slug, issues: [] });
-        }
-      }
-
-      if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {
-        const repoParam = url.searchParams.get("repo") ?? "";
-        if (req.method === "GET") {
-          const r = readTodo(repoParam, config.repoRoot);
-          if (!r.ok) return json({ error: "invalid repo path" }, 400);
-          return json(r);
-        }
-        if (req.method === "PUT") {
-          const body = await req.json().catch(() => null);
-          if (
-            body === null ||
-            typeof body !== "object" ||
-            typeof (body as any).content !== "string"
-          ) {
-            return json({ error: "body must be {content: string}" }, 400);
-          }
-          const ok = writeTodo(repoParam, config.repoRoot, (body as any).content);
-          if (!ok) return json({ error: "invalid repo path or content too large" }, 400);
-          return json({ ok: true });
-        }
+      for (const handle of ROUTE_HANDLERS) {
+        const res = await handle(ctx);
+        if (res) return res;
       }
 
       if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);

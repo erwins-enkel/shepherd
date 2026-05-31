@@ -1,6 +1,9 @@
 # Lockfiles
 bun.lock
 
+# Generated changelog — leave its formatting alone
+CHANGELOG.md
+
 # Build outputs
 node_modules
 .svelte-kit

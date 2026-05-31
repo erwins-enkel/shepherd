@@ -167,8 +167,7 @@
       // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
       // case the layout changed while away, then resize to repaint the attach
       () => {
-        fit.fit();
-        c.resize(term.cols, term.rows);
+        refit();
       },
       // another device took over this terminal — park and offer to take it back
       () => {
@@ -182,6 +181,18 @@
     );
     conn = c;
     term.onData((d) => c.send(d));
+
+    // Fit + push the size to the PTY — but only while the mount is actually
+    // visible. A hidden (To-Do/Issues tab → display:none) or mid-layout mount
+    // has zero width, where FitAddon clamps to its 2-col minimum; resizing the
+    // PTY to 2 cols makes Claude reflow its transcript at 2 cols and permanently
+    // poisons the scrollback with 2-char-wide wrapping. offsetParent===null
+    // catches display:none; the client-size checks catch transient collapses.
+    const refit = () => {
+      if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+      fit.fit();
+      c.resize(term.cols, term.rows);
+    };
 
     // Shift+Enter → newline: xterm emits a bare CR for both Enter and
     // Shift+Enter, so Claude Code can't tell them apart and submits. Send a
@@ -267,8 +278,7 @@
 
     // refit after layout settles (mount may start hidden during mobile nav)
     requestAnimationFrame(() => {
-      fit.fit();
-      c.resize(term.cols, term.rows);
+      refit();
       // desktop: selecting a unit hands the keyboard straight to its terminal —
       // clicking a sidebar card otherwise leaves focus on the card button, so
       // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
@@ -277,8 +287,7 @@
     });
 
     const ro = new ResizeObserver(() => {
-      fit.fit();
-      c.resize(term.cols, term.rows);
+      refit();
     });
     ro.observe(el);
 

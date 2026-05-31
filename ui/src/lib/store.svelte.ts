@@ -1,4 +1,11 @@
-import type { Session, WsEvent, UsageLimits, UpdateStatus, GitState } from "./types";
+import type {
+  Session,
+  WsEvent,
+  UsageLimits,
+  UpdateStatus,
+  HerdrUpdateStatus,
+  GitState,
+} from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 
@@ -8,6 +15,7 @@ export class HerdStore {
   connected = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
+  herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   git = $state<Record<string, GitState>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
@@ -77,6 +85,8 @@ export class HerdStore {
       this.usageLimits = ev.data;
     } else if (ev.event === "update:status") {
       this.setUpdate(ev.data);
+    } else if (ev.event === "herdr-update:status") {
+      this.herdrUpdate = ev.data;
     } else if (ev.event === "project-icons:update") {
       projectIcons.apply(ev.data);
     }

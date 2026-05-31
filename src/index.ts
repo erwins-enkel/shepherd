@@ -18,6 +18,7 @@ import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
+import { HerdrUpdateService } from "./herdr-update";
 import { PushService, attachPush } from "./push";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
@@ -97,6 +98,16 @@ const checkUpdates = () => events.emit("update:status", updates.check(Date.now()
 setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
 
+// watch herdr.dev for a newer herdr release and surface an informational badge;
+// unlike the self-update above this never auto-applies (running `herdr update`
+// restarts the herdr server and bounces every live session). releases are rare,
+// so a 6h cadence is plenty.
+const herdrUpdates = new HerdrUpdateService();
+const checkHerdrUpdate = async () =>
+  events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));
+setTimeout(checkHerdrUpdate, 4_000);
+setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
+
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
@@ -107,6 +118,7 @@ const server = serve(
     events,
     usageLimits,
     updates,
+    herdrUpdates,
     herdr,
     resolveForge: (dir) => detectForge(dir, config.forges),
     prCache: prPoller,

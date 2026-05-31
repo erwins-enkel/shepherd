@@ -12,6 +12,7 @@ import type {
   Settings,
   DirListing,
   UpdateStatus,
+  HerdrUpdateStatus,
   Steer,
   DiffResult,
   ProjectIcons,
@@ -197,6 +198,22 @@ export async function getUpdate(): Promise<UpdateStatus> {
   const r = await fetch("/api/update");
   if (!r.ok) throw new Error(`update status failed: ${r.status}`);
   return r.json();
+}
+
+/** Current herdr-version update status (whether a newer herdr exists). */
+export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
+  const r = await fetch("/api/herdr-update");
+  if (!r.ok) throw new Error(`herdr update status failed: ${r.status}`);
+  return r.json();
+}
+
+/** Trigger `herdr update` (restarts herdr → ends live sessions → restarts shepherd). */
+export async function applyHerdrUpdate(): Promise<void> {
+  const r = await fetch("/api/herdr-update", { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
 }
 
 /** Trigger the deploy script (pull → rebuild → restart). Server restarts on success. */

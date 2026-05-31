@@ -9,6 +9,7 @@
     getUsageLimits,
     replySession,
     getUpdate,
+    getHerdrUpdate,
     gitStates,
   } from "$lib/api";
   import { sortBlocked } from "$lib/triage";
@@ -24,6 +25,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
+  import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import { registerSW, setActiveSession, onSelectSession } from "$lib/push";
   import { m } from "$lib/paraglide/messages";
 
@@ -34,6 +36,10 @@
   let showBroadcast = $state(false);
   let showTriage = $state(false);
   let showUpdate = $state(false);
+  let showHerdrUpdate = $state(false);
+  // set once the operator confirms the herdr update; herdr+shepherd restart drops
+  // the WS and the store auto-reconnects, refreshing state once the new build is live.
+  let herdrUpdating = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
@@ -81,6 +87,9 @@
       .catch(() => {});
     getUpdate()
       .then((u) => store.setUpdate(u))
+      .catch(() => {});
+    getHerdrUpdate()
+      .then((u) => (store.herdrUpdate = u))
       .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
@@ -130,6 +139,8 @@
     ontriage={() => (showTriage = true)}
     update={store.update}
     onupdate={() => (showUpdate = true)}
+    herdrUpdate={store.herdrUpdate}
+    onherdrupdate={() => (showHerdrUpdate = true)}
   />
 
   {#if mobile.current}
@@ -227,6 +238,18 @@
     updating={store.updating}
     onconfirm={() => store.beginUpdate()}
     onclose={() => (showUpdate = false)}
+  />
+{/if}
+
+{#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || herdrUpdating)}
+  <HerdrUpdateModal
+    update={store.herdrUpdate}
+    sessions={store.sessions.filter((s) => s.status === "running").length}
+    onconfirm={() => (herdrUpdating = true)}
+    onclose={() => {
+      showHerdrUpdate = false;
+      herdrUpdating = false;
+    }}
   />
 {/if}
 

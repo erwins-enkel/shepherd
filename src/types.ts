@@ -76,3 +76,18 @@ export interface DiffResult {
   truncated: boolean; // true when any file was truncated
   files: DiffFile[];
 }
+
+// ── herdr version update check (informational only) ─────────────────────────
+export interface HerdrUpdateStatus {
+  /** installed herdr version (from `herdr --version`); null if unknown */
+  current: string | null;
+  /** latest published version from herdr.dev; null on error */
+  latest: string | null;
+  /** true when latest > current; never true on error */
+  updateAvailable: boolean;
+  /** release notes (markdown-ish) for the latest version; null on error/none */
+  notes: string | null;
+  checkedAt: number;
+  /** set when the check itself failed (binary missing / network); badge stays hidden */
+  error?: string;
+}

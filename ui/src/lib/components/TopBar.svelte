@@ -387,9 +387,10 @@
     right: 0;
     z-index: 50;
     min-width: 200px;
-    background: linear-gradient(180deg, var(--color-panel), #0c100f);
+    background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
     padding: 10px 11px;
     display: flex;
     flex-direction: column;
@@ -557,8 +558,9 @@
       top: calc(100% + 9px);
       right: 0;
       white-space: nowrap;
-      background: linear-gradient(180deg, var(--color-panel), #0c100f);
+      background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
       border: 1px solid var(--color-line-bright);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
       color: var(--color-ink-bright);
       font-size: 10.5px;
       letter-spacing: 0.06em;

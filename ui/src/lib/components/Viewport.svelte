@@ -209,6 +209,11 @@
     requestAnimationFrame(() => {
       fit.fit();
       c.resize(term.cols, term.rows);
+      // desktop: selecting a unit hands the keyboard straight to its terminal —
+      // clicking a sidebar card otherwise leaves focus on the card button, so
+      // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
+      // doesn't pop open on every selection.
+      if (!mobile && !touch && tab === "term") term.focus();
     });
 
     const ro = new ResizeObserver(() => {

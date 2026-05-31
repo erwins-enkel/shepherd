@@ -15,6 +15,7 @@
   import ControlBar from "$lib/components/ControlBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import ComposeBar from "$lib/components/ComposeBar.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -49,6 +50,10 @@
   let uploading = $state(false);
   let uploadFailed = $state(false);
   let fileInput = $state<HTMLInputElement>();
+  // mobile compose <textarea>: the safe text-entry target (see ComposeBar). On
+  // touch devices, tapping the terminal focuses this instead of xterm's helper
+  // textarea, so the soft keyboard / dictation never streams raw into the PTY.
+  let composeInput = $state<HTMLTextAreaElement>();
 
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
@@ -228,10 +233,15 @@
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", onPageShow);
 
-    // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
+    // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll
+    // drag. On touch devices route focus to the compose <textarea> (native edit
+    // buffer → dictation works); raw keys stay on the ControlBar. Desktop keeps
+    // focusing xterm directly for full keyboard steering.
     let dragged = false;
     const onTap = () => {
-      if (!dragged) term.focus();
+      if (dragged) return;
+      if ((mobile || touch) && composeInput) composeInput.focus();
+      else term.focus();
     };
     el.addEventListener("click", onTap);
 
@@ -462,6 +472,13 @@
 
   {#if tab === "term"}
     <SteerBar focusedId={session.id} onbroadcast={() => onbroadcast?.()} />
+  {/if}
+
+  <!-- compose bar: native text entry so mobile dictation lands in a real edit
+       buffer instead of streaming raw into the PTY. Touch devices only — desktop
+       types straight into the terminal. -->
+  {#if (mobile || touch) && tab === "term"}
+    <ComposeBar focusedId={session.id} registerInput={(elm) => (composeInput = elm)} />
   {/if}
 
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the

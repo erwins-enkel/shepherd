@@ -42,6 +42,25 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
+    // small key/value store for runtime-configurable settings (e.g. repoRoot)
+    this.db.run(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  }
+
+  // ── settings (key/value) ──────────────────────────────────────────────────
+  getSetting(key: string): string | null {
+    const r = this.db.query(`SELECT value FROM settings WHERE key = ?`).get(key) as {
+      value: string;
+    } | null;
+    return r ? r.value : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.run(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [key, value],
+    );
   }
 
   create(input: NewSession): Session {

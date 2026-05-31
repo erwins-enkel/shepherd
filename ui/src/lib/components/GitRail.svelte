@@ -111,67 +111,77 @@
 </script>
 
 {#if git}
-  <span class="rail" class:mobile>
-    {#if git.state === "none"}
-      <button class="gbtn" type="button" disabled={busy} onclick={startPr}>↟ Open PR</button>
-    {:else if git.state === "open"}
-      {#if git.url}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-        <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
-      {:else}
-        <span class="prlink">PR #{git.number}</span>
-      {/if}
-      <span class="dot dot-{git.checks}" title="CI: {git.checks}" aria-label="CI {git.checks}"
-      ></span>
-      <button
-        class="gbtn"
-        class:armed={armed === "merge"}
-        type="button"
-        disabled={mergeBlocked}
-        onclick={doMerge}
-      >
-        {armed === "merge" ? "confirm ✓" : "Merge"}
-      </button>
-    {:else if git.state === "merged"}
-      <span class="merged">merged ✓</span>
-      {#if git.deployConfigured}
+  <span class="git-rail-wrap">
+    <span class="rail" class:mobile>
+      {#if git.state === "none"}
+        <button class="gbtn" type="button" disabled={busy} onclick={startPr}>↟ Open PR</button>
+      {:else if git.state === "open"}
+        {#if git.url}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+          <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
+        {:else}
+          <span class="prlink">PR #{git.number}</span>
+        {/if}
+        <span class="dot dot-{git.checks}" title="CI: {git.checks}" aria-label="CI {git.checks}"
+        ></span>
         <button
           class="gbtn"
-          class:armed={armed === "redeploy"}
+          class:armed={armed === "merge"}
           type="button"
-          disabled={busy}
-          onclick={doRedeploy}
+          disabled={mergeBlocked}
+          onclick={doMerge}
         >
-          {armed === "redeploy" ? "confirm ⟳" : "⟳ Redeploy"}
+          {armed === "merge" ? "confirm ✓" : "Merge"}
         </button>
+      {:else if git.state === "merged"}
+        <span class="merged">merged ✓</span>
+        {#if git.deployConfigured}
+          <button
+            class="gbtn"
+            class:armed={armed === "redeploy"}
+            type="button"
+            disabled={busy}
+            onclick={doRedeploy}
+          >
+            {armed === "redeploy" ? "confirm ⟳" : "⟳ Redeploy"}
+          </button>
+        {/if}
+      {:else}
+        <span class="merged">closed</span>
       {/if}
-    {:else}
-      <span class="merged">closed</span>
-    {/if}
 
-    {#if err}<span class="err" title={err}>{err}</span>{/if}
-  </span>
+      {#if err}<span class="err" title={err}>{err}</span>{/if}
+    </span>
 
-  {#if showPr}
-    <div class="pr-pop">
-      <input class="pr-title" bind:value={prTitle} placeholder="PR title" />
-      <textarea class="pr-body" bind:value={prBody} placeholder="Description" rows="4"></textarea>
-      <div class="pr-actions">
-        <button class="gbtn" type="button" onclick={() => (showPr = false)}>Cancel</button>
-        <button
-          class="gbtn primary"
-          type="button"
-          disabled={busy || !prTitle.trim()}
-          onclick={submitPr}
-        >
-          Create PR
-        </button>
+    {#if showPr}
+      <div class="pr-pop">
+        <input class="pr-title" bind:value={prTitle} placeholder="PR title" />
+        <textarea class="pr-body" bind:value={prBody} placeholder="Description" rows="4"></textarea>
+        <div class="pr-actions">
+          <button class="gbtn" type="button" onclick={() => (showPr = false)}>Cancel</button>
+          <button
+            class="gbtn primary"
+            type="button"
+            disabled={busy || !prTitle.trim()}
+            onclick={submitPr}
+          >
+            Create PR
+          </button>
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
+  </span>
 {/if}
 
 <style>
+  /* own positioning context so .pr-pop anchors to the button in every
+     mount site (desktop header + compact strip), not to some far ancestor */
+  .git-rail-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .rail {
     display: inline-flex;
     align-items: center;

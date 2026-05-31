@@ -8,6 +8,23 @@ export interface RepoEntry {
   lastUsedAt?: number;
 }
 
+export interface Settings {
+  repoRoot: string;
+  repoRootDisplay: string;
+}
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+export interface DirListing {
+  path: string;
+  display: string;
+  parent: string | null;
+  entries: DirEntry[];
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -18,6 +35,17 @@ export interface Issue {
 export interface TodoDoc {
   exists: boolean;
   content: string;
+}
+
+export type BlockShape = "menu" | "yes-no" | "awaiting-input";
+export interface BlockOption {
+  label: string;
+  send: string;
+}
+export interface BlockReason {
+  shape: BlockShape;
+  options: BlockOption[];
+  tail: string[];
 }
 
 export type ForgeKind = "github" | "gitea";
@@ -86,7 +114,8 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:archived"; data: { id: string } }
-  | { event: "usage:limits"; data: UsageLimits };
+  | { event: "usage:limits"; data: UsageLimits }
+  | { event: "session:block"; data: { id: string; block: BlockReason | null } };
 
 export interface CreateInput {
   repoPath: string;

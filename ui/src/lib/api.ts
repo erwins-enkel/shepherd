@@ -8,6 +8,8 @@ import type {
   GitState,
   PrStatus,
   MergeMethod,
+  Settings,
+  DirListing,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -51,6 +53,32 @@ export async function listRepos(): Promise<RepoEntry[]> {
   return r.json();
 }
 
+export async function getSettings(): Promise<Settings> {
+  const r = await fetch("/api/settings");
+  if (!r.ok) throw new Error(`settings failed: ${r.status}`);
+  return r.json();
+}
+
+export async function putSettings(repoRoot: string): Promise<Settings> {
+  const r = await fetch("/api/settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repoRoot }),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function listDirs(path?: string): Promise<DirListing> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : "";
+  const r = await fetch(`/api/fs/dirs${q}`);
+  if (!r.ok) throw new Error(`dirs failed: ${r.status}`);
+  return r.json();
+}
+
 export async function listBranches(
   repoPath: string,
 ): Promise<{ branches: string[]; current: string | null }> {
@@ -84,6 +112,15 @@ export async function getUsageLimits(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw new Error(`limits failed: ${r.status}`);
   return r.json();
+}
+
+export async function replySession(id: string, text: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/reply`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) throw new Error(`reply failed: ${r.status}`);
 }
 
 export async function listIssues(

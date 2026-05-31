@@ -11,6 +11,7 @@ import {
   parseTermDims,
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
+import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { handleUpload } from "./uploads";
@@ -114,6 +115,17 @@ export function makeApp(deps: AppDeps) {
           deps.events.emit("session:archived", { id: parts[2] });
           return json({ ok: true });
         }
+        if (req.method === "POST" && parts[2] && parts[3] === "reply") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          if (!body || typeof (body as { text?: unknown }).text !== "string") {
+            return json({ error: "body must be {text: string}" }, 400);
+          }
+          const ok = deps.service.reply(parts[2], (body as { text: string }).text);
+          return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+        }
       }
       // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──
       if (parts[0] === "api" && parts[1] === "sessions" && parts[2] && parts[3] === "git") {
@@ -188,6 +200,31 @@ export function makeApp(deps: AppDeps) {
           }));
           return json(repos);
         }
+      }
+
+      // ── settings: read/update the repo root (persisted, applied at runtime) ──
+      if (parts[0] === "api" && parts[1] === "settings" && !parts[2]) {
+        if (req.method === "GET") {
+          return json({
+            repoRoot: config.repoRoot,
+            repoRootDisplay: collapseHome(config.repoRoot),
+          });
+        }
+        if (req.method === "PUT") {
+          const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
+          const root = validateRoot(body?.repoRoot, config.rootCeiling);
+          if (!root) {
+            return json({ error: "repoRoot must be an existing directory within the root" }, 400);
+          }
+          config.repoRoot = root; // live: every later read picks it up
+          deps.store.setSetting("repoRoot", root); // persist across restarts
+          return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
+        }
+      }
+
+      // ── filesystem browser: list sub-directories for the root picker ──
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
+        return json(listDirs(url.searchParams.get("path") ?? "", config.rootCeiling));
       }
 
       if (req.method === "GET" && parts[0] === "api" && parts[1] === "branches" && !parts[2]) {

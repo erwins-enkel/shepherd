@@ -284,6 +284,18 @@ test("validateCreate defaults images to [] when omitted", () => {
   if (r.ok) expect(r.value.images).toEqual([]);
 });
 
+// regression: an empty images array must NOT require the staging dir to exist.
+// `root` here has no staging dir (as a freshly-configured repoRoot wouldn't),
+// which previously failed with "no staged uploads exist" on every create.
+test("validateCreate accepts an empty images array without a staging dir", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [] },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.images).toEqual([]);
+});
+
 test("validateCreate rejects an image outside the staging dir", () => {
   const outside = join(root, "evil.png");
   writeFileSync(outside, "x");

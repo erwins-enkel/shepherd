@@ -626,7 +626,6 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
-    <ComposeBar onsend={sendComposed} />
     <div class="ctrl-row">
       <button
         type="button"
@@ -640,6 +639,7 @@
       </button>
       <ControlBar onkey={(seq) => conn?.send(seq)} />
     </div>
+    <ComposeBar onsend={sendComposed} />
     <input
       bind:this={fileInput}
       type="file"

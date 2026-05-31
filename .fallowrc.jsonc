@@ -66,7 +66,18 @@
       "**/scripts/**",
       "**/build/**",
       "**/src/forge/gitea.ts",
-      "**/src/forge/github.ts"
+      "**/src/forge/github.ts",
+      // src/types.ts, src/forge/types.ts and ui/src/lib/types.ts mirror the
+      // same wire shapes across the Bun server and the SvelteKit UI, which do
+      // not share a build (same rationale as `duplicate-exports: off` above).
+      // The structural clone detector still flags the mirror, so exclude the
+      // type modules here.
+      "**/src/types.ts",
+      "**/src/forge/types.ts",
+      "**/ui/src/lib/types.ts",
+      // Test files legitimately repeat small arrange/setup blocks; deduping
+      // them hurts readability. Already excluded from complexity scoring.
+      "**/*.test.ts"
     ]
   },
 

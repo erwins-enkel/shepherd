@@ -41,6 +41,7 @@
   let dragging = $state(false);
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
+  let promptInput = $state<HTMLTextAreaElement>();
   let isMac = $state(false);
 
   /** Default to the most-recently-used repo; fall back to the first in the list. */
@@ -62,6 +63,10 @@
         if (!repoPath && r.length > 0) repoPath = defaultRepoPath(r);
       })
       .catch(() => {});
+    // Focus the prompt so the user can type immediately when the dialog opens.
+    // Move the caret to the end so a seeded initialPrompt stays editable inline.
+    promptInput?.focus();
+    promptInput?.setSelectionRange(prompt.length, prompt.length);
     // Paste anywhere in the modal (the textarea need not be focused first).
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -176,6 +181,7 @@
     <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
     <textarea
       id="nt-prompt"
+      bind:this={promptInput}
       bind:value={prompt}
       rows="3"
       placeholder={m.newtask_prompt_placeholder()}

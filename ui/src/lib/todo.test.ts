@@ -95,4 +95,22 @@ describe("cleanupTodo", () => {
   it("returns empty string when only completed items remain", () => {
     expect(cleanupTodo("## Done\n\n- [x] one\n- [x] two\n")).toBe("");
   });
+
+  it("drops the wrapped continuation lines of a completed item (no orphans)", () => {
+    const doc = [
+      "# T",
+      "",
+      "- [x] done item — first line that soft-wraps",
+      "      second line of the done item",
+      "      third line of the done item",
+      "- [ ] open item — also wraps",
+      "      continuation of the OPEN item (must survive)",
+    ].join("\n");
+    const out = cleanupTodo(doc);
+    expect(out).not.toContain("second line of the done item");
+    expect(out).not.toContain("third line of the done item");
+    // the open item and its own continuation are untouched
+    expect(out).toContain("- [ ] open item — also wraps");
+    expect(out).toContain("continuation of the OPEN item (must survive)");
+  });
 });

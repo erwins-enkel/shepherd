@@ -138,33 +138,39 @@ export class AccountUsageIndex {
     for (const key of this.files.keys()) if (!live.has(key)) this.files.delete(key);
 
     const cutoff = now - WEEK_MS - 60_000;
-    for (const path of paths) {
-      let size: number;
-      try {
-        size = statSync(path).size;
-      } catch {
-        continue;
-      }
-      let st = this.files.get(path);
-      if (!st || size < st.offset) {
-        st = { size, offset: 0, leftover: "", records: [] };
-        this.files.set(path, st);
-      }
-      if (size > st.offset) {
-        const chunk = await Bun.file(path).slice(st.offset, size).text();
-        st.offset = size;
-        st.size = size;
-        const parts = (st.leftover + chunk).split("\n");
-        st.leftover = parts.pop() ?? "";
-        for (const line of parts) {
-          const r = parseLine(line);
-          if (!r || !r.ts) continue;
-          st.records.push({ ts: r.ts, units: weightedUnits(r, r.model) });
-        }
-      }
-      if (st.records.length && st.records[0]!.ts < cutoff) {
-        st.records = st.records.filter((r) => r.ts >= cutoff);
-      }
+    for (const path of paths) await this.ingestFile(path, cutoff);
+  }
+
+  /** Read appended bytes of one file into its FileState, then prune stale records. */
+  private async ingestFile(path: string, cutoff: number): Promise<void> {
+    let size: number;
+    try {
+      size = statSync(path).size;
+    } catch {
+      return;
+    }
+    let st = this.files.get(path);
+    if (!st || size < st.offset) {
+      st = { size, offset: 0, leftover: "", records: [] };
+      this.files.set(path, st);
+    }
+    if (size > st.offset) await this.appendChunk(st, path, size);
+    if (st.records.length && st.records[0]!.ts < cutoff) {
+      st.records = st.records.filter((r) => r.ts >= cutoff);
+    }
+  }
+
+  /** Read [offset, size) of a file and fold its complete lines into `st`. */
+  private async appendChunk(st: FileState, path: string, size: number): Promise<void> {
+    const chunk = await Bun.file(path).slice(st.offset, size).text();
+    st.offset = size;
+    st.size = size;
+    const parts = (st.leftover + chunk).split("\n");
+    st.leftover = parts.pop() ?? "";
+    for (const line of parts) {
+      const r = parseLine(line);
+      if (!r || !r.ts) continue;
+      st.records.push({ ts: r.ts, units: weightedUnits(r, r.model) });
     }
   }
 

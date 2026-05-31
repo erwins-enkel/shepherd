@@ -14,35 +14,46 @@ export function createDemux({ onInput, onResize }) {
   // transiently-dead pty), so only forward genuine size changes.
   let lastC = -1;
   let lastR = -1;
+
+  // Consume any complete resize frames at the head of the buffer. Returns true
+  // if at least one frame was consumed (buffer advanced).
+  function consumeResizes() {
+    let any = false;
+    let nl;
+    while (buf.startsWith("\x00resize:") && (nl = buf.indexOf("\n")) !== -1) {
+      const [, c, r] = buf.slice(0, nl).split(":");
+      buf = buf.slice(nl + 1);
+      const cols = Number(c) || 100;
+      const rows = Number(r) || 30;
+      if (cols !== lastC || rows !== lastR) {
+        lastC = cols;
+        lastR = rows;
+        onResize(cols, rows);
+      }
+      any = true;
+    }
+    return any;
+  }
+
+  // Forward the leading run of input, stopping at the next NUL (which begins a
+  // control frame). A bare leading NUL with no frame yet is held until more
+  // bytes arrive. Returns true if input was forwarded (buffer advanced).
+  function forwardInput() {
+    if (!buf || buf.startsWith("\x00")) return false;
+    const nul = buf.indexOf("\x00");
+    onInput(nul === -1 ? buf : buf.slice(0, nul));
+    buf = nul === -1 ? "" : buf.slice(nul);
+    return true;
+  }
+
   return {
     feed(chunk) {
       buf += chunk;
       let progressed = true;
       while (progressed) {
-        progressed = false;
-        // consume any complete resize frames at the head of the buffer
-        let nl;
-        while (buf.startsWith("\x00resize:") && (nl = buf.indexOf("\n")) !== -1) {
-          const [, c, r] = buf.slice(0, nl).split(":");
-          buf = buf.slice(nl + 1);
-          const cols = Number(c) || 100;
-          const rows = Number(r) || 30;
-          if (cols !== lastC || rows !== lastR) {
-            lastC = cols;
-            lastR = rows;
-            onResize(cols, rows);
-          }
-          progressed = true;
-        }
-        // forward the leading run of input, stopping at the next NUL (which
-        // begins a control frame). A bare leading NUL with no frame yet is held
-        // until more bytes arrive.
-        if (buf && !buf.startsWith("\x00")) {
-          const nul = buf.indexOf("\x00");
-          onInput(nul === -1 ? buf : buf.slice(0, nul));
-          buf = nul === -1 ? "" : buf.slice(nul);
-          progressed = true;
-        }
+        const resized = consumeResizes();
+        const forwarded = forwardInput();
+        progressed = resized || forwarded;
       }
     },
   };

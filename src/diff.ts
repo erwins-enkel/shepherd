@@ -10,6 +10,87 @@ function stripPrefix(p: string): string {
   return p.replace(/^[ab]\//, "");
 }
 
+/** Start a fresh DiffFile from a `diff --git a/… b/…` header line. */
+function startFile(raw: string): DiffFile {
+  const m = raw.match(/^diff --git a\/(.+) b\/(.+)$/);
+  return {
+    path: m ? m[2]! : "",
+    status: "modified",
+    additions: 0,
+    deletions: 0,
+    binary: false,
+    hunks: [],
+  };
+}
+
+/**
+ * Apply a file-metadata header line (mode/rename/binary/---/+++ ) to `cur`.
+ * Returns true when the line was a recognized header and consumed.
+ */
+function applyFileHeader(cur: DiffFile, raw: string): boolean {
+  if (raw.startsWith("new file mode")) {
+    cur.status = "added";
+  } else if (raw.startsWith("deleted file mode")) {
+    cur.status = "deleted";
+  } else if (raw.startsWith("rename from ")) {
+    cur.status = "renamed";
+    cur.oldPath = raw.slice("rename from ".length);
+  } else if (raw.startsWith("rename to ")) {
+    cur.status = "renamed";
+    cur.path = raw.slice("rename to ".length);
+  } else if (raw.startsWith("Binary files")) {
+    cur.binary = true;
+  } else if (raw.startsWith("--- ")) {
+    const p = stripPrefix(raw.slice(4));
+    if (p) cur.oldPath = cur.status === "renamed" ? cur.oldPath : p;
+  } else if (raw.startsWith("+++ ")) {
+    const p = stripPrefix(raw.slice(4));
+    if (p) cur.path = p;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+/** Parse a `@@ -a,b +c,d @@` hunk header into 1-based old/new starting line numbers. */
+function parseHunkHeader(raw: string): { oldNo: number; newNo: number } {
+  const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+  return {
+    oldNo: m ? parseInt(m[1]!, 10) : 0,
+    newNo: m ? parseInt(m[2]!, 10) : 0,
+  };
+}
+
+/** Cursor over old/new line numbers, mutated as hunk body lines are classified. */
+interface LineCursor {
+  oldNo: number;
+  newNo: number;
+}
+
+/**
+ * Classify one hunk body line and append it to `hunk`, advancing line numbers and
+ * file counts. Returns true when the line counted toward MAX_FILE_LINES (add/del/ctx).
+ */
+function appendBodyLine(cur: DiffFile, hunk: DiffHunk, cursor: LineCursor, raw: string): boolean {
+  const marker = raw[0];
+  const content = raw.slice(1);
+  if (marker === "+") {
+    cur.additions++;
+    hunk.lines.push({ kind: "add", content, newNo: cursor.newNo++ });
+    return true;
+  }
+  if (marker === "-") {
+    cur.deletions++;
+    hunk.lines.push({ kind: "del", content, oldNo: cursor.oldNo++ });
+    return true;
+  }
+  if (marker === " ") {
+    hunk.lines.push({ kind: "ctx", content, oldNo: cursor.oldNo++, newNo: cursor.newNo++ });
+    return true;
+  }
+  return false;
+}
+
 /**
  * Parse `git diff --no-color` unified output into structured files.
  * Handles added / modified / deleted / renamed / binary, computes +/- counts,
@@ -20,8 +101,7 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
   const files: DiffFile[] = [];
   let cur: DiffFile | null = null;
   let hunk: DiffHunk | null = null;
-  let oldNo = 0;
-  let newNo = 0;
+  const cursor: LineCursor = { oldNo: 0, newNo: 0 };
   let lineCount = 0; // add/del/ctx lines accumulated for cur
 
   const finishFile = () => {
@@ -38,77 +118,24 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
       finishFile();
       hunk = null;
       lineCount = 0;
-      const m = raw.match(/^diff --git a\/(.+) b\/(.+)$/);
-      cur = {
-        path: m ? m[2]! : "",
-        status: "modified",
-        additions: 0,
-        deletions: 0,
-        binary: false,
-        hunks: [],
-      };
+      cur = startFile(raw);
       continue;
     }
     if (!cur) continue;
+    if (applyFileHeader(cur, raw)) continue;
 
-    if (raw.startsWith("new file mode")) {
-      cur.status = "added";
-      continue;
-    }
-    if (raw.startsWith("deleted file mode")) {
-      cur.status = "deleted";
-      continue;
-    }
-    if (raw.startsWith("rename from ")) {
-      cur.status = "renamed";
-      cur.oldPath = raw.slice("rename from ".length);
-      continue;
-    }
-    if (raw.startsWith("rename to ")) {
-      cur.status = "renamed";
-      cur.path = raw.slice("rename to ".length);
-      continue;
-    }
-    if (raw.startsWith("Binary files")) {
-      cur.binary = true;
-      continue;
-    }
-    if (raw.startsWith("--- ")) {
-      const p = stripPrefix(raw.slice(4));
-      if (p) cur.oldPath = cur.status === "renamed" ? cur.oldPath : p;
-      continue;
-    }
-    if (raw.startsWith("+++ ")) {
-      const p = stripPrefix(raw.slice(4));
-      if (p) cur.path = p;
-      continue;
-    }
     if (raw.startsWith("@@")) {
-      const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      oldNo = m ? parseInt(m[1]!, 10) : 0;
-      newNo = m ? parseInt(m[2]!, 10) : 0;
+      const start = parseHunkHeader(raw);
+      cursor.oldNo = start.oldNo;
+      cursor.newNo = start.newNo;
       hunk = { header: raw, lines: [] };
       cur.hunks.push(hunk);
       continue;
     }
     if (!hunk) continue;
-
     if (raw.startsWith("\\")) continue; // "\ No newline at end of file"
 
-    const marker = raw[0];
-    const content = raw.slice(1);
-    if (marker === "+") {
-      cur.additions++;
-      lineCount++;
-      hunk.lines.push({ kind: "add", content, newNo: newNo++ });
-    } else if (marker === "-") {
-      cur.deletions++;
-      lineCount++;
-      hunk.lines.push({ kind: "del", content, oldNo: oldNo++ });
-    } else if (marker === " ") {
-      lineCount++;
-      hunk.lines.push({ kind: "ctx", content, oldNo: oldNo++, newNo: newNo++ });
-    }
+    if (appendBodyLine(cur, hunk, cursor, raw)) lineCount++;
   }
   finishFile();
   return files;

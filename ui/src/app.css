@@ -11,6 +11,7 @@
   --color-head: var(--head);
   --color-inset: var(--inset);
   --color-hover: var(--hover);
+  --color-sel: var(--sel);
   --color-line: var(--line);
   --color-line-bright: var(--line-bright);
   --color-ink: var(--ink);
@@ -40,6 +41,7 @@
   --head: #0a0f0d;
   --inset: #070a09;
   --hover: #0c1110;
+  --sel: #18211e;
   --line: #1b2422;
   --line-bright: #2c3835;
 
@@ -77,6 +79,7 @@
   --head: #eef2f0;
   --inset: #f3f6f4;
   --hover: #e4e9e6;
+  --sel: #d2dbd6;
   --line: #d2dad6;
   --line-bright: #b9c4bf;
 

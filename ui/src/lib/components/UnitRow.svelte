@@ -108,10 +108,10 @@
     background:
       radial-gradient(
         120% 140% at 0% 50%,
-        color-mix(in srgb, var(--rule) 9%, transparent),
+        color-mix(in srgb, var(--rule) 12%, transparent),
         transparent 70%
       ),
-      var(--color-hover);
+      var(--color-sel);
   }
 
   /* bracket corners on selected */

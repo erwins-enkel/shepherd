@@ -60,38 +60,50 @@ export class HerdStore {
   }
 
   apply(ev: WsEvent) {
-    if (ev.event === "session:new") {
-      if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
-    } else if (ev.event === "session:status") {
-      this.sessions = this.sessions.map((s) =>
-        s.id === ev.data.id ? { ...s, status: ev.data.status } : s,
-      );
-    } else if (ev.event === "session:archived") {
-      this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
-      this.blocks = dropKey(this.blocks, ev.data.id);
-      this.git = dropKey(this.git, ev.data.id);
-    } else if (ev.event === "session:git") {
-      this.git = { ...this.git, [ev.data.id]: ev.data.git };
-    } else if (ev.event === "session:block") {
-      if (ev.data.block) {
+    switch (ev.event) {
+      case "session:new":
+        if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
+        break;
+      case "session:status":
+        this.sessions = this.sessions.map((s) =>
+          s.id === ev.data.id ? { ...s, status: ev.data.status } : s,
+        );
+        break;
+      case "session:archived":
+        this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
+        this.blocks = dropKey(this.blocks, ev.data.id);
+        this.git = dropKey(this.git, ev.data.id);
+        break;
+      case "session:git":
+        this.git = { ...this.git, [ev.data.id]: ev.data.git };
+        break;
+      case "session:block": {
+        if (!ev.data.block) {
+          this.blocks = dropKey(this.blocks, ev.data.id);
+          break;
+        }
         const prev = this.blocks[ev.data.id];
         this.blocks = {
           ...this.blocks,
           [ev.data.id]: { reason: ev.data.block, since: prev?.since ?? Date.now() },
         };
-      } else {
-        this.blocks = dropKey(this.blocks, ev.data.id);
+        break;
       }
-    } else if (ev.event === "usage:limits") {
-      this.usageLimits = ev.data;
-    } else if (ev.event === "update:status") {
-      this.setUpdate(ev.data);
-    } else if (ev.event === "herdr-update:status") {
-      this.herdrUpdate = ev.data;
-    } else if (ev.event === "herdr-update:log") {
-      this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
-    } else if (ev.event === "project-icons:update") {
-      projectIcons.apply(ev.data);
+      case "usage:limits":
+        this.usageLimits = ev.data;
+        break;
+      case "update:status":
+        this.setUpdate(ev.data);
+        break;
+      case "herdr-update:status":
+        this.herdrUpdate = ev.data;
+        break;
+      case "herdr-update:log":
+        this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
+        break;
+      case "project-icons:update":
+        projectIcons.apply(ev.data);
+        break;
     }
   }
 

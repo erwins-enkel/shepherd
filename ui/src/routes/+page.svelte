@@ -184,6 +184,8 @@
         <Viewport
           session={selected}
           mobile={mobile.current}
+          queue={blockedEntries.map((e) => e.session.id)}
+          onnavigate={(id) => selectUnit(id)}
           {onarchive}
           onback={() => (mobileScreen = "list")}
           nextNeedsYou={otherNeedsYou.length}
@@ -225,6 +227,8 @@
         <Viewport
           session={selected}
           touch={touch.current}
+          queue={blockedEntries.map((e) => e.session.id)}
+          onnavigate={(id) => selectUnit(id)}
           {onarchive}
           onbroadcast={() => (showBroadcast = true)}
           onnewtask={(repoPath, prompt) => {
@@ -253,6 +257,10 @@
       {nowMs}
       onreply={(id, text) => replySession(id, text).catch(() => {})}
       ondismiss={(id) => dismissStall(id).catch(() => {})}
+      onopen={(id) => {
+        selectUnit(id);
+        showTriage = false;
+      }}
       onclose={() => (showTriage = false)}
     />
   {/if}

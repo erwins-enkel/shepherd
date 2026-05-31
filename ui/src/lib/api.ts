@@ -152,6 +152,16 @@ export async function replySession(id: string, text: string): Promise<void> {
   if (!r.ok) throw await failed(r, "reply");
 }
 
+/** Bring a finished session back — re-spawns `claude --resume` in its worktree. */
+export async function resumeSession(id: string): Promise<Session> {
+  const r = await fetch(`/api/sessions/${id}/resume`, { method: "POST" });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `resume failed: ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function dismissStall(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}/dismiss-stall`, { method: "POST" });
   if (!r.ok) throw await failed(r, "dismiss-stall");

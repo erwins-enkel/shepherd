@@ -559,6 +559,36 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   expect(wrongType.status).toBe(415);
 });
 
+test("POST /api/sessions/:id/resume brings a finished session back + emits running", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  deps.store.update(created.id, { status: "done", lastState: "done" });
+
+  const events: { event: string; data: unknown }[] = [];
+  deps.events.subscribe((event, data) => events.push({ event, data }));
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/resume`, { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("running");
+  expect(events).toContainEqual({
+    event: "session:status",
+    data: { id: created.id, status: "running" },
+  });
+});
+
+test("POST /api/sessions/:id/resume 409s when there's nothing to resume", async () => {
+  const res = await harness().fetch(
+    new Request("http://x/api/sessions/nope/resume", { method: "POST" }),
+  );
+  expect(res.status).toBe(409);
+});
+
 // ── self-update routes ─────────────────────────────────────────────────────
 function harnessWithUpdates(updates: AppDeps["updates"]) {
   return makeApp({ ...makeDeps(), updates });

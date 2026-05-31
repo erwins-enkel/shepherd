@@ -88,6 +88,34 @@ export class SessionService {
     }
   }
 
+  /**
+   * Bring a finished session back: spawn a fresh `claude --resume <pinnedId>` in
+   * its still-present worktree so the whole conversation is restored and steerable
+   * again. Re-points the session at the new herdr agent and flips it back to running.
+   *
+   * Returns the updated session, or null when it can't be resumed:
+   *  - unknown id, or archived (its worktree was already removed), or
+   *  - a pre-feature session with no pinned claude session id to resume.
+   * If the herdr agent is still live (a "done" session that's merely idle at the
+   * prompt), there's nothing to respawn — the current session is handed back so the
+   * caller just re-attaches, avoiding a duplicate claude process.
+   */
+  resume(id: string): Session | null {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived" || !s.claudeSessionId) return null;
+    const live = this.deps.herdr.list().some((a) => a.terminalId === s.herdrAgentId);
+    if (live) return s;
+    const argv = ["claude", "--dangerously-skip-permissions", "--resume", s.claudeSessionId];
+    if (s.model) argv.push("--model", s.model);
+    const agent = this.deps.herdr.start(s.name, s.worktreePath, argv);
+    this.deps.store.update(id, {
+      herdrAgentId: agent.terminalId,
+      status: "running",
+      lastState: "idle",
+    });
+    return this.deps.store.get(id);
+  }
+
   /** Type a reply into a session's live PTY (human-style steer). Returns false if unknown. */
   reply(id: string, text: string): boolean {
     const s = this.deps.store.get(id);

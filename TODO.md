@@ -15,13 +15,13 @@
 - [x] Blocked-triage queue — list of red agents + WHY each is blocked (tailed from terminal:
       permission prompt / question / test fail), batch-answer w/ quick replies. Server heuristic
       classifier + poller emit `session:block` + POST `/reply` (types into PTY) + "Needs you" drawer.
+- [x] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
+      human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
 - [ ] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
       telemetry + herdr status. Highest leverage; serves core thesis. Pairs w/ triage queue. **NEXT.**
-- [ ] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
-      human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
 - [ ] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,
       ToS-clean (read-only git). Precursor to F6 merge buttons.
-- [ ] Saved steers / broadcast — canned prompts ("commit & push", "rebase", "run tests")
+- [x] Saved steers / broadcast — canned prompts ("commit & push", "rebase", "run tests")
       as one-tap buttons; optional fan-out to N selected agents. Mobile-critical.
 
 ## PRD open questions still unresolved
@@ -30,6 +30,9 @@
 
 ## Done
 
+- [x] In-app self-update — version badge + commit list + one-tap pull→build→restart when behind origin/main
+- [x] Internationalization — Paraglide i18n (EN + DE catalogs) with in-app language switcher
+- [x] PR status in session list — per-session PR/CI badge in the row + grid views (PrPoller snapshot)
 - [x] Headless core: spawn interactive claude in worktrees via herdr, REST + WS (/events, /pty)
 - [x] HUD UI: SvelteKit5 + Tailwind4 + xterm.js, status lights, live scrollable terminal
 - [x] Repo + branch pickers (autocomplete, ~/Work compaction, most-recently-used default)

@@ -52,7 +52,7 @@ test("notify sends to all subscriptions", async () => {
   store.putPushSub(sub("e2"), "");
   await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
   expect(sent.length).toBe(2);
-  expect(sent[0]).toContain('"title":"T — finished"');
+  expect(sent[0]).toContain('"title":"T — waiting"');
 });
 
 test("notify prunes a subscription that returns 410", async () => {
@@ -116,11 +116,11 @@ test("blockSummary maps shapes to human text", () => {
 test("buildPayload localizes title + body by subscriber locale", () => {
   const done: NotifyInput = { kind: "done", sessionId: "s", tag: "s", name: "Bob" };
   expect(buildPayload(done, "en")).toMatchObject({
-    title: "Bob — finished",
+    title: "Bob — waiting",
     body: "Agent finished its turn.",
   });
   expect(buildPayload(done, "de")).toMatchObject({
-    title: "Bob — fertig",
+    title: "Bob — wartet",
     body: "Agent hat seinen Zug beendet.",
   });
   // blocked body falls through to the localized block summary; unknown locale → en

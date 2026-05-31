@@ -19,7 +19,7 @@
   "status_working": "WORKING",
   "status_idle": "IDLE",
   "status_blocked": "BLOCKED",
-  "status_done": "DONE",
+  "status_done": "WAITING",
   "status_archived": "ARCHIVED",
   "theme_dark": "Dark",
   "theme_light": "Light",

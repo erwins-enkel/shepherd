@@ -37,6 +37,11 @@
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
   const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
+  const connText = $derived(
+    connected
+      ? "Live connection to herdr · device clock"
+      : "Disconnected — reconnecting · device clock",
+  );
 
   function gaugeColor(pct: number): string {
     if (pct >= 90) return "var(--color-red)";
@@ -91,13 +96,10 @@
     {#if gauges.length}
       <div class="gauges" class:mobile class:stale={limits?.stale}>
         {#each gauges as g (g.label)}
-          <div
-            class="gauge"
-            title="{g.label === '5H' ? '5-hour' : 'weekly'} limit · {g.w!
-              .pct}% used · resets {formatReset(g.w!.resetAt, nowMs)}{limits?.stale
-              ? ' · stale'
-              : ''}"
-          >
+          {@const tip = `${g.label === "5H" ? "5-hour" : "weekly"} limit · ${
+            g.w!.pct
+          }% used · resets ${formatReset(g.w!.resetAt, nowMs)}${limits?.stale ? " · stale" : ""}`}
+          <div class="gauge tip" data-tip={tip} aria-label={tip}>
             <span class="g-label micro">{g.label}</span>
             <span class="g-bar"
               ><span class="g-fill" style="width:{g.w!.pct}%;background:{gaugeColor(g.w!.pct)}"
@@ -108,7 +110,7 @@
         {/each}
       </div>
     {/if}
-    <div class="clock">
+    <div class="clock tip" data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span><span>{clock}</span>
     </div>
     {#if updateAvailable}
@@ -133,10 +135,10 @@
       >
     {/if}
     <button
-      class="gear"
+      class="gear tip"
       type="button"
       onclick={() => onsettings?.()}
-      title="Settings"
+      data-tip="Open settings"
       aria-label="settings">⚙</button
     >
   </div>
@@ -369,5 +371,39 @@
   }
   .hud.mobile .rightside {
     gap: 9px;
+  }
+
+  /* Desktop-only hover tooltips — never shown on touch / mobile devices. */
+  @media (hover: hover) and (pointer: fine) {
+    .tip {
+      position: relative;
+    }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 9px);
+      right: 0;
+      white-space: nowrap;
+      background: linear-gradient(180deg, var(--color-panel), #0c100f);
+      border: 1px solid var(--color-line-bright);
+      color: var(--color-ink-bright);
+      font-size: 10.5px;
+      letter-spacing: 0.06em;
+      text-transform: none;
+      padding: 5px 9px;
+      border-radius: 2px;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-3px);
+      transition:
+        opacity 0.12s ease,
+        transform 0.12s ease;
+      z-index: 50;
+    }
+    .tip:hover::after,
+    .tip:focus-visible::after {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

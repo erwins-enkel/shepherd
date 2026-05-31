@@ -127,6 +127,7 @@
   "topbar_theme_cycle": "Theme: {label} — tap to cycle",
   "topbar_theme_cycle_aria": "Theme: {label}",
   "topbar_settings_aria": "settings",
+  "topbar_detail_context_aria": "Repo {repo}, current session {name}",
   "triage_close_aria": "Close",
   "triage_empty": "No agents are waiting on you.",
   "triage_stall_note": "Quiet — no activity for a while. May be stuck; nudge it or open the terminal.",

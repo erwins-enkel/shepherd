@@ -451,7 +451,7 @@
 
 <div class="viewport">
   <!-- header -->
-  <div class="vp-head" class:mobile={compact}>
+  <div class="vp-head" class:mobile={compact} class:phone={mobile}>
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
         >{m.viewport_back_button()}</button
@@ -469,7 +469,9 @@
       </button>
     {/if}
     <span class="desig">{session.desig}</span>
-    {#if compact}
+    {#if compact && !mobile}
+      <!-- foldable/touch desktop only: on a phone the task name now lives in the
+           top bar (repo · task), so showing it here too would just duplicate it -->
       <span class="vp-name" title={session.name}>{session.name}</span>
     {/if}
     {#if !compact}
@@ -989,6 +991,11 @@
      spacer; its flex-grow still pushes the status badge + decom to the right */
   .vp-head.mobile .spacer {
     display: none;
+  }
+  /* phone drops the task name (it moved to the top bar), so the spacer comes back
+     to keep the status badge + decommission right-aligned */
+  .vp-head.phone .spacer {
+    display: block;
   }
   .tab-group.mobile {
     order: 10;

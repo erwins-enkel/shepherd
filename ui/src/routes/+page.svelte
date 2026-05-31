@@ -140,6 +140,7 @@
           {selectedId}
           {nowMs}
           onselect={(id) => selectUnit(id)}
+          onnew={() => (showNew = true)}
           git={store.git}
         />
       </div>
@@ -171,6 +172,7 @@
           selectedId = id;
           viewMode = "focus";
         }}
+        onnew={() => (showNew = true)}
       />
     </div>
   {:else}
@@ -180,6 +182,7 @@
         {selectedId}
         {nowMs}
         onselect={(id) => selectUnit(id)}
+        onnew={() => (showNew = true)}
         git={store.git}
       />
       {#if selected}

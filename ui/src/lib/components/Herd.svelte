@@ -8,12 +8,14 @@
     selectedId,
     nowMs,
     onselect,
+    onnew,
     git,
   }: {
     sessions: Session[];
     selectedId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
+    onnew: () => void;
     git: Record<string, GitState>;
   } = $props();
 </script>
@@ -25,7 +27,7 @@
   </div>
   <div class="units">
     {#if sessions.length === 0}
-      <div class="empty micro">{m.herd_empty()}</div>
+      <button type="button" class="empty micro" onclick={onnew}>{m.herd_empty()}</button>
     {:else}
       {#each sessions as session (session.id)}
         <UnitRow
@@ -101,8 +103,17 @@
   }
 
   .empty {
+    width: 100%;
     padding: 24px 14px;
     text-align: center;
     color: var(--color-faint);
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.12s ease;
+  }
+  .empty:hover {
+    color: var(--color-ink);
   }
 </style>

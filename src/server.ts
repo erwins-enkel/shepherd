@@ -24,6 +24,7 @@ import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
+import type { HerdrUpdateService } from "./herdr-update";
 import type { Session } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -66,6 +67,8 @@ export interface AppDeps {
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
   updates?: Pick<UpdateService, "current" | "apply">;
+  /** herdr-version tracker + applier; absent in environments where it isn't wired. */
+  herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
   herdr?: Pick<HerdrDriver, "list">;
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
@@ -300,6 +303,28 @@ export function makeApp(deps: AppDeps) {
           const status = deps.updates.current();
           if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
           const r = deps.updates.apply();
+          return json({ ok: r.started }, r.started ? 202 : 409);
+        }
+      }
+
+      // ── herdr update: status + (destructive) apply ─────────────────────────
+      if (parts[0] === "api" && parts[1] === "herdr-update" && !parts[2]) {
+        if (req.method === "GET") {
+          return json(
+            deps.herdrUpdates?.current() ?? {
+              current: null,
+              latest: null,
+              updateAvailable: false,
+              notes: null,
+              checkedAt: Date.now(),
+            },
+          );
+        }
+        if (req.method === "POST") {
+          if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
+          if (!deps.herdrUpdates.current()?.updateAvailable)
+            return json({ error: "no update available" }, 409);
+          const r = deps.herdrUpdates.apply();
           return json({ ok: r.started }, r.started ? 202 : 409);
         }
       }

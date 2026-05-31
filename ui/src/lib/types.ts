@@ -131,6 +131,16 @@ export interface UpdateStatus {
   error?: string;
 }
 
+/** Informational herdr-version update check (no auto-apply). */
+export interface HerdrUpdateStatus {
+  current: string | null;
+  latest: string | null;
+  updateAvailable: boolean;
+  notes: string | null;
+  checkedAt: number;
+  error?: string;
+}
+
 /** repoPath → emoji map for per-project icons. */
 export type ProjectIcons = Record<string, string>;
 
@@ -142,6 +152,7 @@ export type WsEvent =
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "update:status"; data: UpdateStatus }
+  | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "project-icons:update"; data: ProjectIcons };
 
 export interface CreateInput {

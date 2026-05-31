@@ -34,18 +34,31 @@ test("list parses herdr json into typed agents", () => {
   expect(a[0]).toMatchObject({ terminalId: "term_a", agentStatus: "working", cwd: "/wt/a" });
 });
 
-test("start runs herdr then resolves the new agent by unique cwd", () => {
+const TAB_CREATE = JSON.stringify({
+  result: {
+    type: "tab_created",
+    tab: { tab_id: "t_new", workspace_id: "w1" },
+    root_pane: { pane_id: "p_root", tab_id: "t_new", terminal_id: "term_root" },
+  },
+});
+
+test("start gives each agent its own full-width tab, not a shared split pane", () => {
   const calls: string[][] = [];
   const d = new HerdrDriver((args) => {
     calls.push(args);
-    return FIXTURE;
+    return args[0] === "tab" && args[1] === "create" ? TAB_CREATE : FIXTURE;
   });
   const agent = d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
   expect(agent.terminalId).toBe("term_a");
-  expect(calls[0]).toEqual([
+  // 1) a dedicated tab is created first (so the agent isn't split into a shared one)
+  expect(calls[0]).toEqual(["tab", "create", "--cwd", "/wt/a", "--label", "flatten", "--no-focus"]);
+  // 2) the agent starts INTO that tab
+  expect(calls[1]).toEqual([
     "agent",
     "start",
     "flatten",
+    "--tab",
+    "t_new",
     "--cwd",
     "/wt/a",
     "--no-focus",
@@ -54,6 +67,9 @@ test("start runs herdr then resolves the new agent by unique cwd", () => {
     "--dangerously-skip-permissions",
     "go",
   ]);
+  // 3) the leftover shell root pane is closed so the agent is the tab's sole,
+  //    full-width pane — a split pane would only get ~window/N width (the bug)
+  expect(calls[2]).toEqual(["pane", "close", "p_root"]);
 });
 
 test("stop closes the pane backing a terminal id", () => {

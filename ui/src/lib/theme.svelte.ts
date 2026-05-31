@@ -88,3 +88,23 @@ export function xtermTheme(resolved: Resolved): { background: string; foreground
     foreground: read("--color-term-fg", fallback.foreground),
   };
 }
+
+/**
+ * Contrast floor xterm enforces between each glyph and its cell background.
+ * Claude's TUI is tuned for a dark terminal: on the near-white light surface its
+ * bright/white and washed-out secondary greys drop near-invisible. xterm's
+ * `minimumContrastRatio` darkens only the under-contrast pairs (hue preserved)
+ * back to legible; body text already above the floor is left alone.
+ *
+ * The floor is `7`, not the WCAG-AA `4.5`, because Claude renders its secondary
+ * lines (search results, tool output, "(ctrl+o to expand)") with the ANSI *dim*
+ * attribute, and xterm only holds dim cells to *half* the configured ratio
+ * (`minimumContrastRatio / 2`). `7` lands dim text at ~3.5:1 — clearly readable
+ * yet still visibly secondary — while non-dim glyphs get the full 7:1.
+ *
+ * Dark mode is already legible — `1` disables enforcement (xterm's no-op fast
+ * path), so this never touches the dark palette.
+ */
+export function xtermMinContrast(resolved: Resolved): number {
+  return resolved === "light" ? 7 : 1;
+}

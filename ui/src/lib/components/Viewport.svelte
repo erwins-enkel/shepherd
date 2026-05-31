@@ -33,6 +33,8 @@
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
   let conn = $state<PtyConn | undefined>();
+  // true when another device took over this terminal — show a take-over prompt
+  let parked = $state(false);
   let dragging = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
@@ -120,9 +122,15 @@
     if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
   }
 
+  function takeover() {
+    parked = false;
+    conn?.takeover();
+  }
+
   $effect(() => {
     const id = unitId;
     if (!el) return;
+    parked = false; // fresh attach for this unit
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
@@ -151,6 +159,10 @@
       () => {
         fit.fit();
         c.resize(term.cols, term.rows);
+      },
+      // another device took over this terminal — park and offer to take it back
+      () => {
+        parked = true;
       },
     );
     conn = c;
@@ -339,6 +351,13 @@
       }}
       ondrop={onTermDrop}
     ></div>
+    {#if parked && tab === "term"}
+      <button class="parked" type="button" onclick={takeover}>
+        <span class="parked-icon" aria-hidden="true">▶</span>
+        <span class="parked-title">Auf anderem Gerät aktiv</span>
+        <span class="parked-sub">Tippen zum Übernehmen</span>
+      </button>
+    {/if}
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -530,6 +549,40 @@
     overflow: hidden;
     /* we drive vertical scroll via touch handlers; keep the browser out of it */
     touch-action: none;
+  }
+
+  /* parked: this terminal is live on another device — tap to take it back */
+  .parked {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: color-mix(in srgb, var(--color-bg, #070a09) 78%, transparent);
+    backdrop-filter: blur(1.5px);
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    color: var(--color-ink);
+  }
+  .parked-icon {
+    color: var(--color-amber);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .parked-title {
+    color: var(--color-ink-bright);
+    letter-spacing: 0.08em;
+    font-size: 13px;
+  }
+  .parked-sub {
+    color: var(--color-muted);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   /* let xterm fill the mount */

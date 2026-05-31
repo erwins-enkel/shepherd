@@ -82,12 +82,15 @@ export class WorktreeMgr {
    *  Used by the critic to review the exact PR head. */
   createDetached(repoPath: string, branch: string, sha: string): WorktreeResult {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
+    // same refname grammar as create(); rejecting a leading "-" also blocks argv
+    // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
     const worktreePath = join(parent, `${basename(repoPath)}-review-${sha.slice(0, 8)}`);
     mkdirSync(parent, { recursive: true });
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)
-      execFileSync("git", ["fetch", "origin", branch], { cwd: repoPath, stdio: "pipe" });
+      execFileSync("git", ["fetch", "origin", "--", branch], { cwd: repoPath, stdio: "pipe" });
     } catch {
       /* offline / no origin — the sha may already be local; let worktree add decide */
     }

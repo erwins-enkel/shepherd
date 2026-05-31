@@ -138,3 +138,10 @@ test("createDetached: checks out a detached worktree at the given sha", () => {
   mgr.remove(wt.worktreePath);
   expect(existsSync(wt.worktreePath)).toBe(false);
 });
+
+test("createDetached: rejects a branch that could smuggle a git flag", () => {
+  const mgr = new WorktreeMgr();
+  const sha = "0".repeat(40);
+  expect(() => mgr.createDetached(repo, "--upload-pack=evil", sha)).toThrow("invalid branch");
+  expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
+});

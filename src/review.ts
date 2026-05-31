@@ -33,6 +33,7 @@ interface InFlight {
   worktreePath: string;
   terminalId: string;
   startedAt: number;
+  finalizing?: boolean;
 }
 
 export interface ReviewServiceDeps {
@@ -116,11 +117,13 @@ export class ReviewService {
   /** Finalize any in-flight review whose verdict file is ready or that timed out. */
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
+      if (f.finalizing) continue; // already being finalized by an overlapping tick
       const raw = this.readVerdict(f.worktreePath);
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
       if (!raw && !timedOut) continue;
-      this.inflight.delete(f.sessionId); // claim it before any await
+      f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
       await this.finalize(f, raw);
+      this.inflight.delete(f.sessionId);
     }
   }
 

@@ -97,6 +97,7 @@ test("reviewPrompt embeds base + task and asks for the verdict file", () => {
   expect(p).toContain("git diff main...HEAD");
   expect(p).toContain("do the thing");
   expect(p).toContain(".shepherd-review.json");
+  expect(p).toContain("Never approve");
 });
 
 test("consider → tick: posts request-changes, persists, reaps", async () => {
@@ -149,6 +150,7 @@ test("timeout with no verdict → error verdict, still reaps", async () => {
   const {
     deps: d,
     reviews,
+    stopped,
     removed,
   } = makeDeps({
     now: () => t,
@@ -160,6 +162,7 @@ test("timeout with no verdict → error verdict, still reaps", async () => {
   t = 1000 + 6000;
   await svc.tick();
   expect(reviews["s1"]?.decision).toBe("error");
+  expect(stopped).toEqual(["rt"]);
   expect(removed).toEqual(["/review-wt"]);
 });
 
@@ -171,4 +174,22 @@ test("comment decision maps to COMMENT and never approves", async () => {
   svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(rec.event).toBe("COMMENT");
+});
+
+test("forget reaps an in-flight critic and drops the stored review", () => {
+  const { deps: d, reviews, stopped, removed } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN); // now in-flight
+  reviews["s1"] = {
+    sessionId: "s1",
+    headSha: "abc",
+    decision: "commented",
+    summary: "",
+    body: "",
+    updatedAt: 1,
+  };
+  svc.forget("s1");
+  expect(stopped).toEqual(["rt"]); // critic terminal reaped
+  expect(removed).toEqual(["/review-wt"]); // worktree removed
+  expect(reviews["s1"]).toBeUndefined(); // stored verdict dropped
 });

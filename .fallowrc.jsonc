@@ -27,7 +27,7 @@
     "ui/vite.config.ts",
     "ui/scripts/**/*.mjs",
     "eslint.config.js",
-    "commitlint.config.js",
+    "commitlint.config.js"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches
@@ -52,7 +52,7 @@
     // deliberately keep parallel copies of shared shapes (PrStatus, MergeMethod,
     // …) because they don't share a build; the duplicate-export reports on those
     // mirrors are intentional.
-    "duplicate-exports": "off",
+    "duplicate-exports": "off"
   },
 
   // Generated / codegen, plus the parallel forge adapters. GiteaForge.prStatus
@@ -66,8 +66,8 @@
       "**/scripts/**",
       "**/build/**",
       "**/src/forge/gitea.ts",
-      "**/src/forge/github.ts",
-    ],
+      "**/src/forge/github.ts"
+    ]
   },
 
   // Cyclomatic/cognitive kept at fallow defaults (20/15) — the codebase sits
@@ -86,7 +86,7 @@
       "**/scripts/**",
       "**/*.test.ts",
       "**/*.spec.ts",
-      "**/*.svelte.test.ts",
-    ],
-  },
+      "**/*.svelte.test.ts"
+    ]
+  }
 }

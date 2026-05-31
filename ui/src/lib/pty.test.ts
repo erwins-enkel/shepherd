@@ -38,6 +38,11 @@ class FakeWs {
     this.readyState = this.CLOSED;
     this.onclose?.({ code });
   }
+  /** server closed us because the agent is gone (session terminated) */
+  gone(code = 4001) {
+    this.readyState = this.CLOSED;
+    this.onclose?.({ code });
+  }
   send(d: string | ArrayBufferLike | ArrayBufferView) {
     this.sent.push(d);
   }
@@ -46,7 +51,7 @@ class FakeWs {
   }
 }
 
-function make(onReconnect = () => {}, onParked = () => {}) {
+function make(onReconnect = () => {}, onParked = () => {}, onEnded = () => {}) {
   FakeWs.instances = [];
   const onData = vi.fn();
   const conn = connectPty(
@@ -56,6 +61,7 @@ function make(onReconnect = () => {}, onParked = () => {}) {
     onData,
     onReconnect,
     onParked,
+    onEnded,
     (path) => new FakeWs(path) as unknown as WebSocket,
   );
   return { conn, onData, last: () => FakeWs.instances[FakeWs.instances.length - 1]! };
@@ -132,6 +138,27 @@ describe("connectPty", () => {
     conn.takeover();
     expect(FakeWs.instances).toHaveLength(2); // new attach → becomes owner again
     expect(last().url).toBe("/pty/abc?cols=100&rows=30");
+  });
+
+  it("ends on a gone close and does NOT reconnect", () => {
+    vi.useFakeTimers();
+    const onEnded = vi.fn();
+    const { conn, last } = make(
+      () => {},
+      () => {},
+      onEnded,
+    );
+    last().open();
+
+    last().gone(); // server says the agent is gone (close code 4001)
+    expect(onEnded).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(5000);
+    expect(FakeWs.instances).toHaveLength(1); // never reconnected — no attach loop
+
+    conn.poke(); // a refocus must not resurrect an ended session
+    expect(FakeWs.instances).toHaveLength(1);
+    vi.useRealTimers();
   });
 
   it("close stops reconnection", () => {

@@ -170,6 +170,11 @@
       () => {
         parked = true;
       },
+      // the session ended (agent gone) — note it in the buffer; the status badge
+      // already flips to "done" via the session:status event
+      () => {
+        term.write("\r\n\x1b[2m── session ended ──\x1b[0m\r\n");
+      },
     );
     conn = c;
     term.onData((d) => c.send(d));

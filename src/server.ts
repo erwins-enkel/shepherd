@@ -308,13 +308,19 @@ export function makeApp(deps: AppDeps) {
 
 type WsData =
   | { kind: "events" }
-  | { kind: "pty"; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
+  | { kind: "pty"; id: string; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
 // it, two devices on the same session ping-pong herdr's --takeover forever.
 // Keep in sync with PTY_SUPERSEDED_CODE in ui/src/lib/pty.ts.
 export const PTY_SUPERSEDED_CODE = 4000;
+
+// A pty WS closed with this code means "this session has ended" — its herdr
+// agent is gone (the user quit claude / ctrl-c'd). The client stops reconnecting
+// and shows an ended state instead of looping on herdr's agent_not_found.
+// Keep in sync with PTY_GONE_CODE in ui/src/lib/pty.ts.
+export const PTY_GONE_CODE = 4001;
 
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
@@ -356,7 +362,7 @@ export function serve(deps: AppDeps, port: number) {
           url.searchParams.get("rows"),
         );
         return server.upgrade(req, {
-          data: { kind: "pty", terminalId: s.herdrAgentId, cols, rows },
+          data: { kind: "pty", id: s.id, terminalId: s.herdrAgentId, cols, rows },
         })
           ? undefined
           : new Response("upgrade failed", { status: 500 });
@@ -371,6 +377,15 @@ export function serve(deps: AppDeps, port: number) {
           );
           (ws.data as any).unsub = unsub;
         } else {
+          // session ended (claude quit / ctrl-c → herdr agent reaped): don't
+          // attach a dead terminal. Attaching would make herdr reply
+          // agent_not_found and the client would reconnect-loop on it. Tell the
+          // client it's gone so it stops and shows an ended state.
+          const cur = deps.store.get(ws.data.id);
+          if (!cur || cur.status === "done" || cur.status === "archived") {
+            ws.close(PTY_GONE_CODE, "ended");
+            return;
+          }
           // single owner per terminal: claim it, then bump the previous owner
           // with a "superseded" close so it parks instead of fighting back.
           const tid = ws.data.terminalId;

@@ -17,6 +17,7 @@ import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
 import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
+import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
@@ -111,6 +112,13 @@ export function makeApp(deps: AppDeps) {
         if (req.method === "GET" && parts[2] && parts[3] === "usage") {
           const s = deps.store.get(parts[2]);
           return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
+        }
+        if (req.method === "GET" && parts[2] && parts[3] === "activity") {
+          const s = deps.store.get(parts[2]);
+          if (!s) return json({ error: "not found" }, 404);
+          // pre-feature session (no pinned id) → no transcript to read
+          const path = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
+          return json(path ? await sessionActivity(path) : []);
         }
         if (req.method === "GET" && parts[2] && !parts[3]) {
           const s = deps.store.get(parts[2]);

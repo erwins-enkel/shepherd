@@ -99,6 +99,13 @@ export interface SessionUsage {
   byModel: Record<string, number>;
 }
 
+export interface ActivityEntry {
+  ts: number;
+  tool: string;
+  summary: string;
+  status: "ok" | "error" | "pending";
+}
+
 export interface LimitWindow {
   pct: number;
   resetAt: number;

@@ -119,6 +119,8 @@
   "viewport_terminal_tab": "Terminal",
   "viewport_todo_tab": "To-Do",
   "viewport_issues_tab": "Issues",
+  "viewport_activity_tab": "Activity",
+  "activity_empty": "No activity yet.",
   "viewport_decommission_title": "stop agent + remove worktree",
   "viewport_confirm_decommission": "confirm ✕",
   "viewport_decommission": "✕ decommission",

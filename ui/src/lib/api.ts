@@ -3,6 +3,7 @@ import type {
   CreateInput,
   RepoEntry,
   Issue,
+  ActivityEntry,
   SessionUsage,
   UsageLimits,
   GitState,
@@ -107,6 +108,12 @@ export async function putTodo(repoPath: string, content: string): Promise<void> 
 export async function getSessionUsage(id: string): Promise<SessionUsage> {
   const r = await fetch(`/api/sessions/${id}/usage`);
   if (!r.ok) throw new Error(`usage failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getActivity(id: string): Promise<ActivityEntry[]> {
+  const r = await fetch(`/api/sessions/${id}/activity`);
+  if (!r.ok) throw new Error(`activity failed: ${r.status}`);
   return r.json();
 }
 

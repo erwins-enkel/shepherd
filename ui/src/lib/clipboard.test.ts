@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { imageFilesFromItems } from "./clipboard";
+import { describe, it, expect, vi } from "vitest";
+import { imageFilesFromItems, handleImagePaste } from "./clipboard";
 
 /** Minimal DataTransferItem stub. */
 function item(kind: string, type: string, file: File | null): DataTransferItem {
@@ -41,5 +41,31 @@ describe("imageFilesFromItems", () => {
   it("handles null/empty clipboard", () => {
     expect(imageFilesFromItems(null)).toEqual([]);
     expect(imageFilesFromItems(list([]))).toEqual([]);
+  });
+});
+
+/** Minimal ClipboardEvent stub carrying the given items. */
+function pasteEvent(items: DataTransferItem[]): ClipboardEvent {
+  return {
+    clipboardData: { items: list(items) },
+    preventDefault: vi.fn(),
+  } as unknown as ClipboardEvent;
+}
+
+describe("handleImagePaste", () => {
+  it("uploads the screenshot and swallows the paste", () => {
+    const e = pasteEvent([item("file", "image/png", png)]);
+    const onImages = vi.fn();
+    expect(handleImagePaste(e, onImages)).toBe(true);
+    expect(onImages).toHaveBeenCalledWith([png]);
+    expect(e.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it("lets a plain-text paste fall through untouched", () => {
+    const e = pasteEvent([item("string", "text/plain", null)]);
+    const onImages = vi.fn();
+    expect(handleImagePaste(e, onImages)).toBe(false);
+    expect(onImages).not.toHaveBeenCalled();
+    expect(e.preventDefault).not.toHaveBeenCalled();
   });
 });

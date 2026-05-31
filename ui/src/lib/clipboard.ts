@@ -17,3 +17,17 @@ export function imageFilesFromItems(items: DataTransferItemList | null | undefin
   }
   return out;
 }
+
+/**
+ * Paste handler shared by the new-task form: if the clipboard carries image
+ * files (Cmd/Ctrl+V of a screenshot), swallow the paste and hand the images to
+ * `onImages`, returning `true`. A plain-text paste carries no image item, so we
+ * leave the event untouched and return `false` — text paste falls through.
+ */
+export function handleImagePaste(e: ClipboardEvent, onImages: (files: File[]) => void): boolean {
+  const imgs = imageFilesFromItems(e.clipboardData?.items);
+  if (imgs.length === 0) return false;
+  e.preventDefault();
+  onImages(imgs);
+  return true;
+}

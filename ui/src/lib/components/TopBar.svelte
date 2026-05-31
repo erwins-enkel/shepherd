@@ -14,6 +14,7 @@
     nowMs,
     connected = false,
     mobile = false,
+    touch = false,
     limits = null,
     onsettings,
     needsYou = 0,
@@ -25,6 +26,7 @@
     nowMs: number;
     connected?: boolean;
     mobile?: boolean;
+    touch?: boolean;
     limits?: UsageLimits | null;
     onsettings?: () => void;
     needsYou?: number;
@@ -59,7 +61,9 @@
 
 <div class="hud bracket" class:mobile>
   <div class="logo">SHEP<b>HERD</b></div>
-  {#if !mobile}
+  {#if !mobile && !touch}
+    <!-- hidden on phones AND unfolded foldables: the label crowds the bar and
+         pushes the gear out on touch layouts narrower than a real desktop -->
     <div class="sep"></div>
     <div class="micro">Mission&nbsp;Control</div>
   {/if}

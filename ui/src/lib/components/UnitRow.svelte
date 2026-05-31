@@ -18,7 +18,7 @@
     git?: GitState;
   } = $props();
 
-  // split "UNIT-07" into the constant stem ("UNIT-") and disambiguating number ("07")
+  // split "TASK-07" into the constant stem ("TASK-") and disambiguating number ("07")
   // so the stem can collapse on a cramped sidebar, leaving the unit name room to breathe
   const desigParts = $derived(session.desig.match(/^(.*?)(\d+)$/));
   const desigStem = $derived(desigParts?.[1] ?? "");
@@ -234,7 +234,7 @@
   }
 
   /* cramped sidebar (compact touch layout, narrow phones): drop the constant
-     "UNIT-" stem and keep just the number, handing the reclaimed width to the
+     "TASK-" stem and keep just the number, handing the reclaimed width to the
      name. The wide desktop sidebar (>=300px) stays above this threshold. */
   @container herd (max-width: 270px) {
     .desig-stem {

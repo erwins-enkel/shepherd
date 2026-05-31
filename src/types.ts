@@ -3,7 +3,7 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
 
 export interface Session {
   id: string;
-  desig: string; // "UNIT-07"
+  desig: string; // "TASK-07"
   name: string;
   prompt: string;
   repoPath: string;

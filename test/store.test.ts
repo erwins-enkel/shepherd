@@ -20,9 +20,9 @@ test("create assigns id, sequential desig, timestamps, default status", () => {
   const s = mk();
   const a = s.create(base);
   expect(a.id).toBeTruthy();
-  expect(a.desig).toBe("UNIT-01");
+  expect(a.desig).toBe("TASK-01");
   expect(a.status).toBe("running");
-  expect(s.create({ ...base, herdrAgentId: "term_2" }).desig).toBe("UNIT-02");
+  expect(s.create({ ...base, herdrAgentId: "term_2" }).desig).toBe("TASK-02");
 });
 
 test("lastUsedByRepo returns max createdAt per repoPath", () => {

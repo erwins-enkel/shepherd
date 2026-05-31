@@ -114,7 +114,7 @@ test("POST /api/sessions creates, GET lists", async () => {
   });
   expect(post.status).toBe(201);
   const created = await post.json();
-  expect(created.desig).toBe("UNIT-01");
+  expect(created.desig).toBe("TASK-01");
 
   const list = await (await app.fetch(new Request("http://x/api/sessions"))).json();
   expect(list.length).toBe(1);

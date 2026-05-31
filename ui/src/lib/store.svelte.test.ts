@@ -13,7 +13,7 @@ const GIT: GitState = {
 function session(id: string): Session {
   return {
     id,
-    desig: "UNIT-01",
+    desig: "TASK-01",
     name: "n",
     prompt: "p",
     repoPath: "/r",

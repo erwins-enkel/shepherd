@@ -4,7 +4,7 @@ import type { Session } from "../src/lib/types";
 
 const s = (id: string, status: any = "running"): Session => ({
   id,
-  desig: "UNIT-01",
+  desig: "TASK-01",
   name: "x",
   prompt: "x",
   repoPath: "/r",

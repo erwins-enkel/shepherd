@@ -5,6 +5,12 @@ import { wsUrl } from "./store.svelte";
 // don't ping-pong the attach. Keep in sync with PTY_SUPERSEDED_CODE in src/server.ts.
 const PTY_SUPERSEDED_CODE = 4000;
 
+// Server closes a pty WS with this code when the session has ended (its herdr
+// agent is gone — the user quit claude / ctrl-c'd). We stop for good instead of
+// reconnecting, which would loop on herdr's agent_not_found. Keep in sync with
+// PTY_GONE_CODE in src/server.ts.
+const PTY_GONE_CODE = 4001;
+
 export interface PtyConn {
   send(data: string): void;
   resize(c: number, r: number): void;
@@ -30,6 +36,9 @@ export function connectPty(
   // fired when the server hands this terminal to another device — caller shows a
   // "take over" affordance instead of fighting for the attach
   onParked: () => void = () => {},
+  // fired when the session has ended (agent gone) — caller shows an ended state;
+  // the connection stops for good and never reconnects
+  onEnded: () => void = () => {},
   makeWs: (path: string) => WebSocket = (p) => new WebSocket(wsUrl(p)),
 ): PtyConn {
   let ws: WebSocket;
@@ -62,6 +71,13 @@ export function connectPty(
       if (e && e.code === PTY_SUPERSEDED_CODE) {
         parked = true;
         onParked();
+        return;
+      }
+      // the session ended (agent gone) → stop for good; reconnecting would just
+      // loop on herdr's agent_not_found
+      if (e && e.code === PTY_GONE_CODE) {
+        stopped = true;
+        onEnded();
         return;
       }
       if (!stopped && !parked && !retry) retry = setTimeout(open, 1000);

@@ -142,6 +142,66 @@ test("re-emits onBlock when the blocked reason changes after the cadence", () =>
   expect((blocks[1]!.block as any).shape).toBe("yes-no");
 });
 
+test("marks a session done and emits once when its herdr agent is gone", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { id: string; status: string }[] = [];
+
+  // herdr no longer lists the agent (claude exited / ctrl-c reaped the terminal)
+  const poller = new StatusPoller(
+    store,
+    { list: () => [] as HerdrAgent[], read: () => "" } as any,
+    (id, status) => emitted.push({ id, status }),
+    () => {},
+  );
+
+  poller.tick();
+  expect(store.get(s.id)?.status).toBe("done");
+  expect(store.get(s.id)?.lastState).toBe("done");
+  expect(emitted).toEqual([{ id: s.id, status: "done" }]);
+
+  poller.tick(); // already done → no duplicate emit
+  expect(emitted.length).toBe(1);
+});
+
+test("clears an active block when the agent disappears", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  let agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "blocked",
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+  let clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "❯ 1. Yes\n  2. No" } as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+
+  poller.tick();
+  expect(blocks).toHaveLength(1); // classified the block
+
+  agents = []; // agent gone
+  clock += 5000;
+  poller.tick();
+  expect(store.get(s.id)?.status).toBe("done");
+  expect(blocks[blocks.length - 1]).toEqual({ id: s.id, block: null }); // block cleared
+});
+
 test("does not emit onBlock when reading the terminal throws", () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);

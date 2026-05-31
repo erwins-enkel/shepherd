@@ -5,7 +5,7 @@ import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
-import { makeApp, serve, type AppDeps } from "../src/server";
+import { makeApp, serve, PTY_GONE_CODE, type AppDeps } from "../src/server";
 import { config } from "../src/config";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
@@ -211,6 +211,38 @@ test("WS /pty/:id with evil Origin → 403", async () => {
       headers: { Origin: "https://evil.com" },
     });
     expect(res.status).toBe(403);
+  } finally {
+    server.stop();
+  }
+});
+
+// ── PTY: terminated session must not attach (would loop on agent_not_found) ────
+
+test("WS /pty/:id for a terminated (done) session closes with PTY_GONE_CODE", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "test",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_dead",
+  });
+  // claude exited / ctrl-c → the poller (or reconcile) has marked it done
+  deps.store.update(session.id, { status: "done", lastState: "done" });
+
+  const server = serve(deps, 0);
+  try {
+    const code = await new Promise<number>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${server.port}/pty/${session.id}`);
+      ws.onclose = (e) => resolve(e.code);
+      ws.onerror = () => {};
+      setTimeout(() => reject(new Error("timed out waiting for close")), 3000);
+    });
+    expect(code).toBe(PTY_GONE_CODE);
   } finally {
     server.stop();
   }

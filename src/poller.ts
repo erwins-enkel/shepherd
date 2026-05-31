@@ -24,7 +24,18 @@ export class StatusPoller {
     for (const s of this.store.list({ activeOnly: true })) {
       activeIds.add(s.id);
       const agent = byTerm.get(s.herdrAgentId);
-      if (!agent) continue;
+      if (!agent) {
+        // the herdr agent is gone (claude exited / user ctrl-c'd the session).
+        // mirror reconcile()'s startup behavior, but live — otherwise the session
+        // stays "running" forever and the pty client keeps re-attaching a dead
+        // terminal (herdr replies agent_not_found in a tight reconnect loop).
+        this.clearBlock(s.id);
+        if (s.status !== "done") {
+          this.store.update(s.id, { status: "done", lastState: "done" });
+          this.onChange(s.id, "done");
+        }
+        continue;
+      }
       const status = mapState(agent.agentStatus);
       if (status !== s.status || agent.agentStatus !== s.lastState) {
         this.store.update(s.id, { status, lastState: agent.agentStatus });

@@ -473,10 +473,7 @@
         class="attach"
         class:failed={uploadFailed}
         title={uploadFailed ? m.viewport_upload_failed() : m.viewport_attach_image()}
-        onpointerdown={(e) => {
-          e.preventDefault();
-          fileInput?.click();
-        }}
+        onclick={() => fileInput?.click()}
         aria-label={m.viewport_attach_image()}
       >
         {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}

@@ -7,6 +7,9 @@ node_modules
 build
 dist
 
+# Transient agent worktrees (nested checkouts; not project source)
+.claude/worktrees
+
 # Agent-generated planning artifacts — leave their formatting alone
 docs/superpowers
 

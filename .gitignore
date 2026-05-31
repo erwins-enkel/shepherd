@@ -11,3 +11,6 @@ dist/
 
 # Planning docs — not part of the shipped app
 /docs/superpowers/
+
+# Transient agent worktrees (Claude Code isolation checkouts)
+/.claude/worktrees/

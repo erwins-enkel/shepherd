@@ -170,7 +170,20 @@ export function makeApp(deps: AppDeps) {
           const body = await req.json().catch(() => null);
           const result = validateCreate(body, config.repoRoot);
           if (!result.ok) return json({ error: result.error }, 400);
-          const s = await deps.service.create(result.value);
+          let s;
+          try {
+            s = await deps.service.create(result.value);
+          } catch (e) {
+            // create shells out to herdr (and git); surface the real reason instead of a
+            // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
+            // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).
+            const msg = e instanceof Error ? e.message : "create failed";
+            const taken = /agent_name_taken/.test(msg);
+            return json(
+              { error: taken ? "task name already in use, retry" : msg },
+              taken ? 409 : 502,
+            );
+          }
           deps.events.emit("session:new", s);
           return json(s, 201);
         }

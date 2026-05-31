@@ -21,6 +21,7 @@ test("reconcile marks sessions whose herdr agent is gone as done", () => {
   reconcile(store, {
     list: () => [
       {
+        name: "",
         terminalId: "term_live",
         agentStatus: "working",
         agent: "claude",

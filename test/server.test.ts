@@ -241,6 +241,7 @@ function herdrWith(...liveTerminalIds: string[]): AppDeps["herdr"] {
         agent: "claude",
         agentStatus: "done",
         cwd: "/wt",
+        name: "",
         paneId: "p",
         tabId: "t",
         terminalId,

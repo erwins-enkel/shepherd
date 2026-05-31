@@ -45,6 +45,9 @@ jobs:
       - name: Typecheck (ui svelte-check)
         run: cd ui && bun run check
 
+      - name: i18n catalog parity (en ↔ de)
+        run: cd ui && bun run check:i18n
+
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.

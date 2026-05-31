@@ -21,6 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Fallow's PR audit diffs against the base branch — needs full history.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -62,3 +65,9 @@ jobs:
 
       - name: Build (ui)
         run: cd ui && bun run build
+
+      - name: Fallow audit (PR delta)
+        # Only new findings introduced by the PR block — inherited issues don't.
+        # Skip on direct pushes to main: there's no base branch to diff against.
+        if: github.event_name == 'pull_request'
+        run: bunx fallow audit --base origin/${{ github.base_ref }} --fail-on-issues

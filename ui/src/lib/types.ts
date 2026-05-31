@@ -32,11 +32,6 @@ export interface Issue {
   url: string;
   labels: string[];
 }
-export interface TodoDoc {
-  exists: boolean;
-  content: string;
-}
-
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {
   label: string;

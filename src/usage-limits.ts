@@ -2,7 +2,7 @@ import type { AccountUsageIndex } from "./usage";
 
 export type WindowKey = "session5h" | "week";
 
-export const PERIOD_MS: Record<WindowKey, number> = {
+const PERIOD_MS: Record<WindowKey, number> = {
   session5h: 5 * 60 * 60 * 1000,
   week: 7 * 24 * 60 * 60 * 1000,
 };

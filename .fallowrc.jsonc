@@ -1,0 +1,92 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+
+  // Two packages, one config (no workspaces field in package.json; fallow still
+  // discovers ui/ as a workspace via its package.json). Entries cover both trees.
+  //
+  //   Root  = Bun server. Real entry is src/index.ts (package.json "main");
+  //           pty-attach.mjs is spawned as a Node subprocess, not imported.
+  //   Tests = run by `bun test ./test` / vitest — genuine roots. Without them
+  //           every test/** file shows up as an "unused file".
+  //   UI    = SvelteKit. The svelte plugin auto-detects routes/app shell, but we
+  //           list them defensively so the report is stable if discovery changes.
+  "entry": [
+    "src/index.ts",
+    "src/pty-attach.mjs",
+    "test/**/*.ts",
+    "test/**/*.mjs",
+    "ui/src/routes/**/+*.ts",
+    "ui/src/routes/**/+*.js",
+    "ui/src/routes/**/+*.svelte",
+    "ui/src/hooks.server.ts",
+    "ui/src/hooks.client.ts",
+    "ui/src/app.d.ts",
+    "ui/src/app.html",
+    "ui/src/app.css",
+    "ui/svelte.config.js",
+    "ui/vite.config.ts",
+    "ui/scripts/**/*.mjs",
+    "eslint.config.js",
+    "commitlint.config.js",
+  ],
+
+  // sw.js is the service worker: never imported statically — the browser fetches
+  // it via navigator.serviceWorker.register("/sw.js") in ui/src/lib/push.ts.
+  "dynamicallyLoaded": ["ui/static/sw.js"],
+
+  // tailwindcss is pulled in through `@import "tailwindcss"` in app.css + the
+  // @tailwindcss/vite plugin, not an ESM import — so fallow sees it as unlisted.
+  // It is build/runtime-provided, not a missing dependency.
+  "ignoreDependencies": ["tailwindcss"],
+
+  "rules": {
+    // OFF — every method fallow flags here (GitForge.openPr, the HerdrDriver
+    // send/read, the *Poller.stop, PtyBridge.write, PushService.subscribe/
+    // unsubscribe, SessionStore.lastUsedByRepo) is concrete polymorphic API
+    // invoked through an interface type or an injected dependency, and is
+    // exercised by tests. Static analysis can't see interface dispatch, so this
+    // is one structural false-positive class, not nine dead members. Fallow's
+    // own note: "may be used via dependency injection".
+    "unused-class-member": "off",
+    // OFF — the server (src/forge/types.ts) and the client (ui/src/lib/types.ts)
+    // deliberately keep parallel copies of shared shapes (PrStatus, MergeMethod,
+    // …) because they don't share a build; the duplicate-export reports on those
+    // mirrors are intentional.
+    "duplicate-exports": "off",
+  },
+
+  // Generated / codegen, plus the parallel forge adapters. GiteaForge.prStatus
+  // and GithubForge.prStatus share a shape but map two unrelated REST APIs and
+  // evolve independently; a shared abstraction would couple Gitea to GitHub.
+  // Kept separate by design (skill §8: parallel impls, not real duplication).
+  "duplicates": {
+    "ignore": [
+      "**/.svelte-kit/**",
+      "**/src/lib/paraglide/**",
+      "**/scripts/**",
+      "**/build/**",
+      "**/src/forge/gitea.ts",
+      "**/src/forge/github.ts",
+    ],
+  },
+
+  // Cyclomatic/cognitive kept at fallow defaults (20/15) — the codebase sits
+  // comfortably under them (see PR body for avg/p90). maxCrap raised to 1000:
+  // CRAP = CC^2*(1-cov)^3 + CC is coverage-driven, and this repo's coverage
+  // ramp-up is deferred, so near-zero coverage would push every moderately
+  // branchy function past the default 30 while saying nothing about readability.
+  // Revisit once a coverage target lands. Generated paraglide, build scripts and
+  // test files are excluded from complexity scoring.
+  "health": {
+    "maxCyclomatic": 20,
+    "maxCognitive": 15,
+    "maxCrap": 1000,
+    "ignore": [
+      "**/src/lib/paraglide/**",
+      "**/scripts/**",
+      "**/*.test.ts",
+      "**/*.spec.ts",
+      "**/*.svelte.test.ts",
+    ],
+  },
+}

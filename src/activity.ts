@@ -27,37 +27,30 @@ function host(url: unknown): string {
   }
 }
 
+type Summarizer = (input: Record<string, unknown>) => string;
+
+/** Per-tool summary renderers; one shared renderer aliased across equivalent tools. */
+const SUMMARIZERS: Record<string, Summarizer> = {
+  Edit: (i) => `edited ${basename(i.file_path ?? i.notebook_path)}`,
+  MultiEdit: (i) => `edited ${basename(i.file_path ?? i.notebook_path)}`,
+  NotebookEdit: (i) => `edited ${basename(i.file_path ?? i.notebook_path)}`,
+  Write: (i) => `wrote ${basename(i.file_path)}`,
+  Read: (i) => `read ${basename(i.file_path)}`,
+  Bash: (i) => `$ ${truncate(String(i.command ?? ""), CMD_MAX)}`,
+  Grep: (i) => `searched "${i.pattern ?? ""}"`,
+  Glob: (i) => `globbed ${i.pattern ?? ""}`,
+  Task: (i) => `dispatched ${i.subagent_type ?? "agent"}`,
+  Agent: (i) => `dispatched ${i.subagent_type ?? "agent"}`,
+  Skill: (i) => `skill ${i.skill ?? ""}`,
+  TodoWrite: () => "updated todos",
+  WebFetch: (i) => `fetched ${host(i.url)}`,
+  WebSearch: (i) => `web search "${i.query ?? ""}"`,
+};
+
 /** Render a tool_use block into a compact human summary line. */
 function summarize(tool: string, input: Record<string, unknown>): string {
-  switch (tool) {
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return `edited ${basename(input.file_path ?? input.notebook_path)}`;
-    case "Write":
-      return `wrote ${basename(input.file_path)}`;
-    case "Read":
-      return `read ${basename(input.file_path)}`;
-    case "Bash":
-      return `$ ${truncate(String(input.command ?? ""), CMD_MAX)}`;
-    case "Grep":
-      return `searched "${input.pattern ?? ""}"`;
-    case "Glob":
-      return `globbed ${input.pattern ?? ""}`;
-    case "Task":
-    case "Agent":
-      return `dispatched ${input.subagent_type ?? "agent"}`;
-    case "Skill":
-      return `skill ${input.skill ?? ""}`;
-    case "TodoWrite":
-      return "updated todos";
-    case "WebFetch":
-      return `fetched ${host(input.url)}`;
-    case "WebSearch":
-      return `web search "${input.query ?? ""}"`;
-    default:
-      return tool.toLowerCase();
-  }
+  const fn = SUMMARIZERS[tool];
+  return fn ? fn(input) : tool.toLowerCase();
 }
 
 interface Block {
@@ -69,13 +62,14 @@ interface Block {
   is_error?: boolean;
 }
 
-/**
- * Parse a JSONL transcript into a chronological list of tool-use activity entries,
- * pairing each tool_use with its tool_result for status. Returns the most-recent
- * `limit` entries (oldest→newest). Malformed lines are skipped.
- */
-export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
-  const records: { o: any; blocks: Block[] }[] = [];
+interface ParsedRecord {
+  o: any;
+  blocks: Block[];
+}
+
+/** Parse JSONL lines, keeping only records whose message content is a block array. */
+function parseRecords(text: string): ParsedRecord[] {
+  const records: ParsedRecord[] = [];
   for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t) continue;
@@ -88,8 +82,11 @@ export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntr
     const blocks = o?.message?.content;
     if (Array.isArray(blocks)) records.push({ o, blocks });
   }
+  return records;
+}
 
-  // pass 1: map tool_use_id → is_error from every tool_result block
+/** Map tool_use_id → is_error from every tool_result block (pass 1). */
+function collectErrors(records: ParsedRecord[]): Map<string, boolean> {
   const errored = new Map<string, boolean>();
   for (const { blocks } of records) {
     for (const b of blocks) {
@@ -98,23 +95,39 @@ export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntr
       }
     }
   }
+  return errored;
+}
 
-  // pass 2: collect tool_use blocks in order, attaching paired status
+/** Resolve a tool_use's status from the paired tool_result error map. */
+function resolveStatus(errored: Map<string, boolean>, id: string): ActivityEntry["status"] {
+  if (!errored.has(id)) return "pending";
+  return errored.get(id) ? "error" : "ok";
+}
+
+/** Build ordered tool-use entries, attaching paired status (pass 2). */
+function collectEntries(records: ParsedRecord[], errored: Map<string, boolean>): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const { o, blocks } of records) {
     const ts = Date.parse(o?.timestamp) || 0;
     for (const b of blocks) {
       if (b?.type !== "tool_use" || typeof b.name !== "string") continue;
       const id = typeof b.id === "string" ? b.id : "";
-      const status: ActivityEntry["status"] = !errored.has(id)
-        ? "pending"
-        : errored.get(id)
-          ? "error"
-          : "ok";
+      const status = resolveStatus(errored, id);
       entries.push({ ts, tool: b.name, summary: summarize(b.name, b.input ?? {}), status });
     }
   }
+  return entries;
+}
 
+/**
+ * Parse a JSONL transcript into a chronological list of tool-use activity entries,
+ * pairing each tool_use with its tool_result for status. Returns the most-recent
+ * `limit` entries (oldest→newest). Malformed lines are skipped.
+ */
+export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
+  const records = parseRecords(text);
+  const errored = collectErrors(records);
+  const entries = collectEntries(records, errored);
   return limit >= 0 ? entries.slice(-limit) : entries;
 }
 

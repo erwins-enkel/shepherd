@@ -6,7 +6,7 @@
 export const ITEM_RE = /^(\s*)-\s\[( |x|X)\]\s+(.*)$/;
 const DONE_HEADING_RE = /^#{1,6}\s+done\b/i;
 
-export function isItem(line: string): boolean {
+function isItem(line: string): boolean {
   return ITEM_RE.test(line);
 }
 

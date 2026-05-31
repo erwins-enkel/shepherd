@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
-import { mapState, type HerdrDriver } from "./herdr";
+import { mapState, type HerdrDriver, type HerdrAgent } from "./herdr";
 import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
 import { isStalled, readSnapshot, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
@@ -35,28 +35,40 @@ export class StatusPoller {
     for (const s of this.store.list({ activeOnly: true })) {
       activeIds.add(s.id);
       const agent = byTerm.get(s.herdrAgentId);
-      if (!agent) {
-        // the herdr agent is gone (claude exited / user ctrl-c'd the session).
-        // mirror reconcile()'s startup behavior, but live — otherwise the session
-        // stays "running" forever and the pty client keeps re-attaching a dead
-        // terminal (herdr replies agent_not_found in a tight reconnect loop).
-        this.clearBlock(s.id);
-        if (s.status !== "done") {
-          this.store.update(s.id, { status: "done", lastState: "done" });
-          this.onChange(s.id, "done");
-        }
-        continue;
-      }
-      const status = mapState(agent.agentStatus);
-      if (status !== s.status || agent.agentStatus !== s.lastState) {
-        this.store.update(s.id, { status, lastState: agent.agentStatus });
-        this.onChange(s.id, status);
-      }
-      if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
-      else if (status === "running") this.maybeStall(s);
-      else this.clearBlock(s.id);
+      if (!agent) this.reapGone(s);
+      else this.reconcileAgent(s, agent);
     }
-    // prune tracking state for sessions no longer active (archived/removed)
+    this.pruneInactive(activeIds);
+  }
+
+  /**
+   * The herdr agent is gone (claude exited / user ctrl-c'd the session).
+   * Mirror reconcile()'s startup behavior, but live — otherwise the session
+   * stays "running" forever and the pty client keeps re-attaching a dead
+   * terminal (herdr replies agent_not_found in a tight reconnect loop).
+   */
+  private reapGone(s: Session): void {
+    this.clearBlock(s.id);
+    if (s.status !== "done") {
+      this.store.update(s.id, { status: "done", lastState: "done" });
+      this.onChange(s.id, "done");
+    }
+  }
+
+  /** Sync a live agent's status into the store and route its block/stall handling. */
+  private reconcileAgent(s: Session, agent: HerdrAgent): void {
+    const status = mapState(agent.agentStatus);
+    if (status !== s.status || agent.agentStatus !== s.lastState) {
+      this.store.update(s.id, { status, lastState: agent.agentStatus });
+      this.onChange(s.id, status);
+    }
+    if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
+    else if (status === "running") this.maybeStall(s);
+    else this.clearBlock(s.id);
+  }
+
+  /** Prune tracking state for sessions no longer active (archived/removed). */
+  private pruneInactive(activeIds: Set<string>): void {
     for (const id of this.lastSig.keys()) {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);

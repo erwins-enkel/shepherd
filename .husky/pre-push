@@ -41,4 +41,13 @@ echo "→ ui tests"
 echo "→ ui build"
 (cd ui && bun run build)
 
+# Delta audit vs the merge base — only new dead-code/complexity/dupes block.
+# Skipped when origin/main is unavailable (e.g. offline) so a push isn't wedged.
+if git rev-parse --verify --quiet origin/main >/dev/null; then
+  echo "→ fallow audit (delta vs origin/main)"
+  bunx fallow audit --base origin/main --fail-on-issues
+else
+  echo "→ fallow audit skipped (origin/main not available)"
+fi
+
 echo "✓ pre-push passed"

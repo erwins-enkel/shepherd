@@ -21,6 +21,97 @@ const err = (error: string): Err => ({ ok: false, error });
 const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
 const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "images"]);
 
+/** A field-validation helper either fails with an error or yields a parsed value. */
+type FieldErr = { ok: false; error: string };
+type FieldOk<T> = { ok: true; value: T };
+type Field<T> = FieldOk<T> | FieldErr;
+
+const field = <T>(value: T): FieldOk<T> => ({ ok: true, value });
+
+/** prompt — required non-empty string, trimmed, ≤ 8000 chars. */
+function validatePrompt(value: unknown): Field<string> {
+  if (typeof value !== "string") return err("prompt must be a string");
+  const prompt = value.trim();
+  if (prompt.length === 0) return err("prompt must not be empty");
+  if (prompt.length > 8000) return err("prompt must be ≤ 8000 chars");
+  return field(prompt);
+}
+
+/** baseBranch — required string matching the safe branch pattern. */
+function validateBaseBranch(value: unknown): Field<string> {
+  if (typeof value !== "string") return err("baseBranch must be a string");
+  if (!BRANCH_RE.test(value)) return err("baseBranch contains invalid characters");
+  return field(value);
+}
+
+/** model — optional; absent/null/"default" → null (claude's own default, no --model flag). */
+function validateModel(value: unknown): Field<string | null> {
+  if (value == null || value === "default") return field(null);
+  if (typeof value !== "string") return err("model must be a string");
+  if (!(MODELS as readonly string[]).includes(value)) return err("unknown model");
+  return field(value);
+}
+
+/** repoPath — required non-empty string, confined to repoRoot, existing directory. */
+function validateRepoPath(value: unknown, root: string): Field<string> {
+  if (typeof value !== "string" || value.length === 0) {
+    return err("repoPath must be a non-empty string");
+  }
+  const resolved = resolve(expandHome(value));
+  const inside = resolved === root || resolved.startsWith(root + sep);
+  if (!inside) return err("repoPath must be inside the configured repoRoot");
+  try {
+    if (!statSync(resolved).isDirectory()) return err("repoPath must be a directory");
+  } catch {
+    return err("repoPath does not exist");
+  }
+  return field(resolved);
+}
+
+/** A single image entry — must resolve inside the staging dir and be a file. */
+function validateImageEntry(it: unknown, stagingReal: string): Field<string> {
+  if (typeof it !== "string") return err("each image must be a string path");
+  let real: string;
+  try {
+    real = realpathSync(resolve(it));
+  } catch {
+    return err("image does not exist");
+  }
+  const inside = real === stagingReal || real.startsWith(stagingReal + sep);
+  if (!inside) return err("image must be inside the staging dir");
+  try {
+    if (!statSync(real).isFile()) return err("image must be a file");
+  } catch {
+    return err("image does not exist");
+  }
+  return field(real);
+}
+
+/** images — optional array of staged upload paths, confined to the staging dir. */
+function validateImages(value: unknown, root: string): Field<string[]> {
+  const images: string[] = [];
+  if (value == null) return field(images);
+  if (!Array.isArray(value)) return err("images must be an array");
+  if (value.length > 10) return err("images must be ≤ 10 entries");
+  // an empty list needs no confinement — don't require a staging dir to exist
+  // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
+  if (value.length === 0) return field(images);
+
+  let stagingReal: string;
+  try {
+    stagingReal = realpathSync(stagingDir(root));
+  } catch {
+    return err("no staged uploads exist");
+  }
+  for (const it of value) {
+    const entry = validateImageEntry(it, stagingReal);
+    if (!entry.ok) return entry;
+    images.push(entry.value);
+  }
+  if (new Set(images).size !== images.length) return err("duplicate image paths");
+  return field(images);
+}
+
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
 export function validateCreate(body: unknown, repoRoot: string): Result {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -32,78 +123,31 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
     if (!ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
 
-  // prompt
-  if (typeof obj.prompt !== "string") return err("prompt must be a string");
-  const prompt = obj.prompt.trim();
-  if (prompt.length === 0) return err("prompt must not be empty");
-  if (prompt.length > 8000) return err("prompt must be ≤ 8000 chars");
+  const prompt = validatePrompt(obj.prompt);
+  if (!prompt.ok) return prompt;
 
-  // baseBranch
-  if (typeof obj.baseBranch !== "string") return err("baseBranch must be a string");
-  if (!BRANCH_RE.test(obj.baseBranch)) return err("baseBranch contains invalid characters");
+  const baseBranch = validateBaseBranch(obj.baseBranch);
+  if (!baseBranch.ok) return baseBranch;
 
-  // model — optional; absent/null/"default" → null (claude's own default, no --model flag)
-  let model: string | null = null;
-  if (obj.model != null && obj.model !== "default") {
-    if (typeof obj.model !== "string") return err("model must be a string");
-    if (!(MODELS as readonly string[]).includes(obj.model)) return err("unknown model");
-    model = obj.model;
-  }
+  const model = validateModel(obj.model);
+  if (!model.ok) return model;
 
-  // repoPath
-  if (typeof obj.repoPath !== "string" || obj.repoPath.length === 0) {
-    return err("repoPath must be a non-empty string");
-  }
-  const resolved = resolve(expandHome(obj.repoPath));
   const root = resolve(expandHome(repoRoot));
-  const inside = resolved === root || resolved.startsWith(root + sep);
-  if (!inside) return err("repoPath must be inside the configured repoRoot");
+  const repoPath = validateRepoPath(obj.repoPath, root);
+  if (!repoPath.ok) return repoPath;
 
-  try {
-    const stat = statSync(resolved);
-    if (!stat.isDirectory()) return err("repoPath must be a directory");
-  } catch {
-    return err("repoPath does not exist");
-  }
-
-  // images — optional array of staged upload paths, confined to the staging dir
-  const images: string[] = [];
-  if (obj.images != null) {
-    if (!Array.isArray(obj.images)) return err("images must be an array");
-    if (obj.images.length > 10) return err("images must be ≤ 10 entries");
-    // an empty list needs no confinement — don't require a staging dir to exist
-    // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
-    if (obj.images.length > 0) {
-      let stagingReal: string;
-      try {
-        stagingReal = realpathSync(stagingDir(root));
-      } catch {
-        return err("no staged uploads exist");
-      }
-      for (const it of obj.images) {
-        if (typeof it !== "string") return err("each image must be a string path");
-        let real: string;
-        try {
-          real = realpathSync(resolve(it));
-        } catch {
-          return err("image does not exist");
-        }
-        const inside = real === stagingReal || real.startsWith(stagingReal + sep);
-        if (!inside) return err("image must be inside the staging dir");
-        try {
-          if (!statSync(real).isFile()) return err("image must be a file");
-        } catch {
-          return err("image does not exist");
-        }
-        images.push(real);
-      }
-      if (new Set(images).size !== images.length) return err("duplicate image paths");
-    }
-  }
+  const images = validateImages(obj.images, root);
+  if (!images.ok) return images;
 
   return {
     ok: true,
-    value: { repoPath: resolved, baseBranch: obj.baseBranch, prompt, model, images },
+    value: {
+      repoPath: repoPath.value,
+      baseBranch: baseBranch.value,
+      prompt: prompt.value,
+      model: model.value,
+      images: images.value,
+    },
   };
 }
 
@@ -183,20 +227,27 @@ const STEER_LABEL_MAX = 60;
 const STEER_TEXT_MAX = 4000;
 const STEER_MAX = 40;
 
+/** Validate + normalize a single steer item. Returns null on any violation. */
+function validateSteerItem(it: unknown): Steer | null {
+  if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+  const o = it as Record<string, unknown>;
+  if (typeof o.label !== "string" || typeof o.text !== "string") return null;
+  const label = o.label.trim();
+  const text = o.text.trim();
+  if (label.length === 0 || label.length > STEER_LABEL_MAX) return null;
+  if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
+  const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
+  return { id, label, text };
+}
+
 /** Validate + normalize a PUT /api/steers payload. Returns null on any violation. */
 export function validateSteers(body: unknown): Steer[] | null {
   if (!Array.isArray(body) || body.length > STEER_MAX) return null;
   const out: Steer[] = [];
   for (const it of body) {
-    if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
-    const o = it as Record<string, unknown>;
-    if (typeof o.label !== "string" || typeof o.text !== "string") return null;
-    const label = o.label.trim();
-    const text = o.text.trim();
-    if (label.length === 0 || label.length > STEER_LABEL_MAX) return null;
-    if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
-    const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
-    out.push({ id, label, text });
+    const item = validateSteerItem(it);
+    if (item === null) return null;
+    out.push(item);
   }
   return out;
 }

@@ -32,7 +32,15 @@ export async function createSession(input: CreateInput): Promise<Session> {
     headers: JSON_HEADERS,
     body: JSON.stringify(input),
   });
-  if (!r.ok) throw new Error(`create failed: ${r.status}`);
+  if (!r.ok) {
+    // server sends {error} for create failures; prefer it over the bare status code
+    const detail = await r
+      .clone()
+      .json()
+      .then((b) => (b as { error?: string })?.error)
+      .catch(() => null);
+    throw new Error(detail ?? `create failed: ${r.status}`);
+  }
   return r.json();
 }
 

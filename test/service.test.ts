@@ -59,6 +59,73 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+test("createSession: suffixes the name when herdr already runs an agent with it", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    // namer is deterministic, so a resubmitted prompt collides with a live agent's name
+    namer: async () => "koennen-wir-schon",
+    worktree: {
+      create: (_repo: string, _base: string, name: string) => {
+        calls.wtName = name;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string) => {
+        calls.startName = name;
+        return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
+      },
+      // koennen-wir-schon is taken; koennen-wir-schon-2 is free
+      list: () => [{ name: "koennen-wir-schon" }, { name: "other" }],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "Können wir schon ...",
+    model: null,
+    images: [],
+  });
+  // worktree, branch, agent name all share the deduped name — no collision
+  expect(s.name).toBe("koennen-wir-schon-2");
+  expect(calls.wtName).toBe("koennen-wir-schon-2");
+  expect(calls.startName).toBe("koennen-wir-schon-2");
+  expect(s.branch).toBe("shepherd/koennen-wir-schon-2");
+});
+
+test("createSession: keeps the base name when no agent holds it", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "fresh-name",
+    worktree: {
+      create: (_r: string, _b: string, name: string) => ({
+        worktreePath: `/wt/${name}`,
+        branch: `shepherd/${name}`,
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "term_z", cwd: "/wt/fresh-name", agentStatus: "working" }),
+      list: () => [{ name: "something-else" }, { name: "" }],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do a fresh thing",
+    model: null,
+    images: [],
+  });
+  expect(s.name).toBe("fresh-name");
+});
+
 test("createSession: passes --model and persists it when a model is chosen", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

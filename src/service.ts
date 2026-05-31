@@ -19,7 +19,7 @@ export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
   async create(input: CreateSessionInput): Promise<Session> {
-    const name = await this.deps.namer(input.prompt);
+    const name = this.uniqueName(await this.deps.namer(input.prompt));
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
     const claudeSessionId = randomUUID();
 
@@ -47,6 +47,27 @@ export class SessionService {
       claudeSessionId,
       model: input.model,
     });
+  }
+
+  /**
+   * Derive a herdr-unique agent name from `base`. The namer maps a prompt to a name
+   * deterministically, so resubmitting a similar prompt yields the same base — and herdr
+   * rejects a second agent with a name already in use (`agent_name_taken`), which would
+   * otherwise surface as an opaque create 500. Suffixing past live agents avoids the clash;
+   * the chosen name also drives the worktree path and branch, so they stay collision-free too.
+   */
+  private uniqueName(base: string): string {
+    const taken = new Set(
+      this.deps.herdr
+        .list()
+        .map((a) => a.name)
+        .filter(Boolean),
+    );
+    if (!taken.has(base)) return base;
+    for (let i = 2; ; i++) {
+      const candidate = `${base}-${i}`;
+      if (!taken.has(candidate)) return candidate;
+    }
   }
 
   /** Type a reply into a session's live PTY (human-style steer). Returns false if unknown. */

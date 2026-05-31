@@ -6,6 +6,8 @@ export interface HerdrAgent {
   agent: string;
   agentStatus: HerdrState;
   cwd: string;
+  /** herdr's unique agent name (empty for manually-started agents that have none). */
+  name: string;
   paneId: string;
   tabId: string;
   terminalId: string;
@@ -39,6 +41,7 @@ export class HerdrDriver {
       agent: a.agent ?? "",
       agentStatus: (a.agent_status ?? "unknown") as HerdrState,
       cwd: a.cwd,
+      name: a.name ?? "",
       paneId: a.pane_id,
       tabId: a.tab_id,
       terminalId: a.terminal_id,

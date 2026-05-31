@@ -9,6 +9,7 @@ const FIXTURE = JSON.stringify({
         agent: "claude",
         agent_status: "working",
         cwd: "/wt/a",
+        name: "flatten",
         pane_id: "p1",
         tab_id: "t1",
         terminal_id: "term_a",
@@ -40,6 +41,13 @@ const TAB_CREATE = JSON.stringify({
     tab: { tab_id: "t_new", workspace_id: "w1" },
     root_pane: { pane_id: "p_root", tab_id: "t_new", terminal_id: "term_root" },
   },
+});
+
+test("list surfaces the agent name (empty when herdr omits it)", () => {
+  const d = new HerdrDriver(() => FIXTURE);
+  const a = d.list();
+  expect(a[0]!.name).toBe("flatten");
+  expect(a[1]!.name).toBe(""); // second fixture agent has no name field
 });
 
 test("start gives each agent its own full-width tab, not a shared split pane", () => {

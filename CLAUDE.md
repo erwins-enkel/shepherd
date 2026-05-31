@@ -13,6 +13,16 @@ Shepherd worktrees start without `node_modules`. Install per package before lint
 
 Run both halves when a change spans server + UI.
 
+## Branch hygiene (one feature, linear off main)
+
+Every PR branch must be cut from the **latest `main`** and kept **linear**:
+
+- Branch from `origin/main` — never from another feature branch or a shared "dev-integration" branch.
+- **Rebase** onto main to update; never `git merge main` into your branch (no merge commits).
+- One feature per branch — only this change's commits.
+
+A branch that merges other branches drags their commits + a bloated diff into the PR. The gate `scripts/check-branch-hygiene.sh` fails any branch with merge commits relative to main; it runs in the **PR hygiene** CI workflow and the pre-push hook. To fix a polluted branch, re-create it off main with just your change (`git checkout -b <branch> origin/main` then cherry-pick / `rebase --onto origin/main`).
+
 ## Internationalization (REQUIRED for any UI work)
 
 The UI is fully internationalized with Paraglide JS (EN + DE). **Never hardcode user-facing text.** Every display string — labels, buttons, placeholders, `title`/`aria-label`, empty/error/loading states, toast text, and **server-side notification payloads** — must route through a message:

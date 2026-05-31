@@ -1,0 +1,21 @@
+name: PR hygiene
+
+# Reject PRs whose branch isn't a clean, linear rebase off main (the
+# dev-integration pattern: a branch cut from a base that merged other feature
+# branches drags their commits + a bloated diff into the PR).
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  branch-hygiene:
+    name: branch hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head (the real branch tip, not the merge ref)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: No merge commits / linear off main
+        run: bash scripts/check-branch-hygiene.sh

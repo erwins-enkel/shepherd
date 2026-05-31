@@ -16,6 +16,7 @@ import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
+import { UpdateService } from "./update";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -73,11 +74,25 @@ const calibrate = async () => {
 setTimeout(calibrate, 3_000);
 setInterval(calibrate, 24 * 60 * 60 * 1000);
 
+// watch origin/main for new commits and push the result to clients; the badge in
+// the UI keys off `behind > 0`, so it only appears when main has moved ahead.
+const updates = new UpdateService();
+const checkUpdates = () => events.emit("update:status", updates.check(Date.now()));
+setTimeout(checkUpdates, 3_000);
+setInterval(checkUpdates, 5 * 60 * 1000);
+
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
 const server = serve(
-  { store, service, events, usageLimits, resolveForge: (dir) => detectForge(dir, config.forges) },
+  {
+    store,
+    service,
+    events,
+    usageLimits,
+    updates,
+    resolveForge: (dir) => detectForge(dir, config.forges),
+  },
   config.port,
 );
 console.log(`shepherd core on http://localhost:${server.port}`);

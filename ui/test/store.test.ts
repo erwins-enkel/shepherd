@@ -75,3 +75,35 @@ test("clears block state when the session is archived", () => {
   store.apply({ event: "session:archived", data: { id: "s1" } });
   expect(store.blocks["s1"]).toBeUndefined();
 });
+
+const upd = (behind: number, current: string, latest = current) => ({
+  behind,
+  current,
+  latest,
+  commits: behind ? [{ sha: latest, subject: "feat: x" }] : [],
+  checkedAt: 0,
+});
+
+test("applies update:status", () => {
+  const store = new HerdStore();
+  expect(store.update).toBeNull();
+  store.apply({ event: "update:status", data: upd(2, "aaa", "bbb") });
+  expect(store.update?.behind).toBe(2);
+  expect(store.update?.latest).toBe("bbb");
+});
+
+test("update without a confirmed apply just stores (no reload)", () => {
+  const store = new HerdStore();
+  store.apply({ event: "update:status", data: upd(0, "aaa") }); // pins running version
+  store.apply({ event: "update:status", data: upd(1, "aaa", "bbb") });
+  // a different `current` arrives but we never confirmed → still just stored, no throw
+  store.apply({ event: "update:status", data: upd(0, "bbb") });
+  expect(store.update?.current).toBe("bbb");
+  expect(store.updating).toBe(false);
+});
+
+test("beginUpdate marks the store as updating", () => {
+  const store = new HerdStore();
+  store.beginUpdate();
+  expect(store.updating).toBe(true);
+});

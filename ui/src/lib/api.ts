@@ -10,6 +10,7 @@ import type {
   MergeMethod,
   Settings,
   DirListing,
+  UpdateStatus,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -165,6 +166,22 @@ export async function mergePr(
   body?: { method?: MergeMethod; deleteBranch?: boolean },
 ): Promise<PrStatus> {
   return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
+}
+
+/** Current self-update status (how far the running checkout is behind main). */
+export async function getUpdate(): Promise<UpdateStatus> {
+  const r = await fetch("/api/update");
+  if (!r.ok) throw new Error(`update status failed: ${r.status}`);
+  return r.json();
+}
+
+/** Trigger the deploy script (pull → rebuild → restart). Server restarts on success. */
+export async function applyUpdate(): Promise<void> {
+  const r = await fetch("/api/update", { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
 }
 
 export async function redeploy(id: string): Promise<void> {

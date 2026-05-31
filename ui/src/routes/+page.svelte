@@ -8,6 +8,7 @@
     archiveSession,
     getUsageLimits,
     replySession,
+    getUpdate,
   } from "$lib/api";
   import { sortBlocked } from "$lib/triage";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -18,12 +19,14 @@
   import Settings from "$lib/components/Settings.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
+  import UpdateModal from "$lib/components/UpdateModal.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
   let showSettings = $state(false);
   let showTriage = $state(false);
+  let showUpdate = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
@@ -59,6 +62,9 @@
       .catch(() => {});
     getUsageLimits()
       .then((l) => store.setUsageLimits(l))
+      .catch(() => {});
+    getUpdate()
+      .then((u) => store.setUpdate(u))
       .catch(() => {});
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
@@ -99,6 +105,8 @@
     onsettings={() => (showSettings = true)}
     needsYou={blockedEntries.length}
     ontriage={() => (showTriage = true)}
+    update={store.update}
+    onupdate={() => (showUpdate = true)}
   />
 
   {#if mobile.current}
@@ -171,6 +179,15 @@
     />
   {/if}
 </div>
+
+{#if showUpdate && store.update && store.update.behind > 0}
+  <UpdateModal
+    update={store.update}
+    updating={store.updating}
+    onconfirm={() => store.beginUpdate()}
+    onclose={() => (showUpdate = false)}
+  />
+{/if}
 
 {#if showNew}
   <NewTask

@@ -10,7 +10,7 @@ export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<WorktreeMgr, "create" | "remove">;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send">;
-  namer: (prompt: string) => Promise<string>;
+  namer: (prompt: string) => string | Promise<string>;
   /** Inject point for tests; defaults to the real fs move. */
   moveUploads?: (images: string[], worktreePath: string) => string[];
 }

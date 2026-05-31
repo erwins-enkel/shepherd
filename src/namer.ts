@@ -1,13 +1,3 @@
-import { config } from "./config";
-
-/** Result of naming a prompt. `source` lets callers/telemetry tell an AI-picked
- *  name apart from the heuristic fallback (used when Ollama is down or the model
- *  is missing) — the UI surfaces "fallback" so silent degradation is visible. */
-export interface NameResult {
-  name: string;
-  source: "ai" | "fallback";
-}
-
 // Map the accented letters German (and a few neighbours) prompts carry onto their
 // ASCII transliteration BEFORE we strip non-alphanumerics — otherwise "würde"
 // becomes the unreadable "w-rde" instead of "wuerde".
@@ -173,7 +163,6 @@ const STOPWORDS = new Set([
   "of",
   "to",
   "from",
-  "in",
   "on",
   "at",
   "by",
@@ -215,22 +204,18 @@ const STOPWORDS = new Set([
   "must",
   "just",
   "please",
-  "also",
   "not",
   "no",
   "then",
   "if",
   "as",
-  "so",
   "some",
   "only",
-  "here",
   "there",
   "now",
   "make",
   "add",
   "fix",
-  "please",
 ]);
 
 function transliterate(s: string): string {
@@ -255,33 +240,12 @@ export function normalize(s: string): string {
   return (meaningful.length ? meaningful : words).slice(0, 2).join("-");
 }
 
-const PROMPT = (p: string) =>
-  `Give a 1-2 word kebab-case slug naming the CORE TOPIC of this request. ` +
-  `Lowercase, no filler words, no punctuation, reply with ONLY the slug.\nRequest: ${p}`;
-
-export async function generateName(
-  prompt: string,
-  opts?: { model?: string; endpoint?: string; fetchImpl?: typeof fetch },
-): Promise<NameResult> {
-  const f = opts?.fetchImpl ?? fetch;
-  try {
-    const res = await f(opts?.endpoint ?? config.ollamaEndpoint, {
-      method: "POST",
-      body: JSON.stringify({
-        model: opts?.model ?? config.ollamaModel,
-        prompt: PROMPT(prompt),
-        stream: false,
-      }),
-    });
-    // a missing model returns 404 {error}; treat any non-2xx or error payload as
-    // "AI unavailable" so we fall through to the heuristic rather than naming a task "".
-    if (!res.ok) throw new Error(`ollama ${res.status}`);
-    const data = (await res.json()) as { response?: string; error?: string };
-    if (data.error) throw new Error(data.error);
-    const ai = normalize(data.response ?? "");
-    if (ai) return { name: ai, source: "ai" };
-  } catch {
-    /* fall through to heuristic */
-  }
-  return { name: normalize(prompt) || "task", source: "fallback" };
+/**
+ * Derive a session name from a task prompt. Pure and deterministic — no network,
+ * no local model. The salient words of a task prompt are already in the prompt,
+ * so a heuristic slug matches or beats a local LLM for a 1–2 word name
+ * (benchmarked in PR #83) without the RAM/latency cost.
+ */
+export function generateName(prompt: string): string {
+  return normalize(prompt) || "task";
 }

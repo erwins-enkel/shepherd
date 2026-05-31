@@ -42,7 +42,7 @@ const service = new SessionService({
   store,
   worktree,
   herdr,
-  namer: (p) => generateName(p).then((r) => r.name),
+  namer: generateName,
 });
 
 const accountIndex = new AccountUsageIndex();

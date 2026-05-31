@@ -1,51 +1,33 @@
 import { test, expect } from "bun:test";
 import { generateName, normalize } from "../src/namer";
 
-test("normalize → lowercase kebab, keeps first 2 meaningful words", () => {
+test("normalize → lowercase kebab, max 2 topical words", () => {
   expect(normalize("Flatten-Repo-Button-Addition Extra")).toBe("flatten-repo");
-  expect(normalize("  Make a FAVICON!! ")).toBe("favicon"); // "make"/"a" are filler
+  expect(normalize("Add status lights to cards")).toBe("status-lights");
 });
 
-test("normalize drops filler and keeps the topic", () => {
-  // the motivating case: a conversational German prompt → its core, not its opening
-  expect(normalize("Mist. Scrollen mit dem Mausrad im Terminal geht nicht")).toBe(
-    "scrollen-mausrad",
-  );
+test("normalize transliterates umlauts before slugging", () => {
+  // umlauts in topical words survive as readable ascii ("w-rde" would be the bug)
+  expect(normalize("Größe ändern")).toBe("groesse-aendern");
+  // transliteration runs BEFORE the stopword lookup: "würde" → "wuerde" matches
+  // the ascii stopword and is dropped, leaving the one topical word.
+  expect(normalize("Ich würde gerne scrollen")).toBe("scrollen");
 });
 
-test("normalize transliterates umlauts instead of destroying them", () => {
-  expect(normalize("Türgriffe übernehmen")).toBe("tuergriffe-uebernehmen");
-  expect(normalize("Größe anpassen")).toBe("groesse-anpassen");
+test("normalize drops filler words and German exclamations", () => {
+  expect(normalize("Mist. Scrollen mit dem Mausrad geht nicht")).toBe("scrollen-mausrad");
 });
 
-test("normalize falls back to raw words when everything is filler", () => {
-  // all stopwords → keep the raw words rather than returning ""
-  expect(normalize("ich würde mich")).toBe("ich-wuerde");
+test("normalize falls back to raw words when all words are stopwords", () => {
+  // every token is a stopword → keep the raw first two rather than ""
+  expect(normalize("und der die")).toBe("und-der");
 });
 
-test("generateName uses ollama response and marks it ai", async () => {
-  const fake = async () => new Response(JSON.stringify({ response: "Repo Flatten Feature" }));
-  expect(await generateName("flatten the repo", { fetchImpl: fake as any })).toEqual({
-    name: "repo-flatten",
-    source: "ai",
-  });
+test("normalize returns empty string for symbol-only input", () => {
+  expect(normalize("!!! ??? ...")).toBe("");
 });
 
-test("generateName falls back to prompt heuristic on failure", async () => {
-  const fake = async () => {
-    throw new Error("ollama down");
-  };
-  expect(await generateName("Add status lights to cards", { fetchImpl: fake as any })).toEqual({
-    name: "status-lights",
-    source: "fallback",
-  });
-});
-
-test("generateName falls back when the model is missing (404 / error payload)", async () => {
-  const missing = async () =>
-    new Response(JSON.stringify({ error: "model 'x' not found" }), { status: 404 });
-  expect(await generateName("Add a screenshot paste", { fetchImpl: missing as any })).toEqual({
-    name: "screenshot-paste",
-    source: "fallback",
-  });
+test("generateName slugs the prompt, defaulting to 'task' when empty", () => {
+  expect(generateName("Flatten the repo")).toBe("flatten-repo");
+  expect(generateName("!!!")).toBe("task");
 });

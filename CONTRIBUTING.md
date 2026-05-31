@@ -73,18 +73,24 @@ The `pre-push` hook runs the **same checks as CI** so failures surface before a 
 
 1. `prettier --check .`
 2. `bun run lint` (eslint)
-3. `cd ui && bun run check` (svelte-check typecheck)
-4. `bun test ./test` (core tests)
-5. `cd ui && bun run test` (ui tests)
-6. `cd ui && bun run build` (ui build)
+3. `bun run typecheck` (root `tsc --noEmit`)
+4. `cd ui && bun run check` (svelte-check typecheck)
+5. `bun test ./test` (core tests)
+6. `cd ui && bun run test` (ui tests)
+7. `cd ui && bun run build` (ui build)
+
+> Lint and typecheck are separate gates: eslint catches lint rules, `tsc` catches
+> type errors. Bun runs `.ts` by stripping types, so it never type-checks — only
+> `tsc` does.
 
 Run any of these manually at any time:
 
 ```bash
 bun run lint                 # eslint (root, covers ui/src too)
+bun run typecheck            # root tsc --noEmit (src + test)
 bun run format               # prettier --write across the repo
 bun test ./test              # core test suite
-cd ui && bun run check       # svelte-check
+cd ui && bun run check       # svelte-check (ui types)
 cd ui && bun run test        # ui test suite (vitest)
 cd ui && bun run build       # ui production build
 ```

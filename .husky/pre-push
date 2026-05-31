@@ -12,6 +12,9 @@ bunx prettier --check .
 echo "→ eslint"
 bun run lint
 
+echo "→ root typecheck (tsc)"
+bun run typecheck
+
 echo "→ ui svelte-check"
 (cd ui && bun run check)
 

@@ -39,6 +39,9 @@ jobs:
           bunx prettier --check .
           bun run lint
 
+      - name: Typecheck (root tsc)
+        run: bun run typecheck
+
       - name: Typecheck (ui svelte-check)
         run: cd ui && bun run check
 

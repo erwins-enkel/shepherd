@@ -4,6 +4,12 @@
 # packages with their own deps — install both before pushing.
 set -e
 
+# Git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / … into hooks. Those leak
+# into the test suite's `git` subprocesses and make repo-discovery tests believe
+# they're inside this repo (e.g. worktree fallback tests fail, and worse, mutate
+# the real repo). Scrub the repo-local set so tests run in the same clean env as CI.
+unset $(git rev-parse --local-env-vars) 2>/dev/null || true
+
 echo "▶ pre-push: lint · typecheck · tests · build"
 
 echo "→ prettier --check"

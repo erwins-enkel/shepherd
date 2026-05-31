@@ -5,7 +5,7 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import { MODELS, type CreateSessionInput, type Steer } from "./types";
 import { stagingDir } from "./uploads";
 
-/** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/Work/…`). */
+/** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
   if (p === "~") return homedir();
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));

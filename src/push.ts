@@ -88,11 +88,14 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
 
 export class PushService {
   private pub: string;
+  /** Last *successful-send* timestamp per `${kind}:${sessionId}`, for cooldown debouncing. */
+  private lastNotified = new Map<string, number>();
 
   constructor(
     private store: SessionStore,
     private send: SendFn = defaultSend,
     genKeys: GenKeys = () => webpush.generateVAPIDKeys(),
+    private now: () => number = () => Date.now(),
   ) {
     let pub = config.vapidPublic ?? store.getSetting("vapidPublic");
     let priv = config.vapidPrivate ?? store.getSetting("vapidPrivate");
@@ -132,9 +135,21 @@ export class PushService {
   }
 
   async notify(input: NotifyInput): Promise<void> {
-    for (const row of this.store.listPushSubs()) {
-      await this.deliver(row, input);
+    const cooldownMs = config.pushCooldownMs;
+    const key = `${input.kind}:${input.sessionId}`;
+    const t = this.now();
+    // Suppress repeats within the window of the last send that actually fired; a
+    // sustained flap stays suppressed until a full quiet window passes. Distinct
+    // kinds (done vs blocked) live under separate keys and never collapse.
+    if (cooldownMs > 0) {
+      const last = this.lastNotified.get(key);
+      if (last !== undefined && t - last < cooldownMs) return;
     }
+    let sent = false;
+    for (const row of this.store.listPushSubs()) {
+      if (await this.deliver(row, input)) sent = true;
+    }
+    if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
   }
 
   /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */

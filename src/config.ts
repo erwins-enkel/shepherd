@@ -43,6 +43,8 @@ export const config = {
   // `mailto:shepherd@localhost`) with HTTP 403 BadJwtToken. Default to a valid
   // https URL; override with SHEPHERD_VAPID_SUBJECT (any valid https:/mailto: URL).
   vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "https://github.com/erwins-enkel/shepherd",
+  // collapse repeat per-session pushes within this window (ms); 0 disables.
+  pushCooldownMs: Number(process.env.SHEPHERD_PUSH_COOLDOWN_MS ?? 120000),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

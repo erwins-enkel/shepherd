@@ -20,6 +20,14 @@ function svc(send: SendFn) {
   return { store, push };
 }
 
+/** A service with an injected clock + one "e1" subscription, for debounce tests. */
+function svcAt(send: SendFn, now: () => number) {
+  const store = new SessionStore(":memory:");
+  const push = new PushService(store, send, keys, now);
+  store.putPushSub(sub("e1"), "");
+  return { store, push };
+}
+
 test("generates and persists VAPID keys when settings empty", () => {
   const store = new SessionStore(":memory:");
   new PushService(store, async () => ({}), keys);
@@ -102,6 +110,50 @@ test("attachPush pushes on session:block with a reason, ignores null", async () 
   await Promise.resolve();
   expect(calls.length).toBe(1);
   expect(calls[0]).toMatchObject({ kind: "blocked", sessionId: "z" });
+});
+
+test("notify debounces repeats within the cooldown window, fires again after it", async () => {
+  let count = 0;
+  let t = 0;
+  const send: SendFn = async () => {
+    count++;
+    return {};
+  };
+  const { push } = svcAt(send, () => t);
+
+  const n: NotifyInput = { kind: "done", sessionId: "s1", tag: "s1", name: "T" };
+  await push.notify(n); // sends
+  t = 1; // 1ms later — well within the 120s default window
+  await push.notify(n); // suppressed
+  t = 60_000; // still inside the window
+  await push.notify(n); // suppressed
+  expect(count).toBe(1);
+
+  t = 200_000; // past the 120s default window
+  await push.notify(n); // sends again
+  expect(count).toBe(2);
+});
+
+test("notify does not collapse different kinds for the same session", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (_s, payload) => {
+    sent.push(payload);
+    return {};
+  };
+  const { push } = svcAt(send, () => 0); // frozen clock
+
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
+  await push.notify({
+    kind: "blocked",
+    sessionId: "s1",
+    tag: "s1",
+    name: "T",
+    reason: { shape: "yes-no", options: [], tail: [] },
+  });
+  // both fire even at the same instant: done and blocked use distinct keys
+  expect(sent.length).toBe(2);
+  expect(sent[0]).toContain('"kind":"done"');
+  expect(sent[1]).toContain('"kind":"blocked"');
 });
 
 test("blockSummary maps shapes to human text", () => {

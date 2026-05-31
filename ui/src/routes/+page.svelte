@@ -110,6 +110,7 @@
     {nowMs}
     connected={store.connected}
     mobile={mobile.current}
+    touch={touch.current}
     limits={store.usageLimits}
     onsettings={() => (showSettings = true)}
     needsYou={blockedEntries.length}

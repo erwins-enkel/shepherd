@@ -82,7 +82,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #070a09;
+    background: var(--color-inset);
     font-family: var(--font-mono);
     overflow: hidden;
   }

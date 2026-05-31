@@ -93,7 +93,7 @@
 
   .unit:hover {
     border-color: var(--color-line);
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   .unit.sel {
@@ -104,7 +104,7 @@
         color-mix(in srgb, var(--rule) 9%, transparent),
         transparent 70%
       ),
-      #0c1211;
+      var(--color-hover);
   }
 
   /* bracket corners on selected */

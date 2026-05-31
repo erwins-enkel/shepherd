@@ -63,7 +63,7 @@
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .btn:hover {
-    background: #0c1110;
+    background: var(--color-hover);
   }
   .btn.active {
     border-color: var(--color-amber);

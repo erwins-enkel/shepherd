@@ -110,7 +110,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #070a09;
+    background: var(--color-inset);
     font-family: var(--font-mono);
     overflow: hidden;
   }
@@ -207,7 +207,9 @@
     top: 0px;
     width: 5px;
     height: 8px;
-    border: 1.5px solid #070a09;
+    /* tick "cuts out" of the green box — inset flips with the theme so it stays
+       dark-on-light-green (dark) and light-on-dark-green (light) */
+    border: 1.5px solid var(--color-inset);
     border-top: none;
     border-left: none;
     transform: rotate(45deg);

@@ -2,7 +2,7 @@
 // Absolute scale is irrelevant: the daily /usage calibration backs out the cap against these,
 // so only the ratios between models/kinds matter. Values track public API list prices.
 
-export interface ModelWeights {
+interface ModelWeights {
   input: number;
   output: number;
   cacheRead: number;

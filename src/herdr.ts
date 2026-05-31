@@ -49,7 +49,27 @@ export class HerdrDriver {
     }));
   }
 
+  /**
+   * herdr ≥0.6 refuses `tab create` with `workspace_not_found: no active workspace`
+   * unless a workspace exists. A fresh daemon — or one restarted after an update —
+   * has none, so the very first New Task after a herdr restart used to 500. Create a
+   * "shepherd" workspace on demand. Idempotent: skips when any workspace already exists.
+   */
+  private ensureWorkspace(cwd: string): void {
+    let workspaces: unknown[];
+    try {
+      workspaces = JSON.parse(this.runner(["workspace", "list"]))?.result?.workspaces ?? [];
+    } catch {
+      workspaces = []; // unparseable/empty reply → treat as "none", create one
+    }
+    if (workspaces.length === 0) {
+      this.runner(["workspace", "create", "--cwd", cwd, "--label", "shepherd", "--no-focus"]);
+    }
+  }
+
   start(name: string, cwd: string, argv: string[]): HerdrAgent {
+    // herdr needs an active workspace before any tab can be created — guarantee one.
+    this.ensureWorkspace(cwd);
     // Give each agent its OWN tab so its pane spans the full herdr window width.
     // `agent start` with no --tab splits the active tab, so agents pile up as
     // side-by-side panes each ~window/N wide — and that split-fixed width (not the

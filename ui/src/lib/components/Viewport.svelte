@@ -6,7 +6,7 @@
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
-  import { getSessionUsage, uploadImage } from "$lib/api";
+  import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
@@ -42,6 +42,13 @@
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
+  // true once the agent is gone (claude quit / ctrl-c) — show a "resume" prompt
+  let ended = $state(false);
+  let resuming = $state(false);
+  let resumeFailed = $state(false);
+  // bumped on a successful resume to tear down the dead terminal + re-attach to the
+  // freshly-spawned herdr agent (the terminal effect keys on it alongside the unit id)
+  let resumeEpoch = $state(0);
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
@@ -89,6 +96,8 @@
     unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
     tab = "term";
+    ended = false;
+    resumeFailed = false;
   });
   $effect(() => () => clearTimeout(armTimer));
   function decommission() {
@@ -137,8 +146,28 @@
     conn?.takeover();
   }
 
+  // bring a finished session back: ask the server to respawn `claude --resume` in
+  // the worktree, then bump the epoch so the terminal effect rebuilds and attaches
+  // to the fresh agent (the old PtyConn stopped for good on the ended-close).
+  async function resumeSession() {
+    if (resuming) return;
+    resuming = true;
+    resumeFailed = false;
+    try {
+      await apiResumeSession(session.id);
+      ended = false;
+      resumeEpoch++;
+    } catch {
+      resumeFailed = true;
+    } finally {
+      resuming = false;
+    }
+  }
+
   $effect(() => {
     const id = unitId;
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    resumeEpoch; // a resume bumps this → rebuild the terminal + re-attach to the new agent
     if (!el) return;
     parked = false; // fresh attach for this unit
 
@@ -176,10 +205,11 @@
       () => {
         parked = true;
       },
-      // the session ended (agent gone) — note it in the buffer; the status badge
-      // already flips to "done" via the session:status event
+      // the session ended (agent gone) — note it in the buffer + surface a "resume"
+      // prompt; the status badge already flips to "done" via the session:status event
       () => {
         term.write(`\r\n\x1b[2m${m.viewport_session_ended()}\x1b[0m\r\n`);
+        ended = true;
       },
     );
     conn = c;
@@ -433,6 +463,15 @@
         <span class="parked-icon" aria-hidden="true">▶</span>
         <span class="parked-title">{m.viewport_parked_title()}</span>
         <span class="parked-sub">{m.viewport_parked_sub()}</span>
+      </button>
+    {/if}
+    {#if ended && !parked && tab === "term" && session.claudeSessionId}
+      <button class="parked resume" type="button" onclick={resumeSession} disabled={resuming}>
+        <span class="parked-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
+        <span class="parked-title"
+          >{resumeFailed ? m.viewport_resume_failed() : m.viewport_resume_title()}</span
+        >
+        <span class="parked-sub">{resuming ? m.common_loading() : m.viewport_resume_sub()}</span>
       </button>
     {/if}
     {#if tab === "todo"}
@@ -697,6 +736,10 @@
     font-size: 11px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
+  }
+  .parked.resume:disabled {
+    cursor: progress;
+    opacity: 0.7;
   }
 
   /* let xterm fill the mount */

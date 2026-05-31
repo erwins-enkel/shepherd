@@ -229,6 +229,13 @@ export function makeApp(deps: AppDeps) {
           const ok = deps.service.reply(parts[2], (body as { text: string }).text);
           return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
         }
+        if (req.method === "POST" && parts[2] && parts[3] === "resume") {
+          const s = deps.service.resume(parts[2]);
+          if (!s) return json({ error: "cannot resume" }, 409);
+          // flip the badge back to running + nudge clients to re-attach to the fresh agent
+          deps.events.emit("session:status", { id: s.id, status: s.status });
+          return json(s);
+        }
         if (req.method === "POST" && parts[2] && parts[3] === "dismiss-stall") {
           const ok = deps.poller?.acknowledgeStall(parts[2]) ?? false;
           return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);

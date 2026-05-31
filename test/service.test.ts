@@ -343,6 +343,121 @@ test("archive stops the herdr agent, removes the worktree, and archives the row"
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
+function resumable(store: SessionStore, over: Partial<Parameters<SessionStore["create"]>[0]> = {}) {
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+    ...over,
+  });
+  store.update(s.id, { status: "done", lastState: "done" });
+  return s;
+}
+
+test("resume respawns claude --resume in the worktree and re-points the agent", () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: {
+      start: (name: string, cwd: string, argv: string[]) => {
+        calls.start = { name, cwd, argv };
+        return { terminalId: "term_new", cwd, agentStatus: "working" } as any;
+      },
+      list: () => [], // old agent gone → respawn
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, { model: "opus" });
+
+  const out = svc.resume(s.id);
+  expect(out?.herdrAgentId).toBe("term_new"); // re-pointed at the fresh agent
+  expect(out?.status).toBe("running");
+  expect(calls.start.cwd).toBe("/wt/x");
+  expect(calls.start.argv).toEqual([
+    "claude",
+    "--dangerously-skip-permissions",
+    "--resume",
+    "abc-123",
+    "--model",
+    "opus",
+  ]);
+});
+
+test("resume omits --model when the session had none", () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, { model: null });
+  svc.resume(s.id);
+  expect(calls.argv).toEqual(["claude", "--dangerously-skip-permissions", "--resume", "abc-123"]);
+});
+
+test("resume re-uses a still-live agent instead of spawning a duplicate", () => {
+  const store = new SessionStore(":memory:");
+  let started = 0;
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: {
+      start: () => {
+        started++;
+        return {} as any;
+      },
+      list: () => [{ terminalId: "term_old" }] as any, // still attachable
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store);
+  const out = svc.resume(s.id);
+  expect(started).toBe(0); // no second claude
+  expect(out?.id).toBe(s.id);
+  expect(out?.herdrAgentId).toBe("term_old");
+});
+
+test("resume returns null for unknown, archived, or pre-feature sessions", () => {
+  const store = new SessionStore(":memory:");
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+  });
+  expect(svc.resume("ghost")).toBeNull(); // unknown id
+
+  const archived = resumable(store);
+  store.archive(archived.id);
+  expect(svc.resume(archived.id)).toBeNull(); // worktree already removed
+
+  const preFeature = resumable(store, { claudeSessionId: "" });
+  expect(svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
+});
+
 test("reply types the text plus Enter into the agent's PTY", () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");

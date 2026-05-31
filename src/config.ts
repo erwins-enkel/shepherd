@@ -39,7 +39,10 @@ export const config = {
   // are unset; provide them via env to pin a stable key pair across DB resets.
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
-  vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "mailto:shepherd@localhost",
+  // Apple/iOS rejects pushes whose VAPID subject is a non-routable URL (e.g.
+  // `mailto:shepherd@localhost`) with HTTP 403 BadJwtToken. Default to a valid
+  // https URL; override with SHEPHERD_VAPID_SUBJECT (any valid https:/mailto: URL).
+  vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "https://github.com/erwins-enkel/shepherd",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

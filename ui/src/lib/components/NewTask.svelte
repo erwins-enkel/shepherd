@@ -39,6 +39,7 @@
   let dragging = $state(false);
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
+  let isMac = $state(false);
 
   /** Default to the most-recently-used repo; fall back to the first in the list. */
   function defaultRepoPath(list: RepoEntry[]): string {
@@ -52,6 +53,7 @@
   }
 
   onMount(() => {
+    isMac = /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent);
     listRepos()
       .then((r) => {
         repos = r;
@@ -105,6 +107,14 @@
     images = images.filter((i) => i.path !== path);
   }
 
+  // Cmd/Ctrl+Enter submits from the prompt textarea (plain Enter inserts a newline)
+  function onPromptKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      submit(e);
+    }
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
@@ -151,7 +161,13 @@
     </div>
 
     <label class="micro" for="nt-prompt">Prompt</label>
-    <textarea id="nt-prompt" bind:value={prompt} rows="3" placeholder="add a feature that…" required
+    <textarea
+      id="nt-prompt"
+      bind:value={prompt}
+      rows="3"
+      placeholder="add a feature that…"
+      onkeydown={onPromptKeydown}
+      required
     ></textarea>
     <div class="attach-row">
       <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
@@ -215,8 +231,16 @@
 
     {#if error}<div class="err">{error}</div>{/if}
 
-    <button class="run" type="submit" disabled={submitting}>
-      {submitting ? "Spawning…" : "Create & Run"}
+    <button
+      class="run"
+      type="submit"
+      disabled={submitting}
+      title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
+    >
+      <span>{submitting ? "Spawning…" : "Create & Run"}</span>
+      {#if !submitting}
+        <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
+      {/if}
     </button>
   </form>
 </div>
@@ -310,6 +334,10 @@
   }
   .run {
     margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     border: 1px solid var(--color-amber);
     color: var(--color-amber);
     background: transparent;
@@ -324,6 +352,17 @@
   .run:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .kbd {
+    font: inherit;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--color-amber);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    padding: 1px 5px;
+    opacity: 0.75;
   }
 
   @media (max-width: 768px) {

@@ -39,6 +39,7 @@ const NOTIFY_TEXT = {
     blockedTitle: (name: string) => `${name} — needs you`,
     menu: "Waiting on a menu choice.",
     "yes-no": "Waiting on a yes/no.",
+    stall: "Quiet — no recent activity; may be stuck.",
     other: "Waiting on your input.",
   },
   de: {
@@ -47,6 +48,7 @@ const NOTIFY_TEXT = {
     blockedTitle: (name: string) => `${name} — braucht dich`,
     menu: "Wartet auf eine Menüauswahl.",
     "yes-no": "Wartet auf ein Ja/Nein.",
+    stall: "Ruhig — keine Aktivität; möglicherweise hängengeblieben.",
     other: "Wartet auf deine Eingabe.",
   },
 } as const;
@@ -63,6 +65,8 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
       return t.menu;
     case "yes-no":
       return t["yes-no"];
+    case "stall":
+      return t.stall;
     default:
       return t.other;
   }

@@ -44,7 +44,6 @@ Shepherd core  ──  Bun + TypeScript (src/)
 - `herdr` on `PATH` — manages the interactive `claude` panes (owns the PTYs)
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
-- _(optional)_ A local [Ollama](https://ollama.com) for auto-naming sessions (falls back gracefully)
 
 ## Quick start
 
@@ -68,19 +67,17 @@ include the public hostname (see below).
 
 All via environment variables (`src/config.ts`):
 
-| Variable                 | Default                               | Purpose                                                                         |
-| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------- |
-| `SHEPHERD_PORT`          | `7330`                                | HTTP/WS listen port                                                             |
-| `SHEPHERD_HOST`          | `127.0.0.1`                           | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
-| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`             | SQLite session store path                                                       |
-| `SHEPHERD_REPO_ROOT`     | `~` (home)                            | Repos must live under this root (spawn is confined to it)                       |
-| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]`       | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
-| `SHEPHERD_TOKEN`         | _(none)_                              | When set, require `Authorization: Bearer <token>`                               |
-| `HERDR_BIN`              | `herdr`                               | Path to the herdr binary                                                        |
-| `HERDR_SESSION`          | `default`                             | herdr session name                                                              |
-| `SHEPHERD_NAMER_MODEL`   | `mistral-small3.1:latest`             | Ollama model used to name sessions                                              |
-| `OLLAMA_URL`             | `http://localhost:11434/api/generate` | Ollama endpoint                                                                 |
-| `SHEPHERD_FORGES`        | `~/.shepherd/forges.json`             | Path to the git-host config (see [Git host integration](#git-host-integration)) |
+| Variable                 | Default                         | Purpose                                                                         |
+| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------- |
+| `SHEPHERD_PORT`          | `7330`                          | HTTP/WS listen port                                                             |
+| `SHEPHERD_HOST`          | `127.0.0.1`                     | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
+| `SHEPHERD_DB`            | `~/.shepherd/shepherd.db`       | SQLite session store path                                                       |
+| `SHEPHERD_REPO_ROOT`     | `~` (home)                      | Repos must live under this root (spawn is confined to it)                       |
+| `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]` | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
+| `SHEPHERD_TOKEN`         | _(none)_                        | When set, require `Authorization: Bearer <token>`                               |
+| `HERDR_BIN`              | `herdr`                         | Path to the herdr binary                                                        |
+| `HERDR_SESSION`          | `default`                       | herdr session name                                                              |
+| `SHEPHERD_FORGES`        | `~/.shepherd/forges.json`       | Path to the git-host config (see [Git host integration](#git-host-integration)) |
 
 ### Git host integration
 
@@ -145,7 +142,7 @@ restart the core (it serves the SPA statically).
 ## Deployment
 
 Shepherd runs as a **systemd user service** (as your own user, so it keeps your `claude`
-subscription login, `~/Work`, herdr, and ollama). It binds to **loopback only**
+subscription login, `~/Work`, and herdr). It binds to **loopback only**
 (`SHEPHERD_HOST=127.0.0.1`); reach it over the network by putting it behind a trusted proxy —
 e.g. Tailscale:
 

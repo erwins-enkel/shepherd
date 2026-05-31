@@ -176,6 +176,22 @@ test("GiteaForge: non-2xx throws", async () => {
   await expect(forge.merge(9, { method: "squash", deleteBranch: true })).rejects.toThrow();
 });
 
+test("GiteaForge.postReview: POSTs review and returns url from html_url", async () => {
+  const { fn, calls } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls/7/reviews": {
+      status: 200,
+      json: { html_url: "https://git.example.com/team/proj/pulls/7#review-42" },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const result = await forge.postReview(7, { event: "REQUEST_CHANGES", body: "nope" });
+  expect(result).toEqual({ url: "https://git.example.com/team/proj/pulls/7#review-42" });
+  const post = calls[0]!;
+  expect(post.method).toBe("POST");
+  expect(post.url).toContain("/api/v1/repos/team/proj/pulls/7/reviews");
+  expect(post.body).toEqual({ event: "REQUEST_CHANGES", body: "nope" });
+});
+
 test("GiteaForge.prStatus: surfaces head SHA from PR head.sha", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {

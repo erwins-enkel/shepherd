@@ -31,6 +31,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},
     redeploy: async () => {},
+    postReview: async () => ({}),
     ...over,
   };
 }

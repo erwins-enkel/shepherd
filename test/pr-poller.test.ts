@@ -26,6 +26,7 @@ function forgeReturning(status: () => PrStatus): GitForge {
     openPr: async () => status(),
     merge: async () => {},
     redeploy: async () => {},
+    postReview: async () => ({}),
   };
 }
 

@@ -8,6 +8,7 @@ import type {
   MergeInput,
   MergeMethod,
   OpenPrInput,
+  PostReviewInput,
   PrStatus,
   RedeployInput,
 } from "./types";
@@ -137,5 +138,11 @@ export class GithubForge implements GitForge {
 
   async redeploy(o: RedeployInput): Promise<void> {
     this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
+  }
+
+  async postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }> {
+    const flag = o.event === "REQUEST_CHANGES" ? "--request-changes" : "--comment";
+    this.run(["pr", "review", String(prNumber), "--repo", this.slug, flag, "--body", o.body]);
+    return {}; // gh pr review prints no machine-readable URL
   }
 }

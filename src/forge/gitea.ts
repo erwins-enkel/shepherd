@@ -6,6 +6,7 @@ import type {
   MergeInput,
   MergeMethod,
   OpenPrInput,
+  PostReviewInput,
   PrStatus,
   RedeployInput,
 } from "./types";
@@ -148,5 +149,13 @@ export class GiteaForge implements GitForge {
       `/api/v1/repos/${this.slug}/actions/workflows/${o.workflow}/dispatches`,
       { ref: o.ref },
     );
+  }
+
+  async postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }> {
+    const res = (await this.req("POST", `/api/v1/repos/${this.slug}/pulls/${prNumber}/reviews`, {
+      event: o.event,
+      body: o.body,
+    })) as { html_url?: string } | null;
+    return { url: res?.html_url };
   }
 }

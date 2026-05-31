@@ -50,6 +50,14 @@ export interface RedeployInput {
   ref: string;
 }
 
+/** A critic review verdict the forge can post. Shepherd never approves a PR. */
+export type ReviewEvent = "REQUEST_CHANGES" | "COMMENT";
+
+export interface PostReviewInput {
+  event: ReviewEvent;
+  body: string;
+}
+
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
@@ -62,6 +70,9 @@ export interface GitForge {
   openPr(o: OpenPrInput): Promise<PrStatus>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
+  /** Post a critic review (request-changes / comment) on a PR. Returns the
+   *  review's URL when the host provides one. */
+  postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

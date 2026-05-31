@@ -89,6 +89,29 @@ test("GithubForge.kind + slug", () => {
   expect(forge.slug).toBe("o/r");
 });
 
+test("GithubForge.postReview: request-changes invokes gh pr review", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.postReview(7, { event: "REQUEST_CHANGES", body: "nope" });
+  expect(calls[0]).toEqual([
+    "pr",
+    "review",
+    "7",
+    "--repo",
+    "o/r",
+    "--request-changes",
+    "--body",
+    "nope",
+  ]);
+});
+
+test("GithubForge.postReview: comment maps to --comment", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.postReview(7, { event: "COMMENT", body: "fyi" });
+  expect(calls[0]).toEqual(["pr", "review", "7", "--repo", "o/r", "--comment", "--body", "fyi"]);
+});
+
 test("GithubForge.prStatus: surfaces head SHA from headRefOid", async () => {
   const prJson = JSON.stringify([
     {

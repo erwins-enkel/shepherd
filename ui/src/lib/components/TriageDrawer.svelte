@@ -59,9 +59,13 @@
         <span class="waited">{waited(e.since)}</span>
       </div>
 
+      {#if e.reason.shape === "stall"}
+        <p class="stall-note">{m.triage_stall_note()}</p>
+      {/if}
+
       <pre class="tail">{e.reason.tail.join("\n")}</pre>
 
-      {#if e.reason.shape === "awaiting-input"}
+      {#if e.reason.shape === "awaiting-input" || e.reason.shape === "stall"}
         <form
           class="reply"
           onsubmit={(ev) => {
@@ -166,6 +170,11 @@
   .waited {
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+  .stall-note {
+    margin: 0;
+    color: var(--color-amber);
     font-size: 12px;
   }
   .tail {

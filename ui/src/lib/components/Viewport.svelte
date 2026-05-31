@@ -537,8 +537,12 @@
   .vp-name {
     color: var(--color-ink);
     font-size: 12px;
-    min-width: 4ch;
-    flex: 1 1 auto;
+    /* flex-basis 0 (not auto) so the name's content width doesn't drive the
+       wrap calc on mobile — otherwise a long name reserves the whole row and
+       pushes the decommission button onto the next line. It absorbs the slack
+       and ellipsizes instead. */
+    min-width: 0;
+    flex: 1 1 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

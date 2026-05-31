@@ -36,6 +36,11 @@ export const config = {
     ",",
   ),
   token: process.env.SHEPHERD_TOKEN ?? null, // when set, require Authorization: Bearer <token>
+  // Web Push (VAPID). Generated once and persisted in the settings table if these
+  // are unset; provide them via env to pin a stable key pair across DB resets.
+  vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
+  vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
+  vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "mailto:shepherd@localhost",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

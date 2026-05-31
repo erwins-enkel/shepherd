@@ -12,7 +12,8 @@
     "check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:icons": "node scripts/gen-icons.mjs"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.18.1",
@@ -22,6 +23,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^25.9.1",
+    "sharp": "^0.34.5",
     "svelte": "^5.55.2",
     "svelte-check": "^4.4.6",
     "typescript": "^6.0.2",

@@ -23,6 +23,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
+  import { registerSW, setActiveSession, onSelectSession } from "$lib/push";
   import { m } from "$lib/paraglide/messages";
 
   const store = new HerdStore();
@@ -39,6 +40,10 @@
   let composePrompt = $state("");
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+
+  $effect(() => {
+    setActiveSession(selectedId);
+  });
 
   const mobile = new MediaQuery("max-width: 768px");
   // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):
@@ -59,10 +64,15 @@
   });
 
   onMount(() => {
+    registerSW();
+    const params = new URLSearchParams(location.search);
+    const deepLink = params.get("session");
+    const disposeSelect = onSelectSession((id) => selectUnit(id));
     listSessions()
       .then((list) => {
         store.setAll(list);
-        if (!selectedId && list[0]) selectedId = list[0].id;
+        if (deepLink && list.some((s) => s.id === deepLink)) selectedId = deepLink;
+        else if (!selectedId && list[0]) selectedId = list[0].id;
       })
       .catch(() => {});
     getUsageLimits()
@@ -79,6 +89,7 @@
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {
       dispose();
+      disposeSelect();
       clearInterval(t);
     };
   });

@@ -17,8 +17,8 @@
       classifier + poller emit `session:block` + POST `/reply` (types into PTY) + "Needs you" drawer.
 - [x] Agent activity feed — render existing PreToolUse/PostToolUse hook data as compact
       human log per agent ("edited server.ts · ran tests (2 failed) · waiting").
-- [ ] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
-      telemetry + herdr status. Highest leverage; serves core thesis. Pairs w/ triage queue. **NEXT.**
+- [x] Push notifications — Web Push from PWA on blocked(needs-you)/done; reuses F3 hook
+      telemetry + herdr status. Per-device locale → localized notification payloads (EN/DE).
 - [ ] Inline diff review — per-worktree `git diff` panel in HUD; review before merge,
       ToS-clean (read-only git). Precursor to F6 merge buttons.
 - [x] Saved steers / broadcast — canned prompts ("commit & push", "rebase", "run tests")

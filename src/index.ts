@@ -18,6 +18,7 @@ import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
+import { PushService, attachPush } from "./push";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -55,6 +56,10 @@ const poller = new StatusPoller(
   (id, block) => events.emit("session:block", { id, block }),
 );
 poller.start();
+
+// background Web Push: turn F3 state events into notifications for subscribed devices
+const push = new PushService(store);
+attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.
@@ -105,6 +110,7 @@ const server = serve(
     herdr,
     resolveForge: (dir) => detectForge(dir, config.forges),
     prCache: prPoller,
+    push,
   },
   config.port,
 );

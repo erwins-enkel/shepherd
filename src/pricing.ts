@@ -29,7 +29,7 @@ const DEFAULT: ModelWeights = TABLE[1]!.w; // sonnet-like
 
 const warned = new Set<string>();
 
-export function weightsFor(model: string): ModelWeights {
+function weightsFor(model: string): ModelWeights {
   for (const { match, w } of TABLE) if (match.test(model)) return w;
   if (!warned.has(model)) {
     warned.add(model);

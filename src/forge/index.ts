@@ -4,9 +4,6 @@ import { GiteaForge } from "./gitea";
 import { parseRemote } from "./remote";
 import type { ForgeKind, ForgeMap, GitForge } from "./types";
 
-export type { GitForge, PrStatus, ForgeMap, ForgeConfig, MergeMethod } from "./types";
-export { parseRemote } from "./remote";
-
 /** Decide the forge kind for a host: explicit config wins, else github.com is github. */
 function kindFor(host: string, map: ForgeMap): ForgeKind | null {
   const cfg = map[host];
@@ -28,7 +25,7 @@ export function forgeFor(remoteUrl: string, map: ForgeMap): GitForge | null {
 }
 
 /** Read `origin` remote URL for a repo dir, or null. */
-export function originUrl(repoDir: string): string | null {
+function originUrl(repoDir: string): string | null {
   try {
     return execFileSync("git", ["-C", repoDir, "remote", "get-url", "origin"], {
       encoding: "utf8",

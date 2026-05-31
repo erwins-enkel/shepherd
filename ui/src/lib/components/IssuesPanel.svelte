@@ -46,15 +46,20 @@
       {#each issues as issue (issue.number)}
         <div class="issue-row">
           <div class="issue-top">
-            <span class="issue-num">#{issue.number}</span>
-            <span class="issue-title">{issue.title}</span>
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
             <a
-              class="ext-link"
+              class="issue-num"
               href={issue.url}
               target="_blank"
               rel="noopener"
-              aria-label="open on GitHub">↗</a
+              title="open on GitHub">#{issue.number}</a
+            >
+            <a
+              class="issue-title"
+              href={issue.url}
+              target="_blank"
+              rel="noopener"
+              title="open on GitHub">{issue.title}</a
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
           </div>
@@ -137,6 +142,12 @@
     font-size: 10.5px;
     color: var(--color-faint);
     flex-shrink: 0;
+    text-decoration: none;
+    transition: color 0.12s;
+  }
+
+  .issue-num:hover {
+    color: var(--color-ink-bright);
   }
 
   .issue-title {
@@ -145,17 +156,11 @@
     color: var(--color-ink);
     line-height: 1.4;
     word-break: break-word;
-  }
-
-  .ext-link {
-    color: var(--color-muted);
-    font-size: 11px;
     text-decoration: none;
-    flex-shrink: 0;
     transition: color 0.12s;
   }
 
-  .ext-link:hover {
+  .issue-title:hover {
     color: var(--color-ink-bright);
   }
 
@@ -214,10 +219,6 @@
     .task-btn {
       min-height: 40px;
       padding: 2px 14px;
-    }
-    .ext-link {
-      font-size: 15px;
-      padding: 0 4px;
     }
   }
 </style>

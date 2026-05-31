@@ -171,7 +171,8 @@
   .tail {
     margin: 0;
     padding: 8px;
-    background: #0c100f;
+    background: var(--color-inset);
+    color: var(--color-term-fg);
     border: 1px solid var(--color-line);
     font-size: 11.5px;
     line-height: 1.4;
@@ -207,7 +208,7 @@
   input {
     flex: 1;
     min-width: 120px;
-    background: #0c100f;
+    background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     color: var(--color-ink-bright);
     padding: 6px 8px;

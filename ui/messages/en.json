@@ -182,5 +182,13 @@
   "emojipicker_search": "search emoji…",
   "emojipicker_custom": "paste any emoji",
   "emojipicker_clear": "remove icon",
-  "reposelect_set_icon": "set project icon"
+  "reposelect_set_icon": "set project icon",
+  "updatemodal_available": "Update available",
+  "updatemodal_commits_one": "new commit on main",
+  "updatemodal_commits_other": "new commits on main",
+  "updatemodal_status": "⟳ Updating… The server is restarting; the page will reload automatically.",
+  "updatemodal_update_failed": "update failed",
+  "updatemodal_later": "Later",
+  "updatemodal_updating": "Updating…",
+  "updatemodal_update_now": "Update now"
 }

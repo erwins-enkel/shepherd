@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
+  import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -51,13 +52,38 @@
     return "var(--color-green)";
   }
 
-  const gauges = $derived(
-    [
-      { label: "5H", w: limits?.session5h },
-      { label: "WK", w: limits?.week },
-    ].filter((g) => g.w),
-  );
+  const periodLabel = (k: GaugeKey) =>
+    k === "5H" ? m.topbar_gauge_period_5h() : m.topbar_gauge_period_weekly();
+
+  function gaugeTip(k: GaugeKey, pct: number, resetAt: number): string {
+    return `${m.topbar_gauge_title({
+      period: periodLabel(k),
+      pct,
+      reset: formatReset(resetAt, nowMs),
+    })}${limits?.stale ? m.topbar_gauge_stale_suffix() : ""}`;
+  }
+
+  // Desktop (fine pointer) shows both windows with hover tooltips. Touch has no
+  // hover, so it collapses to the window closest to its cap and exposes the full
+  // breakdown — including reset times — through a tap popover instead.
+  const gauges = $derived(gaugeList(limits));
+  const hotter = $derived(hotterGauge(limits));
+  let popoverOpen = $state(false);
+  let gaugeWrap = $state<HTMLElement | null>(null);
+  $effect(() => {
+    // close the popover when it can no longer be opened (gauge gone / switched off touch)
+    if (!touch || !hotter) popoverOpen = false;
+  });
+
+  function dismissOnEscape(e: KeyboardEvent) {
+    if (popoverOpen && e.key === "Escape") popoverOpen = false;
+  }
+  function dismissOnOutside(e: MouseEvent) {
+    if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
+  }
 </script>
+
+<svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
 <div class="hud bracket" class:mobile>
   <div class="logo">SHEP<b>HERD</b></div>
@@ -101,21 +127,69 @@
         >{m.common_needs_you({ count: needsYou })}</button
       >
     {/if}
-    {#if gauges.length}
-      <div class="gauges" class:mobile class:stale={limits?.stale}>
+    {#if touch}
+      {#if hotter}
+        <!-- touch: collapse to the hotter window; tap for the full breakdown -->
+        <div class="gauge-wrap" bind:this={gaugeWrap}>
+          <button
+            class="gauge gauge-btn"
+            class:stale={limits?.stale}
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={popoverOpen}
+            aria-label={m.topbar_gauge_toggle_aria({
+              period: periodLabel(hotter.label),
+              pct: hotter.w.pct,
+            })}
+            onclick={() => (popoverOpen = !popoverOpen)}
+          >
+            <span class="g-label micro">{hotter.label}</span>
+            <span class="g-bar"
+              ><span
+                class="g-fill"
+                style="width:{hotter.w.pct}%;background:{gaugeColor(hotter.w.pct)}"
+              ></span></span
+            >
+            <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
+          </button>
+          {#if popoverOpen}
+            <div
+              class="gauge-pop"
+              role="dialog"
+              aria-label={m.topbar_gauge_popover_title()}
+              class:stale={limits?.stale}
+            >
+              <div class="gauge-pop-title micro">
+                {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
+              </div>
+              {#each gauges as g (g.label)}
+                <div class="gauge-pop-row">
+                  <span class="g-label micro">{g.label}</span>
+                  <span class="g-bar g-bar-wide"
+                    ><span class="g-fill" style="width:{g.w.pct}%;background:{gaugeColor(g.w.pct)}"
+                    ></span></span
+                  >
+                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                </div>
+                <div class="gauge-pop-reset micro">
+                  {m.topbar_gauge_reset({ reset: formatReset(g.w.resetAt, nowMs) })}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {:else if gauges.length}
+      <div class="gauges" class:stale={limits?.stale}>
         {#each gauges as g (g.label)}
-          {@const tip = `${m.topbar_gauge_title({
-            period: g.label === "5H" ? m.topbar_gauge_period_5h() : m.topbar_gauge_period_weekly(),
-            pct: g.w!.pct,
-            reset: formatReset(g.w!.resetAt, nowMs),
-          })}${limits?.stale ? m.topbar_gauge_stale_suffix() : ""}`}
+          {@const tip = gaugeTip(g.label, g.w.pct, g.w.resetAt)}
           <div class="gauge tip" data-tip={tip} aria-label={tip}>
             <span class="g-label micro">{g.label}</span>
             <span class="g-bar"
-              ><span class="g-fill" style="width:{g.w!.pct}%;background:{gaugeColor(g.w!.pct)}"
+              ><span class="g-fill" style="width:{g.w.pct}%;background:{gaugeColor(g.w.pct)}"
               ></span></span
             >
-            <span class="g-pct" style="color:{gaugeColor(g.w!.pct)}">{g.w!.pct}%</span>
+            <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
           </div>
         {/each}
       </div>
@@ -285,15 +359,70 @@
     min-width: 30px;
     text-align: right;
   }
-  .gauges.mobile {
+  /* Touch: a single collapsed gauge rendered as a tappable button. */
+  .gauge-wrap {
+    position: relative;
+  }
+  .gauge-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    cursor: pointer;
+    font: inherit;
+    /* finger-sized tap target, matching the gear / theme-cycle on touch HUDs */
+    min-height: 40px;
+    padding: 0 8px;
+  }
+  .gauge-btn:hover,
+  .gauge-btn[aria-expanded="true"] {
+    border-color: var(--color-line-bright);
+  }
+  .gauge-btn.stale {
+    opacity: 0.5;
+  }
+  /* Popover: full breakdown of every window, anchored under the gauge. */
+  .gauge-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 50;
+    min-width: 200px;
+    background: linear-gradient(180deg, var(--color-panel), #0c100f);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    padding: 10px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .gauge-pop.stale {
+    opacity: 0.5;
+  }
+  .gauge-pop-title {
+    margin-bottom: 6px;
+  }
+  .gauge-pop-row {
+    display: flex;
+    align-items: center;
     gap: 8px;
+    font-variant-numeric: tabular-nums;
   }
-  .gauges.mobile .g-bar {
-    width: 28px;
+  .gauge-pop-row .g-bar-wide {
+    flex: 1;
+    width: auto;
+    height: 6px;
   }
-  .gauges.mobile .g-pct {
-    min-width: 26px;
-    font-size: 10.5px;
+  .gauge-pop-row .g-pct {
+    min-width: 34px;
+  }
+  .gauge-pop-reset {
+    margin: 0 0 6px 30px;
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-faint);
+  }
+  .gauge-pop-reset:last-child {
+    margin-bottom: 0;
   }
   .theme-cycle {
     background: transparent;
@@ -404,6 +533,10 @@
     min-width: 40px;
     padding: 5px 11px;
     font-size: 16px;
+  }
+  /* Widen the collapsed gauge bar on phones so the single bar reads clearly. */
+  .hud.mobile .gauge-btn .g-bar {
+    width: 38px;
   }
   .hud.mobile .needsyou {
     min-height: 40px;

@@ -122,6 +122,7 @@
   "viewport_decommission_title": "stop agent + remove worktree",
   "viewport_confirm_decommission": "confirm ✕",
   "viewport_decommission": "✕ decommission",
+  "viewport_decommission_aria": "decommission unit",
   "viewport_upload_failed": "Upload failed — tap to retry",
   "viewport_attach_image": "Attach image",
   "viewport_type_steer_hint": "⌁ type to steer",

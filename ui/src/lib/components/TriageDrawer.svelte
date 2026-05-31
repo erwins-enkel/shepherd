@@ -132,6 +132,9 @@
     border: 0;
     color: var(--color-muted);
     cursor: pointer;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 15px;
   }
   .empty {
     color: var(--color-muted);
@@ -191,6 +194,15 @@
     color: var(--color-ink-bright);
     padding: 6px 12px;
     cursor: pointer;
+  }
+  /* reply / option / batch controls are the drawer's primary actions and the
+     drawer goes full-screen on phones — keep them finger-sized (≥40px) */
+  .opts button,
+  .reply button,
+  .reply input,
+  .batch button,
+  .batch input {
+    min-height: 40px;
   }
   input {
     flex: 1;

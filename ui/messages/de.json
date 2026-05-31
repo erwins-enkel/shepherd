@@ -122,6 +122,7 @@
   "viewport_decommission_title": "Agent stoppen + Worktree entfernen",
   "viewport_confirm_decommission": "bestätigen ✕",
   "viewport_decommission": "✕ stilllegen",
+  "viewport_decommission_aria": "Einheit stilllegen",
   "viewport_upload_failed": "Upload fehlgeschlagen — zum Wiederholen tippen",
   "viewport_attach_image": "Bild anhängen",
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",

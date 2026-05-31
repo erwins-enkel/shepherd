@@ -378,8 +378,13 @@
       type="button"
       onclick={decommission}
       title={m.viewport_decommission_title()}
+      aria-label={m.viewport_decommission_aria()}
     >
-      {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+      {#if compact}
+        {armed ? "✓" : "✕"}
+      {:else}
+        {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+      {/if}
     </button>
   </div>
 
@@ -469,12 +474,16 @@
     />
   {/if}
 
-  <!-- footer -->
-  <div class="vp-foot">
-    <span>{m.viewport_type_steer_hint()}</span>
-    <span class="sep">·</span>
-    <span>{m.viewport_detach_hint()}</span>
-  </div>
+  <!-- footer: keyboard-affordance hints — desktop / foldable only. On a phone
+       there's no Tab key and the back button already affords leaving, so the
+       row is pure overhead; dropping it hands the height back to the terminal -->
+  {#if !mobile}
+    <div class="vp-foot">
+      <span>{m.viewport_type_steer_hint()}</span>
+      <span class="sep">·</span>
+      <span>{m.viewport_detach_hint()}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -710,8 +719,15 @@
   .vp-head.mobile .tab-btn {
     flex: 1;
     text-align: center;
-    padding: 8px 6px;
+    padding: 10px 6px;
     font-size: 11px;
+  }
+  /* finger-sized header controls on touch layouts (≥40px) */
+  .vp-head.mobile .back,
+  .vp-head.mobile .decom {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 12px;
   }
 
   .tab-btn {
@@ -769,7 +785,7 @@
   .ctrl-row .attach {
     flex: 0 0 auto;
     min-width: 44px;
-    height: 36px;
+    height: 40px;
     margin: 6px 0 6px 10px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);

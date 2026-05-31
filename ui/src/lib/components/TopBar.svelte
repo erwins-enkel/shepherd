@@ -16,6 +16,7 @@
     connected = false,
     mobile = false,
     limits = null,
+    needsYou = 0,
     ontriage,
   }: {
     sessions: Session[];
@@ -23,6 +24,7 @@
     connected?: boolean;
     mobile?: boolean;
     limits?: UsageLimits | null;
+    needsYou?: number;
     ontriage?: () => void;
   } = $props();
 
@@ -77,8 +79,8 @@
       </div>
     </div>
   {/if}
-  {#if blocked > 0}
-    <button class="needsyou" onclick={() => ontriage?.()}>NEEDS YOU · {blocked}</button>
+  {#if needsYou > 0}
+    <button class="needsyou" onclick={() => ontriage?.()}>NEEDS YOU · {needsYou}</button>
   {/if}
   {#if gauges.length}
     <div class="gauges" class:mobile class:stale={limits?.stale}>

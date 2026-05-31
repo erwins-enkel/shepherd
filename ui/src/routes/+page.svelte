@@ -94,6 +94,7 @@
     connected={store.connected}
     mobile={mobile.current}
     limits={store.usageLimits}
+    needsYou={blockedEntries.length}
     ontriage={() => (showTriage = true)}
   />
 

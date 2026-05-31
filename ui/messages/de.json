@@ -147,6 +147,7 @@
   "steerseditor_label_placeholder": "Bezeichnung",
   "steerseditor_text_placeholder": "Prompt-Text",
   "steerseditor_delete_aria": "Steer löschen",
+  "steerseditor_reorder_aria": "Steer verschieben",
   "steerseditor_empty": "noch keine Steers",
   "steerseditor_add": "+ Hinzufügen",
   "steerseditor_saving": "Speichert…",

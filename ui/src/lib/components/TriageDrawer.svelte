@@ -1,0 +1,208 @@
+<script lang="ts">
+  import type { BlockedEntry } from "$lib/triage";
+
+  let {
+    entries,
+    nowMs,
+    onreply,
+    onclose,
+  }: {
+    entries: BlockedEntry[];
+    nowMs: number;
+    onreply: (id: string, text: string) => void;
+    onclose: () => void;
+  } = $props();
+
+  let selected = $state<Record<string, boolean>>({});
+  let drafts = $state<Record<string, string>>({});
+  let batchText = $state("");
+
+  const selectedIds = $derived(
+    entries.filter((e) => selected[e.session.id]).map((e) => e.session.id),
+  );
+
+  function waited(since: number): string {
+    const s = Math.max(0, Math.round((nowMs - since) / 1000));
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+  }
+
+  function sendBatch() {
+    const t = batchText;
+    if (!t) return;
+    for (const id of selectedIds) onreply(id, t);
+    batchText = "";
+    selected = {};
+  }
+</script>
+
+<aside class="drawer">
+  <header>
+    <span class="title">NEEDS YOU · {entries.length}</span>
+    <button class="x" onclick={onclose} aria-label="Close">✕</button>
+  </header>
+
+  {#if entries.length === 0}
+    <p class="empty">No agents are waiting on you.</p>
+  {/if}
+
+  {#each entries as e (e.session.id)}
+    <section class="row">
+      <div class="head">
+        <input
+          type="checkbox"
+          bind:checked={selected[e.session.id]}
+          aria-label="Select {e.session.desig}"
+        />
+        <span class="desig">{e.session.desig}</span>
+        <span class="name">{e.session.name}</span>
+        <span class="waited">{waited(e.since)}</span>
+      </div>
+
+      <pre class="tail">{e.reason.tail.join("\n")}</pre>
+
+      {#if e.reason.shape === "awaiting-input"}
+        <form
+          class="reply"
+          onsubmit={(ev) => {
+            ev.preventDefault();
+            const t = drafts[e.session.id] ?? "";
+            if (t) onreply(e.session.id, t);
+            drafts[e.session.id] = "";
+          }}
+        >
+          <input
+            placeholder="Type a reply…"
+            aria-label="Reply to {e.session.desig}"
+            bind:value={drafts[e.session.id]}
+          />
+          <button type="submit">Send</button>
+        </form>
+      {:else}
+        <div class="opts">
+          {#each e.reason.options as o (o.send)}
+            <button onclick={() => onreply(e.session.id, o.send)}>{o.label}</button>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/each}
+
+  {#if selectedIds.length > 1}
+    <footer class="batch">
+      <span>Reply to {selectedIds.length} selected:</span>
+      <input
+        placeholder="same text to all…"
+        aria-label="Reply to all selected"
+        bind:value={batchText}
+      />
+      <button onclick={sendBatch}>Send to {selectedIds.length}</button>
+    </footer>
+  {/if}
+</aside>
+
+<style>
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(440px, 100vw);
+    height: 100vh;
+    background: var(--color-panel);
+    border-left: 1px solid var(--color-line-bright);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    overflow-y: auto;
+    z-index: 50;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .title {
+    color: var(--color-red);
+    letter-spacing: 0.18em;
+    font-size: 12px;
+  }
+  .x {
+    background: none;
+    border: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+  .empty {
+    color: var(--color-muted);
+    font-size: 13px;
+  }
+  .row {
+    border: 1px solid var(--color-line);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .desig {
+    color: var(--color-ink-bright);
+    font-weight: 600;
+  }
+  .name {
+    color: var(--color-muted);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .waited {
+    color: var(--color-amber);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+  .tail {
+    margin: 0;
+    padding: 8px;
+    background: #0c100f;
+    border: 1px solid var(--color-line);
+    font-size: 11.5px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .opts,
+  .reply,
+  .batch {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  button {
+    background: var(--color-line);
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink-bright);
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  input {
+    flex: 1;
+    min-width: 120px;
+    background: #0c100f;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink-bright);
+    padding: 6px 8px;
+  }
+  .batch {
+    border-top: 1px solid var(--color-line);
+    padding-top: 10px;
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+</style>

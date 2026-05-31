@@ -5,7 +5,9 @@
   import type { Session, SessionUsage } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
+  import { theme, xtermTheme } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage } from "$lib/api";
+  import { imageFilesFromItems } from "$lib/clipboard";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -32,6 +34,11 @@
   let el: HTMLDivElement | undefined = $state();
   let tab = $state<"term" | "todo" | "issues">("term");
   let conn = $state<PtyConn | undefined>();
+  // true when another device took over this terminal — show a take-over prompt
+  let parked = $state(false);
+  // mirror the live terminal so the theme effect can repaint it without
+  // recreating it (recreating would tear down the PTY socket)
+  let termRef = $state<Terminal | undefined>();
   let dragging = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
@@ -119,19 +126,27 @@
     if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
   }
 
+  function takeover() {
+    parked = false;
+    conn?.takeover();
+  }
+
   $effect(() => {
     const id = unitId;
     if (!el) return;
+    parked = false; // fresh attach for this unit
 
+    // initial palette: non-reactive DOM read so this effect doesn't depend on
+    // theme.resolved (which would recreate the whole terminal — and its PTY —
+    // on every theme switch). Live updates are handled by the effect below.
+    const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: mobile || touch ? 11 : 12.5,
-      theme: {
-        background: "#070a09",
-        foreground: "#b9c7c1",
-      },
+      theme: xtermTheme(initialTheme),
       cursorBlink: true,
     });
+    termRef = term;
 
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -150,6 +165,10 @@
       () => {
         fit.fit();
         c.resize(term.cols, term.rows);
+      },
+      // another device took over this terminal — park and offer to take it back
+      () => {
+        parked = true;
       },
     );
     conn = c;
@@ -173,6 +192,19 @@
       if (!dragged) term.focus();
     };
     el.addEventListener("click", onTap);
+
+    // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
+    // silently dropped. Intercept in the capture phase (before xterm's textarea
+    // handler), upload any image like a drag-drop, and inject its path. A plain
+    // text paste matches no image item, so it falls through to xterm untouched.
+    const onPaste = (e: ClipboardEvent) => {
+      const imgs = imageFilesFromItems(e.clipboardData?.items);
+      if (imgs.length === 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      attachImages(imgs);
+    };
+    el.addEventListener("paste", onPaste, true);
 
     // Claude Code runs as a full-screen TUI on the alternate screen (no
     // scrollback) with mouse tracking on: scrolling means sending wheel input
@@ -209,6 +241,11 @@
     requestAnimationFrame(() => {
       fit.fit();
       c.resize(term.cols, term.rows);
+      // desktop: selecting a unit hands the keyboard straight to its terminal —
+      // clicking a sidebar card otherwise leaves focus on the card button, so
+      // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
+      // doesn't pop open on every selection.
+      if (!mobile && !touch && tab === "term") term.focus();
     });
 
     const ro = new ResizeObserver(() => {
@@ -221,14 +258,25 @@
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
+      el?.removeEventListener("paste", onPaste, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);
       ro.disconnect();
       c.close();
       conn = undefined;
+      termRef = undefined;
       term.dispose();
     };
+  });
+
+  // repaint the live terminal when the active theme changes (no recreation)
+  $effect(() => {
+    const resolved = theme.resolved;
+    const term = termRef;
+    if (!term) return;
+    term.options.theme = xtermTheme(resolved);
+    term.refresh(0, Math.max(0, term.rows - 1));
   });
 </script>
 
@@ -319,6 +367,13 @@
       }}
       ondrop={onTermDrop}
     ></div>
+    {#if parked && tab === "term"}
+      <button class="parked" type="button" onclick={takeover}>
+        <span class="parked-icon" aria-hidden="true">▶</span>
+        <span class="parked-title">Auf anderem Gerät aktiv</span>
+        <span class="parked-sub">Tippen zum Übernehmen</span>
+      </button>
+    {/if}
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -380,7 +435,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #070a09;
+    background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
     overflow: hidden;
@@ -391,7 +446,7 @@
     align-items: center;
     gap: 7px;
     padding: 6px 12px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
     font-size: 11.5px;
     flex-shrink: 0;
@@ -512,6 +567,40 @@
     touch-action: none;
   }
 
+  /* parked: this terminal is live on another device — tap to take it back */
+  .parked {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: color-mix(in srgb, var(--color-bg, #070a09) 78%, transparent);
+    backdrop-filter: blur(1.5px);
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    color: var(--color-ink);
+  }
+  .parked-icon {
+    color: var(--color-amber);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .parked-title {
+    color: var(--color-ink-bright);
+    letter-spacing: 0.08em;
+    font-size: 13px;
+  }
+  .parked-sub {
+    color: var(--color-muted);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
   /* let xterm fill the mount */
   .term-mount :global(.xterm) {
     height: 100%;
@@ -541,7 +630,7 @@
     flex-shrink: 0;
   }
   .back:hover {
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */
@@ -553,7 +642,7 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 6px 10px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     min-height: 44px;
@@ -612,7 +701,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 12px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-top: 1px solid var(--color-line);
     font-size: 11px;
     color: var(--color-muted);

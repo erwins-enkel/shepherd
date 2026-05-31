@@ -2,8 +2,16 @@
   import { onMount } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
-  import { listSessions, createSession, archiveSession, getUsageLimits } from "$lib/api";
+  import {
+    listSessions,
+    createSession,
+    archiveSession,
+    getUsageLimits,
+    replySession,
+  } from "$lib/api";
+  import { sortBlocked } from "$lib/triage";
   import TopBar from "$lib/components/TopBar.svelte";
+  import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
@@ -15,6 +23,8 @@
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
   let showSettings = $state(false);
+  let showTriage = $state(false);
+  const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
@@ -87,6 +97,8 @@
     mobile={mobile.current}
     limits={store.usageLimits}
     onsettings={() => (showSettings = true)}
+    needsYou={blockedEntries.length}
+    ontriage={() => (showTriage = true)}
   />
 
   {#if mobile.current}
@@ -149,6 +161,15 @@
     mobile={mobile.current}
     desktopOnly
   />
+
+  {#if showTriage}
+    <TriageDrawer
+      entries={blockedEntries}
+      {nowMs}
+      onreply={(id, text) => replySession(id, text).catch(() => {})}
+      onclose={() => (showTriage = false)}
+    />
+  {/if}
 </div>
 
 {#if showNew}

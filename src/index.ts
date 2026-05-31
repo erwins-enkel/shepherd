@@ -10,6 +10,7 @@ import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
 import { reconcile } from "./reconcile";
 import { serve } from "./server";
+import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
@@ -39,8 +40,11 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
 
 reconcile(store, herdr);
 
-const poller = new StatusPoller(store, herdr, (id, status) =>
-  events.emit("session:status", { id, status }),
+const poller = new StatusPoller(
+  store,
+  herdr,
+  (id, status) => events.emit("session:status", { id, status }),
+  (id, block) => events.emit("session:block", { id, block }),
 );
 poller.start();
 
@@ -63,5 +67,11 @@ const calibrate = async () => {
 setTimeout(calibrate, 3_000);
 setInterval(calibrate, 24 * 60 * 60 * 1000);
 
-const server = serve({ store, service, events, usageLimits }, config.port);
+// forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
+// Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
+// github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
+const server = serve(
+  { store, service, events, usageLimits, resolveForge: (dir) => detectForge(dir, config.forges) },
+  config.port,
+);
 console.log(`shepherd core on http://localhost:${server.port}`);

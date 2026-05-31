@@ -5,6 +5,7 @@
   import type { Session } from "$lib/types";
   import { STATUS_COLOR, statusLabel, elapsed } from "$lib/format";
   import { connectPty } from "$lib/pty";
+  import { theme, xtermTheme } from "$lib/theme.svelte";
 
   let {
     session,
@@ -19,6 +20,7 @@
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
+  let termRef = $state<Terminal | undefined>();
 
   // read-only live terminal: stream PTY output, never send input.
   // mirrors Viewport's xterm/fit/resize/teardown discipline minus input wiring
@@ -27,13 +29,15 @@
     const id = session.id;
     if (!el) return;
 
+    const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: 10,
       disableStdin: true,
       cursorBlink: false,
-      theme: { background: "#070a09", foreground: "#b9c7c1" },
+      theme: xtermTheme(initialTheme),
     });
+    termRef = term;
 
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -68,8 +72,18 @@
       cancelAnimationFrame(raf);
       ro.disconnect();
       c.close();
+      termRef = undefined;
       term.dispose();
     };
+  });
+
+  // repaint the read-only tile terminal when the active theme changes
+  $effect(() => {
+    const resolved = theme.resolved;
+    const term = termRef;
+    if (!term) return;
+    term.options.theme = xtermTheme(resolved);
+    term.refresh(0, Math.max(0, term.rows - 1));
   });
 </script>
 
@@ -103,7 +117,7 @@
     height: 240px;
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    background: #070a09;
+    background: var(--color-inset);
     padding: 0;
     cursor: pointer;
     color: inherit;
@@ -134,7 +148,7 @@
     align-items: center;
     gap: 7px;
     padding: 6px 10px;
-    background: #0a0f0d;
+    background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     white-space: nowrap;

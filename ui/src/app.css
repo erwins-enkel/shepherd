@@ -1,33 +1,105 @@
 @import "tailwindcss";
 
+/* Tailwind theme tokens reference the runtime palette variables below, so the
+   whole UI re-themes by swapping the underscored source vars on :root /
+   [data-theme="light"] — utilities and component `var(--color-*)` reads follow. */
 @theme {
-  --color-bg: #0a0d0c;
-  --color-panel: #0f1413;
-  --color-inset: #070a09;
-  --color-line: #1b2422;
-  --color-line-bright: #2c3835;
-  --color-ink: #aab8b2;
-  --color-ink-bright: #e9f1ec;
-  --color-muted: #5d6c67;
-  --color-faint: #3a4742;
-  --color-amber: #e8a13a;
-  --color-green: #5ad19a;
-  --color-red: #e5484d;
-  --color-slate: #566460;
+  --color-bg: var(--bg);
+  --color-glow: var(--glow);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-head: var(--head);
+  --color-inset: var(--inset);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-bright: var(--line-bright);
+  --color-ink: var(--ink);
+  --color-ink-bright: var(--ink-bright);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-amber: var(--amber);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-blue: var(--blue);
+  --color-slate: var(--slate);
+  --color-scrim: var(--scrim);
+  --color-term-fg: var(--term-fg);
   --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* ── Dark (default) ──────────────────────────────────────────────────────────
+   Fließtext (--ink) ~12:1 and secondary (--muted) ~5.5:1 on --bg — both clear
+   WCAG AA. Brighter than the original deck for low-light legibility. */
 :root {
+  color-scheme: dark;
+
+  --bg: #0a0d0c;
+  --glow: #0d1211;
+  --panel: #0f1413;
+  --panel-2: #0c100f;
+  --head: #0a0f0d;
+  --inset: #070a09;
+  --hover: #0c1110;
+  --line: #1b2422;
+  --line-bright: #2c3835;
+
+  --ink: #c4d0cb;
+  --ink-bright: #eef4f0;
+  --muted: #7c8c86;
+  --faint: #4a5752;
+
+  --amber: #e8a13a;
+  --green: #5ad19a;
+  --red: #e5484d;
+  --blue: #4a90d9;
+  --slate: #566460;
+
+  --scrim: rgba(3, 6, 5, 0.66);
+  --term-fg: #c4d0cb;
+
   --status-running: var(--color-amber);
   --status-done: var(--color-green);
   --status-blocked: var(--color-red);
   --status-idle: var(--color-slate);
 }
 
+/* ── Light ────────────────────────────────────────────────────────────────────
+   Same green-tinted family, luminance inverted. --ink #2b3633 ~11.8:1 and
+   --muted #5a6862 ~5.5:1 on the panel surface — both clear WCAG AA. Accents
+   darkened so they stay legible on near-white. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #e7ebe9;
+  --glow: #f3f6f4;
+  --panel: #f7f9f8;
+  --panel-2: #eef1ef;
+  --head: #eef2f0;
+  --inset: #f3f6f4;
+  --hover: #e4e9e6;
+  --line: #d2dad6;
+  --line-bright: #b9c4bf;
+
+  --ink: #2b3633;
+  --ink-bright: #131a18;
+  --muted: #5a6862;
+  --faint: #93a09a;
+
+  --amber: #a8680a;
+  --green: #1d8a5d;
+  --red: #c2363b;
+  --blue: #2f6fb0;
+  --slate: #6b7873;
+
+  --scrim: rgba(20, 28, 25, 0.42);
+  --term-fg: #2b3633;
+}
+
 html,
 body {
   background:
-    radial-gradient(120% 100% at 50% -10%, #0d1211 0%, var(--color-bg) 60%), var(--color-bg);
+    radial-gradient(120% 100% at 50% -10%, var(--color-glow) 0%, var(--color-bg) 60%),
+    var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-mono);
   margin: 0;

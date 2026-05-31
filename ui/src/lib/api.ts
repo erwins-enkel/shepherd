@@ -114,6 +114,15 @@ export async function getUsageLimits(): Promise<UsageLimits> {
   return r.json();
 }
 
+export async function replySession(id: string, text: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/reply`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) throw new Error(`reply failed: ${r.status}`);
+}
+
 export async function listIssues(
   repoPath: string,
 ): Promise<{ slug: string | null; issues: Issue[] }> {

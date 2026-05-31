@@ -20,6 +20,9 @@
   const desigParts = $derived(session.desig.match(/^(.*?)(\d+)$/));
   const desigStem = $derived(desigParts?.[1] ?? "");
   const desigNum = $derived(desigParts?.[2] ?? session.desig);
+
+  // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
+  const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
 </script>
 
 <button
@@ -37,6 +40,9 @@
     <div class="u-top">
       <span class="desig micro"><span class="desig-stem">{desigStem}</span>{desigNum}</span>
       <span class="name">{session.name}</span>
+    </div>
+    <div class="u-repo" title={session.repoPath}>
+      <span class="repo-glyph" aria-hidden="true">▣</span>{repoName}
     </div>
     <div class="u-sub">
       {session.prompt}
@@ -87,7 +93,7 @@
 
   .unit:hover {
     border-color: var(--color-line);
-    background: #0c1110;
+    background: var(--color-hover);
   }
 
   .unit.sel {
@@ -98,7 +104,7 @@
         color-mix(in srgb, var(--rule) 9%, transparent),
         transparent 70%
       ),
-      #0c1211;
+      var(--color-hover);
   }
 
   /* bracket corners on selected */
@@ -151,6 +157,25 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+
+  .u-repo {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    color: var(--color-ink);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 34ch;
+  }
+  .repo-glyph {
+    color: var(--color-amber);
+    font-size: 10px;
+    flex-shrink: 0;
   }
 
   .u-sub {

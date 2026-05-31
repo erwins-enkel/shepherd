@@ -1,6 +1,14 @@
 <script lang="ts">
   import type { Session, UsageLimits } from "$lib/types";
   import { formatReset } from "$lib/format";
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+
+  const THEMES: { pref: ThemePref; glyph: string; label: string }[] = [
+    { pref: "dark", glyph: "☾", label: "Dark" },
+    { pref: "light", glyph: "☀", label: "Light" },
+    { pref: "system", glyph: "◐", label: "System" },
+  ];
+  const current = $derived(THEMES.find((t) => t.pref === theme.pref) ?? THEMES[0]);
 
   let {
     sessions,
@@ -9,6 +17,8 @@
     mobile = false,
     limits = null,
     onsettings,
+    needsYou = 0,
+    ontriage,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -16,6 +26,8 @@
     mobile?: boolean;
     limits?: UsageLimits | null;
     onsettings?: () => void;
+    needsYou?: number;
+    ontriage?: () => void;
   } = $props();
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
@@ -70,6 +82,9 @@
     </div>
   {/if}
   <div class="rightside">
+    {#if needsYou > 0}
+      <button class="needsyou" onclick={() => ontriage?.()}>NEEDS YOU · {needsYou}</button>
+    {/if}
     {#if gauges.length}
       <div class="gauges" class:mobile class:stale={limits?.stale}>
         {#each gauges as g (g.label)}
@@ -93,6 +108,29 @@
     <div class="clock">
       <span class="dot" class:on={connected}>●</span><span>{clock}</span>
     </div>
+    {#if mobile}
+      <button
+        class="theme-cycle"
+        type="button"
+        onclick={() => theme.cycle()}
+        title="Theme: {current.label} — tap to cycle"
+        aria-label="Theme: {current.label}">{current.glyph}</button
+      >
+    {:else}
+      <div class="theme-seg" role="group" aria-label="Theme">
+        {#each THEMES as t (t.pref)}
+          <button
+            type="button"
+            class="t-opt"
+            class:on={theme.pref === t.pref}
+            aria-pressed={theme.pref === t.pref}
+            title="{t.label} theme"
+            aria-label="{t.label} theme"
+            onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+          >
+        {/each}
+      </div>
+    {/if}
     <button
       class="gear"
       type="button"
@@ -107,7 +145,7 @@
   .hud {
     position: relative;
     border: 1px solid var(--color-line);
-    background: linear-gradient(180deg, var(--color-panel), #0c100f);
+    background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
     padding: 12px 16px;
     display: flex;
     align-items: center;
@@ -166,6 +204,55 @@
   .tally .n {
     color: var(--color-ink-bright);
     font-weight: 500;
+  }
+  .needsyou {
+    background: color-mix(in srgb, var(--color-red) 18%, transparent);
+    border: 1px solid var(--color-red);
+    color: var(--color-red);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .theme-seg {
+    display: flex;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .t-opt {
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+  .t-opt:first-child {
+    border-left: 0;
+  }
+  .t-opt:hover {
+    color: var(--color-ink-bright);
+  }
+  .t-opt.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+  }
+  .theme-cycle {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 5px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .theme-cycle:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
   }
   .rightside {
     margin-left: auto;

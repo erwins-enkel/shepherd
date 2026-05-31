@@ -50,3 +50,28 @@ test("applies usage:limits", () => {
   expect(store.usageLimits?.session5h?.pct).toBe(12);
   expect(store.usageLimits?.week?.pct).toBe(40);
 });
+
+test("tracks session:block reasons and preserves since across re-classification", () => {
+  const store = new HerdStore();
+  const reason = { shape: "menu", options: [{ label: "Yes", send: "1" }], tail: ["?"] };
+  store.apply({ event: "session:block", data: { id: "s1", block: reason as any } });
+  const since1 = store.blocks["s1"]!.since;
+  expect(store.blocks["s1"]!.reason).toEqual(reason);
+  store.apply({
+    event: "session:block",
+    data: { id: "s1", block: { ...reason, tail: ["??"] } as any },
+  });
+  expect(store.blocks["s1"]!.since).toBe(since1); // preserved
+  store.apply({ event: "session:block", data: { id: "s1", block: null } });
+  expect(store.blocks["s1"]).toBeUndefined();
+});
+
+test("clears block state when the session is archived", () => {
+  const store = new HerdStore();
+  store.apply({
+    event: "session:block",
+    data: { id: "s1", block: { shape: "yes-no", options: [], tail: [] } as any },
+  });
+  store.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(store.blocks["s1"]).toBeUndefined();
+});

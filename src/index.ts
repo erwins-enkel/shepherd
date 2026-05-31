@@ -111,6 +111,7 @@ const server = serve(
     resolveForge: (dir) => detectForge(dir, config.forges),
     prCache: prPoller,
     push,
+    poller,
   },
   config.port,
 );

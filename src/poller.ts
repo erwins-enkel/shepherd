@@ -116,6 +116,19 @@ export class StatusPoller {
     this.onBlock(id, reason);
   }
 
+  /**
+   * Manually clear a *stall* flag without re-arming it: broadcasts the clear but
+   * keeps `lastSig` so `maybeStall`'s once-per-episode guard suppresses an
+   * immediate re-fire. The episode re-arms on its own when activity resumes
+   * (the `!isStalled` path in `maybeStall` calls `clearBlock`), so a later
+   * genuine stall still surfaces. No-op (returns false) unless a stall is live.
+   */
+  acknowledgeStall(id: string): boolean {
+    if (this.lastSig.get(id) !== STALL_SIG) return false;
+    this.onBlock(id, null);
+    return true;
+  }
+
   private clearBlock(id: string): void {
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);

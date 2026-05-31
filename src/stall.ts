@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { parseActivity } from "./activity";
+import { latestRecordTs, parseActivity } from "./activity";
 
 /** A minimal read of a session's most-recent tool activity, for stall detection. */
 export interface ActivitySnapshot {
-  /** ms epoch of the most recent tool_use, or 0 if the transcript has none yet. */
+  /** ms epoch of the newest transcript record — tool completions and resumed
+   *  output included, not just a new tool_use's start. 0 if none yet. */
   lastTs: number;
   /** the newest tool_use has no tool_result yet → a tool is still running. */
   pending: boolean;
@@ -36,6 +37,11 @@ export function isStalled(snap: ActivitySnapshot, now: number, cfg: StallConfig)
 /**
  * Synchronously derive a snapshot from a session JSONL. Missing/unreadable
  * (e.g. a just-spawned session with no transcript) → null, treated as "no signal".
+ *
+ * `lastTs` tracks the newest record of *any* kind so a completing long-running
+ * tool or a resumed turn clears a stall; `pending` still keys off the newest
+ * tool_use so a genuinely running command keeps its longer hung-command window.
+ * A transcript with no tool_use can't stall → null.
  */
 export function readSnapshot(path: string): ActivitySnapshot | null {
   let text: string;
@@ -47,5 +53,5 @@ export function readSnapshot(path: string): ActivitySnapshot | null {
   const entries = parseActivity(text, 5);
   if (entries.length === 0) return null;
   const last = entries[entries.length - 1]!;
-  return { lastTs: last.ts, pending: last.status === "pending" };
+  return { lastTs: latestRecordTs(text), pending: last.status === "pending" };
 }

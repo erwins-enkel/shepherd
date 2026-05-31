@@ -140,6 +140,11 @@ export async function replySession(id: string, text: string): Promise<void> {
   if (!r.ok) throw new Error(`reply failed: ${r.status}`);
 }
 
+export async function dismissStall(id: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/dismiss-stall`, { method: "POST" });
+  if (!r.ok) throw new Error(`dismiss-stall failed: ${r.status}`);
+}
+
 export async function listIssues(
   repoPath: string,
 ): Promise<{ slug: string | null; issues: Issue[] }> {

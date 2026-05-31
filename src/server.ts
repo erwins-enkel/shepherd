@@ -29,6 +29,7 @@ import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
+import type { StatusPoller } from "./poller";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -72,6 +73,8 @@ export interface AppDeps {
   prCache?: PrCache;
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
+  /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
+  poller?: Pick<StatusPoller, "acknowledgeStall">;
 }
 
 const sessionUsage = (s: Session) =>
@@ -209,6 +212,10 @@ export function makeApp(deps: AppDeps) {
           }
           const ok = deps.service.reply(parts[2], (body as { text: string }).text);
           return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+        }
+        if (req.method === "POST" && parts[2] && parts[3] === "dismiss-stall") {
+          const ok = deps.poller?.acknowledgeStall(parts[2]) ?? false;
+          return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);
         }
       }
       // ── git host (forge) actions: /api/sessions/:id/git[/pr|/merge|/redeploy] ──

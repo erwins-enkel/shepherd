@@ -6,11 +6,13 @@
     entries,
     nowMs,
     onreply,
+    ondismiss,
     onclose,
   }: {
     entries: BlockedEntry[];
     nowMs: number;
     onreply: (id: string, text: string) => void;
+    ondismiss: (id: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -60,7 +62,16 @@
       </div>
 
       {#if e.reason.shape === "stall"}
-        <p class="stall-note">{m.triage_stall_note()}</p>
+        <div class="stall-head">
+          <p class="stall-note">{m.triage_stall_note()}</p>
+          <button
+            class="dismiss"
+            onclick={() => ondismiss(e.session.id)}
+            aria-label={m.triage_dismiss_aria({ desig: e.session.desig })}
+          >
+            {m.triage_dismiss_button()}
+          </button>
+        </div>
       {/if}
 
       <pre class="tail">{e.reason.tail.join("\n")}</pre>
@@ -172,10 +183,22 @@
     font-variant-numeric: tabular-nums;
     font-size: 12px;
   }
+  .stall-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .stall-note {
     margin: 0;
     color: var(--color-amber);
     font-size: 12px;
+    flex: 1;
+  }
+  .dismiss {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--color-muted);
   }
   .tail {
     margin: 0;

@@ -14,6 +14,7 @@ import type {
   UpdateStatus,
   Steer,
   DiffResult,
+  ProjectIcons,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -244,5 +245,24 @@ export async function broadcast(
     body: JSON.stringify({ text, ids }),
   });
   if (!r.ok) throw new Error(`broadcast failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getProjectIcons(): Promise<ProjectIcons> {
+  const r = await fetch("/api/project-icons");
+  if (!r.ok) throw new Error(`project-icons failed: ${r.status}`);
+  return r.json();
+}
+
+export async function putProjectIcon(path: string, emoji: string): Promise<ProjectIcons> {
+  const r = await fetch("/api/project-icons", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ path, emoji }),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
   return r.json();
 }

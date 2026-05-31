@@ -13,6 +13,7 @@
   } from "$lib/api";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import Herd from "$lib/components/Herd.svelte";
@@ -85,6 +86,7 @@
       .then((m) => store.setGit(m))
       .catch(() => {});
     steers.load();
+    projectIcons.load();
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {

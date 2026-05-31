@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { RepoEntry } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import EmojiPicker from "./EmojiPicker.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
 
   let {
     repos,
@@ -12,6 +14,14 @@
   let filter = $state("");
   let root = $state<HTMLElement | null>(null);
   let filterInput = $state<HTMLInputElement | null>(null);
+
+  // repo path whose emoji picker is currently open (null = none)
+  let pickerFor = $state<string | null>(null);
+
+  function setIcon(path: string, emoji: string | null) {
+    projectIcons.set(path, emoji).catch(() => {});
+    pickerFor = null;
+  }
 
   const selected = $derived(repos.find((r) => r.path === value) ?? null);
   const shown = $derived(
@@ -28,6 +38,7 @@
   function pick(path: string) {
     onchange(path);
     open = false;
+    pickerFor = null;
     filter = "";
   }
 
@@ -41,12 +52,14 @@
     function onKeydown(e: KeyboardEvent) {
       if (e.key === "Escape" && open) {
         open = false;
+        pickerFor = null;
         filter = "";
       }
     }
     function onClick(e: MouseEvent) {
       if (open && root && !root.contains(e.target as Node)) {
         open = false;
+        pickerFor = null;
         filter = "";
       }
     }
@@ -68,6 +81,7 @@
     aria-expanded={open}
   >
     {#if selected}
+      <span class="rs-emoji" aria-hidden="true">{projectIcons.iconFor(selected.path) ?? "▣"}</span>
       <b>{selected.name}</b>
       <span class="dim">{selected.display}</span>
     {:else}
@@ -100,6 +114,18 @@
               if (e.key === "Enter" || e.key === " ") pick(r.path);
             }}
           >
+            <button
+              type="button"
+              class="rs-emoji-btn"
+              title={m.reposelect_set_icon()}
+              aria-label={m.reposelect_set_icon()}
+              onclick={(e) => {
+                e.stopPropagation();
+                pickerFor = pickerFor === r.path ? null : r.path;
+              }}
+            >
+              {projectIcons.iconFor(r.path) ?? "▣"}
+            </button>
             <b>{r.name}</b>
             <span class="dim">{r.display}</span>
           </li>
@@ -108,6 +134,15 @@
           <li class="rs-empty">{m.reposelect_no_matches()}</li>
         {/if}
       </ul>
+      {#if pickerFor !== null}
+        <div class="rs-picker">
+          <EmojiPicker
+            value={projectIcons.iconFor(pickerFor)}
+            onpick={(emoji) => setIcon(pickerFor!, emoji)}
+            onclose={() => (pickerFor = null)}
+          />
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -256,6 +291,33 @@
     font-size: 12px;
     font-style: italic;
     text-align: center;
+  }
+
+  .rs-emoji {
+    flex-shrink: 0;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .rs-emoji-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 14px;
+    line-height: 1;
+    padding: 1px 3px;
+    cursor: pointer;
+    color: var(--color-amber);
+  }
+  .rs-emoji-btn:hover {
+    border-color: var(--color-amber);
+    background: var(--color-hover);
+  }
+  .rs-picker {
+    position: absolute;
+    z-index: 60;
+    left: 8px;
+    margin-top: 4px;
   }
 
   @media (max-width: 768px) {

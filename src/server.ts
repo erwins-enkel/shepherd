@@ -11,10 +11,12 @@ import {
   parseTermDims,
   validateSteers,
   validateBroadcast,
+  validateIconPatch,
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
+import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
 import { sessionTokens, jsonlPathFor } from "./usage";
@@ -344,6 +346,22 @@ export function makeApp(deps: AppDeps) {
           if (!steers) return json({ error: "invalid steers payload" }, 400);
           saveSteers(deps.store, steers);
           return json(steers);
+        }
+      }
+
+      // ── per-project icons: read full map / patch one entry ──
+      if (parts[0] === "api" && parts[1] === "project-icons" && !parts[2]) {
+        if (req.method === "GET") return json(loadIcons(deps.store));
+        if (req.method === "PUT") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          const patch = validateIconPatch(body);
+          if (!patch) return json({ error: "invalid project-icon payload" }, 400);
+          const map = setIcon(deps.store, patch.path, patch.emoji);
+          deps.events.emit("project-icons:update", map);
+          return json(map);
         }
       }
 

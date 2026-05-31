@@ -201,6 +201,22 @@ export function validateSteers(body: unknown): Steer[] | null {
   return out;
 }
 
+/** Validate a PUT /api/project-icons patch. `emoji === ""` means "clear". Returns null on violation. */
+export function validateIconPatch(body: unknown): { path: string; emoji: string } | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (typeof o.path !== "string" || typeof o.emoji !== "string") return null;
+  const path = o.path.trim();
+  if (path.length === 0 || path.length > 1024) return null;
+  const emoji = o.emoji.trim();
+  if (emoji.length > 0) {
+    const codePoints = [...emoji];
+    if (codePoints.length > 8) return null; // code-point cap (covers ZWJ sequences)
+    if (codePoints.some((c) => (c.codePointAt(0) ?? 0x20) < 0x20)) return null; // no control chars
+  }
+  return { path, emoji };
+}
+
 /** Validate a POST /api/broadcast payload. Returns null on any violation. */
 export function validateBroadcast(body: unknown): { text: string; ids: string[] } | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;

@@ -174,5 +174,9 @@
   "broadcast_sending": "Sending…",
   "broadcast_send_to": "Send to {count}",
   "broadcast_result_sent": "sent {sent}/{total}",
-  "broadcast_failed": "broadcast failed"
+  "broadcast_failed": "broadcast failed",
+  "emojipicker_search": "search emoji…",
+  "emojipicker_custom": "paste any emoji",
+  "emojipicker_clear": "remove icon",
+  "reposelect_set_icon": "set project icon"
 }

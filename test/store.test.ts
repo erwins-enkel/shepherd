@@ -36,6 +36,15 @@ test("lastUsedByRepo returns max createdAt per repoPath", () => {
   expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
 });
 
+test("repo_config: defaults to critic enabled, persists toggles", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: true }); // absent → default on
+  store.setRepoConfig("/repo/a", { criticEnabled: false });
+  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: false });
+  store.setRepoConfig("/repo/a", { criticEnabled: true });
+  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: true });
+});
+
 test("get / list / update / archive", () => {
   const s = mk();
   const a = s.create(base);

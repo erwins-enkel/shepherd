@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { Session } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
+export interface RepoConfig {
+  criticEnabled: boolean;
+}
+
 export interface PushSubInput {
   endpoint: string;
   keys: { p256dh: string; auth: string };
@@ -59,6 +63,9 @@ export class SessionStore implements CapStore {
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -85,6 +92,23 @@ export class SessionStore implements CapStore {
       `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
+    );
+  }
+
+  // ── per-repo config (critic on/off) ───────────────────────────────────────
+  getRepoConfig(repoPath: string): RepoConfig {
+    const r = this.db
+      .query(`SELECT criticEnabled FROM repo_config WHERE repoPath = ?`)
+      .get(repoPath) as { criticEnabled: number } | null;
+    return { criticEnabled: r ? !!r.criticEnabled : true }; // absent → enabled
+  }
+
+  setRepoConfig(repoPath: string, cfg: RepoConfig): void {
+    this.db.run(
+      `INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
+         updatedAt = excluded.updatedAt`,
+      [repoPath, cfg.criticEnabled ? 1 : 0, Date.now()],
     );
   }
 

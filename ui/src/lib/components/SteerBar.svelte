@@ -7,18 +7,45 @@
 
   let flash = $state<string | null>(null);
 
-  // pointerdown + preventDefault: fire instantly and never blur the terminal
-  // (which would dismiss the mobile soft keyboard), matching ControlBar.
-  function send(e: PointerEvent, text: string) {
+  // Tap-vs-drag: the bar scrolls horizontally (overflow-x), so a finger that
+  // lands on a chip and drags to scroll must NOT fire it. Arm on pointerdown,
+  // disarm once the pointer moves past a small slop (it's a scroll) or when the
+  // browser takes the gesture over for scrolling (pointercancel), and only act
+  // on a clean tap at pointerup. preventDefault on the *up* — not the down —
+  // suppresses the synthetic click so the chip never blurs the terminal (which
+  // would dismiss the mobile soft keyboard), while leaving native horizontal
+  // scrolling intact.
+  const TAP_SLOP = 10;
+  let armedId: number | null = null;
+  let startX = 0;
+  let startY = 0;
+
+  function down(e: PointerEvent) {
+    armedId = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+  }
+  function move(e: PointerEvent) {
+    if (armedId !== e.pointerId) return;
+    if (Math.abs(e.clientX - startX) > TAP_SLOP || Math.abs(e.clientY - startY) > TAP_SLOP) {
+      armedId = null;
+    }
+  }
+  function cancel(e: PointerEvent) {
+    if (armedId === e.pointerId) armedId = null;
+  }
+  function tap(e: PointerEvent, action: () => void) {
+    if (armedId !== e.pointerId) return;
+    armedId = null;
     e.preventDefault();
+    action();
+  }
+
+  function send(text: string) {
     replySession(focusedId, text).catch(() => {
       flash = m.steerbar_send_failed();
       setTimeout(() => (flash = null), 1500);
     });
-  }
-  function broadcast(e: PointerEvent) {
-    e.preventDefault();
-    onbroadcast();
   }
 </script>
 
@@ -26,7 +53,10 @@
   <button
     type="button"
     class="chip bc"
-    onpointerdown={broadcast}
+    onpointerdown={down}
+    onpointermove={move}
+    onpointercancel={cancel}
+    onpointerup={(e) => tap(e, onbroadcast)}
     aria-label={m.steerbar_broadcast_aria()}>📡 {m.steerbar_broadcast()}</button
   >
   {#each steers.list as s (s.id)}
@@ -35,7 +65,10 @@
       class="chip"
       title={s.text}
       aria-label={m.steerbar_send_aria({ label: s.label })}
-      onpointerdown={(e) => send(e, s.text)}>{s.label}</button
+      onpointerdown={down}
+      onpointermove={move}
+      onpointercancel={cancel}
+      onpointerup={(e) => tap(e, () => send(s.text))}>{s.label}</button
     >
   {/each}
   {#if flash}<span class="flash">{flash}</span>{/if}

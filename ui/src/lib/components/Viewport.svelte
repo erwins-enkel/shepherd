@@ -558,7 +558,12 @@
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     {#if !compact}
-      <GitRail sessionId={session.id} name={session.name} prompt={session.prompt} />
+      <GitRail
+        sessionId={session.id}
+        repoPath={session.repoPath}
+        name={session.name}
+        prompt={session.prompt}
+      />
     {/if}
     <button
       class="decom"
@@ -580,7 +585,13 @@
        since the wrapping header has no room for it -->
   {#if compact}
     <div class="vp-git-strip">
-      <GitRail sessionId={session.id} name={session.name} prompt={session.prompt} mobile />
+      <GitRail
+        sessionId={session.id}
+        repoPath={session.repoPath}
+        name={session.name}
+        prompt={session.prompt}
+        mobile
+      />
     </div>
   {/if}
 

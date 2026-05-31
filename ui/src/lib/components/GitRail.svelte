@@ -1,14 +1,22 @@
 <script lang="ts">
-  import { gitState, openPr, mergePr, redeploy } from "$lib/api";
+  import { gitState, openPr, mergePr, redeploy, replySession } from "$lib/api";
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { reviews, repoConfig } from "$lib/reviews.svelte";
 
   let {
     sessionId,
+    repoPath = "",
     name = "",
     prompt = "",
     mobile = false,
-  }: { sessionId: string; name?: string; prompt?: string; mobile?: boolean } = $props();
+  }: {
+    sessionId: string;
+    repoPath?: string;
+    name?: string;
+    prompt?: string;
+    mobile?: boolean;
+  } = $props();
 
   let git = $state<GitState | null>(null);
   let busy = $state(false);
@@ -109,6 +117,25 @@
   const mergeBlocked = $derived(
     !git || git.mergeable === false || git.checks === "failure" || busy,
   );
+
+  const verdict = $derived(reviews.map[sessionId]);
+  const criticOn = $derived(repoConfig.isEnabled(repoPath));
+  let reviewFlash = $state<string | null>(null);
+
+  $effect(() => {
+    if (repoPath) repoConfig.ensure(repoPath);
+  });
+
+  async function sendReviewToAgent() {
+    if (!verdict?.body) return;
+    try {
+      await replySession(sessionId, `Address this code review feedback:\n\n${verdict.body}`);
+      reviewFlash = m.gitrail_review_sent();
+    } catch {
+      reviewFlash = m.gitrail_send_review_failed();
+    }
+    setTimeout(() => (reviewFlash = null), 1500);
+  }
 </script>
 
 {#if git}
@@ -155,6 +182,23 @@
       {:else}
         <span class="merged">{m.gitrail_closed()}</span>
       {/if}
+
+      {#if repoPath}
+        <button
+          class="gbtn"
+          type="button"
+          aria-label={m.gitrail_critic_toggle_aria()}
+          onclick={() => repoConfig.toggle(repoPath)}
+        >
+          {criticOn ? m.gitrail_critic_on() : m.gitrail_critic_off()}
+        </button>
+      {/if}
+      {#if verdict && verdict.decision !== "error" && verdict.body}
+        <button class="gbtn" type="button" disabled={busy} onclick={sendReviewToAgent}>
+          {m.gitrail_send_review()}
+        </button>
+      {/if}
+      {#if reviewFlash}<span class="err" title={reviewFlash}>{reviewFlash}</span>{/if}
 
       {#if err}<span class="err" title={err}>{err}</span>{/if}
     </span>

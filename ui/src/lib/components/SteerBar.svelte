@@ -1,6 +1,7 @@
 <script lang="ts">
   import { steers } from "$lib/steers.svelte";
   import { replySession } from "$lib/api";
+  import { m } from "$lib/paraglide/messages";
 
   let { focusedId, onbroadcast }: { focusedId: string; onbroadcast: () => void } = $props();
 
@@ -11,7 +12,7 @@
   function send(e: PointerEvent, text: string) {
     e.preventDefault();
     replySession(focusedId, text).catch(() => {
-      flash = "send failed";
+      flash = m.steerbar_send_failed();
       setTimeout(() => (flash = null), 1500);
     });
   }
@@ -21,19 +22,19 @@
   }
 </script>
 
-<div class="steer-bar" role="toolbar" aria-label="Saved steers">
+<div class="steer-bar" role="toolbar" aria-label={m.steerbar_toolbar_aria()}>
   <button
     type="button"
     class="chip bc"
     onpointerdown={broadcast}
-    aria-label="Broadcast a steer to multiple sessions">📡 Broadcast</button
+    aria-label={m.steerbar_broadcast_aria()}>📡 {m.steerbar_broadcast()}</button
   >
   {#each steers.list as s (s.id)}
     <button
       type="button"
       class="chip"
       title={s.text}
-      aria-label={`Send steer: ${s.label}`}
+      aria-label={m.steerbar_send_aria({ label: s.label })}
       onpointerdown={(e) => send(e, s.text)}>{s.label}</button
     >
   {/each}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BlockedEntry } from "$lib/triage";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     entries,
@@ -37,12 +38,12 @@
 
 <aside class="drawer">
   <header>
-    <span class="title">NEEDS YOU · {entries.length}</span>
-    <button class="x" onclick={onclose} aria-label="Close">✕</button>
+    <span class="title">{m.common_needs_you({ count: entries.length })}</span>
+    <button class="x" onclick={onclose} aria-label={m.triage_close_aria()}>✕</button>
   </header>
 
   {#if entries.length === 0}
-    <p class="empty">No agents are waiting on you.</p>
+    <p class="empty">{m.triage_empty()}</p>
   {/if}
 
   {#each entries as e (e.session.id)}
@@ -51,7 +52,7 @@
         <input
           type="checkbox"
           bind:checked={selected[e.session.id]}
-          aria-label="Select {e.session.desig}"
+          aria-label={m.triage_checkbox_aria({ desig: e.session.desig })}
         />
         <span class="desig">{e.session.desig}</span>
         <span class="name">{e.session.name}</span>
@@ -71,11 +72,11 @@
           }}
         >
           <input
-            placeholder="Type a reply…"
-            aria-label="Reply to {e.session.desig}"
+            placeholder={m.triage_reply_placeholder()}
+            aria-label={m.triage_reply_aria({ desig: e.session.desig })}
             bind:value={drafts[e.session.id]}
           />
-          <button type="submit">Send</button>
+          <button type="submit">{m.triage_send_button()}</button>
         </form>
       {:else}
         <div class="opts">
@@ -89,13 +90,13 @@
 
   {#if selectedIds.length > 1}
     <footer class="batch">
-      <span>Reply to {selectedIds.length} selected:</span>
+      <span>{m.triage_batch_label({ count: selectedIds.length })}</span>
       <input
-        placeholder="same text to all…"
-        aria-label="Reply to all selected"
+        placeholder={m.triage_batch_placeholder()}
+        aria-label={m.triage_batch_reply_aria()}
         bind:value={batchText}
       />
-      <button onclick={sendBatch}>Send to {selectedIds.length}</button>
+      <button onclick={sendBatch}>{m.triage_batch_send({ count: selectedIds.length })}</button>
     </footer>
   {/if}
 </aside>

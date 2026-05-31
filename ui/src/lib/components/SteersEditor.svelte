@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { steers } from "$lib/steers.svelte";
   import type { Steer } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
 
   let draft = $state<Steer[]>([]);
   let saving = $state(false);
@@ -39,7 +40,7 @@
       syncFromStore();
       saved = true;
     } catch (e) {
-      error = e instanceof Error ? e.message : "failed to save";
+      error = e instanceof Error ? e.message : m.steerseditor_save_failed();
     } finally {
       saving = false;
     }
@@ -47,38 +48,43 @@
 </script>
 
 <div class="editor">
-  <span class="micro">Saved&nbsp;Steers</span>
+  <span class="micro">{m.steerseditor_title()}</span>
   <div class="rows">
     {#each draft as s (s.id)}
       <div class="srow">
         <input
           class="label"
           bind:value={s.label}
-          placeholder="label"
+          placeholder={m.steerseditor_label_placeholder()}
           oninput={() => (saved = false)}
         />
         <input
           class="text"
           bind:value={s.text}
-          placeholder="prompt text"
+          placeholder={m.steerseditor_text_placeholder()}
           oninput={() => (saved = false)}
         />
-        <button type="button" class="del" aria-label="delete steer" onclick={() => remove(s.id)}
-          >✕</button
+        <button
+          type="button"
+          class="del"
+          aria-label={m.steerseditor_delete_aria()}
+          onclick={() => remove(s.id)}>✕</button
         >
       </div>
     {/each}
     {#if draft.length === 0}
-      <div class="placeholder">no steers yet</div>
+      <div class="placeholder">{m.steerseditor_empty()}</div>
     {/if}
   </div>
 
   {#if error}<div class="err">{error}</div>{/if}
 
   <div class="actions">
-    <button type="button" class="add" onclick={add} disabled={draft.length >= 40}>+ Add</button>
+    <button type="button" class="add" onclick={add} disabled={draft.length >= 40}
+      >{m.steerseditor_add()}</button
+    >
     <button type="button" class="save" disabled={!valid || saving} onclick={save}>
-      {saving ? "Saving…" : saved ? "Saved ✓" : "Save steers"}
+      {saving ? m.steerseditor_saving() : saved ? m.steerseditor_saved() : m.steerseditor_save()}
     </button>
   </div>
 </div>

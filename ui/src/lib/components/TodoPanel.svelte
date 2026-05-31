@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getTodo, putTodo } from "$lib/api";
   import { ITEM_RE, isDone, toggleItem, cleanupTodo } from "$lib/todo";
+  import { m } from "$lib/paraglide/messages";
 
   let { repoPath }: { repoPath: string } = $props();
 
@@ -57,22 +58,22 @@
 
 <div class="todo-panel">
   <div class="todo-header">
-    <span>TO-DO · TODO.md</span>
+    <span>{m.todopanel_title()}</span>
     {#if hasDone}
       <button
         class="cleanup-btn"
         type="button"
         onclick={clearDone}
-        title="remove completed items + tidy format">clear done</button
+        title={m.todopanel_cleanup_title()}>{m.todopanel_clear_done()}</button
       >
     {/if}
   </div>
 
   <div class="todo-list">
     {#if loading}
-      <div class="muted">loading…</div>
+      <div class="muted">{m.common_loading()}</div>
     {:else if !exists || content.trim() === ""}
-      <div class="empty-hint">No TODO.md yet — add the first item</div>
+      <div class="empty-hint">{m.todopanel_empty()}</div>
     {:else}
       {#each content.split("\n") as line, i (i + ":" + line)}
         {@const match = ITEM_RE.exec(line)}
@@ -97,11 +98,11 @@
     <input
       class="add-input"
       type="text"
-      placeholder="new item…"
+      placeholder={m.todopanel_add_placeholder()}
       bind:value={adding}
       onkeydown={handleKeydown}
     />
-    <button class="add-btn" onclick={addItem}>Add</button>
+    <button class="add-btn" onclick={addItem}>{m.todopanel_add_button()}</button>
   </div>
 </div>
 

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { m } from "$lib/paraglide/messages";
+  import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
 
   const REPO = "erwins-enkel/shepherd";
   const REPO_URL = `https://github.com/${REPO}`;
   const sha = __GIT_SHA__;
   const commitUrl = sha === "unknown" ? REPO_URL : `https://github.com/${REPO}/commit/${sha}`;
 
-  const THEMES: { pref: ThemePref; glyph: string; label: string }[] = [
-    { pref: "dark", glyph: "☾", label: "Dark" },
-    { pref: "light", glyph: "☀", label: "Light" },
-    { pref: "system", glyph: "◐", label: "System" },
+  const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
+    { pref: "dark", glyph: "☾", label: m.theme_dark },
+    { pref: "light", glyph: "☀", label: m.theme_light },
+    { pref: "system", glyph: "◐", label: m.theme_system },
   ];
 
   let {
@@ -29,21 +31,21 @@
 
 {#if !(desktopOnly && mobile)}
   <div class="actions" class:mobile>
-    <button class="btn primary" type="button" onclick={onnew}>+ New Task</button>
+    <button class="btn primary" type="button" onclick={onnew}>{m.actionbar_new_task()}</button>
     {#if !mobile}
       <button
         class="btn"
         class:active={mode === "all"}
         aria-pressed={mode === "all"}
         type="button"
-        onclick={() => onmode?.("all")}>All ▦</button
+        onclick={() => onmode?.("all")}>{m.actionbar_all_mode()}</button
       >
       <button
         class="btn"
         class:active={mode === "focus"}
         aria-pressed={mode === "focus"}
         type="button"
-        onclick={() => onmode?.("focus")}>Focus ⌖</button
+        onclick={() => onmode?.("focus")}>{m.actionbar_focus_mode()}</button
       >
       <div class="meta">
         <a class="repo" href={REPO_URL} target="_blank" rel="external noreferrer noopener">{REPO}</a
@@ -54,21 +56,22 @@
           href={commitUrl}
           target="_blank"
           rel="external noreferrer noopener"
-          title="commit {sha}">{sha}</a
+          title={m.actionbar_commit_title({ sha })}>{sha}</a
         >
-        <div class="theme-seg" role="group" aria-label="Theme">
+        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
           {#each THEMES as t (t.pref)}
             <button
               type="button"
               class="t-opt"
               class:on={theme.pref === t.pref}
               aria-pressed={theme.pref === t.pref}
-              title="{t.label} theme"
-              aria-label="{t.label} theme"
+              title={m.actionbar_theme_option({ label: t.label() })}
+              aria-label={m.actionbar_theme_option({ label: t.label() })}
               onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
             >
           {/each}
         </div>
+        <LanguageSwitcher />
       </div>
     {/if}
   </div>

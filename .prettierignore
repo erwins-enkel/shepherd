@@ -9,3 +9,9 @@ dist
 
 # Agent-generated planning artifacts — leave their formatting alone
 docs/superpowers
+
+# Paraglide generated output + vendored inlang plugins/metadata
+ui/src/lib/paraglide
+ui/project.inlang/.meta.json
+ui/project.inlang/README.md
+ui/project.inlang/plugins

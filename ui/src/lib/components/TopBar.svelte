@@ -1,11 +1,13 @@
 <script lang="ts">
   import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
-  import { theme } from "$lib/theme.svelte";
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   // mobile shows a single compact cycle glyph; desktop's switcher lives in the ActionBar
   const GLYPHS = { dark: "☾", light: "☀", system: "◐" } as const;
-  const LABELS = { dark: "Dark", light: "Light", system: "System" } as const;
+  const themeLabel = (p: ThemePref) =>
+    p === "dark" ? m.theme_dark() : p === "light" ? m.theme_light() : m.theme_system();
 
   let {
     sessions,
@@ -38,9 +40,7 @@
   const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
   const connText = $derived(
-    connected
-      ? "Live connection to herdr · device clock"
-      : "Disconnected — reconnecting · device clock",
+    connected ? m.topbar_clock_tip_connected() : m.topbar_clock_tip_disconnected(),
   );
 
   function gaugeColor(pct: number): string {
@@ -74,31 +74,37 @@
   {:else}
     <div class="tallies">
       <div class="tally">
-        <span class="micro">Herd</span><span class="n">{sessions.length}</span>
+        <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
       </div>
       <div class="tally">
-        <span class="micro" style="color:var(--color-amber)">Working</span><span class="n"
-          >{working}</span
+        <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
+          class="n">{working}</span
         >
       </div>
-      <div class="tally"><span class="micro">Idle</span><span class="n">{idle}</span></div>
       <div class="tally">
-        <span class="micro" style="color:var(--color-red)">Blocked</span><span class="n"
-          >{blocked}</span
+        <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
+      </div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
+          class="n">{blocked}</span
         >
       </div>
     </div>
   {/if}
   <div class="rightside">
     {#if needsYou > 0}
-      <button class="needsyou" onclick={() => ontriage?.()}>NEEDS YOU · {needsYou}</button>
+      <button class="needsyou" onclick={() => ontriage?.()}
+        >{m.common_needs_you({ count: needsYou })}</button
+      >
     {/if}
     {#if gauges.length}
       <div class="gauges" class:mobile class:stale={limits?.stale}>
         {#each gauges as g (g.label)}
-          {@const tip = `${g.label === "5H" ? "5-hour" : "weekly"} limit · ${
-            g.w!.pct
-          }% used · resets ${formatReset(g.w!.resetAt, nowMs)}${limits?.stale ? " · stale" : ""}`}
+          {@const tip = `${m.topbar_gauge_title({
+            period: g.label === "5H" ? m.topbar_gauge_period_5h() : m.topbar_gauge_period_weekly(),
+            pct: g.w!.pct,
+            reset: formatReset(g.w!.resetAt, nowMs),
+          })}${limits?.stale ? m.topbar_gauge_stale_suffix() : ""}`}
           <div class="gauge tip" data-tip={tip} aria-label={tip}>
             <span class="g-label micro">{g.label}</span>
             <span class="g-bar"
@@ -130,16 +136,17 @@
         class="theme-cycle"
         type="button"
         onclick={() => theme.cycle()}
-        title="Theme: {LABELS[theme.pref]} — tap to cycle"
-        aria-label="Theme: {LABELS[theme.pref]}">{GLYPHS[theme.pref]}</button
+        title={m.topbar_theme_cycle({ label: themeLabel(theme.pref) })}
+        aria-label={m.topbar_theme_cycle_aria({ label: themeLabel(theme.pref) })}
+        >{GLYPHS[theme.pref]}</button
       >
     {/if}
     <button
       class="gear tip"
       type="button"
       onclick={() => onsettings?.()}
-      data-tip="Open settings"
-      aria-label="settings">⚙</button
+      data-tip={m.settings_title()}
+      aria-label={m.topbar_settings_aria()}>⚙</button
     >
   </div>
 </div>

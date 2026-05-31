@@ -13,6 +13,7 @@
   import ControlBar from "$lib/components/ControlBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     session,
@@ -176,7 +177,7 @@
       // the session ended (agent gone) — note it in the buffer; the status badge
       // already flips to "done" via the session:status event
       () => {
-        term.write("\r\n\x1b[2m── session ended ──\x1b[0m\r\n");
+        term.write(`\r\n\x1b[2m${m.viewport_session_ended()}\x1b[0m\r\n`);
       },
     );
     conn = c;
@@ -311,7 +312,9 @@
   <!-- header -->
   <div class="vp-head" class:mobile={compact}>
     {#if onback}
-      <button class="back" type="button" onclick={onback} aria-label="Back to herd">‹ Herd</button>
+      <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
+        >{m.viewport_back_button()}</button
+      >
     {/if}
     <span class="desig">{session.desig}</span>
     {#if !compact}
@@ -324,20 +327,24 @@
       <span class="sep">·</span>
       <span
         class="tokens"
-        title="{usage.input.toLocaleString()} in · {usage.output.toLocaleString()} out · {usage.cacheRead.toLocaleString()} cache read · {usage.cacheWrite.toLocaleString()} cache write"
-        >{formatTokens(usage.total)} tok</span
+        title={m.viewport_usage_title({
+          input: usage.input.toLocaleString(),
+          output: usage.output.toLocaleString(),
+          cacheRead: usage.cacheRead.toLocaleString(),
+          cacheWrite: usage.cacheWrite.toLocaleString(),
+        })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
       >
     {/if}
     <div class="spacer"></div>
     <div class="tab-group" class:mobile={compact}>
       <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
-        >Terminal</button
+        >{m.viewport_terminal_tab()}</button
       >
       <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
-        >To-Do</button
+        >{m.viewport_todo_tab()}</button
       >
       <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
-        >Issues</button
+        >{m.viewport_issues_tab()}</button
       >
     </div>
     {#if !compact}
@@ -361,9 +368,9 @@
       class:armed
       type="button"
       onclick={decommission}
-      title="stop agent + remove worktree"
+      title={m.viewport_decommission_title()}
     >
-      {armed ? "confirm ✕" : "✕ decommission"}
+      {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
     </button>
   </div>
 
@@ -382,7 +389,7 @@
       class="term-mount"
       class:dragging
       role="region"
-      aria-label="Terminal"
+      aria-label={m.viewport_terminal_tab()}
       bind:this={el}
       style:display={tab === "term" ? undefined : "none"}
       ondragover={(e) => {
@@ -397,8 +404,8 @@
     {#if parked && tab === "term"}
       <button class="parked" type="button" onclick={takeover}>
         <span class="parked-icon" aria-hidden="true">▶</span>
-        <span class="parked-title">Auf anderem Gerät aktiv</span>
-        <span class="parked-sub">Tippen zum Übernehmen</span>
+        <span class="parked-title">{m.viewport_parked_title()}</span>
+        <span class="parked-sub">{m.viewport_parked_sub()}</span>
       </button>
     {/if}
     {#if tab === "todo"}
@@ -428,12 +435,12 @@
         type="button"
         class="attach"
         class:failed={uploadFailed}
-        title={uploadFailed ? "Upload failed — tap to retry" : "Attach image"}
+        title={uploadFailed ? m.viewport_upload_failed() : m.viewport_attach_image()}
         onpointerdown={(e) => {
           e.preventDefault();
           fileInput?.click();
         }}
-        aria-label="Attach image"
+        aria-label={m.viewport_attach_image()}
       >
         {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
       </button>
@@ -455,9 +462,9 @@
 
   <!-- footer -->
   <div class="vp-foot">
-    <span>⌁ type to steer</span>
+    <span>{m.viewport_type_steer_hint()}</span>
     <span class="sep">·</span>
-    <span>⇥ detach</span>
+    <span>{m.viewport_detach_hint()}</span>
   </div>
 </div>
 

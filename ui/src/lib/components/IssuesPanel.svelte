@@ -1,6 +1,7 @@
 <script lang="ts">
   import { listIssues } from "$lib/api";
   import type { Issue } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     repoPath,
@@ -32,16 +33,16 @@
 
 <div class="issues-panel">
   <div class="issues-header">
-    {#if slug}ISSUES · {slug}{:else}ISSUES{/if}
+    {#if slug}{m.issuespanel_title_with_slug({ slug })}{:else}{m.issuespanel_title()}{/if}
   </div>
 
   <div class="issues-list">
     {#if loading}
-      <div class="muted">loading…</div>
+      <div class="muted">{m.common_loading()}</div>
     {:else if slug === null}
-      <div class="muted">no git host configured for this repo</div>
+      <div class="muted">{m.issuespanel_no_host()}</div>
     {:else if issues.length === 0}
-      <div class="muted">no open issues</div>
+      <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
       {#each issues as issue (issue.number)}
         <div class="issue-row">
@@ -52,14 +53,14 @@
               href={issue.url}
               target="_blank"
               rel="noopener"
-              title="open on GitHub">#{issue.number}</a
+              title={m.issuespanel_open_on_github()}>#{issue.number}</a
             >
             <a
               class="issue-title"
               href={issue.url}
               target="_blank"
               rel="noopener"
-              title="open on GitHub">{issue.title}</a
+              title={m.issuespanel_open_on_github()}>{issue.title}</a
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
           </div>
@@ -73,7 +74,8 @@
           <div class="issue-actions">
             <button
               class="task-btn"
-              onclick={() => onnewtask(`${issue.title}\n\n${issue.body}`.trim())}>+ Task</button
+              onclick={() => onnewtask(`${issue.title}\n\n${issue.body}`.trim())}
+              >{m.issuespanel_task_button()}</button
             >
           </div>
         </div>

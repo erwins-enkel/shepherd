@@ -4,6 +4,7 @@
   import { MODELS, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     onsubmit,
@@ -156,24 +157,26 @@
     ondrop={onDrop}
   >
     <div class="chead">
-      <span class="micro">New&nbsp;Task</span>
-      <button type="button" class="x" onclick={() => onclose?.()} aria-label="close">✕</button>
+      <span class="micro">{m.newtask_title()}</span>
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+        >✕</button
+      >
     </div>
 
-    <label class="micro" for="nt-prompt">Prompt</label>
+    <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
     <textarea
       id="nt-prompt"
       bind:value={prompt}
       rows="3"
-      placeholder="add a feature that…"
+      placeholder={m.newtask_prompt_placeholder()}
       onkeydown={onPromptKeydown}
       required
     ></textarea>
     <div class="attach-row">
       <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
-        {uploading ? "Uploading…" : "📎 Attach image"}
+        {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
       </button>
-      <span class="hint">or drop screenshots here</span>
+      <span class="hint">{m.newtask_drop_hint()}</span>
     </div>
     <input
       bind:this={fileInput}
@@ -196,7 +199,7 @@
               type="button"
               class="chip-x"
               onclick={() => removeImage(img.path)}
-              aria-label="remove">✕</button
+              aria-label={m.newtask_remove_image_aria()}>✕</button
             >
           </span>
         {/each}
@@ -207,10 +210,10 @@
       <PromptSources {repoPath} onpick={(p) => (prompt = p)} />
     {/if}
 
-    <label class="micro" for="nt-repo">Repo</label>
+    <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
     <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} />
 
-    <label class="micro" for="nt-base">Base&nbsp;Branch</label>
+    <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
     {#if branches.length > 0}
       <select id="nt-base" bind:value={baseBranch}>
         {#each branches as b (b)}
@@ -218,14 +221,14 @@
         {/each}
       </select>
     {:else}
-      <input id="nt-base" bind:value={baseBranch} placeholder="main" />
+      <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
     {/if}
 
-    <label class="micro" for="nt-model">Model</label>
+    <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
     <select id="nt-model" bind:value={model}>
-      <option value="default">default</option>
-      {#each MODELS as m (m)}
-        <option value={m}>{m}</option>
+      <option value="default">{m.newtask_model_default()}</option>
+      {#each MODELS as mdl (mdl)}
+        <option value={mdl}>{mdl}</option>
       {/each}
     </select>
 
@@ -237,7 +240,7 @@
       disabled={submitting}
       title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
     >
-      <span>{submitting ? "Spawning…" : "Create & Run"}</span>
+      <span>{submitting ? m.newtask_spawning() : m.newtask_submit()}</span>
       {#if !submitting}
         <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
       {/if}

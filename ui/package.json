@@ -7,12 +7,14 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
+    "prepare": "svelte-kit sync || echo '' && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
+    "check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@inlang/paraglide-js": "^2.18.1",
     "@sveltejs/adapter-auto": "^7.0.1",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.57.0",

@@ -22,6 +22,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
@@ -163,7 +164,7 @@
           }}
         />
       {:else}
-        <div class="empty">NO UNIT SELECTED</div>
+        <div class="empty">{m.main_no_unit_selected()}</div>
       {/if}
     </div>
   {/if}

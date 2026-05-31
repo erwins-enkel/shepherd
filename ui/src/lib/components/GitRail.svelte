@@ -1,6 +1,7 @@
 <script lang="ts">
   import { gitState, openPr, mergePr, redeploy } from "$lib/api";
   import type { GitState } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     sessionId,
@@ -114,7 +115,9 @@
   <span class="git-rail-wrap">
     <span class="rail" class:mobile>
       {#if git.state === "none"}
-        <button class="gbtn" type="button" disabled={busy} onclick={startPr}>↟ Open PR</button>
+        <button class="gbtn" type="button" disabled={busy} onclick={startPr}
+          >{m.gitrail_open_pr()}</button
+        >
       {:else if git.state === "open"}
         {#if git.url}
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
@@ -122,7 +125,10 @@
         {:else}
           <span class="prlink">PR #{git.number}</span>
         {/if}
-        <span class="dot dot-{git.checks}" title="CI: {git.checks}" aria-label="CI {git.checks}"
+        <span
+          class="dot dot-{git.checks}"
+          title={m.gitrail_ci_status({ status: git.checks })}
+          aria-label={m.gitrail_ci_status({ status: git.checks })}
         ></span>
         <button
           class="gbtn"
@@ -131,10 +137,10 @@
           disabled={mergeBlocked}
           onclick={doMerge}
         >
-          {armed === "merge" ? "confirm ✓" : "Merge"}
+          {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
         </button>
       {:else if git.state === "merged"}
-        <span class="merged">merged ✓</span>
+        <span class="merged">{m.gitrail_merged()}</span>
         {#if git.deployConfigured}
           <button
             class="gbtn"
@@ -143,11 +149,11 @@
             disabled={busy}
             onclick={doRedeploy}
           >
-            {armed === "redeploy" ? "confirm ⟳" : "⟳ Redeploy"}
+            {armed === "redeploy" ? m.gitrail_confirm_redeploy() : m.gitrail_redeploy()}
           </button>
         {/if}
       {:else}
-        <span class="merged">closed</span>
+        <span class="merged">{m.gitrail_closed()}</span>
       {/if}
 
       {#if err}<span class="err" title={err}>{err}</span>{/if}
@@ -155,17 +161,28 @@
 
     {#if showPr}
       <div class="pr-pop">
-        <input class="pr-title" bind:value={prTitle} placeholder="PR title" />
-        <textarea class="pr-body" bind:value={prBody} placeholder="Description" rows="4"></textarea>
+        <input
+          class="pr-title"
+          bind:value={prTitle}
+          placeholder={m.gitrail_pr_title_placeholder()}
+        />
+        <textarea
+          class="pr-body"
+          bind:value={prBody}
+          placeholder={m.gitrail_pr_description_placeholder()}
+          rows="4"
+        ></textarea>
         <div class="pr-actions">
-          <button class="gbtn" type="button" onclick={() => (showPr = false)}>Cancel</button>
+          <button class="gbtn" type="button" onclick={() => (showPr = false)}
+            >{m.gitrail_cancel()}</button
+          >
           <button
             class="gbtn primary"
             type="button"
             disabled={busy || !prTitle.trim()}
             onclick={submitPr}
           >
-            Create PR
+            {m.gitrail_create_pr()}
           </button>
         </div>
       </div>

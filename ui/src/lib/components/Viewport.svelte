@@ -61,6 +61,19 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+  // true when the user has scrolled up away from the latest output → show a
+  // jump-to-bottom affordance bottom-right of the terminal. Two regimes:
+  //  • normal buffer (plain shell / classic Claude): xterm owns the scrollback,
+  //    so we read its viewport offset directly.
+  //  • alternate screen (Claude's fullscreen TUI): Claude owns the scroll and
+  //    xterm's viewport never moves, so we can't read a position. We approximate
+  //    it with a wheel/gesture accumulator (scrollDepth) and jump back with the
+  //    app's own Ctrl+End shortcut instead of moving xterm.
+  let scrolledUp = $state(false);
+  // px-ish accumulator of net upward scrolling while on the alternate screen;
+  // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
+  // buffer switch, and a jump-to-bottom.
+  let scrollDepth = 0;
   let dragging = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
@@ -155,6 +168,21 @@
     conn?.takeover();
   }
 
+  function scrollToBottom() {
+    const term = termRef;
+    if (!term) return;
+    if (term.buffer.active.type === "alternate") {
+      // Claude's fullscreen TUI owns the scroll; xterm can't move it. Ctrl+End is
+      // its documented "jump to latest + re-enable auto-follow" shortcut and is
+      // never interpreted as prompt text.
+      conn?.send("\x1b[1;5F");
+    } else {
+      term.scrollToBottom();
+    }
+    scrollDepth = 0;
+    scrolledUp = false;
+  }
+
   // bring a finished session back: ask the server to respawn `claude --resume` in
   // the worktree, then bump the epoch so the terminal effect rebuilds and attaches
   // to the fresh agent (the old PtyConn stopped for good on the ended-close).
@@ -186,6 +214,8 @@
     resumeEpoch; // a resume bumps this → rebuild the terminal + re-attach to the new agent
     if (!el) return;
     parked = false; // fresh attach for this unit
+    scrolledUp = false; // fresh terminal starts pinned to the bottom
+    scrollDepth = 0;
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
     // theme.resolved (which would recreate the whole terminal — and its PTY —
@@ -328,6 +358,12 @@
       const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
       lastY = y;
       if (Math.abs(dy) > 2) dragged = true;
+      // on the alternate screen xterm's viewport never moves (onScroll won't fire),
+      // so track the gesture directly: dy<0 = scrolling up → grow the depth.
+      if (term.buffer.active.type === "alternate") {
+        scrollDepth = Math.max(0, scrollDepth - dy);
+      }
+      recomputeScrolled();
       const target = el!.querySelector<HTMLElement>(".xterm-screen") ?? el!;
       target.dispatchEvent(
         new WheelEvent("wheel", { deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true }),
@@ -356,6 +392,33 @@
     });
     ro.observe(el);
 
+    // track scroll position so we can offer a jump-to-bottom button. The normal
+    // buffer carries scrollback → read xterm's viewport offset. The alternate
+    // screen (Claude's fullscreen TUI) has no xterm scrollback and forwards wheel
+    // input to the app, so xterm's viewport never moves; there we lean on the
+    // wheel accumulator instead.
+    const SCROLL_UP_PX = 30; // small swipe / one wheel notch before the button shows
+    const recomputeScrolled = () => {
+      const b = term.buffer.active;
+      scrolledUp = b.type === "normal" ? b.baseY - b.viewportY > 0 : scrollDepth > SCROLL_UP_PX;
+    };
+    const scrollSub = term.onScroll(recomputeScrolled);
+    const bufSub = term.buffer.onBufferChange(() => {
+      scrollDepth = 0;
+      recomputeScrolled();
+    });
+
+    // desktop wheel observer for the alternate screen, where onScroll never fires.
+    // Touch is tracked directly in onTouchMove, so ignore the synthetic wheels it
+    // dispatches (isTrusted=false) to avoid double-counting; only real wheels here.
+    // deltaY<0 = scrolling up (reveal older) → grow depth; >0 = toward latest.
+    const onWheelTrack = (e: WheelEvent) => {
+      if (!e.isTrusted || term.buffer.active.type !== "alternate") return;
+      scrollDepth = Math.max(0, scrollDepth - e.deltaY);
+      recomputeScrolled();
+    };
+    el.addEventListener("wheel", onWheelTrack, { passive: true, capture: true });
+
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
@@ -364,6 +427,9 @@
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);
+      el?.removeEventListener("wheel", onWheelTrack, { capture: true });
+      scrollSub.dispose();
+      bufSub.dispose();
       ro.disconnect();
       c.close();
       conn = undefined;
@@ -501,6 +567,17 @@
       }}
       ondrop={onTermDrop}
     ></div>
+    {#if tab === "term" && scrolledUp && !parked}
+      <button
+        class="scroll-bottom"
+        type="button"
+        onclick={scrollToBottom}
+        title={m.viewport_scroll_to_bottom()}
+        aria-label={m.viewport_scroll_to_bottom()}
+      >
+        <span aria-hidden="true">↓</span>
+      </button>
+    {/if}
     {#if parked && tab === "term"}
       <button class="parked" type="button" onclick={takeover}>
         <span class="parked-icon" aria-hidden="true">▶</span>
@@ -781,6 +858,49 @@
   .parked.resume:disabled {
     cursor: progress;
     opacity: 0.7;
+  }
+
+  /* jump-to-bottom: small round affordance, bottom-right of the terminal body.
+     sits above xterm content (z-index 2) but below the parked/resume overlays (3) */
+  .scroll-bottom {
+    position: absolute;
+    bottom: 12px;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--color-line-bright);
+    background: color-mix(in srgb, var(--color-head) 90%, transparent);
+    backdrop-filter: blur(2px);
+    color: var(--color-ink);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease,
+      transform 0.12s ease;
+    animation: scroll-bottom-in 0.14s ease;
+  }
+  .scroll-bottom:hover {
+    background: var(--color-hover);
+    color: var(--color-ink-bright);
+    transform: translateY(-1px);
+  }
+  @keyframes scroll-bottom-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   /* let xterm fill the mount */

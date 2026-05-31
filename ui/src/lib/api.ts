@@ -20,9 +20,20 @@ import type {
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
+/** Build an Error from a failed response, preferring the server's `{error}` body
+ *  (e.g. "no active workspace") over the bare status code so the UI shows the real
+ *  cause. Falls back to "<label> failed: <status>" when the body carries no message. */
+async function failed(r: Response, label: string): Promise<Error> {
+  const detail = await r
+    .json()
+    .then((b) => (b as { error?: string })?.error)
+    .catch(() => null);
+  return new Error(detail ?? `${label} failed: ${r.status}`);
+}
+
 export async function listSessions(): Promise<Session[]> {
   const r = await fetch("/api/sessions");
-  if (!r.ok) throw new Error(`list failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "list");
   return r.json();
 }
 
@@ -32,15 +43,7 @@ export async function createSession(input: CreateInput): Promise<Session> {
     headers: JSON_HEADERS,
     body: JSON.stringify(input),
   });
-  if (!r.ok) {
-    // server sends {error} for create failures; prefer it over the bare status code
-    const detail = await r
-      .clone()
-      .json()
-      .then((b) => (b as { error?: string })?.error)
-      .catch(() => null);
-    throw new Error(detail ?? `create failed: ${r.status}`);
-  }
+  if (!r.ok) throw await failed(r, "create");
   return r.json();
 }
 
@@ -52,24 +55,24 @@ export async function uploadImage(file: File, sessionId?: string): Promise<strin
   const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
   // no content-type header: the browser sets the multipart boundary
   const r = await fetch(`/api/uploads${q}`, { method: "POST", body: fd });
-  if (!r.ok) throw new Error(`upload failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "upload");
   return (await r.json()).path as string;
 }
 
 export async function archiveSession(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
-  if (!r.ok) throw new Error(`archive failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "archive");
 }
 
 export async function listRepos(): Promise<RepoEntry[]> {
   const r = await fetch("/api/repos");
-  if (!r.ok) throw new Error(`repos failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "repos");
   return r.json();
 }
 
 export async function getSettings(): Promise<Settings> {
   const r = await fetch("/api/settings");
-  if (!r.ok) throw new Error(`settings failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "settings");
   return r.json();
 }
 
@@ -89,7 +92,7 @@ export async function putSettings(repoRoot: string): Promise<Settings> {
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";
   const r = await fetch(`/api/fs/dirs${q}`);
-  if (!r.ok) throw new Error(`dirs failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "dirs");
   return r.json();
 }
 
@@ -97,13 +100,13 @@ export async function listBranches(
   repoPath: string,
 ): Promise<{ branches: string[]; current: string | null }> {
   const r = await fetch(`/api/branches?repo=${encodeURIComponent(repoPath)}`);
-  if (!r.ok) throw new Error(`branches failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "branches");
   return r.json();
 }
 
 export async function getTodo(repoPath: string): Promise<{ exists: boolean; content: string }> {
   const r = await fetch(`/api/todo?repo=${encodeURIComponent(repoPath)}`);
-  if (!r.ok) throw new Error(`todo get failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "todo get");
   return r.json();
 }
 
@@ -113,30 +116,30 @@ export async function putTodo(repoPath: string, content: string): Promise<void> 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ content }),
   });
-  if (!r.ok) throw new Error(`todo put failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "todo put");
 }
 
 export async function getSessionUsage(id: string): Promise<SessionUsage> {
   const r = await fetch(`/api/sessions/${id}/usage`);
-  if (!r.ok) throw new Error(`usage failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "usage");
   return r.json();
 }
 
 export async function getActivity(id: string): Promise<ActivityEntry[]> {
   const r = await fetch(`/api/sessions/${id}/activity`);
-  if (!r.ok) throw new Error(`activity failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "activity");
   return r.json();
 }
 
 export async function getDiff(id: string): Promise<DiffResult> {
   const r = await fetch(`/api/sessions/${id}/diff`);
-  if (!r.ok) throw new Error(`diff failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "diff");
   return r.json();
 }
 
 export async function getUsageLimits(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/limits");
-  if (!r.ok) throw new Error(`limits failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "limits");
   return r.json();
 }
 
@@ -146,19 +149,19 @@ export async function replySession(id: string, text: string): Promise<void> {
     headers: JSON_HEADERS,
     body: JSON.stringify({ text }),
   });
-  if (!r.ok) throw new Error(`reply failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "reply");
 }
 
 export async function dismissStall(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}/dismiss-stall`, { method: "POST" });
-  if (!r.ok) throw new Error(`dismiss-stall failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "dismiss-stall");
 }
 
 export async function listIssues(
   repoPath: string,
 ): Promise<{ slug: string | null; issues: Issue[] }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
-  if (!r.ok) throw new Error(`issues failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "issues");
   return r.json();
 }
 
@@ -172,7 +175,7 @@ const JSON_POST = (body?: unknown): RequestInit => ({
 export async function gitState(id: string): Promise<GitState | null> {
   const r = await fetch(`/api/sessions/${id}/git`);
   if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`git status failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "git status");
   return r.json();
 }
 
@@ -180,7 +183,7 @@ export async function gitState(id: string): Promise<GitState | null> {
  *  list overview). Empty object when no forge is configured anywhere. */
 export async function gitStates(): Promise<Record<string, GitState>> {
   const r = await fetch("/api/git");
-  if (!r.ok) throw new Error(`git states failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "git states");
   return r.json();
 }
 
@@ -209,14 +212,14 @@ export async function mergePr(
 /** Current self-update status (how far the running checkout is behind main). */
 export async function getUpdate(): Promise<UpdateStatus> {
   const r = await fetch("/api/update");
-  if (!r.ok) throw new Error(`update status failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "update status");
   return r.json();
 }
 
 /** Current herdr-version update status (whether a newer herdr exists). */
 export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
   const r = await fetch("/api/herdr-update");
-  if (!r.ok) throw new Error(`herdr update status failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "herdr update status");
   return r.json();
 }
 
@@ -248,7 +251,7 @@ export async function redeploy(id: string): Promise<void> {
 
 export async function getSteers(): Promise<Steer[]> {
   const r = await fetch("/api/steers");
-  if (!r.ok) throw new Error(`steers failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "steers");
   return r.json();
 }
 
@@ -274,13 +277,13 @@ export async function broadcast(
     headers: JSON_HEADERS,
     body: JSON.stringify({ text, ids }),
   });
-  if (!r.ok) throw new Error(`broadcast failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "broadcast");
   return r.json();
 }
 
 export async function getProjectIcons(): Promise<ProjectIcons> {
   const r = await fetch("/api/project-icons");
-  if (!r.ok) throw new Error(`project-icons failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "project-icons");
   return r.json();
 }
 

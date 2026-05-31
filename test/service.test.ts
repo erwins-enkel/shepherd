@@ -246,6 +246,77 @@ test("createSession: no images leaves the prompt argv unchanged", async () => {
   expect(calls.argv[calls.argv.length - 1]).toBe("go");
 });
 
+test("createSession: rolls back the worktree when the agent fails to start", async () => {
+  const store = new SessionStore(":memory:");
+  const removed: { path: string; opts: any }[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "boom",
+    worktree: {
+      create: (_r: string, _b: string, name: string) => ({
+        worktreePath: `/wt/${name}`,
+        branch: `shepherd/${name}`,
+        isolated: true,
+      }),
+      remove: (path: string, opts: any) => removed.push({ path, opts }),
+    } as any,
+    herdr: {
+      // mirrors herdr rejecting `tab create` with "no active workspace"
+      start: () => {
+        throw new Error("no active workspace");
+      },
+      list: () => [],
+    } as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    }),
+  ).rejects.toThrow("no active workspace"); // original failure is surfaced, not a cleanup error
+  // the orphan worktree we created is removed, with branch + baseBranch for branch deletion
+  expect(removed).toEqual([
+    { path: "/wt/boom", opts: { branch: "shepherd/boom", baseBranch: "main" } },
+  ]);
+});
+
+test("createSession: skips worktree rollback when the cwd fallback isn't isolated", async () => {
+  const store = new SessionStore(":memory:");
+  let removeCalls = 0;
+  const service = new SessionService({
+    store,
+    namer: async () => "boom",
+    worktree: {
+      // non-git repoPath → herdr runs in-place, no worktree to clean up
+      create: () => ({ worktreePath: "/repo", branch: null, isolated: false }),
+      remove: () => {
+        removeCalls++;
+      },
+    } as any,
+    herdr: {
+      start: () => {
+        throw new Error("no active workspace");
+      },
+      list: () => [],
+    } as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    }),
+  ).rejects.toThrow("no active workspace");
+  expect(removeCalls).toBe(0);
+});
+
 test("archive stops the herdr agent, removes the worktree, and archives the row", () => {
   const store = new SessionStore(":memory:");
   const calls: any = { stopped: [], removed: [] };

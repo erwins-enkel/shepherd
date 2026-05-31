@@ -106,7 +106,7 @@ function checkOrigin(req: Request): Response | null {
 
 /** Returns an object with a `fetch(Request)` method — unit-testable without a port. */
 export function makeApp(deps: AppDeps) {
-  return {
+  const app = {
     async fetch(req: Request): Promise<Response> {
       const authErr = checkAuth(req);
       if (authErr) return authErr;
@@ -479,6 +479,15 @@ export function makeApp(deps: AppDeps) {
       }
       return json({ error: "not found" }, 404);
     },
+  };
+  // Any unhandled throw (e.g. `service.create` when herdr rejects a command) would
+  // otherwise bubble out as Bun's HTML error page — which the UI can't parse, so it
+  // only sees a bare status code. Convert it to a JSON 500 carrying the real message.
+  return {
+    fetch: (req: Request): Promise<Response> =>
+      app
+        .fetch(req)
+        .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500)),
   };
 }
 

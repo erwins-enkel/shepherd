@@ -1,0 +1,174 @@
+import { test, expect } from "bun:test";
+import { ReviewService, reviewPrompt } from "../src/review";
+import type { GitForge, GitState, PrStatus } from "../src/forge/types";
+import type { Session, ReviewVerdict } from "../src/types";
+
+function session(over: Partial<Session> = {}): Session {
+  return {
+    id: "s1",
+    desig: "TASK-01",
+    name: "x",
+    prompt: "do the thing",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    claudeSessionId: "c",
+    model: null,
+    status: "running",
+    lastState: "idle",
+    createdAt: 0,
+    updatedAt: 0,
+    archivedAt: null,
+    ...over,
+  };
+}
+const OPEN_GREEN: GitState = {
+  kind: "github",
+  state: "open",
+  number: 7,
+  checks: "success",
+  headSha: "abc",
+  deployConfigured: false,
+};
+
+function fakeForge(rec: { event?: string; body?: string }): GitForge {
+  return {
+    kind: "github",
+    slug: "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    listIssues: async () => [],
+    prStatus: async () => OPEN_GREEN as PrStatus,
+    openPr: async () => OPEN_GREEN as PrStatus,
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async (_n, o) => {
+      rec.event = o.event;
+      rec.body = o.body;
+      return { url: "ru" };
+    },
+  };
+}
+
+function makeDeps(over: any) {
+  const reviews: Record<string, ReviewVerdict> = {};
+  const started: { name: string; cwd: string }[] = [];
+  const stopped: string[] = [];
+  const removed: string[] = [];
+  const rec: { event?: string; body?: string } = {};
+  const base = {
+    store: {
+      getRepoConfig: () => ({ criticEnabled: true }),
+      getReview: (id: string) => reviews[id] ?? null,
+      putReview: (v: ReviewVerdict) => {
+        reviews[v.sessionId] = v;
+      },
+      dropReview: (id: string) => {
+        delete reviews[id];
+      },
+      snapshotReviews: () => reviews,
+    },
+    herdr: {
+      start: (name: string, cwd: string) => {
+        started.push({ name, cwd });
+        return { terminalId: "rt" } as any;
+      },
+      stop: (t: string) => stopped.push(t),
+    },
+    worktree: {
+      createDetached: () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
+      remove: (p: string) => removed.push(p),
+    },
+    resolveForge: () => fakeForge(rec),
+    onChange: () => {},
+    now: () => 1000,
+    readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
+    ...over,
+  };
+  return { deps: base, reviews, started, stopped, removed, rec };
+}
+
+test("reviewPrompt embeds base + task and asks for the verdict file", () => {
+  const p = reviewPrompt("main", "do the thing");
+  expect(p).toContain("git diff main...HEAD");
+  expect(p).toContain("do the thing");
+  expect(p).toContain(".shepherd-review.json");
+});
+
+test("consider → tick: posts request-changes, persists, reaps", async () => {
+  const { deps: d, reviews, started, stopped, removed, rec } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(1);
+  expect(started[0]!.name).toBe("review TASK-01");
+  await svc.tick();
+  expect(rec.event).toBe("REQUEST_CHANGES");
+  expect(reviews["s1"]?.decision).toBe("changes_requested");
+  expect(reviews["s1"]?.url).toBe("ru");
+  expect(stopped).toEqual(["rt"]);
+  expect(removed).toEqual(["/review-wt"]);
+});
+
+test("does not review the same head twice", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  svc.consider(session(), OPEN_GREEN); // same headSha already reviewed
+  expect(started).toHaveLength(1);
+});
+
+test("skips when repo critic disabled", () => {
+  const { deps: d, started } = makeDeps({
+    store: {
+      getRepoConfig: () => ({ criticEnabled: false }),
+      getReview: () => null,
+      putReview: () => {},
+      dropReview: () => {},
+      snapshotReviews: () => ({}),
+    },
+  });
+  new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(0);
+});
+
+test("skips when CI not green / PR not open", () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), { ...OPEN_GREEN, checks: "pending" });
+  svc.consider(session(), { ...OPEN_GREEN, state: "merged" });
+  expect(started).toHaveLength(0);
+});
+
+test("timeout with no verdict → error verdict, still reaps", async () => {
+  let t = 1000;
+  const {
+    deps: d,
+    reviews,
+    removed,
+  } = makeDeps({
+    now: () => t,
+    readVerdict: () => null,
+    timeoutMs: 5000,
+  });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 6000;
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(removed).toEqual(["/review-wt"]);
+});
+
+test("comment decision maps to COMMENT and never approves", async () => {
+  const { deps: d, rec } = makeDeps({
+    readVerdict: () => ({ decision: "comment", summary: "ok", body: "lgtm-ish" }),
+  });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(rec.event).toBe("COMMENT");
+});

@@ -162,6 +162,8 @@
     onupdate={() => (showUpdate = true)}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={() => (showHerdrUpdate = true)}
+    screen={mobileScreen}
+    detailSession={selected}
   />
 
   {#if mobile.current}

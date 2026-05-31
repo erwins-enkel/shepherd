@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { getSettings, putSettings, listDirs } from "$lib/api";
   import type { DirListing } from "$lib/types";
+  import SteersEditor from "$lib/components/SteersEditor.svelte";
 
   let { onclose, onsaved }: { onclose?: () => void; onsaved?: (root: string) => void } = $props();
 
@@ -116,6 +117,7 @@
         Use this folder
       {/if}
     </button>
+    <SteersEditor />
   </div>
 </div>
 

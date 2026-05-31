@@ -26,6 +26,12 @@ export default defineConfig({
     sveltekit(),
   ],
   server: {
+    port: 5174,
+    strictPort: true,
+    // Vite listens on localhost; `tailscale serve --https 5173 http://localhost:5173`
+    // proxies the tailnet in front of it. allowedHosts must list the tailnet suffix
+    // so Vite doesn't reject the forwarded Host header (*.ts.net).
+    allowedHosts: [".ts.net"],
     proxy: {
       "/api": "http://localhost:7330",
       "/events": { target: "ws://localhost:7330", ws: true },

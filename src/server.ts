@@ -78,6 +78,8 @@ export interface AppDeps {
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
   poller?: Pick<StatusPoller, "acknowledgeStall">;
+  /** Snapshot of critic verdicts keyed by session id; absent in tests that skip it. */
+  reviewCache?: { snapshot(): Record<string, import("./types").ReviewVerdict> };
 }
 
 const sessionUsage = (s: Session) =>
@@ -126,6 +128,30 @@ type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps };
 function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
     return json(deps.prCache?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleReviews({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "reviews" && !parts[2]) {
+    return json(deps.reviewCache?.snapshot() ?? {});
+  }
+  return null;
+}
+
+async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "repo-config" && !parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    if (req.method === "GET") return json(deps.store.getRepoConfig(dir));
+    if (req.method === "PUT") {
+      const body = (await req.json().catch(() => null)) as { criticEnabled?: unknown } | null;
+      if (!body || typeof body.criticEnabled !== "boolean") {
+        return json({ error: "body must be {criticEnabled: boolean}" }, 400);
+      }
+      deps.store.setRepoConfig(dir, { criticEnabled: body.criticEnabled });
+      return json(deps.store.getRepoConfig(dir));
+    }
   }
   return null;
 }
@@ -616,6 +642,8 @@ async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handleGitSnapshot,
+  handleReviews,
+  handleRepoConfig,
   handlePush,
   handleSessions,
   handleSessionGit,

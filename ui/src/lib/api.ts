@@ -11,6 +11,7 @@ import type {
   Settings,
   DirListing,
   UpdateStatus,
+  Steer,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -190,4 +191,36 @@ export async function redeploy(id: string): Promise<void> {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
     throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
   }
+}
+
+export async function getSteers(): Promise<Steer[]> {
+  const r = await fetch("/api/steers");
+  if (!r.ok) throw new Error(`steers failed: ${r.status}`);
+  return r.json();
+}
+
+export async function putSteers(steers: Steer[]): Promise<Steer[]> {
+  const r = await fetch("/api/steers", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(steers),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function broadcast(
+  text: string,
+  ids: string[],
+): Promise<{ sent: number; total: number }> {
+  const r = await fetch("/api/broadcast", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ text, ids }),
+  });
+  if (!r.ok) throw new Error(`broadcast failed: ${r.status}`);
+  return r.json();
 }

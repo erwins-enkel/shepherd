@@ -360,7 +360,8 @@ async function dispatchForgeAction(
 ): Promise<Response | null> {
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
-    if (!parts[4]) return json({ kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) });
+    if (!parts[4])
+      return json({ kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) });
     return null;
   }
   if (req.method === "POST") {
@@ -388,12 +389,7 @@ async function handleSessionGit(ctx: Ctx): Promise<Response | null> {
 }
 
 function handleUsageLimits({ req, parts, deps }: Ctx): Response | null {
-  if (
-    req.method === "GET" &&
-    parts[0] === "api" &&
-    parts[1] === "usage" &&
-    parts[2] === "limits"
-  ) {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
     return json(deps.usageLimits.limits(Date.now()));
   }
   return null;

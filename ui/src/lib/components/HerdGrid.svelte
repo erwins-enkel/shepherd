@@ -8,18 +8,20 @@
     selectedId,
     nowMs,
     onselect,
+    onnew,
     git,
   }: {
     sessions: Session[];
     selectedId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
+    onnew: () => void;
     git: Record<string, GitState>;
   } = $props();
 </script>
 
 {#if sessions.length === 0}
-  <div class="empty">{m.herd_empty()}</div>
+  <button type="button" class="empty" onclick={onnew}>{m.herd_empty()}</button>
 {:else}
   <div class="herd-grid">
     {#each sessions as session (session.id)}
@@ -47,14 +49,24 @@
   }
   .empty {
     flex: 1;
+    width: 100%;
     border: 1px solid var(--color-line);
     background: var(--color-panel);
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--color-faint);
+    font-family: inherit;
     font-size: 10.5px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
+    cursor: pointer;
+    transition:
+      color 0.12s ease,
+      border-color 0.12s ease;
+  }
+  .empty:hover {
+    color: var(--color-ink);
+    border-color: var(--color-line-bright);
   }
 </style>

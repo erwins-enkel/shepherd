@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import UnitTile from "./UnitTile.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     sessions,
@@ -16,7 +17,7 @@
 </script>
 
 {#if sessions.length === 0}
-  <div class="empty">No units — + New Task</div>
+  <div class="empty">{m.herd_empty()}</div>
 {:else}
   <div class="herd-grid">
     {#each sessions as session (session.id)}

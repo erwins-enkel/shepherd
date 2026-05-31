@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { CONTROL_KEYS } from "$lib/controlKeys";
+  import { m } from "$lib/paraglide/messages";
+  import { controlKeys } from "$lib/controlKeys";
 
   let { onkey }: { onkey: (seq: string) => void } = $props();
 
@@ -11,8 +12,8 @@
   }
 </script>
 
-<div class="ctrl-bar" role="toolbar" aria-label="Terminal control keys">
-  {#each CONTROL_KEYS as k (k.label)}
+<div class="ctrl-bar" role="toolbar" aria-label={m.controlbar_toolbar_aria()}>
+  {#each controlKeys() as k (k.seq)}
     <button type="button" class="key" aria-label={k.aria} onpointerdown={(e) => tap(e, k.seq)}
       >{k.label}</button
     >

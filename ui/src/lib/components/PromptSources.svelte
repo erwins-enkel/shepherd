@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getTodo, listIssues } from "$lib/api";
   import type { Issue } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
 
   let { repoPath, onpick }: { repoPath: string; onpick: (prompt: string) => void } = $props();
 
@@ -23,8 +24,8 @@
           if (rp !== repoPath || t !== tab) return;
           const matches: string[] = [];
           for (const line of r.content.split("\n")) {
-            const m = OPEN_RE.exec(line);
-            if (m) matches.push(m[1].trim());
+            const match = OPEN_RE.exec(line);
+            if (match) matches.push(match[1].trim());
           }
           todos = matches;
           loading = false;
@@ -54,7 +55,7 @@
 
 <div class="ps-wrap">
   <div class="ps-head">
-    <span class="micro seed-label">Seed From</span>
+    <span class="micro seed-label">{m.promptsources_title()}</span>
     <div class="tabs">
       <button
         class="tab"
@@ -62,7 +63,7 @@
         type="button"
         onclick={() => (tab = "todo")}
       >
-        To-Do
+        {m.promptsources_todo_tab()}
       </button>
       <button
         class="tab"
@@ -70,17 +71,17 @@
         type="button"
         onclick={() => (tab = "issues")}
       >
-        Issues
+        {m.promptsources_issues_tab()}
       </button>
     </div>
   </div>
 
   <div class="ps-body">
     {#if loading}
-      <div class="muted">loading…</div>
+      <div class="muted">{m.common_loading()}</div>
     {:else if tab === "todo"}
       {#if todos.length === 0}
-        <div class="muted">no open TODO items</div>
+        <div class="muted">{m.promptsources_no_todos()}</div>
       {:else}
         {#each todos as text (text)}
           <button class="row" type="button" onclick={() => onpick(text)}>
@@ -90,9 +91,9 @@
         {/each}
       {/if}
     {:else if slug === null}
-      <div class="muted">no GitHub upstream</div>
+      <div class="muted">{m.promptsources_no_github()}</div>
     {:else if issues.length === 0}
-      <div class="muted">no open issues</div>
+      <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
       {#each issues as i (i.number)}
         <button class="row" type="button" onclick={() => onpick(`${i.title}\n\n${i.body}`.trim())}>

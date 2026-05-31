@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import type { SessionStatus } from "./types";
 
 export function elapsed(fromMs: number, nowMs: number): string {
@@ -30,5 +31,16 @@ export const STATUS_COLOR: Record<SessionStatus, string> = {
 };
 
 export function statusLabel(s: SessionStatus): string {
-  return s === "running" ? "WORKING" : s.toUpperCase();
+  switch (s) {
+    case "running":
+      return m.status_working();
+    case "idle":
+      return m.status_idle();
+    case "blocked":
+      return m.status_blocked();
+    case "done":
+      return m.status_done();
+    case "archived":
+      return m.status_archived();
+  }
 }

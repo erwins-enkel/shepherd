@@ -3,6 +3,7 @@
   import { getSettings, putSettings, listDirs } from "$lib/api";
   import type { DirListing } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let { onclose, onsaved }: { onclose?: () => void; onsaved?: (root: string) => void } = $props();
 
@@ -63,23 +64,25 @@
 >
   <div class="card bracket">
     <div class="chead">
-      <span class="micro">Settings</span>
-      <button type="button" class="x" onclick={() => onclose?.()} aria-label="close">✕</button>
+      <span class="micro">{m.settings_title()}</span>
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+        >✕</button
+      >
     </div>
 
     <div class="cur">
-      <span class="micro">Current&nbsp;Repo&nbsp;Root</span>
+      <span class="micro">{m.settings_current_root_label()}</span>
       <code>{currentRoot || "—"}</code>
     </div>
 
-    <span class="micro path-label">Browse</span>
+    <span class="micro path-label">{m.settings_browse_label()}</span>
     <div class="crumbs">
       <button
         type="button"
         class="up"
         disabled={!listing?.parent || loading}
         onclick={() => listing?.parent && browse(listing.parent)}
-        title="Up one level"
+        title={m.settings_up_level()}
       >
         ↑
       </button>
@@ -88,9 +91,9 @@
 
     <div class="list">
       {#if loading}
-        <div class="placeholder">Loading…</div>
+        <div class="placeholder">{m.settings_loading()}</div>
       {:else if listing && listing.entries.length === 0}
-        <div class="placeholder">no sub-folders here</div>
+        <div class="placeholder">{m.settings_no_subfolders()}</div>
       {:else if listing}
         {#each listing.entries as e (e.path)}
           <button type="button" class="row" onclick={() => browse(e.path)}>
@@ -110,11 +113,11 @@
       onclick={useThisFolder}
     >
       {#if saving}
-        Saving…
+        {m.settings_saving()}
       {:else if isCurrent}
-        Already the current root
+        {m.settings_already_current()}
       {:else}
-        Use this folder
+        {m.settings_use_folder()}
       {/if}
     </button>
     <SteersEditor />

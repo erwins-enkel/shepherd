@@ -3,6 +3,7 @@
   import type { Session } from "$lib/types";
   import { steers } from "$lib/steers.svelte";
   import { broadcast as apiBroadcast } from "$lib/api";
+  import { m } from "$lib/paraglide/messages";
 
   let { sessions, onclose }: { sessions: Session[]; onclose: () => void } = $props();
 
@@ -32,10 +33,10 @@
     result = null;
     try {
       const r = await apiBroadcast(text.trim(), [...selected]);
-      result = `sent ${r.sent}/${r.total}`;
+      result = m.broadcast_result_sent({ sent: r.sent, total: r.total });
       setTimeout(onclose, 800);
     } catch {
-      result = "broadcast failed";
+      result = m.broadcast_failed();
       sending = false;
     }
   }
@@ -50,19 +51,19 @@
 >
   <div class="card">
     <div class="chead">
-      <span class="micro">Broadcast steer</span>
-      <button type="button" class="x" onclick={onclose} aria-label="close">✕</button>
+      <span class="micro">{m.broadcast_title()}</span>
+      <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
 
     <div class="row-head">
-      <span class="micro">Targets</span>
+      <span class="micro">{m.broadcast_targets()}</span>
       <button type="button" class="link" onclick={toggleAll}>
-        {allSelected ? "clear all" : "select all"}
+        {allSelected ? m.broadcast_clear_all() : m.broadcast_select_all()}
       </button>
     </div>
     <div class="targets">
       {#if sessions.length === 0}
-        <div class="placeholder">no active sessions</div>
+        <div class="placeholder">{m.broadcast_no_sessions()}</div>
       {:else}
         {#each sessions as s (s.id)}
           <label class="target">
@@ -73,7 +74,7 @@
       {/if}
     </div>
 
-    <span class="micro">Steer</span>
+    <span class="micro">{m.broadcast_steer()}</span>
     <div class="picks">
       {#each steers.list as s (s.id)}
         <button
@@ -86,12 +87,12 @@
         </button>
       {/each}
     </div>
-    <textarea bind:value={text} rows="2" placeholder="…or type a one-off steer"></textarea>
+    <textarea bind:value={text} rows="2" placeholder={m.broadcast_placeholder()}></textarea>
 
     {#if result}<div class="result">{result}</div>{/if}
 
     <button class="run" type="button" disabled={!canSend} onclick={send}>
-      {sending ? "Sending…" : `Send to ${selected.size}`}
+      {sending ? m.broadcast_sending() : m.broadcast_send_to({ count: selected.size })}
     </button>
   </div>
 </div>

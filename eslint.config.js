@@ -27,6 +27,6 @@ export default [
   },
   // Generated output — never lint
   {
-    ignores: ["ui/.svelte-kit/", "ui/build/", "ui/dist/"],
+    ignores: ["ui/.svelte-kit/", "ui/build/", "ui/dist/", "ui/src/lib/paraglide/"],
   },
 ];

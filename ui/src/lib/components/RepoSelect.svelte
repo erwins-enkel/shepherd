@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { RepoEntry } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     repos,
@@ -70,7 +71,7 @@
       <b>{selected.name}</b>
       <span class="dim">{selected.display}</span>
     {:else}
-      <span class="placeholder">select a repo…</span>
+      <span class="placeholder">{m.reposelect_placeholder()}</span>
     {/if}
     <span class="chevron" class:open>{open ? "▲" : "▼"}</span>
   </button>
@@ -81,7 +82,7 @@
         bind:this={filterInput}
         bind:value={filter}
         class="rs-filter"
-        placeholder="filter…"
+        placeholder={m.reposelect_filter_placeholder()}
         type="text"
         autocomplete="off"
         spellcheck="false"
@@ -104,7 +105,7 @@
           </li>
         {/each}
         {#if shown.length === 0}
-          <li class="rs-empty">no matches</li>
+          <li class="rs-empty">{m.reposelect_no_matches()}</li>
         {/if}
       </ul>
     </div>

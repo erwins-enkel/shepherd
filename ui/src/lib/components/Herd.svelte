@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     sessions,
@@ -17,12 +18,12 @@
 
 <div class="panel bracket">
   <div class="phead">
-    <span class="micro">The&nbsp;Herd</span>
-    <span class="right micro">▦ All</span>
+    <span class="micro">{m.herd_title()}</span>
+    <span class="right micro">{m.herd_all_hint()}</span>
   </div>
   <div class="units">
     {#if sessions.length === 0}
-      <div class="empty micro">No units — + New Task</div>
+      <div class="empty micro">{m.herd_empty()}</div>
     {:else}
       {#each sessions as session (session.id)}
         <UnitRow {session} selected={session.id === selectedId} {nowMs} {onselect} />

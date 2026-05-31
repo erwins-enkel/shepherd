@@ -1,14 +1,11 @@
 <script lang="ts">
   import type { Session, UsageLimits } from "$lib/types";
   import { formatReset } from "$lib/format";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { theme } from "$lib/theme.svelte";
 
-  const THEMES: { pref: ThemePref; glyph: string; label: string }[] = [
-    { pref: "dark", glyph: "☾", label: "Dark" },
-    { pref: "light", glyph: "☀", label: "Light" },
-    { pref: "system", glyph: "◐", label: "System" },
-  ];
-  const current = $derived(THEMES.find((t) => t.pref === theme.pref) ?? THEMES[0]);
+  // mobile shows a single compact cycle glyph; desktop's switcher lives in the ActionBar
+  const GLYPHS = { dark: "☾", light: "☀", system: "◐" } as const;
+  const LABELS = { dark: "Dark", light: "Light", system: "System" } as const;
 
   let {
     sessions,
@@ -100,23 +97,9 @@
       class="theme-cycle"
       type="button"
       onclick={() => theme.cycle()}
-      title="Theme: {current.label} — tap to cycle"
-      aria-label="Theme: {current.label}">{current.glyph}</button
+      title="Theme: {LABELS[theme.pref]} — tap to cycle"
+      aria-label="Theme: {LABELS[theme.pref]}">{GLYPHS[theme.pref]}</button
     >
-  {:else}
-    <div class="theme-seg" role="group" aria-label="Theme">
-      {#each THEMES as t (t.pref)}
-        <button
-          type="button"
-          class="t-opt"
-          class:on={theme.pref === t.pref}
-          aria-pressed={theme.pref === t.pref}
-          title="{t.label} theme"
-          aria-label="{t.label} theme"
-          onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
-        >
-      {/each}
-    </div>
   {/if}
   <div class="clock">
     <span class="dot" class:on={connected}>●</span><span>{clock}</span>
@@ -187,46 +170,6 @@
     color: var(--color-ink-bright);
     font-weight: 500;
   }
-  .theme-seg {
-    display: flex;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .t-opt {
-    background: transparent;
-    border: 0;
-    border-left: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: 13px;
-    line-height: 1;
-    padding: 5px 8px;
-    cursor: pointer;
-  }
-  .t-opt:first-child {
-    border-left: 0;
-  }
-  .t-opt:hover {
-    color: var(--color-ink-bright);
-  }
-  .t-opt.on {
-    color: var(--color-amber);
-    background: var(--color-inset);
-  }
-  .theme-cycle {
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: 13px;
-    line-height: 1;
-    padding: 5px 8px;
-    border-radius: 2px;
-    cursor: pointer;
-  }
-  .theme-cycle:hover {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
   .gauges {
     margin-left: auto;
     display: flex;
@@ -271,6 +214,20 @@
   .gauges.mobile .g-pct {
     min-width: 26px;
     font-size: 10.5px;
+  }
+  .theme-cycle {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 5px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .theme-cycle:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
   }
   .clock {
     color: var(--color-ink-bright);

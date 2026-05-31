@@ -4,6 +4,7 @@ import { EventHub } from "../src/events";
 import {
   PushService,
   attachPush,
+  attachReviewPush,
   blockSummary,
   buildPayload,
   type NotifyInput,
@@ -185,4 +186,35 @@ test("buildPayload localizes title + body by subscriber locale", () => {
   };
   expect(buildPayload(blocked, "de").body).toBe("Wartet auf eine Menüauswahl.");
   expect(buildPayload(blocked, "fr").body).toBe("Waiting on a menu choice.");
+});
+
+test("buildPayload review kind localizes to German", () => {
+  const review: NotifyInput = { kind: "review", sessionId: "s", tag: "t", name: "TASK-01" };
+  expect(buildPayload(review, "de")).toMatchObject({
+    title: "TASK-01 — Review",
+    body: "Kritiker fordert Änderungen am PR an.",
+  });
+  expect(buildPayload(review, "en")).toMatchObject({
+    title: "TASK-01 — review",
+    body: "Critic requested changes on the PR.",
+  });
+});
+
+test("attachReviewPush notifies on changes_requested, ignores other decisions and null", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachReviewPush(events, store, push);
+
+  // should fire
+  events.emit("session:review", { id: "r1", review: { decision: "changes_requested" } });
+  // should NOT fire
+  events.emit("session:review", { id: "r2", review: { decision: "commented" } });
+  events.emit("session:review", { id: "r3", review: { decision: "error" } });
+  events.emit("session:review", { id: "r4", review: null });
+
+  await Promise.resolve();
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toMatchObject({ kind: "review", sessionId: "r1", tag: "review:r1" });
 });

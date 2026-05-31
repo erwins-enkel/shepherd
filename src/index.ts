@@ -19,7 +19,8 @@ import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
-import { PushService, attachPush } from "./push";
+import { PushService, attachPush, attachReviewPush } from "./push";
+import { ReviewService } from "./review";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -71,6 +72,27 @@ const prPoller = new PrPoller(
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
+
+const reviewService = new ReviewService({
+  store,
+  herdr,
+  worktree,
+  resolveForge: (dir) => detectForge(dir, config.forges),
+  onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
+});
+attachReviewPush(events, store, push);
+// drive the critic off PR-state changes: open + CI green + unreviewed head → review
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  const s = store.get(id);
+  if (s) reviewService.consider(s, git);
+});
+setInterval(() => void reviewService.tick(), 15_000);
+// archived sessions: reap any in-flight critic + drop the verdict
+events.subscribe((event, data) => {
+  if (event === "session:archived") reviewService.forget((data as { id: string }).id);
+});
 
 // recompute live limit % from local JSONL ~every 30s; push to clients
 setInterval(async () => {
@@ -126,6 +148,7 @@ const server = serve(
     prCache: prPoller,
     push,
     poller,
+    reviewCache: { snapshot: () => reviewService.snapshot() },
   },
   config.port,
 );

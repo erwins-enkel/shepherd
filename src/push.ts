@@ -8,13 +8,13 @@ export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done";
+  kind: "blocked" | "done" | "review";
   tag: string;
 }
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done";
+  kind: "blocked" | "done" | "review";
   sessionId: string;
   tag: string;
   name: string;
@@ -41,6 +41,8 @@ const NOTIFY_TEXT = {
     "yes-no": "Waiting on a yes/no.",
     stall: "Quiet — no recent activity; may be stuck.",
     other: "Waiting on your input.",
+    reviewTitle: (name: string) => `${name} — review`,
+    reviewBody: "Critic requested changes on the PR.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -50,6 +52,8 @@ const NOTIFY_TEXT = {
     "yes-no": "Wartet auf ein Ja/Nein.",
     stall: "Ruhig — keine Aktivität; möglicherweise hängengeblieben.",
     other: "Wartet auf deine Eingabe.",
+    reviewTitle: (name: string) => `${name} — Review`,
+    reviewBody: "Kritiker fordert Änderungen am PR an.",
   },
 } as const;
 
@@ -78,6 +82,9 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   const base = { sessionId: input.sessionId, kind: input.kind, tag: input.tag };
   if (input.kind === "done") {
     return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
+  }
+  if (input.kind === "review") {
+    return { ...base, title: t.reviewTitle(input.name), body: t.reviewBody };
   }
   return {
     ...base,
@@ -187,6 +194,17 @@ export class PushService {
       console.warn(`[push] send failed for ${endpoint}:`, code ?? err);
     }
   }
+}
+
+/** Push when a critic requests changes (an attention signal, like a block). */
+export function attachReviewPush(events: EventHub, store: SessionStore, push: PushService): void {
+  events.subscribe((event, data) => {
+    if (event !== "session:review") return;
+    const { id, review } = data as { id: string; review: { decision: string } | null };
+    if (review?.decision !== "changes_requested") return;
+    const name = store.get(id)?.name ?? id;
+    void push.notify({ kind: "review", sessionId: id, tag: `review:${id}`, name });
+  });
 }
 
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. */

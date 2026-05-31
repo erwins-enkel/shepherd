@@ -9,9 +9,12 @@ import {
   originAllowed,
   safeRepoDir,
   parseTermDims,
+  validateSteers,
+  validateBroadcast,
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
+import { loadSteers, saveSteers } from "./steers";
 import { listBranches } from "./branches";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { handleUpload } from "./uploads";
@@ -244,6 +247,34 @@ export function makeApp(deps: AppDeps) {
           config.repoRoot = root; // live: every later read picks it up
           deps.store.setSetting("repoRoot", root); // persist across restarts
           return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
+        }
+      }
+
+      // ── saved steers (canned prompts): list / replace ──
+      if (parts[0] === "api" && parts[1] === "steers" && !parts[2]) {
+        if (req.method === "GET") return json(loadSteers(deps.store));
+        if (req.method === "PUT") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          const steers = validateSteers(body);
+          if (!steers) return json({ error: "invalid steers payload" }, 400);
+          saveSteers(deps.store, steers);
+          return json(steers);
+        }
+      }
+
+      // ── broadcast a steer to many sessions ──
+      if (parts[0] === "api" && parts[1] === "broadcast" && !parts[2]) {
+        if (req.method === "POST") {
+          if (req.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
+            return json({ error: "Content-Type must be application/json" }, 415);
+          }
+          const body = await req.json().catch(() => null);
+          const parsed = validateBroadcast(body);
+          if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
+          return json(deps.service.broadcast(parsed.ids, parsed.text));
         }
       }
 

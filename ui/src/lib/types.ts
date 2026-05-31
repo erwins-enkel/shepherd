@@ -142,3 +142,9 @@ export interface CreateInput {
 
 /** Selectable claude model aliases; null = claude's own default. */
 export const MODELS = ["opus", "sonnet", "haiku"] as const;
+
+export interface Steer {
+  id: string;
+  label: string;
+  text: string;
+}

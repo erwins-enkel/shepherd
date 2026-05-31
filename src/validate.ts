@@ -1,8 +1,8 @@
 import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
-import { timingSafeEqual } from "node:crypto";
-import { MODELS, type CreateSessionInput } from "./types";
+import { timingSafeEqual, randomUUID } from "node:crypto";
+import { MODELS, type CreateSessionInput, type Steer } from "./types";
 import { stagingDir } from "./uploads";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/Work/…`). */
@@ -177,4 +177,42 @@ export function originAllowed(
   } catch {
     return false; // malformed origin
   }
+}
+
+const STEER_LABEL_MAX = 60;
+const STEER_TEXT_MAX = 4000;
+const STEER_MAX = 40;
+
+/** Validate + normalize a PUT /api/steers payload. Returns null on any violation. */
+export function validateSteers(body: unknown): Steer[] | null {
+  if (!Array.isArray(body) || body.length > STEER_MAX) return null;
+  const out: Steer[] = [];
+  for (const it of body) {
+    if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+    const o = it as Record<string, unknown>;
+    if (typeof o.label !== "string" || typeof o.text !== "string") return null;
+    const label = o.label.trim();
+    const text = o.text.trim();
+    if (label.length === 0 || label.length > STEER_LABEL_MAX) return null;
+    if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
+    const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
+    out.push({ id, label, text });
+  }
+  return out;
+}
+
+/** Validate a POST /api/broadcast payload. Returns null on any violation. */
+export function validateBroadcast(body: unknown): { text: string; ids: string[] } | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (typeof o.text !== "string") return null;
+  const text = o.text.trim();
+  if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
+  if (!Array.isArray(o.ids)) return null;
+  const ids: string[] = [];
+  for (const id of o.ids) {
+    if (typeof id !== "string" || id.length === 0) return null;
+    ids.push(id);
+  }
+  return { text, ids };
 }

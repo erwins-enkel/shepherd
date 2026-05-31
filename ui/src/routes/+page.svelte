@@ -11,12 +11,14 @@
     getUpdate,
   } from "$lib/api";
   import { sortBlocked } from "$lib/triage";
+  import { steers } from "$lib/steers.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -25,6 +27,7 @@
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
   let showSettings = $state(false);
+  let showBroadcast = $state(false);
   let showTriage = $state(false);
   let showUpdate = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
@@ -66,6 +69,7 @@
     getUpdate()
       .then((u) => store.setUpdate(u))
       .catch(() => {});
+    steers.load();
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {
@@ -122,6 +126,7 @@
           mobile={mobile.current}
           {onarchive}
           onback={() => (mobileScreen = "list")}
+          onbroadcast={() => (showBroadcast = true)}
           onnewtask={(repoPath, prompt) => {
             composeRepoPath = repoPath;
             composePrompt = prompt;
@@ -150,6 +155,7 @@
           session={selected}
           touch={touch.current}
           {onarchive}
+          onbroadcast={() => (showBroadcast = true)}
           onnewtask={(repoPath, prompt) => {
             composeRepoPath = repoPath;
             composePrompt = prompt;
@@ -204,6 +210,10 @@
 
 {#if showSettings}
   <Settings onclose={() => (showSettings = false)} />
+{/if}
+
+{#if showBroadcast}
+  <BroadcastDialog sessions={store.sessions} onclose={() => (showBroadcast = false)} />
 {/if}
 
 <style>

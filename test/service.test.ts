@@ -235,3 +235,40 @@ test("reply types the text plus Enter into the agent's PTY", () => {
   expect(sent).toEqual([{ target: "term_z", text: "1\r" }]);
   expect(svc.reply("nope", "1")).toBe(false);
 });
+
+test("broadcast fans the text out to known sessions, skips unknown ids", () => {
+  const sent: { target: string; text: string }[] = [];
+  const store = new SessionStore(":memory:");
+  const mk = (name: string, agent: string) =>
+    store.create({
+      name,
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: agent,
+    });
+  const a = mk("a", "term_a");
+  const b = mk("b", "term_b");
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} },
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [],
+      stop: () => {},
+      send: (target: string, text: string) => sent.push({ target, text }),
+    } as any,
+  });
+
+  const res = svc.broadcast([a.id, "ghost", b.id], "run tests");
+  expect(res).toEqual({ sent: 2, total: 3 });
+  expect(sent).toEqual([
+    { target: "term_a", text: "run tests\r" },
+    { target: "term_b", text: "run tests\r" },
+  ]);
+});

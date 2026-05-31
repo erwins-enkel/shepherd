@@ -33,3 +33,9 @@ export interface CreateSessionInput {
 
 /** Selectable claude model aliases; absent/"default" means no --model flag. */
 export const MODELS = ["opus", "sonnet", "haiku"] as const;
+
+export interface Steer {
+  id: string;
+  label: string;
+  text: string;
+}

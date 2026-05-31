@@ -354,3 +354,40 @@ test("validateCreate rejects duplicate image paths", () => {
   );
   expect(r.ok).toBe(false);
 });
+
+import { validateSteers, validateBroadcast } from "../src/validate";
+
+test("validateSteers normalizes valid entries and assigns missing ids", () => {
+  const out = validateSteers([
+    { label: "  run tests ", text: "  run the tests " },
+    { id: "keep", label: "rebase", text: "rebase onto main" },
+  ]);
+  expect(out).not.toBeNull();
+  expect(out![0]!.label).toBe("run tests");
+  expect(out![0]!.text).toBe("run the tests");
+  expect(out![0]!.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(out![1]!.id).toBe("keep");
+});
+
+test("validateSteers rejects bad shapes", () => {
+  expect(validateSteers({})).toBeNull(); // not an array
+  expect(validateSteers([{ label: "x" }])).toBeNull(); // missing text
+  expect(validateSteers([{ label: "", text: "y" }])).toBeNull(); // empty label
+  expect(validateSteers([{ label: "x", text: "  " }])).toBeNull(); // blank text
+  expect(validateSteers([{ label: "a".repeat(61), text: "y" }])).toBeNull(); // label too long
+  expect(validateSteers(Array(41).fill({ label: "x", text: "y" }))).toBeNull(); // too many
+});
+
+test("validateBroadcast accepts text + ids and trims", () => {
+  expect(validateBroadcast({ text: "  go ", ids: ["a", "b"] })).toEqual({
+    text: "go",
+    ids: ["a", "b"],
+  });
+});
+
+test("validateBroadcast rejects bad shapes", () => {
+  expect(validateBroadcast({ text: "", ids: ["a"] })).toBeNull();
+  expect(validateBroadcast({ text: "go", ids: "a" })).toBeNull();
+  expect(validateBroadcast({ text: "go", ids: [1] })).toBeNull();
+  expect(validateBroadcast({ ids: ["a"] })).toBeNull();
+});

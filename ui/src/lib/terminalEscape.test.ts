@@ -13,6 +13,7 @@ const terminalEl = { contains: (n: Element | null) => n === xtermTextarea };
 // flips exactly one field off this baseline.
 const ok = {
   key: "Escape",
+  composing: false,
   ctrlKey: false,
   altKey: false,
   metaKey: false,
@@ -47,6 +48,10 @@ describe("shouldForwardEscape", () => {
     expect(shouldForwardEscape({ ...ok, ctrlKey: true })).toBe(false);
     expect(shouldForwardEscape({ ...ok, altKey: true })).toBe(false);
     expect(shouldForwardEscape({ ...ok, metaKey: true })).toBe(false);
+  });
+
+  it("stands down mid-IME composition (Escape cancels the candidate)", () => {
+    expect(shouldForwardEscape({ ...ok, composing: true })).toBe(false);
   });
 
   it("defers when a sibling control owns focus (compose, steer, dialog field)", () => {

@@ -238,6 +238,7 @@
   "leftover_terminate": "Beenden & schließen",
   "viewport_upload_failed": "Upload fehlgeschlagen — zum Wiederholen tippen",
   "viewport_attach_image": "Bild anhängen",
+  "viewport_notes_aria": "Notiz hinzufügen — {key} drücken",
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
   "viewport_select_hint": "{key} zum Markieren ziehen",

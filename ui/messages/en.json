@@ -251,5 +251,15 @@
   "updatemodal_exit_code": "Exit code {code}",
   "updatemodal_deploy_log": "Deploy output",
   "updatemodal_unreachable": "The server stayed unreachable for too long — the update may have failed. Reload the app or check the logs.",
-  "updatemodal_retry": "Retry"
+  "updatemodal_retry": "Retry",
+  "backlog_tab_issues": "Issues",
+  "backlog_tab_prs": "PRs",
+  "backlog_tab_issues_count": "Issues · {count}",
+  "backlog_tab_prs_count": "PRs · {count}",
+  "backlog_pinned_label": "Pinned",
+  "backlog_open_since_days": "{days} d",
+  "backlog_prs_soon": "PR details coming soon",
+  "backlog_loading": "Loading backlog…",
+  "backlog_no_forge_repos": "No forge-backed projects",
+  "backlog_select_a_project": "Select a project"
 }

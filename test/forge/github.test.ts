@@ -13,8 +13,16 @@ function fakeRunner(responses: Record<string, string>) {
   return { run, calls };
 }
 
+const ISSUE_CREATED_AT = "2024-01-01T00:00:00Z";
 const ISSUES_JSON = JSON.stringify([
-  { number: 1, title: "Fix crash", body: "boom", url: "u1", labels: [{ name: "bug" }] },
+  {
+    number: 1,
+    title: "Fix crash",
+    body: "boom",
+    url: "u1",
+    labels: [{ name: "bug" }],
+    createdAt: ISSUE_CREATED_AT,
+  },
 ]);
 
 test("GithubForge.listIssues: parses gh issue list output", async () => {
@@ -22,7 +30,14 @@ test("GithubForge.listIssues: parses gh issue list output", async () => {
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);
   const issues = await forge.listIssues();
   expect(issues).toEqual([
-    { number: 1, title: "Fix crash", body: "boom", url: "u1", labels: ["bug"] },
+    {
+      number: 1,
+      title: "Fix crash",
+      body: "boom",
+      url: "u1",
+      labels: ["bug"],
+      createdAt: Date.parse(ISSUE_CREATED_AT),
+    },
   ]);
 });
 
@@ -129,6 +144,48 @@ test("GithubForge.prStatus: surfaces head SHA from headRefOid", async () => {
   const st = await forge.prStatus("feature");
   expect(st.headSha).toBe("abc123");
   expect(calls[0]!.join(" ")).toContain("headRefOid");
+});
+
+test("GithubForge.listIssues: createdAt is parsed to a finite ms number from ISO string", async () => {
+  const isoDate = "2024-03-15T10:30:00Z";
+  const expectedMs = Date.parse(isoDate);
+  const issuesJson = JSON.stringify([
+    { number: 1, title: "T", body: "b", url: "u", labels: [], createdAt: isoDate },
+  ]);
+  const { run } = fakeRunner({ "issue list": issuesJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.createdAt).toBe(expectedMs);
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+});
+
+test("GithubForge.listIssues: missing createdAt falls back to Date.now() (finite number)", async () => {
+  const before = Date.now();
+  const issuesJson = JSON.stringify([
+    { number: 2, title: "T2", body: "", url: "u2", labels: [] },
+    // no createdAt field
+  ]);
+  const { run } = fakeRunner({ "issue list": issuesJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const issues = await forge.listIssues();
+  const after = Date.now();
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+  expect(issues[0]!.createdAt).toBeGreaterThanOrEqual(before);
+  expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
+});
+
+test("GithubForge.listIssues: invalid createdAt string falls back to Date.now() (finite)", async () => {
+  const before = Date.now();
+  const issuesJson = JSON.stringify([
+    { number: 3, title: "T3", body: "", url: "u3", labels: [], createdAt: "not-a-date" },
+  ]);
+  const { run } = fakeRunner({ "issue list": issuesJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const issues = await forge.listIssues();
+  const after = Date.now();
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+  expect(issues[0]!.createdAt).toBeGreaterThanOrEqual(before);
+  expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
 });
 
 test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {

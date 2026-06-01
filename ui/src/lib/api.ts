@@ -19,6 +19,7 @@ import type {
   ProjectIcons,
   ReviewVerdict,
   RepoConfig,
+  BacklogPayload,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -348,6 +349,12 @@ export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
 export async function getReviewingIds(): Promise<string[]> {
   const r = await fetch("/api/reviews/inflight");
   if (!r.ok) throw new Error(`reviewing failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getBacklog(): Promise<BacklogPayload> {
+  const r = await fetch("/api/backlog");
+  if (!r.ok) throw await failed(r, "backlog");
   return r.json();
 }
 

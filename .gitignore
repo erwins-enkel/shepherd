@@ -15,3 +15,5 @@ dist/
 
 # Transient agent worktrees (Claude Code isolation checkouts)
 /.claude/worktrees/
+.shaping/
+.squad/

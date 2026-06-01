@@ -31,6 +31,7 @@ import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { StatusPoller } from "./poller";
+import type { CountsService } from "./backlog";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -83,6 +84,8 @@ export interface AppDeps {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
     reviewing?(): string[];
   };
+  /** Backlog counts service; absent in tests that don't exercise it. */
+  backlog?: Pick<CountsService, "counts">;
 }
 
 const sessionUsage = (s: Session) =>
@@ -639,6 +642,73 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
+  if (!deps.backlog) {
+    return json({ pinnedPath: null, projects: [], totals: { openIssues: 0, openPRs: 0 } });
+  }
+  const repos = listRepos(config.repoRoot);
+  const lastUsed = deps.store.lastUsedByRepo();
+
+  // Keep only forge-backed repos
+  const forgeRepos = repos
+    .map((r) => {
+      const forge = deps.resolveForge?.(r.path) ?? null;
+      return forge ? { ...r, forge } : null;
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+  // Fetch counts for all forge repos in parallel
+  const countsArr = await Promise.all(forgeRepos.map((r) => deps.backlog!.counts(r.path)));
+
+  const projects = forgeRepos.map((r, i) => {
+    const counts = countsArr[i]!;
+    return {
+      path: r.path,
+      display: r.display,
+      slug: r.forge.slug,
+      kind: r.forge.kind,
+      lastUsedAt: lastUsed[r.path] ?? null,
+      openIssues: counts.openIssues,
+      openPRs: counts.openPRs,
+    };
+  });
+
+  // Sort: descending openIssues (null → -1), tie-break path ascending
+  projects.sort((a, b) => {
+    const ai = a.openIssues ?? -1;
+    const bi = b.openIssues ?? -1;
+    if (bi !== ai) return bi - ai;
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  });
+
+  // Pin: project with max lastUsedAt; tie-break lowest path; if none have lastUsedAt → first after sort
+  let pinnedPath: string | null = null;
+  if (projects.length > 0) {
+    const withUsed = projects.filter((p) => p.lastUsedAt !== null);
+    if (withUsed.length > 0) {
+      const pinned = withUsed.reduce((best, cur) => {
+        if (cur.lastUsedAt! > best.lastUsedAt!) return cur;
+        if (cur.lastUsedAt! === best.lastUsedAt! && cur.path < best.path) return cur;
+        return best;
+      });
+      pinnedPath = pinned.path;
+    } else {
+      pinnedPath = projects[0]!.path;
+    }
+  }
+
+  // Totals: sum non-null values
+  let totalIssues = 0;
+  let totalPRs = 0;
+  for (const p of projects) {
+    if (p.openIssues !== null) totalIssues += p.openIssues;
+    if (p.openPRs !== null) totalPRs += p.openPRs;
+  }
+
+  return json({ pinnedPath, projects, totals: { openIssues: totalIssues, openPRs: totalPRs } });
+}
+
 function todoRead(repoParam: string): Response {
   const r = readTodo(repoParam, config.repoRoot);
   if (!r.ok) return json({ error: "invalid repo path" }, 400);
@@ -684,6 +754,7 @@ const ROUTE_HANDLERS = [
   handleFsDirs,
   handleBranches,
   handleIssues,
+  handleBacklog,
   handleTodo,
 ] as const;
 

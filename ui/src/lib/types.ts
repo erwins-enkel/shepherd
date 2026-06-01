@@ -32,6 +32,7 @@ export interface Issue {
   body: string;
   url: string;
   labels: string[];
+  createdAt: number;
 }
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {
@@ -163,6 +164,22 @@ export interface HerdrUpdateStatus {
 
 /** repoPath → emoji map for per-project icons. */
 export type ProjectIcons = Record<string, string>;
+
+// ── backlog ────────────────────────────────────────────────────────────────
+export interface BacklogProject {
+  path: string;
+  display: string;
+  slug: string | null;
+  kind: "github" | "gitea";
+  lastUsedAt?: number;
+  openIssues: number | null;
+  openPRs: number | null;
+}
+export interface BacklogPayload {
+  pinnedPath: string | null;
+  projects: BacklogProject[];
+  totals: { openIssues: number; openPRs: number };
+}
 
 export type WsEvent =
   | { event: "session:new"; data: Session }

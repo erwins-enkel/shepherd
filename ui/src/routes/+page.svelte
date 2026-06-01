@@ -287,6 +287,7 @@
           limits={store.usageLimits}
           git={store.git[selected.id]}
           queue={blockedEntries.map((e) => e.session.id)}
+          switchOrder={store.sessions.map((s) => s.id)}
           onnavigate={(id) => selectUnit(id)}
           {onarchive}
           onback={() => (mobileScreen = "list")}
@@ -333,6 +334,7 @@
           touch={touch.current}
           git={store.git[selected.id]}
           queue={blockedEntries.map((e) => e.session.id)}
+          switchOrder={store.sessions.map((s) => s.id)}
           onnavigate={(id) => selectUnit(id)}
           {onarchive}
           onbroadcast={() => (showBroadcast = true)}

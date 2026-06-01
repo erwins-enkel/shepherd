@@ -14,10 +14,20 @@
     onselect: () => void;
   } = $props();
 
-  const displayName = $derived(project.display || project.slug || project.path);
+  // Show the repo name (path basename), not the full path — far easier to scan.
+  // Fall back to slug/display only if the path has no usable trailing segment.
+  const displayName = $derived(
+    project.path.replace(/\/+$/, "").split("/").pop() || project.slug || project.display,
+  );
 </script>
 
-<button class="project-row" class:sel={selected} onclick={onselect} type="button">
+<button
+  class="project-row"
+  class:sel={selected}
+  onclick={onselect}
+  type="button"
+  title={project.display}
+>
   <div class="row-main">
     <span class="row-name">{displayName}</span>
     {#if pinned}

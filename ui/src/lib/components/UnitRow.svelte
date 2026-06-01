@@ -6,10 +6,11 @@
 
 <script lang="ts">
   import type { Session, GitState } from "$lib/types";
-  import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
+  import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge } from "$lib/format";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
+  import { reviews } from "$lib/reviews.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
   import { onDestroy } from "svelte";
@@ -94,6 +95,8 @@
     clearTimeout(armTimer);
     if (openRow === close) openRow = null;
   });
+
+  const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
 </script>
 
 {#snippet row()}
@@ -127,7 +130,9 @@
     <div class="u-right">
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
-      <span class="badge">{statusLabel(session.status)}</span>
+      {#if !hideStatus}
+        <span class="badge">{statusLabel(session.status)}</span>
+      {/if}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
       <span class="meta"
         ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span

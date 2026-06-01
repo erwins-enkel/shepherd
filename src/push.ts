@@ -84,8 +84,24 @@ const NOTIFY_TEXT = {
   },
 } as const;
 
+type NotifyText = (typeof NOTIFY_TEXT)[NotifyLocale];
+
 function asLocale(l: string | undefined): NotifyLocale {
   return l === "de" ? "de" : "en";
+}
+
+/** CI notification body for a rollup state (anything but success/failure reads as running). */
+function ciBody(t: NotifyText, state: NotifyInput["ciState"]): string {
+  if (state === "success") return t.ciSuccess;
+  if (state === "failure") return t.ciFailure;
+  return t.ciPending;
+}
+
+/** Human-review body for a review state (default: changes-requested copy). */
+function humanReviewBody(t: NotifyText, state: NotifyInput["reviewState"]): string {
+  if (state === "approved") return t.humanApproved;
+  if (state === "commented") return t.humanCommented;
+  return t.humanChanges;
 }
 
 /** Short human line describing why an agent is blocked, for the notification body. */
@@ -107,36 +123,30 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
 export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   const t = NOTIFY_TEXT[asLocale(locale)];
   const base = { sessionId: input.sessionId, kind: input.kind, tag: input.tag };
-  if (input.kind === "done") {
-    return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
+  switch (input.kind) {
+    case "done":
+      return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
+    case "review":
+      return {
+        ...base,
+        title: t.reviewTitle(input.name),
+        body: input.decision === "commented" ? t.reviewCommentBody : t.reviewBody,
+      };
+    case "ci":
+      return { ...base, title: t.ciTitle(input.name), body: ciBody(t, input.ciState) };
+    case "review-human":
+      return {
+        ...base,
+        title: t.humanReviewTitle(input.name),
+        body: humanReviewBody(t, input.reviewState),
+      };
+    default:
+      return {
+        ...base,
+        title: t.blockedTitle(input.name),
+        body: input.reason ? blockSummary(input.reason, locale) : t.other,
+      };
   }
-  if (input.kind === "review") {
-    const body = input.decision === "commented" ? t.reviewCommentBody : t.reviewBody;
-    return { ...base, title: t.reviewTitle(input.name), body };
-  }
-  if (input.kind === "ci") {
-    const body =
-      input.ciState === "success"
-        ? t.ciSuccess
-        : input.ciState === "failure"
-          ? t.ciFailure
-          : t.ciPending;
-    return { ...base, title: t.ciTitle(input.name), body };
-  }
-  if (input.kind === "review-human") {
-    const body =
-      input.reviewState === "approved"
-        ? t.humanApproved
-        : input.reviewState === "commented"
-          ? t.humanCommented
-          : t.humanChanges;
-    return { ...base, title: t.humanReviewTitle(input.name), body };
-  }
-  return {
-    ...base,
-    title: t.blockedTitle(input.name),
-    body: input.reason ? blockSummary(input.reason, locale) : t.other,
-  };
 }
 
 export class PushService {

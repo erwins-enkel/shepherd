@@ -19,6 +19,7 @@
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
+  import { lockAxis, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
@@ -64,6 +65,10 @@
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
+  // root element + live offset for the phone swipe-right-to-go-back gesture
+  let viewportEl: HTMLDivElement | undefined = $state();
+  let swipeX = $state(0);
+  let swiping = $state(false);
   let tab = $state<"term" | "todo" | "issues" | "activity" | "diff">("term");
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
@@ -548,9 +553,84 @@
     term.options.minimumContrastRatio = xtermMinContrast(resolved);
     term.refresh(0, Math.max(0, term.rows - 1));
   });
+
+  // Phone: swipe the pane rightward to go back to the session list — mirrors the
+  // "‹" header button. Capture-phase so a recognised horizontal drag can stop the
+  // terminal's own touch-scroll handler (on a descendant) from also firing; we
+  // only lock + suppress once the gesture is clearly rightward-horizontal, so
+  // vertical scrolling and leftward drags fall through untouched. The slop/axis
+  // decision reuses lockAxis() from the decommission-swipe util (one source for
+  // the commitment threshold across both swipe gestures).
+  $effect(() => {
+    const root = viewportEl;
+    if (!root || !mobile || !onback) return;
+    let startX = 0;
+    let startY = 0;
+    let armed = false; // a single-finger touch is in progress and eligible
+    let axis: Axis = null; // resolved gesture axis once movement clears slop
+    let locked = false; // recognised as the rightward back gesture
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      // don't hijack text selection / cursor placement in editable fields
+      if ((e.target as Element | null)?.closest("input, textarea, [contenteditable]")) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      armed = true;
+      axis = null;
+      locked = false;
+      swiping = false;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!armed || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (!locked) {
+        if (axis === null) axis = lockAxis(dx, dy);
+        if (axis === null) return; // still within slop — keep waiting
+        if (axis === "x" && dx > 0) {
+          locked = true;
+          swiping = true;
+        } else {
+          armed = false; // vertical or leftward → leave it to the terminal
+          return;
+        }
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      swipeX = Math.max(0, dx);
+    };
+    const onEnd = () => {
+      if (locked) {
+        const commit = swipeX > Math.min(120, root.clientWidth * 0.33);
+        swiping = false;
+        swipeX = 0;
+        if (commit) {
+          onback?.();
+          return;
+        }
+      }
+      armed = false;
+      locked = false;
+    };
+    root.addEventListener("touchstart", onStart, { passive: true });
+    root.addEventListener("touchmove", onMove, { passive: false, capture: true });
+    root.addEventListener("touchend", onEnd);
+    root.addEventListener("touchcancel", onEnd);
+    return () => {
+      root.removeEventListener("touchstart", onStart);
+      root.removeEventListener("touchmove", onMove, { capture: true });
+      root.removeEventListener("touchend", onEnd);
+      root.removeEventListener("touchcancel", onEnd);
+    };
+  });
 </script>
 
-<div class="viewport">
+<div
+  class="viewport"
+  class:swiping
+  bind:this={viewportEl}
+  style:transform={swipeX ? `translateX(${swipeX}px)` : undefined}
+>
   {#snippet metaPop()}
     <span class="desig-pop" role="tooltip">
       <span class="dp-row">
@@ -888,6 +968,12 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     overflow: hidden;
+    /* snap back after a released swipe-to-go-back; suppressed while finger-dragging */
+    transition: transform 0.2s ease;
+  }
+
+  .viewport.swiping {
+    transition: none;
   }
 
   .vp-head {

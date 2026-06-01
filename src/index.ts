@@ -72,6 +72,14 @@ const prPoller = new PrPoller(
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
+// when an agent settles (finished a turn / paused) it has most likely just run
+// `gh pr create`; poll that one session right away so the badge shows the PR
+// number within seconds instead of on the next full sweep.
+events.subscribe((event, data) => {
+  if (event !== "session:status") return;
+  const { id, status } = data as { id: string; status: string };
+  if (status !== "running") prPoller.pollSession(id);
+});
 
 const reviewService = new ReviewService({
   store,

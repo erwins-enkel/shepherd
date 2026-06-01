@@ -36,6 +36,10 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
+  // Touch desktop-layout (unfolded foldable): narrower than a real desktop, so the
+  // update badge shoves the clock past the edge. Drop the numeric time (keep the
+  // connection dot) when a badge is present, mirroring the phone layout.
+  const hideClockTime = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
@@ -202,7 +206,7 @@
         {/each}
       </div>
     {/if}
-    <div class="clock tip" data-tip={connText} aria-label={connText}>
+    <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
     </div>
     {#if updateAvailable}
@@ -509,6 +513,14 @@
     gap: 9px;
     align-items: center;
     font-variant-numeric: tabular-nums;
+  }
+  /* Touch desktop-layout with an update badge: hide the numeric time, keep the
+     dot inline so the badge no longer overflows the bar. */
+  .clock.no-time {
+    gap: 0;
+  }
+  .clock.no-time .time {
+    display: none;
   }
   .clock .dot {
     color: var(--color-faint);

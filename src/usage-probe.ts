@@ -20,7 +20,30 @@ export class HerdrUsageProbe implements UsageProbe {
     private helperPath = new URL("./pty-attach.mjs", import.meta.url).pathname,
   ) {}
 
+  /**
+   * Close every lingering `usage-probe` agent (and its herdr tab/pane). Probes are internal and
+   * always labelled "usage-probe" — real sessions use task designations — so the name is an
+   * unambiguous marker. Self-healing reaper: catches any probe agent left *running* in `agent
+   * list` after its own cleanup didn't run (e.g. the daemon was killed mid-probe, or the
+   * post-start lookup threw while the agent itself was alive). It can't reach a tab whose
+   * `agent start` failed outright — no agent is registered, so nothing shows in the list.
+   */
+  private sweep(): void {
+    for (const a of this.herdr.list()) {
+      if (a.name !== "usage-probe") continue;
+      try {
+        this.herdr.stop(a.terminalId);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   async scrape(): Promise<string | null> {
+    // Reap leftovers from any prior run that didn't clean up after itself, so probe tabs can't
+    // accumulate in herdr over time.
+    this.sweep();
+
     let terminalId: string;
     try {
       // Resolve the new agent by list diff: herdr.start()'s cwd-based resolution is ambiguous if a
@@ -33,6 +56,10 @@ export class HerdrUsageProbe implements UsageProbe {
       const fresh = this.herdr.list().find((a) => !before.has(a.terminalId));
       terminalId = fresh?.terminalId ?? started.terminalId;
     } catch {
+      // start() can throw after the agent is already running (the post-start cwd lookup found no
+      // match) — reap that live probe before bailing. (A failed `agent start` leaves a tab with no
+      // agent, which the sweep can't see; pre-existing gap, not handled here.)
+      this.sweep();
       return null;
     }
 
@@ -79,11 +106,9 @@ export class HerdrUsageProbe implements UsageProbe {
       }
       void pump.catch(() => {});
       void drainErr.catch(() => {});
-      try {
-        this.herdr.stop(terminalId);
-      } catch {
-        /* best-effort cleanup */
-      }
+      // Sweep by name rather than stop(terminalId): closes this probe AND any straggler, and
+      // doesn't depend on terminalId having resolved.
+      this.sweep();
     }
   }
 }

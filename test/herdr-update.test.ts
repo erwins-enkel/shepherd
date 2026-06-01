@@ -129,6 +129,17 @@ test("apply() calls follow and forwards lines to onLog", () => {
   expect(received).toEqual(["Fetching herdr 0.6.5...", "Installing..."]);
 });
 
+test("apply() starts follow before launch so early log lines aren't missed", () => {
+  const order: string[] = [];
+  const svc = new HerdrUpdateService({
+    launch: () => order.push("launch"),
+    onLog: () => {},
+    follow: () => order.push("follow"),
+  });
+  svc.apply();
+  expect(order).toEqual(["follow", "launch"]);
+});
+
 test("apply() does not start follow on second call", () => {
   let followCalls = 0;
   const svc = new HerdrUpdateService({

@@ -109,13 +109,21 @@ export class HerdrUpdateService {
    *  mid-update). `herdr update` must run outside a herdr session — the transient
    *  unit gets a clean environment, so it qualifies. It restarts the herdr server
    *  (ending live agent panes), after which we restart shepherd so it re-establishes
-   *  its herdr session and clients reconnect to a fresh build. */
+   *  its herdr session and clients reconnect to a fresh build.
+   *
+   *  `--handoff` is required because Shepherd itself runs as a live herdr target:
+   *  a protocol-bumping update (e.g. 0.6.5 proto 11 → 0.6.6 proto 12) refuses to
+   *  proceed while targets are running unless it can restart them. Without the
+   *  flag `herdr update` exits 1 ("one or more herdr targets must restart … run
+   *  from an interactive terminal, or stop those targets"), which can never be
+   *  satisfied from this non-interactive transient unit — so the update would
+   *  always fail. `--handoff` hands the running targets to the new version. */
   private defaultLaunch(): void {
     // forward our PATH: a transient --user unit gets a bare environment, but the
     // command needs herdr/systemctl, which live on the service's PATH.
     const args = ["--user", "--collect", "--unit=herdr-update"];
     if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
-    args.push("bash", "-lc", "herdr update && systemctl --user restart shepherd");
+    args.push("bash", "-lc", "herdr update --handoff && systemctl --user restart shepherd");
     const child = spawn("systemd-run", args, { stdio: "ignore" });
     child.unref();
   }
@@ -130,13 +138,17 @@ export class HerdrUpdateService {
   apply(): { started: boolean } {
     if (this.applying) return { started: false };
     this.applying = true;
-    this.launch();
-    // Start streaming the journal output; wrapped so a failure never surfaces.
+    // Start streaming the journal BEFORE launching: `herdr update` runs inside the
+    // transient unit and emits its diagnostics (incl. the "update failed: …" line)
+    // within milliseconds. If we launched first, the `journalctl -f` tailer would
+    // attach too late and catch only systemd's trailing "Failed with result" lines,
+    // hiding the actual cause from the modal. Wrapped so a failure never surfaces.
     try {
       this.follow((line) => this.onLog(line));
     } catch {
       // follow implementation threw synchronously — ignore
     }
+    this.launch();
     return { started: true };
   }
 

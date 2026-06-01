@@ -9,6 +9,7 @@
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let {
     session,
@@ -97,7 +98,7 @@
 <button
   class="tile"
   class:sel={selected}
-  style="--rule:{STATUS_COLOR[session.status]}"
+  style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
   type="button"
   onclick={() => onselect(session.id)}
 >
@@ -109,7 +110,9 @@
     {/if}
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
-    {#if !hideStatus}
+    {#if session.readyToMerge}
+      <span class="badge">{m.status_ready_to_merge()}</span>
+    {:else if !hideStatus}
       <span class="badge">{statusLabel(session.status)}</span>
     {/if}
     <span class="desig">{session.desig}</span>

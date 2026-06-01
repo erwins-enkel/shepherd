@@ -868,6 +868,8 @@
         repoPath={session.repoPath}
         name={session.name}
         prompt={session.prompt}
+        ready={session.readyToMerge}
+        status={session.status}
       />
     {/if}
     {#if renaming}
@@ -920,6 +922,8 @@
         repoPath={session.repoPath}
         name={session.name}
         prompt={session.prompt}
+        ready={session.readyToMerge}
+        status={session.status}
         mobile
       />
     </div>

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
+import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
 import { config } from "./config";
@@ -11,6 +12,8 @@ export interface ServiceDeps {
   worktree: Pick<WorktreeMgr, "create" | "remove" | "renameBranch" | "branchExists">;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send">;
   namer: (prompt: string) => string | Promise<string>;
+  /** Event bus for live state pushes (e.g. session:ready); absent in tests that skip it. */
+  events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs move. */
   moveUploads?: (images: string[], worktreePath: string) => string[];
 }
@@ -183,6 +186,15 @@ export class SessionService {
     let sent = 0;
     for (const id of ids) if (this.reply(id, text)) sent++;
     return { sent, total: ids.length };
+  }
+
+  /**
+   * Toggle the manual "ready to merge" flag (parked / done). Persists it and
+   * pushes the change live so every client patches the row without a refetch.
+   */
+  setReadyToMerge(id: string, ready: boolean): void {
+    this.deps.store.update(id, { readyToMerge: ready });
+    this.deps.events?.emit("session:ready", { id, ready });
   }
 
   archive(id: string): void {

@@ -26,6 +26,7 @@ function session(id: string): Session {
     claudeSessionId: "c",
     model: null,
     status: "running",
+    readyToMerge: false,
     lastState: "working",
     createdAt: 0,
     updatedAt: 0,
@@ -43,6 +44,16 @@ test("session:git merges into the git map", () => {
   const s = new HerdStore();
   s.apply({ event: "session:git", data: { id: "s1", git: GIT } });
   expect(s.git.s1?.number).toBe(4);
+});
+
+test("session:ready patches the target session's readyToMerge", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({ event: "session:ready", data: { id: "s1", ready: true } });
+  expect(s.byId("s1")?.readyToMerge).toBe(true);
+  expect(s.byId("s2")?.readyToMerge).toBe(false);
+  s.apply({ event: "session:ready", data: { id: "s1", ready: false } });
+  expect(s.byId("s1")?.readyToMerge).toBe(false);
 });
 
 test("session:archived drops the git entry", () => {

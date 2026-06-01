@@ -189,6 +189,17 @@ export async function dismissStall(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "dismiss-stall");
 }
 
+/** Toggle the operator "ready to merge" flag. Live state returns via the
+ *  session:ready WS event, so callers fire-and-forget like dismissStall. */
+export async function setReadyToMerge(id: string, ready: boolean): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/ready`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ ready }),
+  });
+  if (!r.ok) throw await failed(r, "ready");
+}
+
 export async function listIssues(
   repoPath: string,
 ): Promise<{ slug: string | null; issues: Issue[] }> {

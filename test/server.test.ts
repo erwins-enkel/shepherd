@@ -44,6 +44,7 @@ function makeDeps(): AppDeps {
       stop: () => {},
       send: () => {},
     } as any,
+    events,
   });
   const usageLimits = {
     limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
@@ -551,6 +552,66 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
 
   const wrongType = await app.fetch(
     new Request(`http://x/api/sessions/${created.id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "1",
+    }),
+  );
+  expect(wrongType.status).toBe(415);
+});
+
+test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, validates", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+
+  const events: { event: string; data: unknown }[] = [];
+  deps.events.subscribe((event, data) => events.push({ event, data }));
+
+  const ok = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/ready`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ready: true }),
+    }),
+  );
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ ok: true });
+  expect(deps.store.get(created.id)?.readyToMerge).toBe(true);
+  expect(events).toEqual([{ event: "session:ready", data: { id: created.id, ready: true } }]);
+
+  const off = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/ready`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ready: false }),
+    }),
+  );
+  expect(off.status).toBe(200);
+  expect(deps.store.get(created.id)?.readyToMerge).toBe(false);
+
+  const missing = await app.fetch(
+    new Request(`http://x/api/sessions/does-not-exist/ready`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ready: true }),
+    }),
+  );
+  expect(missing.status).toBe(404);
+
+  const bad = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/ready`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ready: "yes" }),
+    }),
+  );
+  expect(bad.status).toBe(400);
+
+  const wrongType = await app.fetch(
+    new Request(`http://x/api/sessions/${created.id}/ready`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: "1",

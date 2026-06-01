@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, GitState } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
+  import { partitionSessions } from "./herd-partition";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -28,6 +29,9 @@
   const shown = $derived(
     filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
   );
+  // within the shown set: active rows on top; ready-to-merge ones parked in a
+  // green group at the bottom
+  const partition = $derived(partitionSessions(shown));
 </script>
 
 <div class="panel bracket">
@@ -56,7 +60,7 @@
     {:else if shown.length === 0}
       <div class="empty micro static">{m.herd_ready_empty()}</div>
     {:else}
-      {#each shown as session (session.id)}
+      {#each partition.active as session (session.id)}
         <UnitRow
           {session}
           selected={session.id === selectedId}
@@ -66,6 +70,19 @@
           {ondecommission}
         />
       {/each}
+      {#if partition.ready.length > 0}
+        <div class="ready-head micro">{m.herd_ready_group({ count: partition.ready.length })}</div>
+        {#each partition.ready as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
     {/if}
   </div>
 </div>
@@ -137,6 +154,16 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+
+  /* green section header for the parked "ready to merge" group */
+  .ready-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-green);
+    border-top: 1px solid color-mix(in srgb, var(--color-green) 30%, var(--color-line));
   }
 
   .units {

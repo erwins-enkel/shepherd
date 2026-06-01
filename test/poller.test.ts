@@ -3,6 +3,7 @@ import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import type { HerdrAgent } from "../src/herdr";
 import { classifyBlocked } from "../src/blocked";
+import { DEFAULT_STALL } from "../src/stall";
 
 const baseSession = {
   name: "x",
@@ -334,6 +335,92 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   clock += 30_000;
   poller.tick();
   expect((blocks[blocks.length - 1]!.block as any).shape).toBe("stall");
+});
+
+test.each(["working", "blocked"] as const)(
+  "auto-clears readyToMerge when a ready session transitions to %s",
+  (agentStatus) => {
+    const store = new SessionStore(":memory:");
+    const s = store.create(baseSession);
+    store.update(s.id, { readyToMerge: true });
+    const ready: { id: string; ready: boolean }[] = [];
+
+    const agents: HerdrAgent[] = [
+      {
+        agent: "claude",
+        agentStatus,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ];
+
+    const poller = new StatusPoller(
+      store,
+      { list: () => agents, read: () => "" } as any,
+      () => {},
+      () => {},
+      1000,
+      3000,
+      classifyBlocked,
+      () => 100_000,
+      undefined,
+      DEFAULT_STALL,
+      30_000,
+      (id, ready2) => ready.push({ id, ready: ready2 }),
+    );
+
+    poller.tick();
+    expect(store.get(s.id)?.readyToMerge).toBe(false);
+    expect(ready).toEqual([{ id: s.id, ready: false }]);
+
+    poller.tick(); // already cleared → no duplicate emit
+    expect(ready).toHaveLength(1);
+  },
+);
+
+test("leaves readyToMerge untouched while a ready session stays idle", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  store.update(s.id, { readyToMerge: true });
+  const ready: unknown[] = [];
+
+  // herdr "done" maps to idle status — not running/blocked, so the flag is sticky
+  const poller = new StatusPoller(
+    store,
+    {
+      list: (): HerdrAgent[] => [
+        {
+          agent: "claude",
+          agentStatus: "done",
+          cwd: "/wt",
+          paneId: "p",
+          tabId: "t",
+          name: "",
+          terminalId: "term_a",
+          workspaceId: "w",
+        },
+      ],
+      read: () => "",
+    } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 100_000,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    (id, r) => ready.push({ id, r }),
+  );
+
+  poller.tick();
+  expect(store.get(s.id)?.readyToMerge).toBe(true);
+  expect(ready).toHaveLength(0);
 });
 
 test("does not emit onBlock when reading the terminal throws", () => {

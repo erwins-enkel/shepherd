@@ -23,6 +23,7 @@ const SESSION: Session = {
   herdrAgentId: "a1",
   claudeSessionId: "c1",
   model: null,
+  readyToMerge: false,
   status: "running",
   lastState: "working",
   createdAt: 0,

@@ -68,6 +68,17 @@ test("reviews: upsert + read by session, snapshot all", () => {
   expect(store.getReview("s1")).toBeNull();
 });
 
+test("readyToMerge: defaults false on create, round-trips through update", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.readyToMerge).toBe(false);
+  expect(s.get(a.id)?.readyToMerge).toBe(false);
+  s.update(a.id, { readyToMerge: true });
+  expect(s.get(a.id)?.readyToMerge).toBe(true);
+  s.update(a.id, { readyToMerge: false });
+  expect(s.get(a.id)?.readyToMerge).toBe(false);
+});
+
 test("get / list / update / archive", () => {
   const s = mk();
   const a = s.create(base);

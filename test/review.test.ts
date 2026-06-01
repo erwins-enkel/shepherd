@@ -18,6 +18,7 @@ function session(over: Partial<Session> = {}): Session {
     herdrAgentId: "t",
     claudeSessionId: "c",
     model: null,
+    readyToMerge: false,
     status: "running",
     lastState: "idle",
     createdAt: 0,

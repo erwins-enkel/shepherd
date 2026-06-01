@@ -27,6 +27,8 @@ export class StatusPoller {
       s.claudeSessionId ? readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId)) : null,
     private stallCfg = DEFAULT_STALL,
     private stallCheckMs = 30_000,
+    /** Pushed when a session's manual readyToMerge flag is auto-cleared on resume. */
+    private onReady: (id: string, ready: boolean) => void = () => {},
   ) {}
 
   tick(): void {
@@ -61,6 +63,12 @@ export class StatusPoller {
     if (status !== s.status || agent.agentStatus !== s.lastState) {
       this.store.update(s.id, { status, lastState: agent.agentStatus });
       this.onChange(s.id, status);
+    }
+    // There's a next action again → drop the manual "ready to merge" parking so
+    // the row rejoins the active group. Sticky otherwise (idle/done keep it).
+    if ((status === "running" || status === "blocked") && s.readyToMerge) {
+      this.store.update(s.id, { readyToMerge: false });
+      this.onReady(s.id, false);
     }
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
     else if (status === "running") this.maybeStall(s);

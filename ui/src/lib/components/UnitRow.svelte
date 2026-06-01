@@ -317,7 +317,10 @@
     max-width: 34ch;
   }
   .repo-glyph {
-    color: var(--color-amber);
+    /* Renders on every row regardless of status — amber here was the biggest
+       remaining contributor to the "orange wall". Muted: it's a repo marker,
+       not a state signal. (Only tints the `▣` fallback; emoji icons self-color.) */
+    color: var(--color-muted);
     font-size: 10px;
     flex-shrink: 0;
   }

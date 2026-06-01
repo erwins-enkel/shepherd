@@ -25,7 +25,7 @@
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
-  import { lockAxis, type Axis } from "./swipe";
+  import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
@@ -45,6 +45,7 @@
     mobile = false,
     touch = false,
     queue = [],
+    switchOrder = [],
     onnavigate,
     limits = null,
     connected = true,
@@ -64,6 +65,9 @@
     // ordered ids of sessions currently waiting on the operator ("needs you"),
     // so the console can page through that queue without a trip back to the list
     queue?: string[];
+    // ordered ids of *all* live sessions (list order) for swipe-to-switch paging,
+    // distinct from `queue` (needs-you only) which drives the ‹/› header buttons
+    switchOrder?: string[];
     onnavigate?: (id: string) => void;
     // phone-only header extras: the merged header subsumes the (now hidden) top bar,
     // so it surfaces the usage gauge (only when hot) and the connection state itself
@@ -75,7 +79,8 @@
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
-  // root element + live offset for the phone swipe-right-to-go-back gesture
+  // root element + live signed offset (px) for the phone horizontal swipe gesture:
+  // negative pages to the next queued agent, positive to the previous / back to list
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
@@ -156,6 +161,18 @@
     const base = queueIdx === -1 ? (step > 0 ? -1 : 0) : queueIdx;
     const next = (base + step + queue.length) % queue.length;
     onnavigate?.(queue[next]);
+  }
+
+  // Swipe-to-switch pages through *all* live agents in list order, not just the
+  // needs-you queue above — the operator wants to flick between any running agents
+  // without a detour back to the list. Wraps around like gotoQueue.
+  const switchIdx = $derived(switchOrder.indexOf(session.id));
+  const canSwitch = $derived(switchOrder.length > 1 && !!onnavigate);
+  function gotoSwitch(step: number) {
+    if (switchOrder.length === 0) return;
+    const base = switchIdx === -1 ? (step > 0 ? -1 : 0) : switchIdx;
+    const next = (base + step + switchOrder.length) % switchOrder.length;
+    onnavigate?.(switchOrder[next]);
   }
 
   // null model = claude's own default (shepherd passed no --model flag)
@@ -626,21 +643,27 @@
     term.refresh(0, Math.max(0, term.rows - 1));
   });
 
-  // Phone: swipe the pane rightward to go back to the session list — mirrors the
-  // "‹" header button. Capture-phase so a recognised horizontal drag can stop the
-  // terminal's own touch-scroll handler (on a descendant) from also firing; we
-  // only lock + suppress once the gesture is clearly rightward-horizontal, so
-  // vertical scrolling and leftward drags fall through untouched. The slop/axis
-  // decision reuses lockAxis() from the decommission-swipe util (one source for
-  // the commitment threshold across both swipe gestures).
+  // Phone: horizontal swipe over the pane pages through *all* live agents —
+  // left = next agent, right = previous — so the operator never has to detour back
+  // through the list to reach another running agent. At the list's start (or for a
+  // session not in the list) a rightward swipe instead returns to the session list,
+  // preserving the original swipe-back affordance. Capture-phase so a recognised
+  // horizontal drag can stop the terminal's own touch-scroll handler (on a
+  // descendant) from also firing; we only lock + suppress once the gesture is
+  // clearly horizontal *and* actionable, so vertical scrolling — and any horizontal
+  // drag with nowhere to go — falls through to the terminal untouched. The slop/axis
+  // decision reuses lockAxis() from the decommission-swipe util (one source for the
+  // commitment threshold across every swipe gesture).
   $effect(() => {
     const root = viewportEl;
-    if (!root || !mobile || !onback) return;
+    // read switchOrder/onnavigate here (via canSwitch) so the listeners re-bind when
+    // switching (un)becomes available; switchIdx/gotoSwitch read fresh at commit time.
+    if (!root || !mobile || (!onback && !canSwitch)) return;
     let startX = 0;
     let startY = 0;
     let armed = false; // a single-finger touch is in progress and eligible
     let axis: Axis = null; // resolved gesture axis once movement clears slop
-    let locked = false; // recognised as the rightward back gesture
+    let locked = false; // recognised as an actionable horizontal swipe
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       // don't hijack text selection / cursor placement in editable fields
@@ -659,27 +682,33 @@
       if (!locked) {
         if (axis === null) axis = lockAxis(dx, dy);
         if (axis === null) return; // still within slop — keep waiting
-        if (axis === "x" && dx > 0) {
+        // leftward needs a queue to page; rightward acts if it can page OR fall
+        // back to the list. Non-actionable horizontal drags stay with the terminal.
+        const actionable = axis === "x" && (dx > 0 ? canSwitch || !!onback : canSwitch);
+        if (actionable) {
           locked = true;
           swiping = true;
         } else {
-          armed = false; // vertical or leftward → leave it to the terminal
+          armed = false; // vertical, or horizontal with nowhere to go
           return;
         }
       }
       e.preventDefault();
       e.stopPropagation();
-      swipeX = Math.max(0, dx);
+      swipeX = dx; // signed: positive = rightward, negative = leftward
     };
     const onEnd = () => {
       if (locked) {
-        const commit = swipeX > Math.min(120, root.clientWidth * 0.33);
+        const threshold = Math.min(120, root.clientWidth * 0.33);
+        const action = paneSwipeAction(swipeX, threshold, canSwitch, switchIdx);
         swiping = false;
         swipeX = 0;
-        if (commit) {
-          onback?.();
-          return;
-        }
+        if (action === "next")
+          gotoSwitch(1); // leftward: next agent (wraps)
+        else if (action === "prev")
+          gotoSwitch(-1); // rightward: previous agent
+        else if (action === "back") onback?.(); // rightward at the start: to list
+        if (action !== "none") return;
       }
       armed = false;
       locked = false;
@@ -1069,7 +1098,7 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     overflow: hidden;
-    /* snap back after a released swipe-to-go-back; suppressed while finger-dragging */
+    /* snap back after a released horizontal swipe; suppressed while finger-dragging */
     transition: transform 0.2s ease;
   }
 

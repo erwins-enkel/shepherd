@@ -38,6 +38,28 @@ export function snapOffset(
   return offset <= -reveal * ratio ? -reveal : 0;
 }
 
+/** Commit decision for a released horizontal pane swipe (Viewport). */
+export type PaneSwipeAction = "next" | "prev" | "back" | "none";
+
+/**
+ * Resolve a released horizontal pane swipe into a queue action. Mirrors the
+ * ‹ / › header buttons: leftward pages to the next queued agent, rightward to the
+ * previous — except at the queue's start (or when the session isn't in the queue,
+ * queueIdx === -1), where rightward falls back to the session list. A drag shorter
+ * than `threshold` commits to nothing. `canPage` is false when there's no queue to
+ * page (≤1 session), so leftward no-ops and rightward can only go back.
+ */
+export function paneSwipeAction(
+  dx: number,
+  threshold: number,
+  canPage: boolean,
+  queueIdx: number,
+): PaneSwipeAction {
+  if (dx >= threshold) return canPage && queueIdx > 0 ? "prev" : "back";
+  if (dx <= -threshold) return canPage ? "next" : "none";
+  return "none";
+}
+
 /** Callbacks a host component supplies to drive the swipe action. */
 export interface SwipeCallbacks {
   /** Current slid offset (px, negative = open). */

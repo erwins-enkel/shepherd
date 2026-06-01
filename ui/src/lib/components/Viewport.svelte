@@ -3,8 +3,10 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { Session, SessionUsage } from "$lib/types";
+  import type { Session, SessionUsage, UsageLimits } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
+  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { hotterGauge } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
@@ -33,6 +35,8 @@
     touch = false,
     queue = [],
     onnavigate,
+    limits = null,
+    connected = true,
   }: {
     session: Session;
     onnewtask?: (repoPath: string, prompt: string) => void;
@@ -49,6 +53,10 @@
     // so the console can page through that queue without a trip back to the list
     queue?: string[];
     onnavigate?: (id: string) => void;
+    // phone-only header extras: the merged header subsumes the (now hidden) top bar,
+    // so it surfaces the usage gauge (only when hot) and the connection state itself
+    limits?: UsageLimits | null;
+    connected?: boolean;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -94,6 +102,31 @@
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
   const compact = $derived(mobile || touch);
+
+  // phone merged header: the repo + session that used to live in the top bar
+  const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
+  const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
+
+  // alert-by-exception: tint the header *only* when the agent wants the operator
+  // (blocked / waiting). running + idle stay neutral so attention reads as signal,
+  // not noise. The exact status still reaches assistive tech via .vp-status-sr.
+  const tintColor = $derived(
+    mobile && (session.status === "blocked" || session.status === "done")
+      ? STATUS_COLOR[session.status]
+      : null,
+  );
+
+  // phone: the usage gauge only mounts once the hotter window runs hot (≥70%),
+  // i.e. exactly when the remaining token budget starts to matter mid-session
+  const hotGauge = $derived.by(() => {
+    const h = hotterGauge(limits);
+    return h && h.w.pct >= 70 ? h : null;
+  });
+  function gaugeColor(pct: number): string {
+    if (pct >= 90) return "var(--color-red)";
+    if (pct >= 70) return "var(--color-amber)";
+    return "var(--color-green)";
+  }
 
   // "needs you" queue paging: only on compact layouts (the list isn't visible there),
   // and only when more than one session waits. Wraps around so ‹/› always advance.
@@ -509,11 +542,41 @@
 </script>
 
 <div class="viewport">
+  {#snippet metaPop()}
+    <span class="desig-pop" role="tooltip">
+      <span class="dp-row">
+        <span class="dp-k">{m.viewport_profile_label()}</span>
+        <span class="dp-v">{modelLabel}</span>
+      </span>
+      {#if usage && usage.total > 0}
+        <span class="dp-row">
+          <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
+          <span
+            class="dp-v"
+            title={m.viewport_usage_title({
+              input: usage.input.toLocaleString(),
+              output: usage.output.toLocaleString(),
+              cacheRead: usage.cacheRead.toLocaleString(),
+              cacheWrite: usage.cacheWrite.toLocaleString(),
+            })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
+          >
+        </span>
+      {/if}
+    </span>
+  {/snippet}
   <!-- header -->
-  <div class="vp-head" class:mobile={compact} class:phone={mobile}>
+  <div
+    class="vp-head"
+    class:mobile={compact}
+    class:phone={mobile}
+    style:background={tintColor
+      ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
+      : undefined}
+    style:box-shadow={tintColor ? `inset 3px 0 0 0 ${tintColor}` : undefined}
+  >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
-        >{m.viewport_back_button()}</button
+        >{mobile ? "‹" : m.viewport_back_button()}</button
       >
     {/if}
     {#if onnextneedsyou && nextNeedsYou > 0}
@@ -544,37 +607,36 @@
         >
       </div>
     {/if}
-    <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
-         that used to sit inline in the header, reclaiming horizontal space -->
-    <span class="desig-wrap">
-      <span class="desig" role="button" tabindex="0" aria-label={m.viewport_meta_aria()}
-        >{session.desig}</span
-      >
-      <span class="desig-pop" role="tooltip">
-        <span class="dp-row">
-          <span class="dp-k">{m.viewport_profile_label()}</span>
-          <span class="dp-v">{modelLabel}</span>
+    {#if mobile}
+      <!-- phone: the merged header carries repo · session (the top bar is hidden
+           here), and the session name doubles as the profile/token meta trigger -->
+      <span class="desig-wrap ctx">
+        <span
+          class="ctx-trigger"
+          role="button"
+          tabindex="0"
+          aria-label={m.topbar_detail_context_aria({ repo: repoName, name: session.name })}
+        >
+          <span class="ctx-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
+          <span class="ctx-repo">{repoName}</span>
+          <span class="ctx-sep">·</span>
+          <span class="ctx-name">{session.name}</span>
         </span>
-        {#if usage && usage.total > 0}
-          <span class="dp-row">
-            <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
-            <span
-              class="dp-v"
-              title={m.viewport_usage_title({
-                input: usage.input.toLocaleString(),
-                output: usage.output.toLocaleString(),
-                cacheRead: usage.cacheRead.toLocaleString(),
-                cacheWrite: usage.cacheWrite.toLocaleString(),
-              })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
-            >
-          </span>
-        {/if}
+        {@render metaPop()}
       </span>
-    </span>
-    {#if compact && !mobile}
-      <!-- foldable/touch desktop only: on a phone the task name now lives in the
-           top bar (repo · task), so showing it here too would just duplicate it -->
-      <span class="vp-name" title={session.name}>{session.name}</span>
+    {:else}
+      <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
+           that used to sit inline in the header, reclaiming horizontal space -->
+      <span class="desig-wrap">
+        <span class="desig" role="button" tabindex="0" aria-label={m.viewport_meta_aria()}
+          >{session.desig}</span
+        >
+        {@render metaPop()}
+      </span>
+      {#if compact}
+        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry -->
+        <span class="vp-name" title={session.name}>{session.name}</span>
+      {/if}
     {/if}
     {#if !compact}
       <span class="sep">·</span>
@@ -601,13 +663,39 @@
     {#if !compact}
       <span class="sep">·</span>
     {/if}
-    <span
-      class="status-badge"
-      style="color:{STATUS_COLOR[session.status]};border-color:{STATUS_COLOR[session.status]}"
-    >
-      {#if session.status === "running"}⠿{/if}
-      {statusLabel(session.status)}
-    </span>
+    {#if mobile}
+      <!-- connection state, alert-by-exception: a lone red dot only when dropped -->
+      {#if !connected}
+        <span
+          class="vp-offline"
+          title={m.topbar_clock_tip_disconnected()}
+          aria-label={m.topbar_clock_tip_disconnected()}>●</span
+        >
+      {/if}
+      {#if hotGauge}
+        <span
+          class="vp-gauge"
+          aria-label={m.topbar_gauge_toggle_aria({ period: hotGauge.label, pct: hotGauge.w.pct })}
+        >
+          <span class="g-bar"
+            ><span
+              class="g-fill"
+              style="width:{hotGauge.w.pct}%;background:{gaugeColor(hotGauge.w.pct)}"
+            ></span></span
+          >
+        </span>
+      {/if}
+      <!-- status is conveyed by the header tint; keep the word for assistive tech -->
+      <span class="vp-status-sr">{statusLabel(session.status)}</span>
+    {:else}
+      <span
+        class="status-badge"
+        style="color:{STATUS_COLOR[session.status]};border-color:{STATUS_COLOR[session.status]}"
+      >
+        {#if session.status === "running"}⠿{/if}
+        {statusLabel(session.status)}
+      </span>
+    {/if}
     {#if !compact}
       <GitRail
         sessionId={session.id}
@@ -891,6 +979,90 @@
     flex-shrink: 0;
   }
 
+  /* phone merged header: repo · session (subsumes the now-hidden top bar) */
+  .desig-wrap.ctx {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .ctx-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    cursor: default;
+  }
+  .ctx-glyph {
+    color: var(--color-amber);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .ctx-glyph.emoji {
+    font-size: 14px;
+  }
+  .ctx-repo {
+    color: var(--color-ink-bright);
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 38vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ctx-sep {
+    color: var(--color-faint);
+    flex-shrink: 0;
+  }
+  .ctx-name {
+    color: var(--color-ink);
+    font-size: 12px;
+    min-width: 0;
+    /* ellipsize well before the row fills, ceding width to the close button */
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* phone: collapsed usage gauge — only mounted when the hotter window runs hot */
+  .vp-gauge {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .vp-gauge .g-bar {
+    width: 26px;
+    height: 5px;
+    background: var(--color-line);
+    border: 1px solid var(--color-line-bright);
+    overflow: hidden;
+  }
+  .vp-gauge .g-fill {
+    display: block;
+    height: 100%;
+  }
+
+  /* phone: connection lost — a lone red dot (alert by exception) */
+  .vp-offline {
+    color: var(--color-red);
+    font-size: 9px;
+    flex-shrink: 0;
+  }
+
+  /* status word for assistive tech only; sighted users read it from the tint */
+  .vp-status-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .decom {
     flex-shrink: 0;
     background: transparent;
@@ -1172,6 +1344,12 @@
     min-height: 40px;
     padding: 8px 12px;
     font-size: 12px;
+  }
+  /* phone: the back control is a bare chevron — size it up to read as an icon */
+  .vp-head.phone .back {
+    font-size: 20px;
+    line-height: 1;
+    padding: 6px 12px;
   }
 
   .tab-btn {

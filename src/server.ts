@@ -268,21 +268,28 @@ function sessionRead(id: string, deps: AppDeps): Response {
   return s ? json(s) : json({ error: "not found" }, 404);
 }
 
-// GET reads on /api/sessions[/:id[/usage|/activity|/diff]].
+// GET reads on /api/sessions[/:id[/usage|/activity|/diff|/leftovers]].
 async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2]) return json(deps.store.list({ activeOnly: true }));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);
+  // leftover subprocesses/proxies that would survive this session's close
+  if (parts[3] === "leftovers") return json(deps.service.leftovers(parts[2]));
   if (!parts[3]) return sessionRead(parts[2], deps);
   return null;
 }
 
-// DELETE /api/sessions/:id — archive.
-function handleSessionDelete({ req, parts, deps }: Ctx): Response | null {
+// DELETE /api/sessions/:id — archive. An optional `{reap: string[]}` body lists the
+// leftover keys (from GET …/leftovers) the operator chose to terminate alongside.
+async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "DELETE" && parts[2])) return null;
-  deps.service.archive(parts[2]);
+  const body = (await req.json().catch(() => null)) as { reap?: unknown } | null;
+  const reap = Array.isArray(body?.reap)
+    ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
+    : undefined;
+  deps.service.archive(parts[2], reap);
   deps.prCache?.drop(parts[2]);
   deps.events.emit("session:archived", { id: parts[2] });
   return json({ ok: true });

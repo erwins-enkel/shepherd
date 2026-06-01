@@ -20,6 +20,7 @@
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
   import { shouldForwardEscape } from "$lib/terminalEscape";
+  import { detectNotesKey } from "$lib/notesAffordance";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -116,6 +117,10 @@
   // buffer switch, and a jump-to-bottom.
   let scrollDepth = 0;
   let dragging = $state(false);
+  // The key to press for Claude's "add notes" prompt option, scraped live from
+  // the painted screen (null when the prompt isn't offering it). On a phone
+  // there's no keyboard to press it, so we surface a tappable control row button.
+  let notesKey = $state<string | null>(null);
   let uploading = $state(false);
   let uploadFailed = $state(false);
   let fileInput = $state<HTMLInputElement>();
@@ -449,6 +454,7 @@
     parked = false; // fresh attach for this unit
     scrolledUp = false; // fresh terminal starts pinned to the bottom
     scrollDepth = 0;
+    notesKey = null; // no prompt scraped yet on this fresh terminal
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
     // theme.resolved (which would recreate the whole terminal — and its PTY —
@@ -681,6 +687,23 @@
       recomputeScrolled();
     });
 
+    // Surface Claude Code's "press n to add notes" prompt option as a tappable
+    // control-row key — on a phone there's no keyboard to press it, so the
+    // dialog's notes branch is otherwise unreachable. The hint lives only in the
+    // painted screen, so re-scan the visible rows on each render (cheap: bounded
+    // by term.rows, and onRender already coalesces a write burst into one frame).
+    // Visible viewport only, so a prompt scrolled out of view stops lighting it.
+    const scanNotesAffordance = () => {
+      if (!(mobile || touch)) return; // the button only exists in the touch row
+      const b = term.buffer.active;
+      let text = "";
+      for (let i = 0; i < term.rows; i++) {
+        text += (b.getLine(b.viewportY + i)?.translateToString(true) ?? "") + "\n";
+      }
+      notesKey = detectNotesKey(text);
+    };
+    const renderSub = term.onRender(scanNotesAffordance);
+
     // desktop wheel observer for the alternate screen, where onScroll never fires.
     // Touch is tracked directly in onTouchMove, so ignore the synthetic wheels it
     // dispatches (isTrusted=false) to avoid double-counting; only real wheels here.
@@ -704,6 +727,7 @@
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
       scrollSub.dispose();
       bufSub.dispose();
+      renderSub.dispose();
       ro.disconnect();
       c.close();
       conn = undefined;
@@ -1130,6 +1154,21 @@
            chip — swipe up from this row to summon the compose sheet. -->
       <ControlBar onkey={(seq) => conn?.send(seq)} include={["edit"]} scroll={false} />
       <ControlBar onkey={(seq) => conn?.send(seq)} include={["nav", "signal"]} />
+      <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
+           no keyboard on a phone to press the letter, so this is the sole way into
+           the dialog's notes branch; it pulses to catch the eye and vanishes once
+           the prompt does -->
+      {#if notesKey}
+        <button
+          type="button"
+          class="notes"
+          aria-label={m.viewport_notes_aria({ key: notesKey })}
+          onpointerup={(e) => {
+            e.preventDefault();
+            if (notesKey) conn?.send(notesKey);
+          }}>📝 {notesKey.toUpperCase()}</button
+        >
+      {/if}
       <button
         type="button"
         class="attach"
@@ -1918,5 +1957,43 @@
   .ctrl-row .enter:active {
     background: color-mix(in srgb, var(--color-green) 34%, var(--color-inset));
     border-color: var(--color-green);
+  }
+  /* "add notes" affordance — only mounted while Claude's prompt offers it. Amber
+     (the same attention hue as the running pip) plus a soft halo pulse so it's
+     noticed on a phone where there's no keyboard to press the key directly. The
+     global prefers-reduced-motion guard stills the animation. */
+  .ctrl-row .notes {
+    flex: 0 0 auto;
+    min-width: 44px;
+    height: 44px;
+    padding: 0 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    color: var(--color-amber);
+    border: 1px solid color-mix(in srgb, var(--color-amber) 60%, var(--color-line-bright));
+    background: color-mix(in srgb, var(--color-amber) 16%, var(--color-inset));
+    animation: notes-pulse 1.5s ease-in-out infinite;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .ctrl-row .notes:active {
+    background: color-mix(in srgb, var(--color-amber) 32%, var(--color-inset));
+    border-color: var(--color-amber);
+  }
+  @keyframes notes-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-amber) 30%, transparent);
+    }
   }
 </style>

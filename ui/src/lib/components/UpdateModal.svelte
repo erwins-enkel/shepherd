@@ -20,6 +20,11 @@
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  // commit subjects truncate to one line by default; tapping a row expands it to
+  // the full width so the whole message is readable — on a phone the single line
+  // otherwise cuts off with an ellipsis and you never see the end
+  let expanded = $state<Record<string, boolean>>({});
+  const toggle = (sha: string) => (expanded[sha] = !expanded[sha]);
 
   const failed = $derived(deploy?.phase === "failed");
 
@@ -36,6 +41,9 @@
   }
 
   const busy = $derived(submitting || updating);
+  // while the deploy is in flight, show its captured output so the user sees
+  // real progress (install → build → restart) instead of a frozen spinner
+  const liveLog = $derived(busy && !failed && deploy?.log ? deploy.log : null);
 </script>
 
 <div
@@ -67,15 +75,26 @@
 
     <div class="commits">
       {#each update.commits as c (c.sha)}
-        <div class="commit">
+        <button
+          type="button"
+          class="commit"
+          class:expanded={expanded[c.sha]}
+          aria-expanded={!!expanded[c.sha]}
+          title={c.subject}
+          onclick={() => toggle(c.sha)}
+        >
           <span class="sha">{c.sha}</span>
           <span class="subject">{c.subject}</span>
-        </div>
+        </button>
       {/each}
     </div>
 
     {#if busy}
       <div class="status">{m.updatemodal_status()}</div>
+    {/if}
+    {#if liveLog}
+      <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+      <pre class="log">{liveLog}</pre>
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 
@@ -200,8 +219,22 @@
   .commit {
     display: flex;
     gap: 9px;
-    align-items: baseline;
+    align-items: flex-start;
+    width: 100%;
+    margin: 0;
+    padding: 2px 0;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    font-family: inherit;
     font-size: 12.5px;
+    color: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .commit:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: 2px;
   }
   .commit .sha {
     color: var(--color-amber);
@@ -213,6 +246,29 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* tapped open → wrap the full subject across the available width */
+  .commit.expanded .subject {
+    white-space: normal;
+    overflow: visible;
+    word-break: break-word;
+  }
+  /* touch devices: roomier rows so a single commit is easy to hit and read */
+  @media (pointer: coarse) {
+    .commit {
+      padding: 8px 0;
+      min-height: 34px;
+      align-items: center;
+    }
+    .commit.expanded {
+      align-items: flex-start;
+    }
+    .commits {
+      gap: 0;
+    }
+    .commit + .commit {
+      border-top: 1px solid var(--color-line);
+    }
   }
   .status {
     color: var(--color-amber);

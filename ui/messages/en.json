@@ -240,5 +240,6 @@
   "updatemodal_deploy_failed": "The update could not be completed — the deploy stopped before the server restarted.",
   "updatemodal_exit_code": "Exit code {code}",
   "updatemodal_deploy_log": "Deploy output",
+  "updatemodal_unreachable": "The server stayed unreachable for too long — the update may have failed. Reload the app or check the logs.",
   "updatemodal_retry": "Retry"
 }

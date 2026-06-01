@@ -1,3 +1,9 @@
+<script module lang="ts">
+  // Single-open invariant across every row: the close-fn of the currently open
+  // row. Opening another row closes this one first.
+  let openRow: (() => void) | null = $state(null);
+</script>
+
 <script lang="ts">
   import type { Session, GitState } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel } from "$lib/format";
@@ -5,6 +11,16 @@
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { m } from "$lib/paraglide/messages";
+  import { onDestroy } from "svelte";
+  import {
+    REVEAL_PX,
+    snapOffset,
+    pressDecom,
+    swipeGesture,
+    type SwipeCallbacks,
+    type DecomState,
+  } from "./swipe";
 
   let {
     session,
@@ -12,56 +28,144 @@
     nowMs,
     onselect,
     git,
+    ondecommission,
   }: {
     session: Session;
     selected: boolean;
     nowMs: number;
     onselect: (id: string) => void;
     git?: GitState;
+    // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
+    ondecommission?: (id: string) => void;
   } = $props();
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
+
+  const swipe = $derived(!!ondecommission);
+
+  // gesture state
+  let offset = $state(0); // px the row is slid left (negative); 0 = closed
+  let dragging = $state(false); // finger down + tracking x → suppress snap transition
+
+  // arm/confirm state for the revealed action
+  let decom = $state<DecomState>("idle");
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function disarm() {
+    clearTimeout(armTimer);
+    decom = "idle";
+  }
+  function close() {
+    offset = 0;
+    disarm();
+    if (openRow === close) openRow = null;
+  }
+  function openReveal() {
+    if (openRow && openRow !== close) openRow();
+    offset = -REVEAL_PX;
+    openRow = close;
+  }
+
+  const swipeCb: SwipeCallbacks = {
+    get enabled() {
+      return swipe;
+    },
+    current: () => offset,
+    onOffset: (px) => (offset = px),
+    onDragging: (b) => (dragging = b),
+    onRelease: () => (snapOffset(offset) === -REVEAL_PX ? openReveal() : close()),
+    requestClose: close,
+  };
+
+  function pressDecommission() {
+    const { state, fire } = pressDecom(decom);
+    decom = state;
+    if (state === "armed") {
+      clearTimeout(armTimer);
+      armTimer = setTimeout(disarm, 3000);
+    }
+    if (fire) {
+      clearTimeout(armTimer);
+      ondecommission?.(session.id);
+      close(); // row will drop from the store; close defensively
+    }
+  }
+
+  onDestroy(() => {
+    clearTimeout(armTimer);
+    if (openRow === close) openRow = null;
+  });
 </script>
 
-<button
-  class="unit"
-  class:sel={selected}
-  style="--rule:{STATUS_COLOR[session.status]}"
-  onclick={() => onselect(session.id)}
-  type="button"
->
-  <div class="pip-col">
-    <StatusPip status={session.status} />
-  </div>
+{#snippet row()}
+  <button
+    class="unit"
+    class:sel={selected}
+    style="--rule:{STATUS_COLOR[session.status]}"
+    onclick={() => onselect(session.id)}
+    type="button"
+  >
+    <div class="pip-col">
+      <StatusPip status={session.status} />
+    </div>
 
-  <div class="u-main">
-    <div class="u-top">
-      <span class="name">{session.name}</span>
+    <div class="u-main">
+      <div class="u-top">
+        <span class="name">{session.name}</span>
+      </div>
+      <div class="u-repo" title={session.repoPath}>
+        <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
+        >{repoName}
+      </div>
+      <div class="u-sub">
+        {session.prompt}
+        {#if session.status === "running"}
+          <span class="car">▏</span>
+        {/if}
+      </div>
     </div>
-    <div class="u-repo" title={session.repoPath}>
-      <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
-      >{repoName}
-    </div>
-    <div class="u-sub">
-      {session.prompt}
-      {#if session.status === "running"}
-        <span class="car">▏</span>
-      {/if}
-    </div>
-  </div>
 
-  <div class="u-right">
-    <PrBadge {git} />
-    <CriticBadge sessionId={session.id} />
-    <span class="badge">{statusLabel(session.status)}</span>
-    <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
-    <span class="meta"
-      ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+    <div class="u-right">
+      <PrBadge {git} />
+      <CriticBadge sessionId={session.id} />
+      <span class="badge">{statusLabel(session.status)}</span>
+      <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
+      <span class="meta"
+        ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+      >
+    </div>
+  </button>
+{/snippet}
+
+{#if swipe}
+  <div class="swipe-wrap">
+    <div class="reveal" aria-hidden={offset === 0}>
+      <button
+        class="decom"
+        class:armed={decom === "armed"}
+        type="button"
+        tabindex={offset === 0 ? -1 : 0}
+        onclick={pressDecommission}
+        title={m.viewport_decommission_title()}
+        aria-label={m.viewport_decommission_aria()}
+      >
+        {decom === "armed" ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+      </button>
+    </div>
+    <div
+      class="slider"
+      class:dragging
+      style="transform:translateX({offset}px)"
+      use:swipeGesture={swipeCb}
     >
+      {@render row()}
+    </div>
   </div>
-</button>
+{:else}
+  {@render row()}
+{/if}
 
 <style>
   .unit {
@@ -81,8 +185,59 @@
     width: 100%;
   }
 
-  :global(.unit + .unit) {
+  :global(.unit + .unit),
+  :global(.swipe-wrap + .swipe-wrap) {
     margin-top: 2px;
+  }
+
+  /* swipe-to-decommission (mobile): the row slides left over a destructive
+     action revealed behind it. */
+  .swipe-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: 2px;
+  }
+
+  .reveal {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 104px; /* must equal REVEAL_PX in swipe.ts */
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    background: color-mix(in srgb, var(--color-red) 16%, var(--color-panel));
+  }
+
+  .reveal .decom {
+    flex: 1;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-red);
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 6px;
+  }
+  .reveal .decom.armed {
+    background: color-mix(in srgb, var(--color-red) 26%, transparent);
+    color: var(--color-ink-bright);
+    font-weight: 600;
+  }
+
+  .slider {
+    position: relative;
+    background: var(--color-panel);
+    /* vertical pans scroll the list natively; horizontal pans are ours */
+    touch-action: pan-y;
+    transition: transform 0.18s ease;
+    will-change: transform;
+  }
+  .slider.dragging {
+    transition: none;
   }
 
   .unit::before {

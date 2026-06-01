@@ -257,6 +257,7 @@
           onselect={(id) => selectUnit(id)}
           onnew={() => (showNew = true)}
           git={store.git}
+          ondecommission={onarchive}
         />
         {#if store.sessions.length === 0}
           <BacklogView payload={backlog} mobile={true} {onissue} />

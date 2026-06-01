@@ -23,7 +23,12 @@ import { PushService, attachPush, attachReviewPush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { CountsService } from "./backlog";
-import { execFileSync } from "node:child_process";
+import { BacklogPoller } from "./backlog-poller";
+import { listRepos } from "./repos";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -58,6 +63,21 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
 
 reconcile(store, herdr);
 
+// Memoize forge resolution: detectForge shells out to a synchronous
+// `git remote get-url` per repo. forge↔repo is effectively immutable, so resolve
+// once per dir and share the result across the pollers, the critic, and the
+// per-request /api/backlog path — which otherwise re-shells git for every repo
+// on every hit, blocking the event loop even when the counts cache is fully warm.
+const forgeResolutionCache = new Map<string, ReturnType<typeof detectForge>>();
+const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
+  let forge = forgeResolutionCache.get(dir);
+  if (forge === undefined) {
+    forge = detectForge(dir, config.forges);
+    forgeResolutionCache.set(dir, forge);
+  }
+  return forge;
+};
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -75,10 +95,8 @@ attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.
-const prPoller = new PrPoller(
-  store,
-  (dir) => detectForge(dir, config.forges),
-  (id, git) => events.emit("session:git", { id, git }),
+const prPoller = new PrPoller(store, resolveForge, (id, git) =>
+  events.emit("session:git", { id, git }),
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
@@ -95,7 +113,7 @@ const reviewService = new ReviewService({
   store,
   herdr,
   worktree,
-  resolveForge: (dir) => detectForge(dir, config.forges),
+  resolveForge,
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
 });
@@ -154,9 +172,24 @@ setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
-const ghRunner = (args: string[]) =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-const backlog = new CountsService(config.forges, ghRunner);
+// async `gh` runner: lets CountsService fan out per-repo GraphQL counts in
+// parallel (a blocking execFileSync would serialize them on the event loop,
+// making the backlog load scale linearly with repo count).
+const ghRunnerAsync = async (args: string[]): Promise<string> => {
+  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+  return stdout.toString();
+};
+const backlog = new CountsService(config.forges, ghRunnerAsync);
+// keep the backlog counts cache warm so the overview's first paint is instant
+// instead of blocking on per-repo gh/Gitea calls. Warm shortly after boot, then
+// on a cadence below the cache's 60s TTL so the request path always hits warm.
+const backlogPoller = new BacklogPoller(
+  () => listRepos(config.repoRoot),
+  resolveForge,
+  (dir) => backlog.refresh(dir),
+);
+setTimeout(() => void backlogPoller.tick(), 3_000);
+backlogPoller.start();
 
 const server = serve(
   {
@@ -167,7 +200,7 @@ const server = serve(
     updates,
     herdrUpdates,
     herdr,
-    resolveForge: (dir) => detectForge(dir, config.forges),
+    resolveForge,
     prCache: prPoller,
     push,
     presence,

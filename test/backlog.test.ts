@@ -229,7 +229,109 @@ test("CountsService: TTL expiry — call after 60s window re-fetches from runner
   expect(graphqlCalls.length).toBe(2);
 });
 
-// 8. Non-forge repo (no git remote) → null counts
+// 8b. refresh() bypasses the TTL — the warmer re-fetches even within the window
+test("CountsService: refresh re-invokes the runner within the TTL window", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-refresh"), "https://github.com/o/refresh");
+  const forges: ForgeMap = {};
+
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 9 }, pullRequests: { totalCount: 4 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService(forges, run);
+
+  await svc.counts(repoDir); // populate cache
+  await svc.refresh(repoDir); // force a refetch despite a fresh entry
+
+  const graphqlCalls = calls.filter((c) => c.includes("graphql"));
+  expect(graphqlCalls.length).toBe(2);
+});
+
+// 8c. async runner: GitHub path awaits a promise-returning runner
+test("CountsService: works with an async (promise-returning) runner", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-async"), "https://github.com/o/async");
+  const forges: ForgeMap = {};
+
+  const run = async () =>
+    JSON.stringify({
+      data: { repository: { issues: { totalCount: 11 }, pullRequests: { totalCount: 6 } } },
+    });
+  const svc = new CountsService(forges, run);
+
+  const result = await svc.counts(repoDir);
+  expect(result.openIssues).toBe(11);
+  expect(result.openPRs).toBe(6);
+});
+
+// 8b-ii. refresh() keeps the last-known-good value when a warm fails
+test("CountsService: refresh preserves last-known-good on transient failure", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-preserve"), "https://github.com/o/preserve");
+  const forges: ForgeMap = {};
+
+  let fail = false;
+  const run = async (): Promise<string> => {
+    if (fail) throw new Error("gh flake");
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 8 }, pullRequests: { totalCount: 2 } } },
+    });
+  };
+  const svc = new CountsService(forges, run);
+
+  const good = await svc.counts(repoDir); // populate cache with a good value
+  expect(good.openIssues).toBe(8);
+
+  fail = true;
+  const afterFlake = await svc.refresh(repoDir); // warm fails → keep last-known-good
+  expect(afterFlake.openIssues).toBe(8);
+  expect(afterFlake.openPRs).toBe(2);
+
+  // and a subsequent request (within TTL) still sees the preserved value, not null
+  const stillGood = await svc.counts(repoDir);
+  expect(stillGood.openIssues).toBe(8);
+});
+
+// 8b-iii. counts() (request path) still surfaces null on failure — preserve is refresh-only
+test("CountsService: request-path failure still yields null (no preserve)", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-no-preserve"), "https://github.com/o/nopreserve");
+  const forges: ForgeMap = {};
+
+  const run = (): string => {
+    throw new Error("down");
+  };
+  const svc = new CountsService(forges, run);
+
+  const result = await svc.counts(repoDir);
+  expect(result.openIssues).toBeNull();
+});
+
+// 8d. concurrency cap: many concurrent fetches never exceed the configured ceiling
+test("CountsService: caps concurrent fetches at maxConcurrency", async () => {
+  const dirs: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    dirs.push(gitInit(join(tmpBase, `cc-${i}`), `https://github.com/o/r${i}`));
+  }
+  const forges: ForgeMap = {};
+
+  let active = 0;
+  let peak = 0;
+  const run = async (): Promise<string> => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 1 }, pullRequests: { totalCount: 1 } } },
+    });
+  };
+  const svc = new CountsService(forges, run, fetch, 3); // cap = 3
+
+  await Promise.all(dirs.map((d) => svc.counts(d)));
+
+  expect(peak).toBeLessThanOrEqual(3); // never burst past the cap
+  expect(peak).toBeGreaterThan(1); // but still genuinely parallel, not serialized
+});
+
+// 9. Non-forge repo (no git remote) → null counts
 test("CountsService: repo with no origin → null counts (not a throw)", async () => {
   const repoDir = join(tmpBase, "no-remote");
   mkdirSync(repoDir);

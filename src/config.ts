@@ -51,6 +51,13 @@ export const config = {
   // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
   // works in the terminal to turn it on per-session. UI-configurable + persisted.
   remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
+  // Standard command: the prompt seeded behind the backlog quick-launch button.
+  // Clicking it spawns a session with this prompt + the issue, skipping the New Task
+  // dialog. Empty string disables the shortcut (the button falls back to the dialog).
+  // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
+  standardCommand:
+    process.env.SHEPHERD_STANDARD_COMMAND ??
+    "Prüfe, ob dieses Issue noch relevant ist. Gib mir den aktuellen Stand des Issues und untersuche, wie weit wir das bereits in unserer Codebase umgesetzt haben. Fasse zusammen, was noch fehlt, und schlage die nächsten Schritte vor.",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

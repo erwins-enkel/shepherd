@@ -626,20 +626,42 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       repoRoot: config.repoRoot,
       repoRootDisplay: collapseHome(config.repoRoot),
       remoteControlAtStartup: config.remoteControlAtStartup,
+      standardCommand: config.standardCommand,
     });
   }
   if (req.method === "PUT") {
     const body = (await req.json().catch(() => null)) as {
       repoRoot?: unknown;
       remoteControlAtStartup?: unknown;
+      standardCommand?: unknown;
     } | null;
     // Remote Control toggle is a standalone boolean patch (no repoRoot in the body).
     if (body && "remoteControlAtStartup" in body && body.repoRoot === undefined) {
       return putRemoteControl(body.remoteControlAtStartup, deps);
     }
+    // Standard command is a standalone string patch (no repoRoot in the body).
+    if (body && "standardCommand" in body && body.repoRoot === undefined) {
+      return putStandardCommand(body.standardCommand, deps);
+    }
     return putRepoRoot(body?.repoRoot, deps);
   }
   return null;
+}
+
+// max length for the persisted standard command; mirrors the 8000-char human-prompt
+// guard so a configured command can't be larger than what a session would accept.
+const STANDARD_COMMAND_MAX = 8000;
+
+function putStandardCommand(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "string") {
+    return json({ error: "standardCommand must be a string" }, 400);
+  }
+  if (value.length > STANDARD_COMMAND_MAX) {
+    return json({ error: `standardCommand must be at most ${STANDARD_COMMAND_MAX} chars` }, 400);
+  }
+  config.standardCommand = value; // live: next quick-launch picks it up
+  deps.store.setSetting("standardCommand", value); // persist across restarts
+  return json({ standardCommand: config.standardCommand });
 }
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {

@@ -6,12 +6,16 @@
   let {
     repoPath,
     onnewtask,
+    onquick = undefined,
     bodyPreview = false,
     age = false,
     filterLabels = undefined,
   }: {
     repoPath: string;
     onnewtask: (issue: Issue) => void;
+    /** Quick-launch: spawn a session with the configured standard command + this
+     *  issue, skipping the New Task dialog. Omitted → no quick button is shown. */
+    onquick?: (issue: Issue) => void;
     bodyPreview?: boolean;
     age?: boolean;
     filterLabels?: string[];
@@ -94,6 +98,13 @@
             </div>
           {/if}
           <div class="issue-actions">
+            {#if onquick}
+              <button
+                class="quick-btn"
+                onclick={() => onquick(issue)}
+                title={m.issuespanel_quick_button_title()}>{m.issuespanel_quick_button()}</button
+              >
+            {/if}
             <button class="task-btn" onclick={() => onnewtask(issue)}
               >{m.issuespanel_task_button()}</button
             >
@@ -224,7 +235,29 @@
   .issue-actions {
     display: flex;
     justify-content: flex-end;
+    gap: 6px;
     margin-top: 2px;
+  }
+
+  /* Quick-launch: amber-accented to signal it's the fast path that skips the dialog. */
+  .quick-btn {
+    background: transparent;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      border-color 0.12s,
+      color 0.12s;
+  }
+
+  .quick-btn:hover {
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
   }
 
   .task-btn {
@@ -257,7 +290,8 @@
     .issues-list {
       -webkit-overflow-scrolling: touch;
     }
-    .task-btn {
+    .task-btn,
+    .quick-btn {
       min-height: 40px;
       padding: 2px 14px;
     }

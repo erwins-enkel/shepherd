@@ -111,6 +111,22 @@ export async function putRemoteControl(
   return r.json();
 }
 
+// Persist the backlog quick-launch standard command. Standalone string patch —
+// the server distinguishes it from a repoRoot change. Empty string disables the
+// quick-launch shortcut.
+export async function putStandardCommand(command: string): Promise<{ standardCommand: string }> {
+  const r = await fetch("/api/settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ standardCommand: command }),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";
   const r = await fetch(`/api/fs/dirs${q}`);

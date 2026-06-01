@@ -11,6 +11,7 @@ let tmp: string;
 let savedRoot: string;
 let savedCeiling: string;
 let savedRc: boolean;
+let savedSc: string;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -19,6 +20,7 @@ beforeEach(() => {
   savedRoot = config.repoRoot; // PUT mutates the shared config; restore after
   savedCeiling = config.rootCeiling;
   savedRc = config.remoteControlAtStartup;
+  savedSc = config.standardCommand;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -28,6 +30,7 @@ afterEach(() => {
   config.repoRoot = savedRoot;
   config.rootCeiling = savedCeiling;
   config.remoteControlAtStartup = savedRc;
+  config.standardCommand = savedSc;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -54,6 +57,7 @@ const put = (app: ReturnType<typeof makeApp>, body: unknown) =>
 test("GET /api/settings returns the current repo root and remote-control flag", async () => {
   config.repoRoot = tmp;
   config.remoteControlAtStartup = false;
+  config.standardCommand = "do the thing";
   const { app } = harness();
   const res = await app.fetch(new Request("http://x/api/settings"));
   expect(res.status).toBe(200);
@@ -61,6 +65,47 @@ test("GET /api/settings returns the current repo root and remote-control flag", 
   expect(body.repoRoot).toBe(tmp);
   expect(typeof body.repoRootDisplay).toBe("string");
   expect(body.remoteControlAtStartup).toBe(false);
+  expect(body.standardCommand).toBe("do the thing");
+});
+
+test("PUT /api/settings sets standardCommand, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.standardCommand = "";
+  const { app, store } = harness();
+  const res = await put(app, { standardCommand: "check relevance + status" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).standardCommand).toBe("check relevance + status");
+  expect(config.standardCommand).toBe("check relevance + status"); // live
+  expect(store.getSetting("standardCommand")).toBe("check relevance + status"); // persisted
+  expect(config.repoRoot).toBe(tmp); // a standardCommand patch must not touch the repo root
+  // reflected by a subsequent GET
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.standardCommand).toBe("check relevance + status");
+});
+
+test("PUT /api/settings accepts an empty standardCommand (disables the shortcut)", async () => {
+  config.standardCommand = "something";
+  const { app, store } = harness();
+  const res = await put(app, { standardCommand: "" });
+  expect(res.status).toBe(200);
+  expect(config.standardCommand).toBe("");
+  expect(store.getSetting("standardCommand")).toBe("");
+});
+
+test("PUT /api/settings rejects a non-string standardCommand", async () => {
+  const { app } = harness();
+  const before = config.standardCommand;
+  const res = await put(app, { standardCommand: 42 });
+  expect(res.status).toBe(400);
+  expect(config.standardCommand).toBe(before); // unchanged on failure
+});
+
+test("PUT /api/settings rejects an over-long standardCommand", async () => {
+  const { app } = harness();
+  const before = config.standardCommand;
+  const res = await put(app, { standardCommand: "x".repeat(8001) });
+  expect(res.status).toBe(400);
+  expect(config.standardCommand).toBe(before); // unchanged on failure
 });
 
 test("PUT /api/settings toggles remoteControlAtStartup, persists, leaves repoRoot intact", async () => {

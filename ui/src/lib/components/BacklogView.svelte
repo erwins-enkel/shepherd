@@ -9,10 +9,14 @@
     payload,
     mobile,
     onissue,
+    onquick = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
     onissue: (repoPath: string, issue: Issue) => void;
+    /** Quick-launch an issue with the configured standard command, skipping the
+     *  New Task dialog. Omitted → no quick button is shown on the issues. */
+    onquick?: (repoPath: string, issue: Issue) => void;
   } = $props();
 
   const BACKLOG_FILTER: string[] = ["bug", "enhancement"];
@@ -103,6 +107,7 @@
                 onnewtask={(issue) => {
                   onissue(selectedPath!, issue);
                 }}
+                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
                 bodyPreview
                 age
                 filterLabels={BACKLOG_FILTER}
@@ -128,6 +133,7 @@
                 onnewtask={(issue) => {
                   onissue(selectedPath!, issue);
                 }}
+                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
                 bodyPreview
                 age
                 filterLabels={BACKLOG_FILTER}

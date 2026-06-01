@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getSettings, putSettings, putRemoteControl, listDirs } from "$lib/api";
+  import {
+    getSettings,
+    putSettings,
+    putRemoteControl,
+    putStandardCommand,
+    listDirs,
+  } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -40,6 +46,22 @@
   let pushBusy = $state(false);
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
+  let standardCommand = $state(""); // prompt behind the backlog ⚡ Standard button
+  let scBusy = $state(false);
+  let scSaved = $state(false); // brief "saved" confirmation after a successful save
+
+  async function saveStandardCommand() {
+    if (scBusy) return;
+    scBusy = true;
+    scSaved = false;
+    try {
+      const r = await putStandardCommand(standardCommand);
+      standardCommand = r.standardCommand;
+      scSaved = true;
+    } finally {
+      scBusy = false;
+    }
+  }
 
   async function toggleRemoteControl() {
     if (rcBusy) return;
@@ -87,6 +109,7 @@
       const s = await getSettings();
       currentRoot = s.repoRootDisplay;
       remoteControl = s.remoteControlAtStartup;
+      standardCommand = s.standardCommand;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -236,6 +259,26 @@
         <span class="state"
           >{remoteControl ? m.settings_remote_control_on() : m.settings_remote_control_off()}</span
         >
+      </button>
+    </div>
+    <div class="sc">
+      <span class="micro">{m.settings_standard_command_title()}</span>
+      <p class="hint">{m.settings_standard_command_hint()}</p>
+      <textarea
+        class="sc-input"
+        rows="4"
+        bind:value={standardCommand}
+        oninput={() => (scSaved = false)}
+        placeholder={m.settings_standard_command_placeholder()}
+      ></textarea>
+      <button type="button" class="run" disabled={scBusy} onclick={saveStandardCommand}>
+        {#if scBusy}
+          {m.settings_saving()}
+        {:else if scSaved}
+          {m.settings_standard_command_saved()}
+        {:else}
+          {m.settings_standard_command_save()}
+        {/if}
       </button>
     </div>
     <SteersEditor />
@@ -474,6 +517,38 @@
     color: var(--color-faint);
     font-size: 11.5px;
     margin: 0;
+  }
+  .sc {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .sc .hint {
+    color: var(--color-faint);
+    font-size: 11.5px;
+    margin: 0;
+  }
+  .sc-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 72px;
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: 2px;
+  }
+  .sc-input:focus {
+    outline: none;
+    border-color: var(--color-amber);
+  }
+  .sc .run {
+    align-self: flex-start;
   }
   .toggle {
     display: flex;

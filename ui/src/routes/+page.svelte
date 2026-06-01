@@ -14,6 +14,8 @@
     getHerdrUpdate,
     gitStates,
     getBacklog,
+    getSettings,
+    listBranches,
   } from "$lib/api";
   import type { DeployState, BacklogPayload, Issue, IssueRef } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
@@ -84,6 +86,42 @@
     showNew = true;
     // composing from the backlog overlay → close it so the herd is behind the modal
     showBacklog = false;
+  }
+
+  // Quick-launch: spawn a session straight from a backlog issue with the configured
+  // standard command, skipping the New Task dialog. We re-read settings on click so a
+  // just-saved command takes effect, and resolve the repo's current branch the same
+  // way NewTask does. With no command configured (or any lookup failure) we fall back
+  // to the normal dialog so the click is never lost.
+  async function onquickissue(repoPath: string, issue: Issue) {
+    const settings = await getSettings().catch(() => null);
+    const cmd = (settings?.standardCommand ?? "").trim();
+    if (!cmd) {
+      onissue(repoPath, issue);
+      return;
+    }
+    const br = await listBranches(repoPath).catch(() => null);
+    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+    try {
+      const s = await createSession({
+        repoPath,
+        baseBranch,
+        prompt: cmd,
+        model: null,
+        issueRef: {
+          number: issue.number,
+          url: issue.url,
+          title: issue.title,
+          body: issue.body,
+        },
+      });
+      selectedId = s.id;
+      showBacklog = false;
+      if (mobile.current) mobileScreen = "detail";
+    } catch {
+      // spawn failed → hand off to the dialog so the operator can retry manually
+      onissue(repoPath, issue);
+    }
   }
 
   const mobile = new MediaQuery("max-width: 768px");
@@ -270,7 +308,7 @@
           ondecommission={onarchive}
         />
         {#if store.sessions.length === 0}
-          <BacklogView payload={backlog} mobile={true} {onissue} />
+          <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} />
         {/if}
       </div>
       <ActionBar
@@ -299,6 +337,7 @@
             composeIssue = issue;
             showNew = true;
           }}
+          onquick={onquickissue}
         />
       </div>
     {/if}
@@ -327,7 +366,7 @@
         git={store.git}
       />
       {#if store.sessions.length === 0}
-        <BacklogView payload={backlog} mobile={false} {onissue} />
+        <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} />
       {:else if selected}
         <Viewport
           session={selected}
@@ -343,6 +382,7 @@
             composeIssue = issue;
             showNew = true;
           }}
+          onquick={onquickissue}
         />
       {:else}
         <div class="empty">{m.main_no_unit_selected()}</div>
@@ -430,6 +470,7 @@
     payload={backlog}
     mobile={mobile.current}
     {onissue}
+    onquick={onquickissue}
     onclose={() => (showBacklog = false)}
   />
 {/if}

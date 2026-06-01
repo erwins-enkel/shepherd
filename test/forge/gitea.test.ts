@@ -38,6 +38,8 @@ test("GiteaForge.kind + slug", () => {
   expect(forge.slug).toBe("team/proj");
 });
 
+const GITEA_ISSUE_CREATED_AT = "2024-02-01T12:00:00Z";
+
 test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
@@ -48,6 +50,7 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
           body: "desc",
           html_url: "https://git.example.com/team/proj/issues/3",
           labels: [{ name: "bug" }, { name: "p1" }],
+          created_at: GITEA_ISSUE_CREATED_AT,
         },
       ],
     },
@@ -61,6 +64,7 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
       body: "desc",
       url: "https://git.example.com/team/proj/issues/3",
       labels: ["bug", "p1"],
+      createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
     },
   ]);
   expect(calls[0]!.headers.get("Authorization")).toBe("token secret");
@@ -190,6 +194,77 @@ test("GiteaForge.postReview: POSTs review and returns url from html_url", async 
   expect(post.method).toBe("POST");
   expect(post.url).toContain("/api/v1/repos/team/proj/pulls/7/reviews");
   expect(post.body).toEqual({ event: "REQUEST_CHANGES", body: "nope" });
+});
+
+test("GiteaForge.listIssues: createdAt is parsed to a finite ms number from ISO string", async () => {
+  const isoDate = "2024-06-01T08:00:00Z";
+  const expectedMs = Date.parse(isoDate);
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+      json: [
+        {
+          number: 5,
+          title: "Issue",
+          body: "body",
+          html_url: "https://git.example.com/team/proj/issues/5",
+          labels: [],
+          created_at: isoDate,
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.createdAt).toBe(expectedMs);
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+});
+
+test("GiteaForge.listIssues: missing created_at falls back to Date.now() (finite number)", async () => {
+  const before = Date.now();
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+      json: [
+        {
+          number: 6,
+          title: "Issue2",
+          body: "",
+          html_url: "u6",
+          labels: [],
+          // no created_at
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const issues = await forge.listIssues();
+  const after = Date.now();
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+  expect(issues[0]!.createdAt).toBeGreaterThanOrEqual(before);
+  expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
+});
+
+test("GiteaForge.listIssues: invalid created_at string falls back to Date.now()", async () => {
+  const before = Date.now();
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+      json: [
+        {
+          number: 7,
+          title: "Issue3",
+          body: "",
+          html_url: "u7",
+          labels: [],
+          created_at: "bogus-date",
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const issues = await forge.listIssues();
+  const after = Date.now();
+  expect(Number.isFinite(issues[0]!.createdAt)).toBe(true);
+  expect(issues[0]!.createdAt).toBeGreaterThanOrEqual(before);
+  expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
 });
 
 test("GiteaForge.prStatus: surfaces head SHA from PR head.sha", async () => {

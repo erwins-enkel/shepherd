@@ -21,6 +21,8 @@ import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { PushService, attachPush, attachReviewPush } from "./push";
 import { ReviewService } from "./review";
+import { CountsService } from "./backlog";
+import { execFileSync } from "node:child_process";
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -148,6 +150,10 @@ setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
+const ghRunner = (args: string[]) =>
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const backlog = new CountsService(config.forges, ghRunner);
+
 const server = serve(
   {
     store,
@@ -165,6 +171,7 @@ const server = serve(
       snapshot: () => reviewService.snapshot(),
       reviewing: () => reviewService.reviewingIds(),
     },
+    backlog,
   },
   config.port,
 );

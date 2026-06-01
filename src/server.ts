@@ -645,6 +645,40 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+/**
+ * Collapse worktrees / multiple clones of the same repo: dedupe by forge identity
+ * (kind + owner/repo slug) so each repo appears once, not once per directory.
+ * Repos without a slug can't be matched, so each stays distinct (keyed by path).
+ * For each group keep the most-recently-used directory; tie-break on shorter then
+ * lexicographically smaller path, which favors the canonical checkout (e.g.
+ * `epamano-shopify`) over a long-named worktree.
+ */
+function dedupeReposByForge<T extends { path: string; forge: GitForge }>(
+  repos: T[],
+  lastUsed: Record<string, number>,
+): T[] {
+  const key = (r: T) => (r.forge.slug ? `${r.forge.kind} ${r.forge.slug}` : `path ${r.path}`);
+  const byRepo = new Map<string, T>();
+  for (const r of repos) {
+    const k = key(r);
+    const cur = byRepo.get(k);
+    if (!cur) {
+      byRepo.set(k, r);
+      continue;
+    }
+    const ru = lastUsed[r.path] ?? -1;
+    const cu = lastUsed[cur.path] ?? -1;
+    const better =
+      ru !== cu
+        ? ru > cu
+        : r.path.length !== cur.path.length
+          ? r.path.length < cur.path.length
+          : r.path < cur.path;
+    if (better) byRepo.set(k, r);
+  }
+  return [...byRepo.values()];
+}
+
 async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
   if (!deps.backlog) {
@@ -661,10 +695,13 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
 
-  // Fetch counts for all forge repos in parallel
-  const countsArr = await Promise.all(forgeRepos.map((r) => deps.backlog!.counts(r.path)));
+  // Collapse worktrees/clones of the same repo so each appears once (see helper).
+  const uniqueRepos = dedupeReposByForge(forgeRepos, lastUsed);
 
-  const projects = forgeRepos.map((r, i) => {
+  // Fetch counts for the deduped repos in parallel
+  const countsArr = await Promise.all(uniqueRepos.map((r) => deps.backlog!.counts(r.path)));
+
+  const projects = uniqueRepos.map((r, i) => {
     const counts = countsArr[i]!;
     return {
       path: r.path,

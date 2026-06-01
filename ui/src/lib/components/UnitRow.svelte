@@ -352,7 +352,8 @@
 
   .car {
     color: var(--color-amber);
-    animation: blink 1.1s steps(1) infinite;
+    /* functional in-progress motion — exempt from the reduced-motion blanket (app.css) */
+    animation: blink 1.1s steps(1) infinite !important;
   }
 
   .u-right {

@@ -411,7 +411,8 @@
   }
   .crit-dot.reviewing {
     background: var(--color-amber);
-    animation: rev-pulse 1.1s ease-in-out infinite;
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: rev-pulse 1.1s ease-in-out infinite !important;
   }
   @keyframes rev-pulse {
     0%,
@@ -420,12 +421,6 @@
     }
     50% {
       opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .crit-dot.reviewing {
-      animation: none;
-      opacity: 0.9;
     }
   }
   .gbtn.primary {
@@ -508,8 +503,9 @@
   }
   .dot-pending {
     background: var(--color-amber);
-    /* CI running — pulse like every other in-progress indicator */
-    animation: dot-pulse 1.1s ease-in-out infinite;
+    /* CI running — functional status motion, exempt from the reduced-motion
+       blanket (app.css): the pulse encodes "work happening", not decoration. */
+    animation: dot-pulse 1.1s ease-in-out infinite !important;
   }
   .dot-success {
     background: var(--color-green, #5ad19a);

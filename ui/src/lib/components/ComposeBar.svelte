@@ -80,8 +80,9 @@
     queueMicrotask(autogrow); // shrink back after the binding clears
   }
 
-  // insert a literal newline at the caret without submitting — the mobile path
-  // for multi-line prompts (a soft keyboard has no Shift+Enter)
+  // insert a literal newline at the caret without submitting — Enter does this
+  // on the soft keyboard (which has no Shift+Enter), so multi-line prompts build
+  // naturally and Send is the sole submit
   function insertNewline() {
     const start = ta?.selectionStart ?? value.length;
     const end = ta?.selectionEnd ?? value.length;
@@ -95,19 +96,17 @@
     });
   }
 
+  // Enter inserts a newline (Send is the only submit). The compose bar is
+  // touch-only — desktop steers xterm directly — so there's no hardware-keyboard
+  // Enter-to-submit path to preserve here.
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    if (e.shiftKey) insertNewline();
-    else submit();
+    insertNewline();
   }
 
   // pointerdown + preventDefault: fire instantly and never blur the textarea
   // (which would dismiss the mobile soft keyboard), matching ControlBar.
-  function tapNewline(e: PointerEvent) {
-    e.preventDefault();
-    insertNewline();
-  }
   function tapMic(e: PointerEvent) {
     e.preventDefault();
     toggleDictation();
@@ -125,6 +124,7 @@
     class="field"
     rows="1"
     inputmode="text"
+    enterkeyhint="enter"
     autocapitalize="sentences"
     autocomplete="on"
     spellcheck="true"
@@ -143,12 +143,6 @@
       onpointerdown={tapMic}>{m.composebar_dictate()}</button
     >
   {/if}
-  <button
-    type="button"
-    class="btn"
-    aria-label={m.composebar_newline_aria()}
-    onpointerdown={tapNewline}>{m.composebar_newline()}</button
-  >
   <button
     type="button"
     class="btn send"

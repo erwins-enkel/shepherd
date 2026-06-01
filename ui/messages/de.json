@@ -50,8 +50,6 @@
   "composebar_input_aria": "Nachricht verfassen — tippen oder diktieren, dann senden",
   "composebar_send": "Senden",
   "composebar_send_aria": "Nachricht senden",
-  "composebar_newline": "↵",
-  "composebar_newline_aria": "Zeilenumbruch einfügen",
   "composebar_dictate": "🎤",
   "composebar_dictate_aria": "Diktieren",
   "composebar_dictate_stop_aria": "Diktat beenden",

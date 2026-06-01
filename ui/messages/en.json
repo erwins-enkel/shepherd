@@ -50,8 +50,6 @@
   "composebar_input_aria": "Compose a message — type or dictate, then send",
   "composebar_send": "Send",
   "composebar_send_aria": "Send message",
-  "composebar_newline": "↵",
-  "composebar_newline_aria": "Insert newline",
   "composebar_dictate": "🎤",
   "composebar_dictate_aria": "Dictate",
   "composebar_dictate_stop_aria": "Stop dictation",

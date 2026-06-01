@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.4.0](https://github.com/erwins-enkel/shepherd/compare/v1.3.0...v1.4.0) (2026-06-01)
+
+
+### Features
+
+* **backlog:** Backlog Deep Dive — Launchpad für die leere Übersicht ([#125](https://github.com/erwins-enkel/shepherd/issues/125)) ([ab58460](https://github.com/erwins-enkel/shepherd/commit/ab584601d77a75afe2bae99bd855095ba57f2f0f))
+* **compose:** enter inserts newline on mobile, drop redundant ↵ button ([#129](https://github.com/erwins-enkel/shepherd/issues/129)) ([e6e1968](https://github.com/erwins-enkel/shepherd/commit/e6e1968bbc7778f582edf8db5ffe03fd00e95f0d))
+* **gitrail:** add explanatory tooltip to critic toggle ([#130](https://github.com/erwins-enkel/shepherd/issues/130)) ([f83594b](https://github.com/erwins-enkel/shepherd/commit/f83594ba78be5f9b27d5a805d0195875978ab199))
+* **gitrail:** view critic findings inline without opening PR ([#137](https://github.com/erwins-enkel/shepherd/issues/137)) ([10ba63a](https://github.com/erwins-enkel/shepherd/commit/10ba63a32a80ed6229cdca3358a7c0c366b6c8cb))
+* **newtask:** attach issues by reference instead of dumping the body into the prompt ([#128](https://github.com/erwins-enkel/shepherd/issues/128)) ([11b2664](https://github.com/erwins-enkel/shepherd/commit/11b266400cfcf5bf50d0bdbddbeed814ac2047cd))
+* **push:** swap placeholder crook icon for solid bell + monochrome badge ([#135](https://github.com/erwins-enkel/shepherd/issues/135)) ([c3f3402](https://github.com/erwins-enkel/shepherd/commit/c3f340293f4fa18eead31106e6ab967c37d49b17))
+* **session:** disable Claude Code remote control by default in spawned sessions ([#124](https://github.com/erwins-enkel/shepherd/issues/124)) ([0c3a2ef](https://github.com/erwins-enkel/shepherd/commit/0c3a2ef357dbc5652e41b8f892706382ac5031db))
+* **ui:** collapse terminal-focus header to one row on mobile ([#122](https://github.com/erwins-enkel/shepherd/issues/122)) ([f0a5cb5](https://github.com/erwins-enkel/shepherd/commit/f0a5cb52046ece22c2873fee8c55f7c99247ec10))
+* **ui:** hint Shift/⌥-drag selects terminal text ([#117](https://github.com/erwins-enkel/shepherd/issues/117)) ([49b7afd](https://github.com/erwins-enkel/shepherd/commit/49b7afd89a9103fcf7c19de6f380de0f70432a13))
+* **ui:** show CI status dot in session list PR badge ([#136](https://github.com/erwins-enkel/shepherd/issues/136)) ([af87b14](https://github.com/erwins-enkel/shepherd/commit/af87b14283389eef6074bd53ec790f8690da8667))
+* **ui:** show in-progress critic badge in session list ([#134](https://github.com/erwins-enkel/shepherd/issues/134)) ([2e729a5](https://github.com/erwins-enkel/shepherd/commit/2e729a59663b88b0d15c41c176f56f4636cd2400))
+
+
+### Bug Fixes
+
+* **gitrail:** wrap whole buttons on mobile instead of squeezing labels ([#133](https://github.com/erwins-enkel/shepherd/issues/133)) ([ca5b796](https://github.com/erwins-enkel/shepherd/commit/ca5b796a0d57781d9d5ab51de2a25ab7ba2e517a))
+* **newtask:** inset mobile prompt + align close button ([#127](https://github.com/erwins-enkel/shepherd/issues/127)) ([c0b462b](https://github.com/erwins-enkel/shepherd/commit/c0b462ba0a64ccadf9f8c068bd2f3fd1b2b1067c))
+* **push:** always show notification on mobile; harden SW push handler ([#126](https://github.com/erwins-enkel/shepherd/issues/126)) ([8729e79](https://github.com/erwins-enkel/shepherd/commit/8729e7912fa3e49e30474e9cfa3b74718be0ea6b))
+* **push:** suppress active-app banners server-side (works on Android) ([#138](https://github.com/erwins-enkel/shepherd/issues/138)) ([4d2538a](https://github.com/erwins-enkel/shepherd/commit/4d2538aaf5457a5d2cbdfe5ea733289e256409ce))
+* **push:** suppress notifications while the app is in active use ([#121](https://github.com/erwins-enkel/shepherd/issues/121)) ([49239db](https://github.com/erwins-enkel/shepherd/commit/49239db0a2ab467e67f69b0d629e9969020b874f))
+* **steer:** submit reply with a separate carriage return ([#132](https://github.com/erwins-enkel/shepherd/issues/132)) ([9bc8667](https://github.com/erwins-enkel/shepherd/commit/9bc866705797f9f785a612e928277e5a79f77f41))
+* **ui:** move PR CI dot left of badge so right column aligns ([#139](https://github.com/erwins-enkel/shepherd/issues/139)) ([0d20926](https://github.com/erwins-enkel/shepherd/commit/0d209261b755b2bc25bc098d89704da109948042))
+* **viewport:** route stray desktop Esc into the terminal ([#118](https://github.com/erwins-enkel/shepherd/issues/118)) ([4c385b2](https://github.com/erwins-enkel/shepherd/commit/4c385b2893c07e5dfb2ed250da5fe7644818abd8))
+* **viewport:** unify "needs you" call-out with TopBar badge ([#131](https://github.com/erwins-enkel/shepherd/issues/131)) ([e1366f8](https://github.com/erwins-enkel/shepherd/commit/e1366f8c50cd90468804807fec416892603b24a0))
+
+
+### Performance Improvements
+
+* **viewport:** gate stray-Esc handler before DOM read + skip mid-IME ([#123](https://github.com/erwins-enkel/shepherd/issues/123)) ([629d15c](https://github.com/erwins-enkel/shepherd/commit/629d15cb176919f48a25b8d742cf7d83d2fefd71))
+
 ## [1.3.0](https://github.com/erwins-enkel/shepherd/compare/v1.2.0...v1.3.0) (2026-06-01)
 
 

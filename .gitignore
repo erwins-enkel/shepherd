@@ -17,3 +17,6 @@ dist/
 /.claude/worktrees/
 .shaping/
 .squad/
+
+# Runtime upload staging (New-Task attachments, screenshots)
+.shepherd-uploads/

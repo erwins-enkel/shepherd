@@ -15,6 +15,17 @@ export interface ServiceDeps {
   moveUploads?: (images: string[], worktreePath: string) => string[];
 }
 
+/**
+ * Per-spawn `--settings` overlay merged on top of the user's settings files.
+ * Pins `remoteControlAtStartup` so a global opt-in in ~/.claude/settings.json
+ * doesn't auto-start Claude Code's Remote Control for every Shepherd session
+ * (default false suppresses the notification noise); `/remote-control` in the
+ * terminal still toggles it per-session.
+ */
+export function spawnSettingsOverlay(): string {
+  return JSON.stringify({ remoteControlAtStartup: config.remoteControlAtStartup });
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -35,6 +46,7 @@ export class SessionService {
       }
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
+      argv.push("--settings", spawnSettingsOverlay());
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
@@ -106,6 +118,7 @@ export class SessionService {
     const live = this.deps.herdr.list().some((a) => a.terminalId === s.herdrAgentId);
     if (live) return s;
     const argv = ["claude", "--dangerously-skip-permissions", "--resume", s.claudeSessionId];
+    argv.push("--settings", spawnSettingsOverlay());
     if (s.model) argv.push("--model", s.model);
     const agent = this.deps.herdr.start(s.name, s.worktreePath, argv);
     this.deps.store.update(id, {

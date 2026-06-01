@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { SessionService } from "../src/service";
+import { SessionService, spawnSettingsOverlay } from "../src/service";
+import { config } from "../src/config";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
   const store = new SessionStore(":memory:");
@@ -53,10 +54,24 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     "--dangerously-skip-permissions",
     "--session-id",
     s.claudeSessionId,
+    "--settings",
+    spawnSettingsOverlay(),
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
+});
+
+test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)", () => {
+  const prev = config.remoteControlAtStartup;
+  try {
+    config.remoteControlAtStartup = false;
+    expect(JSON.parse(spawnSettingsOverlay())).toEqual({ remoteControlAtStartup: false });
+    config.remoteControlAtStartup = true;
+    expect(JSON.parse(spawnSettingsOverlay())).toEqual({ remoteControlAtStartup: true });
+  } finally {
+    config.remoteControlAtStartup = prev;
+  }
 });
 
 test("createSession: suffixes the name when herdr already runs an agent with it", async () => {
@@ -158,6 +173,8 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     "--dangerously-skip-permissions",
     "--session-id",
     s.claudeSessionId,
+    "--settings",
+    spawnSettingsOverlay(),
     "--model",
     "opus",
     "go",
@@ -389,6 +406,8 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
     "--dangerously-skip-permissions",
     "--resume",
     "abc-123",
+    "--settings",
+    spawnSettingsOverlay(),
     "--model",
     "opus",
   ]);
@@ -413,7 +432,14 @@ test("resume omits --model when the session had none", () => {
   });
   const s = resumable(store, { model: null });
   svc.resume(s.id);
-  expect(calls.argv).toEqual(["claude", "--dangerously-skip-permissions", "--resume", "abc-123"]);
+  expect(calls.argv).toEqual([
+    "claude",
+    "--dangerously-skip-permissions",
+    "--resume",
+    "abc-123",
+    "--settings",
+    spawnSettingsOverlay(),
+  ]);
 });
 
 test("resume re-uses a still-live agent instead of spawning a duplicate", () => {

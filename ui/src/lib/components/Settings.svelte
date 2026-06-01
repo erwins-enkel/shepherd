@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getSettings, putSettings, listDirs } from "$lib/api";
+  import { getSettings, putSettings, putRemoteControl, listDirs } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -38,6 +38,20 @@
   let error = $state<string | null>(null);
   let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
   let pushBusy = $state(false);
+  let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
+  let rcBusy = $state(false);
+
+  async function toggleRemoteControl() {
+    if (rcBusy) return;
+    rcBusy = true;
+    const next = !remoteControl;
+    try {
+      const s = await putRemoteControl(next);
+      remoteControl = s.remoteControlAtStartup;
+    } finally {
+      rcBusy = false;
+    }
+  }
 
   async function refreshPush() {
     push = await pushState();
@@ -72,6 +86,7 @@
     try {
       const s = await getSettings();
       currentRoot = s.repoRootDisplay;
+      remoteControl = s.remoteControlAtStartup;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -205,6 +220,23 @@
           {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
         </button>
       {/if}
+    </div>
+    <div class="rc">
+      <span class="micro">{m.settings_remote_control_title()}</span>
+      <p class="hint">{m.settings_remote_control_hint()}</p>
+      <button
+        type="button"
+        class="toggle"
+        role="switch"
+        aria-checked={remoteControl}
+        disabled={rcBusy}
+        onclick={toggleRemoteControl}
+      >
+        <span class="track" class:on={remoteControl}><span class="knob"></span></span>
+        <span class="state"
+          >{remoteControl ? m.settings_remote_control_on() : m.settings_remote_control_off()}</span
+        >
+      </button>
     </div>
     <SteersEditor />
   </div>
@@ -431,6 +463,68 @@
     color: var(--color-faint);
     font-size: 11.5px;
     margin: 0;
+  }
+  .rc {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .rc .hint {
+    color: var(--color-faint);
+    font-size: 11.5px;
+    margin: 0;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    align-self: flex-start;
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    cursor: pointer;
+    font: inherit;
+    min-height: 44px;
+  }
+  .toggle:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .track {
+    position: relative;
+    width: 38px;
+    height: 20px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 10px;
+    background: var(--color-inset);
+    transition: background 0.12s;
+  }
+  .track.on {
+    background: color-mix(in srgb, var(--color-amber) 22%, transparent);
+    border-color: var(--color-amber);
+  }
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-muted);
+    transition:
+      transform 0.12s,
+      background 0.12s;
+  }
+  .track.on .knob {
+    transform: translateX(18px);
+    background: var(--color-amber);
+  }
+  .toggle .state {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-bright);
   }
   /* Desktop hosts the theme switcher in the ActionBar; only surface it here on
      mobile, where the ActionBar hides it and the top bar no longer carries it. */

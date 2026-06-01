@@ -13,8 +13,9 @@
     getUpdateLog,
     getHerdrUpdate,
     gitStates,
+    getBacklog,
   } from "$lib/api";
-  import type { DeployState } from "$lib/types";
+  import type { DeployState, BacklogPayload } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -28,6 +29,7 @@
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
+  import BacklogView from "$lib/components/BacklogView.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import { registerSW, onSelectSession } from "$lib/push";
@@ -52,8 +54,26 @@
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
   let composePrompt = $state("");
+  let backlog = $state<BacklogPayload | null>(null);
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+
+  // Fetch backlog only when the overview is empty. Reading store.sessions.length
+  // inside the effect body makes Svelte track it; backlog is written but never
+  // read here, so it cannot re-trigger the effect → no loop.
+  $effect(() => {
+    if (store.sessions.length === 0) {
+      getBacklog()
+        .then((p) => (backlog = p))
+        .catch(() => {});
+    }
+  });
+
+  function onissue(repoPath: string, prompt: string) {
+    composeRepoPath = repoPath;
+    composePrompt = prompt;
+    showNew = true;
+  }
 
   const mobile = new MediaQuery("max-width: 768px");
   // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):
@@ -235,6 +255,9 @@
           onnew={() => (showNew = true)}
           git={store.git}
         />
+        {#if store.sessions.length === 0}
+          <BacklogView payload={backlog} mobile={true} {onissue} />
+        {/if}
       </div>
       <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} />
     {:else if selected}
@@ -283,7 +306,9 @@
         onnew={() => (showNew = true)}
         git={store.git}
       />
-      {#if selected}
+      {#if store.sessions.length === 0}
+        <BacklogView payload={backlog} mobile={false} {onissue} />
+      {:else if selected}
         <Viewport
           session={selected}
           touch={touch.current}

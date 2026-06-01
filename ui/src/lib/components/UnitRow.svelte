@@ -322,7 +322,10 @@
     max-width: 34ch;
   }
   .repo-glyph {
-    color: var(--color-amber);
+    /* Renders on every row regardless of status — amber here was the biggest
+       remaining contributor to the "orange wall". Muted: it's a repo marker,
+       not a state signal. (Only tints the `▣` fallback; emoji icons self-color.) */
+    color: var(--color-muted);
     font-size: 10px;
     flex-shrink: 0;
   }
@@ -359,14 +362,14 @@
     flex-shrink: 0;
   }
 
+  /* Quiet muted text, not a colored pill — the StatusPip (left) already encodes
+     status by color + pulse, so an outlined `--rule`-tinted badge here just
+     duplicated that hue (amber for running) and added to the orange wall. */
   .badge {
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 2px 7px;
-    border: 1px solid var(--rule);
-    color: var(--rule);
-    border-radius: 2px;
+    color: var(--color-muted);
     white-space: nowrap;
   }
 

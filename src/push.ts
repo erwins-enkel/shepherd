@@ -296,17 +296,33 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
 
 /** Bridge session:git changes to push: every CI transition + each newer human review. */
 export function attachGitPush(events: EventHub, store: SessionStore, push: PushService): void {
+  const primed = new Set<string>();
   const lastChecks = new Map<string, ChecksState>();
   const lastReviewTs = new Map<string, number>();
   events.subscribe((event, data) => {
     if (event === "session:archived") {
       const { id } = data as { id: string };
+      primed.delete(id);
       lastChecks.delete(id);
       lastReviewTs.delete(id);
       return;
     }
     if (event !== "session:git") return;
     const { id, git } = data as { id: string; git: GitState };
+
+    // First sighting of a session (process start, or a PR first appearing): seed
+    // the dedup state from what's already true and DON'T notify. Otherwise a
+    // restart — the in-memory maps start empty, and a redeploy happens after
+    // every merge — would re-announce CI/review status that settled long ago as
+    // if it were a fresh transition. Only state present *now* is primed: a review
+    // that lands later still notifies (its ts beats the unset -Infinity sentinel).
+    if (!primed.has(id)) {
+      primed.add(id);
+      lastChecks.set(id, git.checks);
+      if (git.latestReview) lastReviewTs.set(id, git.latestReview.submittedAt);
+      return;
+    }
+
     const name = store.get(id)?.name ?? id;
 
     // CI: notify on any transition into a meaningful state (skip "none").

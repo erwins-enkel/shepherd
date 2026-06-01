@@ -484,7 +484,7 @@ test("resume returns null for unknown, archived, or pre-feature sessions", () =>
   expect(svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
 });
 
-test("reply types the text plus Enter into the agent's PTY", () => {
+test("reply types the text, then submits with a separate carriage return", () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -511,7 +511,12 @@ test("reply types the text plus Enter into the agent's PTY", () => {
   });
 
   expect(svc.reply(s.id, "1")).toBe(true);
-  expect(sent).toEqual([{ target: "term_z", text: "1\r" }]);
+  // Enter is a discrete second write so Claude Code submits it instead of
+  // absorbing the CR into a paste-buffered multi-line blob.
+  expect(sent).toEqual([
+    { target: "term_z", text: "1" },
+    { target: "term_z", text: "\r" },
+  ]);
   expect(svc.reply("nope", "1")).toBe(false);
 });
 
@@ -547,7 +552,9 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   const res = svc.broadcast([a.id, "ghost", b.id], "run tests");
   expect(res).toEqual({ sent: 2, total: 3 });
   expect(sent).toEqual([
-    { target: "term_a", text: "run tests\r" },
-    { target: "term_b", text: "run tests\r" },
+    { target: "term_a", text: "run tests" },
+    { target: "term_a", text: "\r" },
+    { target: "term_b", text: "run tests" },
+    { target: "term_b", text: "\r" },
   ]);
 });

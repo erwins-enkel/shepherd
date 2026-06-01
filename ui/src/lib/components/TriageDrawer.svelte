@@ -1,6 +1,17 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import type { BlockedEntry } from "$lib/triage";
   import { m } from "$lib/paraglide/messages";
+
+  // Slide the drawer in/out from the right edge. The {#if showTriage} guard in
+  // +page.svelte mounts/unmounts us, so this transition runs on both open and
+  // close (auto-close once every item is handled → it slides away). Svelte JS
+  // transitions don't honor the prefers-reduced-motion CSS media query, so drop
+  // the duration to 0 for users who opted out.
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const slide = { x: 440, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
   let {
     entries,
@@ -40,7 +51,7 @@
   }
 </script>
 
-<aside class="drawer">
+<aside class="drawer" transition:fly={slide}>
   <header>
     <span class="title">{m.common_needs_you({ count: entries.length })}</span>
     <button class="x" onclick={onclose} aria-label={m.triage_close_aria()}>✕</button>

@@ -7,6 +7,7 @@
   import { matchSlashTrigger, filterCommands } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import { steers } from "$lib/steers.svelte";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
   // Android autocomplete / suggestions / double-space-period resolve natively
@@ -86,6 +87,49 @@
       ta?.focus();
       ta?.setSelectionRange(insert.length, insert.length);
     });
+  }
+
+  // Canned steers (same presets as the SteerBar) drop into the field as an
+  // editable draft rather than firing straight off — the compose sheet is a
+  // "compose then Send" surface, so a steer is a starting point you can tweak.
+  // Set when empty, append on a new line otherwise so a typed message is kept.
+  function applySteer(text: string) {
+    value = value.trim() ? value.trimEnd() + "\n" + text : text;
+    slashOpen = false;
+    queueMicrotask(() => {
+      autogrow();
+      ta?.focus();
+      const end = value.length;
+      ta?.setSelectionRange(end, end);
+    });
+  }
+
+  // Tap-vs-drag for the horizontally-scrolling steer row (mirrors SteerBar): arm
+  // on pointerdown, disarm once movement passes slop (a scroll) or the browser
+  // takes the gesture, and only insert on a clean tap — so scrolling the row
+  // never fires a chip.
+  const STEER_SLOP = 10;
+  let steerArmed: number | null = null;
+  let steerSX = 0;
+  let steerSY = 0;
+  function steerDown(e: PointerEvent) {
+    steerArmed = e.pointerId;
+    steerSX = e.clientX;
+    steerSY = e.clientY;
+  }
+  function steerMove(e: PointerEvent) {
+    if (steerArmed !== e.pointerId) return;
+    if (Math.abs(e.clientX - steerSX) > STEER_SLOP || Math.abs(e.clientY - steerSY) > STEER_SLOP)
+      steerArmed = null;
+  }
+  function steerCancel(e: PointerEvent) {
+    if (steerArmed === e.pointerId) steerArmed = null;
+  }
+  function steerTap(e: PointerEvent, text: string) {
+    if (steerArmed !== e.pointerId) return;
+    steerArmed = null;
+    e.preventDefault();
+    applySteer(text);
   }
 
   // In-browser dictation via the Web Speech API (Chrome/Android, Safari/iOS).
@@ -309,6 +353,21 @@
         />
       {/if}
     </div>
+    {#if steers.list.length > 0}
+      <div class="steers">
+        {#each steers.list as s (s.id)}
+          <button
+            type="button"
+            class="steer-chip"
+            title={s.text}
+            onpointerdown={steerDown}
+            onpointermove={steerMove}
+            onpointercancel={steerCancel}
+            onpointerup={(e) => steerTap(e, s.text)}>{s.label}</button
+          >
+        {/each}
+      </div>
+    {/if}
     <div class="actions">
       {#if speechSupported}
         <button
@@ -332,8 +391,9 @@
 
 <style>
   /* full-screen blurred backdrop — the terminal shimmers through, dimmed, while
-     the sheet stays legible. height/transform are set in JS to track the
-     visual viewport so the sheet centers above the keyboard. */
+     the sheet stays legible. height/transform are set in JS to track the visual
+     viewport so the sheet sits flush above the soft keyboard. align-items:flex-end
+     anchors the sheet to the bottom edge (a rising bottom sheet), not the center. */
   .overlay {
     position: fixed;
     left: 0;
@@ -341,9 +401,8 @@
     right: 0;
     z-index: 50;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: center;
-    padding: 16px;
     background: rgba(0, 0, 0, 0.45);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
@@ -355,13 +414,27 @@
     flex-direction: column;
     gap: 8px;
     width: 100%;
-    max-width: 560px;
-    padding: 14px;
-    /* nearly opaque so the dictated text reads clearly over the busy terminal */
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    /* nearly opaque so the composed text reads clearly over the busy terminal */
     background: color-mix(in srgb, var(--color-head) 94%, transparent);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 8px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    border-top: 1px solid var(--color-line-bright);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+    /* rise from the bottom edge when summoned */
+    animation: sheetRise 0.18s ease-out;
+  }
+  @keyframes sheetRise {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sheet {
+      animation: none;
+    }
   }
 
   .close {
@@ -419,6 +492,42 @@
   }
   .field:focus {
     outline: none;
+    border-color: var(--color-ink);
+  }
+
+  /* canned-steer row: scrolls horizontally so the presets never crowd the
+     field or the Send button; hidden scrollbar like the SteerBar */
+  .steers {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .steers::-webkit-scrollbar {
+    display: none;
+  }
+  .steer-chip {
+    flex: 0 0 auto;
+    height: 34px;
+    padding: 0 12px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    cursor: pointer;
+    touch-action: pan-x;
+    user-select: none;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .steer-chip:active {
+    background: var(--color-line-bright);
     border-color: var(--color-ink);
   }
 

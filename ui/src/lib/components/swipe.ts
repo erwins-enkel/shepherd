@@ -60,6 +60,16 @@ export function paneSwipeAction(
   return "none";
 }
 
+/**
+ * Whether a released gesture is a deliberate upward swipe — used by the ctrl-row
+ * to summon the compose sheet. Requires clearing `threshold` upward (dy negative)
+ * AND being more vertical than horizontal, so a horizontal pane swipe or a small
+ * tap on a chip never triggers it.
+ */
+export function isSwipeUp(dx: number, dy: number, threshold: number): boolean {
+  return dy <= -threshold && Math.abs(dy) > Math.abs(dx);
+}
+
 /** Callbacks a host component supplies to drive the swipe action. */
 export interface SwipeCallbacks {
   /** Current slid offset (px, negative = open). */

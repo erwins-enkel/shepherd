@@ -25,7 +25,7 @@
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
-  import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
+  import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
@@ -364,10 +364,67 @@
 
   // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
   // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
-  // composeDictate = open already listening (reserved for a dictation entry);
-  // the default compose-first entries leave it false so the keyboard comes up.
+  // composeDictate opens the sheet already listening — the one-tap 🎤 chip sets
+  // it; the compose-first entries (✎, swipe-up) leave it false so the keyboard
+  // comes up to type.
   let composeOpen = $state(false);
   let composeDictate = $state(false);
+  let ctrlRowEl: HTMLDivElement | undefined = $state();
+  function openCompose() {
+    composeDictate = false; // compose-first; the 🎤 lives inside the sheet too
+    composeOpen = true;
+  }
+  // one-tap dictate: opens the sheet already listening (preserves Kai's original
+  // affordance), a peer of the ✎ compose entry rather than a step inside it.
+  // Gated on Web Speech support so the chip never becomes a dead end where it's
+  // unavailable (e.g. an iOS home-screen PWA); the sheet's own 🎤 toggle hides
+  // itself there the same way.
+  const speechSupported =
+    typeof window !== "undefined" &&
+    !!(
+      (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
+      (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+    );
+  function openDictate() {
+    composeDictate = true;
+    composeOpen = true;
+  }
+  // Swipe up from the ctrl-row gutter to summon the compose sheet — a bottom-edge
+  // gesture, so it never competes with the terminal's vertical scrollback (which
+  // lives above the row). isSwipeUp ignores chip taps and horizontal pane swipes.
+  // Listeners are bound in JS (not inline on the markup) so the row stays a plain
+  // static container — the chips remain the interactive elements.
+  $effect(() => {
+    const row = ctrlRowEl;
+    if (!row) return;
+    let sx = 0;
+    let sy = 0;
+    let dx = 0;
+    let dy = 0;
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      dx = dy = 0;
+    };
+    const move = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      dx = e.touches[0].clientX - sx;
+      dy = e.touches[0].clientY - sy;
+    };
+    const end = () => {
+      if (isSwipeUp(dx, dy, 36)) openCompose();
+      dx = dy = 0;
+    };
+    row.addEventListener("touchstart", start, { passive: true });
+    row.addEventListener("touchmove", move, { passive: true });
+    row.addEventListener("touchend", end);
+    return () => {
+      row.removeEventListener("touchstart", start);
+      row.removeEventListener("touchmove", move);
+      row.removeEventListener("touchend", end);
+    };
+  });
 
   $effect(() => {
     const id = unitId;
@@ -1043,10 +1100,12 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
-    <div class="ctrl-row">
-      <ControlBar onkey={(seq) => conn?.send(seq)} />
-      <!-- pinned right, in the one-thumb reach zone: attach, mic, then Enter,
-           always visible so the primary actions never scroll off -->
+    <div class="ctrl-row" bind:this={ctrlRowEl}>
+      <!-- Esc/Tab frozen on the left edge; the arrows + ^-keys scroll in the
+           middle; attach/dictate/Enter frozen on the right. There's no compose
+           chip — swipe up from this row to summon the compose sheet. -->
+      <ControlBar onkey={(seq) => conn?.send(seq)} include={["edit"]} scroll={false} />
+      <ControlBar onkey={(seq) => conn?.send(seq)} include={["nav", "signal"]} />
       <button
         type="button"
         class="attach"
@@ -1057,16 +1116,18 @@
       >
         {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
       </button>
-      <button
-        type="button"
-        class="mic"
-        title={m.composebar_open_aria()}
-        aria-label={m.composebar_open_aria()}
-        onpointerdown={(e) => {
-          e.preventDefault();
-          composeOpen = true;
-        }}>{m.composebar_dictate()}</button
-      >
+      {#if speechSupported}
+        <button
+          type="button"
+          class="dictate"
+          title={m.composebar_dictate_aria()}
+          aria-label={m.composebar_dictate_aria()}
+          onpointerdown={(e) => {
+            e.preventDefault();
+            openDictate();
+          }}>{m.composebar_dictate()}</button
+        >
+      {/if}
       <button
         type="button"
         class="enter"
@@ -1779,7 +1840,7 @@
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
   }
-  .ctrl-row .mic,
+  .ctrl-row .dictate,
   .ctrl-row .attach,
   .ctrl-row .enter {
     flex: 0 0 auto;
@@ -1797,7 +1858,7 @@
       background 0.08s,
       border-color 0.08s;
   }
-  .ctrl-row .mic:active,
+  .ctrl-row .dictate:active,
   .ctrl-row .attach:active,
   .ctrl-row .enter:active {
     background: var(--color-line-bright);

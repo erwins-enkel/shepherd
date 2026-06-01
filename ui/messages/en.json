@@ -55,7 +55,6 @@
   "composebar_dictate": "🎤",
   "composebar_dictate_aria": "Dictate",
   "composebar_dictate_stop_aria": "Stop dictation",
-  "composebar_open_aria": "Compose or dictate a message",
   "composebar_overlay_aria": "Compose message",
   "gitrail_open_pr": "↟ Open PR",
   "gitrail_ci_status": "CI: {status}",

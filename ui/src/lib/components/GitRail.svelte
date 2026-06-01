@@ -4,6 +4,8 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
+  import { marked } from "marked";
+  import DOMPurify from "dompurify";
 
   let {
     sessionId,
@@ -140,6 +142,13 @@
 
   const verdict = $derived(reviews.map[sessionId]);
   const verdictLabel = $derived(criticBadgeLabel(verdict));
+  // Render the (AI-authored) findings as markdown, sanitized before @html.
+  // Gated on showReview so DOMPurify (browser-only) never runs during SSR.
+  const renderedBody = $derived(
+    showReview && verdict?.body
+      ? DOMPurify.sanitize(marked.parse(verdict.body, { async: false }) as string)
+      : "",
+  );
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
@@ -305,7 +314,8 @@
         {#if verdict.summary}
           <p class="rv-summary">{verdict.summary}</p>
         {/if}
-        <pre class="rv-body">{verdict.body}</pre>
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+        <div class="rv-body">{@html renderedBody}</div>
       </div>
     {/if}
   </span>
@@ -566,11 +576,66 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.5;
     padding: 6px 8px;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  /* markdown rendered via {@html} — children aren't scoped, so target globally */
+  .rv-body :global(> *:first-child) {
+    margin-top: 0;
+  }
+  .rv-body :global(> *:last-child) {
+    margin-bottom: 0;
+  }
+  .rv-body :global(p),
+  .rv-body :global(ul),
+  .rv-body :global(ol) {
+    margin: 0 0 8px;
+  }
+  .rv-body :global(ul),
+  .rv-body :global(ol) {
+    padding-left: 18px;
+  }
+  .rv-body :global(li) {
+    margin: 2px 0;
+  }
+  .rv-body :global(h1),
+  .rv-body :global(h2),
+  .rv-body :global(h3),
+  .rv-body :global(h4) {
+    margin: 12px 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-ink-bright);
+  }
+  .rv-body :global(a) {
+    color: var(--color-accent, var(--color-ink-bright));
+    text-decoration: underline;
+  }
+  .rv-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--color-line);
+    border-radius: 2px;
+    padding: 0 3px;
+  }
+  .rv-body :global(pre) {
+    margin: 0 0 8px;
+    padding: 6px 8px;
+    background: var(--color-bg, var(--color-line));
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    overflow-x: auto;
+  }
+  .rv-body :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+  .rv-body :global(blockquote) {
+    margin: 0 0 8px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-line);
+    color: var(--color-muted);
   }
 </style>

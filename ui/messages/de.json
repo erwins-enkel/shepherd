@@ -162,7 +162,7 @@
   "triage_open_console_aria": "Volle Konsole von {desig} öffnen",
   "viewport_back_aria": "Zurück zum Herd",
   "viewport_back_button": "‹ Herd",
-  "viewport_next_needs_you": "Wartet ›",
+  "viewport_next_needs_you": "Wartet · {count}",
   "viewport_next_needs_you_aria": "Zur nächsten Sitzung springen, die auf deine Antwort wartet",
   "viewport_queue_prev_aria": "Vorherige wartende Session",
   "viewport_queue_next_aria": "Nächste wartende Session",

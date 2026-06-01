@@ -162,7 +162,7 @@
   "triage_open_console_aria": "Open the full console for {desig}",
   "viewport_back_aria": "Back to herd",
   "viewport_back_button": "‹ Herd",
-  "viewport_next_needs_you": "Needs you ›",
+  "viewport_next_needs_you": "Needs you · {count}",
   "viewport_next_needs_you_aria": "Jump to the next session waiting for your reply",
   "viewport_queue_prev_aria": "Previous waiting session",
   "viewport_queue_next_aria": "Next waiting session",

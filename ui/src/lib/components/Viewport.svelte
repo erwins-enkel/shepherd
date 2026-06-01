@@ -587,12 +587,17 @@
     {#if onnextneedsyou && nextNeedsYou > 0}
       <button
         class="next-yu"
+        class:compact
         type="button"
         onclick={onnextneedsyou}
         aria-label={m.viewport_next_needs_you_aria()}
       >
-        {m.viewport_next_needs_you()}
-        <span class="nyu-count">{nextNeedsYou}</span>
+        {#if compact}
+          <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{nextNeedsYou}</span>
+        {:else}
+          {m.viewport_next_needs_you({ count: nextNeedsYou })}
+        {/if}
+        <span class="nyu-arrow" aria-hidden="true">›</span>
       </button>
     {/if}
     {#if showQueueNav}
@@ -1240,35 +1245,46 @@
   .back:hover {
     background: var(--color-hover);
   }
-  /* amber accent: this jumps to a session that's actively waiting on the operator */
+  /* red highlight: mirrors the TopBar "needs you" badge — jumps to the next session
+     actively waiting on the operator. */
   .next-yu {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: transparent;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-red) 18%, transparent);
+    border: 1px solid var(--color-red);
+    color: var(--color-red);
     font: inherit;
     font-size: 11px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.14em;
     padding: 4px 9px;
     cursor: pointer;
     flex-shrink: 0;
-    box-shadow: inset 0 0 18px -12px var(--color-amber);
+    white-space: nowrap;
   }
   .next-yu:hover {
-    background: var(--color-hover);
+    background: color-mix(in srgb, var(--color-red) 28%, transparent);
   }
-  .nyu-count {
-    font-size: 10px;
+  .nyu-arrow {
+    font-size: 13px;
     line-height: 1;
-    min-width: 15px;
-    text-align: center;
-    padding: 2px 4px;
-    border-radius: 999px;
-    background: var(--color-amber);
-    color: var(--color-bg);
+    letter-spacing: 0;
+  }
+  /* phone/touch: collapse to an icon+count chip (full label drops to the aria-label),
+     matching the TopBar compact badge instead of carrying the full word. */
+  .next-yu.compact {
+    justify-content: center;
+    gap: 4px;
+    min-width: 40px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .next-yu.compact .ny-icon {
+    font-weight: 700;
+    line-height: 1;
+  }
+  .next-yu.compact .ny-n {
+    font-weight: 600;
   }
 
   /* ‹ n/total › paging through the "needs you" queue — compact layouts only */

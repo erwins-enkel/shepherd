@@ -1,12 +1,18 @@
 import type { HerdrDriver } from "./herdr";
+import { PROBE_NAME } from "./usage-probe";
 
 export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
 
 /** Labels shepherd authors for its short-lived helper agents. A tab with one of these
- *  labels but no live agent is an orphaned husk (the probe/critic ended without its
- *  tab being closed — e.g. a shepherd restart cleared the in-memory tracking). */
+ *  labels but no live agent is an orphaned husk (the probe/critic ended without its tab
+ *  being closed — e.g. a shepherd restart cleared the in-memory tracking).
+ *
+ *  Both markers are collision-proof against user sessions, whose labels are prompt-derived
+ *  `[a-z0-9-]` slugs: {@link PROBE_NAME} contains underscores, and a "review " prefix contains
+ *  a space — neither is producible by a slug. (Reaping by a bare slug like "usage-probe" would
+ *  be unsafe — a user prompt can slug to exactly that.) */
 function isShepherdHelperLabel(label: string): boolean {
-  return label === "usage-probe" || label.startsWith("review ");
+  return label === PROBE_NAME || label.startsWith("review ");
 }
 
 /** herdr tab ids are "workspace:N" with N a positional index. */

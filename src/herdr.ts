@@ -16,7 +16,7 @@ export interface HerdrAgent {
 
 export interface HerdrTab {
   tabId: string;
-  /** the tab's display label (e.g. "usage-probe", "review TASK-09", a session branch). */
+  /** the tab's display label (e.g. "__usage_probe__", "review TASK-09", a session branch). */
   label: string;
   /** "unknown" when no live agent backs the tab — i.e. an orphaned husk. */
   agentStatus: HerdrState;

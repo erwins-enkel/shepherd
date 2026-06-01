@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { reapOrphanTabs, type ReapableHerdr } from "../src/tab-reaper";
+import { PROBE_NAME } from "../src/usage-probe";
 import type { HerdrAgent } from "../src/herdr";
 import type { HerdrTab } from "../src/herdr";
 
@@ -31,11 +32,11 @@ function fake(agents: HerdrAgent[], tabs: HerdrTab[]): { h: ReapableHerdr; close
   };
 }
 
-test("reaps usage-probe + review tabs that have no live agent", () => {
+test("reaps probe + review tabs that have no live agent", () => {
   const { h, closed } = fake(
     [agent("term_live", "w:3")], // the one live agent
     [
-      tab("w:1", "usage-probe"),
+      tab("w:1", PROBE_NAME),
       tab("w:2", "review TASK-09"),
       tab("w:3", "addition-leaky"), // live session tab — backed by an agent
     ],
@@ -48,14 +49,16 @@ test("reaps usage-probe + review tabs that have no live agent", () => {
 test("never reaps a labeled tab that still has a live agent (in-progress probe/review)", () => {
   const { h, closed } = fake(
     [agent("term_probe", "w:1")], // probe currently running in w:1
-    [tab("w:1", "usage-probe")],
+    [tab("w:1", PROBE_NAME)],
   );
   reapOrphanTabs(h);
   expect(closed).toEqual([]);
 });
 
-test("never touches non-shepherd tabs (other labels)", () => {
-  const { h, closed } = fake([], [tab("w:1", "my editor"), tab("w:2", "1")]);
+test("never touches non-shepherd tabs — incl. a user session slugged 'usage-probe'", () => {
+  // "usage-probe" is a producible prompt slug (normalize("usage probe") === "usage-probe"); an
+  // agentless tab with that label is a real user session, NOT a probe — must never be reaped.
+  const { h, closed } = fake([], [tab("w:1", "my editor"), tab("w:2", "usage-probe")]);
   reapOrphanTabs(h);
   expect(closed).toEqual([]);
 });
@@ -65,7 +68,7 @@ test("closes highest tab-number first so herdr's renumber-on-close can't drift t
   // closing the highest number first means each close only shifts already-closed tabs.
   const { h, closed } = fake(
     [],
-    [tab("w:2", "usage-probe"), tab("w:10", "usage-probe"), tab("w:5", "review TASK-1")],
+    [tab("w:2", PROBE_NAME), tab("w:10", PROBE_NAME), tab("w:5", "review TASK-1")],
   );
   reapOrphanTabs(h);
   expect(closed).toEqual(["w:10", "w:5", "w:2"]);

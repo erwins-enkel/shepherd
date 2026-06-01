@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getSettings, putSettings, listDirs } from "$lib/api";
-  import type { DirListing } from "$lib/types";
+  import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
   import { pushState, enablePush, disablePush, type PushStatus } from "$lib/push";
@@ -16,7 +16,20 @@
     { pref: "system", glyph: "◐", label: m.theme_system },
   ];
 
-  let { onclose, onsaved }: { onclose?: () => void; onsaved?: (root: string) => void } = $props();
+  let {
+    onclose,
+    onsaved,
+    herdrUpdate = null,
+    onherdrupdate,
+  }: {
+    onclose?: () => void;
+    onsaved?: (root: string) => void;
+    herdrUpdate?: HerdrUpdateStatus | null;
+    onherdrupdate?: () => void;
+  } = $props();
+
+  // On a phone the HERDR badge folds into the gear; its update flow lands here.
+  const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
 
   let currentRoot = $state(""); // the persisted root (display form)
   let listing = $state<DirListing | null>(null);
@@ -99,6 +112,22 @@
         >✕</button
       >
     </div>
+
+    {#if herdrUpdateAvailable}
+      <button type="button" class="herdr-cta" onclick={() => onherdrupdate?.()}>
+        <span class="hc-dot" aria-hidden="true">▲</span>
+        <span class="hc-text">
+          <span class="hc-label">{m.settings_herdr_update_label()}</span>
+          <span class="hc-ver"
+            >{m.topbar_herdr_update_title({
+              current: herdrUpdate!.current ?? "?",
+              latest: herdrUpdate!.latest ?? "?",
+            })}</span
+          >
+        </span>
+        <span class="hc-chev" aria-hidden="true">›</span>
+      </button>
+    {/if}
 
     <div class="cur">
       <span class="micro">{m.settings_current_root_label()}</span>
@@ -239,6 +268,46 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+  /* Folded HERDR-update entry point (green, matching the badge it replaces). */
+  .herdr-cta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    border: 1px solid var(--color-green);
+    background: color-mix(in srgb, var(--color-green) 12%, transparent);
+    border-radius: 2px;
+    padding: 10px 12px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--color-ink-bright);
+  }
+  .herdr-cta .hc-dot {
+    color: var(--color-green);
+    font-size: 9px;
+  }
+  .herdr-cta .hc-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .herdr-cta .hc-label {
+    color: var(--color-green);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .herdr-cta .hc-ver {
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  .herdr-cta .hc-chev {
+    color: var(--color-green);
+    font-size: 18px;
+    line-height: 1;
   }
   .cur {
     display: flex;

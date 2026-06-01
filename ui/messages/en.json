@@ -98,6 +98,7 @@
   "reposelect_filter_placeholder": "filter…",
   "reposelect_no_matches": "no matches",
   "settings_title": "Settings",
+  "settings_herdr_update_label": "Herdr update available",
   "settings_push_title": "Push notifications",
   "settings_push_unsupported": "Not supported on this browser. On iOS, install Shepherd to your home screen first.",
   "settings_push_denied": "Blocked in browser settings. Re-enable notifications for this site, then reload.",

@@ -98,6 +98,7 @@
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",
   "settings_title": "Einstellungen",
+  "settings_herdr_update_label": "Herdr-Update verfügbar",
   "settings_push_title": "Push-Benachrichtigungen",
   "settings_push_unsupported": "In diesem Browser nicht unterstützt. Unter iOS zuerst Shepherd zum Startbildschirm hinzufügen.",
   "settings_push_denied": "In den Browser-Einstellungen blockiert. Benachrichtigungen für diese Seite wieder aktivieren und neu laden.",

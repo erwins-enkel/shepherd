@@ -208,7 +208,7 @@
   "diff_stale": "Base fetch failed — comparing local {base}",
   "activity_empty": "No activity yet.",
   "prbadge_open": "PR #{number}",
-  "prbadge_merged": "MERGED ✓",
+  "prbadge_merged": "✓ MERGED",
   "prbadge_closed": "CLOSED",
   "prbadge_none": "NO PR",
   "prbadge_review_approved": "Reviewer approved",

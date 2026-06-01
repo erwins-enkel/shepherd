@@ -208,7 +208,7 @@
   "diff_stale": "Basis-Fetch fehlgeschlagen — Vergleich mit lokalem {base}",
   "activity_empty": "Noch keine Aktivität.",
   "prbadge_open": "PR #{number}",
-  "prbadge_merged": "GEMERGT ✓",
+  "prbadge_merged": "✓ GEMERGT",
   "prbadge_closed": "GESCHLOSSEN",
   "prbadge_none": "KEIN PR",
   "prbadge_review_approved": "Reviewer hat genehmigt",

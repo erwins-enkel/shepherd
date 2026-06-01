@@ -67,6 +67,7 @@
     // Move the caret to the end so a seeded initialPrompt stays editable inline.
     promptInput?.focus();
     promptInput?.setSelectionRange(prompt.length, prompt.length);
+    autogrow(); // size to a seeded initialPrompt on open
     // Paste anywhere in the modal (the textarea need not be focused first).
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -121,6 +122,14 @@
 
   function removeImage(path: string) {
     images = images.filter((i) => i.path !== path);
+  }
+
+  // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
+  // iOS Safari has no usable resize handle, so auto-grow is how the field gets bigger.
+  function autogrow() {
+    if (!promptInput) return;
+    promptInput.style.height = "auto";
+    promptInput.style.height = `${promptInput.scrollHeight}px`;
   }
 
   // Cmd/Ctrl+Enter submits from the prompt textarea (plain Enter inserts a newline)
@@ -185,6 +194,7 @@
       bind:value={prompt}
       rows="3"
       placeholder={m.newtask_prompt_placeholder()}
+      oninput={autogrow}
       onkeydown={onPromptKeydown}
       required
     ></textarea>
@@ -223,7 +233,13 @@
     {/if}
 
     {#if repoPath}
-      <PromptSources {repoPath} onpick={(p) => (prompt = p)} />
+      <PromptSources
+        {repoPath}
+        onpick={(p) => {
+          prompt = p;
+          queueMicrotask(autogrow); // resize after the picked prompt binds
+        }}
+      />
     {/if}
 
     <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
@@ -334,7 +350,14 @@
     font-size: 13px;
     padding: 8px 10px;
     border-radius: 2px;
-    resize: vertical;
+  }
+  textarea {
+    /* JS auto-grows the height with content; cap it here and then scroll,
+       so a long prompt never pushes the rest of the form off-screen.
+       No native resize handle — iOS Safari doesn't render it reliably. */
+    resize: none;
+    max-height: 50vh;
+    overflow-y: auto;
   }
   select {
     appearance: none;
@@ -430,7 +453,19 @@
       display: none;
     }
     textarea {
+      /* Stretch the prompt edge-to-edge by cancelling the card's 16px padding,
+         so the field uses the full phone width. */
+      margin-inline: -16px;
+      width: calc(100% + 32px);
+      border-left: 0;
+      border-right: 0;
+      border-radius: 0;
       padding-right: 44px; /* keep typed text clear of the floating ✕ */
+      /* Comfortable starting size; auto-grow takes it up to 40dvh, then scrolls. */
+      min-height: 120px;
+      max-height: 40dvh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
   }
 

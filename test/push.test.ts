@@ -233,21 +233,40 @@ test("buildPayload review kind localizes to German", () => {
   });
 });
 
-test("attachReviewPush notifies on changes_requested, ignores other decisions and null", async () => {
+test("buildPayload review kind varies copy by decision", () => {
+  const commented: NotifyInput = {
+    kind: "review",
+    sessionId: "s",
+    tag: "t",
+    name: "TASK-02",
+    decision: "commented",
+  };
+  expect(buildPayload(commented, "en").body).toBe("Critic left a comment on the PR.");
+  expect(buildPayload(commented, "de").body).toBe("Kritiker hat den PR kommentiert.");
+  // no decision → defaults to the changes-requested copy (back-compat)
+  const noDecision: NotifyInput = { kind: "review", sessionId: "s", tag: "t", name: "TASK-02" };
+  expect(buildPayload(noDecision, "en").body).toBe("Critic requested changes on the PR.");
+});
+
+test("attachReviewPush notifies on changes_requested and commented, ignores error/null", async () => {
   const calls: any[] = [];
   const { store, push } = svc(async () => ({}));
   (push as any).notify = async (p: any) => calls.push(p);
   const events = new EventHub();
   attachReviewPush(events, store, push);
 
-  // should fire
   events.emit("session:review", { id: "r1", review: { decision: "changes_requested" } });
-  // should NOT fire
   events.emit("session:review", { id: "r2", review: { decision: "commented" } });
+  // should NOT fire
   events.emit("session:review", { id: "r3", review: { decision: "error" } });
   events.emit("session:review", { id: "r4", review: null });
 
   await Promise.resolve();
-  expect(calls.length).toBe(1);
-  expect(calls[0]).toMatchObject({ kind: "review", sessionId: "r1", tag: "review:r1" });
+  expect(calls.length).toBe(2);
+  expect(calls[0]).toMatchObject({
+    kind: "review",
+    sessionId: "r1",
+    decision: "changes_requested",
+  });
+  expect(calls[1]).toMatchObject({ kind: "review", sessionId: "r2", decision: "commented" });
 });

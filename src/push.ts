@@ -19,6 +19,8 @@ export interface NotifyInput {
   tag: string;
   name: string;
   reason?: BlockReason;
+  /** For kind "review": which critic verdict, selecting the body copy. */
+  decision?: "changes_requested" | "commented";
 }
 
 export type SendResult = { statusCode?: number };
@@ -43,6 +45,7 @@ const NOTIFY_TEXT = {
     other: "Waiting on your input.",
     reviewTitle: (name: string) => `${name} — review`,
     reviewBody: "Critic requested changes on the PR.",
+    reviewCommentBody: "Critic left a comment on the PR.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -54,6 +57,7 @@ const NOTIFY_TEXT = {
     other: "Wartet auf deine Eingabe.",
     reviewTitle: (name: string) => `${name} — Review`,
     reviewBody: "Kritiker fordert Änderungen am PR an.",
+    reviewCommentBody: "Kritiker hat den PR kommentiert.",
   },
 } as const;
 
@@ -84,7 +88,8 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
     return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
   }
   if (input.kind === "review") {
-    return { ...base, title: t.reviewTitle(input.name), body: t.reviewBody };
+    const body = input.decision === "commented" ? t.reviewCommentBody : t.reviewBody;
+    return { ...base, title: t.reviewTitle(input.name), body };
   }
   return {
     ...base,
@@ -204,14 +209,20 @@ export class PushService {
   }
 }
 
-/** Push when a critic requests changes (an attention signal, like a block). */
+/** Push when the critic posts a verdict (changes-requested or comment) — an attention signal. */
 export function attachReviewPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
     if (event !== "session:review") return;
     const { id, review } = data as { id: string; review: { decision: string } | null };
-    if (review?.decision !== "changes_requested") return;
+    if (review?.decision !== "changes_requested" && review?.decision !== "commented") return;
     const name = store.get(id)?.name ?? id;
-    void push.notify({ kind: "review", sessionId: id, tag: `review:${id}`, name });
+    void push.notify({
+      kind: "review",
+      sessionId: id,
+      tag: `review:${id}`,
+      name,
+      decision: review.decision,
+    });
   });
 }
 

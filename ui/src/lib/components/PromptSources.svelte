@@ -109,9 +109,14 @@
           <span class="row-text">{i.title}</span>
           {#if i.labels.length > 0}
             <span class="chips">
-              {#each i.labels as lbl (lbl)}
+              {#each i.labels.slice(0, 3) as lbl (lbl)}
                 <span class="chip">{lbl}</span>
               {/each}
+              {#if i.labels.length > 3}
+                <span class="chip chip-more" title={i.labels.slice(3).join(", ")}>
+                  {m.promptsources_more_labels({ count: i.labels.length - 3 })}
+                </span>
+              {/if}
             </span>
           {/if}
         </button>
@@ -262,5 +267,11 @@
     border: 1px solid var(--color-faint);
     border-radius: 2px;
     padding: 0 4px;
+  }
+
+  .chip-more {
+    color: var(--color-muted);
+    border-color: transparent;
+    cursor: default;
   }
 </style>

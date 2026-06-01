@@ -107,6 +107,7 @@
   "promptsources_issues_tab": "Issues",
   "promptsources_no_todos": "keine offenen TODO-Einträge",
   "promptsources_no_github": "kein GitHub-Upstream",
+  "promptsources_more_labels": "+{count}",
   "reposelect_placeholder": "Repo auswählen…",
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",

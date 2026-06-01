@@ -1060,7 +1060,7 @@
         }}>{enter.label}</button
       >
     </div>
-    <ComposeBar onsend={sendComposed} />
+    <ComposeBar onsend={sendComposed} repoPath={session.repoPath} />
     <input
       bind:this={fileInput}
       type="file"

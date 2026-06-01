@@ -3,6 +3,10 @@
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
+  import { getCommands } from "$lib/api";
+  import { matchSlashTrigger, filterCommands } from "$lib/slash";
+  import type { SlashCommand } from "$lib/types";
+  import SlashCommandMenu from "./SlashCommandMenu.svelte";
 
   // Mobile compose bar: a real <textarea> (not xterm's hidden one) so Android
   // autocomplete / suggestions / double-space-period resolve natively in the
@@ -10,10 +14,64 @@
   // per-keystroke into the PTY — so xterm's IME duplication bug can't occur.
   // Presentational: owns its own text + newline editing, emits the composed
   // string via onsend. The parent decides how to inject it into the terminal.
-  let { onsend }: { onsend: (text: string) => void } = $props();
+  // repoPath powers the inline slash-command picker (same /api/commands index
+  // as New Task), so a leading `/` offers the session repo's commands.
+  let { onsend, repoPath }: { onsend: (text: string) => void; repoPath: string } = $props();
 
   let value = $state("");
   let ta = $state<HTMLTextAreaElement>();
+
+  // ── inline slash-command autocomplete (mirrors NewTask, opens upward) ──
+  let allCommands = $state<SlashCommand[]>([]);
+  let slashOpen = $state(false);
+  let slashQuery = $state("");
+  let slashIndex = $state(0);
+  const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+
+  // Load the slash-command list for this session's repo (its own
+  // .claude/commands + .claude/skills layer on top of the global/user ones).
+  $effect(() => {
+    const rp = repoPath;
+    if (!rp) {
+      allCommands = [];
+      return;
+    }
+    getCommands(rp)
+      .then((r) => {
+        if (rp === repoPath) allCommands = r.commands;
+      })
+      .catch(() => {
+        if (rp === repoPath) allCommands = [];
+      });
+  });
+
+  // Open/refresh the menu from the caret, or close it once the text before the
+  // caret is no longer a leading `/token`.
+  function refreshSlash() {
+    const caret = ta?.selectionStart ?? value.length;
+    const trigger = matchSlashTrigger(value, caret);
+    if (trigger) {
+      slashOpen = true;
+      slashQuery = trigger.query;
+      slashIndex = 0;
+    } else {
+      slashOpen = false;
+    }
+  }
+
+  // Replace the leading `/query` token with the chosen command, leaving a
+  // trailing space so the user can type arguments straight away.
+  function pickCommand(cmd: SlashCommand) {
+    const caret = ta?.selectionStart ?? value.length;
+    const insert = `/${cmd.name} `;
+    value = insert + value.slice(caret);
+    slashOpen = false;
+    queueMicrotask(() => {
+      autogrow();
+      ta?.focus();
+      ta?.setSelectionRange(insert.length, insert.length);
+    });
+  }
 
   // In-browser dictation via the Web Speech API (Chrome/Android, Safari/iOS).
   // This is NOT the iOS keyboard's native dictation mic — no web API can summon
@@ -75,6 +133,7 @@
   function submit() {
     recog?.stop();
     listening = false;
+    slashOpen = false;
     onsend(value);
     value = "";
     queueMicrotask(autogrow); // shrink back after the binding clears
@@ -98,8 +157,33 @@
 
   // Enter inserts a newline (Send is the only submit). The compose bar is
   // touch-only — desktop steers xterm directly — so there's no hardware-keyboard
-  // Enter-to-submit path to preserve here.
+  // Enter-to-submit path to preserve here. While the slash menu is open it
+  // captures the navigation keys so arrows/Enter/Tab drive the picker (a paired
+  // hardware keyboard on a foldable/tablet); a tap on a row works regardless.
   function onKeydown(e: KeyboardEvent) {
+    if (slashOpen && slashMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        slashIndex = (slashIndex + 1) % slashMatches.length;
+        return;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        slashIndex = (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+        return;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickCommand(slashMatches[slashIndex]!);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        slashOpen = false;
+        return;
+      }
+    } else if (slashOpen && e.key === "Escape") {
+      e.preventDefault();
+      slashOpen = false;
+      return;
+    }
     if (e.key !== "Enter") return;
     e.preventDefault();
     insertNewline();
@@ -118,21 +202,36 @@
 </script>
 
 <div class="compose">
-  <textarea
-    bind:this={ta}
-    bind:value
-    class="field"
-    rows="1"
-    inputmode="text"
-    enterkeyhint="enter"
-    autocapitalize="sentences"
-    autocomplete="on"
-    spellcheck="true"
-    placeholder={m.composebar_placeholder()}
-    aria-label={m.composebar_input_aria()}
-    onkeydown={onKeydown}
-    oninput={autogrow}
-  ></textarea>
+  <div class="field-wrap">
+    <textarea
+      bind:this={ta}
+      bind:value
+      class="field"
+      rows="1"
+      inputmode="text"
+      enterkeyhint="enter"
+      autocapitalize="sentences"
+      autocomplete="on"
+      spellcheck="true"
+      placeholder={m.composebar_placeholder()}
+      aria-label={m.composebar_input_aria()}
+      onkeydown={onKeydown}
+      oninput={() => {
+        autogrow();
+        refreshSlash();
+      }}
+      onblur={() => (slashOpen = false)}
+    ></textarea>
+    {#if slashOpen}
+      <SlashCommandMenu
+        commands={slashMatches}
+        activeIndex={slashIndex}
+        placement="up"
+        onpick={pickCommand}
+        onhover={(i) => (slashIndex = i)}
+      />
+    {/if}
+  </div>
   {#if speechSupported}
     <button
       type="button"
@@ -159,6 +258,14 @@
     padding: 6px 10px;
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
+  }
+
+  /* anchors the slash-command menu (positioned absolute) to the field */
+  .field-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
   }
 
   .field {

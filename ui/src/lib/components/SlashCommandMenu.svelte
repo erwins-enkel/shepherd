@@ -7,11 +7,15 @@
     activeIndex,
     onpick,
     onhover,
+    placement = "down",
   }: {
     commands: SlashCommand[];
     activeIndex: number;
     onpick: (cmd: SlashCommand) => void;
     onhover: (index: number) => void;
+    // "down" anchors below the field (New Task modal); "up" anchors above it,
+    // for the compose bar pinned to the bottom of the viewport.
+    placement?: "up" | "down";
   } = $props();
 
   // Keep the highlighted row in view as the user arrows through the list.
@@ -22,7 +26,7 @@
   });
 </script>
 
-<div class="sc-panel" role="presentation">
+<div class="sc-panel" class:up={placement === "up"} role="presentation">
   {#if commands.length === 0}
     <div class="sc-empty">{m.slash_menu_empty()}</div>
   {:else}
@@ -64,6 +68,11 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  }
+  /* open upward when the field is anchored to the bottom of the viewport */
+  .sc-panel.up {
+    top: auto;
+    bottom: calc(100% + 2px);
   }
   .sc-list {
     list-style: none;

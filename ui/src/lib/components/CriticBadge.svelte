@@ -4,11 +4,16 @@
   import { m } from "$lib/paraglide/messages";
 
   let { sessionId }: { sessionId: string } = $props();
+  const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
   const label = $derived(criticBadgeLabel(verdict));
 </script>
 
-{#if label}
+{#if reviewing}
+  <span class="critic-badge critic-reviewing" title={m.criticbadge_reviewing_title()}>
+    <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+  </span>
+{:else if label}
   <span
     class="critic-badge critic-{verdict!.decision}"
     title={verdict!.summary || m.criticbadge_title()}>{label}</span
@@ -35,5 +40,35 @@
   }
   .critic-error {
     color: var(--color-faint);
+  }
+  /* critic actively reviewing: amber outline + pulsing dot (mirrors GitRail) */
+  .critic-reviewing {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    animation: rev-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes rev-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rev-dot {
+      animation: none;
+      opacity: 0.9;
+    }
   }
 </style>

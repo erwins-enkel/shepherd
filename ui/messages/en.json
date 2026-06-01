@@ -195,6 +195,8 @@
   "criticbadge_commented": "✓ REVIEWED",
   "criticbadge_error": "REVIEW ERR",
   "criticbadge_title": "Critic review for this PR head",
+  "criticbadge_reviewing": "REVIEWING…",
+  "criticbadge_reviewing_title": "Critic is reviewing this session",
   "viewport_decommission_title": "stop agent + remove worktree",
   "viewport_confirm_decommission": "confirm ✕",
   "viewport_decommission": "✕ decommission",

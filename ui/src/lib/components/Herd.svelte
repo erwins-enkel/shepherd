@@ -30,8 +30,8 @@
     filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
   );
   // within the shown set: active rows on top; ready-to-merge ones parked in a
-  // green group at the bottom
-  const partition = $derived(partitionSessions(shown));
+  // green group below, merged-PR ones in a blue group at the very bottom
+  const partition = $derived(partitionSessions(shown, git));
 </script>
 
 <div class="panel bracket">
@@ -73,6 +73,21 @@
       {#if partition.ready.length > 0}
         <div class="ready-head micro">{m.herd_ready_group({ count: partition.ready.length })}</div>
         {#each partition.ready as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.merged.length > 0}
+        <div class="merged-head micro">
+          {m.herd_merged_group({ count: partition.merged.length })}
+        </div>
+        {#each partition.merged as session (session.id)}
           <UnitRow
             {session}
             selected={session.id === selectedId}
@@ -164,6 +179,16 @@
     margin-top: 6px;
     color: var(--color-green);
     border-top: 1px solid color-mix(in srgb, var(--color-green) 30%, var(--color-line));
+  }
+
+  /* blue section header for the landed "merged PR" group */
+  .merged-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-blue);
+    border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
   }
 
   .units {

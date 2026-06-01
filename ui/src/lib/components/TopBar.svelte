@@ -243,10 +243,11 @@
         <span class="up-n">{update!.behind}</span>
       </button>
     {/if}
-    {#if herdrUpdateAvailable}
+    <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
+         (green dot below) to free a slot in the single-row control cluster. -->
+    {#if herdrUpdateAvailable && !mobile}
       <button
         class="update-badge herdr"
-        class:mobile
         onclick={() => onherdrupdate?.()}
         title={m.topbar_herdr_update_title({
           current: herdrUpdate!.current ?? "?",
@@ -259,10 +260,13 @@
     {/if}
     <button
       class="gear tip"
+      class:has-update={herdrUpdateAvailable && mobile}
       type="button"
       onclick={() => onsettings?.()}
       data-tip={m.settings_title()}
-      aria-label={m.topbar_settings_aria()}>⚙</button
+      aria-label={m.topbar_settings_aria()}
+      >⚙{#if herdrUpdateAvailable && mobile}<span class="gear-dot" aria-hidden="true"
+        ></span>{/if}</button
     >
   </div>
 </div>
@@ -307,15 +311,13 @@
   .logo b {
     color: var(--color-amber);
   }
-  /* Detail-view contextual header (phone only): repo glyph + repo name · task.
-     Sits where the logo would; the leading pad clears the floating corner dot. */
+  /* Detail-view contextual header (phone only): repo glyph + repo name · task. */
   .context {
     display: flex;
     align-items: center;
     gap: 7px;
     min-width: 0;
     flex: 1 1 auto;
-    padding-left: 12px;
     overflow: hidden;
   }
   .ctx-glyph {
@@ -345,6 +347,10 @@
     color: var(--color-ink);
     font-size: 12px;
     min-width: 0;
+    /* cap the name so a long task never eats the row and forces the control
+       cluster to wrap — it ellipsizes well before then, ceding width to the
+       terminal below */
+    max-width: 42vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -392,6 +398,7 @@
     gap: 16px;
   }
   .gear {
+    position: relative;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
@@ -404,6 +411,21 @@
   .gear:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
+  }
+  /* phone-only: the folded HERDR-update cue — a green pip on the gear that mirrors
+     the calm green of the desktop badge and rings against the panel to stay legible */
+  .gear-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-green);
+    box-shadow: 0 0 0 2px var(--color-panel);
+  }
+  .gear.has-update {
+    border-color: var(--color-green);
   }
   .gauges {
     display: flex;
@@ -590,14 +612,12 @@
   .tallies.compact .csep {
     color: var(--color-faint);
   }
-  /* Mobile: the connection dot floats in the top-left corner, out of the flex
-     flow, so it stays visible without consuming a slot in the control row. The
-     numeric time is hidden to save space. */
+  /* Mobile: drop the numeric time and let the bare connection dot ride inline at
+     the head of the right-side cluster (order:-1) — vertically centred with the
+     gauge/gear instead of floating off-centre in the corner. */
   .hud.mobile .clock {
-    position: absolute;
-    top: 4px;
-    left: 5px;
-    z-index: 2;
+    order: -1;
+    gap: 0;
   }
   .hud.mobile .clock .time {
     display: none;

@@ -343,7 +343,14 @@
 {/if}
 
 {#if showSettings}
-  <Settings onclose={() => (showSettings = false)} />
+  <Settings
+    onclose={() => (showSettings = false)}
+    herdrUpdate={store.herdrUpdate}
+    onherdrupdate={() => {
+      showSettings = false;
+      showHerdrUpdate = true;
+    }}
+  />
 {/if}
 
 {#if showBroadcast}

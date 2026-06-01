@@ -227,6 +227,40 @@ test("GET /api/backlog with deps.backlog absent → empty payload", async () => 
   });
 });
 
+test("GET /api/backlog dedupes worktrees of the same repo by forge slug", async () => {
+  // repoA and repoB resolve to the SAME forge slug — e.g. two worktrees/clones
+  // of one GitHub repo. They must collapse to a single project entry.
+  const dupForge: AppDeps["resolveForge"] = (path) =>
+    path === repoA || path === repoB ? fakeForge("org/dup") : null;
+  const app = makeApp(
+    makeDeps(
+      { [repoA]: { openIssues: 7, openPRs: 2 }, [repoB]: { openIssues: 7, openPRs: 2 } },
+      { [repoA]: 100, [repoB]: 200 }, // repoB used most recently → the kept representative
+      dupForge,
+    ),
+  );
+  const body = await app.fetch(req()).then((r) => r.json());
+  const dup = body.projects.filter((p: { slug: string }) => p.slug === "org/dup");
+  // collapsed to a single entry...
+  expect(dup.length).toBe(1);
+  // ...pointing at the most-recently-used directory...
+  expect(dup[0].path).toBe(repoB);
+  // ...and counts are not double-counted in the totals
+  expect(body.totals.openIssues).toBe(7);
+  expect(body.totals.openPRs).toBe(2);
+});
+
+test("GET /api/backlog keeps repos with distinct slugs separate", async () => {
+  const app = makeApp(
+    makeDeps({ [repoA]: { openIssues: 1, openPRs: 0 }, [repoB]: { openIssues: 1, openPRs: 0 } }),
+  );
+  const body = await app.fetch(req()).then((r) => r.json());
+  const paths = body.projects.map((p: { path: string }) => p.path);
+  // org/alpha and org/beta are different repos → both remain
+  expect(paths).toContain(repoA);
+  expect(paths).toContain(repoB);
+});
+
 test("GET /api/backlog pinnedPath falls back to first sorted project when no lastUsedAt", async () => {
   const app = makeApp(
     makeDeps(

@@ -37,6 +37,7 @@
   "controlkey_ctrl_c": "Strg C, unterbrechen",
   "controlkey_ctrl_d": "Strg D, Dateiende",
   "actionbar_new_task": "+ Neue Aufgabe",
+  "actionbar_backlog": "Backlog",
   "actionbar_all_mode": "Alle ▦",
   "actionbar_focus_mode": "Fokus ⌖",
   "actionbar_theme_group_aria": "Darstellung",

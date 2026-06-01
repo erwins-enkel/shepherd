@@ -263,6 +263,33 @@ test("CountsService: works with an async (promise-returning) runner", async () =
   expect(result.openPRs).toBe(6);
 });
 
+// 8d. concurrency cap: many concurrent fetches never exceed the configured ceiling
+test("CountsService: caps concurrent fetches at maxConcurrency", async () => {
+  const dirs: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    dirs.push(gitInit(join(tmpBase, `cc-${i}`), `https://github.com/o/r${i}`));
+  }
+  const forges: ForgeMap = {};
+
+  let active = 0;
+  let peak = 0;
+  const run = async (): Promise<string> => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 1 }, pullRequests: { totalCount: 1 } } },
+    });
+  };
+  const svc = new CountsService(forges, run, fetch, 3); // cap = 3
+
+  await Promise.all(dirs.map((d) => svc.counts(d)));
+
+  expect(peak).toBeLessThanOrEqual(3); // never burst past the cap
+  expect(peak).toBeGreaterThan(1); // but still genuinely parallel, not serialized
+});
+
 // 9. Non-forge repo (no git remote) → null counts
 test("CountsService: repo with no origin → null counts (not a throw)", async () => {
   const repoDir = join(tmpBase, "no-remote");

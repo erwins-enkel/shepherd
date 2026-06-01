@@ -27,9 +27,11 @@ export class BacklogPoller {
   }
 
   start(): void {
+    if (this.timer) return; // idempotent — never orphan a running timer
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 }

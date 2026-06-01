@@ -22,7 +22,33 @@ interface CacheEntry {
 
 const TTL_MS = 60_000;
 
+/**
+ * Cap on simultaneous count fetches. The async runner made the per-repo `gh`
+ * calls fan out — without a ceiling a large repo root would spawn one `gh`
+ * subprocess per repo at once (on the request path *and* every poller tick),
+ * risking GitHub secondary rate limits / process pressure. A small cap keeps
+ * most of the parallel speedup without the unbounded burst.
+ */
+const DEFAULT_MAX_CONCURRENCY = 6;
+
 const NULL_COUNTS: RepoCounts = { openIssues: null, openPRs: null };
+
+/** Minimal FIFO semaphore — bounds how many gated thunks run concurrently. */
+class Semaphore {
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+  constructor(private readonly max: number) {}
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.max) await new Promise<void>((resolve) => this.queue.push(resolve));
+    this.active++;
+    try {
+      return await fn();
+    } finally {
+      this.active--;
+      this.queue.shift()?.();
+    }
+  }
+}
 
 function originUrl(repoDir: string): string | null {
   try {
@@ -42,12 +68,17 @@ export class CountsService {
   private readonly cache = new Map<string, CacheEntry>();
   /** Single-flight: repoPath → in-flight Promise. */
   private readonly inflight = new Map<string, Promise<RepoCounts>>();
+  /** Bounds simultaneous fetches across both the request path and the warmer. */
+  private readonly gate: Semaphore;
 
   constructor(
     private readonly forges: ForgeMap,
     private readonly run: CountsRunner,
     private readonly fetchFn: typeof fetch = fetch,
-  ) {}
+    maxConcurrency = DEFAULT_MAX_CONCURRENCY,
+  ) {
+    this.gate = new Semaphore(maxConcurrency);
+  }
 
   /** Read-through: serve a TTL-fresh cached value, else load it. */
   async counts(repoPath: string): Promise<RepoCounts> {
@@ -69,18 +100,20 @@ export class CountsService {
     const existing = this.inflight.get(repoPath);
     if (existing) return existing;
 
-    const promise = this.fetch(repoPath).then(
-      (v) => {
-        this.cache.set(repoPath, { at: Date.now(), value: v });
-        this.inflight.delete(repoPath);
-        return v;
-      },
-      () => {
-        this.inflight.delete(repoPath);
-        this.cache.set(repoPath, { at: Date.now(), value: NULL_COUNTS });
-        return NULL_COUNTS;
-      },
-    );
+    const promise = this.gate
+      .run(() => this.fetch(repoPath))
+      .then(
+        (v) => {
+          this.cache.set(repoPath, { at: Date.now(), value: v });
+          this.inflight.delete(repoPath);
+          return v;
+        },
+        () => {
+          this.inflight.delete(repoPath);
+          this.cache.set(repoPath, { at: Date.now(), value: NULL_COUNTS });
+          return NULL_COUNTS;
+        },
+      );
     this.inflight.set(repoPath, promise);
     return promise;
   }

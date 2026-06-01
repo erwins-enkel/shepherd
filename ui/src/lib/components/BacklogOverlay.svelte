@@ -7,11 +7,13 @@
     payload,
     mobile,
     onissue,
+    onquick = undefined,
     onclose,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
     onissue: (repoPath: string, issue: Issue) => void;
+    onquick?: (repoPath: string, issue: Issue) => void;
     onclose: () => void;
   } = $props();
 </script>
@@ -36,7 +38,7 @@
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
     <div class="body">
-      <BacklogView {payload} {mobile} {onissue} />
+      <BacklogView {payload} {mobile} {onissue} {onquick} />
     </div>
   </div>
 </div>

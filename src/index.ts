@@ -45,6 +45,10 @@ if (savedRoot) {
 // env default; absent → keep the config default. Stored as "1"/"0".
 const savedRc = store.getSetting("remoteControlAtStartup");
 if (savedRc !== null) config.remoteControlAtStartup = savedRc === "1";
+// a UI-chosen backlog quick-launch standard command (persisted) overrides the env
+// seed; absent → keep the config default. Stored verbatim (empty string allowed).
+const savedSc = store.getSetting("standardCommand");
+if (savedSc !== null) config.standardCommand = savedSc;
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());

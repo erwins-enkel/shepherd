@@ -37,6 +37,7 @@
   let {
     session,
     onnewtask,
+    onquick,
     onarchive,
     onback,
     onnextneedsyou,
@@ -53,6 +54,7 @@
   }: {
     session: Session;
     onnewtask?: (repoPath: string, issue: Issue) => void;
+    onquick?: (repoPath: string, issue: Issue) => void;
     onarchive?: (id: string) => void;
     onback?: () => void;
     /** Jump to the next session waiting for a reply (header shortcut). */
@@ -1078,6 +1080,7 @@
         <IssuesPanel
           repoPath={session.repoPath}
           onnewtask={(issue) => onnewtask?.(session.repoPath, issue)}
+          onquick={onquick ? (issue) => onquick(session.repoPath, issue) : undefined}
         />
       </div>
     {/if}

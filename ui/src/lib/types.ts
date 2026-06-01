@@ -12,6 +12,8 @@ export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
   remoteControlAtStartup: boolean;
+  /** Prompt seeded behind the backlog quick-launch button; empty disables it. */
+  standardCommand: string;
 }
 
 export interface DirEntry {

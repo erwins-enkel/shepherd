@@ -1,18 +1,8 @@
 // Shepherd service worker — Web Push only (no offline caching, by design).
 // Keep payload shape in sync with PushPayload in src/push.ts.
 
-// clientId -> the session id that client is currently viewing
-const activeSessions = new Map();
-
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
-
-self.addEventListener("message", (event) => {
-  const data = event.data || {};
-  if (data.type === "active-session" && event.source) {
-    activeSessions.set(event.source.id, data.id ?? null);
-  }
-});
 
 self.addEventListener("push", (event) => {
   let payload;
@@ -21,20 +11,22 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = {};
   }
-  const { title, body, sessionId, kind, tag } = payload;
+  const { title, body, sessionId, tag } = payload;
   if (!title) return;
 
   event.waitUntil(
     (async () => {
-      // Suppress a "done" banner if a focused, visible tab is already on that session.
-      if (kind === "done") {
-        const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-        const onIt = clients.some(
-          (c) =>
-            c.focused && c.visibilityState === "visible" && activeSessions.get(c.id) === sessionId,
-        );
-        if (onIt) return;
-      }
+      // The in-app UI already surfaces every status change live, so an OS banner is
+      // pure noise while the user is actively in the app. Suppress whenever any window
+      // is focused AND visible. `focused` is the reliable "working here right now"
+      // signal — browsers don't report occlusion, so visibility alone would wrongly
+      // suppress a window buried behind another app. Requiring both keeps banners
+      // flowing when the app is minimized, in the background, or on an unfocused
+      // second monitor — exactly when push is useful.
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const inUse = clients.some((c) => c.focused && c.visibilityState === "visible");
+      if (inUse) return;
+
       await self.registration.showNotification(title, {
         body: body ?? "",
         tag: tag ?? sessionId,

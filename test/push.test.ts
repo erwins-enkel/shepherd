@@ -5,6 +5,7 @@ import {
   PushService,
   attachPush,
   attachReviewPush,
+  attachGitPush,
   blockSummary,
   buildPayload,
   type NotifyInput,
@@ -269,4 +270,67 @@ test("attachReviewPush notifies on changes_requested and commented, ignores erro
     decision: "changes_requested",
   });
   expect(calls[1]).toMatchObject({ kind: "review", sessionId: "r2", decision: "commented" });
+});
+
+function gitState(over: Partial<any> = {}) {
+  return {
+    kind: "github",
+    state: "open",
+    number: 1,
+    checks: "pending",
+    deployConfigured: false,
+    ...over,
+  };
+}
+
+test("attachGitPush notifies on each CI transition, not on 'none'", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "pending" }) });
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "success" }) });
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "success" }) }); // unchanged → no fire
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "none" }) }); // none → no fire
+  await Promise.resolve();
+
+  const ci = calls.filter((c) => c.kind === "ci");
+  expect(ci.map((c) => c.ciState)).toEqual(["pending", "success"]);
+  expect(ci[0].cooldownKey).toBe("ci:g1:pending");
+  expect(ci[1].cooldownKey).toBe("ci:g1:success");
+});
+
+test("attachGitPush notifies on a newer human review only", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  const r1 = { state: "commented", author: "a", submittedAt: 100 };
+  const r2 = { state: "changes_requested", author: "b", submittedAt: 200 };
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r1 }) });
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r1 }) }); // same → no fire
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r2 }) });
+  await Promise.resolve();
+
+  const hr = calls.filter((c) => c.kind === "review-human");
+  expect(hr.map((c) => c.reviewState)).toEqual(["commented", "changes_requested"]);
+});
+
+test("buildPayload localizes ci + review-human kinds", () => {
+  const ci: NotifyInput = { kind: "ci", sessionId: "s", tag: "t", name: "N", ciState: "failure" };
+  expect(buildPayload(ci, "en").body).toBe("CI failed.");
+  expect(buildPayload(ci, "de").body).toBe("CI fehlgeschlagen.");
+  const hr: NotifyInput = {
+    kind: "review-human",
+    sessionId: "s",
+    tag: "t",
+    name: "N",
+    reviewState: "approved",
+  };
+  expect(buildPayload(hr, "en").body).toBe("A reviewer approved your PR.");
+  expect(buildPayload(hr, "de").body).toBe("Ein Reviewer hat deinen PR genehmigt.");
 });

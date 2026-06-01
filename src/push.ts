@@ -3,24 +3,31 @@ import { config } from "./config";
 import type { SessionStore, PushSubInput, StoredPushSub } from "./store";
 import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
+import type { ChecksState, GitState } from "./forge/types";
 
 export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done" | "review";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human";
   tag: string;
 }
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done" | "review";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human";
   sessionId: string;
   tag: string;
   name: string;
   reason?: BlockReason;
   /** For kind "review": which critic verdict, selecting the body copy. */
   decision?: "changes_requested" | "commented";
+  /** For kind "ci": the new rollup state, selecting the body copy. */
+  ciState?: ChecksState;
+  /** For kind "review-human": the human review state, selecting the body copy. */
+  reviewState?: "approved" | "changes_requested" | "commented";
+  /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
+  cooldownKey?: string;
 }
 
 export type SendResult = { statusCode?: number };
@@ -46,6 +53,14 @@ const NOTIFY_TEXT = {
     reviewTitle: (name: string) => `${name} — review`,
     reviewBody: "Critic requested changes on the PR.",
     reviewCommentBody: "Critic left a comment on the PR.",
+    ciTitle: (name: string) => `${name} — CI`,
+    ciPending: "CI running.",
+    ciSuccess: "CI passed.",
+    ciFailure: "CI failed.",
+    humanReviewTitle: (name: string) => `${name} — review`,
+    humanApproved: "A reviewer approved your PR.",
+    humanChanges: "A reviewer requested changes.",
+    humanCommented: "A reviewer left a comment.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -58,6 +73,14 @@ const NOTIFY_TEXT = {
     reviewTitle: (name: string) => `${name} — Review`,
     reviewBody: "Kritiker fordert Änderungen am PR an.",
     reviewCommentBody: "Kritiker hat den PR kommentiert.",
+    ciTitle: (name: string) => `${name} — CI`,
+    ciPending: "CI läuft.",
+    ciSuccess: "CI bestanden.",
+    ciFailure: "CI fehlgeschlagen.",
+    humanReviewTitle: (name: string) => `${name} — Review`,
+    humanApproved: "Ein Reviewer hat deinen PR genehmigt.",
+    humanChanges: "Ein Reviewer fordert Änderungen an.",
+    humanCommented: "Ein Reviewer hat einen Kommentar hinterlassen.",
   },
 } as const;
 
@@ -90,6 +113,24 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   if (input.kind === "review") {
     const body = input.decision === "commented" ? t.reviewCommentBody : t.reviewBody;
     return { ...base, title: t.reviewTitle(input.name), body };
+  }
+  if (input.kind === "ci") {
+    const body =
+      input.ciState === "success"
+        ? t.ciSuccess
+        : input.ciState === "failure"
+          ? t.ciFailure
+          : t.ciPending;
+    return { ...base, title: t.ciTitle(input.name), body };
+  }
+  if (input.kind === "review-human") {
+    const body =
+      input.reviewState === "approved"
+        ? t.humanApproved
+        : input.reviewState === "commented"
+          ? t.humanCommented
+          : t.humanChanges;
+    return { ...base, title: t.humanReviewTitle(input.name), body };
   }
   return {
     ...base,
@@ -156,7 +197,7 @@ export class PushService {
     // don't touch the cooldown clock here: nothing was sent.
     if (this.isActive()) return;
     const cooldownMs = config.pushCooldownMs;
-    const key = `${input.kind}:${input.sessionId}`;
+    const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
     const t = this.now();
     // Suppress repeats within the window of the last send that actually fired; a
     // sustained flap stays suppressed until a full quiet window passes. Distinct
@@ -239,6 +280,45 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
       if (!block) return;
       const name = store.get(id)?.name ?? id;
       void push.notify({ kind: "blocked", sessionId: id, tag: id, name, reason: block });
+    }
+  });
+}
+
+/** Bridge session:git changes to push: every CI transition + each newer human review. */
+export function attachGitPush(events: EventHub, store: SessionStore, push: PushService): void {
+  const lastChecks = new Map<string, ChecksState>();
+  const lastReviewTs = new Map<string, number>();
+  events.subscribe((event, data) => {
+    if (event !== "session:git") return;
+    const { id, git } = data as { id: string; git: GitState };
+    const name = store.get(id)?.name ?? id;
+
+    // CI: notify on any transition into a meaningful state (skip "none").
+    if (git.checks !== lastChecks.get(id)) {
+      lastChecks.set(id, git.checks);
+      if (git.checks !== "none") {
+        void push.notify({
+          kind: "ci",
+          sessionId: id,
+          tag: `ci:${id}`,
+          name,
+          ciState: git.checks,
+          cooldownKey: `ci:${id}:${git.checks}`,
+        });
+      }
+    }
+
+    // Human review: notify when a strictly newer review lands.
+    const r = git.latestReview;
+    if (r && r.submittedAt > (lastReviewTs.get(id) ?? -Infinity)) {
+      lastReviewTs.set(id, r.submittedAt);
+      void push.notify({
+        kind: "review-human",
+        sessionId: id,
+        tag: `review-human:${id}`,
+        name,
+        reviewState: r.state,
+      });
     }
   });
 }

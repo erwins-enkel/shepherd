@@ -13,6 +13,13 @@ import type { RepoCounts } from "./backlog";
  */
 export class BacklogPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Memoised "is this repo forge-backed?" per path. `resolveForge` (detectForge)
+   * shells out to a synchronous `git remote get-url` — uncached it would block
+   * the event loop on N git subprocesses every tick. Forge↔repo is effectively
+   * immutable, so resolving once per path is safe.
+   */
+  private readonly forgeBacked = new Map<string, boolean>();
 
   constructor(
     private listRepos: () => Array<{ path: string }>,
@@ -22,8 +29,17 @@ export class BacklogPoller {
   ) {}
 
   async tick(): Promise<void> {
-    const forgeRepos = this.listRepos().filter((r) => this.resolveForge(r.path) != null);
+    const forgeRepos = this.listRepos().filter((r) => this.isForgeBacked(r.path));
     await Promise.all(forgeRepos.map((r) => this.warm(r.path).catch(() => null)));
+  }
+
+  private isForgeBacked(path: string): boolean {
+    let backed = this.forgeBacked.get(path);
+    if (backed === undefined) {
+      backed = this.resolveForge(path) != null;
+      this.forgeBacked.set(path, backed);
+    }
+    return backed;
   }
 
   start(): void {

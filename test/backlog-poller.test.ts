@@ -40,6 +40,25 @@ test("a rejecting warm does not sink the tick or sibling repos", async () => {
   expect(warmed.sort()).toEqual(["/bad", "/good"]);
 });
 
+test("resolves forge once per path, even across ticks (no per-tick git I/O)", async () => {
+  const resolveCalls: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }, { path: "/no-forge" }],
+    (p) => {
+      resolveCalls.push(p);
+      return p === "/no-forge" ? null : { kind: "github", slug: "o/r" };
+    },
+    async () => ({ openIssues: 1, openPRs: 0 }),
+  );
+
+  await poller.tick();
+  await poller.tick();
+  await poller.tick();
+
+  // each path resolved exactly once despite three ticks
+  expect(resolveCalls.sort()).toEqual(["/a", "/no-forge"]);
+});
+
 test("empty repo list is a no-op", async () => {
   let calls = 0;
   const poller = new BacklogPoller(

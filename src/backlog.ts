@@ -33,19 +33,30 @@ const DEFAULT_MAX_CONCURRENCY = 6;
 
 const NULL_COUNTS: RepoCounts = { openIssues: null, openPRs: null };
 
-/** Minimal FIFO semaphore — bounds how many gated thunks run concurrently. */
+/**
+ * Minimal FIFO semaphore — bounds how many gated thunks run concurrently.
+ * Strict: a releaser hands its slot directly to the next waiter (the active
+ * count is unchanged across the handoff) instead of decrementing and letting
+ * the woken waiter re-increment. That closes the window where a fresh arrival
+ * could slip in between a decrement and a wake-up and push `active` to max+1.
+ */
 class Semaphore {
   private active = 0;
   private readonly queue: Array<() => void> = [];
   constructor(private readonly max: number) {}
   async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active >= this.max) await new Promise<void>((resolve) => this.queue.push(resolve));
-    this.active++;
+    if (this.active >= this.max) {
+      await new Promise<void>((resolve) => this.queue.push(resolve)); // woken = slot already ours
+    } else {
+      this.active++;
+    }
     try {
       return await fn();
     } finally {
-      this.active--;
-      this.queue.shift()?.();
+      const next = this.queue.shift();
+      if (next)
+        next(); // hand the slot off — keep `active`
+      else this.active--; // no waiter — free the slot
     }
   }
 }
@@ -91,12 +102,18 @@ export class CountsService {
    * Force a refetch regardless of TTL — used by the background warmer to rewrite
    * the cached value on a cadence so the request path always finds a fresh
    * entry. Single-flight still dedupes against any in-flight load.
+   *
+   * `preserveOnError`: a warm failure keeps the last-known-good value instead of
+   * clobbering it with nulls. The warmer runs every 45s, so without this a brief
+   * `gh`/network flake would blink the overview's counts to null until the next
+   * successful warm. A genuinely expired entry still falls back to a live fetch
+   * on the request path, so persistent failures eventually surface as null.
    */
   async refresh(repoPath: string): Promise<RepoCounts> {
-    return this.load(repoPath);
+    return this.load(repoPath, true);
   }
 
-  private load(repoPath: string): Promise<RepoCounts> {
+  private load(repoPath: string, preserveOnError = false): Promise<RepoCounts> {
     const existing = this.inflight.get(repoPath);
     if (existing) return existing;
 
@@ -110,6 +127,8 @@ export class CountsService {
         },
         () => {
           this.inflight.delete(repoPath);
+          const prev = this.cache.get(repoPath);
+          if (preserveOnError && prev) return prev.value; // keep last-known-good
           this.cache.set(repoPath, { at: Date.now(), value: NULL_COUNTS });
           return NULL_COUNTS;
         },

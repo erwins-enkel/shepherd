@@ -263,6 +263,47 @@ test("CountsService: works with an async (promise-returning) runner", async () =
   expect(result.openPRs).toBe(6);
 });
 
+// 8b-ii. refresh() keeps the last-known-good value when a warm fails
+test("CountsService: refresh preserves last-known-good on transient failure", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-preserve"), "https://github.com/o/preserve");
+  const forges: ForgeMap = {};
+
+  let fail = false;
+  const run = async (): Promise<string> => {
+    if (fail) throw new Error("gh flake");
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 8 }, pullRequests: { totalCount: 2 } } },
+    });
+  };
+  const svc = new CountsService(forges, run);
+
+  const good = await svc.counts(repoDir); // populate cache with a good value
+  expect(good.openIssues).toBe(8);
+
+  fail = true;
+  const afterFlake = await svc.refresh(repoDir); // warm fails → keep last-known-good
+  expect(afterFlake.openIssues).toBe(8);
+  expect(afterFlake.openPRs).toBe(2);
+
+  // and a subsequent request (within TTL) still sees the preserved value, not null
+  const stillGood = await svc.counts(repoDir);
+  expect(stillGood.openIssues).toBe(8);
+});
+
+// 8b-iii. counts() (request path) still surfaces null on failure — preserve is refresh-only
+test("CountsService: request-path failure still yields null (no preserve)", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-no-preserve"), "https://github.com/o/nopreserve");
+  const forges: ForgeMap = {};
+
+  const run = (): string => {
+    throw new Error("down");
+  };
+  const svc = new CountsService(forges, run);
+
+  const result = await svc.counts(repoDir);
+  expect(result.openIssues).toBeNull();
+});
+
 // 8d. concurrency cap: many concurrent fetches never exceed the configured ceiling
 test("CountsService: caps concurrent fetches at maxConcurrency", async () => {
   const dirs: string[] = [];

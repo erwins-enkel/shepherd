@@ -48,6 +48,13 @@
   let model = $state("default"); // "default" → claude's own model (no --model flag)
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  // re-invokes whichever action last failed (upload or create) from an inline Retry
+  let retry = $state<(() => void) | null>(null);
+
+  function reason(e: unknown, fallback: string): string {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return msg || fallback;
+  }
   let repos = $state<RepoEntry[]>([]);
   let branches = $state<string[]>([]);
   let images = $state<{ path: string; name: string }[]>([]);
@@ -133,13 +140,15 @@
     if (imgs.length === 0) return;
     uploading = true;
     error = null;
+    retry = null;
     try {
       for (const f of imgs) {
         const path = await uploadImage(f);
         images.push({ path, name: f.name });
       }
     } catch (err) {
-      error = err instanceof Error ? err.message : "upload failed";
+      error = m.newtask_upload_failed({ reason: reason(err, m.newtask_attach_image()) });
+      retry = () => addFiles(imgs);
     } finally {
       uploading = false;
     }
@@ -245,6 +254,7 @@
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
     submitting = true;
     error = null;
+    retry = null;
     try {
       await onsubmit({
         repoPath: repoPath.trim(),
@@ -262,7 +272,8 @@
           : undefined,
       });
     } catch (err) {
-      error = err instanceof Error ? err.message : "failed";
+      error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+      retry = () => submit(e);
       submitting = false;
     }
   }
@@ -406,7 +417,14 @@
       {/each}
     </select>
 
-    {#if error}<div class="err">{error}</div>{/if}
+    {#if error}
+      <div class="err">
+        <span>{error}</span>
+        {#if retry}
+          <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button>
+        {/if}
+      </div>
+    {/if}
 
     <button
       class="run"
@@ -520,6 +538,24 @@
     color: var(--color-red);
     font-size: 11.5px;
     margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .retry {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font: inherit;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .retry:hover {
+    border-color: var(--color-amber);
   }
   .run {
     margin-top: 12px;

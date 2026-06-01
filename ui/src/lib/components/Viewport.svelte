@@ -83,6 +83,13 @@
   let uploading = $state(false);
   let uploadFailed = $state(false);
   let fileInput = $state<HTMLInputElement>();
+  // platform-correct modifier for the "force local selection" hint: xterm uses
+  // Shift on Linux/Windows, Option (⌥) on macOS while the agent holds the mouse.
+  // Guarded for SSR (no navigator) → renders the Shift glyph, corrects on hydrate.
+  const isMac = $derived(
+    typeof navigator !== "undefined" &&
+      /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent),
+  );
 
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
@@ -753,6 +760,8 @@
       <span>{m.viewport_type_steer_hint()}</span>
       <span class="sep">·</span>
       <span>{m.viewport_detach_hint()}</span>
+      <span class="sep">·</span>
+      <span>{m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}</span>
     </div>
   {/if}
 </div>

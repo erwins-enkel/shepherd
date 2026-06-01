@@ -362,6 +362,13 @@
     conn?.send(composeKeystrokes(text));
   }
 
+  // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
+  // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
+  // composeDictate = open already listening (reserved for a dictation entry);
+  // the default compose-first entries leave it false so the keyboard comes up.
+  let composeOpen = $state(false);
+  let composeDictate = $state(false);
+
   $effect(() => {
     const id = unitId;
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
@@ -1038,8 +1045,8 @@
   {#if (mobile || touch) && tab === "term"}
     <div class="ctrl-row">
       <ControlBar onkey={(seq) => conn?.send(seq)} />
-      <!-- pinned right, in the one-thumb reach zone: attach then Enter, always
-           visible so the primary action never scrolls off -->
+      <!-- pinned right, in the one-thumb reach zone: attach, mic, then Enter,
+           always visible so the primary actions never scroll off -->
       <button
         type="button"
         class="attach"
@@ -1052,6 +1059,16 @@
       </button>
       <button
         type="button"
+        class="mic"
+        title={m.composebar_open_aria()}
+        aria-label={m.composebar_open_aria()}
+        onpointerdown={(e) => {
+          e.preventDefault();
+          composeOpen = true;
+        }}>{m.composebar_dictate()}</button
+      >
+      <button
+        type="button"
         class="enter"
         aria-label={enter.aria}
         onpointerup={(e) => {
@@ -1060,7 +1077,14 @@
         }}>{enter.label}</button
       >
     </div>
-    <ComposeBar onsend={sendComposed} repoPath={session.repoPath} />
+    {#if composeOpen}
+      <ComposeBar
+        onsend={sendComposed}
+        onclose={() => (composeOpen = false)}
+        repoPath={session.repoPath}
+        startDictation={composeDictate}
+      />
+    {/if}
     <input
       bind:this={fileInput}
       type="file"
@@ -1755,6 +1779,7 @@
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
   }
+  .ctrl-row .mic,
   .ctrl-row .attach,
   .ctrl-row .enter {
     flex: 0 0 auto;
@@ -1772,6 +1797,7 @@
       background 0.08s,
       border-color 0.08s;
   }
+  .ctrl-row .mic:active,
   .ctrl-row .attach:active,
   .ctrl-row .enter:active {
     background: var(--color-line-bright);

@@ -45,6 +45,8 @@ export interface ReviewServiceDeps {
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
+  /** Fired when a critic run starts (true) and when it ends (false) for a session. */
+  onReviewing?: (id: string, reviewing: boolean) => void;
   model?: string | null; // optional --model for the critic
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
@@ -157,6 +159,7 @@ export class ReviewService {
       terminalId,
       startedAt: this.now(),
     });
+    this.deps.onReviewing?.(session.id, true);
   }
 
   /** Finalize any in-flight review whose verdict file is ready or that timed out. */
@@ -188,6 +191,7 @@ export class ReviewService {
     }
     this.deps.store.putReview(verdict);
     this.deps.onChange(f.sessionId, verdict);
+    this.deps.onReviewing?.(f.sessionId, false);
     this.deps.herdr.stop(f.terminalId);
     this.deps.worktree.remove(f.worktreePath);
   }
@@ -211,12 +215,18 @@ export class ReviewService {
     return this.deps.store.snapshotReviews();
   }
 
+  /** Session ids with a critic run currently in flight (for client bootstrap). */
+  reviewingIds(): string[] {
+    return [...this.inflight.keys()];
+  }
+
   forget(sessionId: string): void {
     const f = this.inflight.get(sessionId);
     if (f) {
       this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
       this.inflight.delete(sessionId);
+      this.deps.onReviewing?.(sessionId, false);
     }
     this.deps.store.dropReview(sessionId);
   }

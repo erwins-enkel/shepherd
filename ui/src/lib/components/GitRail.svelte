@@ -120,6 +120,7 @@
 
   const verdict = $derived(reviews.map[sessionId]);
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
+  const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
 
@@ -188,12 +189,21 @@
 
       {#if repoPath}
         <button
-          class="gbtn"
+          class={["gbtn", { reviewing }]}
           type="button"
-          aria-label={m.gitrail_critic_toggle_aria()}
+          aria-label={reviewing
+            ? m.gitrail_critic_reviewing_aria()
+            : m.gitrail_critic_toggle_aria()}
+          aria-busy={reviewing}
+          title={reviewing ? m.gitrail_critic_reviewing_aria() : undefined}
           onclick={() => repoConfig.toggle(repoPath)}
         >
-          {criticOn ? m.gitrail_critic_on() : m.gitrail_critic_off()}
+          {#if reviewing}<span class="rev-dot" aria-hidden="true"></span>{/if}
+          {reviewing
+            ? m.gitrail_critic_reviewing()
+            : criticOn
+              ? m.gitrail_critic_on()
+              : m.gitrail_critic_off()}
         </button>
       {/if}
       {#if verdict && verdict.decision !== "error" && verdict.body}
@@ -281,6 +291,36 @@
   .gbtn.armed {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  /* critic actively reviewing: amber outline + pulsing dot */
+  .gbtn.reviewing {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    animation: rev-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes rev-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rev-dot {
+      animation: none;
+      opacity: 0.9;
+    }
   }
   .gbtn.primary {
     border-color: var(--color-amber);

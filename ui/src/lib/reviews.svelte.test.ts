@@ -3,12 +3,13 @@ import type { ReviewVerdict } from "./types";
 
 vi.mock("./api", () => ({
   getReviews: vi.fn(),
+  getReviewingIds: vi.fn(),
   getRepoConfig: vi.fn(),
   putRepoConfig: vi.fn(),
 }));
 
 import { reviews, repoConfig } from "./reviews.svelte";
-import { getReviews, getRepoConfig, putRepoConfig } from "./api";
+import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api";
 
 const verdict = (id: string): ReviewVerdict => ({
   sessionId: id,
@@ -21,8 +22,28 @@ const verdict = (id: string): ReviewVerdict => ({
 
 beforeEach(() => {
   reviews.map = {};
+  reviews.reviewing = {};
   repoConfig.enabled = {};
   vi.clearAllMocks();
+});
+
+test("setReviewing toggles the in-flight flag", () => {
+  reviews.setReviewing("s1", true);
+  expect(reviews.isReviewing("s1")).toBe(true);
+  reviews.setReviewing("s1", false);
+  expect(reviews.isReviewing("s1")).toBe(false);
+});
+
+test("applying a verdict clears the reviewing flag", () => {
+  reviews.setReviewing("s1", true);
+  reviews.apply({ id: "s1", review: verdict("s1") });
+  expect(reviews.isReviewing("s1")).toBe(false);
+});
+
+test("drop clears the reviewing flag", () => {
+  reviews.setReviewing("s1", true);
+  reviews.drop("s1");
+  expect(reviews.isReviewing("s1")).toBe(false);
 });
 
 test("apply sets a verdict", () => {
@@ -72,11 +93,13 @@ test("repoConfig.toggle defaults to false when state unknown (default-on)", asyn
   expect(repoConfig.isEnabled("/new-repo")).toBe(false);
 });
 
-test("reviews.load populates map from api", async () => {
+test("reviews.load populates map and in-flight ids from api", async () => {
   const v = verdict("s2");
   vi.mocked(getReviews).mockResolvedValue({ s2: v });
+  vi.mocked(getReviewingIds).mockResolvedValue(["s3"]);
   await reviews.load();
   expect(reviews.map["s2"]).toEqual(v);
+  expect(reviews.isReviewing("s3")).toBe(true);
 });
 
 test("repoConfig.ensure fetches and caches", async () => {

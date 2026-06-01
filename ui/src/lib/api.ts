@@ -327,6 +327,13 @@ export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
   return r.json();
 }
 
+/** Session ids with a critic run currently in flight (bootstrap for the reviewing indicator). */
+export async function getReviewingIds(): Promise<string[]> {
+  const r = await fetch("/api/reviews/inflight");
+  if (!r.ok) throw new Error(`reviewing failed: ${r.status}`);
+  return r.json();
+}
+
 export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw new Error(`repo-config failed: ${r.status}`);

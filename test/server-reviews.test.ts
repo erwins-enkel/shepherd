@@ -57,6 +57,20 @@ test("GET /api/reviews returns {} when reviewCache is absent", async () => {
   expect(await res.json()).toEqual({});
 });
 
+test("GET /api/reviews/inflight returns in-flight session ids", async () => {
+  const { app } = harness({ snapshot: () => ({}), reviewing: () => ["sess-1", "sess-2"] });
+  const res = await app.fetch(new Request("http://x/api/reviews/inflight"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(["sess-1", "sess-2"]);
+});
+
+test("GET /api/reviews/inflight returns [] when reviewCache is absent", async () => {
+  const { app } = harness(undefined);
+  const res = await app.fetch(new Request("http://x/api/reviews/inflight"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
 // ── GET /api/repo-config ──────────────────────────────────────────────────────
 
 test("GET /api/repo-config returns { criticEnabled: true } by default", async () => {

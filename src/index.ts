@@ -87,6 +87,7 @@ const reviewService = new ReviewService({
   worktree,
   resolveForge: (dir) => detectForge(dir, config.forges),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
+  onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
 });
 attachReviewPush(events, store, push);
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
@@ -156,7 +157,10 @@ const server = serve(
     prCache: prPoller,
     push,
     poller,
-    reviewCache: { snapshot: () => reviewService.snapshot() },
+    reviewCache: {
+      snapshot: () => reviewService.snapshot(),
+      reviewing: () => reviewService.reviewingIds(),
+    },
   },
   config.port,
 );

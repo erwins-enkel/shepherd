@@ -10,24 +10,18 @@
 </script>
 
 {#if label}
-  <span class="pr-wrap">
+  <span class="pr-badge pr-{git!.state}">
     {#if showCi}
       <span
         class="dot dot-{git!.checks}"
         title={m.gitrail_ci_status({ status: git!.checks })}
         aria-label={m.gitrail_ci_status({ status: git!.checks })}
       ></span>
-    {/if}
-    <span class="pr-badge pr-{git!.state}">{label}</span>
+    {/if}{label}
   </span>
 {/if}
 
 <style>
-  .pr-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
   .pr-badge {
     font-size: 10px;
     letter-spacing: 0.12em;
@@ -37,6 +31,9 @@
     border-radius: 2px;
     white-space: nowrap;
     color: var(--color-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
   .pr-open {
     border-color: var(--color-amber);
@@ -52,8 +49,8 @@
 
   /* mirrors GitRail's CI dot so the list reads the same as the detail panel */
   .dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     display: inline-block;
     background: var(--color-faint);
@@ -64,7 +61,7 @@
     animation: pip-pulse 1.5s ease-out infinite;
   }
   .dot-success {
-    background: var(--color-blue, #4a90d9);
+    background: var(--color-green, #5ad19a);
   }
   .dot-failure {
     background: var(--color-red, #d9534f);

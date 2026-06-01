@@ -1,6 +1,7 @@
 <script lang="ts">
   import { gitState, openPr, mergePr, redeploy, replySession, setReadyToMerge } from "$lib/api";
   import type { GitState, SessionStatus } from "$lib/types";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
@@ -134,6 +135,7 @@
     retry = null;
     try {
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
+      toasts.info(m.toast_merged({ name: name || sessionId }));
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

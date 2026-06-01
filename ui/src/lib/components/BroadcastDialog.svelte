@@ -3,6 +3,7 @@
   import type { Session } from "$lib/types";
   import { steers } from "$lib/steers.svelte";
   import { broadcast as apiBroadcast } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { sessions, onclose }: { sessions: Session[]; onclose: () => void } = $props();
@@ -12,13 +13,24 @@
   let sending = $state(false);
   let result = $state<string | null>(null);
   let failed = $state(false);
+  // Highest-blast-radius action in the app: one click arms, second (within 3s)
+  // fires — mirrors the decommission/merge confirm so no fat-finger blasts the herd.
+  let armed = $state(false);
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
 
   const allSelected = $derived(sessions.length > 0 && selected.size === sessions.length);
   const canSend = $derived(text.trim().length > 0 && selected.size > 0 && !sending);
 
+  // Any change to who/what is sent invalidates the confirm — re-arm from scratch.
+  function disarm() {
+    clearTimeout(armTimer);
+    armed = false;
+  }
+
   function toggle(id: string) {
     if (selected.has(id)) selected.delete(id);
     else selected.add(id);
+    disarm();
   }
   function toggleAll() {
     if (allSelected) {
@@ -26,17 +38,27 @@
     } else {
       for (const s of sessions) selected.add(s.id);
     }
+    disarm();
   }
 
   async function send() {
     if (!canSend) return;
+    if (!armed) {
+      armed = true;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => (armed = false), 3000);
+      return;
+    }
+    clearTimeout(armTimer);
+    armed = false;
     sending = true;
     result = null;
     failed = false;
     try {
       const r = await apiBroadcast(text.trim(), [...selected]);
-      result = m.broadcast_result_sent({ sent: r.sent, total: r.total });
-      setTimeout(onclose, 800);
+      // Confirmation outlives the dialog: a toast names the reach after close.
+      toasts.info(m.toast_broadcast_sent({ sent: r.sent, total: r.total }));
+      onclose();
     } catch {
       result = m.broadcast_failed();
       failed = true;
@@ -90,7 +112,8 @@
         </button>
       {/each}
     </div>
-    <textarea bind:value={text} rows="2" placeholder={m.broadcast_placeholder()}></textarea>
+    <textarea bind:value={text} oninput={disarm} rows="2" placeholder={m.broadcast_placeholder()}
+    ></textarea>
 
     {#if result}
       <div class="result" class:failed>
@@ -103,8 +126,14 @@
       </div>
     {/if}
 
-    <button class="run" type="button" disabled={!canSend} onclick={send}>
-      {sending ? m.broadcast_sending() : m.broadcast_send_to({ count: selected.size })}
+    <button class="run" class:armed type="button" disabled={!canSend} onclick={send}>
+      {#if sending}
+        {m.broadcast_sending()}
+      {:else if armed}
+        {m.broadcast_confirm_send({ count: selected.size })}
+      {:else}
+        {m.broadcast_send_to({ count: selected.size })}
+      {/if}
     </button>
   </div>
 </div>
@@ -259,6 +288,11 @@
   .run:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  /* armed: the same inset-glow confirm state used for decommission/merge */
+  .run.armed {
+    box-shadow: inset 0 0 22px -10px var(--color-amber);
+    background: var(--color-hover);
   }
   @media (max-width: 768px) {
     .overlay {

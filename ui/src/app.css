@@ -124,6 +124,17 @@ body {
     box-shadow: 0 0 0 0 transparent;
   }
 }
+/* in-progress dot: opacity blink (reads clearly at small size, clip-proof,
+   matches the critic reviewing dots — unlike the faint pip-pulse halo) */
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 @keyframes blink {
   50% {
     opacity: 0;

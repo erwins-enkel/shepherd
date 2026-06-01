@@ -14,6 +14,15 @@ export interface HerdrAgent {
   workspaceId: string;
 }
 
+export interface HerdrTab {
+  tabId: string;
+  /** the tab's display label (e.g. "usage-probe", "review TASK-09", a session branch). */
+  label: string;
+  /** "unknown" when no live agent backs the tab — i.e. an orphaned husk. */
+  agentStatus: HerdrState;
+  workspaceId: string;
+}
+
 export type Runner = (args: string[]) => string;
 
 const defaultRunner: Runner = (args) => execFileSync(config.herdrBin, args, { encoding: "utf8" });
@@ -46,6 +55,18 @@ export class HerdrDriver {
       tabId: a.tab_id,
       terminalId: a.terminal_id,
       workspaceId: a.workspace_id,
+    }));
+  }
+
+  /** Every tab in the workspace — including husks with no live agent (`tab list`). */
+  tabs(): HerdrTab[] {
+    const parsed = JSON.parse(this.runner(["tab", "list"]));
+    const tabs = parsed?.result?.tabs ?? [];
+    return tabs.map((t: Record<string, string>) => ({
+      tabId: t.tab_id,
+      label: t.label ?? "",
+      agentStatus: (t.agent_status ?? "unknown") as HerdrState,
+      workspaceId: t.workspace_id ?? "",
     }));
   }
 
@@ -85,35 +106,43 @@ export class HerdrDriver {
     const rootPaneId: string | undefined = created?.result?.root_pane?.pane_id;
     if (!tabId) throw new Error(`herdr: tab create returned no tab_id for ${name}`);
 
-    this.runner([
-      "agent",
-      "start",
-      name,
-      "--tab",
-      tabId,
-      "--cwd",
-      cwd,
-      "--no-focus",
-      "--",
-      ...argv,
-    ]);
+    // Anything after `tab create` can throw (agent start fails, or the resolve below
+    // finds nothing). The tab already exists, so on ANY failure we must close it —
+    // otherwise it lingers forever as an empty husk with no claude in it.
+    try {
+      this.runner([
+        "agent",
+        "start",
+        name,
+        "--tab",
+        tabId,
+        "--cwd",
+        cwd,
+        "--no-focus",
+        "--",
+        ...argv,
+      ]);
 
-    if (rootPaneId) {
-      try {
-        this.runner(["pane", "close", rootPaneId]);
-      } catch {
-        /* best-effort: agent still runs if the shell pane lingers, just at split width */
+      if (rootPaneId) {
+        try {
+          this.runner(["pane", "close", rootPaneId]);
+        } catch {
+          /* best-effort: agent still runs if the shell pane lingers, just at split width */
+        }
       }
-    }
 
-    // NOTE: resolves the just-started agent by its unique worktree cwd; ambiguous only if two
-    // sessions share a cwd (e.g. two non-git cwd-fallbacks on the same repoPath). TODO: prefer a
-    // terminal_id returned directly by `herdr agent start` if herdr exposes it.
-    const match = this.list()
-      .filter((a) => a.cwd === cwd)
-      .at(-1);
-    if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
-    return match;
+      // NOTE: resolves the just-started agent by its unique worktree cwd; ambiguous only if two
+      // sessions share a cwd (e.g. two non-git cwd-fallbacks on the same repoPath). TODO: prefer a
+      // terminal_id returned directly by `herdr agent start` if herdr exposes it.
+      const match = this.list()
+        .filter((a) => a.cwd === cwd)
+        .at(-1);
+      if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
+      return match;
+    } catch (err) {
+      this.closeTab(tabId); // roll back the orphan tab before propagating
+      throw err;
+    }
   }
 
   /** Write literal text to an agent's PTY (no implicit Enter). */
@@ -141,14 +170,25 @@ export class HerdrDriver {
     }
   }
 
-  /** Best-effort: stop the live agent backing a terminal id (closes its herdr pane). */
+  /**
+   * Best-effort teardown of the agent backing a terminal id. Closes the agent's whole
+   * TAB, not just its pane: every agent gets its own dedicated tab, so closing only the
+   * pane left an empty husk tab behind. Resolves the tab id FRESH from the live list
+   * (herdr tab ids are positional and renumber on close, so a stored id would drift).
+   * No-op if the agent has already left the list — the orphan sweep reaps that husk.
+   */
   stop(terminalId: string): void {
     const agent = this.list().find((a) => a.terminalId === terminalId);
-    if (!agent?.paneId) return;
+    if (!agent?.tabId) return;
+    this.closeTab(agent.tabId);
+  }
+
+  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
+  closeTab(tabId: string): void {
     try {
-      this.runner(["pane", "close", agent.paneId]);
+      this.runner(["tab", "close", tabId]);
     } catch {
-      /* best-effort; agent may already be gone */
+      /* best-effort; tab may already be gone */
     }
   }
 }

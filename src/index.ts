@@ -10,6 +10,7 @@ import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { reconcile } from "./reconcile";
+import { reapOrphanTabs } from "./tab-reaper";
 import { serve } from "./server";
 import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
@@ -69,6 +70,21 @@ const accountIndex = new AccountUsageIndex();
 const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr));
 
 reconcile(store, herdr);
+
+// Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The
+// teardown paths close these at the source; this sweep is the safety net for husks
+// they miss — agents that crashed out of `agent list`, or anything left over after a
+// shepherd restart cleared the in-memory review tracking. Run once on boot, then hourly.
+const sweepOrphanTabs = () => {
+  try {
+    const closed = reapOrphanTabs(herdr);
+    if (closed.length) console.warn(`[tabs] reaped ${closed.length} orphan helper tab(s)`);
+  } catch (err) {
+    console.warn("[tabs] orphan sweep failed:", err);
+  }
+};
+setTimeout(sweepOrphanTabs, 5_000);
+setInterval(sweepOrphanTabs, 60 * 60 * 1000);
 
 // Memoize forge resolution: detectForge shells out to a synchronous
 // `git remote get-url` per repo. forge↔repo is effectively immutable, so resolve

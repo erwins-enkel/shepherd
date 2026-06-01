@@ -121,19 +121,61 @@ test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restart
   expect(calls[2]).toEqual(["tab", "create", "--cwd", "/wt/a", "--label", "flatten", "--no-focus"]);
 });
 
-test("stop closes the pane backing a terminal id", () => {
+test("stop closes the WHOLE tab backing a terminal id (not just its pane)", () => {
+  // Closing only the pane left an empty husk tab behind — every agent gets its own
+  // dedicated tab, so a pane-close leaks the tab. Close the tab to take both down.
   const calls: string[][] = [];
   const d = new HerdrDriver((args) => {
     calls.push(args);
     return FIXTURE;
   });
   d.stop("term_a");
-  expect(calls.at(-1)).toEqual(["pane", "close", "p1"]);
+  expect(calls.at(-1)).toEqual(["tab", "close", "t1"]);
 });
 
 test("stop is a no-op for an unknown terminal id", () => {
   const d = new HerdrDriver(() => FIXTURE);
   expect(() => d.stop("term_missing")).not.toThrow();
+});
+
+test("start rolls back its orphan tab when agent start fails", () => {
+  // tab create succeeds, then `agent start` throws — without rollback the freshly
+  // created tab lingers forever with no claude in it ("didn't even launch claude").
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    if (args[0] === "agent" && args[1] === "start") throw new Error("herdr: agent start failed");
+    return reply(args, WORKSPACE_LIST);
+  });
+  expect(() => d.start("flatten", "/wt/a", ["claude", "go"])).toThrow();
+  expect(calls).toContainEqual(["tab", "close", "t_new"]);
+});
+
+const TAB_LIST = JSON.stringify({
+  result: {
+    type: "tab_list",
+    tabs: [
+      { tab_id: "w:1", label: "usage-probe", agent_status: "unknown", workspace_id: "w" },
+      { tab_id: "w:2", label: "review TASK-09", agent_status: "unknown", workspace_id: "w" },
+      { tab_id: "w:3", label: "addition-leaky", agent_status: "working", workspace_id: "w" },
+    ],
+  },
+});
+
+test("tabs parses herdr tab-list json into typed tabs", () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "tab" && args[1] === "list" ? TAB_LIST : FIXTURE,
+  );
+  const t = d.tabs();
+  expect(t.length).toBe(3);
+  expect(t[0]).toMatchObject({ tabId: "w:1", label: "usage-probe", agentStatus: "unknown" });
+});
+
+test("closeTab is best-effort: swallows a runner error", () => {
+  const d = new HerdrDriver(() => {
+    throw new Error("boom");
+  });
+  expect(() => d.closeTab("w:9")).not.toThrow();
 });
 
 test("mapState maps herdr states to shepherd status", () => {

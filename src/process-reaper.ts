@@ -206,8 +206,13 @@ export class ProcessReaper {
   constructor(private probes: ReaperProbes = defaultProbes) {}
 
   /** Detect surviving leftovers for a session (classes 2 + 3). */
-  detect(s: { worktreePath: string; claudeSessionId: string }): Leftover[] {
-    return [...this.scanWorktreeProcs(s.worktreePath), ...this.scanSystemSideEffects(s)];
+  detect(s: { worktreePath: string; claudeSessionId: string; isolated: boolean }): Leftover[] {
+    // Non-isolated sessions never got a private worktree — their `worktreePath` IS
+    // the shared repo root, where the shepherd server itself (and other unrelated
+    // long-running servers) are rooted. A cwd scan there flags processes that merely
+    // share the dir, not ones the session launched, so skip class 2 entirely.
+    const procs = s.isolated ? this.scanWorktreeProcs(s.worktreePath) : [];
+    return [...procs, ...this.scanSystemSideEffects(s)];
   }
 
   /** Class 2 — processes living in the worktree that listen on a port. */
@@ -215,6 +220,9 @@ export class ProcessReaper {
     const root = worktreePath.replace(/\/+$/, "");
     const out: Leftover[] = [];
     for (const p of this.probes.scanProcs()) {
+      // Never offer to reap ourselves: the shepherd server runs in the worktree's
+      // own repo and listens on a port, so without this it could surface itself.
+      if (p.pid === process.pid) continue;
       if (!isUnder(p.cwd, root) || AGENT_COMMS.has(p.comm)) continue;
       const ports = this.probes.portsForPid(p.pid);
       if (ports.length === 0) continue; // no listener ⇒ a transient child, not a server

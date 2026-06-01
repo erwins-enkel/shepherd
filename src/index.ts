@@ -63,6 +63,21 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
 
 reconcile(store, herdr);
 
+// Memoize forge resolution: detectForge shells out to a synchronous
+// `git remote get-url` per repo. forge↔repo is effectively immutable, so resolve
+// once per dir and share the result across the pollers, the critic, and the
+// per-request /api/backlog path — which otherwise re-shells git for every repo
+// on every hit, blocking the event loop even when the counts cache is fully warm.
+const forgeResolutionCache = new Map<string, ReturnType<typeof detectForge>>();
+const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
+  let forge = forgeResolutionCache.get(dir);
+  if (forge === undefined) {
+    forge = detectForge(dir, config.forges);
+    forgeResolutionCache.set(dir, forge);
+  }
+  return forge;
+};
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -80,10 +95,8 @@ attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.
-const prPoller = new PrPoller(
-  store,
-  (dir) => detectForge(dir, config.forges),
-  (id, git) => events.emit("session:git", { id, git }),
+const prPoller = new PrPoller(store, resolveForge, (id, git) =>
+  events.emit("session:git", { id, git }),
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
@@ -100,7 +113,7 @@ const reviewService = new ReviewService({
   store,
   herdr,
   worktree,
-  resolveForge: (dir) => detectForge(dir, config.forges),
+  resolveForge,
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
 });
@@ -172,7 +185,7 @@ const backlog = new CountsService(config.forges, ghRunnerAsync);
 // on a cadence below the cache's 60s TTL so the request path always hits warm.
 const backlogPoller = new BacklogPoller(
   () => listRepos(config.repoRoot),
-  (dir) => detectForge(dir, config.forges),
+  resolveForge,
   (dir) => backlog.refresh(dir),
 );
 setTimeout(() => void backlogPoller.tick(), 3_000);
@@ -187,7 +200,7 @@ const server = serve(
     updates,
     herdrUpdates,
     herdr,
-    resolveForge: (dir) => detectForge(dir, config.forges),
+    resolveForge,
     prCache: prPoller,
     push,
     presence,

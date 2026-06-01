@@ -44,6 +44,7 @@
   "actionbar_theme_group_aria": "Darstellung",
   "actionbar_theme_option": "{label}-Design",
   "actionbar_commit_title": "commit {sha}",
+  "actionbar_repo_link": "{repo} auf GitHub",
   "lang_switcher_aria": "Sprache",
   "lang_english": "English",
   "lang_german": "Deutsch",

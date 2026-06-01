@@ -681,6 +681,7 @@
     background: var(--color-line);
     border-radius: 2px;
     padding: 0 3px;
+    overflow-wrap: anywhere;
   }
   .rv-body :global(pre) {
     margin: 0 0 8px;
@@ -688,17 +689,34 @@
     background: var(--color-bg, var(--color-line));
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .rv-body :global(pre code) {
     background: none;
     padding: 0;
+    overflow-wrap: anywhere;
   }
   .rv-body :global(blockquote) {
     margin: 0 0 8px;
     padding-left: 8px;
     border-left: 2px solid var(--color-line);
     color: var(--color-muted);
+  }
+  .rv-body :global(table) {
+    width: 100%;
+    margin: 0 0 8px;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .rv-body :global(th),
+  .rv-body :global(td) {
+    padding: 2px 6px;
+    border: 1px solid var(--color-line);
+    text-align: left;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .review-actions {

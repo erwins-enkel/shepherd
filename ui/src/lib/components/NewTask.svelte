@@ -442,11 +442,14 @@
     }
     .x {
       position: absolute;
-      top: 6px;
-      right: 6px;
+      top: 0;
+      right: 0;
       z-index: 1;
-      min-width: 44px;
-      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
       font-size: 16px;
     }
     label[for="nt-prompt"] {

@@ -52,3 +52,17 @@ test("session:archived drops the git entry", () => {
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.git.s1).toBeUndefined();
 });
+
+test("session:renamed patches the name + branch of the matching session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({
+    event: "session:renamed",
+    data: { id: "s1", name: "fresh", branch: "shepherd/fresh" },
+  });
+  const a = s.sessions.find((x) => x.id === "s1");
+  const b = s.sessions.find((x) => x.id === "s2");
+  expect(a?.name).toBe("fresh");
+  expect(a?.branch).toBe("shepherd/fresh");
+  expect(b?.name).toBe("n"); // other sessions untouched
+});

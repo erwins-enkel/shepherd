@@ -8,7 +8,7 @@ import { moveStagedIntoWorktree } from "./uploads";
 
 export interface ServiceDeps {
   store: SessionStore;
-  worktree: Pick<WorktreeMgr, "create" | "remove">;
+  worktree: Pick<WorktreeMgr, "create" | "remove" | "renameBranch" | "branchExists">;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send">;
   namer: (prompt: string) => string | Promise<string>;
   /** Inject point for tests; defaults to the real fs move. */
@@ -132,6 +132,32 @@ export class SessionService {
       status: "running",
       lastState: "idle",
     });
+    return this.deps.store.get(id);
+  }
+
+  /**
+   * Rename a session to `slug`. Always updates the display name. When
+   * `renameLocalBranch` is set (and the session is isolated with a branch), also
+   * runs `git branch -m shepherd/<old> shepherd/<slug>` and re-points `branch`.
+   * The caller (server) decides `renameLocalBranch`: false for a display-only rename
+   * when an open PR can't be retargeted, true otherwise. Returns the updated session,
+   * or null for an unknown id. The git rename may throw on a name clash — the caller
+   * pre-checks and surfaces that as a conflict.
+   */
+  /** Whether a local branch already exists — the server's pre-flight check before a rename. */
+  branchExists(repoPath: string, branch: string): boolean {
+    return this.deps.worktree.branchExists(repoPath, branch);
+  }
+
+  rename(id: string, slug: string, opts: { renameLocalBranch: boolean }): Session | null {
+    const s = this.deps.store.get(id);
+    if (!s) return null;
+    const willRenameBranch = opts.renameLocalBranch && s.isolated && !!s.branch;
+    const newBranch = willRenameBranch ? `shepherd/${slug}` : s.branch;
+    if (willRenameBranch && s.branch) {
+      this.deps.worktree.renameBranch(s.repoPath, s.branch, newBranch as string);
+    }
+    this.deps.store.update(id, { name: slug, branch: newBranch });
     return this.deps.store.get(id);
   }
 

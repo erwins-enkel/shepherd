@@ -70,6 +70,11 @@ export class HerdStore {
           s.id === ev.data.id ? { ...s, status: ev.data.status } : s,
         );
         break;
+      case "session:renamed":
+        this.sessions = this.sessions.map((s) =>
+          s.id === ev.data.id ? { ...s, name: ev.data.name, branch: ev.data.branch } : s,
+        );
+        break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);

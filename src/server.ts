@@ -13,6 +13,7 @@ import {
   validateBroadcast,
   validateIconPatch,
 } from "./validate";
+import { slugifyManual } from "./namer";
 import { listRepos, readTodo, writeTodo } from "./repos";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
@@ -300,6 +301,86 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 
+// Validate the rename body, returning the typed name or the error Response to send.
+async function parseRenameName(req: Request): Promise<string | Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const raw = (body as { name?: unknown })?.name;
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return json({ error: "body must be {name: string}" }, 400);
+  }
+  return raw;
+}
+
+// Decide whether the local branch moves. An OPEN PR forces the host into the loop:
+// GitHub retargets it by renaming the remote branch first (so `s.branch` never points
+// away from the PR); a host that can't (Gitea) yields a display-only rename. Returns the
+// flag, or a 502 Response when the remote rename failed.
+async function resolveRenameBranch(
+  deps: AppDeps,
+  s: Session,
+  newBranch: string,
+  hasOpenPr: boolean,
+): Promise<boolean | Response> {
+  const renameLocalBranch = s.isolated && !!s.branch;
+  if (!hasOpenPr || !renameLocalBranch || !s.branch) return renameLocalBranch;
+
+  const forge = deps.resolveForge?.(s.repoPath) ?? null;
+  if (!forge?.renameBranch) return false; // can't retarget → keep the branch + PR, display-only
+
+  try {
+    await forge.renameBranch(s.branch, newBranch);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "rename failed" }, 502);
+  }
+  return renameLocalBranch;
+}
+
+// POST /api/sessions/:id/rename — rename a session (display name + git branch).
+// When a PR is already open the local branch only moves if the host can retarget the
+// PR (GitHub renames the remote branch; Gitea can't, so it's a display-only rename).
+async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "rename")) return null;
+  const raw = await parseRenameName(req);
+  if (raw instanceof Response) return raw;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+
+  const slug = slugifyManual(raw);
+  if (slug === s.name) return json({ session: s, branchRenamed: false, prRetargeted: false });
+
+  const newBranch = `shepherd/${slug}`;
+  if (s.isolated && deps.service.branchExists(s.repoPath, newBranch)) {
+    return json({ error: "name_taken" }, 409);
+  }
+
+  // capture before the cache drop below, which would otherwise hide the open PR
+  const hadOpenPr = deps.prCache?.snapshot()[s.id]?.state === "open";
+  const renameLocalBranch = await resolveRenameBranch(deps, s, newBranch, hadOpenPr);
+  if (renameLocalBranch instanceof Response) return renameLocalBranch;
+
+  let updated: Session | null;
+  try {
+    updated = deps.service.rename(s.id, slug, { renameLocalBranch });
+  } catch {
+    return json({ error: "name_taken" }, 409); // git branch -m lost a race since the pre-check
+  }
+  if (!updated) return json({ error: "not found" }, 404);
+
+  deps.prCache?.drop(s.id); // clear stale state; the next poll re-reads the new/retargeted branch
+  deps.events.emit("session:renamed", {
+    id: updated.id,
+    name: updated.name,
+    branch: updated.branch,
+  });
+  return json({
+    session: updated,
+    branchRenamed: renameLocalBranch,
+    prRetargeted: renameLocalBranch && hadOpenPr,
+  });
+}
+
 // POST /api/sessions/:id/resume — resume a finished session in a fresh agent.
 function handleSessionResume({ req, parts, deps }: Ctx): Response | null {
   if (!(req.method === "POST" && parts[2] && parts[3] === "resume")) return null;
@@ -328,6 +409,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReads,
     handleSessionDelete,
     handleSessionReply,
+    handleSessionRename,
     handleSessionResume,
     handleSessionDismissStall,
   ]) {

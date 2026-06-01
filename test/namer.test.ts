@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { generateName, normalize } from "../src/namer";
+import { generateName, normalize, slugifyManual } from "../src/namer";
 
 test("normalize → lowercase kebab, max 3 topical words", () => {
   expect(normalize("Flatten-Repo-Button-Addition Extra")).toBe("flatten-repo-button");
@@ -30,4 +30,25 @@ test("normalize returns empty string for symbol-only input", () => {
 test("generateName slugs the prompt, defaulting to 'task' when empty", () => {
   expect(generateName("Flatten the repo")).toBe("flatten-repo");
   expect(generateName("!!!")).toBe("task");
+});
+
+test("slugifyManual keeps every word the user typed (no stopword stripping)", () => {
+  // unlike normalize(), an intentional name keeps fillers — "the"/"my" stay
+  expect(slugifyManual("Fix the login bug")).toBe("fix-the-login-bug");
+  expect(slugifyManual("My Cool Name")).toBe("my-cool-name");
+});
+
+test("slugifyManual transliterates accents and collapses separators", () => {
+  expect(slugifyManual("Größe ändern")).toBe("groesse-aendern");
+  expect(slugifyManual("  spaced   __  out  ")).toBe("spaced-out");
+});
+
+test("slugifyManual falls back to 'task' for symbol-only input", () => {
+  expect(slugifyManual("!!! ??? ...")).toBe("task");
+});
+
+test("slugifyManual caps length without a trailing dash", () => {
+  const s = slugifyManual("a ".repeat(80)); // 80 single-letter words → long dashed run
+  expect(s.length).toBeLessThanOrEqual(60);
+  expect(s.endsWith("-")).toBe(false);
 });

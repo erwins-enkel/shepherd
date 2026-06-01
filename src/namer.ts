@@ -223,6 +223,25 @@ function transliterate(s: string): string {
 }
 
 /**
+ * Slugify a name the human typed deliberately (a manual rename), as opposed to a
+ * prompt the heuristic namer mines for a topic. Unlike {@link normalize} this keeps
+ * EVERY word — dropping stopwords here would mangle an intentional name like
+ * "fix the login bug" into "login-bug". Transliterates accents, lowercases, turns
+ * any run of non-alphanumerics into a single dash, trims stray edge dashes, and caps
+ * the length so it stays a sane branch/path component. Falls back to "task" when the
+ * input reduces to nothing (e.g. all punctuation).
+ */
+export function slugifyManual(input: string): string {
+  const slug = transliterate(input)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, ""); // a trailing dash can resurface after the length cap
+  return slug || "task";
+}
+
+/**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.
  * Transliterates accents, strips filler words, and keeps the first 1–3 topical
  * words — so the name reads like a marker ("scrollen-mausrad-geht") rather than

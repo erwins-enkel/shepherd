@@ -136,6 +136,71 @@ test("re-emits when checks or head SHA change on the same PR", async () => {
   expect(emitted.map((e) => e.headSha)).toEqual(["aaa", "aaa", "bbb"]);
 });
 
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test("pollSession emits for one session without a full sweep", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { id: string; state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN),
+    (id, git) => emitted.push({ id, state: git.state }),
+    120_000,
+    0, // no debounce delay in tests
+  );
+
+  poller.pollSession(s.id);
+  await tick();
+  expect(emitted).toEqual([{ id: s.id, state: "open" }]);
+
+  poller.pollSession(s.id); // unchanged → no new emit
+  await tick();
+  expect(emitted).toHaveLength(1);
+});
+
+test("pollSession coalesces a burst into a single poll", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    5,
+  );
+
+  poller.pollSession(s.id);
+  poller.pollSession(s.id);
+  poller.pollSession(s.id);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(calls).toBe(1);
+});
+
+test("pollSession ignores archived/unknown sessions", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  store.archive(s.id);
+  const emitted: unknown[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN),
+    (id, git) => emitted.push({ id, git }),
+    120_000,
+    0,
+  );
+
+  poller.pollSession(s.id);
+  poller.pollSession("nope");
+  await tick();
+  expect(emitted).toHaveLength(0);
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

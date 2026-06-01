@@ -285,6 +285,7 @@
           mobile={mobile.current}
           connected={store.connected}
           limits={store.usageLimits}
+          git={store.git[selected.id]}
           queue={blockedEntries.map((e) => e.session.id)}
           onnavigate={(id) => selectUnit(id)}
           {onarchive}
@@ -330,6 +331,7 @@
         <Viewport
           session={selected}
           touch={touch.current}
+          git={store.git[selected.id]}
           queue={blockedEntries.map((e) => e.session.id)}
           onnavigate={(id) => selectUnit(id)}
           {onarchive}

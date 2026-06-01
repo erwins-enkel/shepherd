@@ -203,6 +203,8 @@
   "criticbadge_reviewing": "PRÜFT…",
   "criticbadge_reviewing_title": "Kritiker prüft diese Sitzung",
   "viewport_decommission_title": "Agent stoppen + Worktree entfernen",
+  "viewport_decommission_ready_title": "PR steht — Session schließen & Worktree aufräumen",
+  "viewport_decommission_ready_aria": "PR bereit — Einheit stilllegen und Worktree aufräumen",
   "viewport_confirm_decommission": "bestätigen ✕",
   "viewport_decommission": "✕ stilllegen",
   "viewport_decommission_aria": "Einheit stilllegen",

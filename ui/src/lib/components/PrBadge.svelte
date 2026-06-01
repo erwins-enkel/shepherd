@@ -47,7 +47,7 @@
     color: var(--color-faint);
   }
 
-  /* mirrors GitRail's CI dot so the list reads the same as the detail panel */
+  /* same CI colors as GitRail's detail dot; sized to match the reviewing dot in-list */
   .dot {
     width: 6px;
     height: 6px;

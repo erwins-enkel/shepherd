@@ -461,7 +461,7 @@
     color: var(--color-red, #d9534f);
   }
   .ok {
-    color: var(--color-green, #4caf50);
+    color: var(--color-green, #5ad19a);
   }
 
   .pr-pop {

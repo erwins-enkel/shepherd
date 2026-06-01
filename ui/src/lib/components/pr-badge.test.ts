@@ -17,7 +17,7 @@ describe("prBadgeLabel", () => {
     expect(prBadgeLabel(git({ state: "open", number: 12 }))).toBe("PR #12");
   });
   it("labels a merged PR", () => {
-    expect(prBadgeLabel(git({ state: "merged", number: 12 }))).toBe("MERGED ✓");
+    expect(prBadgeLabel(git({ state: "merged", number: 12 }))).toBe("✓ MERGED");
   });
   it("labels a closed PR", () => {
     expect(prBadgeLabel(git({ state: "closed", number: 12 }))).toBe("CLOSED");

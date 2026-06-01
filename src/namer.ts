@@ -224,10 +224,12 @@ function transliterate(s: string): string {
 
 /**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.
- * Transliterates accents, strips filler words, and keeps the first 1–2 topical
- * words — so the name reads like a marker ("scrollen-mausrad") rather than the
- * raw opening of a sentence. Falls back to the raw words if filtering wiped
- * everything (a prompt made entirely of stopwords), and to "" if truly empty.
+ * Transliterates accents, strips filler words, and keeps the first 1–3 topical
+ * words — so the name reads like a marker ("scrollen-mausrad-geht") rather than
+ * the raw opening of a sentence. Three words (vs two) markedly lowers the chance
+ * two distinct prompts collide on the same slug. Falls back to the raw words if
+ * filtering wiped everything (a prompt made entirely of stopwords), and to "" if
+ * truly empty.
  */
 export function normalize(s: string): string {
   const words = transliterate(s)
@@ -237,13 +239,13 @@ export function normalize(s: string): string {
     .split(/\s+/)
     .filter(Boolean);
   const meaningful = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
-  return (meaningful.length ? meaningful : words).slice(0, 2).join("-");
+  return (meaningful.length ? meaningful : words).slice(0, 3).join("-");
 }
 
 /**
  * Derive a session name from a task prompt. Pure and deterministic — no network,
  * no local model. The salient words of a task prompt are already in the prompt,
- * so a heuristic slug matches or beats a local LLM for a 1–2 word name
+ * so a heuristic slug matches or beats a local LLM for a 1–3 word name
  * (benchmarked in PR #83) without the RAM/latency cost.
  */
 export function generateName(prompt: string): string {

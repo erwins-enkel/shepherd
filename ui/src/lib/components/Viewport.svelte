@@ -732,8 +732,16 @@
     let locked = false; // recognised as an actionable horizontal swipe
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      // don't hijack text selection / cursor placement in editable fields
-      if ((e.target as Element | null)?.closest("input, textarea, [contenteditable]")) return;
+      // don't hijack text selection / cursor placement in editable fields, nor the
+      // horizontally-scrollable bottom bars (steer chips, control keys, compose) —
+      // those overflow off-screen on a phone and the operator scrolls them sideways
+      // to reach a hidden button; only the terminal pane itself pages between agents.
+      if (
+        (e.target as Element | null)?.closest(
+          "input, textarea, [contenteditable], [data-swipe-ignore]",
+        )
+      )
+        return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       armed = true;
@@ -1103,7 +1111,7 @@
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
-    <div class="ctrl-row" bind:this={ctrlRowEl}>
+    <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
       <!-- Esc/Tab frozen on the left edge; the arrows + ^-keys scroll in the
            middle; attach/dictate/Enter frozen on the right. There's no compose
            chip — swipe up from this row to summon the compose sheet. -->

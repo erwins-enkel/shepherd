@@ -49,7 +49,7 @@
   }
 </script>
 
-<div class="steer-bar" role="toolbar" aria-label={m.steerbar_toolbar_aria()}>
+<div class="steer-bar" role="toolbar" aria-label={m.steerbar_toolbar_aria()} data-swipe-ignore>
   <button
     type="button"
     class="chip bc"

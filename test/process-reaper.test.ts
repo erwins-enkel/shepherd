@@ -22,7 +22,7 @@ function makeProbes(over: Partial<ReaperProbes> = {}): ReaperProbes {
   };
 }
 
-const session = { worktreePath: "/wt/repo-x", claudeSessionId: "sess-1" };
+const session = { worktreePath: "/wt/repo-x", claudeSessionId: "sess-1", isolated: true };
 
 test("class 2: a listening process under the worktree is detected", () => {
   const reaper = new ProcessReaper(
@@ -62,6 +62,31 @@ test("class 2: processes outside the worktree are ignored", () => {
     makeProbes({
       scanProcs: () => [{ pid: 7, cwd: "/wt/other-repo", comm: "vite" }],
       portsForPid: () => [3000],
+    }),
+  );
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("class 2: a non-isolated session (worktreePath == repo root) never cwd-scans — the shepherd server isn't reaped", () => {
+  // Non-isolated sessions share the repo root as their "worktree"; the shepherd
+  // server's own cwd IS that root and it listens on a port. Scanning by cwd would
+  // flag the server itself. The scan must be skipped entirely when !isolated.
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 7330, cwd: "/repo", comm: "bun" }],
+      portsForPid: () => [7330],
+    }),
+  );
+  expect(
+    reaper.detect({ worktreePath: "/repo", claudeSessionId: "sess-1", isolated: false }),
+  ).toEqual([]);
+});
+
+test("class 2: the reaper never offers its own process (self-pid)", () => {
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: process.pid, cwd: "/wt/repo-x", comm: "bun" }],
+      portsForPid: () => [7330], // even listening, the server must not reap itself
     }),
   );
   expect(reaper.detect(session)).toEqual([]);

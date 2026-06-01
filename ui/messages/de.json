@@ -186,6 +186,8 @@
   "criticbadge_commented": "✓ GEPRÜFT",
   "criticbadge_error": "REVIEW-FEHLER",
   "criticbadge_title": "Kritiker-Review für diesen PR-Stand",
+  "criticbadge_reviewing": "PRÜFT…",
+  "criticbadge_reviewing_title": "Kritiker prüft diese Sitzung",
   "viewport_decommission_title": "Agent stoppen + Worktree entfernen",
   "viewport_confirm_decommission": "bestätigen ✕",
   "viewport_decommission": "✕ stilllegen",

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.3.0](https://github.com/erwins-enkel/shepherd/compare/v1.2.0...v1.3.0) (2026-06-01)
+
+
+### Features
+
+* critic-on-PR — auto code review on CI-green PRs ([#80](https://github.com/erwins-enkel/shepherd/issues/80)) ([3e0ec0c](https://github.com/erwins-enkel/shepherd/commit/3e0ec0c222cdf6f536f91ff03a1a0ec85b022c0b))
+* **namer:** keep 3 topical words to cut slug collisions ([#113](https://github.com/erwins-enkel/shepherd/issues/113)) ([4eacd1c](https://github.com/erwins-enkel/shepherd/commit/4eacd1c3d040d094ba520afbfc5df15cb71a7d95))
+* poll PR status on agent-settle for instant badge ([#114](https://github.com/erwins-enkel/shepherd/issues/114)) ([32f28d6](https://github.com/erwins-enkel/shepherd/commit/32f28d6c3827ebb08d54db0fe84e3bd6845ca3f2))
+* **skills:** merge-train — review open PRs & propose merge order ([#115](https://github.com/erwins-enkel/shepherd/issues/115)) ([726badd](https://github.com/erwins-enkel/shepherd/commit/726badd78b99bc33ddfc32e92fc0d4f82836a571))
+* sync package.json version w/ release-please + show in footer ([#110](https://github.com/erwins-enkel/shepherd/issues/110)) ([4383767](https://github.com/erwins-enkel/shepherd/commit/438376792a7ea6bdd5d3b385b6d85fc9d7cb29e1))
+* **ui:** make the in-app update reliable & readable on mobile ([#111](https://github.com/erwins-enkel/shepherd/issues/111)) ([2558c76](https://github.com/erwins-enkel/shepherd/commit/2558c765faaa783db3b6250c1e3f126a7df083bc))
+* **ui:** reclaim phone session-header height for the terminal ([#104](https://github.com/erwins-enkel/shepherd/issues/104)) ([e76ebc4](https://github.com/erwins-enkel/shepherd/commit/e76ebc464788b14020b9d3a3ab1f290f61c00bca))
+* **ui:** surface critic reviewing status + declutter detail header ([#112](https://github.com/erwins-enkel/shepherd/issues/112)) ([46b375b](https://github.com/erwins-enkel/shepherd/commit/46b375be2c457d97f25f979974952cec3374cddb))
+
+
+### Bug Fixes
+
+* **critic:** produce verdicts — fix arg-swallow, dontAsk Write, hook derail ([#116](https://github.com/erwins-enkel/shepherd/issues/116)) ([17100ab](https://github.com/erwins-enkel/shepherd/commit/17100abf7e6c7d0e706d8dc9b56b3a13205e4133))
+* **herdr-update:** pass --handoff so protocol-bump updates survive running targets ([#109](https://github.com/erwins-enkel/shepherd/issues/109)) ([660e112](https://github.com/erwins-enkel/shepherd/commit/660e1123c937698964af68b4f81ed3d9bf1dd405))
+* **ui:** auto-grow + scrollable, edge-to-edge prompt field on mobile ([#106](https://github.com/erwins-enkel/shepherd/issues/106)) ([51c2467](https://github.com/erwins-enkel/shepherd/commit/51c24674a1424d4b9b73193cfc7fb7081af65b57))
+* **ui:** center close ✕ in its gutter on new-task sheet (mobile) ([#105](https://github.com/erwins-enkel/shepherd/issues/105)) ([db8198c](https://github.com/erwins-enkel/shepherd/commit/db8198c2579ee3821e38a5dc5206f571cc7f2256))
+* **ui:** drop redundant frozen elapsed timer from session detail header ([#108](https://github.com/erwins-enkel/shepherd/issues/108)) ([6cbb84f](https://github.com/erwins-enkel/shepherd/commit/6cbb84f1cc52c4260de7cad6c519b080bd2fd59c))
+
 ## [1.2.0](https://github.com/erwins-enkel/shepherd/compare/v1.1.0...v1.2.0) (2026-06-01)
 
 

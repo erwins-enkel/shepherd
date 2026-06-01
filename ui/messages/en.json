@@ -194,6 +194,7 @@
   "viewport_attach_image": "Attach image",
   "viewport_type_steer_hint": "⌁ type to steer",
   "viewport_detach_hint": "⇥ detach",
+  "viewport_select_hint": "{key} drag to select",
   "viewport_parked_title": "Active on another device",
   "viewport_parked_sub": "Tap to take over",
   "viewport_session_ended": "── session ended ──",

@@ -318,6 +318,23 @@ test("attachGitPush notifies on a newer human review only", async () => {
 
   const hr = calls.filter((c) => c.kind === "review-human");
   expect(hr.map((c) => c.reviewState)).toEqual(["commented", "changes_requested"]);
+  expect(hr.map((c) => c.cooldownKey)).toEqual(["review-human:g2:100", "review-human:g2:200"]);
+});
+
+test("attachGitPush forgets a session's CI state on archive", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "success" }) });
+  events.emit("session:archived", { id: "g3" });
+  // same checks value again — but state was forgotten, so it fires anew
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "success" }) });
+  await Promise.resolve();
+
+  expect(calls.filter((c) => c.kind === "ci").length).toBe(2);
 });
 
 test("buildPayload localizes ci + review-human kinds", () => {

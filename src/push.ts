@@ -289,6 +289,12 @@ export function attachGitPush(events: EventHub, store: SessionStore, push: PushS
   const lastChecks = new Map<string, ChecksState>();
   const lastReviewTs = new Map<string, number>();
   events.subscribe((event, data) => {
+    if (event === "session:archived") {
+      const { id } = data as { id: string };
+      lastChecks.delete(id);
+      lastReviewTs.delete(id);
+      return;
+    }
     if (event !== "session:git") return;
     const { id, git } = data as { id: string; git: GitState };
     const name = store.get(id)?.name ?? id;
@@ -318,6 +324,7 @@ export function attachGitPush(events: EventHub, store: SessionStore, push: PushS
         tag: `review-human:${id}`,
         name,
         reviewState: r.state,
+        cooldownKey: `review-human:${id}:${r.submittedAt}`,
       });
     }
   });

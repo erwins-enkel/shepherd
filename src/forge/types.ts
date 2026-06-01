@@ -33,7 +33,6 @@ export interface PrStatus {
   latestReview?: {
     state: "approved" | "changes_requested" | "commented";
     author: string;
-    url?: string;
     submittedAt: number; // epoch ms
   };
   /** A deploy workflow is configured for this host. */

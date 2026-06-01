@@ -42,6 +42,14 @@ export interface IssueRef {
   title: string;
   body: string;
 }
+/** An installed slash command (skill or command file) surfaced in the New Task
+ *  "Commands" tab; picking one seeds the prompt with `/<name> `. */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  scope: "project" | "user";
+}
+
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {
   label: string;

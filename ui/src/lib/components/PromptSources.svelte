@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getTodo, listIssues } from "$lib/api";
-  import type { Issue } from "$lib/types";
+  import { getTodo, listIssues, getCommands } from "$lib/api";
+  import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -13,11 +13,14 @@
     onpickissue: (issue: Issue) => void;
   } = $props();
 
-  let tab = $state<"todo" | "issues">("todo");
+  let tab = $state<"todo" | "issues" | "commands">("todo");
   let todos = $state<string[]>([]);
   let issues = $state<Issue[]>([]);
+  let commands = $state<SlashCommand[]>([]);
   let slug = $state<string | null>(null);
   let loading = $state(false);
+  let filter = $state("");
+  let filterInput = $state<HTMLInputElement>();
 
   const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
 
@@ -43,6 +46,18 @@
           todos = [];
           loading = false;
         });
+    } else if (t === "commands") {
+      getCommands(rp)
+        .then((r) => {
+          if (rp !== repoPath || t !== tab) return;
+          commands = r.commands;
+          loading = false;
+        })
+        .catch(() => {
+          if (rp !== repoPath || t !== tab) return;
+          commands = [];
+          loading = false;
+        });
     } else {
       listIssues(rp)
         .then((r) => {
@@ -58,6 +73,23 @@
           loading = false;
         });
     }
+  });
+
+  // Case-insensitive typeahead over name + description (the list spans every
+  // installed skill/command, so narrowing is the primary way to find one).
+  const filteredCommands = $derived.by(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return commands;
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q),
+    );
+  });
+
+  // Land the caret in the filter as soon as the Commands tab is ready, so the
+  // user can just start typing to narrow. Deps are tab/loading only — typing in
+  // the filter doesn't re-run this, so it never steals focus mid-search.
+  $effect(() => {
+    if (tab === "commands" && !loading) filterInput?.focus();
   });
 </script>
 
@@ -81,6 +113,14 @@
       >
         {m.promptsources_issues_tab()}
       </button>
+      <button
+        class="tab"
+        class:active={tab === "commands"}
+        type="button"
+        onclick={() => (tab = "commands")}
+      >
+        {m.promptsources_commands_tab()}
+      </button>
     </div>
   </div>
 
@@ -95,6 +135,27 @@
           <button class="row" type="button" onclick={() => onpick(text)}>
             <span class="row-marker">□</span>
             <span class="row-text">{text}</span>
+          </button>
+        {/each}
+      {/if}
+    {:else if tab === "commands"}
+      <input
+        class="cmd-filter"
+        type="text"
+        bind:this={filterInput}
+        bind:value={filter}
+        placeholder={m.promptsources_commands_filter()}
+        aria-label={m.promptsources_commands_filter()}
+      />
+      {#if filteredCommands.length === 0}
+        <div class="muted">{m.promptsources_no_commands()}</div>
+      {:else}
+        {#each filteredCommands as c (c.scope + ":" + c.name)}
+          <button class="row" type="button" onclick={() => onpick("/" + c.name + " ")}>
+            <span class="row-marker">/</span>
+            <span class="cmd-name">{c.name}</span>
+            <span class="row-text cmd-desc">{c.description}</span>
+            {#if c.scope === "user"}<span class="chip">user</span>{/if}
           </button>
         {/each}
       {/if}
@@ -244,6 +305,35 @@
     color: var(--color-muted);
     flex-shrink: 0;
     font-size: 11px;
+  }
+
+  /* Sticky so it stays put while the (potentially long) command list scrolls. */
+  .cmd-filter {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 8px 4px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 4px 8px;
+    border-radius: 2px;
+  }
+
+  .cmd-filter:focus {
+    outline: none;
+    border-color: var(--color-amber);
+  }
+
+  .cmd-name {
+    color: var(--color-ink-bright);
+    flex-shrink: 0;
+  }
+
+  .cmd-desc {
+    color: var(--color-faint);
   }
 
   .row-text {

@@ -282,7 +282,13 @@
         {repoPath}
         onpick={(p) => {
           prompt = p;
-          queueMicrotask(autogrow); // resize after the picked prompt binds
+          // resize, then land focus + caret at the end so a seeded command like
+          // "/merge-train " is immediately editable for args
+          queueMicrotask(() => {
+            autogrow();
+            promptInput?.focus();
+            promptInput?.setSelectionRange(prompt.length, prompt.length);
+          });
         }}
         onpickissue={pickIssue}
       />

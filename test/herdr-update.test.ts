@@ -106,3 +106,62 @@ test("apply() launches once and guards double-launch", () => {
   expect(svc.apply()).toEqual({ started: false });
   expect(launches).toBe(1);
 });
+
+// ── apply(): onLog / follow injection ────────────────────────────────────────
+test("apply() calls follow and forwards lines to onLog", () => {
+  const received: string[] = [];
+  let capturedOnLine: ((line: string) => void) | null = null;
+
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.5.10",
+    fetchLatest: async () => ({ version: "0.6.5" }),
+    launch: () => {},
+    onLog: (line) => received.push(line),
+    follow: (onLine) => {
+      capturedOnLine = onLine;
+    },
+  });
+
+  svc.apply();
+  expect(capturedOnLine).not.toBeNull();
+  capturedOnLine!("Fetching herdr 0.6.5...");
+  capturedOnLine!("Installing...");
+  expect(received).toEqual(["Fetching herdr 0.6.5...", "Installing..."]);
+});
+
+test("apply() does not start follow on second call", () => {
+  let followCalls = 0;
+  const svc = new HerdrUpdateService({
+    launch: () => {},
+    onLog: () => {},
+    follow: () => {
+      followCalls++;
+    },
+  });
+
+  svc.apply(); // first call — follow runs
+  svc.apply(); // guard fires — follow should NOT run again
+  expect(followCalls).toBe(1);
+});
+
+test("apply() survives a follow implementation that throws", () => {
+  const svc = new HerdrUpdateService({
+    launch: () => {},
+    follow: () => {
+      throw new Error("journalctl not found");
+    },
+  });
+  // must not throw
+  expect(() => svc.apply()).not.toThrow();
+  expect(svc.apply()).toEqual({ started: false }); // guard: still marked as applying
+});
+
+test("apply() with no follow dep still returns started:true", () => {
+  // When no follow dep is provided the default journalctl path would run; inject
+  // a no-op to keep tests hermetic (no real journalctl in CI).
+  const svc = new HerdrUpdateService({
+    launch: () => {},
+    follow: () => {},
+  });
+  expect(svc.apply()).toEqual({ started: true });
+});

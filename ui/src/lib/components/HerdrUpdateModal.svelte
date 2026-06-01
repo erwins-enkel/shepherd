@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
   import { applyHerdrUpdate } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
@@ -6,17 +7,20 @@
   let {
     update,
     sessions = 0,
+    log = [],
     onconfirm,
     onclose,
   }: {
     update: HerdrUpdateStatus;
     sessions?: number;
+    log?: string[];
     onconfirm?: () => void;
     onclose?: () => void;
   } = $props();
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  let logEl = $state<HTMLPreElement | null>(null);
 
   // herdr update restarts herdr (ending live panes) then restarts shepherd; the
   // store auto-reconnects once the new build is live, so we just hold the busy state.
@@ -33,6 +37,16 @@
       submitting = false;
     }
   }
+
+  // Auto-scroll the log pane to bottom whenever new lines arrive.
+  $effect(() => {
+    // read log.length to subscribe to changes
+    if (log.length && logEl) {
+      tick().then(() => {
+        if (logEl) logEl.scrollTop = logEl.scrollHeight;
+      });
+    }
+  });
 </script>
 
 <div
@@ -76,6 +90,10 @@
 
     {#if busy}
       <div class="status">{m.herdrupdate_busy()}</div>
+      {#if log.length > 0}
+        <div class="log-label micro">{m.herdrupdate_log_label()}</div>
+        <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
+      {/if}
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 
@@ -201,6 +219,23 @@
   .status {
     color: var(--color-amber);
     font-size: 12px;
+  }
+  .log-label {
+    margin-bottom: -8px;
+  }
+  .log {
+    margin: 0;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+    padding: 10px 12px;
+    font-family: monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--color-ink-bright);
+    white-space: pre-wrap;
+    word-break: break-all;
   }
   .err {
     color: var(--color-red);

@@ -102,7 +102,9 @@ setInterval(checkUpdates, 5 * 60 * 1000);
 // unlike the self-update above this never auto-applies (running `herdr update`
 // restarts the herdr server and bounces every live session). releases are rare,
 // so a 6h cadence is plenty.
-const herdrUpdates = new HerdrUpdateService();
+const herdrUpdates = new HerdrUpdateService({
+  onLog: (line) => events.emit("herdr-update:log", { line }),
+});
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));
 setTimeout(checkHerdrUpdate, 4_000);

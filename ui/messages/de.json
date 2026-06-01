@@ -13,6 +13,7 @@
   "herdrupdate_confirm_plain": "Jetzt aktualisieren",
   "herdrupdate_busy": "Aktualisiere… herdr und Shepherd starten neu, die Seite verbindet sich automatisch wieder.",
   "herdrupdate_later": "Später",
+  "herdrupdate_log_label": "Update-Protokoll",
   "common_needs_you": "BRAUCHT DICH · {count}",
   "common_no_open_issues": "keine offenen Issues",
   "main_no_unit_selected": "KEINE AUFGABE GEWÄHLT",

@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.2.0](https://github.com/erwins-enkel/shepherd/compare/v1.1.0...v1.2.0) (2026-06-01)
+
+
+### Features
+
+* **herdr-update:** stream live update log to the modal ([#100](https://github.com/erwins-enkel/shepherd/issues/100)) ([a43d3b4](https://github.com/erwins-enkel/shepherd/commit/a43d3b4fd2c5a192eb688c3707cf724cf9e1c544))
+* **namer:** shorter, readable session names + demote TASK-NN on cards ([#83](https://github.com/erwins-enkel/shepherd/issues/83)) ([efcc31c](https://github.com/erwins-enkel/shepherd/commit/efcc31ca670195187ec6da6021a08ae727c9e3e9))
+* **ui:** compact mobile new-task dialog + 'next needs you' header jump ([#87](https://github.com/erwins-enkel/shepherd/issues/87)) ([1f3175b](https://github.com/erwins-enkel/shepherd/commit/1f3175b95d4ad1f130fc06604ad08173ba349a6d))
+* **ui:** jump into the console from "needs you" and page its queue on mobile ([#92](https://github.com/erwins-enkel/shepherd/issues/92)) ([9636e14](https://github.com/erwins-enkel/shepherd/commit/9636e1483f95aff5ae4ca0ac981798eb970d5668))
+* **ui:** linkify URLs in terminal pane so they're tappable on mobile ([#86](https://github.com/erwins-enkel/shepherd/issues/86)) ([62af892](https://github.com/erwins-enkel/shepherd/commit/62af892c9e7764965172d42318cf54cb8c51fead))
+* **ui:** one-tap dictation mic in the compose bar ([#103](https://github.com/erwins-enkel/shepherd/issues/103)) ([16af415](https://github.com/erwins-enkel/shepherd/commit/16af4152ac1f264d316015553557abb38584cd49))
+* **ui:** show repo + task in top bar on phone detail view ([#96](https://github.com/erwins-enkel/shepherd/issues/96)) ([73c996f](https://github.com/erwins-enkel/shepherd/commit/73c996f47455c38c7af5990e7ab2cba62ca10272))
+* **viewport:** add jump-to-bottom button when scrolled up in the terminal ([#91](https://github.com/erwins-enkel/shepherd/issues/91)) ([fe84eaf](https://github.com/erwins-enkel/shepherd/commit/fe84eafd6d7bd45e65dc89a3a5fb8522e287f81a))
+
+
+### Bug Fixes
+
+* **controlbar:** discriminate tap from drag so scrolling the key row doesn't fire a key ([#101](https://github.com/erwins-enkel/shepherd/issues/101)) ([9746980](https://github.com/erwins-enkel/shepherd/commit/974698017432a2900d37090d65478da0d4addb6c))
+* **push:** valid default VAPID subject + 403 diagnostics + per-session debounce ([#102](https://github.com/erwins-enkel/shepherd/issues/102)) ([30b099e](https://github.com/erwins-enkel/shepherd/commit/30b099e9ee8904acf0d5895178ac213b274fa28a))
+* **status:** relabel done state as WAITING/WARTET ([#94](https://github.com/erwins-enkel/shepherd/issues/94)) ([e111b5d](https://github.com/erwins-enkel/shepherd/commit/e111b5d169526b41cf1a840dfabac5bfc1ab0a0f))
+* **steerbar:** discriminate tap from drag so scrolling the chip row doesn't fire a steer ([#88](https://github.com/erwins-enkel/shepherd/issues/88)) ([55fced2](https://github.com/erwins-enkel/shepherd/commit/55fced2c8093c07ad82d6d12982f2a64c3c46de8))
+* **terminal:** allow text selection in xterm while an agent's TUI is active ([#85](https://github.com/erwins-enkel/shepherd/issues/85)) ([2e8684e](https://github.com/erwins-enkel/shepherd/commit/2e8684edc691a403f2979f29f94680747ab9fe2c))
+* **ui:** align bun.lock spec with package.json so installs stay idempotent ([#98](https://github.com/erwins-enkel/shepherd/issues/98)) ([a6cd1df](https://github.com/erwins-enkel/shepherd/commit/a6cd1df89653f8659e0aa2b068252c4f034b011d))
+* **update:** show the real reason a self-update fails (no more bare "error 409") ([#97](https://github.com/erwins-enkel/shepherd/issues/97)) ([6f773e3](https://github.com/erwins-enkel/shepherd/commit/6f773e349d53c78e4f5a658b3e6ffa94b662c42f))
+* **viewport:** move mobile compose field below nav keys ([#93](https://github.com/erwins-enkel/shepherd/issues/93)) ([90c92fe](https://github.com/erwins-enkel/shepherd/commit/90c92feb2df69b86e4a629856e0ba78858109a31))
+
+
+### Code Refactoring
+
+* **namer:** drop Ollama, heuristic-only session names ([#99](https://github.com/erwins-enkel/shepherd/issues/99)) ([c8743eb](https://github.com/erwins-enkel/shepherd/commit/c8743ebb432c0d46ce5e10fdcad14640e61a3a36))
+
 ## [1.1.0](https://github.com/erwins-enkel/shepherd/compare/v1.0.0...v1.1.0) (2026-05-31)
 
 

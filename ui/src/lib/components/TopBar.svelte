@@ -214,7 +214,9 @@
         class="update-badge"
         class:mobile
         onclick={() => onupdate?.()}
-        title="{update!.behind} {update!.behind === 1 ? 'neuer Commit' : 'neue Commits'} auf main"
+        title="{update!.behind} {update!.behind === 1
+          ? m.updatemodal_commits_one()
+          : m.updatemodal_commits_other()}"
       >
         <span class="up-dot">▲</span>
         {#if !mobile}<span class="up-label">Update</span>{/if}

@@ -108,6 +108,8 @@
   "promptsources_more_labels": "+{count}",
   "promptsources_no_commands": "keine installierten Befehle",
   "promptsources_commands_filter": "Befehle filtern…",
+  "slash_menu_label": "Slash-Befehle",
+  "slash_menu_empty": "keine passenden Befehle",
   "reposelect_placeholder": "Repo auswählen…",
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",

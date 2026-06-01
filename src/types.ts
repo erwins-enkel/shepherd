@@ -91,3 +91,16 @@ export interface HerdrUpdateStatus {
   /** set when the check itself failed (binary missing / network); badge stays hidden */
   error?: string;
 }
+
+// ── critic-on-PR review verdict ─────────────────────────────────────────────
+export type ReviewDecision = "changes_requested" | "commented" | "error";
+
+export interface ReviewVerdict {
+  sessionId: string;
+  headSha: string; // PR head this verdict applies to
+  decision: ReviewDecision;
+  summary: string; // <=100 char one-liner for the badge tooltip
+  body: string; // full markdown findings (seeds the steer-back)
+  url?: string; // posted PR-review URL, when the host returns one
+  updatedAt: number;
+}

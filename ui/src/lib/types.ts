@@ -55,6 +55,21 @@ export interface PrStatus {
   mergeable?: boolean | null;
   checks: ChecksState;
   deployConfigured: boolean;
+  headSha?: string;
+}
+
+export type ReviewDecision = "changes_requested" | "commented" | "error";
+export interface ReviewVerdict {
+  sessionId: string;
+  headSha: string;
+  decision: ReviewDecision;
+  summary: string;
+  body: string;
+  url?: string;
+  updatedAt: number;
+}
+export interface RepoConfig {
+  criticEnabled: boolean;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
@@ -158,7 +173,8 @@ export type WsEvent =
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "herdr-update:log"; data: { line: string } }
-  | { event: "project-icons:update"; data: ProjectIcons };
+  | { event: "project-icons:update"; data: ProjectIcons }
+  | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } };
 
 export interface CreateInput {
   repoPath: string;

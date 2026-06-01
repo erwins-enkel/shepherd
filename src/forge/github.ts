@@ -8,6 +8,7 @@ import type {
   MergeInput,
   MergeMethod,
   OpenPrInput,
+  PostReviewInput,
   PrStatus,
   RedeployInput,
 } from "./types";
@@ -25,6 +26,7 @@ interface GhPr {
   state: string; // OPEN | MERGED | CLOSED
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
   statusCheckRollup?: CheckRun[];
+  headRefOid?: string;
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -88,7 +90,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,statusCheckRollup",
+      "number,url,title,state,mergeable,statusCheckRollup,headRefOid",
       "--limit",
       "1",
     ]);
@@ -103,6 +105,7 @@ export class GithubForge implements GitForge {
       title: pr.title,
       mergeable: mapMergeable(pr.mergeable),
       checks: rollupChecks(pr.statusCheckRollup ?? []),
+      headSha: pr.headRefOid,
       deployConfigured,
     };
   }
@@ -135,5 +138,49 @@ export class GithubForge implements GitForge {
 
   async redeploy(o: RedeployInput): Promise<void> {
     this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
+  }
+
+  async postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }> {
+    if (o.event === "REQUEST_CHANGES") {
+      try {
+        this.run([
+          "pr",
+          "review",
+          String(prNumber),
+          "--repo",
+          this.slug,
+          "--request-changes",
+          "--body",
+          o.body,
+        ]);
+        return {}; // gh pr review prints no machine-readable URL
+      } catch {
+        // GitHub forbids request-changes on a PR you authored, and the agent +
+        // critic share one gh identity — so this 422s on self-authored PRs. Fall
+        // back to a plain PR comment so the findings still land on the host.
+        // `gh pr comment` echoes the new comment's URL on stdout.
+        const url = this.run([
+          "pr",
+          "comment",
+          String(prNumber),
+          "--repo",
+          this.slug,
+          "--body",
+          o.body,
+        ]).trim();
+        return { url: url || undefined };
+      }
+    }
+    this.run([
+      "pr",
+      "review",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--comment",
+      "--body",
+      o.body,
+    ]);
+    return {}; // gh pr review prints no machine-readable URL
   }
 }

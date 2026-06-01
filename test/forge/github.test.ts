@@ -88,3 +88,61 @@ test("GithubForge.kind + slug", () => {
   expect(forge.kind).toBe("github");
   expect(forge.slug).toBe("o/r");
 });
+
+test("GithubForge.postReview: request-changes invokes gh pr review", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.postReview(7, { event: "REQUEST_CHANGES", body: "nope" });
+  expect(calls[0]).toEqual([
+    "pr",
+    "review",
+    "7",
+    "--repo",
+    "o/r",
+    "--request-changes",
+    "--body",
+    "nope",
+  ]);
+});
+
+test("GithubForge.postReview: comment maps to --comment", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.postReview(7, { event: "COMMENT", body: "fyi" });
+  expect(calls[0]).toEqual(["pr", "review", "7", "--repo", "o/r", "--comment", "--body", "fyi"]);
+});
+
+test("GithubForge.prStatus: surfaces head SHA from headRefOid", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 7,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
+      headRefOid: "abc123",
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("feature");
+  expect(st.headSha).toBe("abc123");
+  expect(calls[0]!.join(" ")).toContain("headRefOid");
+});
+
+test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {
+  // GitHub 422s request-changes on a self-authored PR; emulate gh exiting non-zero
+  // on the review call, then succeeding (and echoing the URL) on pr comment.
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[1] === "review") throw new Error("Can not request changes on your own pull request");
+    return "https://github.com/o/r/pull/7#issuecomment-99\n";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const result = await forge.postReview(7, { event: "REQUEST_CHANGES", body: "nope" });
+  expect(result).toEqual({ url: "https://github.com/o/r/pull/7#issuecomment-99" });
+  expect(calls[0]!.slice(0, 2)).toEqual(["pr", "review"]);
+  expect(calls[1]).toEqual(["pr", "comment", "7", "--repo", "o/r", "--body", "nope"]);
+});

@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
+import { reviews } from "./reviews.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -73,6 +74,7 @@ export class HerdStore {
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
+        reviews.drop(ev.data.id);
         break;
       case "session:git":
         this.git = { ...this.git, [ev.data.id]: ev.data.git };
@@ -103,6 +105,9 @@ export class HerdStore {
         break;
       case "project-icons:update":
         projectIcons.apply(ev.data);
+        break;
+      case "session:review":
+        reviews.apply(ev.data);
         break;
     }
   }

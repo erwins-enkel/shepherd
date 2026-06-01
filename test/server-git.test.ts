@@ -55,6 +55,7 @@ function fakeForge(
     redeploy: async (o) => {
       log.push(`redeploy:${o.workflow}:${o.ref}`);
     },
+    postReview: async () => ({}),
   };
   return Object.assign(base, over, { log });
 }

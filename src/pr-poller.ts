@@ -38,7 +38,13 @@ export class PrPoller implements PrCache {
         continue; // transient gh failure → keep last cached value
       }
       const prev = this.cache.get(s.id);
-      if (!prev || prev.state !== git.state || prev.number !== git.number) {
+      if (
+        !prev ||
+        prev.state !== git.state ||
+        prev.number !== git.number ||
+        prev.checks !== git.checks ||
+        prev.headSha !== git.headSha
+      ) {
         this.cache.set(s.id, git);
         this.onChange(s.id, git);
       }

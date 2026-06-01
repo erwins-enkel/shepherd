@@ -7,6 +7,7 @@
   import { connectPty } from "$lib/pty";
   import { theme, xtermTheme } from "$lib/theme.svelte";
   import PrBadge from "./PrBadge.svelte";
+  import CriticBadge from "./CriticBadge.svelte";
 
   let {
     session,
@@ -104,6 +105,7 @@
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     <PrBadge {git} />
+    <CriticBadge sessionId={session.id} />
     <span class="badge">{statusLabel(session.status)}</span>
     <span class="desig">{session.desig}</span>
   </div>

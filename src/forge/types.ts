@@ -20,6 +20,9 @@ export interface PrStatus {
   /** null = host still computing mergeability. */
   mergeable?: boolean | null;
   checks: ChecksState;
+  /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
+   *  "review this head once" dedup and per-push re-review. */
+  headSha?: string;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }
@@ -47,6 +50,14 @@ export interface RedeployInput {
   ref: string;
 }
 
+/** A critic review verdict the forge can post. Shepherd never approves a PR. */
+export type ReviewEvent = "REQUEST_CHANGES" | "COMMENT";
+
+export interface PostReviewInput {
+  event: ReviewEvent;
+  body: string;
+}
+
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
@@ -59,6 +70,9 @@ export interface GitForge {
   openPr(o: OpenPrInput): Promise<PrStatus>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
+  /** Post a critic review (request-changes / comment) on a PR. Returns the
+   *  review's URL when the host provides one. */
+  postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

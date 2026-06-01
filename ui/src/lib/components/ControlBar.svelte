@@ -1,8 +1,20 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import { controlKeys, type ControlKey } from "$lib/controlKeys";
+  import { controlKeys, type ControlKey, type ControlGroup } from "$lib/controlKeys";
 
-  let { onkey }: { onkey: (seq: string) => void } = $props();
+  // `include` renders only the listed groups (omit for all); `scroll=false`
+  // fits content instead of growing+scrolling, for a fixed edge cluster. This
+  // lets the ctrl-row freeze Esc/Tab on the left and scroll the arrows + ^-keys
+  // in the middle, each as its own ControlBar.
+  let {
+    onkey,
+    include,
+    scroll = true,
+  }: {
+    onkey: (seq: string) => void;
+    include?: ControlGroup[];
+    scroll?: boolean;
+  } = $props();
 
   // Chunk the flat, group-ordered key list into runs of the same group so each
   // run can render inside its own "well" (Gestalt common-region). Derived so it
@@ -10,6 +22,7 @@
   const groups = $derived.by(() => {
     const out: ControlKey[][] = [];
     for (const k of controlKeys()) {
+      if (include && !(k.group && include.includes(k.group))) continue;
       const last = out.at(-1);
       if (last && last[0].group === k.group) last.push(k);
       else out.push([k]);
@@ -52,7 +65,12 @@
   }
 </script>
 
-<div class="ctrl-bar" role="toolbar" aria-label={m.controlbar_toolbar_aria()}>
+<div
+  class="ctrl-bar"
+  class:noscroll={!scroll}
+  role="toolbar"
+  aria-label={m.controlbar_toolbar_aria()}
+>
   {#each groups as group (group[0].group)}
     <div class="group" role="group">
       {#each group as k (k.seq)}
@@ -90,6 +108,12 @@
   }
   .ctrl-bar::-webkit-scrollbar {
     display: none;
+  }
+  /* fixed edge cluster (e.g. Esc/Tab): fit content, never grow or scroll */
+  .ctrl-bar.noscroll {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding-right: 0;
   }
 
   /* one "well" per group — faint common-region backing so the eye chunks

@@ -7,6 +7,7 @@ import {
   snapOffset,
   pressDecom,
   paneSwipeAction,
+  isSwipeUp,
 } from "./swipe";
 
 describe("lockAxis", () => {
@@ -50,6 +51,16 @@ describe("paneSwipeAction (queue paging swipe)", () => {
     expect(paneSwipeAction(T, T, true, -1)).toBe("back"));
   it("rightward goes back when paging is unavailable", () =>
     expect(paneSwipeAction(T, T, false, -1)).toBe("back"));
+});
+
+describe("isSwipeUp (ctrl-row → compose sheet)", () => {
+  const T = 36;
+  it("recognises a clear upward swipe", () => expect(isSwipeUp(4, -T, T)).toBe(true));
+  it("ignores a short upward nudge (a tap on a chip)", () =>
+    expect(isSwipeUp(2, -10, T)).toBe(false));
+  it("ignores a downward swipe", () => expect(isSwipeUp(0, T, T)).toBe(false));
+  it("ignores a mostly-horizontal drag even if it clears threshold vertically", () =>
+    expect(isSwipeUp(-80, -T, T)).toBe(false));
 });
 
 describe("pressDecom (arm → confirm)", () => {

@@ -55,6 +55,7 @@
   "composebar_dictate": "🎤",
   "composebar_dictate_aria": "Diktieren",
   "composebar_dictate_stop_aria": "Diktat beenden",
+  "composebar_overlay_aria": "Nachricht verfassen",
   "gitrail_open_pr": "↟ Open PR",
   "gitrail_ci_status": "CI: {status}",
   "gitrail_confirm_merge": "bestätigen ✓",

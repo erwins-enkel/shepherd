@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
@@ -7,19 +7,35 @@
   import { matchSlashTrigger, filterCommands } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import { steers } from "$lib/steers.svelte";
 
-  // Mobile compose bar: a real <textarea> (not xterm's hidden one) so Android
-  // autocomplete / suggestions / double-space-period resolve natively in the
-  // field. We read its value once, on explicit submit — never diffing
+  // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
+  // Android autocomplete / suggestions / double-space-period resolve natively
+  // in the field. We read its value once, on explicit submit — never diffing
   // per-keystroke into the PTY — so xterm's IME duplication bug can't occur.
-  // Presentational: owns its own text + newline editing, emits the composed
-  // string via onsend. The parent decides how to inject it into the terminal.
+  // The overlay floats over the terminal with a blurred backdrop; the parent
+  // mounts it on demand (swipe-up / ✎ chip) and decides how to inject the text.
+  // Presentational: owns its own text + newline editing + dictation + slash
+  // picker, emits the composed string via onsend and a dismissal via onclose.
   // repoPath powers the inline slash-command picker (same /api/commands index
   // as New Task), so a leading `/` offers the session repo's commands.
-  let { onsend, repoPath }: { onsend: (text: string) => void; repoPath: string } = $props();
+  let {
+    onsend,
+    onclose,
+    repoPath,
+    startDictation = false,
+  }: {
+    onsend: (text: string) => void;
+    onclose: () => void;
+    repoPath: string;
+    // open the overlay already listening (mic entry); typing-only entries pass
+    // false so the keyboard comes up without recording
+    startDictation?: boolean;
+  } = $props();
 
   let value = $state("");
   let ta = $state<HTMLTextAreaElement>();
+  let overlayEl = $state<HTMLDivElement>();
 
   // ── inline slash-command autocomplete (mirrors NewTask, opens upward) ──
   let allCommands = $state<SlashCommand[]>([]);
@@ -73,13 +89,56 @@
     });
   }
 
+  // Canned steers (same presets as the SteerBar) drop into the field as an
+  // editable draft rather than firing straight off — the compose sheet is a
+  // "compose then Send" surface, so a steer is a starting point you can tweak.
+  // Set when empty, append on a new line otherwise so a typed message is kept.
+  function applySteer(text: string) {
+    value = value.trim() ? value.trimEnd() + "\n" + text : text;
+    slashOpen = false;
+    queueMicrotask(() => {
+      autogrow();
+      ta?.focus();
+      const end = value.length;
+      ta?.setSelectionRange(end, end);
+    });
+  }
+
+  // Tap-vs-drag for the horizontally-scrolling steer row (mirrors SteerBar): arm
+  // on pointerdown, disarm once movement passes slop (a scroll) or the browser
+  // takes the gesture, and only insert on a clean tap — so scrolling the row
+  // never fires a chip.
+  const STEER_SLOP = 10;
+  let steerArmed: number | null = null;
+  let steerSX = 0;
+  let steerSY = 0;
+  function steerDown(e: PointerEvent) {
+    steerArmed = e.pointerId;
+    steerSX = e.clientX;
+    steerSY = e.clientY;
+  }
+  function steerMove(e: PointerEvent) {
+    if (steerArmed !== e.pointerId) return;
+    if (Math.abs(e.clientX - steerSX) > STEER_SLOP || Math.abs(e.clientY - steerSY) > STEER_SLOP)
+      steerArmed = null;
+  }
+  function steerCancel(e: PointerEvent) {
+    if (steerArmed === e.pointerId) steerArmed = null;
+  }
+  function steerTap(e: PointerEvent, text: string) {
+    if (steerArmed !== e.pointerId) return;
+    steerArmed = null;
+    e.preventDefault();
+    applySteer(text);
+  }
+
   // In-browser dictation via the Web Speech API (Chrome/Android, Safari/iOS).
   // This is NOT the iOS keyboard's native dictation mic — no web API can summon
-  // that — but it's the standards-based equivalent: one tap starts listening and
-  // transcribes straight into this field, so there's no need to open the keyboard
-  // and find its mic. Known gap: WebKit doesn't expose it inside an iOS
-  // home-screen PWA (standalone display mode), only in the Safari browser tab —
-  // so the button hides itself when unsupported rather than appearing dead.
+  // that — but it's the standards-based equivalent: transcribes straight into
+  // this field. Known gap: WebKit doesn't expose it inside an iOS home-screen
+  // PWA (standalone display mode), only in the Safari browser tab. When
+  // unsupported the in-overlay mic toggle hides itself and the overlay is a
+  // plain type-and-send sheet — so the entry point never becomes a dead end.
   const SpeechRec: any =
     typeof window !== "undefined"
       ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
@@ -121,7 +180,34 @@
     listening = true;
   }
 
-  onDestroy(() => recog?.stop());
+  // Keep the sheet centered in the *visible* viewport — i.e. the area above the
+  // soft keyboard — so the field and Send button never hide behind it. The
+  // visualViewport shrinks/offsets when the keyboard opens; we mirror it onto
+  // the overlay so flex-centering targets the on-screen region, not the full
+  // (keyboard-occluded) window.
+  function syncViewport() {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv || !overlayEl) return;
+    overlayEl.style.height = `${vv.height}px`;
+    overlayEl.style.transform = `translateY(${vv.offsetTop}px)`;
+  }
+
+  onMount(() => {
+    syncViewport();
+    window.visualViewport?.addEventListener("resize", syncViewport);
+    window.visualViewport?.addEventListener("scroll", syncViewport);
+    // focus brings up the keyboard for typing; with the mic entry the user can
+    // still edit the transcript inline
+    ta?.focus();
+    autogrow();
+    if (startDictation && speechSupported) toggleDictation();
+  });
+
+  onDestroy(() => {
+    recog?.stop();
+    window.visualViewport?.removeEventListener("resize", syncViewport);
+    window.visualViewport?.removeEventListener("scroll", syncViewport);
+  });
 
   // grow with content (1 line → capped by CSS max-height, then scrolls)
   function autogrow() {
@@ -136,12 +222,18 @@
     slashOpen = false;
     onsend(value);
     value = "";
-    queueMicrotask(autogrow); // shrink back after the binding clears
+    onclose();
+  }
+
+  function cancel() {
+    recog?.stop();
+    listening = false;
+    onclose();
   }
 
   // insert a literal newline at the caret without submitting — Enter does this
   // on the soft keyboard (which has no Shift+Enter), so multi-line prompts build
-  // naturally and Send is the sole submit
+  // naturally and Send is the sole submit. Escape dismisses the overlay.
   function insertNewline() {
     const start = ta?.selectionStart ?? value.length;
     const end = ta?.selectionEnd ?? value.length;
@@ -155,11 +247,10 @@
     });
   }
 
-  // Enter inserts a newline (Send is the only submit). The compose bar is
-  // touch-only — desktop steers xterm directly — so there's no hardware-keyboard
-  // Enter-to-submit path to preserve here. While the slash menu is open it
-  // captures the navigation keys so arrows/Enter/Tab drive the picker (a paired
-  // hardware keyboard on a foldable/tablet); a tap on a row works regardless.
+  // Enter inserts a newline (Send is the only submit). While the slash menu is
+  // open it captures arrows/Enter/Tab/Escape to drive the picker (paired hardware
+  // keyboard on a foldable/tablet; a tap on a row works regardless). Escape with
+  // no menu open dismisses the whole overlay.
   function onKeydown(e: KeyboardEvent) {
     if (slashOpen && slashMatches.length > 0) {
       if (e.key === "ArrowDown") {
@@ -184,6 +275,11 @@
       slashOpen = false;
       return;
     }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancel();
+      return;
+    }
     if (e.key !== "Enter") return;
     e.preventDefault();
     insertNewline();
@@ -199,65 +295,169 @@
     e.preventDefault();
     submit();
   }
+  // dismiss when tapping the dimmed backdrop, but not when tapping the sheet
+  function tapBackdrop(e: PointerEvent) {
+    if (e.target === e.currentTarget) {
+      e.preventDefault();
+      cancel();
+    }
+  }
 </script>
 
-<div class="compose">
-  <div class="field-wrap">
-    <textarea
-      bind:this={ta}
-      bind:value
-      class="field"
-      rows="1"
-      inputmode="text"
-      enterkeyhint="enter"
-      autocapitalize="sentences"
-      autocomplete="on"
-      spellcheck="true"
-      placeholder={m.composebar_placeholder()}
-      aria-label={m.composebar_input_aria()}
-      onkeydown={onKeydown}
-      oninput={() => {
-        autogrow();
-        refreshSlash();
-      }}
-      onblur={() => (slashOpen = false)}
-    ></textarea>
-    {#if slashOpen}
-      <SlashCommandMenu
-        commands={slashMatches}
-        activeIndex={slashIndex}
-        placement="up"
-        onpick={pickCommand}
-        onhover={(i) => (slashIndex = i)}
-      />
-    {/if}
-  </div>
-  {#if speechSupported}
+<div
+  class="overlay"
+  bind:this={overlayEl}
+  role="dialog"
+  aria-modal="true"
+  aria-label={m.composebar_overlay_aria()}
+  tabindex="-1"
+  onpointerdown={tapBackdrop}
+>
+  <div class="sheet">
     <button
       type="button"
-      class="btn mic"
-      class:listening
-      aria-label={listening ? m.composebar_dictate_stop_aria() : m.composebar_dictate_aria()}
-      aria-pressed={listening}
-      onpointerdown={tapMic}>{m.composebar_dictate()}</button
+      class="close"
+      aria-label={m.common_close()}
+      onpointerdown={(e) => {
+        e.preventDefault();
+        cancel();
+      }}>✕</button
     >
-  {/if}
-  <button
-    type="button"
-    class="btn send"
-    aria-label={m.composebar_send_aria()}
-    onpointerdown={tapSend}>{m.composebar_send()}</button
-  >
+    <div class="field-wrap">
+      <textarea
+        bind:this={ta}
+        bind:value
+        class="field"
+        rows="1"
+        inputmode="text"
+        enterkeyhint="enter"
+        autocapitalize="sentences"
+        autocomplete="on"
+        spellcheck="true"
+        placeholder={m.composebar_placeholder()}
+        aria-label={m.composebar_input_aria()}
+        onkeydown={onKeydown}
+        oninput={() => {
+          autogrow();
+          refreshSlash();
+        }}
+        onblur={() => (slashOpen = false)}
+      ></textarea>
+      {#if slashOpen}
+        <SlashCommandMenu
+          commands={slashMatches}
+          activeIndex={slashIndex}
+          placement="up"
+          onpick={pickCommand}
+          onhover={(i) => (slashIndex = i)}
+        />
+      {/if}
+    </div>
+    {#if steers.list.length > 0}
+      <div class="steers">
+        {#each steers.list as s (s.id)}
+          <button
+            type="button"
+            class="steer-chip"
+            title={s.text}
+            onpointerdown={steerDown}
+            onpointermove={steerMove}
+            onpointercancel={steerCancel}
+            onpointerup={(e) => steerTap(e, s.text)}>{s.label}</button
+          >
+        {/each}
+      </div>
+    {/if}
+    <div class="actions">
+      {#if speechSupported}
+        <button
+          type="button"
+          class="btn mic"
+          class:listening
+          aria-label={listening ? m.composebar_dictate_stop_aria() : m.composebar_dictate_aria()}
+          aria-pressed={listening}
+          onpointerdown={tapMic}>{m.composebar_dictate()}</button
+        >
+      {/if}
+      <button
+        type="button"
+        class="btn send"
+        aria-label={m.composebar_send_aria()}
+        onpointerdown={tapSend}>{m.composebar_send()}</button
+      >
+    </div>
+  </div>
 </div>
 
 <style>
-  .compose {
+  /* full-screen blurred backdrop — the terminal shimmers through, dimmed, while
+     the sheet stays legible. height/transform are set in JS to track the visual
+     viewport so the sheet sits flush above the soft keyboard. align-items:flex-end
+     anchors the sheet to the bottom edge (a rising bottom sheet), not the center. */
+  .overlay {
+    position: fixed;
+    left: 0;
+    top: 0;
+    right: 0;
+    z-index: 50;
     display: flex;
     align-items: flex-end;
-    gap: 4px;
-    padding: 6px 10px;
-    background: var(--color-head);
-    border-top: 1px solid var(--color-line);
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+
+  .sheet {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    /* nearly opaque so the composed text reads clearly over the busy terminal */
+    background: color-mix(in srgb, var(--color-head) 94%, transparent);
+    border-top: 1px solid var(--color-line-bright);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+    /* rise from the bottom edge when summoned */
+    animation: sheetRise 0.18s ease-out;
+  }
+  @keyframes sheetRise {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sheet {
+      animation: none;
+    }
+  }
+
+  .close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--color-faint);
+    font-size: 15px;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  .close:active {
+    color: var(--color-ink);
+    background: var(--color-inset);
   }
 
   /* anchors the slash-command menu (positioned absolute) to the field */
@@ -271,17 +471,20 @@
   .field {
     flex: 1 1 auto;
     min-width: 0;
-    min-height: 40px;
-    max-height: 120px; /* ~5 lines, then scroll */
+    min-height: 64px; /* starts a touch taller, then autogrows with content */
+    max-height: 40vh; /* generous in the overlay, then scroll */
+    margin-top: 4px;
     resize: none;
-    padding: 9px 10px;
+    padding: 10px 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     border-radius: 3px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 16px; /* ≥16px stops iOS focus-zoom */
-    line-height: 1.3;
+    /* a touch smaller for density; under the 16px iOS no-zoom threshold, an
+       accepted tradeoff since the overlay is centered and not edge-pinned */
+    font-size: 14px;
+    line-height: 1.4;
     overflow-y: auto;
   }
   .field::placeholder {
@@ -292,16 +495,58 @@
     border-color: var(--color-ink);
   }
 
-  .btn {
+  /* canned-steer row: scrolls horizontally so the presets never crowd the
+     field or the Send button; hidden scrollbar like the SteerBar */
+  .steers {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .steers::-webkit-scrollbar {
+    display: none;
+  }
+  .steer-chip {
     flex: 0 0 auto;
-    min-width: 44px;
-    height: 40px;
+    height: 34px;
+    padding: 0 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     border-radius: 3px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    touch-action: pan-x;
+    user-select: none;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .steer-chip:active {
+    background: var(--color-line-bright);
+    border-color: var(--color-ink);
+  }
+
+  .actions {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .btn {
+    flex: 0 0 auto;
+    min-width: 44px;
+    height: 44px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 15px;
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -309,8 +554,9 @@
       background 0.08s,
       border-color 0.08s;
   }
-  /* the primary action gets a touch more weight */
+  /* Send is the primary action — full width, weighted */
   .btn.send {
+    flex: 1 1 auto;
     background: var(--color-line-bright);
   }
   .btn:active {

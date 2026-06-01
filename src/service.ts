@@ -129,11 +129,20 @@ export class SessionService {
     return this.deps.store.get(id);
   }
 
-  /** Type a reply into a session's live PTY (human-style steer). Returns false if unknown. */
+  /**
+   * Steer a session's live PTY (human-style): type the text, then submit it with
+   * a SEPARATE carriage return. The split is deliberate — herdr writes each `send`
+   * as one PTY chunk, so a multi-line steer (e.g. a pasted-in code review) glued to
+   * a trailing "\r" lands in Claude Code's input as a single paste-buffered blob and
+   * the CR is absorbed as just another newline, leaving the message typed-but-unsent.
+   * A discrete second write arrives as its own stdin chunk and registers as Enter, so
+   * one click both delivers and submits. Returns false if unknown.
+   */
   reply(id: string, text: string): boolean {
     const s = this.deps.store.get(id);
     if (!s) return false;
-    this.deps.herdr.send(s.herdrAgentId, text + "\r");
+    this.deps.herdr.send(s.herdrAgentId, text);
+    this.deps.herdr.send(s.herdrAgentId, "\r");
     return true;
   }
 

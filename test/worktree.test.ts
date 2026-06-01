@@ -145,3 +145,32 @@ test("createDetached: rejects a branch that could smuggle a git flag", () => {
   expect(() => mgr.createDetached(repo, "--upload-pack=evil", sha)).toThrow("invalid branch");
   expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
 });
+
+test("createDetached: reclaims a stale worktree path left by an interrupted run", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  execFileSync("git", ["checkout", "-b", "feat/x"], { cwd: repo });
+  writeFileSync(join(repo, "feat.txt"), "hello");
+  execFileSync("git", ["add", "feat.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+
+  const mgr = new WorktreeMgr();
+  const first = mgr.createDetached(repo, "feat/x", sha);
+  // simulate a restart: the in-memory inflight record is gone but the worktree
+  // dir + registration remain. A re-spawn for the same head must still succeed.
+  const second = mgr.createDetached(repo, "feat/x", sha);
+  expect(second.worktreePath).toBe(first.worktreePath);
+  expect(existsSync(second.worktreePath)).toBe(true);
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: second.worktreePath })
+    .toString()
+    .trim();
+  expect(head).toBe(sha);
+
+  mgr.remove(second.worktreePath);
+});

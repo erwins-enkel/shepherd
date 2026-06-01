@@ -94,6 +94,11 @@ export class WorktreeMgr {
     } catch {
       /* offline / no origin — the sha may already be local; let worktree add decide */
     }
+    // A prior critic run interrupted by a restart can leave this path behind;
+    // reclaim it (git worktree remove + fs cleanup) so a re-spawned review for
+    // the same head isn't permanently blocked by `worktree add` hitting an
+    // occupied directory.
+    if (existsSync(worktreePath)) this.remove(worktreePath);
     execFileSync("git", ["worktree", "add", "--detach", worktreePath, sha], {
       cwd: repoPath,
       stdio: "pipe",

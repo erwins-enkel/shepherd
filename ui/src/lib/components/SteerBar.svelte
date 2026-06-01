@@ -57,7 +57,8 @@
     onpointermove={move}
     onpointercancel={cancel}
     onpointerup={(e) => tap(e, onbroadcast)}
-    aria-label={m.steerbar_broadcast_aria()}>📡 {m.steerbar_broadcast()}</button
+    aria-label={m.steerbar_broadcast_aria()}
+    >📡<span class="bc-label"> {m.steerbar_broadcast()}</span></button
   >
   {#each steers.list as s (s.id)}
     <button
@@ -114,6 +115,15 @@
   .chip.bc {
     color: var(--color-amber);
     border-color: var(--color-amber);
+  }
+  /* on mobile the broadcast chip collapses to just its 📡 icon to reclaim space */
+  @media (max-width: 768px) {
+    .chip.bc {
+      padding: 0 12px;
+    }
+    .bc-label {
+      display: none;
+    }
   }
   .flash {
     align-self: center;

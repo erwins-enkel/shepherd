@@ -7,6 +7,16 @@
   const label = $derived(prBadgeLabel(git));
   // CI only matters on an open PR; `none` means no checks reported.
   const showCi = $derived(git?.state === "open" && git.checks !== "none");
+  const review = $derived(git?.latestReview);
+  const reviewTitle = $derived(
+    review?.state === "approved"
+      ? m.prbadge_review_approved()
+      : review?.state === "commented"
+        ? m.prbadge_review_comment()
+        : review
+          ? m.prbadge_review_changes()
+          : "",
+  );
 </script>
 
 {#if label}
@@ -17,6 +27,9 @@
         title={m.gitrail_ci_status({ status: git!.checks })}
         aria-label={m.gitrail_ci_status({ status: git!.checks })}
       ></span>
+    {/if}
+    {#if review}
+      <span class="rdot rdot-{review.state}" title={reviewTitle} aria-label={reviewTitle}></span>
     {/if}{label}
   </span>
 {/if}
@@ -64,5 +77,22 @@
   }
   .dot-failure {
     background: var(--color-red, #d9534f);
+  }
+
+  .rdot {
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
+    display: inline-block;
+    background: var(--color-faint);
+  }
+  .rdot-approved {
+    background: var(--color-green, #5ad19a);
+  }
+  .rdot-changes_requested {
+    background: var(--color-amber);
+  }
+  .rdot-commented {
+    background: var(--color-blue, #4a90d9);
   }
 </style>

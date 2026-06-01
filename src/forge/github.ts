@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { rollupChecks } from "./checks";
+import { CRITIC_REVIEW_MARKER } from "./types";
 import type {
   CheckRun,
   ForgeConfig,
@@ -19,6 +20,35 @@ export type GhRunner = (args: string[]) => string;
 const defaultRunner: GhRunner = (args) =>
   execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
+interface GhReview {
+  author?: { login?: string } | null;
+  state?: string | null; // APPROVED | CHANGES_REQUESTED | COMMENTED | PENDING | DISMISSED
+  body?: string | null;
+  submittedAt?: string | null;
+}
+
+const REVIEW_STATE: Record<string, "approved" | "changes_requested" | "commented"> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes_requested",
+  COMMENTED: "commented",
+};
+
+/** Newest human review (critic-marked + non-terminal states excluded). */
+function latestHumanReview(reviews: GhReview[] | undefined): PrStatus["latestReview"] {
+  let best: PrStatus["latestReview"];
+  let bestTs = -Infinity;
+  for (const r of reviews ?? []) {
+    const state = REVIEW_STATE[r.state ?? ""];
+    if (!state) continue; // skips PENDING / DISMISSED / unknown
+    if ((r.body ?? "").includes(CRITIC_REVIEW_MARKER)) continue; // the critic's own review
+    const ts = Date.parse(r.submittedAt ?? "");
+    if (!Number.isFinite(ts) || ts <= bestTs) continue;
+    bestTs = ts;
+    best = { state, author: r.author?.login ?? "", submittedAt: ts };
+  }
+  return best;
+}
+
 interface GhPr {
   number: number;
   url: string;
@@ -27,6 +57,7 @@ interface GhPr {
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
   statusCheckRollup?: CheckRun[];
   headRefOid?: string;
+  reviews?: GhReview[];
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -95,7 +126,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,statusCheckRollup,headRefOid",
+      "number,url,title,state,mergeable,statusCheckRollup,headRefOid,reviews",
       "--limit",
       "1",
     ]);
@@ -111,6 +142,7 @@ export class GithubForge implements GitForge {
       mergeable: mapMergeable(pr.mergeable),
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,
+      latestReview: latestHumanReview(pr.reviews),
       deployConfigured,
     };
   }

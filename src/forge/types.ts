@@ -10,6 +10,11 @@ export interface Issue {
 export type ForgeKind = "github" | "gitea";
 export type MergeMethod = "merge" | "squash" | "rebase";
 
+/** Invisible marker appended to every critic-posted review body so the review
+ *  fetch can tell the critic's own reviews apart from human ones (they share one
+ *  gh identity). HTML comments don't render in GitHub's UI. */
+export const CRITIC_REVIEW_MARKER = "<!-- shepherd-critic -->";
+
 /** Worst-of CI rollup: failure dominates, then pending, then success. */
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
@@ -24,6 +29,12 @@ export interface PrStatus {
   /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;
+  /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
+  latestReview?: {
+    state: "approved" | "changes_requested" | "commented";
+    author: string;
+    submittedAt: number; // epoch ms
+  };
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

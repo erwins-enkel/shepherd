@@ -5,6 +5,7 @@ import {
   PushService,
   attachPush,
   attachReviewPush,
+  attachGitPush,
   blockSummary,
   buildPayload,
   type NotifyInput,
@@ -233,21 +234,161 @@ test("buildPayload review kind localizes to German", () => {
   });
 });
 
-test("attachReviewPush notifies on changes_requested, ignores other decisions and null", async () => {
+test("buildPayload review kind varies copy by decision", () => {
+  const commented: NotifyInput = {
+    kind: "review",
+    sessionId: "s",
+    tag: "t",
+    name: "TASK-02",
+    decision: "commented",
+  };
+  expect(buildPayload(commented, "en").body).toBe("Critic left a comment on the PR.");
+  expect(buildPayload(commented, "de").body).toBe("Kritiker hat den PR kommentiert.");
+  // no decision → defaults to the changes-requested copy (back-compat)
+  const noDecision: NotifyInput = { kind: "review", sessionId: "s", tag: "t", name: "TASK-02" };
+  expect(buildPayload(noDecision, "en").body).toBe("Critic requested changes on the PR.");
+});
+
+test("attachReviewPush notifies on changes_requested and commented, ignores error/null", async () => {
   const calls: any[] = [];
   const { store, push } = svc(async () => ({}));
   (push as any).notify = async (p: any) => calls.push(p);
   const events = new EventHub();
   attachReviewPush(events, store, push);
 
-  // should fire
   events.emit("session:review", { id: "r1", review: { decision: "changes_requested" } });
-  // should NOT fire
   events.emit("session:review", { id: "r2", review: { decision: "commented" } });
+  // should NOT fire
   events.emit("session:review", { id: "r3", review: { decision: "error" } });
   events.emit("session:review", { id: "r4", review: null });
 
   await Promise.resolve();
-  expect(calls.length).toBe(1);
-  expect(calls[0]).toMatchObject({ kind: "review", sessionId: "r1", tag: "review:r1" });
+  expect(calls.length).toBe(2);
+  expect(calls[0]).toMatchObject({
+    kind: "review",
+    sessionId: "r1",
+    decision: "changes_requested",
+  });
+  expect(calls[1]).toMatchObject({ kind: "review", sessionId: "r2", decision: "commented" });
+});
+
+function gitState(over: Partial<any> = {}) {
+  return {
+    kind: "github",
+    state: "open",
+    number: 1,
+    checks: "pending",
+    deployConfigured: false,
+    ...over,
+  };
+}
+
+test("attachGitPush notifies on each CI transition, not on 'none'", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "none" }) }); // first sighting → primed, no fire
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "pending" }) });
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "success" }) });
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "success" }) }); // unchanged → no fire
+  events.emit("session:git", { id: "g1", git: gitState({ checks: "none" }) }); // none → no fire
+  await Promise.resolve();
+
+  const ci = calls.filter((c) => c.kind === "ci");
+  expect(ci.map((c) => c.ciState)).toEqual(["pending", "success"]);
+  expect(ci[0].cooldownKey).toBe("ci:g1:pending");
+  expect(ci[1].cooldownKey).toBe("ci:g1:success");
+});
+
+test("attachGitPush notifies on a newer human review only", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  const r1 = { state: "commented", author: "a", submittedAt: 100 };
+  const r2 = { state: "changes_requested", author: "b", submittedAt: 200 };
+  // First sighting carries no review → primed without seeding a review ts, so a
+  // review landing afterward still notifies (priming only suppresses what was
+  // already present at startup, not genuinely-new reviews).
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none" }) });
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r1 }) });
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r1 }) }); // same → no fire
+  events.emit("session:git", { id: "g2", git: gitState({ checks: "none", latestReview: r2 }) });
+  await Promise.resolve();
+
+  const hr = calls.filter((c) => c.kind === "review-human");
+  expect(hr.map((c) => c.reviewState)).toEqual(["commented", "changes_requested"]);
+  expect(hr.map((c) => c.cooldownKey)).toEqual(["review-human:g2:100", "review-human:g2:200"]);
+});
+
+test("attachGitPush primes first sighting without notifying (no restart storm)", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  // Simulate a restart: the very first poll re-emits each open PR's *current*
+  // settled state. Nothing should fire — these aren't fresh transitions.
+  const review = { state: "changes_requested", author: "a", submittedAt: 100 };
+  events.emit("session:git", {
+    id: "g4",
+    git: gitState({ checks: "success", latestReview: review }),
+  });
+  events.emit("session:git", {
+    id: "g4",
+    git: gitState({ checks: "success", latestReview: review }),
+  });
+  await Promise.resolve();
+  expect(calls.length).toBe(0);
+
+  // A genuine transition after priming still notifies.
+  events.emit("session:git", {
+    id: "g4",
+    git: gitState({ checks: "failure", latestReview: review }),
+  });
+  await Promise.resolve();
+  expect(calls.filter((c) => c.kind === "ci").map((c) => c.ciState)).toEqual(["failure"]);
+});
+
+test("attachGitPush forgets a session's dedup state on archive (re-primes, no stale fire)", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachGitPush(events, store, push);
+
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "success" }) }); // prime, no fire
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "failure" }) }); // transition → fire
+  events.emit("session:archived", { id: "g3" }); // prune primed + dedup maps
+  // id reused by a fresh session: its first sighting must re-prime, NOT be read
+  // as a failure→success transition (which would fire a spurious "success").
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "success" }) }); // re-prime, no fire
+  events.emit("session:git", { id: "g3", git: gitState({ checks: "pending" }) }); // transition → fire
+  await Promise.resolve();
+
+  expect(calls.filter((c) => c.kind === "ci").map((c) => c.ciState)).toEqual([
+    "failure",
+    "pending",
+  ]);
+});
+
+test("buildPayload localizes ci + review-human kinds", () => {
+  const ci: NotifyInput = { kind: "ci", sessionId: "s", tag: "t", name: "N", ciState: "failure" };
+  expect(buildPayload(ci, "en").body).toBe("CI failed.");
+  expect(buildPayload(ci, "de").body).toBe("CI fehlgeschlagen.");
+  const hr: NotifyInput = {
+    kind: "review-human",
+    sessionId: "s",
+    tag: "t",
+    name: "N",
+    reviewState: "approved",
+  };
+  expect(buildPayload(hr, "en").body).toBe("A reviewer approved your PR.");
+  expect(buildPayload(hr, "de").body).toBe("Ein Reviewer hat deinen PR genehmigt.");
 });

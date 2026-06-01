@@ -188,6 +188,88 @@ test("GithubForge.listIssues: invalid createdAt string falls back to Date.now() 
   expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
 });
 
+test("GithubForge.prStatus: picks newest human review, skips pending/dismissed", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 7,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
+      reviews: [
+        {
+          author: { login: "alice" },
+          state: "COMMENTED",
+          body: "nit",
+          submittedAt: "2024-01-01T00:00:00Z",
+        },
+        {
+          author: { login: "bob" },
+          state: "CHANGES_REQUESTED",
+          body: "fix this",
+          submittedAt: "2024-01-02T00:00:00Z",
+        },
+        {
+          author: { login: "carol" },
+          state: "PENDING",
+          body: "wip",
+          submittedAt: "2024-01-03T00:00:00Z",
+        },
+      ],
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("feature");
+  expect(st.latestReview).toEqual({
+    state: "changes_requested",
+    author: "bob",
+    submittedAt: Date.parse("2024-01-02T00:00:00Z"),
+  });
+});
+
+test("GithubForge.prStatus: excludes critic-marked reviews from latestReview", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 7,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      reviews: [
+        {
+          author: { login: "alice" },
+          state: "COMMENTED",
+          body: "human note",
+          submittedAt: "2024-01-01T00:00:00Z",
+        },
+        {
+          author: { login: "alice" },
+          state: "CHANGES_REQUESTED",
+          body: "critic findings\n\n<!-- shepherd-critic -->",
+          submittedAt: "2024-01-02T00:00:00Z",
+        },
+      ],
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("feature");
+  expect(st.latestReview).toEqual({
+    state: "commented",
+    author: "alice",
+    submittedAt: Date.parse("2024-01-01T00:00:00Z"),
+  });
+});
+
+test("GithubForge.prStatus: no reviews → latestReview undefined", async () => {
+  const prJson = JSON.stringify([{ number: 7, url: "u", title: "f", state: "OPEN", reviews: [] }]);
+  const { run, calls } = fakeRunner({ "pr list": prJson });
+  const st = await new GithubForge("o/r", {}, run).prStatus("feature");
+  expect(st.latestReview).toBeUndefined();
+  expect(calls[0]!.join(",")).toContain("reviews");
+});
+
 test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {
   // GitHub 422s request-changes on a self-authored PR; emulate gh exiting non-zero
   // on the review call, then succeeding (and echoing the URL) on pr comment.

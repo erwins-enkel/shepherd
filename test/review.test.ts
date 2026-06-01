@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { ReviewService, reviewPrompt } from "../src/review";
+import { CRITIC_REVIEW_MARKER } from "../src/forge/types";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import type { Session, ReviewVerdict } from "../src/types";
 
@@ -113,6 +114,10 @@ test("consider → tick: posts request-changes, persists, reaps", async () => {
   expect(reviews["s1"]?.url).toBe("ru");
   expect(stopped).toEqual(["rt"]);
   expect(removed).toEqual(["/review-wt"]);
+  // critic-posted body must carry the marker; stored verdict must stay clean
+  expect(rec.body).toContain("## findings");
+  expect(rec.body).toContain(CRITIC_REVIEW_MARKER);
+  expect(reviews["s1"]?.body).toBe("## findings");
 });
 
 test("onReviewing fires true on spawn and false on finalize", async () => {

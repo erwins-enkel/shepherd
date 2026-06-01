@@ -59,7 +59,8 @@ export class PrPoller implements PrCache {
       prev.state !== git.state ||
       prev.number !== git.number ||
       prev.checks !== git.checks ||
-      prev.headSha !== git.headSha
+      prev.headSha !== git.headSha ||
+      prev.latestReview?.submittedAt !== git.latestReview?.submittedAt
     ) {
       this.cache.set(s.id, git);
       this.onChange(s.id, git);

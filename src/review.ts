@@ -5,6 +5,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState } from "./forge/types";
+import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 
 /** Self-contained instructions for the critic agent. NOT UI chrome — never i18n'd. */
@@ -182,7 +183,10 @@ export class ReviewService {
       if (forge) {
         try {
           const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
-          const { url } = await forge.postReview(f.prNumber, { event, body: verdict.body });
+          const { url } = await forge.postReview(f.prNumber, {
+            event,
+            body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+          });
           verdict.url = url;
         } catch (err) {
           console.warn(`[review] postReview failed for ${f.sessionId}:`, err);

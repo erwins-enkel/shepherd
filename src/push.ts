@@ -3,22 +3,31 @@ import { config } from "./config";
 import type { SessionStore, PushSubInput, StoredPushSub } from "./store";
 import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
+import type { ChecksState, GitState } from "./forge/types";
 
 export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done" | "review";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human";
   tag: string;
 }
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done" | "review";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human";
   sessionId: string;
   tag: string;
   name: string;
   reason?: BlockReason;
+  /** For kind "review": which critic verdict, selecting the body copy. */
+  decision?: "changes_requested" | "commented";
+  /** For kind "ci": the new rollup state, selecting the body copy. */
+  ciState?: ChecksState;
+  /** For kind "review-human": the human review state, selecting the body copy. */
+  reviewState?: "approved" | "changes_requested" | "commented";
+  /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
+  cooldownKey?: string;
 }
 
 export type SendResult = { statusCode?: number };
@@ -43,6 +52,15 @@ const NOTIFY_TEXT = {
     other: "Waiting on your input.",
     reviewTitle: (name: string) => `${name} — review`,
     reviewBody: "Critic requested changes on the PR.",
+    reviewCommentBody: "Critic left a comment on the PR.",
+    ciTitle: (name: string) => `${name} — CI`,
+    ciPending: "CI running.",
+    ciSuccess: "CI passed.",
+    ciFailure: "CI failed.",
+    humanReviewTitle: (name: string) => `${name} — review`,
+    humanApproved: "A reviewer approved your PR.",
+    humanChanges: "A reviewer requested changes.",
+    humanCommented: "A reviewer left a comment.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -54,11 +72,36 @@ const NOTIFY_TEXT = {
     other: "Wartet auf deine Eingabe.",
     reviewTitle: (name: string) => `${name} — Review`,
     reviewBody: "Kritiker fordert Änderungen am PR an.",
+    reviewCommentBody: "Kritiker hat den PR kommentiert.",
+    ciTitle: (name: string) => `${name} — CI`,
+    ciPending: "CI läuft.",
+    ciSuccess: "CI bestanden.",
+    ciFailure: "CI fehlgeschlagen.",
+    humanReviewTitle: (name: string) => `${name} — Review`,
+    humanApproved: "Ein Reviewer hat deinen PR genehmigt.",
+    humanChanges: "Ein Reviewer fordert Änderungen an.",
+    humanCommented: "Ein Reviewer hat einen Kommentar hinterlassen.",
   },
 } as const;
 
+type NotifyText = (typeof NOTIFY_TEXT)[NotifyLocale];
+
 function asLocale(l: string | undefined): NotifyLocale {
   return l === "de" ? "de" : "en";
+}
+
+/** CI notification body for a rollup state (anything but success/failure reads as running). */
+function ciBody(t: NotifyText, state: NotifyInput["ciState"]): string {
+  if (state === "success") return t.ciSuccess;
+  if (state === "failure") return t.ciFailure;
+  return t.ciPending;
+}
+
+/** Human-review body for a review state (default: changes-requested copy). */
+function humanReviewBody(t: NotifyText, state: NotifyInput["reviewState"]): string {
+  if (state === "approved") return t.humanApproved;
+  if (state === "commented") return t.humanCommented;
+  return t.humanChanges;
 }
 
 /** Short human line describing why an agent is blocked, for the notification body. */
@@ -80,17 +123,30 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
 export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   const t = NOTIFY_TEXT[asLocale(locale)];
   const base = { sessionId: input.sessionId, kind: input.kind, tag: input.tag };
-  if (input.kind === "done") {
-    return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
+  switch (input.kind) {
+    case "done":
+      return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
+    case "review":
+      return {
+        ...base,
+        title: t.reviewTitle(input.name),
+        body: input.decision === "commented" ? t.reviewCommentBody : t.reviewBody,
+      };
+    case "ci":
+      return { ...base, title: t.ciTitle(input.name), body: ciBody(t, input.ciState) };
+    case "review-human":
+      return {
+        ...base,
+        title: t.humanReviewTitle(input.name),
+        body: humanReviewBody(t, input.reviewState),
+      };
+    default:
+      return {
+        ...base,
+        title: t.blockedTitle(input.name),
+        body: input.reason ? blockSummary(input.reason, locale) : t.other,
+      };
   }
-  if (input.kind === "review") {
-    return { ...base, title: t.reviewTitle(input.name), body: t.reviewBody };
-  }
-  return {
-    ...base,
-    title: t.blockedTitle(input.name),
-    body: input.reason ? blockSummary(input.reason, locale) : t.other,
-  };
 }
 
 export class PushService {
@@ -151,7 +207,7 @@ export class PushService {
     // don't touch the cooldown clock here: nothing was sent.
     if (this.isActive()) return;
     const cooldownMs = config.pushCooldownMs;
-    const key = `${input.kind}:${input.sessionId}`;
+    const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
     const t = this.now();
     // Suppress repeats within the window of the last send that actually fired; a
     // sustained flap stays suppressed until a full quiet window passes. Distinct
@@ -204,14 +260,20 @@ export class PushService {
   }
 }
 
-/** Push when a critic requests changes (an attention signal, like a block). */
+/** Push when the critic posts a verdict (changes-requested or comment) — an attention signal. */
 export function attachReviewPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
     if (event !== "session:review") return;
     const { id, review } = data as { id: string; review: { decision: string } | null };
-    if (review?.decision !== "changes_requested") return;
+    if (review?.decision !== "changes_requested" && review?.decision !== "commented") return;
     const name = store.get(id)?.name ?? id;
-    void push.notify({ kind: "review", sessionId: id, tag: `review:${id}`, name });
+    void push.notify({
+      kind: "review",
+      sessionId: id,
+      tag: `review:${id}`,
+      name,
+      decision: review.decision,
+    });
   });
 }
 
@@ -228,6 +290,68 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
       if (!block) return;
       const name = store.get(id)?.name ?? id;
       void push.notify({ kind: "blocked", sessionId: id, tag: id, name, reason: block });
+    }
+  });
+}
+
+/** Bridge session:git changes to push: every CI transition + each newer human review. */
+export function attachGitPush(events: EventHub, store: SessionStore, push: PushService): void {
+  const primed = new Set<string>();
+  const lastChecks = new Map<string, ChecksState>();
+  const lastReviewTs = new Map<string, number>();
+  events.subscribe((event, data) => {
+    if (event === "session:archived") {
+      const { id } = data as { id: string };
+      primed.delete(id);
+      lastChecks.delete(id);
+      lastReviewTs.delete(id);
+      return;
+    }
+    if (event !== "session:git") return;
+    const { id, git } = data as { id: string; git: GitState };
+
+    // First sighting of a session (process start, or a PR first appearing): seed
+    // the dedup state from what's already true and DON'T notify. Otherwise a
+    // restart — the in-memory maps start empty, and a redeploy happens after
+    // every merge — would re-announce CI/review status that settled long ago as
+    // if it were a fresh transition. Only state present *now* is primed: a review
+    // that lands later still notifies (its ts beats the unset -Infinity sentinel).
+    if (!primed.has(id)) {
+      primed.add(id);
+      lastChecks.set(id, git.checks);
+      if (git.latestReview) lastReviewTs.set(id, git.latestReview.submittedAt);
+      return;
+    }
+
+    const name = store.get(id)?.name ?? id;
+
+    // CI: notify on any transition into a meaningful state (skip "none").
+    if (git.checks !== lastChecks.get(id)) {
+      lastChecks.set(id, git.checks);
+      if (git.checks !== "none") {
+        void push.notify({
+          kind: "ci",
+          sessionId: id,
+          tag: `ci:${id}`,
+          name,
+          ciState: git.checks,
+          cooldownKey: `ci:${id}:${git.checks}`,
+        });
+      }
+    }
+
+    // Human review: notify when a strictly newer review lands.
+    const r = git.latestReview;
+    if (r && r.submittedAt > (lastReviewTs.get(id) ?? -Infinity)) {
+      lastReviewTs.set(id, r.submittedAt);
+      void push.notify({
+        kind: "review-human",
+        sessionId: id,
+        tag: `review-human:${id}`,
+        name,
+        reviewState: r.state,
+        cooldownKey: `review-human:${id}:${r.submittedAt}`,
+      });
     }
   });
 }

@@ -376,9 +376,14 @@
     // keep us off a dialog or a sibling input. Touch layouts already have the
     // on-screen Esc button, so this is desktop-only.
     const onWindowKeydown = (e: KeyboardEvent) => {
+      // Cheap event-only gate before touching the DOM: skip the querySelector +
+      // activeElement read on every non-Escape keystroke, and stand down during
+      // IME composition (Escape there cancels the candidate, not ours).
+      if (e.key !== "Escape" || e.isComposing) return;
       if (
         !shouldForwardEscape({
           key: e.key,
+          composing: e.isComposing,
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
           metaKey: e.metaKey,

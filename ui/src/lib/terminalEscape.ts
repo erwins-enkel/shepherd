@@ -19,6 +19,7 @@ export interface ForwardEscapeInput {
   ctrlKey: boolean;
   altKey: boolean;
   metaKey: boolean;
+  composing: boolean; // mid-IME composition — Escape cancels the candidate, not ours
   desktopKeyboard: boolean; // !mobile && !touch — the only layout lacking an Esc button
   termTabActive: boolean;
   live: boolean; // session attached, not parked/ended
@@ -36,6 +37,7 @@ export function shouldForwardEscape(i: ForwardEscapeInput): boolean {
 
   return (
     i.key === "Escape" &&
+    !i.composing &&
     !i.ctrlKey &&
     !i.altKey &&
     !i.metaKey &&

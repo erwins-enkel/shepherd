@@ -114,6 +114,35 @@ test("consider → tick: posts request-changes, persists, reaps", async () => {
   expect(removed).toEqual(["/review-wt"]);
 });
 
+test("onReviewing fires true on spawn and false on finalize", async () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const { deps: d } = makeDeps({
+    onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+  });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  expect(events).toEqual([{ id: "s1", reviewing: true }]);
+  await svc.tick();
+  expect(events).toEqual([
+    { id: "s1", reviewing: true },
+    { id: "s1", reviewing: false },
+  ]);
+});
+
+test("onReviewing fires false when an in-flight critic is forgotten", () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const { deps: d } = makeDeps({
+    onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+  });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  svc.forget("s1");
+  expect(events).toEqual([
+    { id: "s1", reviewing: true },
+    { id: "s1", reviewing: false },
+  ]);
+});
+
 test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist", () => {
   const { deps: d, started } = makeDeps({});
   new ReviewService(d as any).consider(session(), OPEN_GREEN);

@@ -500,7 +500,33 @@
         >
       </div>
     {/if}
-    <span class="desig">{session.desig}</span>
+    <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
+         that used to sit inline in the header, reclaiming horizontal space -->
+    <span class="desig-wrap">
+      <span class="desig" role="button" tabindex="0" aria-label={m.viewport_meta_aria()}
+        >{session.desig}</span
+      >
+      <span class="desig-pop" role="tooltip">
+        <span class="dp-row">
+          <span class="dp-k">{m.viewport_profile_label()}</span>
+          <span class="dp-v">{modelLabel}</span>
+        </span>
+        {#if usage && usage.total > 0}
+          <span class="dp-row">
+            <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
+            <span
+              class="dp-v"
+              title={m.viewport_usage_title({
+                input: usage.input.toLocaleString(),
+                output: usage.output.toLocaleString(),
+                cacheRead: usage.cacheRead.toLocaleString(),
+                cacheWrite: usage.cacheWrite.toLocaleString(),
+              })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
+            >
+          </span>
+        {/if}
+      </span>
+    </span>
     {#if compact && !mobile}
       <!-- foldable/touch desktop only: on a phone the task name now lives in the
            top bar (repo · task), so showing it here too would just duplicate it -->
@@ -509,20 +535,6 @@
     {#if !compact}
       <span class="sep">·</span>
       <span class="branch">{session.branch ?? session.worktreePath}</span>
-      <span class="sep">·</span>
-      <span class="model">{modelLabel}</span>
-    {/if}
-    {#if usage && usage.total > 0}
-      <span class="sep">·</span>
-      <span
-        class="tokens"
-        title={m.viewport_usage_title({
-          input: usage.input.toLocaleString(),
-          output: usage.output.toLocaleString(),
-          cacheRead: usage.cacheRead.toLocaleString(),
-          cacheWrite: usage.cacheWrite.toLocaleString(),
-        })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
-      >
     {/if}
     <div class="spacer"></div>
     <div class="tab-group" class:mobile={compact}>
@@ -734,12 +746,61 @@
     overflow: visible;
   }
 
+  .desig-wrap {
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+  }
+
   .desig {
     font-size: 10.5px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
     flex-shrink: 0;
+    cursor: default;
+    border-bottom: 1px dotted var(--color-line);
+  }
+  .desig-wrap:hover .desig,
+  .desig:focus-visible {
+    color: var(--color-ink);
+    outline: none;
+  }
+
+  /* secondary meta popover (profile + tokens), revealed on hover/focus of the desig */
+  .desig-pop {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 9px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    white-space: nowrap;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .desig-wrap:hover .desig-pop,
+  .desig-wrap:focus-within .desig-pop {
+    display: flex;
+  }
+  .dp-row {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .dp-k {
+    color: var(--color-muted);
+  }
+  .dp-v {
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
   }
 
   /* full task name — surfaced in compact headers where the session list is
@@ -764,19 +825,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 22ch;
-  }
-
-  .model {
-    color: var(--color-muted);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-  }
-
-  .tokens {
-    color: var(--color-ink);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
   }
 
   .sep {

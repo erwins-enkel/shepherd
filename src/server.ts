@@ -78,8 +78,11 @@ export interface AppDeps {
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
   poller?: Pick<StatusPoller, "acknowledgeStall">;
-  /** Snapshot of critic verdicts keyed by session id; absent in tests that skip it. */
-  reviewCache?: { snapshot(): Record<string, import("./types").ReviewVerdict> };
+  /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
+  reviewCache?: {
+    snapshot(): Record<string, import("./types").ReviewVerdict>;
+    reviewing?(): string[];
+  };
 }
 
 const sessionUsage = (s: Session) =>
@@ -133,8 +136,10 @@ function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
 }
 
 function handleReviews({ req, parts, deps }: Ctx): Response | null {
-  if (req.method === "GET" && parts[0] === "api" && parts[1] === "reviews" && !parts[2]) {
-    return json(deps.reviewCache?.snapshot() ?? {});
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "reviews") {
+    if (!parts[2]) return json(deps.reviewCache?.snapshot() ?? {});
+    // in-flight run ids so a client loading mid-review still shows the indicator
+    if (parts[2] === "inflight") return json(deps.reviewCache?.reviewing?.() ?? []);
   }
   return null;
 }

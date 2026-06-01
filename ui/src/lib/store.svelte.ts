@@ -109,6 +109,9 @@ export class HerdStore {
       case "session:review":
         reviews.apply(ev.data);
         break;
+      case "session:reviewing":
+        reviews.setReviewing(ev.data.id, ev.data.reviewing);
+        break;
     }
   }
 

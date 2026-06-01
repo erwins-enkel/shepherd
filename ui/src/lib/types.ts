@@ -174,7 +174,8 @@ export type WsEvent =
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "herdr-update:log"; data: { line: string } }
   | { event: "project-icons:update"; data: ProjectIcons }
-  | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } };
+  | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
+  | { event: "session:reviewing"; data: { id: string; reviewing: boolean } };
 
 export interface CreateInput {
   repoPath: string;

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
-  import { projectIcons } from "$lib/projectIcons.svelte";
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { m } from "$lib/paraglide/messages";
 
@@ -19,8 +18,6 @@
     onupdate,
     herdrUpdate = null,
     onherdrupdate,
-    screen = "list",
-    detailSession = null,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -35,19 +32,7 @@
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
-    /** mobile single-column screen — drives the contextual header swap */
-    screen?: "list" | "detail";
-    detailSession?: Session | null;
   } = $props();
-
-  // On a phone in the session detail view, the SHEPHERD branding is dead chrome —
-  // swap it for the one orientation cue otherwise absent there: which repo + task
-  // this terminal belongs to. (The session list, where the repo shows, is hidden.)
-  const inDetail = $derived(mobile && screen === "detail" && !!detailSession);
-  const repoName = $derived(
-    detailSession ? (detailSession.repoPath.split("/").filter(Boolean).at(-1) ?? "") : "",
-  );
-  const repoIcon = $derived(detailSession ? projectIcons.iconFor(detailSession.repoPath) : null);
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
@@ -99,52 +84,41 @@
 
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
-<div class="hud bracket" class:mobile class:detail={inDetail}>
-  {#if inDetail && detailSession}
-    <div
-      class="context"
-      aria-label={m.topbar_detail_context_aria({ repo: repoName, name: detailSession.name })}
-    >
-      <span class="ctx-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
-      <span class="ctx-repo">{repoName}</span>
-      <span class="ctx-sep">·</span>
-      <span class="ctx-name">{detailSession.name}</span>
+<div class="hud bracket" class:mobile>
+  <div class="logo">SHEP<b>HERD</b></div>
+  {#if !mobile && !touch}
+    <!-- hidden on phones AND unfolded foldables: the label crowds the bar and
+         pushes the gear out on touch layouts narrower than a real desktop -->
+    <div class="sep"></div>
+    <div class="micro">Mission&nbsp;Control</div>
+  {/if}
+  <div class="sep"></div>
+  {#if mobile}
+    <div class="tallies compact">
+      <span class="n">{sessions.length}</span>
+      <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
+      <span class="csep">·</span><span class="n">{idle}</span>
+      <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
     </div>
   {:else}
-    <div class="logo">SHEP<b>HERD</b></div>
-    {#if !mobile && !touch}
-      <!-- hidden on phones AND unfolded foldables: the label crowds the bar and
-           pushes the gear out on touch layouts narrower than a real desktop -->
-      <div class="sep"></div>
-      <div class="micro">Mission&nbsp;Control</div>
-    {/if}
-    <div class="sep"></div>
-    {#if mobile}
-      <div class="tallies compact">
-        <span class="n">{sessions.length}</span>
-        <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
-        <span class="csep">·</span><span class="n">{idle}</span>
-        <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
+    <div class="tallies">
+      <div class="tally">
+        <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
       </div>
-    {:else}
-      <div class="tallies">
-        <div class="tally">
-          <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
-        </div>
-        <div class="tally">
-          <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span
-          ><span class="n">{working}</span>
-        </div>
-        <div class="tally">
-          <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
-        </div>
-        <div class="tally">
-          <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
-            class="n">{blocked}</span
-          >
-        </div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
+          class="n">{working}</span
+        >
       </div>
-    {/if}
+      <div class="tally">
+        <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
+      </div>
+      <div class="tally">
+        <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
+          class="n">{blocked}</span
+        >
+      </div>
+    </div>
   {/if}
   <div class="rightside">
     {#if needsYou > 0}
@@ -310,50 +284,6 @@
   }
   .logo b {
     color: var(--color-amber);
-  }
-  /* Detail-view contextual header (phone only): repo glyph + repo name · task. */
-  .context {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    min-width: 0;
-    flex: 1 1 auto;
-    overflow: hidden;
-  }
-  .ctx-glyph {
-    color: var(--color-amber);
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-  .ctx-glyph.emoji {
-    font-size: 14px;
-  }
-  .ctx-repo {
-    color: var(--color-ink-bright);
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    flex-shrink: 0;
-    max-width: 45%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .ctx-sep {
-    color: var(--color-faint);
-    flex-shrink: 0;
-  }
-  .ctx-name {
-    color: var(--color-ink);
-    font-size: 12px;
-    min-width: 0;
-    /* cap the name so a long task never eats the row and forces the control
-       cluster to wrap — it ellipsizes well before then, ceding width to the
-       terminal below */
-    max-width: 42vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .sep {
     width: 1px;

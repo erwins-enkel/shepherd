@@ -207,23 +207,26 @@
 </script>
 
 <div class="shell" class:mobile={mobile.current}>
-  <TopBar
-    sessions={store.sessions}
-    {nowMs}
-    connected={store.connected}
-    mobile={mobile.current}
-    touch={touch.current}
-    limits={store.usageLimits}
-    onsettings={() => (showSettings = true)}
-    needsYou={blockedEntries.length}
-    ontriage={() => (showTriage = true)}
-    update={store.update}
-    onupdate={() => (showUpdate = true)}
-    herdrUpdate={store.herdrUpdate}
-    onherdrupdate={() => (showHerdrUpdate = true)}
-    screen={mobileScreen}
-    detailSession={selected}
-  />
+  <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
+       viewport's merged header (repo · session + back + status tint), so it's
+       hidden there; settings + global chrome stay on the herd overview. -->
+  {#if !(mobile.current && mobileScreen === "detail")}
+    <TopBar
+      sessions={store.sessions}
+      {nowMs}
+      connected={store.connected}
+      mobile={mobile.current}
+      touch={touch.current}
+      limits={store.usageLimits}
+      onsettings={() => (showSettings = true)}
+      needsYou={blockedEntries.length}
+      ontriage={() => (showTriage = true)}
+      update={store.update}
+      onupdate={() => (showUpdate = true)}
+      herdrUpdate={store.herdrUpdate}
+      onherdrupdate={() => (showHerdrUpdate = true)}
+    />
+  {/if}
 
   {#if mobile.current}
     {#if mobileScreen === "list"}
@@ -243,6 +246,8 @@
         <Viewport
           session={selected}
           mobile={mobile.current}
+          connected={store.connected}
+          limits={store.usageLimits}
           queue={blockedEntries.map((e) => e.session.id)}
           onnavigate={(id) => selectUnit(id)}
           {onarchive}

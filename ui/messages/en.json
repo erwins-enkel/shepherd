@@ -85,6 +85,7 @@
   "herd_ready_empty": "Nothing waiting — all hands working",
   "herd_empty": "No tasks — + New Task",
   "herd_ready_group": "Ready to merge ({count})",
+  "herd_merged_group": "Merged ({count})",
   "issuespanel_title": "ISSUES",
   "issuespanel_title_with_slug": "ISSUES · {slug}",
   "issuespanel_no_host": "no git host configured for this repo",

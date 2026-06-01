@@ -85,6 +85,7 @@
   "herd_ready_empty": "Nichts wartet — alle sind beschäftigt",
   "herd_empty": "Keine Aufgaben — + Neue Aufgabe",
   "herd_ready_group": "Bereit zum Mergen ({count})",
+  "herd_merged_group": "Gemergt ({count})",
   "issuespanel_title": "ISSUES",
   "issuespanel_title_with_slug": "ISSUES · {slug}",
   "issuespanel_no_host": "kein Git-Host für dieses Repo konfiguriert",

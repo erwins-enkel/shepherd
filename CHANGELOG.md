@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.5.0](https://github.com/erwins-enkel/shepherd/compare/v1.4.0...v1.5.0) (2026-06-01)
+
+
+### Features
+
+* **actionbar:** collapse source link to GitHub icon, keep buttons single-line ([#173](https://github.com/erwins-enkel/shepherd/issues/173)) ([273c6a3](https://github.com/erwins-enkel/shepherd/commit/273c6a322b0bde85c96cb73b14460e5915ce739a))
+* **backlog:** one-click quick-launch with a configurable standard command ([#170](https://github.com/erwins-enkel/shepherd/issues/170)) ([09842f8](https://github.com/erwins-enkel/shepherd/commit/09842f8bd650662e887d244dce0ffb7c9d5209ad))
+* **badge:** hide WAITING/IDLE status while critic is reviewing ([#150](https://github.com/erwins-enkel/shepherd/issues/150)) ([91e44fc](https://github.com/erwins-enkel/shepherd/commit/91e44fca4c8ac3a67bc30f555d4d8c90965a3ee6))
+* **composebar:** inline slash-command autocomplete in terminal send box ([#165](https://github.com/erwins-enkel/shepherd/issues/165)) ([66ab369](https://github.com/erwins-enkel/shepherd/commit/66ab369141551a2e177f53b50fe7d65c0d46d2ca))
+* **compose:** on-demand compose sheet — swipe-up + one-tap dictate ([#172](https://github.com/erwins-enkel/shepherd/issues/172)) ([c92a8bb](https://github.com/erwins-enkel/shepherd/commit/c92a8bb6732493b3557778fce901926884337493))
+* **gitrail:** render critic findings as markdown ([#151](https://github.com/erwins-enkel/shepherd/issues/151)) ([1b7fbf1](https://github.com/erwins-enkel/shepherd/commit/1b7fbf1d0bb5a3b4077bc7b8a825ff7214c28728))
+* **gitrail:** slim reviewer controls on done tasks ([#152](https://github.com/erwins-enkel/shepherd/issues/152)) ([de12726](https://github.com/erwins-enkel/shepherd/commit/de127261c80f6eb273035ffbcf53fcea1143e054))
+* **herd:** add READY sidebar filter (sessions not actively working) ([#154](https://github.com/erwins-enkel/shepherd/issues/154)) ([a40332f](https://github.com/erwins-enkel/shepherd/commit/a40332f5c094472b909ebe01e8f7261d9f13fe28))
+* **herd:** group merged-PR sessions in their own section ([#168](https://github.com/erwins-enkel/shepherd/issues/168)) ([ac7fa50](https://github.com/erwins-enkel/shepherd/commit/ac7fa50e27244b1f9c8831d2297b5741abd7ff02))
+* **mobile:** swipe session row to decommission with confirm ([#142](https://github.com/erwins-enkel/shepherd/issues/142)) ([9ac064d](https://github.com/erwins-enkel/shepherd/commit/9ac064ddf738c2be90cf86782d0b8be0a79fb123))
+* **newtask:** commands tab to seed installed slash commands ([#147](https://github.com/erwins-enkel/shepherd/issues/147)) ([46fa1e4](https://github.com/erwins-enkel/shepherd/commit/46fa1e451814087d51bdf8204f228726f0f6ace9))
+* **newtask:** inline slash-command autocomplete in prompt field ([#157](https://github.com/erwins-enkel/shepherd/issues/157)) ([d7307cc](https://github.com/erwins-enkel/shepherd/commit/d7307ccc9d610c28094619d5fa492efd6bc6806c))
+* **push:** push events for PR reviews + CI status ([#169](https://github.com/erwins-enkel/shepherd/issues/169)) ([b90fe0e](https://github.com/erwins-enkel/shepherd/commit/b90fe0e11a5a7a73972fe61c2600840c320448d3))
+* **session:** rename a session by one click, propagating to git branch & PR ([#159](https://github.com/erwins-enkel/shepherd/issues/159)) ([78b9c79](https://github.com/erwins-enkel/shepherd/commit/78b9c79ba624898ade219e351b7b83bdaf3c16ac))
+* **sessions:** manual "ready to merge" state ([#155](https://github.com/erwins-enkel/shepherd/issues/155)) ([030df98](https://github.com/erwins-enkel/shepherd/commit/030df98cd4c5ead2530e71996af050b1f30c1a56))
+* **steerbar:** collapse broadcast chip to icon-only on mobile ([#166](https://github.com/erwins-enkel/shepherd/issues/166)) ([7c22e08](https://github.com/erwins-enkel/shepherd/commit/7c22e08dab312402e444019f9b414b185f35fbbb))
+* **triage:** slide drawer out when all needs-you items are handled ([#156](https://github.com/erwins-enkel/shepherd/issues/156)) ([3cc3ec2](https://github.com/erwins-enkel/shepherd/commit/3cc3ec2eb4ad19d4afc1114b8a10dda3e25106f6))
+* **ui:** cross-project backlog reachable while agents run + dedupe worktrees ([#140](https://github.com/erwins-enkel/shepherd/issues/140)) ([3a97d49](https://github.com/erwins-enkel/shepherd/commit/3a97d49b759c8707059c34e4d25f42b0eadbecc0))
+* **ui:** regroup mobile control bar for one-thumb usability ([#143](https://github.com/erwins-enkel/shepherd/issues/143)) ([b83638e](https://github.com/erwins-enkel/shepherd/commit/b83638e94855bab80d27ec29803a4cadfc913186))
+* **viewport:** promote decommission button once a PR exists ([#158](https://github.com/erwins-enkel/shepherd/issues/158)) ([8b7096e](https://github.com/erwins-enkel/shepherd/commit/8b7096eccf93dd7f79ecb8baafb7250fb72a4983))
+* **viewport:** swipe left/right to switch agents on mobile ([#161](https://github.com/erwins-enkel/shepherd/issues/161)) ([387f1b0](https://github.com/erwins-enkel/shepherd/commit/387f1b051673b916f585d2447689b6e06812e9cb))
+* **viewport:** swipe pane right to go back to list on mobile ([#141](https://github.com/erwins-enkel/shepherd/issues/141)) ([1ccc03b](https://github.com/erwins-enkel/shepherd/commit/1ccc03bc39a857633ab026e30b5538ec773f4ea3))
+
+
+### Bug Fixes
+
+* **gitrail:** close findings panel after sending review to agent ([#167](https://github.com/erwins-enkel/shepherd/issues/167)) ([42f5c07](https://github.com/erwins-enkel/shepherd/commit/42f5c07ba37c5452a9cd95a1a0607f8320620bd7))
+* **settings:** scroll full-screen settings card on mobile ([#174](https://github.com/erwins-enkel/shepherd/issues/174)) ([2c3eeef](https://github.com/erwins-enkel/shepherd/commit/2c3eeefaec40777e7160514fd3751858cec9cd53))
+* **ui:** make CI-pending dot actually pulse (opacity blink) ([#160](https://github.com/erwins-enkel/shepherd/issues/160)) ([506cf7a](https://github.com/erwins-enkel/shepherd/commit/506cf7a913b22d055bc4676bcc146116d4dedf0d))
+* **ui:** nest PR CI dot in badge + green success status ([#148](https://github.com/erwins-enkel/shepherd/issues/148)) ([784835a](https://github.com/erwins-enkel/shepherd/commit/784835a884c13f339eea9db5cff8fbb3a788078e))
+* **ui:** pulse CI-pending dot like other in-progress indicators ([#149](https://github.com/erwins-enkel/shepherd/issues/149)) ([3fa7bf4](https://github.com/erwins-enkel/shepherd/commit/3fa7bf4fe48286489f0d64f946eef58f4a02952f))
+* **ui:** show issue title in new-task picker by capping labels at 3 ([#144](https://github.com/erwins-enkel/shepherd/issues/144)) ([a01c550](https://github.com/erwins-enkel/shepherd/commit/a01c550546fb3b269599111d24af93f887a951c0))
+* **ui:** stop overusing amber on unit cards ([#153](https://github.com/erwins-enkel/shepherd/issues/153)) ([3d94d12](https://github.com/erwins-enkel/shepherd/commit/3d94d12ff409d3d942b39d943fb6fed2b5e17e8c))
+
+
+### Performance Improvements
+
+* **backlog:** async gh runner + background cache warmer ([#145](https://github.com/erwins-enkel/shepherd/issues/145)) ([a380127](https://github.com/erwins-enkel/shepherd/commit/a380127c23f2b7dce71dca45c1b0b17e000fcff4))
+
+
+### Documentation
+
+* **readme:** highlight local slash-command surface as a differentiator ([#164](https://github.com/erwins-enkel/shepherd/issues/164)) ([ccb2904](https://github.com/erwins-enkel/shepherd/commit/ccb2904aac3d3b3098bab7de6b327ef96a59cd00))
+
 ## [1.4.0](https://github.com/erwins-enkel/shepherd/compare/v1.3.0...v1.4.0) (2026-06-01)
 
 

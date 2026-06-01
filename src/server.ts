@@ -30,6 +30,7 @@ import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
+import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
 import type { CountsService } from "./backlog";
 import { join, normalize } from "node:path";
@@ -77,6 +78,8 @@ export interface AppDeps {
   prCache?: PrCache;
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
+  /** Active-window tracker fed by /events presence frames; gates push suppression. */
+  presence?: Pick<Presence, "set" | "drop">;
   /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
   poller?: Pick<StatusPoller, "acknowledgeStall">;
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
@@ -906,12 +909,24 @@ export function serve(deps: AppDeps, port: number) {
         }
       },
       message(ws, msg) {
-        if (ws.data.kind !== "pty") return;
+        if (ws.data.kind === "events") {
+          // Presence frame: the page reports focus+visibility so push delivery
+          // can suppress OS banners while a window is actively in use.
+          try {
+            const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
+            if (m?.type === "presence") deps.presence?.set(ws, !!m.active);
+          } catch {
+            /* ignore malformed frames */
+          }
+          return;
+        }
         ws.data.bridge?.write(typeof msg === "string" ? msg : msg.toString());
       },
       close(ws) {
-        if (ws.data.kind === "events") (ws.data as any).unsub?.();
-        else {
+        if (ws.data.kind === "events") {
+          (ws.data as any).unsub?.();
+          deps.presence?.drop(ws);
+        } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)
           if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);

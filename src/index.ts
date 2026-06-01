@@ -20,6 +20,7 @@ import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { PushService, attachPush, attachReviewPush } from "./push";
+import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { CountsService } from "./backlog";
 import { execFileSync } from "node:child_process";
@@ -65,8 +66,11 @@ const poller = new StatusPoller(
 );
 poller.start();
 
-// background Web Push: turn F3 state events into notifications for subscribed devices
-const push = new PushService(store);
+// background Web Push: turn F3 state events into notifications for subscribed devices.
+// Suppress while any window is actively in use — clients report focus/visibility
+// over /events into `presence`, and the push gate reads it.
+const presence = new Presence();
+const push = new PushService(store, undefined, undefined, undefined, () => presence.isActive());
 attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
@@ -166,6 +170,7 @@ const server = serve(
     resolveForge: (dir) => detectForge(dir, config.forges),
     prCache: prPoller,
     push,
+    presence,
     poller,
     reviewCache: {
       snapshot: () => reviewService.snapshot(),

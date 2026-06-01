@@ -23,8 +23,10 @@ export class HerdrUsageProbe implements UsageProbe {
   /**
    * Close every lingering `usage-probe` agent (and its herdr tab/pane). Probes are internal and
    * always labelled "usage-probe" — real sessions use task designations — so the name is an
-   * unambiguous marker. Self-healing reaper: catches tabs orphaned when a probe died before its
-   * own cleanup ran (daemon killed mid-probe, or `start()` threw after creating the tab).
+   * unambiguous marker. Self-healing reaper: catches any probe agent left *running* in `agent
+   * list` after its own cleanup didn't run (e.g. the daemon was killed mid-probe, or the
+   * post-start lookup threw while the agent itself was alive). It can't reach a tab whose
+   * `agent start` failed outright — no agent is registered, so nothing shows in the list.
    */
   private sweep(): void {
     for (const a of this.herdr.list()) {
@@ -54,8 +56,9 @@ export class HerdrUsageProbe implements UsageProbe {
       const fresh = this.herdr.list().find((a) => !before.has(a.terminalId));
       terminalId = fresh?.terminalId ?? started.terminalId;
     } catch {
-      // start() can throw *after* `tab create` succeeded (agent start failed, or the post-start
-      // lookup found no match) — that tab is now orphaned, so reap it before bailing.
+      // start() can throw after the agent is already running (the post-start cwd lookup found no
+      // match) — reap that live probe before bailing. (A failed `agent start` leaves a tab with no
+      // agent, which the sweep can't see; pre-existing gap, not handled here.)
       this.sweep();
       return null;
     }

@@ -69,9 +69,6 @@
   }
 
   const swipeCb: SwipeCallbacks = {
-    get enabled() {
-      return swipe;
-    },
     current: () => offset,
     onOffset: (px) => (offset = px),
     onDragging: (b) => (dragging = b),
@@ -140,7 +137,7 @@
 {/snippet}
 
 {#if swipe}
-  <div class="swipe-wrap">
+  <div class="swipe-wrap" style="--reveal:{REVEAL_PX}px">
     <div class="reveal" aria-hidden={offset === 0}>
       <button
         class="decom"
@@ -201,7 +198,7 @@
   .reveal {
     position: absolute;
     inset: 0 0 0 auto;
-    width: 104px; /* must equal REVEAL_PX in swipe.ts */
+    width: var(--reveal); /* set from REVEAL_PX (swipe.ts) — single source of truth */
     display: flex;
     align-items: stretch;
     justify-content: stretch;

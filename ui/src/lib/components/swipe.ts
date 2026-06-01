@@ -40,8 +40,6 @@ export function snapOffset(
 
 /** Callbacks a host component supplies to drive the swipe action. */
 export interface SwipeCallbacks {
-  /** Gesture is active (false → action is inert). */
-  enabled: boolean;
   /** Current slid offset (px, negative = open). */
   current: () => number;
   /** Live offset during a horizontal drag. */
@@ -70,7 +68,6 @@ export function swipeGesture(node: HTMLElement, callbacks: SwipeCallbacks) {
   let dragged = false; // a horizontal drag occurred in the current pointer sequence
 
   function down(e: PointerEvent) {
-    if (!cb.enabled) return;
     pid = e.pointerId;
     startX = e.clientX;
     startY = e.clientY;
@@ -79,7 +76,7 @@ export function swipeGesture(node: HTMLElement, callbacks: SwipeCallbacks) {
     dragged = false;
   }
   function move(e: PointerEvent) {
-    if (!cb.enabled || pid !== e.pointerId) return;
+    if (pid !== e.pointerId) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     if (axis === null) {
@@ -96,14 +93,13 @@ export function swipeGesture(node: HTMLElement, callbacks: SwipeCallbacks) {
     }
   }
   function up(e: PointerEvent) {
-    if (!cb.enabled || pid !== e.pointerId) return;
+    if (pid !== e.pointerId) return;
     if (axis === "x") cb.onRelease();
     cb.onDragging(false);
     axis = null;
     pid = null;
   }
   function clickCapture(e: MouseEvent) {
-    if (!cb.enabled) return;
     const open = cb.current() !== 0;
     if (dragged || open) {
       e.preventDefault();

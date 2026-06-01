@@ -3,7 +3,7 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { GitState, Issue, Session, SessionUsage, UsageLimits } from "$lib/types";
+  import type { GitState, Issue, Leftover, Session, SessionUsage, UsageLimits } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
@@ -15,6 +15,7 @@
     uploadImage,
     resumeSession as apiResumeSession,
     renameSession,
+    getLeftovers,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -29,6 +30,7 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
@@ -55,7 +57,7 @@
     session: Session;
     onnewtask?: (repoPath: string, issue: Issue) => void;
     onquick?: (repoPath: string, issue: Issue) => void;
-    onarchive?: (id: string) => void;
+    onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
     /** Jump to the next session waiting for a reply (header shortcut). */
     onnextneedsyou?: () => void;
@@ -212,10 +214,14 @@
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
+  // leftover subprocesses still running from this session — populated on the
+  // confirming click; a non-empty list pops the dialog instead of closing outright.
+  let leftovers = $state<Leftover[]>([]);
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- touch reactive dep
     unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
+    leftovers = [];
     tab = "term";
     ended = false;
     resumeFailed = false;
@@ -223,7 +229,7 @@
     renameError = null;
   });
   $effect(() => () => clearTimeout(armTimer));
-  function decommission() {
+  async function decommission() {
     if (!armed) {
       armed = true;
       clearTimeout(armTimer);
@@ -232,7 +238,14 @@
     }
     clearTimeout(armTimer);
     armed = false;
-    onarchive?.(session.id);
+    // only interrupt the close with the dialog when something is actually still
+    // running; a probe failure must never block decommission, so fall through to close.
+    const found = await getLeftovers(session.id).catch(() => [] as Leftover[]);
+    if (found.length === 0) {
+      onarchive?.(session.id);
+      return;
+    }
+    leftovers = found;
   }
 
   // ── rename: one click opens an inline editor; Enter/blur commits, Esc cancels ──
@@ -1184,6 +1197,20 @@
     </div>
   {/if}
 </div>
+
+{#if leftovers.length > 0}
+  <LeftoverDialog
+    {leftovers}
+    onclose={() => {
+      leftovers = [];
+      onarchive?.(session.id);
+    }}
+    onconfirm={(keys) => {
+      leftovers = [];
+      onarchive?.(session.id, keys);
+    }}
+  />
+{/if}
 
 <style>
   .viewport {

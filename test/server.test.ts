@@ -165,6 +165,113 @@ test("DELETE /api/sessions/:id archives", async () => {
   expect(del.status).toBe(200);
 });
 
+// Build an app whose service is backed by a stub reaper, so we can drive the
+// /leftovers + reap-on-DELETE paths without touching real /proc.
+function harnessWithReaper(reaper: { detect: any; reap: any }) {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    reaper,
+  });
+  const usageLimits = {
+    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+  };
+  const app = makeApp({ store, service, events, usageLimits });
+  return { app, store };
+}
+
+test("GET /api/sessions/:id/leftovers returns the reaper's detected list", async () => {
+  const detected = [{ kind: "process", name: "vite", port: 5174, pid: 9, key: "process:9" }];
+  const { app, store } = harnessWithReaper({ detect: () => detected, reap: () => {} });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(detected);
+});
+
+test("GET /api/sessions/:id/leftovers → [] without a reaper", async () => {
+  const app = harness();
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/leftovers`));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
+test("DELETE /api/sessions/:id with a reap body terminates the selected leftovers", async () => {
+  const detected = [
+    { kind: "process", name: "vite", port: 5174, pid: 9, key: "process:9" },
+    { kind: "system", name: "tailscale serve", port: 5174, key: "system:tailscale serve:5174" },
+  ];
+  const reaped: string[][] = [];
+  const { app, store } = harnessWithReaper({
+    detect: () => detected,
+    reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const del = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ reap: ["process:9"] }),
+    }),
+  );
+  expect(del.status).toBe(200);
+  expect(reaped).toEqual([["process:9"]]); // only the selected one
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("DELETE /api/sessions/:id with no body archives without reaping", async () => {
+  const reaped: unknown[] = [];
+  const { app, store } = harnessWithReaper({
+    detect: () => [{ kind: "process", name: "vite", port: 5174, pid: 9, key: "process:9" }],
+    reap: (ls: unknown) => reaped.push(ls),
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const del = await app.fetch(new Request(`http://x/api/sessions/${s.id}`, { method: "DELETE" }));
+  expect(del.status).toBe(200);
+  expect(reaped).toEqual([]); // nothing selected → reaper untouched
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
 test("POST with disallowed Origin → 403", async () => {
   const app = harness();
   const res = await postSessions(

@@ -6,6 +6,7 @@ import type { HerdrDriver } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, Session } from "./types";
 import { moveStagedIntoWorktree } from "./uploads";
+import type { Leftover, ProcessReaper } from "./process-reaper";
 
 export interface ServiceDeps {
   store: SessionStore;
@@ -16,6 +17,8 @@ export interface ServiceDeps {
   events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs move. */
   moveUploads?: (images: string[], worktreePath: string) => string[];
+  /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
+  reaper?: Pick<ProcessReaper, "detect" | "reap">;
 }
 
 /**
@@ -197,9 +200,26 @@ export class SessionService {
     this.deps.events?.emit("session:ready", { id, ready });
   }
 
-  archive(id: string): void {
+  /** Leftover subprocesses/proxies that would survive this session's close; [] when none. */
+  leftovers(id: string): Leftover[] {
+    const s = this.deps.store.get(id);
+    if (!s || !this.deps.reaper) return [];
+    return this.deps.reaper.detect(s);
+  }
+
+  /**
+   * Close a session: optionally terminate selected leftovers first, then stop the
+   * agent, remove the worktree, and archive the row. `reapKeys` are leftover keys
+   * the operator chose to kill; we re-detect and intersect by key so a stale/forged
+   * client selection can never make us kill an arbitrary pid.
+   */
+  archive(id: string, reapKeys?: string[]): void {
     const s = this.deps.store.get(id);
     if (!s) return;
+    if (reapKeys?.length && this.deps.reaper) {
+      const want = new Set(reapKeys);
+      this.deps.reaper.reap(this.deps.reaper.detect(s).filter((l) => want.has(l.key)));
+    }
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     if (s.isolated)
       this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });

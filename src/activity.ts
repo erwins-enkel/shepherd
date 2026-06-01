@@ -1,3 +1,5 @@
+import { eachJsonlObject } from "./jsonl";
+
 export interface ActivityEntry {
   ts: number; // ms epoch (tool_use message timestamp)
   tool: string; // raw tool name, e.g. "Edit"
@@ -70,15 +72,7 @@ interface ParsedRecord {
 /** Parse JSONL lines, keeping only records whose message content is a block array. */
 function parseRecords(text: string): ParsedRecord[] {
   const records: ParsedRecord[] = [];
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    let o: any;
-    try {
-      o = JSON.parse(t);
-    } catch {
-      continue;
-    }
+  for (const o of eachJsonlObject(text)) {
     const blocks = o?.message?.content;
     if (Array.isArray(blocks)) records.push({ o, blocks });
   }

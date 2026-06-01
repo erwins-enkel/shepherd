@@ -24,6 +24,7 @@ import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
+import { ProcessReaper } from "./process-reaper";
 import { listRepos } from "./repos";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -61,6 +62,7 @@ const service = new SessionService({
   herdr,
   namer: generateName,
   events,
+  reaper: new ProcessReaper(),
 });
 
 const accountIndex = new AccountUsageIndex();

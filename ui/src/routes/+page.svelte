@@ -214,9 +214,10 @@
     composeIssue = null;
   }
 
-  async function onarchive(id: string) {
-    // server stops the agent, removes the worktree, emits session:archived (store drops the row)
-    await archiveSession(id);
+  async function onarchive(id: string, reap?: string[]) {
+    // server (optionally terminates leftover subprocesses, then) stops the agent,
+    // removes the worktree, emits session:archived (store drops the row)
+    await archiveSession(id, reap);
     selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
   }
 

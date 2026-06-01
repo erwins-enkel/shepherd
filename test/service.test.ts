@@ -458,6 +458,159 @@ function resumable(store: SessionStore, over: Partial<Parameters<SessionStore["c
   return s;
 }
 
+test("archive without a reaper just closes the session (no leftover handling)", () => {
+  const store = new SessionStore(":memory:");
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  svc.archive(s.id, ["process:1"]); // keys ignored without a reaper
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("leftovers proxies to the reaper for the session; [] for unknown id", () => {
+  const store = new SessionStore(":memory:");
+  const detect = (sess: any) => [
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 9,
+      key: "process:9",
+      worktree: sess.worktreePath,
+    },
+  ];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
+    reaper: { detect: detect as any, reap: () => {} },
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  expect(svc.leftovers(s.id)).toHaveLength(1);
+  expect(svc.leftovers("ghost")).toEqual([]);
+});
+
+test("archive reaps only the selected leftovers, re-detected (no trusting raw client keys)", () => {
+  const store = new SessionStore(":memory:");
+  const reaped: string[][] = [];
+  const detected = [
+    { kind: "process", name: "vite", port: 5174, pid: 9, key: "process:9" },
+    {
+      kind: "system",
+      name: "tailscale serve",
+      port: 5174,
+      command: { bin: "tailscale", args: ["serve", "--https=5174", "off"] },
+      key: "system:tailscale serve:5174",
+    },
+  ];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
+    reaper: {
+      detect: () => detected as any,
+      reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
+    },
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  // ask to reap the tailscale proxy + a forged key that isn't in the detected set
+  svc.archive(s.id, ["system:tailscale serve:5174", "process:99999"]);
+  // only the genuinely-detected, selected leftover is reaped — the forged key is dropped
+  expect(reaped).toEqual([["system:tailscale serve:5174"]]);
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("archive with no reap keys never calls the reaper", () => {
+  const store = new SessionStore(":memory:");
+  let reapCalls = 0;
+  let detectCalls = 0;
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
+    reaper: {
+      detect: () => {
+        detectCalls++;
+        return [];
+      },
+      reap: () => {
+        reapCalls++;
+      },
+    },
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  svc.archive(s.id);
+  expect(detectCalls).toBe(0);
+  expect(reapCalls).toBe(0);
+});
+
 test("resume respawns claude --resume in the worktree and re-points the agent", () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

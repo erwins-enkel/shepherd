@@ -201,6 +201,30 @@ test("pollSession ignores archived/unknown sessions", async () => {
   expect(emitted).toHaveLength(0);
 });
 
+test("emits when only the latest review changes", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { id: string; git: any }[] = [];
+  let cur: PrStatus = { state: "open", number: 7, checks: "success", deployConfigured: false };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (id, git) => emitted.push({ id, git }),
+  );
+
+  await poller.tick();
+  expect(emitted.length).toBe(1);
+
+  // same state/number/checks/headSha, but a new human review lands
+  cur = { ...cur, latestReview: { state: "changes_requested", author: "bob", submittedAt: 1000 } };
+  await poller.tick();
+  expect(emitted.length).toBe(2);
+  expect(emitted[1]!.git.latestReview.state).toBe("changes_requested");
+
+  await poller.tick(); // unchanged → no new emit
+  expect(emitted.length).toBe(2);
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

@@ -355,6 +355,56 @@ test("validateCreate rejects duplicate image paths", () => {
   expect(r.ok).toBe(false);
 });
 
+const validIssueRef = {
+  number: 42,
+  url: "https://github.com/o/r/issues/42",
+  title: "Soft-delete users",
+  body: "x".repeat(20_000), // far past the 8000 prompt guard — but rides out-of-band
+};
+
+test("validateCreate accepts a valid issueRef with an oversized body", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", issueRef: validIssueRef },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.issueRef).toEqual(validIssueRef);
+});
+
+test("validateCreate defaults issueRef to undefined when omitted", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.issueRef).toBeUndefined();
+});
+
+test("validateCreate rejects an issueRef with a non-positive number", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      issueRef: { ...validIssueRef, number: 0 },
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/issueRef/i);
+});
+
+test("validateCreate rejects an issueRef with a non-http url", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      issueRef: { ...validIssueRef, url: "javascript:alert(1)" },
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/issueRef/i);
+});
+
 import { validateSteers, validateBroadcast } from "../src/validate";
 
 test("validateSteers normalizes valid entries and assigns missing ids", () => {

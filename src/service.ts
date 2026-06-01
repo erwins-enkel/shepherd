@@ -42,7 +42,13 @@ export class SessionService {
       if (input.images.length > 0) {
         const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
         const moved = move(input.images, wt.worktreePath);
-        promptArg = `${input.prompt}\n\nAttached images:\n${moved.join("\n")}`;
+        promptArg = `${promptArg}\n\nAttached images:\n${moved.join("\n")}`;
+      }
+      // Attach the issue body out-of-band so it never counts against the
+      // 8000-char human-prompt guard — same approach as images above.
+      if (input.issueRef) {
+        const r = input.issueRef;
+        promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
       }
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];

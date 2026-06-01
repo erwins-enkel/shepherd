@@ -23,12 +23,25 @@ export interface Session {
   archivedAt: number | null;
 }
 
+/**
+ * A GitHub/Gitea issue attached to a task by reference. The body rides along
+ * out-of-band into the agent's prompt argv (like images) so it never counts
+ * against the 8000-char human-prompt guard.
+ */
+export interface IssueRef {
+  number: number;
+  url: string;
+  title: string;
+  body: string;
+}
+
 export interface CreateSessionInput {
   repoPath: string;
   baseBranch: string;
   prompt: string;
   model: string | null; // null = claude default (no --model flag)
   images: string[]; // absolute paths to staged uploads (may be empty)
+  issueRef?: IssueRef; // optional attached issue; body appended out-of-band
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag. */

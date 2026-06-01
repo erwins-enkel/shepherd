@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { listRepos, listBranches, uploadImage } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
-  import { MODELS, type RepoEntry } from "$lib/types";
+  import { MODELS, type Issue, type IssueRef, type RepoEntry } from "$lib/types";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -12,6 +12,7 @@
     onclose,
     initialPrompt,
     initialRepoPath,
+    initialIssue,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -19,15 +20,25 @@
       prompt: string;
       model: string | null;
       images: string[];
+      issueRef?: IssueRef;
     }) => Promise<void> | void;
     onclose?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
+    initialIssue?: Issue;
   } = $props();
+
+  /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
+  function issueTemplate(issue: Issue): string {
+    return m.newtask_issue_prompt_template({ number: issue.number });
+  }
 
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
-  let prompt = $state(initialPrompt ?? "");
+  let prompt = $state(initialPrompt ?? (initialIssue ? issueTemplate(initialIssue) : ""));
+  // The attached issue: its body is sent separately, NOT dumped into the prompt.
+  // svelte-ignore state_referenced_locally
+  let issueRef = $state<Issue | null>(initialIssue ?? null);
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
@@ -124,6 +135,16 @@
     images = images.filter((i) => i.path !== path);
   }
 
+  // Attach an issue by reference: keep the body off the prompt (it rides out-of-band
+  // to the agent), seed an editable template only when the user hasn't typed anything.
+  function pickIssue(issue: Issue) {
+    issueRef = issue;
+    if (!prompt.trim()) {
+      prompt = issueTemplate(issue);
+      queueMicrotask(autogrow);
+    }
+  }
+
   // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
   // iOS Safari has no usable resize handle, so auto-grow is how the field gets bigger.
   function autogrow() {
@@ -152,6 +173,14 @@
         prompt: prompt.trim(),
         model: model === "default" ? null : model,
         images: images.map((i) => i.path),
+        issueRef: issueRef
+          ? {
+              number: issueRef.number,
+              url: issueRef.url,
+              title: issueRef.title,
+              body: issueRef.body,
+            }
+          : undefined,
       });
     } catch (err) {
       error = err instanceof Error ? err.message : "failed";
@@ -232,6 +261,22 @@
       </div>
     {/if}
 
+    {#if issueRef}
+      <div class="issue-ref">
+        <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
+        <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
+          >#{issueRef.number} {issueRef.title}</a
+        >
+        <button
+          type="button"
+          class="issue-ref-x"
+          onclick={() => (issueRef = null)}
+          aria-label={m.newtask_issue_remove_aria()}>✕</button
+        >
+      </div>
+    {/if}
+
     {#if repoPath}
       <PromptSources
         {repoPath}
@@ -239,6 +284,7 @@
           prompt = p;
           queueMicrotask(autogrow); // resize after the picked prompt binds
         }}
+        onpickissue={pickIssue}
       />
     {/if}
 
@@ -531,6 +577,45 @@
     max-width: 22ch;
   }
   .chip-x {
+    background: transparent;
+    border: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+  }
+  .issue-ref {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-inset);
+    font-size: 11.5px;
+  }
+  .issue-ref-label {
+    flex-shrink: 0;
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .issue-ref-link {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-amber);
+    text-decoration: none;
+  }
+  .issue-ref-link:hover {
+    text-decoration: underline;
+  }
+  .issue-ref-x {
+    flex-shrink: 0;
     background: transparent;
     border: 0;
     color: var(--color-muted);

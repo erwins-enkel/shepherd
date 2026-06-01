@@ -15,7 +15,7 @@
     gitStates,
     getBacklog,
   } from "$lib/api";
-  import type { DeployState, BacklogPayload } from "$lib/types";
+  import type { DeployState, BacklogPayload, Issue, IssueRef } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -53,7 +53,7 @@
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
-  let composePrompt = $state("");
+  let composeIssue = $state<Issue | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
@@ -71,9 +71,9 @@
     }
   });
 
-  function onissue(repoPath: string, prompt: string) {
+  function onissue(repoPath: string, issue: Issue) {
     composeRepoPath = repoPath;
-    composePrompt = prompt;
+    composeIssue = issue;
     showNew = true;
   }
 
@@ -157,12 +157,13 @@
     prompt: string;
     model: string | null;
     images: string[];
+    issueRef?: IssueRef;
   }) {
     const s = await createSession(input);
     selectedId = s.id;
     showNew = false;
     composeRepoPath = null;
-    composePrompt = "";
+    composeIssue = null;
   }
 
   async function onarchive(id: string) {
@@ -276,9 +277,9 @@
           nextNeedsYou={otherNeedsYou.length}
           onnextneedsyou={jumpNextNeedsYou}
           onbroadcast={() => (showBroadcast = true)}
-          onnewtask={(repoPath, prompt) => {
+          onnewtask={(repoPath, issue) => {
             composeRepoPath = repoPath;
-            composePrompt = prompt;
+            composeIssue = issue;
             showNew = true;
           }}
         />
@@ -318,9 +319,9 @@
           onnavigate={(id) => selectUnit(id)}
           {onarchive}
           onbroadcast={() => (showBroadcast = true)}
-          onnewtask={(repoPath, prompt) => {
+          onnewtask={(repoPath, issue) => {
             composeRepoPath = repoPath;
-            composePrompt = prompt;
+            composeIssue = issue;
             showNew = true;
           }}
         />
@@ -380,11 +381,11 @@
   <NewTask
     {onsubmit}
     initialRepoPath={composeRepoPath ?? undefined}
-    initialPrompt={composePrompt}
+    initialIssue={composeIssue ?? undefined}
     onclose={() => {
       showNew = false;
       composeRepoPath = null;
-      composePrompt = "";
+      composeIssue = null;
     }}
   />
 {/if}

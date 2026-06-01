@@ -3,7 +3,15 @@
   import type { Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
-  let { repoPath, onpick }: { repoPath: string; onpick: (prompt: string) => void } = $props();
+  let {
+    repoPath,
+    onpick,
+    onpickissue,
+  }: {
+    repoPath: string;
+    onpick: (prompt: string) => void;
+    onpickissue: (issue: Issue) => void;
+  } = $props();
 
   let tab = $state<"todo" | "issues">("todo");
   let todos = $state<string[]>([]);
@@ -96,7 +104,7 @@
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
       {#each issues as i (i.number)}
-        <button class="row" type="button" onclick={() => onpick(`${i.title}\n\n${i.body}`.trim())}>
+        <button class="row" type="button" onclick={() => onpickissue(i)}>
           <span class="issue-num">#{i.number}</span>
           <span class="row-text">{i.title}</span>
           {#if i.labels.length > 0}

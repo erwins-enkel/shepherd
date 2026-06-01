@@ -40,8 +40,8 @@
   let showBroadcast = $state(false);
   let showTriage = $state(false);
   let showUpdate = $state(false);
-  // set when a launched deploy reports failure → modal shows the captured reason
-  let deployFailure = $state<DeployState | null>(null);
+  // live state of a launched deploy → modal tails its log + surfaces failures
+  let deploy = $state<DeployState | null>(null);
   let deployPollTimer: ReturnType<typeof setTimeout> | null = null;
   let showHerdrUpdate = $state(false);
   // set once the operator confirms the herdr update; herdr+shepherd restart drops
@@ -153,39 +153,55 @@
     selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
   }
 
-  // The deploy runs detached and only restarts the server on success — on a
-  // success the store reloads (new SHA); on a failure nothing else fires, so we
-  // poll the captured deploy log and surface the reason in the modal.
+  // The deploy runs detached: it builds, restarts the server, and only then —
+  // after the new process answers a health check — writes its success marker.
+  // So a readable `done` GUARANTEES the new build is already live. We poll the
+  // captured log to drive the modal (live progress + failures) and, on `done`,
+  // reload immediately rather than waiting for the update:status broadcast,
+  // which the server only re-emits every 5 min (and a phone's WS often misses
+  // on reconnect) — that lag is why the modal used to sit frozen until a manual
+  // app restart.
   function watchDeploy() {
     if (deployPollTimer) clearTimeout(deployPollTimer);
-    const startedAt = Date.now();
+    let lastReachable = Date.now(); // last time the server answered the log poll
     const tick = async () => {
       try {
         const st = await getUpdateLog();
+        lastReachable = Date.now();
+        deploy = st; // feed the modal the live, tailing log
+        if (st.phase === "done") {
+          // new server is up and healthy → pull the freshly built UI assets
+          location.reload();
+          return;
+        }
         if (st.phase === "failed") {
-          deployFailure = st;
           store.updating = false; // unstick the spinner so the user can read + retry
           return;
         }
-        if (st.phase === "done") return; // success → SHA change reloads the page
       } catch {
-        /* transient (e.g. server mid-restart) — keep polling */
+        // server is briefly unreachable mid-restart — expected, keep polling.
+        // But if it stays unreachable far longer than a restart should take,
+        // stop guessing and tell the user, so the modal can't wedge forever.
+        if (Date.now() - lastReachable > 3 * 60_000) {
+          deploy = { phase: "failed", exitCode: null, log: m.updatemodal_unreachable() };
+          store.updating = false;
+          return;
+        }
       }
-      if (Date.now() - startedAt > 5 * 60_000) return; // give up after 5 min
-      deployPollTimer = setTimeout(tick, 2000);
+      deployPollTimer = setTimeout(tick, 1500);
     };
-    deployPollTimer = setTimeout(tick, 2000);
+    deployPollTimer = setTimeout(tick, 1500);
   }
 
   function onUpdateConfirm() {
-    deployFailure = null;
+    deploy = null;
     store.beginUpdate();
     watchDeploy();
   }
 
   function closeUpdate() {
     showUpdate = false;
-    deployFailure = null;
+    deploy = null;
     if (deployPollTimer) clearTimeout(deployPollTimer);
   }
 </script>
@@ -313,7 +329,7 @@
   <UpdateModal
     update={store.update}
     updating={store.updating}
-    deploy={deployFailure}
+    {deploy}
     onconfirm={onUpdateConfirm}
     onclose={closeUpdate}
   />

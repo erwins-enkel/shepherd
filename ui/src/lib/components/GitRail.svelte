@@ -439,6 +439,8 @@
   }
   .dot-pending {
     background: var(--color-amber);
+    /* CI running — pulse like every other in-progress indicator */
+    animation: pip-pulse 1.5s ease-out infinite;
   }
   .dot-success {
     background: var(--color-blue, #4a90d9);

@@ -121,6 +121,7 @@
   const verdict = $derived(reviews.map[sessionId]);
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   let reviewFlash = $state<string | null>(null);
+  let reviewFlashErr = $state(false);
 
   $effect(() => {
     if (repoPath) repoConfig.ensure(repoPath);
@@ -131,8 +132,10 @@
     try {
       await replySession(sessionId, `Address this code review feedback:\n\n${verdict.body}`);
       reviewFlash = m.gitrail_review_sent();
+      reviewFlashErr = false;
     } catch {
       reviewFlash = m.gitrail_send_review_failed();
+      reviewFlashErr = true;
     }
     setTimeout(() => (reviewFlash = null), 1500);
   }
@@ -198,7 +201,11 @@
           {m.gitrail_send_review()}
         </button>
       {/if}
-      {#if reviewFlash}<span class="err" title={reviewFlash}>{reviewFlash}</span>{/if}
+      {#if reviewFlash}<span
+          class:err={reviewFlashErr}
+          class:ok={!reviewFlashErr}
+          title={reviewFlash}>{reviewFlash}</span
+        >{/if}
 
       {#if err}<span class="err" title={err}>{err}</span>{/if}
     </span>
@@ -329,13 +336,19 @@
     background: var(--color-red, #d9534f);
   }
 
-  .err {
+  .err,
+  .ok {
     font-size: 10px;
-    color: var(--color-red, #d9534f);
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .err {
+    color: var(--color-red, #d9534f);
+  }
+  .ok {
+    color: var(--color-green, #4caf50);
   }
 
   .pr-pop {

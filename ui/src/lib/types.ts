@@ -77,6 +77,11 @@ export interface PrStatus {
   checks: ChecksState;
   deployConfigured: boolean;
   headSha?: string;
+  latestReview?: {
+    state: "approved" | "changes_requested" | "commented";
+    author: string;
+    submittedAt: number;
+  };
 }
 
 export type ReviewDecision = "changes_requested" | "commented" | "error";

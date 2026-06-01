@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { config } from "./config";
-import type { SessionStore, PushSubInput } from "./store";
+import type { SessionStore, PushSubInput, StoredPushSub } from "./store";
 import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
 
@@ -88,11 +88,14 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
 
 export class PushService {
   private pub: string;
+  /** Last *successful-send* timestamp per `${kind}:${sessionId}`, for cooldown debouncing. */
+  private lastNotified = new Map<string, number>();
 
   constructor(
     private store: SessionStore,
     private send: SendFn = defaultSend,
     genKeys: GenKeys = () => webpush.generateVAPIDKeys(),
+    private now: () => number = () => Date.now(),
   ) {
     let pub = config.vapidPublic ?? store.getSetting("vapidPublic");
     let priv = config.vapidPrivate ?? store.getSetting("vapidPrivate");
@@ -104,8 +107,16 @@ export class PushService {
       store.setSetting("vapidPrivate", priv);
     }
     this.pub = pub;
+    const subject = config.vapidSubject;
+    if (subject.includes("localhost") || !/^(mailto:|https:\/\/)/.test(subject)) {
+      console.warn(
+        `[push] VAPID subject ${JSON.stringify(subject)} is invalid — Apple/iOS will ` +
+          "reject pushes with HTTP 403 BadJwtToken. Set SHEPHERD_VAPID_SUBJECT to a " +
+          "valid https: or mailto: URL (e.g. https://example.com or mailto:you@example.com).",
+      );
+    }
     try {
-      webpush.setVapidDetails(config.vapidSubject, pub, priv);
+      webpush.setVapidDetails(subject, pub, priv);
     } catch (err) {
       console.warn("[push] setVapidDetails failed:", err);
     }
@@ -124,20 +135,56 @@ export class PushService {
   }
 
   async notify(input: NotifyInput): Promise<void> {
+    const cooldownMs = config.pushCooldownMs;
+    const key = `${input.kind}:${input.sessionId}`;
+    const t = this.now();
+    // Suppress repeats within the window of the last send that actually fired; a
+    // sustained flap stays suppressed until a full quiet window passes. Distinct
+    // kinds (done vs blocked) live under separate keys and never collapse.
+    if (cooldownMs > 0) {
+      const last = this.lastNotified.get(key);
+      if (last !== undefined && t - last < cooldownMs) return;
+    }
+    let sent = false;
     for (const row of this.store.listPushSubs()) {
-      const sub: PushSubInput = {
-        endpoint: row.endpoint,
-        keys: { p256dh: row.p256dh, auth: row.auth },
-      };
-      const data = JSON.stringify(buildPayload(input, row.locale));
-      try {
-        const r = await this.send(sub, data);
-        if (r?.statusCode === 404 || r?.statusCode === 410) this.store.deletePushSub(row.endpoint);
-      } catch (err) {
-        const code = (err as { statusCode?: number })?.statusCode;
-        if (code === 404 || code === 410) this.store.deletePushSub(row.endpoint);
-        else console.warn(`[push] send failed for ${row.endpoint}:`, code ?? err);
+      if (await this.deliver(row, input)) sent = true;
+    }
+    if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
+  }
+
+  /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */
+  private async deliver(row: StoredPushSub, input: NotifyInput): Promise<boolean> {
+    const sub: PushSubInput = {
+      endpoint: row.endpoint,
+      keys: { p256dh: row.p256dh, auth: row.auth },
+    };
+    const data = JSON.stringify(buildPayload(input, row.locale));
+    try {
+      const code = (await this.send(sub, data))?.statusCode;
+      if (code === 404 || code === 410) {
+        this.store.deletePushSub(row.endpoint);
+        return false;
       }
+      return true;
+    } catch (err) {
+      this.onSendError(row.endpoint, (err as { statusCode?: number })?.statusCode, err);
+      return false;
+    }
+  }
+
+  /** Prune gone subs (404/410); surface the 403 BadJwtToken misconfig distinctly. */
+  private onSendError(endpoint: string, code: number | undefined, err: unknown): void {
+    if (code === 404 || code === 410) {
+      this.store.deletePushSub(endpoint);
+    } else if (code === 403) {
+      console.warn(
+        `[push] 403 for ${endpoint} — likely an invalid VAPID subject ` +
+          `(Apple BadJwtToken). Check SHEPHERD_VAPID_SUBJECT (currently ` +
+          `${JSON.stringify(config.vapidSubject)}); it must be a valid https: ` +
+          "or mailto: URL with no localhost.",
+      );
+    } else {
+      console.warn(`[push] send failed for ${endpoint}:`, code ?? err);
     }
   }
 }

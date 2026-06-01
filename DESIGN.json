@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-01T00:00:00Z",
+  "title": "Design System: Shepherd",
+  "extensions": {
+    "colorMeta": {
+      "amber": {
+        "role": "primary",
+        "displayName": "Signal Amber",
+        "canonical": "#e8a13a",
+        "tonalRamp": [
+          "#2a1c08",
+          "#4a3210",
+          "#6e4a16",
+          "#966420",
+          "#be832b",
+          "#e8a13a",
+          "#f0bb6e",
+          "#f7d6a4"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "Phosphor Green",
+        "canonical": "#5ad19a",
+        "tonalRamp": [
+          "#0c2a1e",
+          "#134434",
+          "#1c624b",
+          "#277f62",
+          "#34a07b",
+          "#5ad19a",
+          "#8fe0bb",
+          "#bdeed8"
+        ]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Alert Red",
+        "canonical": "#e5484d",
+        "tonalRamp": [
+          "#2e0d0f",
+          "#4d171a",
+          "#6f2125",
+          "#962b30",
+          "#be383d",
+          "#e5484d",
+          "#ee7a7e",
+          "#f5acae"
+        ]
+      },
+      "blue": {
+        "role": "secondary",
+        "displayName": "Cold Blue",
+        "canonical": "#4a90d9",
+        "tonalRamp": [
+          "#0d1c2c",
+          "#16314d",
+          "#20486f",
+          "#2b6096",
+          "#357abe",
+          "#4a90d9",
+          "#7eb0e4",
+          "#aecdee"
+        ]
+      },
+      "slate": {
+        "role": "secondary",
+        "displayName": "Idle Slate",
+        "canonical": "#566460",
+        "tonalRamp": [
+          "#181d1b",
+          "#262e2b",
+          "#36403c",
+          "#46524d",
+          "#56645f",
+          "#6b7873",
+          "#8a958f",
+          "#aeb6b1"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Deep Pine Black",
+        "canonical": "#0a0d0c",
+        "tonalRamp": [
+          "#0a0d0c",
+          "#0f1413",
+          "#18211e",
+          "#2c3835",
+          "#4a5752",
+          "#7c8c86",
+          "#b0bcb6",
+          "#e7ebe9"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Phosphor Ink",
+        "canonical": "#c4d0cb",
+        "tonalRamp": [
+          "#1b201e",
+          "#2c3531",
+          "#404b46",
+          "#57655f",
+          "#7c8c86",
+          "#a0aea8",
+          "#c4d0cb",
+          "#eef4f0"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel/section headers and the value the operator scans for."
+      },
+      "body": { "displayName": "Body", "purpose": "Default running text and terminal output." },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, tabs, status labels, toolbar chrome (uppercase, wide-tracked)."
+      },
+      "numeric": {
+        "displayName": "Numeric",
+        "purpose": "Tabular figures for counts, gauges, percentages, SHAs."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sheet-lift",
+        "value": "0 -8px 40px rgba(0,0,0,0.5)",
+        "purpose": "Rising compose / bottom-sheet overlay lifted off the live terminal."
+      },
+      {
+        "name": "action-inset-glow",
+        "value": "inset 0 0 18px -10px var(--color-amber)",
+        "purpose": "Amber primary/active button internal glow (never an outer drop)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "pip-pulse",
+        "value": "1.5s ease-out infinite",
+        "purpose": "Expanding halo on the working (amber) status pip."
+      },
+      {
+        "name": "dot-pulse",
+        "value": "opacity 0.35->1, blink",
+        "purpose": "In-progress dot, opacity blink (clip-proof at small size)."
+      },
+      {
+        "name": "scan",
+        "value": "8s linear infinite",
+        "purpose": "Amber scanline sweep over the live terminal (ambient texture)."
+      },
+      {
+        "name": "sheet-rise",
+        "value": "0.18s ease-out",
+        "purpose": "Bottom sheet rising from the bottom edge when summoned."
+      }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "phone, one-handed steering surface" },
+      { "name": "desktop", "value": "wide HUD with persistent live terminal pane" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Outline ghost button: transparent fill, hairline border, uppercase wide-tracked label.",
+      "html": "<button class=\"ds-btn\">OPEN PR</button>",
+      "css": ".ds-btn { background: transparent; color: var(--color-ink); border: 1px solid var(--color-line-bright); border-radius: 2px; padding: 7px 14px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: background 0.15s, border-color 0.15s; } .ds-btn:hover { background: var(--color-hover); border-color: var(--color-ink); } .ds-btn:focus-visible { outline: none; border-color: var(--color-ink-bright); }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Amber primary: ghost geometry with amber border/text and an inset glow. Never a solid fill.",
+      "html": "<button class=\"ds-btn-primary\">MERGE</button>",
+      "css": ".ds-btn-primary { background: transparent; color: var(--color-amber); border: 1px solid var(--color-amber); border-radius: 2px; padding: 7px 14px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; box-shadow: inset 0 0 18px -10px var(--color-amber); transition: background 0.15s; } .ds-btn-primary:hover { background: var(--color-hover); } .ds-btn-primary:focus-visible { outline: none; box-shadow: inset 0 0 18px -8px var(--color-amber); }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Recessed inset field with a hairline border; focus brightens the border, no glow ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"new task…\" />",
+      "css": ".ds-input { background: var(--color-inset); color: var(--color-ink); border: 1px solid var(--color-line); border-radius: 2px; padding: 10px 12px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; letter-spacing: 0.02em; width: 100%; box-sizing: border-box; } .ds-input::placeholder { color: var(--color-faint); } .ds-input:focus { outline: none; border-color: var(--color-line-bright); }"
+    },
+    {
+      "name": "Status Pip",
+      "kind": "custom",
+      "refersTo": "pip",
+      "description": "9px status dot (amber working / green done / red blocked / slate idle); working pulses a halo.",
+      "html": "<span class=\"ds-pip ds-pip-working\"></span><span class=\"ds-pip ds-pip-blocked\"></span><span class=\"ds-pip-ready\">✓</span>",
+      "css": ".ds-pip { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 10px; vertical-align: middle; } .ds-pip-working { background: var(--color-amber); animation: ds-pip-pulse 1.5s ease-out infinite; } .ds-pip-blocked { background: var(--color-red); } .ds-pip-ready { color: var(--color-green); font-size: 10px; font-weight: 700; line-height: 1; } @keyframes ds-pip-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 70%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } } @media (prefers-reduced-motion: reduce) { .ds-pip-working { animation: none; } }"
+    },
+    {
+      "name": "Toolbar Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Flat, square panel separated by a hairline. The structural surface of the HUD; no radius, no shadow.",
+      "html": "<div class=\"ds-panel\"><span class=\"ds-panel-title\">VIEWPORT</span><span class=\"ds-panel-meta\">1280 tok</span></div>",
+      "css": ".ds-panel { display: flex; align-items: center; gap: 10px; background: var(--color-panel); border: 1px solid var(--color-line); border-radius: 0; padding: 10px 14px; font-family: var(--font-mono, ui-monospace, monospace); } .ds-panel-title { color: var(--color-ink-bright); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; } .ds-panel-meta { margin-left: auto; color: var(--color-muted); font-size: 11px; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Nav Tab",
+      "kind": "nav",
+      "refersTo": "button",
+      "description": "Uppercase wide-tracked tab label; active state marked by amber text + border, never a filled tab.",
+      "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab-active\">HERD</button><button class=\"ds-tab\">COMMANDS</button><button class=\"ds-tab\">USAGE</button></nav>",
+      "css": ".ds-tabs { display: flex; gap: 4px; } .ds-tab { background: transparent; color: var(--color-muted); border: 1px solid transparent; border-radius: 2px; padding: 6px 14px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: color 0.15s; } .ds-tab:hover { color: var(--color-ink); } .ds-tab-active { color: var(--color-amber); border-color: var(--color-amber); }"
+    },
+    {
+      "name": "Compose Sheet",
+      "kind": "custom",
+      "refersTo": "compose-sheet",
+      "description": "Mobile bottom sheet for steering: nearly opaque head surface, 12px top radius, rises with a soft lift.",
+      "html": "<div class=\"ds-sheet\"><textarea class=\"ds-sheet-ta\" placeholder=\"steer…\"></textarea></div>",
+      "css": ".ds-sheet { background: color-mix(in srgb, var(--color-head) 94%, transparent); border-top: 1px solid var(--color-line-bright); border-radius: 12px 12px 0 0; box-shadow: 0 -8px 40px rgba(0,0,0,0.5); padding: 12px 14px; } .ds-sheet-ta { width: 100%; box-sizing: border-box; background: var(--color-inset); color: var(--color-ink); border: 1px solid var(--color-line); border-radius: 2px; padding: 10px 12px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; resize: none; } .ds-sheet-ta:focus { outline: none; border-color: var(--color-line-bright); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Phosphor Watchfloor",
+    "overview": "Shepherd is the dim room where one operator watches a herd of live agents at 2am. The interface is an instrument panel, not a dashboard: a near-black, green-tinted ground with text glowing like phosphor on a CRT, status lights that mean something, and gauges that read at a glance. Everything is monospace because everything here is, literally, a terminal. The system is dense and quiet. Surfaces are flat and square, separated by hairline strokes and shifts in tonal value rather than shadows or cards. Color is rationed: the ground and chrome are desaturated greens and grays, and saturation is spent almost entirely on the four status lights and the single amber action. When nothing needs the operator, the screen is calm to the point of being recessive. When an agent is blocked, the red pip is unmistakable.",
+    "keyCharacteristics": [
+      "Monospace everywhere (Berkeley Mono); hierarchy from weight, case, and color, never a second typeface.",
+      "Near-black green-phosphor ground; chroma reserved for four status lights plus one amber action.",
+      "Flat, square panels separated by tonal layering and 1px hairlines; no shadows at rest.",
+      "Dense, telemetry-first layout that reads at a glance and survives on a phone in one hand.",
+      "Calm by default, alarm when earned: the blocked state is the loudest thing on screen."
+    ],
+    "rules": [
+      {
+        "name": "The Four-Light Rule",
+        "body": "Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state; no decorative element may borrow a status color.",
+        "section": "colors"
+      },
+      {
+        "name": "The Quiet Ground Rule",
+        "body": "The surface is desaturated green-black; visible chroma stays at or below ~10% of any screen, spent on status lights and the one amber action.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Typeface Rule",
+        "body": "Everything is Berkeley Mono. A second family is forbidden; hierarchy is built from size, weight, case, and color only.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every numeral that updates in place uses tabular figures so digits hold their column and a ticking value reads as motion, not jitter.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "Surfaces are flat and square at rest. Depth comes from tonal value and hairlines; a drop shadow on a resting panel is prohibited.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Earned Shadow Rule",
+        "body": "Shadows appear only as a response to invocation (a sheet or modal rising over the terminal), never as resting decoration.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep everything in Berkeley Mono. Build hierarchy from size, weight, case, and ink brightness (Faint Moss -> Muted Sage -> Phosphor Ink -> Bright Phosphor).",
+      "Do reserve the four status colors (amber / green / red / slate) strictly for agent state.",
+      "Do build depth with tonal layering and 1px hairlines (inset < panel-2 < panel < head).",
+      "Do keep structural panels square (0 radius) and reserve the 2px radius for buttons and chips; 12px is only for rising bottom sheets.",
+      "Do use tabular figures for any number that updates in place.",
+      "Do keep the screen calm at rest and make the blocked (red) state the loudest thing on it.",
+      "Do pair every status color with a non-color cue (position, pulse, check glyph, or label), and keep touch targets thumb-reachable; phone steering is first-class."
+    ],
+    "donts": [
+      "Don't make it a generic SaaS dashboard: no rounded-card grids, pastel gradients, hero-metric tiles, or Inter-on-white.",
+      "Don't make it a consumer chat app: no bubbly, emoji-forward, soft-and-friendly coziness.",
+      "Don't make it an enterprise admin panel: no heavy gray chrome, Bootstrap-era toolbars, or density-without-elegance.",
+      "Don't make it crypto/gamer neon: no glow-on-black spectacle, RGB accents, or glassmorphism.",
+      "Don't put a drop shadow on a resting surface, or round a structural panel.",
+      "Don't use a colored side-stripe (border-left/border-right > 1px) as an accent.",
+      "Don't spend a status hue on decoration, or let visible chroma climb above ~10% of a screen at rest.",
+      "Don't fill the primary button solid amber. It is an outline ghost with an inset glow."
+    ]
+  }
+}

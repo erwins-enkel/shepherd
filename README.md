@@ -20,6 +20,20 @@ live pane). Auth is the operator's own login; no token relay, no impersonation, 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
 
+## Your `/commands` come with you
+
+Because Shepherd attaches to a **genuine interactive `claude` session** running against your own
+`~/.claude`, every slash command you already use locally is available — your project and user
+commands, installed plugins, skills, and the relevant built-ins. The cloud Claude Code (web at
+claude.ai/code, the mobile app) runs in a managed environment that doesn't carry your local command
+setup, so this surface simply isn't there.
+
+The New Task prompt makes it first-class: type `/` at the start and a filtered dropdown of your
+actual commands appears (the same index the Commands tab uses), each row showing its
+`argument-hint` and source (project · user · plugin · builtin). Arrow keys + Enter/Tab to pick, Esc
+to close — so you don't switch tabs or memorize names. It's the full local Claude Code experience,
+driven from your browser or phone.
+
 ## Architecture
 
 ```

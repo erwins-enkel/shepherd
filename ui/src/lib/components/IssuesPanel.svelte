@@ -6,9 +6,15 @@
   let {
     repoPath,
     onnewtask,
+    bodyPreview = false,
+    age = false,
+    filterLabels = undefined,
   }: {
     repoPath: string;
     onnewtask: (prompt: string) => void;
+    bodyPreview?: boolean;
+    age?: boolean;
+    filterLabels?: string[];
   } = $props();
 
   let issues = $state<Issue[]>([]);
@@ -29,6 +35,12 @@
         loading = false;
       });
   });
+
+  const visibleIssues = $derived(
+    filterLabels && filterLabels.length > 0
+      ? issues.filter((issue) => issue.labels.some((l) => filterLabels!.includes(l)))
+      : issues,
+  );
 </script>
 
 <div class="issues-panel">
@@ -41,10 +53,10 @@
       <div class="muted">{m.common_loading()}</div>
     {:else if slug === null}
       <div class="muted">{m.issuespanel_no_host()}</div>
-    {:else if issues.length === 0}
+    {:else if visibleIssues.length === 0}
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
-      {#each issues as issue (issue.number)}
+      {#each visibleIssues as issue (issue.number)}
         <div class="issue-row">
           <div class="issue-top">
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
@@ -64,11 +76,21 @@
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
           </div>
-          {#if issue.labels.length > 0}
+          {#if bodyPreview && issue.body}
+            <div class="body-preview">{issue.body}</div>
+          {/if}
+          {#if issue.labels.length > 0 || age}
             <div class="label-row">
               {#each issue.labels as label (label)}
                 <span class="label-chip">{label}</span>
               {/each}
+              {#if age}
+                <span class="age-chip"
+                  >{m.backlog_open_since_days({
+                    days: Math.floor((Date.now() - issue.createdAt) / 86_400_000),
+                  })}</span
+                >
+              {/if}
             </div>
           {/if}
           <div class="issue-actions">
@@ -180,6 +202,25 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 1px 5px;
+  }
+
+  .body-preview {
+    font-size: 11px;
+    color: var(--color-muted);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  .age-chip {
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    color: var(--color-faint);
+    padding: 1px 0;
   }
 
   .issue-actions {

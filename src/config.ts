@@ -45,6 +45,12 @@ export const config = {
   vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "https://github.com/erwins-enkel/shepherd",
   // collapse repeat per-session pushes within this window (ms); 0 disables.
   pushCooldownMs: Number(process.env.SHEPHERD_PUSH_COOLDOWN_MS ?? 120000),
+  // Claude Code Remote Control auto-start for Shepherd-spawned sessions. Injected
+  // at spawn via `--settings '{"remoteControlAtStartup":<bool>}'`, which overrides
+  // the user's global ~/.claude/settings.json. Default false: suppress the auto-start
+  // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
+  // works in the terminal to turn it on per-session. UI-configurable + persisted.
+  remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

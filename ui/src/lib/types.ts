@@ -11,6 +11,7 @@ export interface RepoEntry {
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
+  remoteControlAtStartup: boolean;
 }
 
 export interface DirEntry {

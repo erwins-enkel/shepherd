@@ -33,6 +33,10 @@ if (savedRoot) {
   const clamped = validateRoot(savedRoot, config.rootCeiling);
   if (clamped) config.repoRoot = clamped;
 }
+// a UI-chosen Remote Control auto-start preference (persisted) overrides the
+// env default; absent → keep the config default. Stored as "1"/"0".
+const savedRc = store.getSetting("remoteControlAtStartup");
+if (savedRc !== null) config.remoteControlAtStartup = savedRc === "1";
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());

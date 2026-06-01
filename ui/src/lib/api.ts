@@ -92,6 +92,23 @@ export async function putSettings(repoRoot: string): Promise<Settings> {
   return r.json();
 }
 
+// Toggle Claude Code Remote Control auto-start for Shepherd-spawned sessions.
+// Standalone boolean patch — the server distinguishes it from a repoRoot change.
+export async function putRemoteControl(
+  enabled: boolean,
+): Promise<{ remoteControlAtStartup: boolean }> {
+  const r = await fetch("/api/settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ remoteControlAtStartup: enabled }),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";
   const r = await fetch(`/api/fs/dirs${q}`);

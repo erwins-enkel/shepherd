@@ -515,25 +515,45 @@ function handleRepos({ req, parts, deps }: Ctx): Response | null {
 
 // ── settings: read/update the repo root (persisted, applied at runtime) ──
 async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] === "api" && parts[1] === "settings" && !parts[2]) {
-    if (req.method === "GET") {
-      return json({
-        repoRoot: config.repoRoot,
-        repoRootDisplay: collapseHome(config.repoRoot),
-      });
+  if (!(parts[0] === "api" && parts[1] === "settings" && !parts[2])) return null;
+  if (req.method === "GET") {
+    return json({
+      repoRoot: config.repoRoot,
+      repoRootDisplay: collapseHome(config.repoRoot),
+      remoteControlAtStartup: config.remoteControlAtStartup,
+    });
+  }
+  if (req.method === "PUT") {
+    const body = (await req.json().catch(() => null)) as {
+      repoRoot?: unknown;
+      remoteControlAtStartup?: unknown;
+    } | null;
+    // Remote Control toggle is a standalone boolean patch (no repoRoot in the body).
+    if (body && "remoteControlAtStartup" in body && body.repoRoot === undefined) {
+      return putRemoteControl(body.remoteControlAtStartup, deps);
     }
-    if (req.method === "PUT") {
-      const body = (await req.json().catch(() => null)) as { repoRoot?: unknown } | null;
-      const root = validateRoot(body?.repoRoot, config.rootCeiling);
-      if (!root) {
-        return json({ error: "repoRoot must be an existing directory within the root" }, 400);
-      }
-      config.repoRoot = root; // live: every later read picks it up
-      deps.store.setSetting("repoRoot", root); // persist across restarts
-      return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
-    }
+    return putRepoRoot(body?.repoRoot, deps);
   }
   return null;
+}
+
+function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "remoteControlAtStartup must be a boolean" }, 400);
+  }
+  config.remoteControlAtStartup = value; // live: next spawn picks it up
+  deps.store.setSetting("remoteControlAtStartup", value ? "1" : "0"); // persist
+  return json({ remoteControlAtStartup: config.remoteControlAtStartup });
+}
+
+function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
+  const root = validateRoot(value, config.rootCeiling);
+  if (!root) {
+    return json({ error: "repoRoot must be an existing directory within the root" }, 400);
+  }
+  config.repoRoot = root; // live: every later read picks it up
+  deps.store.setSetting("repoRoot", root); // persist across restarts
+  return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
 }
 
 // ── saved steers (canned prompts): list / replace ──

@@ -10,6 +10,7 @@ import { config } from "../src/config";
 let tmp: string;
 let savedRoot: string;
 let savedCeiling: string;
+let savedRc: boolean;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -17,6 +18,7 @@ beforeEach(() => {
   mkdirSync(join(tmp, "child"));
   savedRoot = config.repoRoot; // PUT mutates the shared config; restore after
   savedCeiling = config.rootCeiling;
+  savedRc = config.remoteControlAtStartup;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -25,6 +27,7 @@ beforeEach(() => {
 afterEach(() => {
   config.repoRoot = savedRoot;
   config.rootCeiling = savedCeiling;
+  config.remoteControlAtStartup = savedRc;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -48,14 +51,39 @@ const put = (app: ReturnType<typeof makeApp>, body: unknown) =>
     }),
   );
 
-test("GET /api/settings returns the current repo root", async () => {
+test("GET /api/settings returns the current repo root and remote-control flag", async () => {
   config.repoRoot = tmp;
+  config.remoteControlAtStartup = false;
   const { app } = harness();
   const res = await app.fetch(new Request("http://x/api/settings"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.repoRoot).toBe(tmp);
   expect(typeof body.repoRootDisplay).toBe("string");
+  expect(body.remoteControlAtStartup).toBe(false);
+});
+
+test("PUT /api/settings toggles remoteControlAtStartup, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.remoteControlAtStartup = false;
+  const { app, store } = harness();
+  const res = await put(app, { remoteControlAtStartup: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).remoteControlAtStartup).toBe(true);
+  expect(config.remoteControlAtStartup).toBe(true); // live
+  expect(store.getSetting("remoteControlAtStartup")).toBe("1"); // persisted as "1"/"0"
+  expect(config.repoRoot).toBe(tmp); // a RC patch must not touch the repo root
+  // reflected by GET, and toggling back persists "0"
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.remoteControlAtStartup).toBe(true);
+  await put(app, { remoteControlAtStartup: false });
+  expect(store.getSetting("remoteControlAtStartup")).toBe("0");
+});
+
+test("PUT /api/settings rejects a non-boolean remoteControlAtStartup", async () => {
+  const { app } = harness();
+  const res = await put(app, { remoteControlAtStartup: "yes" });
+  expect(res.status).toBe(400);
 });
 
 test("PUT /api/settings updates config, persists, and is reflected by GET", async () => {

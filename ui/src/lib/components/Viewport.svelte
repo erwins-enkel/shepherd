@@ -4,7 +4,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import type { Session, SessionUsage } from "$lib/types";
-  import { elapsed, STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
+  import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
@@ -22,7 +22,6 @@
 
   let {
     session,
-    nowMs = Date.now(),
     onnewtask,
     onarchive,
     onback,
@@ -35,7 +34,6 @@
     onnavigate,
   }: {
     session: Session;
-    nowMs?: number;
     onnewtask?: (repoPath: string, prompt: string) => void;
     onarchive?: (id: string) => void;
     onback?: () => void;
@@ -554,9 +552,6 @@
       {#if session.status === "running"}⠿{/if}
       {statusLabel(session.status)}
     </span>
-    {#if session.status === "running" && !compact}
-      <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
-    {/if}
     {#if !compact}
       <GitRail
         sessionId={session.id}
@@ -800,13 +795,6 @@
     border: 1px solid;
     border-radius: 2px;
     flex-shrink: 0;
-  }
-
-  .elapsed {
-    color: var(--color-ink);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.08em;
-    font-size: 11px;
   }
 
   .decom {

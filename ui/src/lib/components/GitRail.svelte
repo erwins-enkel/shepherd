@@ -168,6 +168,7 @@
       await replySession(sessionId, `Address this code review feedback:\n\n${verdict.body}`);
       reviewFlash = m.gitrail_review_sent();
       reviewFlashErr = false;
+      showReview = false; // dismiss findings panel once the review is on its way
     } catch {
       reviewFlash = m.gitrail_send_review_failed();
       reviewFlashErr = true;

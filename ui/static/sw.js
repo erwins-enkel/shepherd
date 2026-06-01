@@ -55,7 +55,7 @@ self.addEventListener("push", (event) => {
         renotify: true,
         data: { sessionId },
         icon: "/icons/icon-192.png",
-        badge: "/icons/icon-192.png",
+        badge: "/icons/badge-96.png",
       };
       try {
         await self.registration.showNotification(title, opts);

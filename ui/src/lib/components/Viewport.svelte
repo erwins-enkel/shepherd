@@ -10,6 +10,7 @@
   import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
+  import { shouldForwardEscape } from "$lib/terminalEscape";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -323,6 +324,41 @@
       return true;
     });
 
+    // Desktop Escape rescue. xterm only emits the Escape byte while its hidden
+    // textarea is focused, but on desktop the keyboard often isn't there: focus
+    // drifts onto <body> (clicking header chrome, a re-attach, the browser's own
+    // focus handling — Arc was the reported case), and even with the textarea
+    // focused a browser quirk can swallow it. The window still gets the keydown,
+    // so whenever the terminal owns the keyboard we route a bare Escape into the
+    // PTY ourselves, suppress xterm's own handling (capture phase +
+    // stopImmediatePropagation) so the agent gets exactly one Escape, and
+    // reclaim focus for the next keystrokes. The guards in shouldForwardEscape
+    // keep us off a dialog or a sibling input. Touch layouts already have the
+    // on-screen Esc button, so this is desktop-only.
+    const onWindowKeydown = (e: KeyboardEvent) => {
+      if (
+        !shouldForwardEscape({
+          key: e.key,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          desktopKeyboard: !mobile && !touch,
+          termTabActive: tab === "term",
+          live: !parked && !ended,
+          overlayOpen: !!document.querySelector(".overlay, .drawer"),
+          active: document.activeElement,
+          body: document.body,
+          terminalEl: el ?? null,
+        })
+      )
+        return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      c.send("\x1b");
+      term.focus();
+    };
+    window.addEventListener("keydown", onWindowKeydown, true);
+
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
     // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
     // which doesn't always fire visibilitychange.
@@ -435,6 +471,7 @@
     el.addEventListener("wheel", onWheelTrack, { passive: true, capture: true });
 
     return () => {
+      window.removeEventListener("keydown", onWindowKeydown, true);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);

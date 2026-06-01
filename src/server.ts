@@ -661,15 +661,18 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
   // Fetch counts for all forge repos in parallel
   const countsArr = await Promise.all(forgeRepos.map((r) => deps.backlog!.counts(r.path)));
 
-  const projects = forgeRepos.map((r, i) => ({
-    path: r.path,
-    display: r.display,
-    slug: r.forge.slug,
-    kind: r.forge.kind,
-    lastUsedAt: lastUsed[r.path] ?? null,
-    openIssues: countsArr[i].openIssues,
-    openPRs: countsArr[i].openPRs,
-  }));
+  const projects = forgeRepos.map((r, i) => {
+    const counts = countsArr[i]!;
+    return {
+      path: r.path,
+      display: r.display,
+      slug: r.forge.slug,
+      kind: r.forge.kind,
+      lastUsedAt: lastUsed[r.path] ?? null,
+      openIssues: counts.openIssues,
+      openPRs: counts.openPRs,
+    };
+  });
 
   // Sort: descending openIssues (null → -1), tie-break path ascending
   projects.sort((a, b) => {
@@ -691,7 +694,7 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       });
       pinnedPath = pinned.path;
     } else {
-      pinnedPath = projects[0].path;
+      pinnedPath = projects[0]!.path;
     }
   }
 

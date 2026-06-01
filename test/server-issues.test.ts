@@ -18,7 +18,14 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-const ISSUE: Issue = { number: 1, title: "Bug", body: "boom", url: "u1", labels: ["bug"] };
+const ISSUE: Issue = {
+  number: 1,
+  title: "Bug",
+  body: "boom",
+  url: "u1",
+  labels: ["bug"],
+  createdAt: 1_700_000_000_000,
+};
 
 function fakeForge(over: Partial<GitForge> = {}): GitForge {
   return {

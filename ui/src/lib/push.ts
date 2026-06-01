@@ -89,13 +89,6 @@ export async function disablePush(): Promise<void> {
   }).catch(() => {});
 }
 
-/** Tell the service worker which session this tab is currently viewing (for
- *  focused-tab suppression of "done" notifications). */
-export function setActiveSession(id: string | null): void {
-  if (!supported()) return;
-  navigator.serviceWorker.controller?.postMessage({ type: "active-session", id });
-}
-
 /** Subscribe to "select-session" messages posted by the SW on notification click.
  *  Returns a disposer. */
 export function onSelectSession(cb: (id: string) => void): () => void {

@@ -30,7 +30,7 @@
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
-  import { registerSW, setActiveSession, onSelectSession } from "$lib/push";
+  import { registerSW, onSelectSession } from "$lib/push";
   import { m } from "$lib/paraglide/messages";
 
   const store = new HerdStore();
@@ -54,10 +54,6 @@
   let composePrompt = $state("");
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
-
-  $effect(() => {
-    setActiveSession(selectedId);
-  });
 
   const mobile = new MediaQuery("max-width: 768px");
   // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):

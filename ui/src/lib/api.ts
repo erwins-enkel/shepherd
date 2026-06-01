@@ -20,6 +20,7 @@ import type {
   ReviewVerdict,
   RepoConfig,
   BacklogPayload,
+  SlashCommand,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -193,6 +194,13 @@ export async function listIssues(
 ): Promise<{ slug: string | null; issues: Issue[] }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");
+  return r.json();
+}
+
+/** Installed slash commands (skills + command files) for the New Task picker. */
+export async function getCommands(repoPath: string): Promise<{ commands: SlashCommand[] }> {
+  const r = await fetch(`/api/commands?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "commands");
   return r.json();
 }
 

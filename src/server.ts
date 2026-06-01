@@ -14,6 +14,7 @@ import {
   validateIconPatch,
 } from "./validate";
 import { listRepos, readTodo, writeTodo } from "./repos";
+import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
@@ -34,6 +35,7 @@ import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
 import type { CountsService } from "./backlog";
 import { join, normalize } from "node:path";
+import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -765,6 +767,16 @@ async function todoWrite(repoParam: string, req: Request): Promise<Response> {
   return json({ ok: true });
 }
 
+// ── installed slash commands: skills + command files for the New Task picker ──
+function handleCommands({ req, parts, url }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "commands" && !parts[2]) {
+    // invalid/absent repo → null dir → user-scope commands only (still useful)
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    return json({ commands: listCommands(dir, join(homedir(), ".claude")) });
+  }
+  return null;
+}
+
 async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "todo" && !parts[2]) {
     const repoParam = url.searchParams.get("repo") ?? "";
@@ -796,6 +808,7 @@ const ROUTE_HANDLERS = [
   handleIssues,
   handleBacklog,
   handleTodo,
+  handleCommands,
 ] as const;
 
 /** Returns an object with a `fetch(Request)` method — unit-testable without a port. */

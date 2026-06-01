@@ -141,8 +141,46 @@ export class GithubForge implements GitForge {
   }
 
   async postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }> {
-    const flag = o.event === "REQUEST_CHANGES" ? "--request-changes" : "--comment";
-    this.run(["pr", "review", String(prNumber), "--repo", this.slug, flag, "--body", o.body]);
+    if (o.event === "REQUEST_CHANGES") {
+      try {
+        this.run([
+          "pr",
+          "review",
+          String(prNumber),
+          "--repo",
+          this.slug,
+          "--request-changes",
+          "--body",
+          o.body,
+        ]);
+        return {}; // gh pr review prints no machine-readable URL
+      } catch {
+        // GitHub forbids request-changes on a PR you authored, and the agent +
+        // critic share one gh identity — so this 422s on self-authored PRs. Fall
+        // back to a plain PR comment so the findings still land on the host.
+        // `gh pr comment` echoes the new comment's URL on stdout.
+        const url = this.run([
+          "pr",
+          "comment",
+          String(prNumber),
+          "--repo",
+          this.slug,
+          "--body",
+          o.body,
+        ]).trim();
+        return { url: url || undefined };
+      }
+    }
+    this.run([
+      "pr",
+      "review",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--comment",
+      "--body",
+      o.body,
+    ]);
     return {}; // gh pr review prints no machine-readable URL
   }
 }

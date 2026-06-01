@@ -130,3 +130,19 @@ test("GithubForge.prStatus: surfaces head SHA from headRefOid", async () => {
   expect(st.headSha).toBe("abc123");
   expect(calls[0]!.join(" ")).toContain("headRefOid");
 });
+
+test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {
+  // GitHub 422s request-changes on a self-authored PR; emulate gh exiting non-zero
+  // on the review call, then succeeding (and echoing the URL) on pr comment.
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[1] === "review") throw new Error("Can not request changes on your own pull request");
+    return "https://github.com/o/r/pull/7#issuecomment-99\n";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const result = await forge.postReview(7, { event: "REQUEST_CHANGES", body: "nope" });
+  expect(result).toEqual({ url: "https://github.com/o/r/pull/7#issuecomment-99" });
+  expect(calls[0]!.slice(0, 2)).toEqual(["pr", "review"]);
+  expect(calls[1]).toEqual(["pr", "comment", "7", "--repo", "o/r", "--body", "nope"]);
+});

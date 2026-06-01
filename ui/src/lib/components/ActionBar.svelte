@@ -17,12 +17,14 @@
 
   let {
     onnew,
+    onbacklog,
     mode = "focus",
     onmode,
     mobile = false,
     desktopOnly = false,
   }: {
     onnew: () => void;
+    onbacklog?: () => void;
     mode?: "focus" | "all";
     onmode?: (m: "focus" | "all") => void;
     mobile?: boolean;
@@ -33,6 +35,9 @@
 {#if !(desktopOnly && mobile)}
   <div class="actions" class:mobile>
     <button class="btn primary" type="button" onclick={onnew}>{m.actionbar_new_task()}</button>
+    {#if onbacklog}
+      <button class="btn backlog" type="button" onclick={onbacklog}>{m.actionbar_backlog()}</button>
+    {/if}
     {#if !mobile}
       <button
         class="btn"
@@ -173,6 +178,10 @@
     flex: 1;
     text-align: center;
     padding: 12px;
+    font-size: 12px;
+  }
+  .actions.mobile .btn.backlog {
+    padding: 12px 16px;
     font-size: 12px;
   }
 </style>

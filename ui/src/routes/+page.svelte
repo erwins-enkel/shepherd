@@ -30,6 +30,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import BacklogView from "$lib/components/BacklogView.svelte";
+  import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import { registerSW, onSelectSession } from "$lib/push";
@@ -58,11 +59,12 @@
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
-  // Fetch backlog only when the overview is empty. Reading store.sessions.length
-  // inside the effect body makes Svelte track it; backlog is written but never
-  // read here, so it cannot re-trigger the effect → no loop.
+  // Fetch backlog when the overview is empty, or when the operator opens the
+  // backlog overlay while agents are running. Reading store.sessions.length and
+  // showBacklog inside the effect body makes Svelte track them; backlog is
+  // written but never read here, so it cannot re-trigger the effect → no loop.
   $effect(() => {
-    if (store.sessions.length === 0) {
+    if (store.sessions.length === 0 || showBacklog) {
       getBacklog()
         .then((p) => (backlog = p))
         .catch(() => {
@@ -75,6 +77,8 @@
     composeRepoPath = repoPath;
     composeIssue = issue;
     showNew = true;
+    // composing from the backlog overlay → close it so the herd is behind the modal
+    showBacklog = false;
   }
 
   const mobile = new MediaQuery("max-width: 768px");
@@ -82,6 +86,7 @@
   // gets the control-key bar even in desktop layout, since there's no hardware keyboard
   const touch = new MediaQuery("(pointer: coarse)");
   let mobileScreen = $state<"list" | "detail">("list");
+  let showBacklog = $state(false);
 
   function selectUnit(id: string) {
     selectedId = id;
@@ -263,7 +268,11 @@
           <BacklogView payload={backlog} mobile={true} {onissue} />
         {/if}
       </div>
-      <ActionBar onnew={() => (showNew = true)} mobile={mobile.current} />
+      <ActionBar
+        onnew={() => (showNew = true)}
+        onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+        mobile={mobile.current}
+      />
     {:else if selected}
       <div class="col">
         <Viewport
@@ -334,6 +343,7 @@
 
   <ActionBar
     onnew={() => (showNew = true)}
+    onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
     mode={viewMode}
     onmode={(m) => (viewMode = m)}
     mobile={mobile.current}
@@ -404,6 +414,15 @@
 
 {#if showBroadcast}
   <BroadcastDialog sessions={store.sessions} onclose={() => (showBroadcast = false)} />
+{/if}
+
+{#if showBacklog}
+  <BacklogOverlay
+    payload={backlog}
+    mobile={mobile.current}
+    {onissue}
+    onclose={() => (showBacklog = false)}
+  />
 {/if}
 
 <style>

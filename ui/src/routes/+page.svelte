@@ -51,6 +51,11 @@
   // the WS and the store auto-reconnects, refreshing state once the new build is live.
   let herdrUpdating = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
+  // Once every "needs you" item is handled the drawer has nothing left to show —
+  // close it so it slides out instead of lingering on an empty state.
+  $effect(() => {
+    if (showTriage && blockedEntries.length === 0) showTriage = false;
+  });
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);

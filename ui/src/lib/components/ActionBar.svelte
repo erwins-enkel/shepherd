@@ -6,6 +6,7 @@
   const REPO = "erwins-enkel/shepherd";
   const REPO_URL = `https://github.com/${REPO}`;
   const sha = __GIT_SHA__;
+  const version = __APP_VERSION__;
   const commitUrl = sha === "unknown" ? REPO_URL : `https://github.com/${REPO}/commit/${sha}`;
 
   const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
@@ -50,6 +51,8 @@
       <div class="meta">
         <a class="repo" href={REPO_URL} target="_blank" rel="external noreferrer noopener">{REPO}</a
         >
+        <span class="dot">·</span>
+        <span class="version">v{version}</span>
         <span class="dot">·</span>
         <a
           class="sha"
@@ -123,6 +126,9 @@
   .sha {
     color: var(--color-muted);
     text-decoration: none;
+  }
+  .version {
+    color: var(--color-muted);
   }
   .sha {
     color: var(--color-ink);

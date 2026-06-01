@@ -3,6 +3,7 @@
 declare global {
   // injected at build time by vite.config.ts (`define`)
   const __GIT_SHA__: string;
+  const __APP_VERSION__: string;
 
   namespace App {
     // interface Error {}

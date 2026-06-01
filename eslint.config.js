@@ -17,8 +17,8 @@ export default [
   {
     files: ["**/*.svelte", "**/*.svelte.ts", "**/*.svelte.js"],
     languageOptions: {
-      // __GIT_SHA__ is injected at build time via ui/vite.config.ts `define`
-      globals: { ...globals.browser, __GIT_SHA__: "readonly" },
+      // __GIT_SHA__ / __APP_VERSION__ are injected at build time via ui/vite.config.ts `define`
+      globals: { ...globals.browser, __GIT_SHA__: "readonly", __APP_VERSION__: "readonly" },
       parserOptions: {
         parser: ts.parser,
         extraFileExtensions: [".svelte"],

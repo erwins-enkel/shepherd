@@ -18,7 +18,8 @@
   ],
   "packages": {
     ".": {
-      "package-name": "shepherd"
+      "package-name": "shepherd",
+      "extra-files": [{ "type": "json", "path": "package.json", "jsonpath": "$.version" }]
     }
   }
 }

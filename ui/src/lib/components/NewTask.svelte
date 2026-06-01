@@ -432,39 +432,34 @@
     }
     /* Compact head on phones: the "New Task" title is redundant once the
        sheet is open and the prompt label is obvious from the placeholder.
-       Drop both and float the close ✕ into the corner so the prompt leads
-       the sheet and we don't burn 2–3 rows above the fold. */
+       Drop both, leaving a single 44px row that holds only the close ✕ in the
+       top-right corner — in flow so it stays aligned with the inset fields
+       below rather than floating, detached, over the prompt. */
     .chead {
-      margin-bottom: 0;
+      margin-bottom: 6px;
+      min-height: 44px;
     }
     .chead .micro {
       display: none;
     }
     .x {
-      position: absolute;
-      top: 0;
-      right: 0;
-      z-index: 1;
       display: flex;
       align-items: center;
       justify-content: center;
       width: 44px;
       height: 44px;
+      margin-right: -10px; /* nudge the glyph toward the sheet edge */
       font-size: 16px;
     }
     label[for="nt-prompt"] {
       display: none;
     }
     textarea {
-      /* Stretch the prompt edge-to-edge by cancelling the card's 16px padding,
-         so the field uses the full phone width. */
-      margin-inline: -16px;
-      width: calc(100% + 32px);
-      border-left: 0;
-      border-right: 0;
-      border-radius: 0;
-      padding-right: 44px; /* keep typed text clear of the floating ✕ */
-      /* Comfortable starting size; auto-grow takes it up to 40dvh, then scrolls. */
+      /* Inset like every other field (REPO/BRANCH/MODEL) so the border stays
+         within the viewport. The earlier full-bleed breakout (negative margin +
+         calc width) pushed the border past the edge and left the ✕ visually
+         detached. Comfortable starting size; auto-grow takes it up to 40dvh,
+         then scrolls. */
       min-height: 120px;
       max-height: 40dvh;
       overflow-y: auto;

@@ -10,6 +10,11 @@ export interface Issue {
 export type ForgeKind = "github" | "gitea";
 export type MergeMethod = "merge" | "squash" | "rebase";
 
+/** Invisible marker appended to every critic-posted review body so the review
+ *  fetch can tell the critic's own reviews apart from human ones (they share one
+ *  gh identity). HTML comments don't render in GitHub's UI. */
+export const CRITIC_REVIEW_MARKER = "<!-- shepherd-critic -->";
+
 /** Worst-of CI rollup: failure dominates, then pending, then success. */
 export type ChecksState = "none" | "pending" | "success" | "failure";
 

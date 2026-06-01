@@ -21,18 +21,42 @@
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
   } = $props();
+
+  // sidebar list filter: "all" or "ready" (only sessions not actively working —
+  // anything but a running agent: idle, blocked, done → awaiting the operator)
+  let filter = $state<"all" | "ready">("all");
+  const shown = $derived(
+    filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
+  );
 </script>
 
 <div class="panel bracket">
   <div class="phead">
     <span class="micro">{m.herd_title()}</span>
-    <span class="right micro">{m.herd_all_hint()}</span>
+    <div class="right filters">
+      <button
+        type="button"
+        class="micro fbtn"
+        class:active={filter === "all"}
+        aria-pressed={filter === "all"}
+        onclick={() => (filter = "all")}>{m.herd_all_hint()}</button
+      >
+      <button
+        type="button"
+        class="micro fbtn"
+        class:active={filter === "ready"}
+        aria-pressed={filter === "ready"}
+        onclick={() => (filter = "ready")}>{m.herd_ready_filter()}</button
+      >
+    </div>
   </div>
   <div class="units">
     {#if sessions.length === 0}
       <button type="button" class="empty micro" onclick={onnew}>{m.herd_empty()}</button>
+    {:else if shown.length === 0}
+      <div class="empty micro static">{m.herd_ready_empty()}</div>
     {:else}
-      {#each sessions as session (session.id)}
+      {#each shown as session (session.id)}
         <UnitRow
           {session}
           selected={session.id === selectedId}
@@ -88,6 +112,25 @@
   .phead .right {
     margin-left: auto;
   }
+  .filters {
+    display: flex;
+    gap: 4px;
+  }
+  .fbtn {
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 2px 5px;
+    color: var(--color-faint);
+    transition: color 0.12s ease;
+  }
+  .fbtn:hover {
+    color: var(--color-ink);
+  }
+  .fbtn.active {
+    color: var(--color-amber);
+  }
 
   .micro {
     font-size: 10.5px;
@@ -119,5 +162,11 @@
   }
   .empty:hover {
     color: var(--color-ink);
+  }
+  .empty.static {
+    cursor: default;
+  }
+  .empty.static:hover {
+    color: var(--color-faint);
   }
 </style>

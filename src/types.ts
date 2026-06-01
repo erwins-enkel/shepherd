@@ -16,6 +16,7 @@ export interface Session {
   claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
 
   model: string | null; // claude --model alias; null = claude's own default (no flag)
+  readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;

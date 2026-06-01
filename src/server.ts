@@ -391,6 +391,20 @@ function handleSessionResume({ req, parts, deps }: Ctx): Response | null {
   return json(s);
 }
 
+// POST /api/sessions/:id/ready — toggle the manual "ready to merge" flag.
+async function handleSessionReady({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "ready")) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { ready?: unknown } | null;
+  if (!body || typeof body.ready !== "boolean") {
+    return json({ error: "body must be {ready: boolean}" }, 400);
+  }
+  if (!deps.store.get(parts[2])) return json({ error: "not found" }, 404);
+  deps.service.setReadyToMerge(parts[2], body.ready);
+  return json({ ok: true });
+}
+
 // POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.
 function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   if (!(req.method === "POST" && parts[2] && parts[3] === "dismiss-stall")) return null;
@@ -411,6 +425,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReply,
     handleSessionRename,
     handleSessionResume,
+    handleSessionReady,
     handleSessionDismissStall,
   ]) {
     const res = await sub(ctx);

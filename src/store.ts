@@ -32,10 +32,11 @@ type NewSession = Omit<
   | "archivedAt"
   | "model"
   | "claudeSessionId"
+  | "readyToMerge"
 > & { model?: string | null; claudeSessionId?: string };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
-  isolated, herdrSession, herdrAgentId, claudeSessionId, model, status, lastState, createdAt, updatedAt, archivedAt`;
+  isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState, createdAt, updatedAt, archivedAt`;
 
 export class SessionStore implements CapStore {
   private db: Database;
@@ -56,6 +57,9 @@ export class SessionStore implements CapStore {
     }
     if (!cols.some((c) => c.name === "claudeSessionId")) {
       this.db.run(`ALTER TABLE sessions ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!cols.some((c) => c.name === "readyToMerge")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN readyToMerge INTEGER NOT NULL DEFAULT 0`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
@@ -146,13 +150,14 @@ export class SessionStore implements CapStore {
       claudeSessionId: input.claudeSessionId ?? "",
       id: randomUUID(),
       desig: `TASK-${String(n + 1).padStart(2, "0")}`,
+      readyToMerge: false,
       status: "running",
       lastState: "idle",
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
     };
-    this.db.run(`INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+    this.db.run(`INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       s.id,
       s.desig,
       s.name,
@@ -166,6 +171,7 @@ export class SessionStore implements CapStore {
       s.herdrAgentId,
       s.claudeSessionId,
       s.model,
+      s.readyToMerge ? 1 : 0,
       s.status,
       s.lastState,
       s.createdAt,
@@ -189,14 +195,25 @@ export class SessionStore implements CapStore {
 
   update(
     id: string,
-    patch: Partial<Pick<Session, "name" | "status" | "lastState" | "branch" | "herdrAgentId">>,
+    patch: Partial<
+      Pick<Session, "name" | "status" | "lastState" | "branch" | "herdrAgentId" | "readyToMerge">
+    >,
   ) {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, updatedAt=? WHERE id=?`,
-      [next.name, next.status, next.lastState, next.branch, next.herdrAgentId, next.updatedAt, id],
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, updatedAt=? WHERE id=?`,
+      [
+        next.name,
+        next.status,
+        next.lastState,
+        next.branch,
+        next.herdrAgentId,
+        next.readyToMerge ? 1 : 0,
+        next.updatedAt,
+        id,
+      ],
     );
   }
 
@@ -274,6 +291,11 @@ export class SessionStore implements CapStore {
   }
 
   private hydrate(r: any): Session {
-    return { ...r, isolated: !!r.isolated, claudeSessionId: r.claudeSessionId ?? "" } as Session;
+    return {
+      ...r,
+      isolated: !!r.isolated,
+      readyToMerge: !!r.readyToMerge,
+      claudeSessionId: r.claudeSessionId ?? "",
+    } as Session;
   }
 }

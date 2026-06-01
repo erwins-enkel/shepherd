@@ -62,6 +62,37 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+test("setReadyToMerge persists the flag and emits session:ready", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const emitted: { event: string; data: unknown }[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: { start: () => ({}) as any, list: () => [] } as any,
+    events: { emit: (event, data) => emitted.push({ event, data }) },
+  });
+
+  service.setReadyToMerge(s.id, true);
+  expect(store.get(s.id)?.readyToMerge).toBe(true);
+  expect(emitted).toEqual([{ event: "session:ready", data: { id: s.id, ready: true } }]);
+
+  service.setReadyToMerge(s.id, false);
+  expect(store.get(s.id)?.readyToMerge).toBe(false);
+  expect(emitted[1]).toEqual({ event: "session:ready", data: { id: s.id, ready: false } });
+});
+
 test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)", () => {
   const prev = config.remoteControlAtStartup;
   try {

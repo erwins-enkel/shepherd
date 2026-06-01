@@ -17,6 +17,7 @@ const s = (id: string, status: any = "running"): Session => ({
   claudeSessionId: "cs-" + id,
   model: null,
   status,
+  readyToMerge: false,
   lastState: "working",
   createdAt: 0,
   updatedAt: 0,

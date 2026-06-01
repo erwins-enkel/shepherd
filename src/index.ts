@@ -56,6 +56,7 @@ const service = new SessionService({
   worktree,
   herdr,
   namer: generateName,
+  events,
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -83,6 +84,14 @@ const poller = new StatusPoller(
   herdr,
   (id, status) => events.emit("session:status", { id, status }),
   (id, block) => events.emit("session:block", { id, block }),
+  undefined, // intervalMs
+  undefined, // reclassifyMs
+  undefined, // classify
+  undefined, // now
+  undefined, // stallProbe
+  undefined, // stallCfg
+  undefined, // stallCheckMs
+  (id, ready) => events.emit("session:ready", { id, ready }),
 );
 poller.start();
 

@@ -443,7 +443,7 @@
     animation: pip-pulse 1.5s ease-out infinite;
   }
   .dot-success {
-    background: var(--color-blue, #4a90d9);
+    background: var(--color-green, #5ad19a);
   }
   .dot-failure {
     background: var(--color-red, #d9534f);

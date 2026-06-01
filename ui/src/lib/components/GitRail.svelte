@@ -195,7 +195,11 @@
             ? m.gitrail_critic_reviewing_aria()
             : m.gitrail_critic_toggle_aria()}
           aria-busy={reviewing}
-          title={reviewing ? m.gitrail_critic_reviewing_aria() : undefined}
+          title={reviewing
+            ? m.gitrail_critic_reviewing_aria()
+            : criticOn
+              ? m.gitrail_critic_on_title()
+              : m.gitrail_critic_off_title()}
           onclick={() => repoConfig.toggle(repoPath)}
         >
           {#if reviewing}<span class="rev-dot" aria-hidden="true"></span>{/if}

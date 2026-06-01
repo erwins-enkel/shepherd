@@ -72,6 +72,8 @@
   "gitrail_critic_reviewing": "🔍 Prüft…",
   "gitrail_critic_reviewing_aria": "Kritiker prüft diesen Pull Request",
   "gitrail_critic_toggle_aria": "Kritiker-Review für dieses Repository umschalten",
+  "gitrail_critic_on_title": "Kritiker ist an: Ein automatischer Reviewer prüft den Diff jedes Pull Requests und fordert Änderungen an oder hinterlässt Kommentare. Klicken, um ihn für dieses Repository auszuschalten.",
+  "gitrail_critic_off_title": "Kritiker ist aus: Anschalten, damit ein automatischer Reviewer den Diff jedes Pull Requests prüft und Änderungen anfordert oder Kommentare hinterlässt. Klicken, um ihn für dieses Repository einzuschalten.",
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_review_sent": "gesendet ✓",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",

@@ -75,6 +75,8 @@
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_review_sent": "gesendet ✓",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",
+  "gitrail_view_review": "📄 Befunde",
+  "gitrail_review_title": "Kritiker-Befunde",
   "herd_title": "The Herd",
   "herd_all_hint": "▦ Alle",
   "herd_empty": "Keine Aufgaben — + Neue Aufgabe",

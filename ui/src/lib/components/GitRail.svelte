@@ -3,6 +3,7 @@
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
+  import { criticBadgeLabel } from "./critic-badge";
 
   let {
     sessionId,
@@ -26,6 +27,10 @@
   let showPr = $state(false);
   let prTitle = $state("");
   let prBody = $state("");
+
+  // Critic-findings popover (read the full verdict body without leaving the app)
+  let showReview = $state(false);
+  let wrapEl = $state<HTMLElement | null>(null);
 
   // two-step confirm for destructive actions (mirrors decommission UX)
   let armed = $state<"merge" | "redeploy" | null>(null);
@@ -57,6 +62,7 @@
     err = null;
     armed = null;
     showPr = false;
+    showReview = false;
     load(id);
     // light poll only while a PR is open (CI/merge state can change)
     const t = setInterval(() => {
@@ -69,7 +75,21 @@
     prTitle = name;
     prBody = prompt;
     showPr = true;
+    showReview = false; // one popover at a time
     err = null;
+  }
+
+  function toggleReview() {
+    showReview = !showReview;
+    if (showReview) showPr = false; // one popover at a time
+  }
+
+  // Escape / click-outside dismiss the findings popover (matches read-only intent)
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && showReview) showReview = false;
+  }
+  function onWindowPointerdown(e: PointerEvent) {
+    if (showReview && wrapEl && !wrapEl.contains(e.target as Node)) showReview = false;
   }
 
   async function submitPr() {
@@ -119,6 +139,7 @@
   );
 
   const verdict = $derived(reviews.map[sessionId]);
+  const verdictLabel = $derived(criticBadgeLabel(verdict));
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
@@ -142,8 +163,10 @@
   }
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
+
 {#if git}
-  <span class="git-rail-wrap" class:mobile>
+  <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile>
       {#if git.state === "none"}
         <button class="gbtn" type="button" disabled={busy} onclick={startPr}
@@ -210,6 +233,16 @@
               : m.gitrail_critic_off()}
         </button>
       {/if}
+      {#if verdict?.body}
+        <button
+          class={["gbtn", { armed: showReview }]}
+          type="button"
+          aria-expanded={showReview}
+          onclick={toggleReview}
+        >
+          {m.gitrail_view_review()}
+        </button>
+      {/if}
       {#if verdict && verdict.decision !== "error" && verdict.body}
         <button class="gbtn" type="button" disabled={busy} onclick={sendReviewToAgent}>
           {m.gitrail_send_review()}
@@ -250,6 +283,29 @@
             {m.gitrail_create_pr()}
           </button>
         </div>
+      </div>
+    {/if}
+
+    {#if showReview && verdict?.body}
+      <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
+        <div class="review-head">
+          <span class="rv-label critic-{verdict.decision}">{verdictLabel}</span>
+          {#if git.url}
+            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+            <a class="rv-prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a
+            >
+          {/if}
+          <button
+            class="gbtn"
+            type="button"
+            onclick={() => (showReview = false)}
+            aria-label={m.common_close()}>✕</button
+          >
+        </div>
+        {#if verdict.summary}
+          <p class="rv-summary">{verdict.summary}</p>
+        {/if}
+        <pre class="rv-body">{verdict.body}</pre>
       </div>
     {/if}
   </span>
@@ -440,5 +496,79 @@
     display: flex;
     justify-content: flex-end;
     gap: 6px;
+  }
+
+  /* findings popover: same anchoring as .pr-pop, wider + scrollable body */
+  .review-pop {
+    position: absolute;
+    top: 100%;
+    right: 8px;
+    z-index: 20;
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    width: min(480px, 90vw);
+    max-height: 60vh;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+
+  .review-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rv-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-muted);
+  }
+  .rv-label.critic-changes_requested {
+    color: var(--color-amber);
+  }
+  .rv-label.critic-commented {
+    color: var(--color-blue, #4a90d9);
+  }
+  .rv-label.critic-error {
+    color: var(--color-faint);
+  }
+  .rv-prlink {
+    font-size: 11px;
+    color: var(--color-muted);
+    text-decoration: none;
+  }
+  .rv-prlink:hover {
+    color: var(--color-ink-bright);
+  }
+  .review-head .gbtn {
+    margin-left: auto;
+    padding: 0 6px;
+    line-height: 1.6;
+  }
+
+  .rv-summary {
+    margin: 0;
+    font-size: 11px;
+    color: var(--color-ink);
+  }
+  .rv-body {
+    margin: 0;
+    overflow: auto;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 6px 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 </style>

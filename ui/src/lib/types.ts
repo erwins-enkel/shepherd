@@ -32,6 +32,7 @@ export interface Issue {
   body: string;
   url: string;
   labels: string[];
+  createdAt: number;
 }
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {

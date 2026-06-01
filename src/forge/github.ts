@@ -58,7 +58,7 @@ export class GithubForge implements GitForge {
       "--state",
       "open",
       "--json",
-      "number,title,body,url,labels",
+      "number,title,body,url,labels,createdAt",
       "--limit",
       "50",
     ]);
@@ -68,14 +68,19 @@ export class GithubForge implements GitForge {
       body?: string;
       url: string;
       labels?: Array<{ name: string }>;
+      createdAt?: string;
     }>;
-    return raw.map((i) => ({
-      number: i.number,
-      title: i.title,
-      body: i.body ?? "",
-      url: i.url,
-      labels: (i.labels ?? []).map((l) => l.name),
-    }));
+    return raw.map((i) => {
+      const ts = Date.parse(i.createdAt ?? "");
+      return {
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        url: i.url,
+        labels: (i.labels ?? []).map((l) => l.name),
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      };
+    });
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

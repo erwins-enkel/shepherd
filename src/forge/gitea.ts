@@ -82,14 +82,19 @@ export class GiteaForge implements GitForge {
       body?: string;
       html_url: string;
       labels?: Array<{ name: string }>;
+      created_at?: string;
     }>;
-    return (raw ?? []).map((i) => ({
-      number: i.number,
-      title: i.title,
-      body: i.body ?? "",
-      url: i.html_url,
-      labels: (i.labels ?? []).map((l) => l.name),
-    }));
+    return (raw ?? []).map((i) => {
+      const ts = Date.parse(i.created_at ?? "");
+      return {
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        url: i.html_url,
+        labels: (i.labels ?? []).map((l) => l.name),
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      };
+    });
   }
 
   private async checksFor(sha: string | undefined): Promise<ChecksState> {

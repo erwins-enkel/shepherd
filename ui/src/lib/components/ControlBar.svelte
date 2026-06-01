@@ -4,9 +4,36 @@
 
   let { onkey }: { onkey: (seq: string) => void } = $props();
 
-  // pointerdown + preventDefault: fire instantly and never blur the terminal
-  // (which would dismiss the mobile soft keyboard).
+  // Tap-vs-drag: the bar scrolls horizontally (overflow-x), so a finger that
+  // lands on a key and drags to scroll must NOT fire it. Arm on pointerdown,
+  // disarm once the pointer moves past a small slop (it's a scroll) or when the
+  // browser takes the gesture over for scrolling (pointercancel), and only act
+  // on a clean tap at pointerup. preventDefault on the *up* — not the down —
+  // suppresses the synthetic click so the key never blurs the terminal (which
+  // would dismiss the mobile soft keyboard), while leaving native horizontal
+  // scrolling intact. Mirrors SteerBar.
+  const TAP_SLOP = 10;
+  let armedId: number | null = null;
+  let startX = 0;
+  let startY = 0;
+
+  function down(e: PointerEvent) {
+    armedId = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+  }
+  function move(e: PointerEvent) {
+    if (armedId !== e.pointerId) return;
+    if (Math.abs(e.clientX - startX) > TAP_SLOP || Math.abs(e.clientY - startY) > TAP_SLOP) {
+      armedId = null;
+    }
+  }
+  function cancel(e: PointerEvent) {
+    if (armedId === e.pointerId) armedId = null;
+  }
   function tap(e: PointerEvent, seq: string) {
+    if (armedId !== e.pointerId) return;
+    armedId = null;
     e.preventDefault();
     onkey(seq);
   }
@@ -14,8 +41,14 @@
 
 <div class="ctrl-bar" role="toolbar" aria-label={m.controlbar_toolbar_aria()}>
   {#each controlKeys() as k (k.seq)}
-    <button type="button" class="key" aria-label={k.aria} onpointerdown={(e) => tap(e, k.seq)}
-      >{k.label}</button
+    <button
+      type="button"
+      class="key"
+      aria-label={k.aria}
+      onpointerdown={down}
+      onpointermove={move}
+      onpointercancel={cancel}
+      onpointerup={(e) => tap(e, k.seq)}>{k.label}</button
     >
   {/each}
 </div>

@@ -10,6 +10,7 @@
     onselect,
     onnew,
     git,
+    ondecommission,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -17,6 +18,8 @@
     onselect: (id: string) => void;
     onnew: () => void;
     git: Record<string, GitState>;
+    // when provided, rows gain left-swipe-to-decommission (mobile list)
+    ondecommission?: (id: string) => void;
   } = $props();
 </script>
 
@@ -36,6 +39,7 @@
           {nowMs}
           {onselect}
           git={git[session.id]}
+          {ondecommission}
         />
       {/each}
     {/if}

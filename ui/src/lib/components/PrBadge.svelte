@@ -11,7 +11,6 @@
 
 {#if label}
   <span class="pr-wrap">
-    <span class="pr-badge pr-{git!.state}">{label}</span>
     {#if showCi}
       <span
         class="dot dot-{git!.checks}"
@@ -19,6 +18,7 @@
         aria-label={m.gitrail_ci_status({ status: git!.checks })}
       ></span>
     {/if}
+    <span class="pr-badge pr-{git!.state}">{label}</span>
   </span>
 {/if}
 

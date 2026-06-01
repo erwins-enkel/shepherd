@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -12,9 +14,19 @@ function gitSha(): string {
   }
 }
 
+function appVersion(): string {
+  try {
+    const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
+    return JSON.parse(readFileSync(pkgPath, "utf8")).version ?? "dev";
+  } catch {
+    return "dev";
+  }
+}
+
 export default defineConfig({
   define: {
     __GIT_SHA__: JSON.stringify(gitSha()),
+    __APP_VERSION__: JSON.stringify(appVersion()),
   },
   plugins: [
     paraglideVitePlugin({

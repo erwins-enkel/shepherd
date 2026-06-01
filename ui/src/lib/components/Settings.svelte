@@ -576,8 +576,7 @@
       overflow-y: auto;
     }
     .list {
-      max-height: none;
-      flex: 1;
+      max-height: 50vh;
     }
     .row,
     .up,

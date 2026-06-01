@@ -80,6 +80,8 @@
   "gitrail_review_title": "Critic findings",
   "herd_title": "The Herd",
   "herd_all_hint": "▦ All",
+  "herd_ready_filter": "▤ Ready",
+  "herd_ready_empty": "Nothing waiting — all hands working",
   "herd_empty": "No tasks — + New Task",
   "issuespanel_title": "ISSUES",
   "issuespanel_title_with_slug": "ISSUES · {slug}",

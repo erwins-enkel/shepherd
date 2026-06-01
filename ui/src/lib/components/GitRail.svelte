@@ -143,7 +143,7 @@
 </script>
 
 {#if git}
-  <span class="git-rail-wrap">
+  <span class="git-rail-wrap" class:mobile>
     <span class="rail" class:mobile>
       {#if git.state === "none"}
         <button class="gbtn" type="button" disabled={busy} onclick={startPr}
@@ -275,6 +275,7 @@
     font-size: 10.5px;
     letter-spacing: 0.08em;
     padding: 2px 8px;
+    white-space: nowrap;
     cursor: pointer;
     transition:
       border-color 0.12s,
@@ -327,9 +328,19 @@
     color: var(--color-amber);
   }
 
-  /* touch layouts: bigger tap targets + readable PR link/dot */
+  /* touch layouts: bigger tap targets + readable PR link/dot. fill the strip and
+     wrap whole buttons onto a new right-aligned row, rather than letting a single
+     nowrap rail overflow and squeeze button labels across lines */
+  .git-rail-wrap.mobile {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .rail.mobile {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 10px;
+    row-gap: 8px;
   }
   .rail.mobile .gbtn {
     min-height: 40px;

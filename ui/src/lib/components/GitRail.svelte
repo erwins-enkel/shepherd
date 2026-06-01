@@ -221,12 +221,13 @@
 
       {#if repoPath}
         <button
-          class={["gbtn", { reviewing }]}
+          class={["gbtn", "crit-toggle", { reviewing }]}
           type="button"
           aria-label={reviewing
             ? m.gitrail_critic_reviewing_aria()
             : m.gitrail_critic_toggle_aria()}
           aria-busy={reviewing}
+          aria-pressed={criticOn}
           title={reviewing
             ? m.gitrail_critic_reviewing_aria()
             : criticOn
@@ -234,34 +235,20 @@
               : m.gitrail_critic_off_title()}
           onclick={() => repoConfig.toggle(repoPath)}
         >
-          {#if reviewing}<span class="rev-dot" aria-hidden="true"></span>{/if}
-          {reviewing
-            ? m.gitrail_critic_reviewing()
-            : criticOn
-              ? m.gitrail_critic_on()
-              : m.gitrail_critic_off()}
+          🔍<span class="crit-dot" class:reviewing class:on={criticOn} aria-hidden="true"></span>
         </button>
       {/if}
-      {#if verdict?.body}
+      {#if verdict}
         <button
-          class={["gbtn", { armed: showReview }]}
+          class={["verdict-chip", `critic-${verdict.decision}`, { armed: showReview }]}
           type="button"
           aria-expanded={showReview}
+          title={m.gitrail_review_title()}
           onclick={toggleReview}
         >
-          {m.gitrail_view_review()}
+          {verdictLabel}
         </button>
       {/if}
-      {#if verdict && verdict.decision !== "error" && verdict.body}
-        <button class="gbtn" type="button" disabled={busy} onclick={sendReviewToAgent}>
-          {m.gitrail_send_review()}
-        </button>
-      {/if}
-      {#if reviewFlash}<span
-          class:err={reviewFlashErr}
-          class:ok={!reviewFlashErr}
-          title={reviewFlash}>{reviewFlash}</span
-        >{/if}
 
       {#if err}<span class="err" title={err}>{err}</span>{/if}
     </span>
@@ -295,7 +282,7 @@
       </div>
     {/if}
 
-    {#if showReview && verdict?.body}
+    {#if showReview && verdict}
       <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
         <div class="review-head">
           <span class="rv-label critic-{verdict.decision}">{verdictLabel}</span>
@@ -314,8 +301,22 @@
         {#if verdict.summary}
           <p class="rv-summary">{verdict.summary}</p>
         {/if}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
-        <div class="rv-body">{@html renderedBody}</div>
+        {#if verdict.body}
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+          <div class="rv-body">{@html renderedBody}</div>
+        {/if}
+        {#if verdict.decision !== "error" && verdict.body}
+          <div class="review-actions">
+            {#if reviewFlash}<span
+                class:err={reviewFlashErr}
+                class:ok={!reviewFlashErr}
+                title={reviewFlash}>{reviewFlash}</span
+              >{/if}
+            <button class="gbtn" type="button" disabled={busy} onclick={sendReviewToAgent}>
+              {m.gitrail_send_review()}
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
   </span>
@@ -363,18 +364,28 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  /* critic actively reviewing: amber outline + pulsing dot */
+  /* critic actively reviewing: amber outline (layout via .crit-toggle) */
   .gbtn.reviewing {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  /* icon-only critic toggle: glyph + single status dot, always inline-flex so
+     the dot renders as a flex item (an empty inline span ignores width/height) */
+  .crit-toggle {
     display: inline-flex;
     align-items: center;
     gap: 5px;
   }
-  .rev-dot {
+  .crit-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
+    background: var(--color-faint);
+  }
+  .crit-dot.on {
+    background: var(--color-green, #4caf50);
+  }
+  .crit-dot.reviewing {
     background: var(--color-amber);
     animation: rev-pulse 1.1s ease-in-out infinite;
   }
@@ -388,7 +399,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .rev-dot {
+    .crit-dot.reviewing {
       animation: none;
       opacity: 0.9;
     }
@@ -396,6 +407,30 @@
   .gbtn.primary {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+
+  /* verdict chip: .gbtn sizing, colored by decision */
+  .verdict-chip {
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      opacity 0.12s,
+      box-shadow 0.12s;
+  }
+  .verdict-chip:hover {
+    opacity: 0.8;
+  }
+  .verdict-chip.armed {
+    box-shadow: 0 0 0 1px currentColor inset;
   }
 
   /* touch layouts: bigger tap targets + readable PR link/dot. fill the strip and
@@ -541,13 +576,16 @@
     white-space: nowrap;
     color: var(--color-muted);
   }
-  .rv-label.critic-changes_requested {
+  .rv-label.critic-changes_requested,
+  .verdict-chip.critic-changes_requested {
     color: var(--color-amber);
   }
-  .rv-label.critic-commented {
+  .rv-label.critic-commented,
+  .verdict-chip.critic-commented {
     color: var(--color-blue, #4a90d9);
   }
-  .rv-label.critic-error {
+  .rv-label.critic-error,
+  .verdict-chip.critic-error {
     color: var(--color-faint);
   }
   .rv-prlink {
@@ -637,5 +675,15 @@
     padding-left: 8px;
     border-left: 2px solid var(--color-line);
     color: var(--color-muted);
+  }
+
+  .review-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-line);
   }
 </style>

@@ -122,11 +122,37 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   expect(argv).not.toContain("--dangerously-skip-permissions");
   expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("dontAsk");
   expect(argv).toContain("Read");
-  expect(argv).toContain("Write(.shepherd-review.json)");
-  // no broad write/edit/bash capability (only path-/subcommand-scoped entries)
-  expect(argv).not.toContain("Write");
+  // bare `Write`: path-scoped Write rules are silently denied under dontAsk, so
+  // the verdict file could never be written with a scoped rule. Safety still
+  // holds — disposable worktree, no exec/commit/network (asserted below).
+  expect(argv).toContain("Write");
   expect(argv).not.toContain("Edit");
-  expect(argv).not.toContain("Bash");
+  expect(argv).not.toContain("Bash"); // only subcommand-scoped Bash(git ...) entries
+  // clean context: the critic must not inherit the user's hooks/plugins/skills
+  // (e.g. superpowers' SessionStart "invoke a skill" preamble → Skill denied →
+  // thrash). NOT --bare (it would break subscription-OAuth auth).
+  expect(argv).not.toContain("--bare");
+  expect(argv).toContain("--disable-slash-commands");
+  expect(argv[argv.indexOf("--settings") + 1]).toBe('{"disableAllHooks":true}');
+});
+
+test("task prompt survives the variadic allowlist (not swallowed → no task → timeout)", () => {
+  const { deps: d, started } = makeDeps({});
+  new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const argv = started[0]!.argv;
+  // `--allowedTools <tools...>` is variadic: it greedily eats every following
+  // token until the next flag. The task prompt is the trailing positional, so a
+  // single-value flag MUST sit between the allowlist and the prompt — otherwise
+  // the real `claude` CLI folds the prompt into the allowlist and the critic
+  // launches with no task, hanging until the 10-min timeout (every review).
+  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+  expect(argv.at(-3)).toBe("--permission-mode");
+  expect(argv.at(-2)).toBe("dontAsk");
+  // nothing between the allowlist and the prompt may be a bare allowlist entry:
+  // a flag must terminate the variadic first.
+  const afterAllow = argv.slice(argv.indexOf("--allowedTools") + 1, argv.length - 1);
+  const firstFlag = afterAllow.findIndex((a) => a.startsWith("--"));
+  expect(firstFlag).toBeGreaterThanOrEqual(0);
 });
 
 test("does not review the same head twice", async () => {

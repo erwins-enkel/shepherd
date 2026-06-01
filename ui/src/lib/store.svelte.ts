@@ -119,9 +119,24 @@ export class HerdStore {
   connect(makeWs: () => WebSocket = () => new WebSocket(wsUrl("/events"))): () => void {
     let ws: WebSocket | null = null;
     let stopped = false;
+    // Report whether this window is actively in use so the server can suppress
+    // push banners while it is (the live UI already shows the change). Page-context
+    // focus+visibility is reliable on Android, unlike a SW's WindowClient.focused.
+    const active = () =>
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible" &&
+      document.hasFocus();
+    const reportPresence = () => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "presence", active: active() }));
+      }
+    };
     const open = () => {
       ws = makeWs();
-      ws.onopen = () => (this.connected = true);
+      ws.onopen = () => {
+        this.connected = true;
+        reportPresence();
+      };
       ws.onmessage = (e) => {
         try {
           this.apply(JSON.parse(e.data));
@@ -135,9 +150,19 @@ export class HerdStore {
       };
       ws.onerror = () => ws?.close();
     };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", reportPresence);
+      window.addEventListener("focus", reportPresence);
+      window.addEventListener("blur", reportPresence);
+    }
     open();
     return () => {
       stopped = true;
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", reportPresence);
+        window.removeEventListener("focus", reportPresence);
+        window.removeEventListener("blur", reportPresence);
+      }
       ws?.close();
     };
   }

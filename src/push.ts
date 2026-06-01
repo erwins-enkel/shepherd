@@ -103,6 +103,8 @@ export class PushService {
     private send: SendFn = defaultSend,
     genKeys: GenKeys = () => webpush.generateVAPIDKeys(),
     private now: () => number = () => Date.now(),
+    /** True while a window is actively in use; such pushes are suppressed. */
+    private isActive: () => boolean = () => false,
   ) {
     let pub = config.vapidPublic ?? store.getSetting("vapidPublic");
     let priv = config.vapidPrivate ?? store.getSetting("vapidPrivate");
@@ -142,6 +144,12 @@ export class PushService {
   }
 
   async notify(input: NotifyInput): Promise<void> {
+    // Suppress while the app is actively in use: the live UI already surfaces
+    // every status change, so an OS banner is pure noise. Decided server-side —
+    // by simply not sending — because a service worker can't reliably drop a
+    // push under userVisibleOnly:true (Android substitutes its own banner). We
+    // don't touch the cooldown clock here: nothing was sent.
+    if (this.isActive()) return;
     const cooldownMs = config.pushCooldownMs;
     const key = `${input.kind}:${input.sessionId}`;
     const t = this.now();

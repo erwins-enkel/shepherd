@@ -64,6 +64,39 @@ test("notify sends to all subscriptions", async () => {
   expect(sent[0]).toContain('"title":"T — waiting"');
 });
 
+test("notify suppresses every send while a client reports it is active", async () => {
+  let count = 0;
+  const send: SendFn = async () => {
+    count++;
+    return {};
+  };
+  const store = new SessionStore(":memory:");
+  // 5th arg: presence gate — the app is in active use, so the live UI already
+  // shows this; an OS banner would be noise (and a SW can't drop it on Android).
+  const push = new PushService(store, send, keys, undefined, () => true);
+  store.putPushSub(sub("e1"), "");
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
+  await push.notify({ kind: "blocked", sessionId: "s2", tag: "s2", name: "T" });
+  expect(count).toBe(0);
+});
+
+test("notify sends normally once no client is active", async () => {
+  let active = true;
+  let count = 0;
+  const send: SendFn = async () => {
+    count++;
+    return {};
+  };
+  const store = new SessionStore(":memory:");
+  const push = new PushService(store, send, keys, undefined, () => active);
+  store.putPushSub(sub("e1"), "");
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
+  expect(count).toBe(0); // suppressed while active
+  active = false;
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
+  expect(count).toBe(1); // flows once active clears
+});
+
 test("notify prunes a subscription that returns 410", async () => {
   const send: SendFn = async (s) => {
     if (s.endpoint === "dead") throw Object.assign(new Error("gone"), { statusCode: 410 });

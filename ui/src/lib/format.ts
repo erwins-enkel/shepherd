@@ -30,6 +30,15 @@ export const STATUS_COLOR: Record<SessionStatus, string> = {
   archived: "var(--status-idle)",
 };
 
+/**
+ * While a review is in flight, the WAITING/IDLE status badge is redundant noise
+ * next to REVIEWING… — both just say "nothing actionable yet". Hide it then.
+ * WORKING/BLOCKED stay visible: those are genuinely different signals.
+ */
+export function hideStatusBadge(s: SessionStatus, reviewing: boolean): boolean {
+  return reviewing && (s === "done" || s === "idle");
+}
+
 export function statusLabel(s: SessionStatus): string {
   switch (s) {
     case "running":

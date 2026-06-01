@@ -3,11 +3,12 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import type { Session, GitState } from "$lib/types";
-  import { STATUS_COLOR, statusLabel, elapsed } from "$lib/format";
+  import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge } from "$lib/format";
   import { connectPty } from "$lib/pty";
   import { theme, xtermTheme } from "$lib/theme.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
+  import { reviews } from "$lib/reviews.svelte";
 
   let {
     session,
@@ -22,6 +23,8 @@
     onselect: (id: string) => void;
     git?: GitState;
   } = $props();
+
+  const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
 
   let el: HTMLDivElement | undefined = $state();
   let termRef = $state<Terminal | undefined>();
@@ -106,7 +109,9 @@
     {/if}
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
-    <span class="badge">{statusLabel(session.status)}</span>
+    {#if !hideStatus}
+      <span class="badge">{statusLabel(session.status)}</span>
+    {/if}
     <span class="desig">{session.desig}</span>
   </div>
   <div class="t-body">

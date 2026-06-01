@@ -354,14 +354,14 @@
     flex-shrink: 0;
   }
 
+  /* Quiet muted text, not a colored pill — the StatusPip (left) already encodes
+     status by color + pulse, so an outlined `--rule`-tinted badge here just
+     duplicated that hue (amber for running) and added to the orange wall. */
   .badge {
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 2px 7px;
-    border: 1px solid var(--rule);
-    color: var(--rule);
-    border-radius: 2px;
+    color: var(--color-muted);
     white-space: nowrap;
   }
 

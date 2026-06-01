@@ -38,10 +38,9 @@
     white-space: nowrap;
     color: var(--color-muted);
   }
-  .pr-open {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
+  /* `pr-open` is the brightest PR state via the default muted styling — no hue.
+     Amber is reserved for the one actionable badge (critic CHANGES); PR
+     existence is an identifier, and CI health is carried by the dot beside it. */
   .pr-merged {
     color: var(--color-slate);
   }

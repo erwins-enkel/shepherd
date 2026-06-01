@@ -18,10 +18,14 @@
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
+  import { enterKey } from "$lib/controlKeys";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import { m } from "$lib/paraglide/messages";
+
+  // Enter pinned in the thumb zone — locale-reactive for its accessible name.
+  const enter = $derived(enterKey());
 
   let {
     session,
@@ -823,6 +827,9 @@
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
     <div class="ctrl-row">
+      <ControlBar onkey={(seq) => conn?.send(seq)} />
+      <!-- pinned right, in the one-thumb reach zone: attach then Enter, always
+           visible so the primary action never scrolls off -->
       <button
         type="button"
         class="attach"
@@ -833,7 +840,15 @@
       >
         {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
       </button>
-      <ControlBar onkey={(seq) => conn?.send(seq)} />
+      <button
+        type="button"
+        class="enter"
+        aria-label={enter.aria}
+        onpointerup={(e) => {
+          e.preventDefault();
+          conn?.send(enter.seq);
+        }}>{enter.label}</button
+      >
     </div>
     <ComposeBar onsend={sendComposed} />
     <input
@@ -1420,27 +1435,52 @@
     outline: 2px dashed var(--color-amber);
     outline-offset: -4px;
   }
+  /* one unified bar across the whole row (scroll palette + pinned actions) */
   .ctrl-row {
     display: flex;
-    align-items: stretch;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
+    padding-right: 10px;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
   }
-  .ctrl-row .attach {
+  .ctrl-row .attach,
+  .ctrl-row .enter {
     flex: 0 0 auto;
     min-width: 44px;
-    height: 40px;
-    margin: 6px 0 6px 10px;
+    height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--color-ink);
     font-size: 16px;
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .ctrl-row .attach:active,
+  .ctrl-row .enter:active {
+    background: var(--color-line-bright);
+    border-color: var(--color-ink);
   }
   .ctrl-row .attach.failed {
     border-color: var(--color-red);
     color: var(--color-red);
+  }
+  /* Enter — the single affirmative "do it" key, the only filled accent in the
+     row so it reads as the primary action */
+  .ctrl-row .enter {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 60%, var(--color-line-bright));
+    background: color-mix(in srgb, var(--color-green) 18%, var(--color-inset));
+  }
+  .ctrl-row .enter:active {
+    background: color-mix(in srgb, var(--color-green) 34%, var(--color-inset));
+    border-color: var(--color-green);
   }
 </style>

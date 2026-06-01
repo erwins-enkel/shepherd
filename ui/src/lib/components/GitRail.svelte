@@ -166,14 +166,12 @@
     if (!verdict?.body) return;
     try {
       await replySession(sessionId, `Address this code review feedback:\n\n${verdict.body}`);
-      reviewFlash = m.gitrail_review_sent();
-      reviewFlashErr = false;
-      showReview = false; // dismiss findings panel once the review is on its way
+      showReview = false; // panel closing is the success feedback; dismiss it
     } catch {
       reviewFlash = m.gitrail_send_review_failed();
       reviewFlashErr = true;
+      setTimeout(() => (reviewFlash = null), 1500);
     }
-    setTimeout(() => (reviewFlash = null), 1500);
   }
 </script>
 

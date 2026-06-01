@@ -167,8 +167,9 @@ test("CountsService: fault isolation — throwing runner yields null counts, not
   const forges: ForgeMap = {};
 
   const run: GhRunner = (args) => {
-    const q = args.find((a) => a.startsWith("query=")) ?? "";
-    if (q.includes('"bad"')) throw new Error("gh auth failed");
+    // With gh variables, owner is passed as a separate -F arg: "owner=<value>"
+    const ownerArg = args.find((a) => a.startsWith("owner=")) ?? "";
+    if (ownerArg === "owner=bad") throw new Error("gh auth failed");
     return JSON.stringify({
       data: { repository: { issues: { totalCount: 3 }, pullRequests: { totalCount: 1 } } },
     });
@@ -203,7 +204,32 @@ test("CountsService: failure yields null not 0", async () => {
   expect(result.openPRs).not.toBe(0);
 });
 
-// 7. Non-forge repo (no git remote) → null counts
+// 7. TTL expiry: second call after TTL elapses re-invokes the runner
+test("CountsService: TTL expiry — call after 60s window re-fetches from runner", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-ttl-expire"), "https://github.com/o/ttl-expire");
+  const forges: ForgeMap = {};
+
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 5 }, pullRequests: { totalCount: 1 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService(forges, run);
+
+  // First fetch — populates cache
+  await svc.counts(repoDir);
+
+  // Backdate the cache entry's `at` field to simulate TTL expiry (> 60 000 ms ago)
+  const entry = (svc as any).cache.get(repoDir);
+  entry.at = Date.now() - 61_000;
+
+  // Second fetch — cache is stale, runner should be called again
+  await svc.counts(repoDir);
+
+  const graphqlCalls = calls.filter((c) => c.includes("graphql"));
+  expect(graphqlCalls.length).toBe(2);
+});
+
+// 8. Non-forge repo (no git remote) → null counts
 test("CountsService: repo with no origin → null counts (not a throw)", async () => {
   const repoDir = join(tmpBase, "no-remote");
   mkdirSync(repoDir);

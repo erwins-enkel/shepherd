@@ -85,8 +85,16 @@ export class CountsService {
 
   private fetchGitHub(slug: string): RepoCounts {
     const [owner, name] = slug.split("/");
-    const query = `query{repository(owner:"${owner}",name:"${name}"){issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount}}}`;
-    const out = this.run(["api", "graphql", "-f", `query=${query}`]);
+    const out = this.run([
+      "api",
+      "graphql",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-f",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount}}}",
+    ]);
     const json = JSON.parse(out) as {
       data?: {
         repository?: {

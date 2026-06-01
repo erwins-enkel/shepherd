@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { BacklogPayload } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
@@ -14,6 +15,8 @@
     onissue: (repoPath: string, prompt: string) => void;
   } = $props();
 
+  const BACKLOG_FILTER: string[] = ["bug", "enhancement"];
+
   type Tab = "issues" | "prs";
   let activeTab = $state<Tab>("issues");
 
@@ -21,9 +24,13 @@
   // user selection is not clobbered (only set when currently null).
   let selectedPath = $state<string | null>(null);
 
+  // Use untrack to read selectedPath without subscribing to it, so that
+  // dismissDetail() (which sets selectedPath = null) does not re-fire this
+  // effect and immediately re-seed the overlay from pinnedPath.
   $effect(() => {
-    if (payload?.pinnedPath && selectedPath === null) {
-      selectedPath = payload.pinnedPath;
+    const pinned = payload?.pinnedPath;
+    if (pinned && untrack(() => selectedPath === null)) {
+      selectedPath = pinned;
     }
   });
 
@@ -98,7 +105,7 @@
                 }}
                 bodyPreview
                 age
-                filterLabels={["bug", "enhancement"]}
+                filterLabels={BACKLOG_FILTER}
               />
             </div>
           </div>
@@ -123,11 +130,11 @@
                 }}
                 bodyPreview
                 age
-                filterLabels={["bug", "enhancement"]}
+                filterLabels={BACKLOG_FILTER}
               />
             {:else}
               <div class="detail-empty">
-                <span class="detail-empty-label">{m.backlog_no_forge_repos()}</span>
+                <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
               </div>
             {/if}
           </div>

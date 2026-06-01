@@ -260,5 +260,6 @@
   "backlog_open_since_days": "{days} d",
   "backlog_prs_soon": "PR details coming soon",
   "backlog_loading": "Loading backlog…",
-  "backlog_no_forge_repos": "No forge-backed projects"
+  "backlog_no_forge_repos": "No forge-backed projects",
+  "backlog_select_a_project": "Select a project"
 }

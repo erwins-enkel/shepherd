@@ -65,7 +65,9 @@
     if (store.sessions.length === 0) {
       getBacklog()
         .then((p) => (backlog = p))
-        .catch(() => {});
+        .catch(() => {
+          backlog = { pinnedPath: null, projects: [], totals: { openIssues: 0, openPRs: 0 } };
+        });
     }
   });
 

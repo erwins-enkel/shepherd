@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
@@ -62,6 +63,8 @@
     listening = true;
   }
 
+  onDestroy(() => recog?.stop());
+
   // grow with content (1 line → capped by CSS max-height, then scrolls)
   function autogrow() {
     if (!ta) return;
@@ -70,6 +73,8 @@
   }
 
   function submit() {
+    recog?.stop();
+    listening = false;
     onsend(value);
     value = "";
     queueMicrotask(autogrow); // shrink back after the binding clears

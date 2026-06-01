@@ -189,14 +189,14 @@ export class SessionStore implements CapStore {
 
   update(
     id: string,
-    patch: Partial<Pick<Session, "status" | "lastState" | "branch" | "herdrAgentId">>,
+    patch: Partial<Pick<Session, "name" | "status" | "lastState" | "branch" | "herdrAgentId">>,
   ) {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET status=?, lastState=?, branch=?, herdrAgentId=?, updatedAt=? WHERE id=?`,
-      [next.status, next.lastState, next.branch, next.herdrAgentId, next.updatedAt, id],
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, updatedAt=? WHERE id=?`,
+      [next.name, next.status, next.lastState, next.branch, next.herdrAgentId, next.updatedAt, id],
     );
   }
 

@@ -133,6 +133,19 @@ export class GithubForge implements GitForge {
     return this.prStatus(o.head);
   }
 
+  async renameBranch(oldBranch: string, newBranch: string): Promise<void> {
+    // GitHub's rename-branch endpoint moves the ref AND retargets every open PR and
+    // branch-protection rule onto the new name, so a session's open PR follows along.
+    this.run([
+      "api",
+      "--method",
+      "POST",
+      `repos/${this.slug}/branches/${oldBranch}/rename`,
+      "-f",
+      `new_name=${newBranch}`,
+    ]);
+  }
+
   async merge(prNumber: number, o: MergeInput): Promise<void> {
     const method =
       o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";

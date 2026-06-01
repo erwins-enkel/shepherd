@@ -9,7 +9,13 @@
   import { hotterGauge } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
-  import { getSessionUsage, uploadImage, resumeSession as apiResumeSession } from "$lib/api";
+  import { tick } from "svelte";
+  import {
+    getSessionUsage,
+    uploadImage,
+    resumeSession as apiResumeSession,
+    renameSession,
+  } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
   import { shouldForwardEscape } from "$lib/terminalEscape";
@@ -194,6 +200,8 @@
     tab = "term";
     ended = false;
     resumeFailed = false;
+    renaming = false; // close a half-open rename editor when switching units
+    renameError = null;
   });
   $effect(() => () => clearTimeout(armTimer));
   function decommission() {
@@ -206,6 +214,61 @@
     clearTimeout(armTimer);
     armed = false;
     onarchive?.(session.id);
+  }
+
+  // ── rename: one click opens an inline editor; Enter/blur commits, Esc cancels ──
+  let renaming = $state(false);
+  let renameDraft = $state("");
+  let renameError = $state<string | null>(null);
+  let renameSaving = $state(false);
+  let renameNote = $state<string | null>(null);
+  let renameInput = $state<HTMLInputElement | undefined>();
+  let renameNoteTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => () => clearTimeout(renameNoteTimer));
+
+  async function startRename() {
+    renameDraft = session.name;
+    renameError = null;
+    renaming = true;
+    await tick();
+    renameInput?.select();
+  }
+  function cancelRename() {
+    renaming = false;
+    renameError = null;
+  }
+  async function commitRename() {
+    if (!renaming || renameSaving) return;
+    const name = renameDraft.trim();
+    if (!name || name === session.name) return cancelRename();
+    renameSaving = true;
+    renameError = null;
+    try {
+      const res = await renameSession(session.id, name);
+      renaming = false;
+      // open PR on a host that can't retarget → display-only; tell the user the branch stayed
+      if (session.branch && !res.branchRenamed) {
+        renameNote = m.viewport_rename_branch_kept();
+        clearTimeout(renameNoteTimer);
+        renameNoteTimer = setTimeout(() => (renameNote = null), 6000);
+      }
+    } catch (e) {
+      renameError =
+        e instanceof Error && e.message === "name_taken"
+          ? m.viewport_rename_name_taken()
+          : m.viewport_rename_failed();
+    } finally {
+      renameSaving = false;
+    }
+  }
+  function onRenameKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRename();
+    }
   }
 
   // upload image(s) into this session's worktree, then inject their paths into
@@ -807,6 +870,30 @@
         prompt={session.prompt}
       />
     {/if}
+    {#if renaming}
+      <span class="rename-edit">
+        <input
+          bind:this={renameInput}
+          class="rename-input"
+          class:err={renameError}
+          bind:value={renameDraft}
+          placeholder={m.viewport_rename_placeholder()}
+          aria-label={m.viewport_rename_aria()}
+          onkeydown={onRenameKey}
+          onblur={commitRename}
+        />
+        {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
+      </span>
+    {:else}
+      <button
+        class="rename-btn"
+        type="button"
+        onclick={startRename}
+        title={m.viewport_rename_aria()}
+        aria-label={m.viewport_rename_aria()}>✎</button
+      >
+      {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
+    {/if}
     <button
       class="decom"
       class:armed
@@ -1245,6 +1332,67 @@
     color: var(--color-red);
     border-color: var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  }
+
+  /* rename: pencil affordance + inline editor, sitting just left of decommission */
+  .rename-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-faint);
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .rename-btn:hover {
+    color: var(--color-fg);
+    border-color: color-mix(in srgb, var(--color-fg) 30%, transparent);
+  }
+
+  .rename-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .rename-input {
+    background: var(--color-bg);
+    border: 1px solid color-mix(in srgb, var(--color-fg) 35%, transparent);
+    border-radius: 2px;
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 6px;
+    width: 14ch;
+    max-width: 40vw;
+  }
+  .rename-input:focus {
+    outline: none;
+    border-color: var(--color-accent, var(--color-fg));
+  }
+  .rename-input.err {
+    border-color: var(--color-red);
+  }
+  .rename-err {
+    color: var(--color-red);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 18ch;
+  }
+  .rename-note {
+    color: var(--color-faint);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 22ch;
   }
 
   .vp-body {

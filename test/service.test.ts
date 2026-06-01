@@ -433,7 +433,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
         calls.start = { name, cwd, argv };
@@ -468,7 +468,7 @@ test("resume omits --model when the session had none", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: (_n: string, _c: string, argv: string[]) => {
         calls.argv = argv;
@@ -497,7 +497,7 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", () => 
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: () => {
         started++;
@@ -520,7 +520,7 @@ test("resume returns null for unknown, archived, or pre-feature sessions", () =>
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
   });
   expect(svc.resume("ghost")).toBeNull(); // unknown id
@@ -550,7 +550,7 @@ test("reply types the text, then submits with a separate carriage return", () =>
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [],
@@ -589,7 +589,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [],

@@ -226,7 +226,7 @@ export async function gitStates(): Promise<Record<string, GitState>> {
   return r.json();
 }
 
-async function gitJson(res: Response): Promise<PrStatus> {
+async function gitJson<T = PrStatus>(res: Response): Promise<T> {
   if (!res.ok) {
     const msg = await res.json().catch(() => ({ error: `${res.status}` }));
     throw new Error((msg as { error?: string }).error ?? `error ${res.status}`);
@@ -246,6 +246,17 @@ export async function mergePr(
   body?: { method?: MergeMethod; deleteBranch?: boolean },
 ): Promise<PrStatus> {
   return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
+}
+
+/** Rename a session. The server slugifies the name, renames the git branch (and a
+ *  GitHub PR's remote branch when one is open), and broadcasts `session:renamed`.
+ *  `branchRenamed` is false when an open PR on a non-retargetable host (Gitea) forced
+ *  a display-only rename. Rejects with `name_taken` when the target branch exists. */
+export async function renameSession(
+  id: string,
+  name: string,
+): Promise<{ session: Session; branchRenamed: boolean; prRetargeted: boolean }> {
+  return gitJson(await fetch(`/api/sessions/${id}/rename`, JSON_POST({ name })));
 }
 
 /** Current self-update status (how far the running checkout is behind main). */

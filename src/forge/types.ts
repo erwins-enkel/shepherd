@@ -69,6 +69,10 @@ export interface GitForge {
   listIssues(): Promise<Issue[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
+  /** Rename a branch on the host, retargeting any open PR to the new name. Optional:
+   *  hosts that can't do this safely (Gitea) omit it, and the caller falls back to a
+   *  display-only rename so an open PR is never orphaned. */
+  renameBranch?(oldBranch: string, newBranch: string): Promise<void>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
   /** Post a critic review (request-changes / comment) on a PR. Returns the

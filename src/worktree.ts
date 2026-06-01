@@ -40,6 +40,31 @@ export class WorktreeMgr {
     }
   }
 
+  /** True iff a local branch `branch` exists in `repoPath`. Used to pre-empt a
+   *  rename collision before touching any remote. */
+  branchExists(repoPath: string, branch: string): boolean {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) return false;
+    try {
+      execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+        cwd: repoPath,
+        stdio: "pipe",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Rename a local branch. `git branch -m` works even while the branch is checked
+   *  out in a worktree, so this is safe to run on a live session's branch. Throws
+   *  when the target name is already taken (the caller surfaces that as a conflict). */
+  renameBranch(repoPath: string, oldBranch: string, newBranch: string): void {
+    for (const b of [oldBranch, newBranch]) {
+      if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(b)) throw new Error("invalid branch");
+    }
+    execFileSync("git", ["branch", "-m", oldBranch, newBranch], { cwd: repoPath, stdio: "pipe" });
+  }
+
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {

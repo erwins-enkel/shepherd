@@ -199,6 +199,8 @@
   "criticbadge_reviewing": "REVIEWING…",
   "criticbadge_reviewing_title": "Critic is reviewing this session",
   "viewport_decommission_title": "stop agent + remove worktree",
+  "viewport_decommission_ready_title": "PR is up — close this session & clean up its worktree",
+  "viewport_decommission_ready_aria": "PR ready — decommission unit and clean up worktree",
   "viewport_confirm_decommission": "confirm ✕",
   "viewport_decommission": "✕ decommission",
   "viewport_decommission_aria": "decommission unit",

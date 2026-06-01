@@ -3,7 +3,7 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { Issue, Session, SessionUsage, UsageLimits } from "$lib/types";
+  import type { GitState, Issue, Session, SessionUsage, UsageLimits } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
@@ -42,6 +42,7 @@
     onnavigate,
     limits = null,
     connected = true,
+    git = null,
   }: {
     session: Session;
     onnewtask?: (repoPath: string, issue: Issue) => void;
@@ -62,6 +63,9 @@
     // so it surfaces the usage gauge (only when hot) and the connection state itself
     limits?: UsageLimits | null;
     connected?: boolean;
+    // PR/git state for this session; once a PR exists the work is effectively done,
+    // so the header promotes its decommission button into a "ready to clean up" nudge
+    git?: GitState | null;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -174,6 +178,11 @@
       clearInterval(t);
     };
   });
+
+  // once a PR exists (open or merged) the session has delivered its work — surface
+  // the decommission button as a bright "ready to clean up the worktree" nudge so the
+  // operator can wrap the session without hunting for the otherwise-faint ✕.
+  const prReady = $derived(git?.state === "open" || git?.state === "merged");
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -801,10 +810,11 @@
     <button
       class="decom"
       class:armed
+      class:ready={prReady && !armed}
       type="button"
       onclick={decommission}
-      title={m.viewport_decommission_title()}
-      aria-label={m.viewport_decommission_aria()}
+      title={prReady ? m.viewport_decommission_ready_title() : m.viewport_decommission_title()}
+      aria-label={prReady ? m.viewport_decommission_ready_aria() : m.viewport_decommission_aria()}
     >
       {#if compact}
         {armed ? "✓" : "✕"}
@@ -1192,9 +1202,43 @@
       background 0.12s;
   }
 
+  /* PR delivered → the work is done. Lift the otherwise-faint ✕ into a bright,
+     gently pulsing green call-to-action so wrapping up the session reads as the
+     obvious next step. Hover/armed below still override it red (destructive confirm). */
+  .decom.ready {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 40%, transparent);
+    background: color-mix(in srgb, var(--color-green) 10%, transparent);
+    animation: decom-ready-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes decom-ready-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-green) 30%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-green) 35%, transparent);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .decom.ready {
+      animation: none;
+    }
+  }
+
   .decom:hover {
     color: var(--color-red);
     border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+  }
+
+  /* hovering the ready button means the operator is about to act on it — drop the
+     green pulse so the red destructive-confirm affordance reads cleanly */
+  .decom.ready:hover {
+    background: transparent;
+    animation: none;
+    box-shadow: none;
   }
 
   .decom.armed {

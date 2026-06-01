@@ -11,7 +11,7 @@
     filterLabels = undefined,
   }: {
     repoPath: string;
-    onnewtask: (prompt: string) => void;
+    onnewtask: (issue: Issue) => void;
     bodyPreview?: boolean;
     age?: boolean;
     filterLabels?: string[];
@@ -94,9 +94,7 @@
             </div>
           {/if}
           <div class="issue-actions">
-            <button
-              class="task-btn"
-              onclick={() => onnewtask(`${issue.title}\n\n${issue.body}`.trim())}
+            <button class="task-btn" onclick={() => onnewtask(issue)}
               >{m.issuespanel_task_button()}</button
             >
           </div>

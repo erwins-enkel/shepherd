@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload } from "$lib/types";
+  import type { BacklogPayload, Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
@@ -12,7 +12,7 @@
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
-    onissue: (repoPath: string, prompt: string) => void;
+    onissue: (repoPath: string, issue: Issue) => void;
   } = $props();
 
   const BACKLOG_FILTER: string[] = ["bug", "enhancement"];
@@ -100,8 +100,8 @@
             <div class="overlay-body">
               <IssuesPanel
                 repoPath={selectedPath}
-                onnewtask={(prompt) => {
-                  onissue(selectedPath!, prompt);
+                onnewtask={(issue) => {
+                  onissue(selectedPath!, issue);
                 }}
                 bodyPreview
                 age
@@ -125,8 +125,8 @@
             {#if selectedPath !== null}
               <IssuesPanel
                 repoPath={selectedPath}
-                onnewtask={(prompt) => {
-                  onissue(selectedPath!, prompt);
+                onnewtask={(issue) => {
+                  onissue(selectedPath!, issue);
                 }}
                 bodyPreview
                 age

@@ -34,6 +34,14 @@ export interface Issue {
   labels: string[];
   createdAt: number;
 }
+
+/** Subset of an Issue attached to a task by reference (body rides out-of-band). */
+export interface IssueRef {
+  number: number;
+  url: string;
+  title: string;
+  body: string;
+}
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
 export interface BlockOption {
   label: string;
@@ -201,6 +209,7 @@ export interface CreateInput {
   prompt: string;
   model: string | null;
   images?: string[]; // absolute staging paths from /api/uploads
+  issueRef?: IssueRef; // optional attached issue; body appended server-side
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

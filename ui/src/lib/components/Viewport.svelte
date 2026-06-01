@@ -3,7 +3,7 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { Session, SessionUsage, UsageLimits } from "$lib/types";
+  import type { Issue, Session, SessionUsage, UsageLimits } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
@@ -39,7 +39,7 @@
     connected = true,
   }: {
     session: Session;
-    onnewtask?: (repoPath: string, prompt: string) => void;
+    onnewtask?: (repoPath: string, issue: Issue) => void;
     onarchive?: (id: string) => void;
     onback?: () => void;
     /** Jump to the next session waiting for a reply (header shortcut). */
@@ -794,7 +794,7 @@
       <div class="panel-wrap">
         <IssuesPanel
           repoPath={session.repoPath}
-          onnewtask={(p) => onnewtask?.(session.repoPath, p)}
+          onnewtask={(issue) => onnewtask?.(session.repoPath, issue)}
         />
       </div>
     {/if}

@@ -263,6 +263,55 @@ test("createSession: no images leaves the prompt argv unchanged", async () => {
   expect(calls.argv[calls.argv.length - 1]).toBe("go");
 });
 
+test("createSession: appends the issueRef body out-of-band, keeps the stored prompt clean", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return {
+          terminalId: "t",
+          cwd: "/wt/x",
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "fix it",
+    model: null,
+    images: [],
+    issueRef: {
+      number: 42,
+      url: "https://github.com/o/r/issues/42",
+      title: "Soft-delete users",
+      body: "the long issue body",
+    },
+  });
+
+  // argv carries the human prompt + the out-of-band issue body
+  expect(calls.argv[calls.argv.length - 1]).toBe(
+    "fix it\n\nGitHub Issue #42: Soft-delete users\nhttps://github.com/o/r/issues/42\n\nthe long issue body",
+  );
+  // stored prompt stays the clean human text — the body never lands in it
+  expect(store.get(s.id)?.prompt).toBe("fix it");
+});
+
 test("createSession: rolls back the worktree when the agent fails to start", async () => {
   const store = new SessionStore(":memory:");
   const removed: { path: string; opts: any }[] = [];

@@ -2,7 +2,7 @@ import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
-import { MODELS, type CreateSessionInput, type Steer } from "./types";
+import { MODELS, type CreateSessionInput, type IssueRef, type Steer } from "./types";
 import { stagingDir } from "./uploads";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -19,7 +19,13 @@ type Result = Ok | Err;
 const err = (error: string): Err => ({ ok: false, error });
 
 const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
-const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "images"]);
+const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "images", "issueRef"]);
+
+// The issue body rides out-of-band into the agent prompt — generous cap, separate
+// from the 8000-char human-prompt guard. Title/URL bounded to sane sizes.
+const ISSUE_TITLE_MAX = 500;
+const ISSUE_URL_MAX = 2048;
+const ISSUE_BODY_MAX = 100_000;
 
 /** A field-validation helper either fails with an error or yields a parsed value. */
 type FieldErr = { ok: false; error: string };
@@ -87,6 +93,26 @@ function validateImageEntry(it: unknown, stagingReal: string): Field<string> {
   return field(real);
 }
 
+/** issueRef — optional attached issue; absent → undefined. */
+function validateIssueRef(value: unknown): Field<IssueRef | undefined> {
+  if (value == null) return field(undefined);
+  if (typeof value !== "object" || Array.isArray(value)) return err("issueRef must be an object");
+  const o = value as Record<string, unknown>;
+  if (typeof o.number !== "number" || !Number.isInteger(o.number) || o.number <= 0) {
+    return err("issueRef.number must be a positive integer");
+  }
+  if (typeof o.title !== "string" || o.title.length > ISSUE_TITLE_MAX) {
+    return err("issueRef.title must be a string ≤ 500 chars");
+  }
+  if (typeof o.url !== "string" || o.url.length > ISSUE_URL_MAX || !/^https?:\/\//.test(o.url)) {
+    return err("issueRef.url must be an http(s) URL");
+  }
+  if (typeof o.body !== "string" || o.body.length > ISSUE_BODY_MAX) {
+    return err("issueRef.body must be a string ≤ 100000 chars");
+  }
+  return field({ number: o.number, title: o.title, url: o.url, body: o.body });
+}
+
 /** images — optional array of staged upload paths, confined to the staging dir. */
 function validateImages(value: unknown, root: string): Field<string[]> {
   const images: string[] = [];
@@ -139,6 +165,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const images = validateImages(obj.images, root);
   if (!images.ok) return images;
 
+  const issueRef = validateIssueRef(obj.issueRef);
+  if (!issueRef.ok) return issueRef;
+
   return {
     ok: true,
     value: {
@@ -147,6 +176,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       prompt: prompt.value,
       model: model.value,
       images: images.value,
+      issueRef: issueRef.value,
     },
   };
 }

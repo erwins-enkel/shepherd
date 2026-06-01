@@ -19,7 +19,7 @@ import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
-import { PushService, attachPush, attachReviewPush } from "./push";
+import { PushService, attachPush, attachReviewPush, attachGitPush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { CountsService } from "./backlog";
@@ -127,6 +127,7 @@ const reviewService = new ReviewService({
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
 });
 attachReviewPush(events, store, push);
+attachGitPush(events, store, push);
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
 events.subscribe((event, data) => {
   if (event !== "session:git") return;

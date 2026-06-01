@@ -44,10 +44,13 @@ export interface IssueRef {
 }
 /** An installed slash command (skill or command file) surfaced in the New Task
  *  "Commands" tab; picking one seeds the prompt with `/<name> `. */
+export type SlashCommandScope = "project" | "user" | "plugin" | "builtin";
 export interface SlashCommand {
   name: string;
   description: string;
-  scope: "project" | "user";
+  scope: SlashCommandScope;
+  /** Front-matter `argument-hint` (e.g. "<ticket>"), shown dimmed after the name. */
+  argumentHint?: string;
 }
 
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";

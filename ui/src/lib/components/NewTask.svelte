@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listRepos, listBranches, uploadImage } from "$lib/api";
+  import { listRepos, listBranches, getCommands, uploadImage } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
-  import { MODELS, type Issue, type IssueRef, type RepoEntry } from "$lib/types";
+  import { MODELS, type Issue, type IssueRef, type RepoEntry, type SlashCommand } from "$lib/types";
+  import { matchSlashTrigger, filterCommands } from "$lib/slash";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
+  import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -55,6 +57,13 @@
   let promptInput = $state<HTMLTextAreaElement>();
   let isMac = $state(false);
 
+  // ── inline slash-command autocomplete (reuses the /api/commands index) ──
+  let allCommands = $state<SlashCommand[]>([]);
+  let slashOpen = $state(false);
+  let slashQuery = $state("");
+  let slashIndex = $state(0);
+  const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+
   /** Default to the most-recently-used repo; fall back to the first in the list. */
   function defaultRepoPath(list: RepoEntry[]): string {
     let best: RepoEntry | undefined;
@@ -99,6 +108,23 @@
       })
       .catch(() => {
         branches = [];
+      });
+  });
+
+  // (re)load the slash-command list when the target repo changes — a repo's own
+  // .claude/commands + .claude/skills layer on top of the global/user/plugin ones.
+  $effect(() => {
+    const rp = repoPath;
+    if (!rp) {
+      allCommands = [];
+      return;
+    }
+    getCommands(rp)
+      .then((r) => {
+        if (rp === repoPath) allCommands = r.commands;
+      })
+      .catch(() => {
+        if (rp === repoPath) allCommands = [];
       });
   });
 
@@ -153,11 +179,64 @@
     promptInput.style.height = `${promptInput.scrollHeight}px`;
   }
 
-  // Cmd/Ctrl+Enter submits from the prompt textarea (plain Enter inserts a newline)
+  // Open/refresh the slash menu from the caret position, or close it when the text
+  // before the caret is no longer a leading `/token`.
+  function refreshSlash() {
+    const caret = promptInput?.selectionStart ?? prompt.length;
+    const trigger = matchSlashTrigger(prompt, caret);
+    if (trigger) {
+      slashOpen = true;
+      slashQuery = trigger.query;
+      slashIndex = 0;
+    } else {
+      slashOpen = false;
+    }
+  }
+
+  function onPromptInput() {
+    autogrow();
+    refreshSlash();
+  }
+
+  // Replace the leading `/query` token with the chosen command, leaving a trailing
+  // space so the user can type arguments straight away.
+  function pickCommand(cmd: SlashCommand) {
+    const caret = promptInput?.selectionStart ?? prompt.length;
+    const insert = `/${cmd.name} `;
+    prompt = insert + prompt.slice(caret);
+    slashOpen = false;
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+      promptInput?.setSelectionRange(insert.length, insert.length);
+    });
+  }
+
+  // Cmd/Ctrl+Enter submits (plain Enter inserts a newline). While the slash menu is
+  // open it captures the navigation keys so arrows/Enter/Tab drive the picker.
   function onPromptKeydown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       submit(e);
+      return;
+    }
+    if (slashOpen && slashMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        slashIndex = (slashIndex + 1) % slashMatches.length;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        slashIndex = (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickCommand(slashMatches[slashIndex]!);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        slashOpen = false;
+      }
+    } else if (slashOpen && e.key === "Escape") {
+      e.preventDefault();
+      slashOpen = false;
     }
   }
 
@@ -217,16 +296,27 @@
     </div>
 
     <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
-    <textarea
-      id="nt-prompt"
-      bind:this={promptInput}
-      bind:value={prompt}
-      rows="3"
-      placeholder={m.newtask_prompt_placeholder()}
-      oninput={autogrow}
-      onkeydown={onPromptKeydown}
-      required
-    ></textarea>
+    <div class="prompt-wrap">
+      <textarea
+        id="nt-prompt"
+        bind:this={promptInput}
+        bind:value={prompt}
+        rows="3"
+        placeholder={m.newtask_prompt_placeholder()}
+        oninput={onPromptInput}
+        onkeydown={onPromptKeydown}
+        onblur={() => (slashOpen = false)}
+        required
+      ></textarea>
+      {#if slashOpen}
+        <SlashCommandMenu
+          commands={slashMatches}
+          activeIndex={slashIndex}
+          onpick={pickCommand}
+          onhover={(i) => (slashIndex = i)}
+        />
+      {/if}
+    </div>
     <div class="attach-row">
       <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
         {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
@@ -392,6 +482,9 @@
     color: var(--color-muted);
     margin-top: 6px;
   }
+  .prompt-wrap {
+    position: relative;
+  }
   textarea,
   input,
   select {
@@ -402,6 +495,8 @@
     font-size: 13px;
     padding: 8px 10px;
     border-radius: 2px;
+    width: 100%;
+    box-sizing: border-box;
   }
   textarea {
     /* JS auto-grows the height with content; cap it here and then scroll,

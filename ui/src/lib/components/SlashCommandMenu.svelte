@@ -1,0 +1,145 @@
+<script lang="ts">
+  import type { SlashCommand } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
+
+  let {
+    commands,
+    activeIndex,
+    onpick,
+    onhover,
+  }: {
+    commands: SlashCommand[];
+    activeIndex: number;
+    onpick: (cmd: SlashCommand) => void;
+    onhover: (index: number) => void;
+  } = $props();
+
+  // Keep the highlighted row in view as the user arrows through the list.
+  let listEl = $state<HTMLUListElement | null>(null);
+  $effect(() => {
+    const row = listEl?.children[activeIndex] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest" });
+  });
+</script>
+
+<div class="sc-panel" role="presentation">
+  {#if commands.length === 0}
+    <div class="sc-empty">{m.slash_menu_empty()}</div>
+  {:else}
+    <ul class="sc-list" bind:this={listEl} role="listbox" aria-label={m.slash_menu_label()}>
+      {#each commands as cmd, i (cmd.scope + ":" + cmd.name)}
+        <li
+          class="sc-row"
+          class:active={i === activeIndex}
+          role="option"
+          aria-selected={i === activeIndex}
+          tabindex="-1"
+          onmousedown={(e) => {
+            e.preventDefault(); // keep focus in the textarea
+            onpick(cmd);
+          }}
+          onmousemove={() => onhover(i)}
+        >
+          <div class="sc-line">
+            <span class="sc-name">/{cmd.name}</span>
+            {#if cmd.argumentHint}<span class="sc-hint">{cmd.argumentHint}</span>{/if}
+            <!-- raw source tag, matching the Commands-tab chip convention -->
+            {#if cmd.scope !== "project"}<span class="sc-scope">{cmd.scope}</span>{/if}
+          </div>
+          {#if cmd.description}<div class="sc-desc">{cmd.description}</div>{/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</div>
+
+<style>
+  .sc-panel {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  }
+  .sc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .sc-row {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .sc-row:last-child {
+    border-bottom: 0;
+  }
+  .sc-row.active,
+  .sc-row:hover {
+    background: var(--color-hover);
+  }
+  .sc-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .sc-name {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--color-amber);
+    white-space: nowrap;
+  }
+  .sc-hint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .sc-scope {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-slate);
+    border: 1px solid var(--color-faint);
+    border-radius: 2px;
+    padding: 0 4px;
+  }
+  .sc-desc {
+    font-size: 11px;
+    color: var(--color-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+  .sc-empty {
+    font-family: var(--font-mono);
+    padding: 10px;
+    color: var(--color-faint);
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+  }
+  @media (max-width: 768px) {
+    .sc-row {
+      min-height: 44px;
+    }
+    .sc-name,
+    .sc-hint {
+      font-size: 14px;
+    }
+  }
+</style>

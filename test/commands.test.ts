@@ -43,9 +43,22 @@ afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
 });
 
+/** Names contributed by skills/commands/plugins, with the always-present builtins
+ *  filtered out — keeps the file-scan assertions stable as builtins evolve. */
+function nonBuiltin(repoDir: string | null, claude: string) {
+  return listCommands(repoDir, claude)
+    .filter((c) => c.scope !== "builtin")
+    .map((c) => c.name);
+}
+
 test("merges user + project commands, sorted by name", () => {
-  const names = listCommands(repo, userClaude).map((c) => c.name);
-  expect(names).toEqual(["alpha-skill", "bar", "foo", "merge-train", "noname"]);
+  expect(nonBuiltin(repo, userClaude)).toEqual([
+    "alpha-skill",
+    "bar",
+    "foo",
+    "merge-train",
+    "noname",
+  ]);
 });
 
 test("skill name comes from front-matter, scope is user", () => {
@@ -78,14 +91,55 @@ test("non-.md files in commands are ignored", () => {
 });
 
 test("null repoDir → user scope only (no project commands)", () => {
-  const names = listCommands(null, userClaude).map((c) => c.name);
+  const names = nonBuiltin(null, userClaude);
   expect(names).toEqual(["alpha-skill", "bar", "foo", "noname"]);
   expect(names).not.toContain("merge-train");
 });
 
-test("missing dirs → empty, no throw", () => {
+test("missing dirs → builtins only, no throw", () => {
   const missing = join(userClaude, "does-not-exist");
-  expect(listCommands(null, missing)).toEqual([]);
+  const cmds = listCommands(null, missing);
+  expect(cmds.every((c) => c.scope === "builtin")).toBe(true);
+  expect(cmds.length).toBeGreaterThan(0);
+});
+
+// ── builtins, argument-hint, plugins (the enrichment over #147) ────────────────
+
+test("curated builtins are always present and scoped builtin", () => {
+  const cmds = listCommands(repo, userClaude);
+  const review = cmds.find((c) => c.name === "review");
+  expect(review?.scope).toBe("builtin");
+  expect(cmds.some((c) => c.name === "security-review" && c.scope === "builtin")).toBe(true);
+});
+
+test("front-matter argument-hint is surfaced", () => {
+  command(
+    userClaude,
+    "ticketed.md",
+    "---\ndescription: needs a ticket\nargument-hint: <ticket>\n---\n",
+  );
+  const cmd = listCommands(null, userClaude).find((c) => c.name === "ticketed");
+  expect(cmd?.argumentHint).toBe("<ticket>");
+});
+
+test("installed plugins are scanned, namespaced, and re-rooted from a foreign installPath", () => {
+  // plugin cache laid out under the user's .claude, but installPath carries a
+  // DIFFERENT machine's $HOME (settings sync) — must still resolve locally.
+  const rel = "plugins/cache/mkt/myplugin/1.0.0";
+  command(join(userClaude, rel), "deploy.md", "---\ndescription: plugin deploy\n---\n");
+  skill(join(userClaude, rel), "scan", "---\nname: scan\ndescription: plugin scan\n---\n");
+  mkdirSync(join(userClaude, "plugins"), { recursive: true });
+  writeFileSync(
+    join(userClaude, "plugins", "installed_plugins.json"),
+    JSON.stringify({
+      plugins: {
+        "myplugin@mkt": [{ scope: "user", installPath: `/Users/someone/.claude/${rel}` }],
+      },
+    }),
+  );
+  const cmds = listCommands(null, userClaude);
+  expect(cmds.find((c) => c.name === "myplugin:deploy")?.scope).toBe("plugin");
+  expect(cmds.find((c) => c.name === "myplugin:scan")?.scope).toBe("plugin");
 });
 
 test("over-long description is truncated with an ellipsis", () => {

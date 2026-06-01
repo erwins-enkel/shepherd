@@ -229,7 +229,41 @@ test("CountsService: TTL expiry — call after 60s window re-fetches from runner
   expect(graphqlCalls.length).toBe(2);
 });
 
-// 8. Non-forge repo (no git remote) → null counts
+// 8b. refresh() bypasses the TTL — the warmer re-fetches even within the window
+test("CountsService: refresh re-invokes the runner within the TTL window", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-refresh"), "https://github.com/o/refresh");
+  const forges: ForgeMap = {};
+
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 9 }, pullRequests: { totalCount: 4 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService(forges, run);
+
+  await svc.counts(repoDir); // populate cache
+  await svc.refresh(repoDir); // force a refetch despite a fresh entry
+
+  const graphqlCalls = calls.filter((c) => c.includes("graphql"));
+  expect(graphqlCalls.length).toBe(2);
+});
+
+// 8c. async runner: GitHub path awaits a promise-returning runner
+test("CountsService: works with an async (promise-returning) runner", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-async"), "https://github.com/o/async");
+  const forges: ForgeMap = {};
+
+  const run = async () =>
+    JSON.stringify({
+      data: { repository: { issues: { totalCount: 11 }, pullRequests: { totalCount: 6 } } },
+    });
+  const svc = new CountsService(forges, run);
+
+  const result = await svc.counts(repoDir);
+  expect(result.openIssues).toBe(11);
+  expect(result.openPRs).toBe(6);
+});
+
+// 9. Non-forge repo (no git remote) → null counts
 test("CountsService: repo with no origin → null counts (not a throw)", async () => {
   const repoDir = join(tmpBase, "no-remote");
   mkdirSync(repoDir);

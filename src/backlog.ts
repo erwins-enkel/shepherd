@@ -1,13 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
-import type { GhRunner } from "./forge/github";
 import type { ForgeMap } from "./forge/types";
 
 export interface RepoCounts {
   openIssues: number | null;
   openPRs: number | null;
 }
+
+/**
+ * Runs `gh` and returns stdout. Sync or async — the background warmer passes an
+ * async runner so handleBacklog's per-repo `Promise.all` actually fans out in
+ * parallel instead of serializing on a blocking `execFileSync`.
+ */
+export type CountsRunner = (args: string[]) => string | Promise<string>;
 
 interface CacheEntry {
   at: number;
@@ -39,14 +45,27 @@ export class CountsService {
 
   constructor(
     private readonly forges: ForgeMap,
-    private readonly run: GhRunner,
+    private readonly run: CountsRunner,
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
 
+  /** Read-through: serve a TTL-fresh cached value, else load it. */
   async counts(repoPath: string): Promise<RepoCounts> {
     const entry = this.cache.get(repoPath);
     if (entry && Date.now() - entry.at < TTL_MS) return entry.value;
+    return this.load(repoPath);
+  }
 
+  /**
+   * Force a refetch regardless of TTL — used by the background warmer to rewrite
+   * the cached value on a cadence so the request path always finds a fresh
+   * entry. Single-flight still dedupes against any in-flight load.
+   */
+  async refresh(repoPath: string): Promise<RepoCounts> {
+    return this.load(repoPath);
+  }
+
+  private load(repoPath: string): Promise<RepoCounts> {
     const existing = this.inflight.get(repoPath);
     if (existing) return existing;
 
@@ -83,9 +102,9 @@ export class CountsService {
     return this.fetchGitea(forge.slug!, repoPath);
   }
 
-  private fetchGitHub(slug: string): RepoCounts {
+  private async fetchGitHub(slug: string): Promise<RepoCounts> {
     const [owner, name] = slug.split("/");
-    const out = this.run([
+    const out = await this.run([
       "api",
       "graphql",
       "-F",

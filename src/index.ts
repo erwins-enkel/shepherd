@@ -23,7 +23,12 @@ import { PushService, attachPush, attachReviewPush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { CountsService } from "./backlog";
-import { execFileSync } from "node:child_process";
+import { BacklogPoller } from "./backlog-poller";
+import { listRepos } from "./repos";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -154,9 +159,24 @@ setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
-const ghRunner = (args: string[]) =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-const backlog = new CountsService(config.forges, ghRunner);
+// async `gh` runner: lets CountsService fan out per-repo GraphQL counts in
+// parallel (a blocking execFileSync would serialize them on the event loop,
+// making the backlog load scale linearly with repo count).
+const ghRunnerAsync = async (args: string[]): Promise<string> => {
+  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+  return stdout.toString();
+};
+const backlog = new CountsService(config.forges, ghRunnerAsync);
+// keep the backlog counts cache warm so the overview's first paint is instant
+// instead of blocking on per-repo gh/Gitea calls. Warm shortly after boot, then
+// on a cadence below the cache's 60s TTL so the request path always hits warm.
+const backlogPoller = new BacklogPoller(
+  () => listRepos(config.repoRoot),
+  (dir) => detectForge(dir, config.forges),
+  (dir) => backlog.refresh(dir),
+);
+setTimeout(() => void backlogPoller.tick(), 3_000);
+backlogPoller.start();
 
 const server = serve(
   {

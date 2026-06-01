@@ -279,3 +279,15 @@ export interface DiffResult {
   truncated: boolean; // true when any file was truncated
   files: DiffFile[];
 }
+
+// ── leftover subprocesses surfaced at session close ─────────────────────────
+export type LeftoverKind = "process" | "system";
+
+export interface Leftover {
+  kind: LeftoverKind;
+  name: string; // "vite", "tailscale serve"
+  port: number | null;
+  key: string; // stable selection key echoed back to the server
+  pid?: number;
+  command?: { bin: string; args: string[] };
+}

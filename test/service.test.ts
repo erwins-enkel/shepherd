@@ -463,7 +463,12 @@ test("archive without a reaper just closes the session (no leftover handling)", 
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
   const s = store.create({
@@ -496,7 +501,12 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {} },
   });
@@ -531,7 +541,12 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
       detect: () => detected as any,
@@ -563,7 +578,12 @@ test("archive with no reap keys never calls the reaper", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} },
+    worktree: {
+      create: () => ({}) as any,
+      remove: () => {},
+      branchExists: () => false,
+      renameBranch: () => {},
+    },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
       detect: () => {

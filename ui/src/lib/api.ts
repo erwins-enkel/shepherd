@@ -21,6 +21,7 @@ import type {
   RepoConfig,
   BacklogPayload,
   SlashCommand,
+  Leftover,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -64,8 +65,21 @@ export async function uploadImage(file: File, sessionId?: string): Promise<strin
   return (await r.json()).path as string;
 }
 
-export async function archiveSession(id: string): Promise<void> {
-  const r = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+/** Leftover subprocesses/proxies that would survive this session's close; [] when none. */
+export async function getLeftovers(id: string): Promise<Leftover[]> {
+  const r = await fetch(`/api/sessions/${id}/leftovers`);
+  if (!r.ok) throw await failed(r, "leftovers");
+  return r.json();
+}
+
+/** Archive a session; pass leftover keys to also terminate those subprocesses. */
+export async function archiveSession(id: string, reap?: string[]): Promise<void> {
+  const init: RequestInit = { method: "DELETE" };
+  if (reap?.length) {
+    init.headers = JSON_HEADERS;
+    init.body = JSON.stringify({ reap });
+  }
+  const r = await fetch(`/api/sessions/${id}`, init);
   if (!r.ok) throw await failed(r, "archive");
 }
 

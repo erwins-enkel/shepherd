@@ -29,6 +29,13 @@ export interface PrStatus {
   /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;
+  /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
+  latestReview?: {
+    state: "approved" | "changes_requested" | "commented";
+    author: string;
+    url?: string;
+    submittedAt: number; // epoch ms
+  };
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

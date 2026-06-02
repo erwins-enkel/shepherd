@@ -632,6 +632,22 @@
     min-height: 40px;
   }
 
+  /* Coarse pointers (touch, any layout width): the secondary icon buttons are
+     tuned tight for a cursor on desktop. Give them a ≥44px hit area on touch
+     without enlarging glyphs — padding/min-size only. Applies regardless of the
+     mobile-width class so coarse-pointer tablets/foldables in desktop layout
+     also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
+  @media (pointer: coarse) {
+    .gear,
+    .needsyou,
+    .needsyou.compact,
+    .gauge-btn,
+    .update-badge {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+
   /* Desktop-only hover tooltips — never shown on touch / mobile devices. */
   @media (hover: hover) and (pointer: fine) {
     .tip {

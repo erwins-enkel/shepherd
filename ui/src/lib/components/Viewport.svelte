@@ -1806,6 +1806,16 @@
     color: var(--color-ink-bright);
     transform: translateY(-1px);
   }
+  /* Coarse pointers (touch): grow the free-floating affordance to a ≥44px tap
+     target. It sits in the terminal corner with room to spare, so enlarging the
+     element itself is simplest — stays round, stays flat. Desktop (fine pointer)
+     keeps the dense 30px glyph. */
+  @media (pointer: coarse) {
+    .scroll-bottom {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
   @keyframes scroll-bottom-in {
     from {
       opacity: 0;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { BacklogPayload, Issue } from "$lib/types";
+  import type { BacklogPayload, Issue, PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
   import BacklogView from "./BacklogView.svelte";
@@ -9,12 +9,14 @@
     mobile,
     onissue,
     onquick = undefined,
+    onpr,
     onclose,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
     onissue: (repoPath: string, issue: Issue) => void;
     onquick?: (repoPath: string, issue: Issue) => void;
+    onpr: (repoPath: string, pr: PullRequest) => void;
     onclose: () => void;
   } = $props();
 </script>
@@ -40,7 +42,7 @@
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
     <div class="body">
-      <BacklogView {payload} {mobile} {onissue} {onquick} />
+      <BacklogView {payload} {mobile} {onissue} {onquick} {onpr} />
     </div>
   </div>
 </div>

@@ -22,6 +22,7 @@
     BacklogPayload,
     Issue,
     IssueRef,
+    PullRequest,
     Settings as Settings_,
   } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
@@ -70,6 +71,8 @@
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
   let composeIssue = $state<Issue | null>(null);
+  // Seed prompt for the New Task dialog (PR review path); null = no seed.
+  let composePrompt = $state<string | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount; drives the first-run nudge (quick-launch is invisible
   // until a standard command is set). Re-read on settings close so a just-saved
@@ -104,6 +107,17 @@
     composeIssue = issue;
     showNew = true;
     // composing from the backlog overlay → close it so the herd is behind the modal
+    showBacklog = false;
+  }
+
+  // PRs tab → open a review task seeded with the PR reference. The PR rides in
+  // the prompt (a tiny reference line), not the issue-attachment path, since
+  // that path is issue-worded server-side.
+  function onpr(repoPath: string, pr: PullRequest) {
+    composeRepoPath = repoPath;
+    composeIssue = null;
+    composePrompt = m.newtask_pr_review_template({ number: pr.number, url: pr.url });
+    showNew = true;
     showBacklog = false;
   }
 
@@ -245,6 +259,7 @@
     showNew = false;
     composeRepoPath = null;
     composeIssue = null;
+    composePrompt = null;
   }
 
   function onarchive(id: string, reap?: string[]) {
@@ -366,7 +381,7 @@
             onsettings={() => (showSettings = true)}
           />
           {#if store.sessions.length === 0}
-            <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} />
+            <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} {onpr} />
           {/if}
         </div>
         <ActionBar
@@ -428,7 +443,7 @@
           onsettings={() => (showSettings = true)}
         />
         {#if store.sessions.length === 0}
-          <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} />
+          <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} {onpr} />
         {:else if selected}
           <Viewport
             session={selected}
@@ -505,10 +520,12 @@
     {onsubmit}
     initialRepoPath={composeRepoPath ?? undefined}
     initialIssue={composeIssue ?? undefined}
+    initialPrompt={composePrompt ?? undefined}
     onclose={() => {
       showNew = false;
       composeRepoPath = null;
       composeIssue = null;
+      composePrompt = null;
     }}
   />
 {/if}
@@ -537,6 +554,7 @@
     mobile={mobile.current}
     {onissue}
     onquick={onquickissue}
+    {onpr}
     onclose={() => (showBacklog = false)}
   />
 {/if}

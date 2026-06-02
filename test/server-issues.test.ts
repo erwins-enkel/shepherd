@@ -34,6 +34,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
     mergeMethod: "squash",
     deployWorkflow: null,
     listIssues: async () => [ISSUE],
+    listPullRequests: async () => [],
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},

@@ -44,6 +44,7 @@ function fakeForge(rec: { event?: string; body?: string }): GitForge {
     mergeMethod: "squash",
     deployWorkflow: null,
     listIssues: async () => [],
+    listPullRequests: async () => [],
     prStatus: async () => OPEN_GREEN as PrStatus,
     openPr: async () => OPEN_GREEN as PrStatus,
     merge: async () => {},

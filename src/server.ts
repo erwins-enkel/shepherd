@@ -857,6 +857,47 @@ function dedupeReposByForge<T extends { path: string; forge: GitForge }>(
   return [...byRepo.values()];
 }
 
+// GET /api/prs?repo= — open PRs for one repo (backlog PRs-tab detail pane).
+async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "prs" || parts[2]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return json({ slug: null, prs: [] });
+  try {
+    return json({ slug: forge.slug, prs: await forge.listPullRequests() });
+  } catch {
+    // missing/un-authed CLI or network error → graceful empty (matches issues path)
+    return json({ slug: forge.slug, prs: [] });
+  }
+}
+
+// POST /api/prs/merge — merge a backlog PR by repo + number (no session involved).
+async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
+    return null;
+  const body = (await req.json().catch(() => ({}))) as {
+    repo?: string;
+    number?: number;
+    method?: MergeMethod;
+    deleteBranch?: boolean;
+  };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.number !== "number") return json({ error: "number required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return json({ error: "no forge for repo" }, 400);
+  try {
+    await forge.merge(body.number, {
+      method: body.method ?? forge.mergeMethod,
+      deleteBranch: body.deleteBranch ?? true,
+    });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "merge failed" }, 502);
+  }
+}
+
 async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
   if (!deps.backlog) {
@@ -982,6 +1023,8 @@ const ROUTE_HANDLERS = [
   handleFsDirs,
   handleBranches,
   handleIssues,
+  handlePrsList,
+  handlePrMerge,
   handleBacklog,
   handleTodo,
   handleCommands,

@@ -3,6 +3,7 @@ import type {
   CreateInput,
   RepoEntry,
   Issue,
+  PullRequest,
   ActivityEntry,
   SessionUsage,
   UsageLimits,
@@ -236,6 +237,27 @@ export async function listIssues(
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");
   return r.json();
+}
+
+export async function listPullRequests(
+  repoPath: string,
+): Promise<{ slug: string | null; prs: PullRequest[] }> {
+  const r = await fetch(`/api/prs?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "prs");
+  return r.json();
+}
+
+/** Merge a backlog PR by repo + number (no session). Resolves on success. */
+export async function mergeBacklogPr(
+  repoPath: string,
+  number: number,
+  body?: { method?: MergeMethod; deleteBranch?: boolean },
+): Promise<void> {
+  const r = await fetch("/api/prs/merge", JSON_POST({ repo: repoPath, number, ...body }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
 }
 
 /** Installed slash commands (skills + command files) for the New Task picker. */

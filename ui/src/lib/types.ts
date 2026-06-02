@@ -86,6 +86,24 @@ export interface PrStatus {
   };
 }
 
+/** An open PR row in the backlog PRs tab (mirrors server `PullRequest`). */
+export interface PullRequest {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  createdAt: number;
+  isDraft: boolean;
+  /** null = host still computing mergeability. */
+  mergeable: boolean | null;
+  checks: ChecksState;
+  latestReview?: {
+    state: "approved" | "changes_requested" | "commented";
+    author: string;
+    submittedAt: number;
+  };
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;

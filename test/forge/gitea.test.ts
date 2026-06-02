@@ -31,6 +31,131 @@ function fakeFetch(routes: Record<string, { status?: number; json?: unknown }>) 
   return { fn: fn as unknown as typeof fetch, calls };
 }
 
+test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "feat: gitea pr",
+          state: "open",
+          draft: false,
+          mergeable: true,
+          html_url: "https://git.example.com/team/proj/pulls/9",
+          user: { login: "carol" },
+          created_at: "2024-03-03T00:00:00Z",
+          head: { ref: "feature", sha: "deadbeef" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/deadbeef/status": { json: { state: "success" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const prs = await forge.listPullRequests();
+  expect(prs).toEqual([
+    {
+      number: 9,
+      title: "feat: gitea pr",
+      url: "https://git.example.com/team/proj/pulls/9",
+      author: "carol",
+      createdAt: Date.parse("2024-03-03T00:00:00Z"),
+      isDraft: false,
+      mergeable: true,
+      checks: "success",
+    },
+  ]);
+  // list call + one commit-status call
+  expect(calls.length).toBe(2);
+});
+
+test("GiteaForge.listPullRequests: a failing per-PR status call degrades to checks:none, not a rejected list", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "good",
+          state: "open",
+          mergeable: true,
+          html_url: "https://git.example.com/team/proj/pulls/9",
+          head: { ref: "f", sha: "live" },
+        },
+        {
+          number: 8,
+          title: "stale head",
+          state: "open",
+          mergeable: true,
+          html_url: "https://git.example.com/team/proj/pulls/8",
+          head: { ref: "g", sha: "gone" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/live/status": { json: { state: "success" } },
+    // no route for /commits/gone/status → req throws 404
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const prs = await forge.listPullRequests();
+  expect(prs.map((p) => [p.number, p.checks])).toEqual([
+    [9, "success"],
+    [8, "none"],
+  ]);
+});
+
+test("GiteaForge.listPullRequests: bounds concurrent status calls and preserves order", async () => {
+  const N = 20;
+  const prs = Array.from({ length: N }, (_, i) => ({
+    number: i + 1,
+    title: `p${i + 1}`,
+    state: "open",
+    mergeable: true,
+    html_url: `https://git.example.com/team/proj/pulls/${i + 1}`,
+    head: { ref: `r${i}`, sha: `s${i}` },
+  }));
+  let inFlight = 0;
+  let peak = 0;
+  const pending: Array<() => void> = [];
+  const fn = (async (input: string | URL): Promise<Response> => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("/pulls?state=open")) {
+      return new Response(JSON.stringify(prs), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    // a /commits/{sha}/status call — park it so we can observe peak concurrency
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise<void>((resolve) =>
+      pending.push(() => {
+        inFlight--;
+        resolve();
+      }),
+    );
+    return new Response(JSON.stringify({ state: "success" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  let settled = false;
+  const promise = forge.listPullRequests().finally(() => {
+    settled = true;
+  });
+  // Drain in waves: flush microtasks so workers park their status calls, then
+  // release the parked wave; repeat until the list resolves. (pending is empty
+  // on the first tick because the workers haven't run yet — flush first.)
+  for (let i = 0; i < 100 && !settled; i++) {
+    await new Promise((r) => setTimeout(r, 0));
+    pending.splice(0).forEach((release) => release());
+  }
+  const result = await promise;
+
+  expect(result.map((p) => p.number)).toEqual(prs.map((p) => p.number)); // order preserved
+  expect(peak).toBeLessThanOrEqual(6); // bounded by STATUS_FETCH_CONCURRENCY
+  expect(peak).toBeGreaterThan(1); // but genuinely fanned out
+});
+
 test("GiteaForge.kind + slug", () => {
   const { fn } = fakeFetch({});
   const forge = new GiteaForge("team/proj", CFG, fn);

@@ -9,6 +9,7 @@ import type {
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews } from "./reviews.svelte";
+import { learnings } from "./learnings.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -121,6 +122,9 @@ export class HerdStore {
         break;
       case "session:reviewing":
         reviews.setReviewing(ev.data.id, ev.data.reviewing);
+        break;
+      case "learnings:update":
+        learnings.apply(ev.data);
         break;
     }
   }

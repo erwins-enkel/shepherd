@@ -581,11 +581,13 @@
     gap: 5px;
     row-gap: 8px;
   }
-  /* finger-sized tap targets on touch HUDs (≥40px) — the desktop sizes are
-     tuned for a cursor and are too small to hit reliably on a phone */
+  /* finger-sized tap targets on touch HUDs (≥44px) — the desktop sizes are
+     tuned for a cursor and are too small to hit reliably on a phone. These
+     phone-layout rules (.hud.mobile …) outrank the @media (pointer: coarse)
+     block below on specificity, so the 44px floor must live here too. */
   .hud.mobile .gear {
-    min-height: 40px;
-    min-width: 40px;
+    min-height: 44px;
+    min-width: 44px;
     padding: 5px 11px;
     font-size: 16px;
   }
@@ -605,7 +607,7 @@
     display: none;
   }
   .hud.mobile .needsyou {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 12px;
   }
   /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
@@ -616,7 +618,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    min-width: 40px;
+    min-width: 44px;
     padding: 8px 10px;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
@@ -629,7 +631,7 @@
     font-weight: 600;
   }
   .hud.mobile .update-badge {
-    min-height: 40px;
+    min-height: 44px;
   }
 
   /* Coarse pointers (touch, any layout width): the secondary icon buttons are

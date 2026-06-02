@@ -90,6 +90,9 @@
   let swipeX = $state(0);
   let swiping = $state(false);
   let tab = $state<"term" | "todo" | "issues" | "activity" | "diff">("term");
+  // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
+  // second header row, so the primary strip stays uncrowded until the operator asks
+  let gitOpen = $state(false);
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
@@ -232,6 +235,7 @@
     resumeFailed = false;
     renaming = false; // close a half-open rename editor when switching units
     renameError = null;
+    gitOpen = false; // collapse the PR-actions disclosure on unit switch
   });
   $effect(() => () => clearTimeout(armTimer));
   async function decommission() {
@@ -873,7 +877,7 @@
     style:background={tintColor
       ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
       : undefined}
-    style:box-shadow={tintColor ? `inset 3px 0 0 0 ${tintColor}` : undefined}
+    style:box-shadow={tintColor ? `inset 2px 0 0 0 ${tintColor}` : undefined}
   >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
@@ -1003,14 +1007,23 @@
       </span>
     {/if}
     {#if !compact}
-      <GitRail
-        sessionId={session.id}
-        repoPath={session.repoPath}
-        name={session.name}
-        prompt={session.prompt}
-        ready={session.readyToMerge}
-        status={session.status}
-      />
+      <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
+           used to crowd this strip. It now lives one disclosure away — this toggle
+           reveals it as a second header row (.vp-git-strip), keeping the primary
+           line down to identity + tabs + status + decommission. -->
+      <button
+        class="git-toggle"
+        class:open={gitOpen}
+        class:ready={prReady}
+        type="button"
+        aria-expanded={gitOpen}
+        onclick={() => (gitOpen = !gitOpen)}
+        title={m.viewport_git_actions_title()}
+        aria-label={m.viewport_git_actions_aria()}
+      >
+        <span class="gt-label">{m.viewport_git_actions()}</span>
+        <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
+      </button>
     {/if}
     {#if renaming}
       <span class="rename-edit">
@@ -1053,9 +1066,10 @@
     </button>
   </div>
 
-  <!-- compact layouts (mobile + unfolded fold) get the git rail its own strip,
-       since the wrapping header has no room for it -->
-  {#if compact}
+  <!-- the git rail gets its own strip when there's no room for it inline:
+       always on compact layouts (mobile + unfolded fold, where the header wraps),
+       and on desktop only while the PR disclosure toggle is open. -->
+  {#if compact || gitOpen}
     <div class="vp-git-strip">
       <GitRail
         sessionId={session.id}
@@ -1380,6 +1394,51 @@
     border: 1px solid;
     border-radius: 2px;
     flex-shrink: 0;
+  }
+
+  /* desktop disclosure for the git rail — a ghost chip that toggles the second
+     header row. Stays neutral until a PR exists, then warms to amber to advertise
+     that there are merge/ready actions worth opening. */
+  .git-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .git-toggle:hover {
+    color: var(--color-ink);
+  }
+  .git-toggle.open {
+    color: var(--color-ink-bright);
+    background: var(--color-inset);
+  }
+  .git-toggle.ready {
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  .gt-caret {
+    color: var(--color-faint);
+    font-size: 9px;
+    line-height: 1;
+  }
+  .git-toggle.open .gt-caret,
+  .git-toggle.ready .gt-caret {
+    color: currentColor;
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

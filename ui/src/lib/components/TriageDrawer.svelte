@@ -156,7 +156,9 @@
     top: 0;
     right: 0;
     width: min(440px, 100vw);
-    height: 100vh;
+    /* dvh, not vh: on mobile/foldable browsers vh includes the area behind the
+       browser chrome, pushing the batch-reply footer off-screen */
+    height: 100dvh;
     background: var(--color-panel);
     border-left: 1px solid var(--color-line-bright);
     display: flex;

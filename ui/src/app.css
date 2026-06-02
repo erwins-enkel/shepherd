@@ -60,7 +60,11 @@
   --term-fg: #c4d0cb;
 
   --status-running: var(--color-amber);
-  --status-done: var(--color-green);
+  /* done = WAITING (finished turn, parked for the operator's next steer). It is
+     NOT actionable-complete, so it must not read green/"ignore me" — it reads as
+     quiet/parked via the idle slate. Green stays reserved for readyToMerge/READY
+     (genuinely actionable-complete), applied directly at the callsites. */
+  --status-done: var(--color-slate);
   --status-blocked: var(--color-red);
   --status-idle: var(--color-slate);
 }

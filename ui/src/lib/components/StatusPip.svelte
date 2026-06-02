@@ -3,10 +3,15 @@
   import { STATUS_COLOR, statusLabel } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
   let { status, ready = false }: { status: SessionStatus; ready?: boolean } = $props();
-  // ready overrides status: a green ✓ reads as "parked / done, no next action".
-  // A check (not a dot) so it's distinct from a `done` session, whose pip is also
-  // green (--status-done === --color-green).
+  // ready overrides status: a green ✓ reads as "parked, actionable-complete".
+  // The check (green) is reserved for readyToMerge; a `done`/WAITING session is
+  // NOT complete (it's parked for the operator's next steer), so its pip is the
+  // quiet idle slate (--status-done === --color-slate), not green.
   const color = $derived(ready ? "var(--color-green)" : STATUS_COLOR[status]);
+  // done (WAITING) and idle share slate, so hue alone can't separate them.
+  // Give done a hollow ring (a parked marker) vs idle's solid dot — a non-color
+  // cue on top of the distinct WAITING/IDLE label.
+  const hollow = $derived(status === "done");
   // Non-color cue: the pip is otherwise color-only, so carry the status word as
   // an accessible label/tooltip for the dot states.
   const label = $derived(m.statuspip_status_aria({ status: statusLabel(status) }));
@@ -18,6 +23,7 @@
   <span
     class="pip"
     class:pulse={status === "running"}
+    class:hollow
     style="--c:{color}"
     role="img"
     aria-label={label}
@@ -33,6 +39,12 @@
     background: var(--c);
     display: inline-block;
     box-shadow: 0 0 0 0 var(--c);
+  }
+  /* done (WAITING): a hollow ring reads as "parked", distinct from idle's solid
+     slate dot even though both share the slate hue */
+  .pip.hollow {
+    background: none;
+    box-shadow: inset 0 0 0 1.5px var(--c);
   }
   /* ready: a bare green check, no filled circle — the glyph itself is the signal */
   .pip.check {

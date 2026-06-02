@@ -124,10 +124,10 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 
 ### Secondary
 
-- **Phosphor Green** (#5ad19a): The "done" and "ready" light, and the ready check glyph. Means go / parked / complete.
+- **Phosphor Green** (#5ad19a): The "ready" light and the ready check glyph. Reserved for actionable-complete (a session ready to merge). Means go / ship. It does not paint a merely finished turn — a parked WAITING agent is not "done, ignore me."
 - **Alert Red** (#e5484d): The "blocked, needs you" light. The loudest color in the system; it appears only when an agent is waiting on the operator.
 - **Cold Blue** (#4a90d9): Informational accent and links. Never a status light; keeps "info" distinct from "state."
-- **Idle Slate** (#566460): The "idle / dormant" light. A near-neutral so a quiet agent recedes rather than nags.
+- **Idle Slate** (#566460): The "idle / parked" light. A near-neutral so a quiet agent recedes rather than nags. Carries both a dormant agent and a WAITING one (finished its turn, parked for the operator's next steer); a hollow ring vs a solid dot separates parked from idle.
 
 ### Neutral
 
@@ -141,7 +141,7 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 
 ### Named Rules
 
-**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state. No decorative element may borrow a status color, or it dilutes the only signal that must never be missed.
+**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (ready / actionable-complete), red (blocked), slate (idle / parked, including a WAITING agent awaiting its next steer). These hues are reserved for state. No decorative element may borrow a status color, or it dilutes the only signal that must never be missed. Green is spent only on a ready-to-ship session, never on a merely finished turn — so a parked agent reads quiet, not "done, ignore me."
 
 **The Quiet Ground Rule.** The surface is desaturated green-black; visible chroma stays at or below ~10% of any screen, spent on status lights and the one amber action. If the screen looks colorful at rest, color has leaked out of its lane.
 
@@ -206,7 +206,7 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 ### Status Pip (signature)
 
-- A 9px circle filled with the status color (amber / green / red / slate). The "working" pip pulses via an expanding box-shadow halo (`pip-pulse`, 1.5s ease-out). A "ready" agent shows a bare green check glyph instead of a filled dot, so "parked, no next action" reads distinctly from a `done` session. Status never relies on hue alone: position, the pulse, and the check glyph all carry meaning, and labels accompany it wherever it stands in for state.
+- A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding box-shadow halo (`pip-pulse`, 1.5s ease-out). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
 
 ### Live Terminal (signature)
 

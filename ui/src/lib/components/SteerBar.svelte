@@ -7,6 +7,28 @@
 
   let flash = $state<string | null>(null);
 
+  // One-time coachmark: the steer chips are tap-to-send and the leading 📡 chip
+  // broadcasts to many sessions — neither affordance is obvious on first sight.
+  // Show a single muted hint until the operator dismisses it, then never again
+  // (localStorage). SSR-safe: stays hidden until mount reads the flag.
+  const COACH_KEY = "shepherd:steer-coach-seen";
+  let showCoach = $state(false);
+  $effect(() => {
+    try {
+      if (localStorage.getItem(COACH_KEY) !== "1") showCoach = true;
+    } catch {
+      // private mode / blocked storage: skip the hint rather than nag every load
+    }
+  });
+  function dismissCoach() {
+    showCoach = false;
+    try {
+      localStorage.setItem(COACH_KEY, "1");
+    } catch {
+      // ignore: best-effort persistence
+    }
+  }
+
   // Tap-vs-drag: the bar scrolls horizontally (overflow-x), so a finger that
   // lands on a chip and drags to scroll must NOT fire it. Arm on pointerdown,
   // disarm once the pointer moves past a small slop (it's a scroll) or when the
@@ -49,6 +71,16 @@
   }
 </script>
 
+{#if showCoach}
+  <div class="coach" data-swipe-ignore>
+    <span class="coach-text">{m.steerbar_coach_hint()}</span>
+    <!-- No aria-label: the visible "Got it" text is the accessible name, so it
+         stays voice-control addressable (WCAG 2.5.3 label-in-name). -->
+    <button type="button" class="coach-dismiss" onclick={dismissCoach}
+      >{m.steerbar_coach_dismiss()}</button
+    >
+  </div>
+{/if}
 <div class="steer-bar" role="toolbar" aria-label={m.steerbar_toolbar_aria()} data-swipe-ignore>
   <button
     type="button"
@@ -57,6 +89,7 @@
     onpointermove={move}
     onpointercancel={cancel}
     onpointerup={(e) => tap(e, onbroadcast)}
+    title={m.steerbar_broadcast_aria()}
     aria-label={m.steerbar_broadcast_aria()}
     >📡<span class="bc-label">{m.steerbar_broadcast()}</span></button
   >
@@ -136,5 +169,46 @@
     color: var(--color-red);
     font-size: 11px;
     padding-left: 6px;
+  }
+
+  /* one-time steer hint: flat, square, hairline-bordered, muted ink — sits
+     directly above the steer row, no shadow or glow at rest */
+  .coach {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+  .coach-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .coach-dismiss {
+    flex: 0 0 auto;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .coach-dismiss:hover {
+    background: var(--color-hover);
+  }
+  .coach-dismiss:active {
+    background: var(--color-line-bright);
+    border-color: var(--color-ink);
   }
 </style>

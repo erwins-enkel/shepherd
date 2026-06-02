@@ -271,7 +271,7 @@
     left: 0;
     top: 8px;
     bottom: 8px;
-    width: 2px;
+    width: 1px;
     background: var(--rule, var(--color-faint));
   }
 

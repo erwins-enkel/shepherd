@@ -5,6 +5,7 @@ import { SessionStore } from "./store";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver } from "./herdr";
 import { generateName } from "./namer";
+import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
 import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
@@ -62,6 +63,9 @@ const service = new SessionService({
   worktree,
   herdr,
   namer: generateName,
+  refineName: config.llmNaming
+    ? ({ taskText, label }) => llmName(taskText, { herdr, model: config.namerModel }, label)
+    : undefined,
   events,
   reaper: new ProcessReaper(),
 });

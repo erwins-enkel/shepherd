@@ -67,6 +67,12 @@
   --status-done: var(--color-slate);
   --status-blocked: var(--color-red);
   --status-idle: var(--color-slate);
+
+  /* Header wash for an alert-by-exception (blocked / parked) session. On the
+     near-black ground a 24% red→head blend lands as a deep oxblood bezel that
+     reads as alarm; the same recipe is re-tuned for light below. */
+  --wash-blocked: color-mix(in srgb, var(--color-red) 24%, var(--color-head));
+  --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
 }
 
 /* ── Light ────────────────────────────────────────────────────────────────────
@@ -100,6 +106,14 @@
 
   --scrim: rgba(20, 28, 25, 0.42);
   --term-fg: #2b3633;
+
+  /* sRGB-blending a midtone red toward near-white muddies into a dusty pink
+     that reads as consumer-chat softness, not an operator alarm. Hand-tune the
+     blocked wash in OKLCH instead: a clean, lightly-saturated alert rose, hue
+     aligned to --red (~23), the daylight sibling of the dark oxblood. Parked
+     (slate, near-neutral) blends cleanly enough to keep the srgb recipe. */
+  --wash-blocked: oklch(0.86 0.065 23);
+  --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
 }
 
 html,

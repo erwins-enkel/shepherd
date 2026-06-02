@@ -151,6 +151,11 @@
       ? STATUS_COLOR[session.status]
       : null,
   );
+  // The header background uses a per-theme wash token (--wash-blocked / -done)
+  // rather than mixing the status colour inline: a 24% red→head srgb blend that
+  // reads as a deep alarm bezel on the dark ground muddies into a dusty pink in
+  // light, so the light theme retunes the blocked wash in OKLCH (see app.css).
+  const tintWash = $derived(tintColor ? `var(--wash-${session.status})` : null);
   // Non-hue partner to the tint: a leading shape mark so blocked (!) vs done (✓)
   // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
   // blocked/done-on-phone gate as the tint.
@@ -884,9 +889,7 @@
     class:mobile={compact}
     class:phone={mobile}
     class:working={working && !tintColor}
-    style:background={tintColor
-      ? `color-mix(in srgb, ${tintColor} 24%, var(--color-head))`
-      : undefined}
+    style:background={tintWash ?? undefined}
   >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}

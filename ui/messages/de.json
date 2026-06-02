@@ -103,6 +103,8 @@
   "herd_all_hint": "▦ Alle",
   "herd_ready_filter": "▤ Bereit",
   "herd_ready_empty": "Nichts wartet. Alle sind beschäftigt",
+  "herd_pr_running_group": "PR läuft ({count})",
+  "herd_reviewer_running_group": "Review läuft ({count})",
   "herd_ready_group": "Bereit zum Mergen ({count})",
   "herd_merged_group": "Gemergt ({count})",
   "issuespanel_title": "ISSUES",

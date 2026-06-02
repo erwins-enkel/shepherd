@@ -3,6 +3,7 @@
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions } from "./herd-partition";
+  import { reviews } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -36,9 +37,11 @@
   const shown = $derived(
     filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
   );
-  // within the shown set: active rows on top; ready-to-merge ones parked in a
-  // green group below, merged-PR ones in a blue group at the very bottom
-  const partition = $derived(partitionSessions(shown, git));
+  // within the shown set, top→bottom by lifecycle stage: active rows first, then
+  // PR-CI-running and critic-reviewing in-flight groups, then the parked
+  // ready-to-merge (green) and landed merged (blue) groups at the bottom.
+  // reviews.reviewing is $state, so this re-derives on `session:reviewing` events.
+  const partition = $derived(partitionSessions(shown, git, (id) => reviews.isReviewing(id)));
 </script>
 
 <div class="panel bracket">
@@ -77,6 +80,36 @@
           {ondecommission}
         />
       {/each}
+      {#if partition.prRunning.length > 0}
+        <div class="pr-head micro">
+          {m.herd_pr_running_group({ count: partition.prRunning.length })}
+        </div>
+        {#each partition.prRunning as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.reviewerRunning.length > 0}
+        <div class="reviewing-head micro">
+          {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
+        </div>
+        {#each partition.reviewerRunning as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
       {#if partition.ready.length > 0}
         <div class="ready-head micro">{m.herd_ready_group({ count: partition.ready.length })}</div>
         {#each partition.ready as session (session.id)}
@@ -176,6 +209,18 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+
+  /* amber section headers for the in-flight stages (PR CI running, critic
+     reviewing) — amber mirrors the CI-pending dot and the critic badge */
+  .pr-head,
+  .reviewing-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-amber);
+    border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
   }
 
   /* green section header for the parked "ready to merge" group */

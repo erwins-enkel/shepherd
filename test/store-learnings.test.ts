@@ -64,3 +64,14 @@ test("pendingLearningCount counts proposed across all repos", () => {
   s.setLearningStatus(b.id, "active");
   expect(s.pendingLearningCount()).toBe(1);
 });
+
+test("listPendingLearnings returns proposed across all repos, newest first", () => {
+  const s = new SessionStore(":memory:");
+  s.addLearning({ repoPath: "/a", rule: "a1", rationale: "", evidence: [] });
+  const b = s.addLearning({ repoPath: "/b", rule: "b1", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active"); // no longer proposed
+  s.addLearning({ repoPath: "/b", rule: "b2", rationale: "", evidence: [] });
+  const pending = s.listPendingLearnings();
+  expect(pending.map((l) => l.rule).sort()).toEqual(["a1", "b2"]);
+  expect(pending.every((l) => l.status === "proposed")).toBe(true);
+});

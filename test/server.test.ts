@@ -920,3 +920,16 @@ test("POST /api/learnings/<bogus-id>/approve returns 404", async () => {
   );
   expect(res.status).toBe(404);
 });
+
+test("GET /api/learnings/pending returns all proposed learnings across repos", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  deps.store.addLearning({ repoPath: "/x", rule: "p1", rationale: "", evidence: [] });
+
+  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+  expect(body.length).toBe(1);
+  expect(body[0].rule).toBe("p1");
+});

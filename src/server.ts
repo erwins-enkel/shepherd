@@ -178,6 +178,11 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 async function handleLearnings({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "learnings") return null;
 
+  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge)
+  if (req.method === "GET" && parts[2] === "pending") {
+    return json(deps.store.listPendingLearnings());
+  }
+
   // GET /api/learnings?repo=&status=
   if (req.method === "GET" && !parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);

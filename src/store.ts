@@ -483,6 +483,13 @@ export class SessionStore implements CapStore {
     ).c;
   }
 
+  listPendingLearnings(): Learning[] {
+    const rows = this.db
+      .query(`SELECT * FROM learnings WHERE status = 'proposed' ORDER BY updatedAt DESC`)
+      .all();
+    return (rows as any[]).map((r) => this.hydrateLearning(r));
+  }
+
   private hydrate(r: any): Session {
     return {
       ...r,

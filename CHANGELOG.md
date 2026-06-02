@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.7.0](https://github.com/erwins-enkel/shepherd/compare/v1.6.0...v1.7.0) (2026-06-02)
+
+
+### Features
+
+* **namer:** pick session names by specificity, not position ([#201](https://github.com/erwins-enkel/shepherd/issues/201)) ([58e1434](https://github.com/erwins-enkel/shepherd/commit/58e14344cc253ae3a276b95156d5b682eb8d559c))
+* **push:** per-category notification selection ([#203](https://github.com/erwins-enkel/shepherd/issues/203)) ([fbe6fe8](https://github.com/erwins-enkel/shepherd/commit/fbe6fe8b237454fd28e6289cdef757c6884cf2f6))
+* **slash:** recognize commands mid-text, not just at prompt start ([#205](https://github.com/erwins-enkel/shepherd/issues/205)) ([801ed61](https://github.com/erwins-enkel/shepherd/commit/801ed6116d404caacc6433567566e062db6fecf4))
+* **ui:** ambient amber pulse on mobile header while agent works ([#202](https://github.com/erwins-enkel/shepherd/issues/202)) ([38276fc](https://github.com/erwins-enkel/shepherd/commit/38276fcf9a9db153395bc35a9a20e8ba1be72975))
+* **ui:** dim a session while its decommission undo is offered ([#197](https://github.com/erwins-enkel/shepherd/issues/197)) ([16a3cac](https://github.com/erwins-enkel/shepherd/commit/16a3cac85e844f6876e26d8209e10d81916e8e8d))
+* **ui:** group session list by PR-running and reviewer-running stages ([#204](https://github.com/erwins-enkel/shepherd/issues/204)) ([db4cb7f](https://github.com/erwins-enkel/shepherd/commit/db4cb7f73796426898ee48b41095bb83123fcd3e))
+
+
+### Bug Fixes
+
+* **ui:** close integration seams from the critique merge train ([#192](https://github.com/erwins-enkel/shepherd/issues/192)) ([ae6f8bd](https://github.com/erwins-enkel/shepherd/commit/ae6f8bd27b0bf5fe9d46957e5dd12920a4559c8b))
+* **ui:** impeccable audit remediation — a11y, perf, theming, touch, copy ([#198](https://github.com/erwins-enkel/shepherd/issues/198)) ([4582656](https://github.com/erwins-enkel/shepherd/commit/4582656f72b4343abb2b16f65b99d8d752e20641))
+* **ui:** stop compact herd cards crushing the agent name ([#195](https://github.com/erwins-enkel/shepherd/issues/195)) ([aad6c58](https://github.com/erwins-enkel/shepherd/commit/aad6c589dfb2852bcccfeb28f1538c197ef7dfc4))
+* **ui:** tabbed settings modal so it never overflows viewport ([#196](https://github.com/erwins-enkel/shepherd/issues/196)) ([cb72883](https://github.com/erwins-enkel/shepherd/commit/cb728837729d99c236a050f44d03b8d658f2342b))
+* **ui:** wrap detail header controls as a cluster on mobile ([#199](https://github.com/erwins-enkel/shepherd/issues/199)) ([1828c4a](https://github.com/erwins-enkel/shepherd/commit/1828c4a43bb454208c4683271e4a30fab87c025d))
+* **viewport:** keep swipe-up compose reachable on unfolded foldables ([#193](https://github.com/erwins-enkel/shepherd/issues/193)) ([67d7076](https://github.com/erwins-enkel/shepherd/commit/67d70762beb6d366d9b58f65dbe028009482084d))
+
 ## [1.6.0](https://github.com/erwins-enkel/shepherd/compare/v1.5.0...v1.6.0) (2026-06-02)
 
 

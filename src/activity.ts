@@ -45,6 +45,16 @@ const SUMMARIZERS: Record<string, Summarizer> = {
   Agent: (i) => `dispatched ${i.subagent_type ?? "agent"}`,
   Skill: (i) => `skill ${i.skill ?? ""}`,
   TodoWrite: () => "updated todos",
+  TaskCreate: (i) => `added task: ${truncate(String(i.subject ?? ""), CMD_MAX)}`,
+  TaskUpdate: (i) => {
+    const id = i.taskId ?? "?";
+    if (i.status === "in_progress") return `started task ${id}`;
+    if (i.status === "completed") return `completed task ${id}`;
+    if (i.status === "deleted") return `deleted task ${id}`;
+    return `updated task ${id}`;
+  },
+  TaskList: () => "listed tasks",
+  TaskGet: (i) => `read task ${i.taskId ?? "?"}`,
   WebFetch: (i) => `fetched ${host(i.url)}`,
   WebSearch: (i) => `web search "${i.query ?? ""}"`,
 };

@@ -13,6 +13,9 @@ describe("glyph", () => {
     expect(glyph("Grep")).toBe("⌕");
     expect(glyph("Glob")).toBe("⌕");
     expect(glyph("TodoWrite")).toBe("⊞");
+    for (const t of ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]) {
+      expect(glyph(t)).toBe("⊞");
+    }
     expect(glyph("Task")).toBe("◆");
     expect(glyph("Skill")).toBe("◆");
     expect(glyph("WebFetch")).toBe("⇲");

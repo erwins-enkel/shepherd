@@ -6,6 +6,7 @@ import type { HerdrDriver } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, Session } from "./types";
 import { moveStagedIntoWorktree } from "./uploads";
+import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 
 export interface ServiceDeps {
@@ -36,7 +37,9 @@ export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
   async create(input: CreateSessionInput): Promise<Session> {
-    const name = this.uniqueName(await this.deps.namer(input.prompt));
+    const basename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
+    const herdSlug = basename ? slugifyManual(basename) : undefined;
+    const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug);
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
@@ -97,8 +100,18 @@ export class SessionService {
    * rejects a second agent with a name already in use (`agent_name_taken`), which would
    * otherwise surface as an opaque create 500. Suffixing past live agents avoids the clash;
    * the chosen name also drives the worktree path and branch, so they stay collision-free too.
+   *
+   * When a collision occurs and `herd` (the slugified repo basename) is provided, resolution
+   * prefers a herd-qualified name (`${base}-${herd}`) before falling back to numeric suffixes.
+   * This makes concurrent sessions on different repos self-distinguishing at a glance
+   * (`fix-login-myapp` vs `fix-login-otherapp`) and keeps numeric suffixes as a last resort
+   * for sessions inside the same herd. If no usable herd is given, the original numeric
+   * linear scan (`${base}-2`, `-3`, …) is used unchanged.
+   *
+   * The composed `base-herd` string is capped at 60 characters (trimming any trailing dash)
+   * to keep branch/worktree paths sane, matching the 60-char convention used by slugifyManual.
    */
-  private uniqueName(base: string): string {
+  private uniqueName(base: string, herd?: string): string {
     const taken = new Set(
       this.deps.herdr
         .list()
@@ -106,6 +119,19 @@ export class SessionService {
         .filter(Boolean),
     );
     if (!taken.has(base)) return base;
+
+    if (herd) {
+      // Cap at 60 chars (matching slugifyManual's convention). If base is already 59–60 chars
+      // the herd may be truncated away entirely; numeric fallback below still produces a valid name.
+      const composed = `${base}-${herd}`.slice(0, 60).replace(/-+$/, "");
+      if (!taken.has(composed)) return composed;
+      for (let i = 2; ; i++) {
+        const candidate = `${composed}-${i}`;
+        if (!taken.has(candidate)) return candidate;
+      }
+    }
+
+    // No usable herd — fall back to the original numeric scan.
     for (let i = 2; ; i++) {
       const candidate = `${base}-${i}`;
       if (!taken.has(candidate)) return candidate;

@@ -22,6 +22,32 @@
     { pref: "system", glyph: "◐", label: m.theme_system },
   ];
 
+  // Settings group into three jobs so the modal never outgrows the viewport:
+  // WORKSPACE (which repo root), SESSION (how agents start + steer), DEVICE
+  // (this browser's notifications + theme). The HERDR-update CTA is an alert,
+  // not a section, so it stays pinned above the tab strip.
+  const TABS = [
+    { id: "workspace", label: m.settings_tab_workspace },
+    { id: "session", label: m.settings_tab_session },
+    { id: "device", label: m.settings_tab_device },
+  ] as const;
+  type TabId = (typeof TABS)[number]["id"];
+  let tab = $state<TabId>("workspace");
+  let tabEls: HTMLButtonElement[] = [];
+
+  function onTabKey(e: KeyboardEvent, i: number) {
+    let next: number;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+      next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    tab = TABS[next].id;
+    tabEls[next]?.focus();
+  }
+
   let {
     onclose,
     onsaved,
@@ -167,121 +193,174 @@
       </button>
     {/if}
 
-    <div class="cur">
-      <span class="micro">{m.settings_current_root_label()}</span>
-      <code>{currentRoot || "—"}</code>
-    </div>
-
-    <span class="micro path-label">{m.settings_browse_label()}</span>
-    <div class="crumbs">
-      <button
-        type="button"
-        class="up"
-        disabled={!listing?.parent || loading}
-        onclick={() => listing?.parent && browse(listing.parent)}
-        title={m.settings_up_level()}
-      >
-        ↑
-      </button>
-      <code class="here">{listing?.display ?? "…"}</code>
-    </div>
-
-    <div class="list">
-      {#if loading}
-        <div class="placeholder">{m.settings_loading()}</div>
-      {:else if listing && listing.entries.length === 0}
-        <div class="placeholder">{m.settings_no_subfolders()}</div>
-      {:else if listing}
-        {#each listing.entries as e (e.path)}
-          <button type="button" class="row" onclick={() => browse(e.path)}>
-            <span class="ico">📁</span><span class="nm">{e.name}</span>
-            <span class="chev">›</span>
-          </button>
-        {/each}
-      {/if}
-    </div>
-
-    {#if error}<div class="err">{error}</div>{/if}
-
-    <button
-      class="run"
-      type="button"
-      disabled={!listing || saving || isCurrent}
-      onclick={useThisFolder}
-    >
-      {#if saving}
-        {m.settings_saving()}
-      {:else if isCurrent}
-        {m.settings_already_current()}
-      {:else}
-        {m.settings_use_folder()}
-      {/if}
-    </button>
-    <div class="theme-row">
-      <span class="micro">{m.actionbar_theme_group_aria()}</span>
-      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-        {#each THEMES as t (t.pref)}
-          <button
-            type="button"
-            class="t-opt"
-            class:on={theme.pref === t.pref}
-            aria-pressed={theme.pref === t.pref}
-            aria-label={m.actionbar_theme_option({ label: t.label() })}
-            onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
-          >
-        {/each}
-      </div>
-    </div>
-    <div class="push">
-      <span class="micro">{m.settings_push_title()}</span>
-      {#if !push.supported}
-        <p class="hint">{m.settings_push_unsupported()}</p>
-      {:else if push.permission === "denied"}
-        <p class="hint">{m.settings_push_denied()}</p>
-      {:else}
-        <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
-          {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
-        </button>
-      {/if}
-    </div>
-    <div class="rc">
-      <span class="micro">{m.settings_remote_control_title()}</span>
-      <p class="hint">{m.settings_remote_control_hint()}</p>
-      <button
-        type="button"
-        class="toggle"
-        role="switch"
-        aria-checked={remoteControl}
-        disabled={rcBusy}
-        onclick={toggleRemoteControl}
-      >
-        <span class="track" class:on={remoteControl}><span class="knob"></span></span>
-        <span class="state"
-          >{remoteControl ? m.settings_remote_control_on() : m.settings_remote_control_off()}</span
+    <div class="tabs" role="tablist" aria-label={m.settings_tabs_aria()}>
+      {#each TABS as t, i (t.id)}
+        <button
+          type="button"
+          role="tab"
+          id="settings-tab-{t.id}"
+          class="tab"
+          class:on={tab === t.id}
+          aria-selected={tab === t.id}
+          aria-controls="settings-panel-{t.id}"
+          tabindex={tab === t.id ? 0 : -1}
+          bind:this={tabEls[i]}
+          onclick={() => (tab = t.id)}
+          onkeydown={(e) => onTabKey(e, i)}>{t.label()}</button
         >
-      </button>
+      {/each}
     </div>
-    <div class="sc">
-      <span class="micro">{m.settings_standard_command_title()}</span>
-      <p class="hint">{m.settings_standard_command_hint()}</p>
-      <textarea
-        class="sc-input"
-        rows="4"
-        bind:value={standardCommand}
-        oninput={() => (scSaved = false)}
-        placeholder={m.settings_standard_command_placeholder()}
-      ></textarea>
-      <button type="button" class="run" disabled={scBusy} onclick={saveStandardCommand}>
-        {#if scBusy}
+
+    <!-- All three panels stay mounted and toggle via `hidden`: every
+         settings-panel-* id resolves for the tabs' aria-controls, and the
+         steers editor keeps any in-progress draft across tab switches
+         instead of remounting and resyncing from the store. -->
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-workspace"
+      aria-labelledby="settings-tab-workspace"
+      tabindex="0"
+      hidden={tab !== "workspace"}
+    >
+      <div class="cur">
+        <span class="micro">{m.settings_current_root_label()}</span>
+        <code>{currentRoot || "—"}</code>
+      </div>
+
+      <span class="micro path-label">{m.settings_browse_label()}</span>
+      <div class="crumbs">
+        <button
+          type="button"
+          class="up"
+          disabled={!listing?.parent || loading}
+          onclick={() => listing?.parent && browse(listing.parent)}
+          title={m.settings_up_level()}
+        >
+          ↑
+        </button>
+        <code class="here">{listing?.display ?? "…"}</code>
+      </div>
+
+      <div class="list">
+        {#if loading}
+          <div class="placeholder">{m.settings_loading()}</div>
+        {:else if listing && listing.entries.length === 0}
+          <div class="placeholder">{m.settings_no_subfolders()}</div>
+        {:else if listing}
+          {#each listing.entries as e (e.path)}
+            <button type="button" class="row" onclick={() => browse(e.path)}>
+              <span class="ico">📁</span><span class="nm">{e.name}</span>
+              <span class="chev">›</span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+
+      {#if error}<div class="err">{error}</div>{/if}
+
+      <button
+        class="run"
+        type="button"
+        disabled={!listing || saving || isCurrent}
+        onclick={useThisFolder}
+      >
+        {#if saving}
           {m.settings_saving()}
-        {:else if scSaved}
-          {m.settings_standard_command_saved()}
+        {:else if isCurrent}
+          {m.settings_already_current()}
         {:else}
-          {m.settings_standard_command_save()}
+          {m.settings_use_folder()}
         {/if}
       </button>
     </div>
-    <SteersEditor />
+
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-session"
+      aria-labelledby="settings-tab-session"
+      tabindex="0"
+      hidden={tab !== "session"}
+    >
+      <div class="rc">
+        <span class="micro">{m.settings_remote_control_title()}</span>
+        <p class="hint">{m.settings_remote_control_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={remoteControl}
+          disabled={rcBusy}
+          onclick={toggleRemoteControl}
+        >
+          <span class="track" class:on={remoteControl}><span class="knob"></span></span>
+          <span class="state"
+            >{remoteControl
+              ? m.settings_remote_control_on()
+              : m.settings_remote_control_off()}</span
+          >
+        </button>
+      </div>
+      <div class="sc">
+        <span class="micro">{m.settings_standard_command_title()}</span>
+        <p class="hint">{m.settings_standard_command_hint()}</p>
+        <textarea
+          class="sc-input"
+          rows="4"
+          bind:value={standardCommand}
+          oninput={() => (scSaved = false)}
+          placeholder={m.settings_standard_command_placeholder()}
+        ></textarea>
+        <button type="button" class="run" disabled={scBusy} onclick={saveStandardCommand}>
+          {#if scBusy}
+            {m.settings_saving()}
+          {:else if scSaved}
+            {m.settings_standard_command_saved()}
+          {:else}
+            {m.settings_standard_command_save()}
+          {/if}
+        </button>
+      </div>
+      <SteersEditor />
+    </div>
+
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-device"
+      aria-labelledby="settings-tab-device"
+      tabindex="0"
+      hidden={tab !== "device"}
+    >
+      <div class="theme-row">
+        <span class="micro">{m.actionbar_theme_group_aria()}</span>
+        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+          {#each THEMES as t (t.pref)}
+            <button
+              type="button"
+              class="t-opt"
+              class:on={theme.pref === t.pref}
+              aria-pressed={theme.pref === t.pref}
+              aria-label={m.actionbar_theme_option({ label: t.label() })}
+              onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+            >
+          {/each}
+        </div>
+      </div>
+      <div class="push">
+        <span class="micro">{m.settings_push_title()}</span>
+        {#if !push.supported}
+          <p class="hint">{m.settings_push_unsupported()}</p>
+        {:else if push.permission === "denied"}
+          <p class="hint">{m.settings_push_denied()}</p>
+        {:else}
+          <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
+            {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
+          </button>
+        {/if}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -298,6 +377,7 @@
   .card {
     position: relative;
     width: min(520px, 92vw);
+    max-height: 86vh;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     padding: 16px;
@@ -328,7 +408,60 @@
   .chead {
     display: flex;
     align-items: center;
-    margin-bottom: 4px;
+  }
+  /* Tab strip: muted labels, active marked by amber text + underline (never a
+     filled tab). The strip's hairline is the divider; the active tab overlaps
+     it with a 2px amber border. */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .tab {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  .tab:hover {
+    color: var(--color-ink);
+  }
+  .tab.on {
+    color: var(--color-amber);
+    border-bottom-color: var(--color-amber);
+  }
+  .tab:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -2px;
+  }
+  /* Only the active tab's content lives here; it carries the scroll so a tall
+     tab (many steers) stays inside the bounded card instead of overflowing. */
+  /* `:not([hidden])` carries `display` so the `hidden` attribute on inactive
+     panels still collapses them (author `display` would otherwise beat the UA
+     `[hidden] { display: none }`). */
+  .panel:not([hidden]) {
+    display: flex;
+  }
+  .panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* Keyboard focus on the scrollable tabpanel gets a quiet inset hairline
+     rather than no ring at all (it's a tabindex=0 stop). */
+  .panel:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -2px;
   }
   .x {
     margin-left: auto;
@@ -479,7 +612,6 @@
     margin-top: 2px;
   }
   .run {
-    margin-top: 8px;
     border: 1px solid var(--color-amber);
     color: var(--color-amber);
     background: transparent;
@@ -500,7 +632,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 8px;
   }
   .push .hint {
     color: var(--color-faint);
@@ -511,7 +642,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 8px;
   }
   .rc .hint {
     color: var(--color-faint);
@@ -522,7 +652,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 8px;
   }
   .sc .hint {
     color: var(--color-faint);
@@ -641,17 +770,20 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
-      margin-top: 8px;
     }
     .card {
       width: 100%;
       max-width: none;
       height: 100dvh;
+      max-height: none;
       border: 0;
-      overflow-y: auto;
+      overflow: hidden;
     }
+    /* Lift the list cap on mobile: the list flexes to fill the bounded panel
+       and stays the single scroll region (button pinned below), instead of a
+       capped list nested inside a separately-scrolling panel. */
     .list {
-      max-height: 50vh;
+      max-height: none;
     }
     .row,
     .up,

@@ -10,7 +10,15 @@
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { pushState, enablePush, disablePush, type PushStatus } from "$lib/push";
+  import {
+    pushState,
+    enablePush,
+    disablePush,
+    getPushCategories,
+    setPushCategories,
+    type PushStatus,
+    type PushCategories,
+  } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
@@ -70,6 +78,14 @@
   let error = $state<string | null>(null);
   let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
   let pushBusy = $state(false);
+  let categories = $state<PushCategories>({ agent: true, reviews: true, ci: true });
+
+  // Category metadata drives the checkbox list; keys index into `categories`.
+  const categoryRows: { key: keyof PushCategories; label: () => string }[] = [
+    { key: "agent", label: () => m.settings_push_cat_agent() },
+    { key: "reviews", label: () => m.settings_push_cat_reviews() },
+    { key: "ci", label: () => m.settings_push_cat_ci() },
+  ];
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
   let standardCommand = $state(""); // prompt behind the backlog ⚡ Standard button
@@ -103,6 +119,14 @@
 
   async function refreshPush() {
     push = await pushState();
+    if (push.subscribed) categories = await getPushCategories();
+  }
+
+  async function toggleCategory(key: keyof PushCategories) {
+    const prev = categories;
+    const next = { ...categories, [key]: !categories[key] };
+    categories = next; // optimistic; server is authoritative at send time
+    if (!(await setPushCategories(next))) categories = prev; // persist failed → revert
   }
 
   async function togglePush() {
@@ -358,6 +382,21 @@
           <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
             {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
           </button>
+          {#if push.subscribed}
+            <fieldset class="cats">
+              <legend class="micro">{m.settings_push_cat_title()}</legend>
+              {#each categoryRows as row (row.key)}
+                <label class="cat">
+                  <input
+                    type="checkbox"
+                    checked={categories[row.key]}
+                    onchange={() => toggleCategory(row.key)}
+                  />
+                  <span>{row.label()}</span>
+                </label>
+              {/each}
+            </fieldset>
+          {/if}
         {/if}
       </div>
     </div>
@@ -637,6 +676,28 @@
     color: var(--color-faint);
     font-size: 11.5px;
     margin: 0;
+  }
+  .cats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 0;
+    margin: 2px 0 0;
+    padding: 0;
+  }
+  .cats legend {
+    padding: 0;
+    margin-bottom: 4px;
+  }
+  .cat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .cat input {
+    cursor: pointer;
   }
   .rc {
     display: flex;

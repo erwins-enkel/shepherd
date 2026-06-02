@@ -17,6 +17,49 @@ export interface PushStatus {
   subscribed: boolean;
 }
 
+/** Per-device notification category selection (mirrors the server's PushPrefs). */
+export interface PushCategories {
+  agent: boolean;
+  reviews: boolean;
+  ci: boolean;
+}
+
+const ALL_CATEGORIES: PushCategories = { agent: true, reviews: true, ci: true };
+
+/** Endpoint of this device's current push subscription, or null if none. */
+async function currentEndpoint(): Promise<string | null> {
+  if (!supported()) return null;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  return sub?.endpoint ?? null;
+}
+
+/** Read this device's category selection; defaults to all-on when unknown/unsupported. */
+export async function getPushCategories(): Promise<PushCategories> {
+  const endpoint = await currentEndpoint();
+  if (!endpoint) return { ...ALL_CATEGORIES };
+  try {
+    const r = await fetch(`/api/push/prefs?endpoint=${encodeURIComponent(endpoint)}`);
+    if (!r.ok) return { ...ALL_CATEGORIES };
+    const { categories } = await r.json();
+    return categories ?? { ...ALL_CATEGORIES };
+  } catch {
+    return { ...ALL_CATEGORIES };
+  }
+}
+
+/** Persist this device's category selection. Returns false if no subscription exists. */
+export async function setPushCategories(categories: PushCategories): Promise<boolean> {
+  const endpoint = await currentEndpoint();
+  if (!endpoint) return false;
+  const r = await fetch("/api/push/prefs", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ endpoint, categories }),
+  });
+  return r.ok;
+}
+
 export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
   const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");

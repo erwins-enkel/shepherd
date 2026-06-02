@@ -27,7 +27,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type { Session } from "./types";
+import type { Session, LearningStatus } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
@@ -92,6 +92,10 @@ export interface AppDeps {
   };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
+  /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
+   *  Optional so environments/tests that don't wire it still type-check; the route
+   *  no-ops the trigger when absent. Production wiring lands in Task 9. */
+  distiller?: { distillNow: (repoPath: string) => void };
 }
 
 const sessionUsage = (s: Session) =>
@@ -167,6 +171,46 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
       return json(deps.store.getRepoConfig(dir));
     }
   }
+  return null;
+}
+
+// /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
+async function handleLearnings({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "learnings") return null;
+
+  // GET /api/learnings?repo=&status=
+  if (req.method === "GET" && !parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    const status = url.searchParams.get("status") ?? undefined;
+    return json(
+      deps.store.listLearnings(dir, status ? { status: status as LearningStatus } : undefined),
+    );
+  }
+
+  // POST /api/learnings/distill?repo= — checked BEFORE :id so "distill" isn't an id
+  if (req.method === "POST" && parts[2] === "distill") {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    deps.distiller?.distillNow(dir);
+    return json({ ok: true });
+  }
+
+  // POST /api/learnings/:id/approve  |  /:id/dismiss
+  if (req.method === "POST" && parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
+    const id = parts[2];
+    let rule: string | undefined;
+    if (parts[3] === "approve") {
+      const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
+      if (body && typeof body.rule === "string") rule = body.rule;
+    }
+    const status = parts[3] === "approve" ? "active" : "dismissed";
+    const updated = deps.store.setLearningStatus(id, status, rule);
+    if (!updated) return json({ error: "not found" }, 404);
+    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+    return json(updated);
+  }
+
   return null;
 }
 
@@ -1008,6 +1052,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleReviews,
   handleRepoConfig,
+  handleLearnings,
   handlePush,
   handleSessions,
   handleSessionGit,

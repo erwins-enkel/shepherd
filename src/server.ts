@@ -206,15 +206,65 @@ async function pushUnsubscribe(req: Request, deps: AppDeps): Promise<Response> {
   return json({ ok: true });
 }
 
-async function handlePush({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] === "api" && parts[1] === "push") {
-    if (req.method === "GET" && parts[2] === "vapid") {
-      return json({ publicKey: deps.push?.publicKey() ?? null });
-    }
-    if (req.method === "POST" && parts[2] === "subscribe") return pushSubscribe(req, deps);
-    if (req.method === "POST" && parts[2] === "unsubscribe") return pushUnsubscribe(req, deps);
+/** GET /api/push/prefs?endpoint=… — the device's category selection (all-on if unknown). */
+function pushPrefsRead(url: URL, deps: AppDeps): Response {
+  const endpoint = url.searchParams.get("endpoint");
+  if (!endpoint) return json({ error: "endpoint query param required" }, 400);
+  const prefs = deps.store.getPushPrefs(endpoint) ?? { agent: true, reviews: true, ci: true };
+  return json({ categories: prefs });
+}
+
+/** POST /api/push/prefs {endpoint, categories} — update a device's category selection. */
+async function pushPrefsWrite(req: Request, deps: AppDeps): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as {
+    endpoint?: unknown;
+    categories?: { agent?: unknown; reviews?: unknown; ci?: unknown };
+  } | null;
+  const c = body?.categories;
+  if (
+    !body ||
+    typeof body.endpoint !== "string" ||
+    !c ||
+    typeof c.agent !== "boolean" ||
+    typeof c.reviews !== "boolean" ||
+    typeof c.ci !== "boolean"
+  ) {
+    return json({ error: "body must be {endpoint, categories:{agent,reviews,ci}}" }, 400);
   }
-  return null;
+  const ok = deps.store.setPushPrefs(body.endpoint, {
+    agent: c.agent,
+    reviews: c.reviews,
+    ci: c.ci,
+  });
+  // No row means the client thinks it's subscribed but the server has no record
+  // (pruned/raced) — report it so the UI can revert rather than silently no-op.
+  return ok ? json({ ok: true }) : json({ error: "no subscription for endpoint" }, 404);
+}
+
+// Table-driven so adding a push route doesn't grow handlePush's branch count.
+const PUSH_ROUTES: {
+  method: string;
+  seg: string;
+  run: (ctx: Ctx) => Response | Promise<Response>;
+}[] = [
+  {
+    method: "GET",
+    seg: "vapid",
+    run: ({ deps }) => json({ publicKey: deps.push?.publicKey() ?? null }),
+  },
+  { method: "POST", seg: "subscribe", run: ({ req, deps }) => pushSubscribe(req, deps) },
+  { method: "POST", seg: "unsubscribe", run: ({ req, deps }) => pushUnsubscribe(req, deps) },
+  { method: "GET", seg: "prefs", run: ({ url, deps }) => pushPrefsRead(url, deps) },
+  { method: "POST", seg: "prefs", run: ({ req, deps }) => pushPrefsWrite(req, deps) },
+];
+
+async function handlePush(ctx: Ctx): Promise<Response | null> {
+  const { req, parts } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "push") return null;
+  const route = PUSH_ROUTES.find((r) => r.method === req.method && r.seg === parts[2]);
+  return route ? route.run(ctx) : null;
 }
 
 // POST /api/sessions — create a session.

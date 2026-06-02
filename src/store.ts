@@ -19,6 +19,14 @@ export interface StoredPushSub {
   ua: string;
   locale: string;
   createdAt: number;
+  cats: PushPrefs;
+}
+
+/** Which notification categories a device wants (per-subscription, all-on by default). */
+export interface PushPrefs {
+  agent: boolean;
+  reviews: boolean;
+  ci: boolean;
 }
 
 type NewSession = Omit<
@@ -77,6 +85,8 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
+      catAgent INTEGER NOT NULL DEFAULT 1, catReviews INTEGER NOT NULL DEFAULT 1,
+      catCi INTEGER NOT NULL DEFAULT 1,
       createdAt INTEGER NOT NULL)`);
     // migrate push tables that predate per-device locale (drives notification language)
     const pushCols = this.db.query(`PRAGMA table_info(push_subscriptions)`).all() as {
@@ -84,6 +94,13 @@ export class SessionStore implements CapStore {
     }[];
     if (!pushCols.some((c) => c.name === "locale")) {
       this.db.run(`ALTER TABLE push_subscriptions ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'`);
+    }
+    // migrate push tables that predate per-category selection (default: all categories on,
+    // preserving the prior all-or-nothing behavior for existing devices)
+    for (const col of ["catAgent", "catReviews", "catCi"]) {
+      if (!pushCols.some((c) => c.name === col)) {
+        this.db.run(`ALTER TABLE push_subscriptions ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 1`);
+      }
     }
   }
 
@@ -136,9 +153,36 @@ export class SessionStore implements CapStore {
   }
 
   listPushSubs(): StoredPushSub[] {
-    return this.db
-      .query(`SELECT endpoint, p256dh, auth, ua, locale, createdAt FROM push_subscriptions`)
-      .all() as StoredPushSub[];
+    const rows = this.db
+      .query(
+        `SELECT endpoint, p256dh, auth, ua, locale, catAgent, catReviews, catCi, createdAt
+         FROM push_subscriptions`,
+      )
+      .all() as (Omit<StoredPushSub, "cats"> & {
+      catAgent: number;
+      catReviews: number;
+      catCi: number;
+    })[];
+    return rows.map(({ catAgent, catReviews, catCi, ...rest }) => ({
+      ...rest,
+      cats: { agent: !!catAgent, reviews: !!catReviews, ci: !!catCi },
+    }));
+  }
+
+  getPushPrefs(endpoint: string): PushPrefs | null {
+    const r = this.db
+      .query(`SELECT catAgent, catReviews, catCi FROM push_subscriptions WHERE endpoint = ?`)
+      .get(endpoint) as { catAgent: number; catReviews: number; catCi: number } | null;
+    return r ? { agent: !!r.catAgent, reviews: !!r.catReviews, ci: !!r.catCi } : null;
+  }
+
+  /** Update a device's category selection; false when no such subscription exists. */
+  setPushPrefs(endpoint: string, prefs: PushPrefs): boolean {
+    const { changes } = this.db.run(
+      `UPDATE push_subscriptions SET catAgent = ?, catReviews = ?, catCi = ? WHERE endpoint = ?`,
+      [prefs.agent ? 1 : 0, prefs.reviews ? 1 : 0, prefs.ci ? 1 : 0, endpoint],
+    );
+    return changes > 0;
   }
 
   create(input: NewSession): Session {

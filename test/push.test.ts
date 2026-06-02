@@ -65,6 +65,57 @@ test("notify sends to all subscriptions", async () => {
   expect(sent[0]).toContain('"title":"T — waiting"');
 });
 
+test("notify skips a subscription that muted the kind's category", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("agent-on"), "");
+  store.putPushSub(sub("agent-off"), "");
+  store.setPushPrefs("agent-off", { agent: false, reviews: true, ci: true });
+  // "done" is an agent-category kind → only the device that kept agent on hears it
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" });
+  expect(sent).toEqual(["agent-on"]);
+});
+
+test("notify routes each kind to its category", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("only-ci"), "");
+  store.setPushPrefs("only-ci", { agent: false, reviews: false, ci: true });
+  await push.notify({ kind: "done", sessionId: "s1", tag: "s1", name: "T" }); // agent → skip
+  await push.notify({ kind: "review", sessionId: "s2", tag: "s2", name: "T" }); // reviews → skip
+  await push.notify({ kind: "ci", sessionId: "s3", tag: "s3", name: "T", ciState: "success" }); // ci → send
+  expect(sent).toEqual(["only-ci"]);
+});
+
+test("notify leaves the cooldown clock untouched when every sub filtered it out", async () => {
+  let count = 0;
+  let t = 0;
+  const send: SendFn = async () => {
+    count++;
+    return {};
+  };
+  const store = new SessionStore(":memory:");
+  const push = new PushService(store, send, keys, () => t);
+  store.putPushSub(sub("e1"), "");
+  store.setPushPrefs("e1", { agent: false, reviews: true, ci: true });
+  const n: NotifyInput = { kind: "done", sessionId: "s1", tag: "s1", name: "T" };
+  await push.notify(n); // filtered out → nothing sent
+  expect(count).toBe(0);
+  // category re-enabled; the earlier suppressed attempt must not have armed cooldown
+  store.setPushPrefs("e1", { agent: true, reviews: true, ci: true });
+  t = 1;
+  await push.notify(n);
+  expect(count).toBe(1);
+});
+
 test("notify suppresses every send while a client reports it is active", async () => {
   let count = 0;
   const send: SendFn = async () => {

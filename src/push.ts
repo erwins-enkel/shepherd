@@ -13,6 +13,18 @@ export interface PushPayload {
   tag: string;
 }
 
+/** User-facing notification categories — coarser than the internal kinds. */
+type PushCategory = "agent" | "reviews" | "ci";
+
+/** Maps each internal kind to the category a device toggles. Single source of truth. */
+const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
+  blocked: "agent",
+  done: "agent",
+  review: "reviews",
+  "review-human": "reviews",
+  ci: "ci",
+};
+
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
   kind: "blocked" | "done" | "review" | "ci" | "review-human";
@@ -216,8 +228,12 @@ export class PushService {
       const last = this.lastNotified.get(key);
       if (last !== undefined && t - last < cooldownMs) return;
     }
+    const category = KIND_CATEGORY[input.kind];
     let sent = false;
     for (const row of this.store.listPushSubs()) {
+      // Honor the device's category selection: a sub that muted this category
+      // never receives the push (filtered server-side so it works app-closed).
+      if (!row.cats[category]) continue;
       if (await this.deliver(row, input)) sent = true;
     }
     if (sent && cooldownMs > 0) this.lastNotified.set(key, t);

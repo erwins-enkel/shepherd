@@ -142,10 +142,10 @@ body {
 }
 @keyframes scan {
   0% {
-    top: -70px;
+    transform: translateY(-70px);
   }
   100% {
-    top: 100%;
+    transform: translateY(100%);
   }
 }
 /* Blanket-disable decorative motion under reduced-motion. Functional status

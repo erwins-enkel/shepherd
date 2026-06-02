@@ -211,12 +211,18 @@
     reviews.load();
     loadSettings();
     const dispose = store.connect();
-    const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {
       dispose();
       disposeSelect();
-      clearInterval(t);
     };
+  });
+
+  // elapsed-time tick: only run while there's at least one session — an empty
+  // herd has no elapsed clocks to drive, so don't write nowMs every second.
+  $effect(() => {
+    if (store.sessions.length === 0) return;
+    const t = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => clearInterval(t);
   });
 
   async function onsubmit(input: {

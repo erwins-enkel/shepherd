@@ -5,8 +5,6 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
-  import { marked } from "marked";
-  import DOMPurify from "dompurify";
 
   let {
     sessionId,
@@ -172,12 +170,27 @@
   const verdict = $derived(reviews.map[sessionId]);
   const verdictLabel = $derived(criticBadgeLabel(verdict));
   // Render the (AI-authored) findings as markdown, sanitized before @html.
-  // Gated on showReview so DOMPurify (browser-only) never runs during SSR.
-  const renderedBody = $derived(
-    showReview && verdict?.body
-      ? DOMPurify.sanitize(marked.parse(verdict.body, { async: false }) as string)
-      : "",
-  );
+  // marked + DOMPurify are dynamically imported on first render so they stay off
+  // the first-paint critical path; gated on showReview so the (browser-only)
+  // sanitizer never runs during SSR.
+  let renderedBody = $state("");
+  $effect(() => {
+    const body = showReview ? verdict?.body : undefined;
+    if (!body) {
+      renderedBody = "";
+      return;
+    }
+    let alive = true;
+    Promise.all([import("marked"), import("dompurify")])
+      .then(([{ marked }, { default: DOMPurify }]) => {
+        if (alive)
+          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  });
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);

@@ -1661,20 +1661,26 @@
     overflow: hidden;
   }
 
-  /* faint amber scan line */
+  /* faint amber scan line: full-height layer with a 70px amber band at its top,
+     swept top→bottom via translateY (compositor-only) instead of animating top */
   .scan {
     position: absolute;
     left: 0;
     right: 0;
-    height: 70px;
-    background: linear-gradient(
+    top: 0;
+    height: 100%;
+    background-image: linear-gradient(
       to bottom,
       transparent,
       color-mix(in srgb, var(--color-amber) 4%, transparent),
       transparent
     );
+    background-repeat: no-repeat;
+    background-size: 100% 70px;
+    background-position: 0 0;
     pointer-events: none;
     z-index: 1;
+    will-change: transform;
     animation: scan 8s linear infinite;
   }
 

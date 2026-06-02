@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { DiffFile } from "$lib/types";
-  import { highlightLines } from "$lib/highlight";
 
   let { file }: { file: DiffFile } = $props();
 
@@ -17,14 +16,19 @@
 
   const flatLines = $derived(file.hunks.flatMap((h) => h.lines));
 
-  // lazily highlight the first time this file is expanded (one Shiki call per file)
+  // lazily highlight the first time this file is expanded (one Shiki call per
+  // file). The highlighter (and Shiki) is dynamically imported here so it stays
+  // off the first-paint critical path — only pulled in on user expand.
   $effect(() => {
     if (!open || html || file.binary || file.truncated || flatLines.length === 0) return;
     let alive = true;
-    highlightLines(
-      flatLines.map((l) => l.content),
-      file.path,
-    )
+    import("$lib/highlight")
+      .then(({ highlightLines }) =>
+        highlightLines(
+          flatLines.map((l) => l.content),
+          file.path,
+        ),
+      )
       .then((h) => {
         if (alive) html = h;
       })

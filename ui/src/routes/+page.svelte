@@ -17,7 +17,13 @@
     getSettings,
     listBranches,
   } from "$lib/api";
-  import type { DeployState, BacklogPayload, Issue, IssueRef } from "$lib/types";
+  import type {
+    DeployState,
+    BacklogPayload,
+    Issue,
+    IssueRef,
+    Settings as Settings_,
+  } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -63,8 +69,19 @@
   let composeRepoPath = $state<string | null>(null);
   let composeIssue = $state<Issue | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
+  // loaded once on mount; drives the first-run nudge (quick-launch is invisible
+  // until a standard command is set). Re-read on settings close so a just-saved
+  // command dismisses the hint.
+  let settings = $state<Settings_ | null>(null);
+  const standardCommandUnset = $derived((settings?.standardCommand ?? "").trim() === "");
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+
+  function loadSettings() {
+    getSettings()
+      .then((s) => (settings = s))
+      .catch(() => {});
+  }
 
   // Fetch backlog when the overview is empty, or when the operator opens the
   // backlog overlay while agents are running. Reading store.sessions.length and
@@ -190,6 +207,7 @@
     steers.load();
     projectIcons.load();
     reviews.load();
+    loadSettings();
     const dispose = store.connect();
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => {
@@ -307,6 +325,8 @@
           onnew={() => (showNew = true)}
           git={store.git}
           ondecommission={onarchive}
+          {standardCommandUnset}
+          onsettings={() => (showSettings = true)}
         />
         {#if store.sessions.length === 0}
           <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} />
@@ -365,6 +385,8 @@
         onselect={(id) => selectUnit(id)}
         onnew={() => (showNew = true)}
         git={store.git}
+        {standardCommandUnset}
+        onsettings={() => (showSettings = true)}
       />
       {#if store.sessions.length === 0}
         <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} />
@@ -453,7 +475,10 @@
 
 {#if showSettings}
   <Settings
-    onclose={() => (showSettings = false)}
+    onclose={() => {
+      showSettings = false;
+      loadSettings();
+    }}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={() => {
       showSettings = false;

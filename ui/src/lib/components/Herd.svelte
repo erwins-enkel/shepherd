@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, GitState } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
+  import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions } from "./herd-partition";
   import { m } from "$lib/paraglide/messages";
 
@@ -12,6 +13,8 @@
     onnew,
     git,
     ondecommission,
+    standardCommandUnset = false,
+    onsettings = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -21,6 +24,10 @@
     git: Record<string, GitState>;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
+    // first-run empty state: quick-launch is invisible until the standard command
+    // is set → surface a quiet nudge pointing at Settings.
+    standardCommandUnset?: boolean;
+    onsettings?: () => void;
   } = $props();
 
   // sidebar list filter: "all" or "ready" (only sessions not actively working —
@@ -56,7 +63,7 @@
   </div>
   <div class="units">
     {#if sessions.length === 0}
-      <button type="button" class="empty micro" onclick={onnew}>{m.herd_empty()}</button>
+      <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
     {:else if shown.length === 0}
       <div class="empty micro static">{m.herd_ready_empty()}</div>
     {:else}

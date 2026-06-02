@@ -1238,10 +1238,13 @@
     />
   {/if}
 
-  <!-- footer: keyboard-affordance hints — desktop / foldable only. On a phone
-       there's no Tab key and the back button already affords leaving, so the
-       row is pure overhead; dropping it hands the height back to the terminal -->
-  {#if !mobile}
+  <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware
+       keyboard). Any coarse-pointer device (phone OR unfolded foldable) has no
+       Tab key, so the hints are pure overhead; dropping it hands the height back
+       to the terminal AND keeps the ctrl-row the bottom-most element, so the
+       swipe-up-from-the-bottom-edge compose gesture lands on it (the footer would
+       otherwise sit below the row and swallow the gesture's start on foldables). -->
+  {#if !compact}
     <div class="vp-foot">
       <span>{m.viewport_type_steer_hint()}</span>
       <span class="sep">·</span>

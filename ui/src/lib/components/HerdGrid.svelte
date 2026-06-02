@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session, GitState } from "$lib/types";
   import UnitTile from "./UnitTile.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import EmptyHerd from "./EmptyHerd.svelte";
 
   let {
     sessions,
@@ -10,6 +10,8 @@
     onselect,
     onnew,
     git,
+    standardCommandUnset = false,
+    onsettings = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -17,11 +19,13 @@
     onselect: (id: string) => void;
     onnew: () => void;
     git: Record<string, GitState>;
+    standardCommandUnset?: boolean;
+    onsettings?: () => void;
   } = $props();
 </script>
 
 {#if sessions.length === 0}
-  <button type="button" class="empty" onclick={onnew}>{m.herd_empty()}</button>
+  <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
 {:else}
   <div class="herd-grid">
     {#each sessions as session (session.id)}
@@ -46,27 +50,5 @@
     overflow: auto;
     padding: 2px;
     align-content: start;
-  }
-  .empty {
-    flex: 1;
-    width: 100%;
-    border: 1px solid var(--color-line);
-    background: var(--color-panel);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-faint);
-    font-family: inherit;
-    font-size: 10.5px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition:
-      color 0.12s ease,
-      border-color 0.12s ease;
-  }
-  .empty:hover {
-    color: var(--color-ink);
-    border-color: var(--color-line-bright);
   }
 </style>

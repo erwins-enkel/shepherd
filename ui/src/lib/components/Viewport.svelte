@@ -990,7 +990,8 @@
           <span class="g-bar"
             ><span
               class="g-fill"
-              style="width:{hotGauge.w.pct}%;background:{gaugeColor(hotGauge.w.pct)}"
+              style="transform:scaleX({Math.min(Math.max(hotGauge.w.pct, 0), 100) /
+                100});background:{gaugeColor(hotGauge.w.pct)}"
             ></span></span
           >
         </span>
@@ -1503,6 +1504,8 @@
   .vp-gauge .g-fill {
     display: block;
     height: 100%;
+    width: 100%;
+    transform-origin: left;
   }
 
   /* phone: connection lost — a lone red dot (alert by exception) */

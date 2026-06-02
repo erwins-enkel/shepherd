@@ -80,11 +80,11 @@
           {ondecommission}
         />
       {/each}
-      {#if partition.prRunning.length > 0}
-        <div class="pr-head micro">
-          {m.herd_pr_running_group({ count: partition.prRunning.length })}
+      {#if partition.ciRunning.length > 0}
+        <div class="ci-head micro">
+          {m.herd_ci_running_group({ count: partition.ciRunning.length })}
         </div>
-        {#each partition.prRunning as session (session.id)}
+        {#each partition.ciRunning as session (session.id)}
           <UnitRow
             {session}
             selected={session.id === selectedId}
@@ -213,7 +213,7 @@
 
   /* amber section headers for the in-flight stages (PR CI running, critic
      reviewing) — amber mirrors the CI-pending dot and the critic badge */
-  .pr-head,
+  .ci-head,
   .reviewing-head {
     display: flex;
     align-items: center;

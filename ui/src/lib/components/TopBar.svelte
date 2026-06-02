@@ -159,7 +159,8 @@
             <span class="g-bar"
               ><span
                 class="g-fill"
-                style="width:{hotter.w.pct}%;background:{gaugeColor(hotter.w.pct)}"
+                style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
+                  100});background:{gaugeColor(hotter.w.pct)}"
               ></span></span
             >
             <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
@@ -178,7 +179,10 @@
                 <div class="gauge-pop-row">
                   <span class="g-label micro">{g.label}</span>
                   <span class="g-bar g-bar-wide"
-                    ><span class="g-fill" style="width:{g.w.pct}%;background:{gaugeColor(g.w.pct)}"
+                    ><span
+                      class="g-fill"
+                      style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                        100});background:{gaugeColor(g.w.pct)}"
                     ></span></span
                   >
                   <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
@@ -198,7 +202,10 @@
           <div class="gauge tip" data-tip={tip} aria-label={tip}>
             <span class="g-label micro">{g.label}</span>
             <span class="g-bar"
-              ><span class="g-fill" style="width:{g.w.pct}%;background:{gaugeColor(g.w.pct)}"
+              ><span
+                class="g-fill"
+                style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                  100});background:{gaugeColor(g.w.pct)}"
               ></span></span
             >
             <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
@@ -389,8 +396,10 @@
   }
   .g-fill {
     display: block;
+    width: 100%;
     height: 100%;
-    transition: width 0.6s ease;
+    transform-origin: left;
+    transition: transform 0.6s ease;
   }
   .g-pct {
     font-size: 11.5px;

@@ -31,9 +31,23 @@
 
 {#if !(desktopOnly && mobile)}
   <div class="actions" class:mobile>
-    <button class="btn primary" type="button" onclick={onnew}>{m.actionbar_new_task()}</button>
+    <button
+      class="btn primary"
+      class:tip={!mobile}
+      type="button"
+      onclick={onnew}
+      data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
+      aria-keyshortcuts={!mobile ? "n" : undefined}>{m.actionbar_new_task()}</button
+    >
     {#if onbacklog}
-      <button class="btn backlog" type="button" onclick={onbacklog}>{m.actionbar_backlog()}</button>
+      <button
+        class="btn backlog"
+        class:tip={!mobile}
+        type="button"
+        onclick={onbacklog}
+        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "B" }) : undefined}
+        aria-keyshortcuts={!mobile ? "b" : undefined}>{m.actionbar_backlog()}</button
+      >
     {/if}
     {#if !mobile}
       <button
@@ -227,5 +241,43 @@
   .actions.mobile .btn.backlog {
     padding: 12px 16px;
     font-size: 12px;
+  }
+
+  /* Desktop-only hover tooltip surfacing the keyboard shortcut. Mirrors the
+     TopBar .tip styling, but opens ABOVE the button since the ActionBar sits at
+     the bottom edge (a tooltip below would clip off-screen). Never shown on
+     touch/mobile, where the shortcut doesn't apply. */
+  @media (hover: hover) and (pointer: fine) {
+    .tip {
+      position: relative;
+    }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 9px);
+      left: 0;
+      white-space: nowrap;
+      background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
+      border: 1px solid var(--color-line-bright);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+      color: var(--color-ink-bright);
+      font-size: 10.5px;
+      letter-spacing: 0.06em;
+      text-transform: none;
+      padding: 5px 9px;
+      border-radius: 2px;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(3px);
+      transition:
+        opacity 0.12s ease,
+        transform 0.12s ease;
+      z-index: 50;
+    }
+    .tip:hover::after,
+    .tip:focus-visible::after {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

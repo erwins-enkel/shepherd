@@ -187,6 +187,48 @@
     if (mobile.current) mobileScreen = "detail";
   }
 
+  // true when focus sits in something that consumes typing — a form field or the
+  // PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
+  // covers it). Single-key shortcuts must stay silent there so they never eat a
+  // keystroke the user meant for the terminal or an input.
+  function isTyping(el: EventTarget | null): boolean {
+    if (!(el instanceof HTMLElement)) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
+  // Global single-key shortcuts (no modifier → zero browser/terminal conflict,
+  // works on every platform). Desktop only, and suppressed while typing or while
+  // any modal/overlay is open so a stray "n"/"b" can't stack dialogs.
+  function onShortcut(e: KeyboardEvent) {
+    if (mobile.current) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.repeat || e.isComposing) return;
+    if (isTyping(e.target)) return;
+    if (
+      showNew ||
+      showSettings ||
+      showBacklog ||
+      showBroadcast ||
+      showTriage ||
+      showUpdate ||
+      showHerdrUpdate
+    )
+      return;
+    switch (e.key.toLowerCase()) {
+      case "n":
+        e.preventDefault();
+        showNew = true;
+        break;
+      case "b":
+        // mirror the ActionBar gate: backlog only exists once there are sessions
+        if (store.sessions.length > 0) {
+          e.preventDefault();
+          showBacklog = true;
+        }
+        break;
+    }
+  }
+
   // sessions waiting on the operator other than the one on screen — gates the
   // header "needs you" jump and tells the operator how many remain.
   const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
@@ -411,6 +453,8 @@
     if (deployPollTimer) clearTimeout(deployPollTimer);
   }
 </script>
+
+<svelte:window onkeydown={onShortcut} />
 
 <div class="shell" class:mobile={mobile.current}>
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the

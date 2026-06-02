@@ -138,7 +138,9 @@
     {#if session.readyToMerge}
       <span class="badge">{m.status_ready_to_merge()}</span>
     {:else if !hideStatus}
-      <span class="badge">{statusLabel(session.status)}</span>
+      <span class="badge" class:alert={session.status === "blocked"}
+        >{statusLabel(session.status)}</span
+      >
     {/if}
     <span class="desig">{session.desig}</span>
   </div>
@@ -228,6 +230,15 @@
     text-transform: uppercase;
     color: var(--color-muted);
     flex-shrink: 0;
+  }
+  /* Blocked is the one state allowed to stay loud ("the loudest thing on
+     screen"). The tile has no pip, so unlike the calm states the blocked badge
+     keeps a small red chip so it grabs attention in the grid. */
+  .badge.alert {
+    color: var(--color-red);
+    background: color-mix(in oklab, var(--color-red) 12%, transparent);
+    padding: 1px 5px;
+    border-radius: 2px;
   }
 
   .t-body {

@@ -83,3 +83,46 @@ test("slugifyManual caps length without a trailing dash", () => {
   expect(s.length).toBeLessThanOrEqual(60);
   expect(s.endsWith("-")).toBe(false);
 });
+
+// --- Command-prefix strip tests ---
+
+test("normalize strips leading 'pruefe ob' boilerplate but keeps topical words", () => {
+  // 'Prüfe, ob …' — [,\s]+ in COMMAND_PREFIX_RE now matches the comma form too.
+  // Pipeline: transliterate → lowercase → prefix strip ('pruefe, ob ' consumed) →
+  // tokenize → drop stopwords (dieses, ist, und, ob, die, noch) →
+  // meaningful: [issue, relevant, pr, aktuell]; #201's 4-word cap keeps all four.
+  expect(
+    normalize("Prüfe, ob dieses Issue noch relevant ist und ob die PR noch aktuell ist."),
+  ).toBe("issue-relevant-pr-aktuell");
+});
+
+test("normalize strips leading 'pruefe ob' (no comma) and returns only topical words", () => {
+  // No comma → COMMAND_PREFIX_RE matches 'pruefe ob' → stripped entirely
+  // Pipeline: transliterate → lowercase → prefix strip ('pruefe ob ' consumed) →
+  // tokenize → drop stopwords (dieses) → meaningful: [issue, relevant]
+  expect(normalize("Pruefe ob dieses Issue relevant")).toBe("issue-relevant");
+});
+
+test("normalize prefix strip is anchored at the START — a later 'gib' survives", () => {
+  // 'gib mir' at start → COMMAND_PREFIX_RE matches → stripped to "".
+  // In contrast, 'gib' appearing mid-sentence is never stripped.
+  expect(normalize("gib mir einen Überblick über das System")).toBe("ueberblick-system");
+  // Mid-sentence 'gib' is not a stopword, so it contributes to the slug.
+  // 'Endpoint kann nicht gib mir status': no prefix at start → no strip;
+  // stopwords dropped (kann, nicht, mir); meaningful: [endpoint, gib, status]
+  expect(normalize("Endpoint kann nicht gib mir status")).toBe("endpoint-gib-status");
+});
+
+test("generateName falls back to 'task' when the prompt is only a command prefix", () => {
+  // 'Gib mir' → lowercase 'gib mir' → prefix matched, consumed entirely → ''
+  // normalize('') → '' → generateName returns 'task'
+  expect(generateName("Gib mir")).toBe("task");
+});
+
+test("normalize drops new stopwords ob, bis, denn", () => {
+  // 'läuft das bis morgen denn'
+  // transliterate: 'laeuft das bis morgen denn'
+  // no prefix strip; tokenize → [laeuft, das, bis, morgen, denn]
+  // drop stopwords (das, bis, denn); meaningful: [laeuft, morgen]
+  expect(normalize("läuft das bis morgen denn")).toBe("laeuft-morgen");
+});

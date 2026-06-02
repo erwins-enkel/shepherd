@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.8.0](https://github.com/erwins-enkel/shepherd/compare/v1.7.0...v1.8.0) (2026-06-02)
+
+
+### Features
+
+* **backlog:** implement PRs tab (list, review-task, merge) ([#212](https://github.com/erwins-enkel/shepherd/issues/212)) ([20782d8](https://github.com/erwins-enkel/shepherd/commit/20782d81ba61aef7ecc5388fa06b3dc04db20125))
+* **namer:** command-prefix strip, extra stopwords, herd-qualified collision names ([#209](https://github.com/erwins-enkel/shepherd/issues/209)) ([9342ead](https://github.com/erwins-enkel/shepherd/commit/9342ead8d9a8e6154c2566dbfd7dc57f96fbbe90)), closes [#200](https://github.com/erwins-enkel/shepherd/issues/200) [#208](https://github.com/erwins-enkel/shepherd/issues/208)
+
+
+### Bug Fixes
+
+* **ui:** impeccable audit follow-ups — a11y, side-stripe, touch targets, radii ([#211](https://github.com/erwins-enkel/shepherd/issues/211)) ([05f427c](https://github.com/erwins-enkel/shepherd/commit/05f427cc4b366a955452644a24491097bfbc2782))
+* **ui:** impeccable critique fixes — status color, hairline stripe, mobile dvh, onboarding ([#213](https://github.com/erwins-enkel/shepherd/issues/213)) ([97039ba](https://github.com/erwins-enkel/shepherd/commit/97039bac3a58d634839c0d82bbb997d315736fcd))
+* **ui:** impeccable polish — input focus tokens + phantom-token fixes ([#206](https://github.com/erwins-enkel/shepherd/issues/206)) ([603766c](https://github.com/erwins-enkel/shepherd/commit/603766c58b793e8f92cc14954aaa6b1666f65c0c))
+
+
+### Code Refactoring
+
+* **ui:** rename "PR running" group to "CI running" ([#210](https://github.com/erwins-enkel/shepherd/issues/210)) ([674ee85](https://github.com/erwins-enkel/shepherd/commit/674ee85ca7c3255b79cc5b3f4cea9a824bf4c30d))
+
 ## [1.7.0](https://github.com/erwins-enkel/shepherd/compare/v1.6.0...v1.7.0) (2026-06-02)
 
 

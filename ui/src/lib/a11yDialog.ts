@@ -7,11 +7,13 @@
 //   • focus restore — returns focus to the element that was focused before the
 //                     dialog opened, once the action's node unmounts
 //
-// The action does NOT move focus into the dialog on mount: components that
-// already focus a specific field (NewTask → prompt, Settings, EmojiPicker)
-// keep that behavior. When nothing inside is focused and the dialog gains no
-// initial focus, the node itself should carry tabindex="-1" so the trap has a
-// fallback — but most dialogs here focus a control on open.
+// On mount the action moves focus into the dialog UNLESS the component already
+// focused a control of its own (NewTask → prompt, EmojiPicker → search). This
+// is what makes aria-modal honest: the Tab-trap and Escape listener live on the
+// node, so they only fire while focus sits inside it. Dialogs that autofocus a
+// field keep that field; dialogs that don't (BroadcastDialog, BacklogOverlay,
+// LeftoverDialog, Update/HerdrUpdateModal, TriageDrawer) get focus on the first
+// focusable control, or the node itself as a fallback.
 
 interface DialogParams {
   /** Invoked on Escape (and available for the caller to wire to its ✕ button). */
@@ -30,6 +32,20 @@ function focusable(node: HTMLElement): HTMLElement[] {
 export function dialog(node: HTMLElement, params: DialogParams = {}) {
   let current = params;
   const previouslyFocused = document.activeElement as HTMLElement | null;
+
+  // Give the node a programmatic focus target (out of tab order) so the trap has
+  // a fallback when the dialog has no focusable child.
+  if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
+
+  // Pull focus in once mounted. Deferred a microtask so a component's own
+  // on-open focus (sync onMount) wins; guarded so a dialog closed before the
+  // microtask runs doesn't steal focus. Without this, focus stays on the trigger
+  // outside the node and neither the Tab-trap nor Escape would ever fire.
+  queueMicrotask(() => {
+    if (!document.contains(node) || node.contains(document.activeElement)) return;
+    const items = focusable(node);
+    (items[0] ?? node).focus({ preventScroll: true });
+  });
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {

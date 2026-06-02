@@ -41,7 +41,9 @@
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
+  import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession } from "$lib/push";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
   const store = new HerdStore();
@@ -232,11 +234,29 @@
     composeIssue = null;
   }
 
-  async function onarchive(id: string, reap?: string[]) {
-    // server (optionally terminates leftover subprocesses, then) stops the agent,
-    // removes the worktree, emits session:archived (store drops the row)
-    await archiveSession(id, reap);
-    selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
+  function onarchive(id: string, reap?: string[]) {
+    // Removing the worktree is irreversible, so we DEFER it: focus leaves the
+    // doomed session immediately, but archiveSession only fires when the undo
+    // window expires. UNDO restores focus and the server is never called.
+    const name = store.sessions.find((s) => s.id === id)?.name ?? id;
+    if (selectedId === id) selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
+    toasts.undo(m.toast_decommissioned({ name }), {
+      undoLabel: m.common_undo(),
+      key: id,
+      onUndo: () => {
+        // restore focus only if the row is still around (it never left the store)
+        if (store.sessions.some((s) => s.id === id)) selectedId = id;
+      },
+      onCommit: async () => {
+        // server stops the agent, removes the worktree, emits session:archived
+        // (store drops the row); a failure surfaces but leaves the row intact.
+        try {
+          await archiveSession(id, reap);
+        } catch {
+          toasts.info(m.toast_decommission_failed({ name }));
+        }
+      },
+    });
   }
 
   // The deploy runs detached: it builds, restarts the server, and only then —
@@ -500,6 +520,8 @@
     onclose={() => (showBacklog = false)}
   />
 {/if}
+
+<Toasts />
 
 <style>
   .shell {

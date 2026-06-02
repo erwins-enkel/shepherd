@@ -6,6 +6,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
 
 /**
+ * Reserved herdr name/label for the ephemeral usage probe. The underscores are load-bearing:
+ * prompt-derived session slugs are `[a-z0-9-]` only (see namer.ts), so no real session can ever
+ * collide with this name. Anything reaped by `name === PROBE_NAME` is therefore unambiguously a
+ * probe — never a user's session. A bare "usage-probe" would NOT be safe: `normalize("usage
+ * probe")` slugs to exactly that, so a user prompt could take the name and get killed mid-turn.
+ */
+export const PROBE_NAME = "__usage_probe__";
+
+/**
  * Drives an ephemeral interactive `claude`, sends `/usage`, and captures the rendered panel.
  *
  * herdr owns the agent (lifecycle + cleanup), but the panel only renders legibly when a PTY of a
@@ -21,16 +30,17 @@ export class HerdrUsageProbe implements UsageProbe {
   ) {}
 
   /**
-   * Close every lingering `usage-probe` agent (and its herdr tab/pane). Probes are internal and
-   * always labelled "usage-probe" — real sessions use task designations — so the name is an
-   * unambiguous marker. Self-healing reaper: catches any probe agent left *running* in `agent
-   * list` after its own cleanup didn't run (e.g. the daemon was killed mid-probe, or the
+   * Close every lingering probe agent (and its herdr tab/pane). Probes run under the reserved
+   * {@link PROBE_NAME}, which no prompt-derived session slug can produce, so matching on it can
+   * never reap a user's session. Self-healing reaper: catches any probe agent left *running* in
+   * `agent list` after its own cleanup didn't run (e.g. the daemon was killed mid-probe, or the
    * post-start lookup threw while the agent itself was alive). It can't reach a tab whose
-   * `agent start` failed outright — no agent is registered, so nothing shows in the list.
+   * `agent start` failed outright — no agent is registered, so nothing shows in the list (the
+   * boot/hourly tab-reaper sweep covers that husk).
    */
   private sweep(): void {
     for (const a of this.herdr.list()) {
-      if (a.name !== "usage-probe") continue;
+      if (a.name !== PROBE_NAME) continue;
       try {
         this.herdr.stop(a.terminalId);
       } catch {
@@ -49,7 +59,7 @@ export class HerdrUsageProbe implements UsageProbe {
       // Resolve the new agent by list diff: herdr.start()'s cwd-based resolution is ambiguous if a
       // prior probe still lingers in the same cwd, and would hand back a stale/dead terminal id.
       const before = new Set(this.herdr.list().map((a) => a.terminalId));
-      const started = this.herdr.start("usage-probe", this.cwd, [
+      const started = this.herdr.start(PROBE_NAME, this.cwd, [
         "claude",
         "--dangerously-skip-permissions",
       ]);

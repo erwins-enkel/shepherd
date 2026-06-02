@@ -26,8 +26,8 @@ function session(id: string, readyToMerge = false): Session {
   };
 }
 
-function git(state: GitState["state"]): GitState {
-  return { kind: "github", state, checks: "none", deployConfigured: false };
+function git(state: GitState["state"], checks: GitState["checks"] = "none"): GitState {
+  return { kind: "github", state, checks, deployConfigured: false };
 }
 
 test("ready sessions land in the ready group, active stay on top", () => {
@@ -76,4 +76,68 @@ test("all-active yields empty ready and merged groups", () => {
   expect(active).toHaveLength(2);
   expect(ready).toHaveLength(0);
   expect(merged).toHaveLength(0);
+});
+
+test("open PR with pending CI lands in the prRunning group", () => {
+  const list = [session("a"), session("p1"), session("b")];
+  const { active, prRunning } = partitionSessions(list, { p1: git("open", "pending") });
+  expect(active.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(prRunning.map((s) => s.id)).toEqual(["p1"]);
+});
+
+test("open PR with non-pending CI stays active", () => {
+  const list = [session("s"), session("n")];
+  const { active, prRunning } = partitionSessions(list, {
+    s: git("open", "success"),
+    n: git("open", "none"),
+  });
+  expect(active.map((s) => s.id)).toEqual(["s", "n"]);
+  expect(prRunning).toHaveLength(0);
+});
+
+test("a session under review lands in the reviewerRunning group", () => {
+  const list = [session("a"), session("rv"), session("b")];
+  const { active, reviewerRunning } = partitionSessions(list, {}, (id) => id === "rv");
+  expect(active.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(reviewerRunning.map((s) => s.id)).toEqual(["rv"]);
+});
+
+test("reviewing wins over pending CI when both apply", () => {
+  const list = [session("x")];
+  const { prRunning, reviewerRunning } = partitionSessions(
+    list,
+    { x: git("open", "pending") },
+    () => true,
+  );
+  expect(prRunning).toHaveLength(0);
+  expect(reviewerRunning.map((s) => s.id)).toEqual(["x"]);
+});
+
+test("merged and ready win over reviewing and pending CI", () => {
+  const list = [session("m"), session("r", true)];
+  const { ready, merged, prRunning, reviewerRunning } = partitionSessions(
+    list,
+    { m: git("merged", "pending"), r: git("open", "pending") },
+    () => true,
+  );
+  expect(merged.map((s) => s.id)).toEqual(["m"]);
+  expect(ready.map((s) => s.id)).toEqual(["r"]);
+  expect(prRunning).toHaveLength(0);
+  expect(reviewerRunning).toHaveLength(0);
+});
+
+test("preserves input order within the new stage groups", () => {
+  const list = [session("p1"), session("v1"), session("p2"), session("v2")];
+  const { prRunning, reviewerRunning } = partitionSessions(
+    list,
+    { p1: git("open", "pending"), p2: git("open", "pending") },
+    (id) => id.startsWith("v"),
+  );
+  expect(prRunning.map((s) => s.id)).toEqual(["p1", "p2"]);
+  expect(reviewerRunning.map((s) => s.id)).toEqual(["v1", "v2"]);
+});
+
+test("omitted reviewing predicate leaves reviewerRunning empty", () => {
+  const { reviewerRunning } = partitionSessions([session("a")], {});
+  expect(reviewerRunning).toHaveLength(0);
 });

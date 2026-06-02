@@ -1,25 +1,57 @@
 import { test, expect } from "bun:test";
 import { generateName, normalize, slugifyManual } from "../src/namer";
 
-test("normalize → lowercase kebab, max 3 topical words", () => {
-  expect(normalize("Flatten-Repo-Button-Addition Extra")).toBe("flatten-repo-button");
+test("normalize keeps the topical words, dropping common ones, up to 4", () => {
+  // direct command: subject leads, every word is specific → kept in order
   expect(normalize("Add status lights to cards")).toBe("status-lights-cards");
+  // five specific words → capped at four
+  expect(normalize("Refactor parser tokenizer lexer evaluator")).toBe(
+    "refactor-parser-tokenizer-lexer",
+  );
+});
+
+test("normalize pulls the subject out of prose, ignoring leading filler", () => {
+  // the subject ("export") sits late behind frame + common words ("wondering",
+  // "maybe", "make", "button", "little", "more") — positional namers miss it
+  expect(
+    normalize("I was wondering if maybe we could make the export button a little more obvious"),
+  ).toBe("export-obvious");
+  // "weird thing where … top … every" are frame/common; the real subject survives
+  expect(
+    normalize(
+      "There's a weird thing where the diff viewport scrolls to the top on every keystroke",
+    ),
+  ).toBe("diff-viewport-scrolls-keystroke");
+});
+
+test("normalize pulls the subject out of German prose", () => {
+  // frame words (koenntest, warum, schauen, mal) drop; "vielleicht" is common
+  expect(
+    normalize("Könntest du vielleicht mal schauen warum die Benachrichtigungen doppelt ankommen?"),
+  ).toBe("benachrichtigungen-doppelt-ankommen");
+  // "geht", "ansicht", "irgendwie", "mehr" are common and yield to the specific words
+  expect(
+    normalize("Mist, das Scrollen mit dem Mausrad geht in der Diff-Ansicht irgendwie nicht mehr"),
+  ).toBe("scrollen-mausrad-diff");
 });
 
 test("normalize transliterates umlauts before slugging", () => {
-  // umlauts in topical words survive as readable ascii ("w-rde" would be the bug)
   expect(normalize("Größe ändern")).toBe("groesse-aendern");
-  // transliteration runs BEFORE the stopword lookup: "würde" → "wuerde" matches
-  // the ascii stopword and is dropped, leaving the one topical word.
+  // "würde"→"wuerde" matches the ascii stopword and drops; "gerne" is a stopword too
   expect(normalize("Ich würde gerne scrollen")).toBe("scrollen");
 });
 
-test("normalize drops filler words and German exclamations", () => {
-  expect(normalize("Mist. Scrollen mit dem Mausrad geht nicht")).toBe("scrollen-mausrad-geht");
+test("normalize drops common filler but keeps the specific subject", () => {
+  // "geht" is now a common word, so it yields to the two specific nouns
+  expect(normalize("Mist. Scrollen mit dem Mausrad geht nicht")).toBe("scrollen-mausrad");
+});
+
+test("normalize keeps common words only when nothing more specific remains", () => {
+  // every survivor is common → keep them rather than emit nothing
+  expect(normalize("Make the button nice")).toBe("button-nice");
 });
 
 test("normalize falls back to raw words when all words are stopwords", () => {
-  // every token is a stopword → keep the raw first three rather than ""
   expect(normalize("und der die")).toBe("und-der-die");
 });
 
@@ -33,7 +65,6 @@ test("generateName slugs the prompt, defaulting to 'task' when empty", () => {
 });
 
 test("slugifyManual keeps every word the user typed (no stopword stripping)", () => {
-  // unlike normalize(), an intentional name keeps fillers — "the"/"my" stay
   expect(slugifyManual("Fix the login bug")).toBe("fix-the-login-bug");
   expect(slugifyManual("My Cool Name")).toBe("my-cool-name");
 });
@@ -48,7 +79,7 @@ test("slugifyManual falls back to 'task' for symbol-only input", () => {
 });
 
 test("slugifyManual caps length without a trailing dash", () => {
-  const s = slugifyManual("a ".repeat(80)); // 80 single-letter words → long dashed run
+  const s = slugifyManual("a ".repeat(80));
   expect(s.length).toBeLessThanOrEqual(60);
   expect(s.endsWith("-")).toBe(false);
 });

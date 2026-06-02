@@ -52,3 +52,40 @@ test("slugifyManual caps length without a trailing dash", () => {
   expect(s.length).toBeLessThanOrEqual(60);
   expect(s.endsWith("-")).toBe(false);
 });
+
+// --- Command-prefix strip tests ---
+
+test("normalize strips leading 'pruefe ob' boilerplate but keeps topical words", () => {
+  // 'Prüfe, ob …' — comma breaks 'pruefe\s+ob', so prefix is NOT matched;
+  // 'pruefe' stays and occupies one of the three slots.
+  // Pipeline: transliterate → lowercase → no prefix strip (comma in between) →
+  // tokenize → drop stopwords (ob, dieses, ist, und, noch, aktuell) →
+  // first 3 meaningful: [pruefe, issue, relevant]
+  expect(
+    normalize("Prüfe, ob dieses Issue noch relevant ist und ob die PR noch aktuell ist."),
+  ).toBe("pruefe-issue-relevant");
+});
+
+test("normalize prefix strip is anchored at the START — a later 'gib' survives", () => {
+  // 'gib mir' at start → COMMAND_PREFIX_RE matches → stripped to "".
+  // In contrast, 'gib' appearing mid-sentence is never stripped.
+  expect(normalize("gib mir einen Überblick über das System")).toBe("ueberblick-system");
+  // Mid-sentence 'gib' is not a stopword, so it contributes to the slug.
+  // 'Endpoint kann nicht gib mir status': no prefix at start → no strip;
+  // stopwords dropped (kann, nicht, mir); meaningful: [endpoint, gib, status]
+  expect(normalize("Endpoint kann nicht gib mir status")).toBe("endpoint-gib-status");
+});
+
+test("generateName falls back to 'task' when the prompt is only a command prefix", () => {
+  // 'Gib mir' → lowercase 'gib mir' → prefix matched, consumed entirely → ''
+  // normalize('') → '' → generateName returns 'task'
+  expect(generateName("Gib mir")).toBe("task");
+});
+
+test("normalize drops new stopwords ob, bis, denn", () => {
+  // 'läuft das bis morgen denn'
+  // transliterate: 'laeuft das bis morgen denn'
+  // no prefix strip; tokenize → [laeuft, das, bis, morgen, denn]
+  // drop stopwords (das, bis, denn); meaningful: [laeuft, morgen]
+  expect(normalize("läuft das bis morgen denn")).toBe("laeuft-morgen");
+});

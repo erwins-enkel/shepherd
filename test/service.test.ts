@@ -105,7 +105,7 @@ test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)
   }
 });
 
-test("createSession: suffixes the name when herdr already runs an agent with it", async () => {
+test("createSession: uses herd-qualified name on collision with a different-repo session", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -124,7 +124,7 @@ test("createSession: suffixes the name when herdr already runs an agent with it"
         calls.startName = name;
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
-      // koennen-wir-schon is taken; koennen-wir-schon-2 is free
+      // koennen-wir-schon is taken; koennen-wir-schon-repo (herd-qualified) is free
       list: () => [{ name: "koennen-wir-schon" }, { name: "other" }],
     } as any,
   });
@@ -136,7 +136,83 @@ test("createSession: suffixes the name when herdr already runs an agent with it"
     model: null,
     images: [],
   });
-  // worktree, branch, agent name all share the deduped name — no collision
+  // herd slug from basename('/repo') = slugifyManual('repo') = 'repo'
+  // base 'koennen-wir-schon' is taken → try 'koennen-wir-schon-repo' (free) → use it
+  expect(s.name).toBe("koennen-wir-schon-repo");
+  expect(calls.wtName).toBe("koennen-wir-schon-repo");
+  expect(calls.startName).toBe("koennen-wir-schon-repo");
+  expect(s.branch).toBe("shepherd/koennen-wir-schon-repo");
+});
+
+test("createSession: falls back to numeric suffix when base AND herd-qualified name are taken", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "koennen-wir-schon",
+    worktree: {
+      create: (_repo: string, _base: string, name: string) => {
+        calls.wtName = name;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string) => {
+        calls.startName = name;
+        return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
+      },
+      // both base and herd-qualified are taken → numeric suffix on the composed name
+      list: () => [{ name: "koennen-wir-schon" }, { name: "koennen-wir-schon-repo" }],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "Können wir schon ...",
+    model: null,
+    images: [],
+  });
+  // 'koennen-wir-schon' taken, 'koennen-wir-schon-repo' taken → 'koennen-wir-schon-repo-2'
+  expect(s.name).toBe("koennen-wir-schon-repo-2");
+  expect(calls.wtName).toBe("koennen-wir-schon-repo-2");
+  expect(calls.startName).toBe("koennen-wir-schon-repo-2");
+  expect(s.branch).toBe("shepherd/koennen-wir-schon-repo-2");
+});
+
+test("createSession: falls back to numeric-only suffix when repoPath has no usable basename", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "koennen-wir-schon",
+    worktree: {
+      create: (_repo: string, _base: string, name: string) => {
+        calls.wtName = name;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string) => {
+        calls.startName = name;
+        return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
+      },
+      // base is taken; no usable herd → classic numeric fallback
+      list: () => [{ name: "koennen-wir-schon" }],
+    } as any,
+  });
+
+  const s = await service.create({
+    // '/' has no usable basename (split('/').filter(Boolean).at(-1) === undefined)
+    // → herdSlug is undefined → numeric-only fallback
+    repoPath: "/",
+    baseBranch: "main",
+    prompt: "Können wir schon ...",
+    model: null,
+    images: [],
+  });
   expect(s.name).toBe("koennen-wir-schon-2");
   expect(calls.wtName).toBe("koennen-wir-schon-2");
   expect(calls.startName).toBe("koennen-wir-schon-2");

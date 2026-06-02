@@ -377,9 +377,10 @@ export function slugifyManual(input: string): string {
  * prose names its subject ("export-obvious") instead of the dull opening words a
  * positional namer would grab ("wondering-maybe-export"). Common-but-dull words
  * are kept only when nothing more specific survives. Keeps reading order so a
- * multi-word subject stays contiguous, and caps at 4 words (which lowers slug
- * collisions on verbose prompts). Falls back to the raw words if the stopword
- * filter wiped everything, and to "" if truly empty.
+ * multi-word subject stays contiguous, and caps at 4 words. Falls back to the raw
+ * words if the stopword filter wiped everything, and to "" if truly empty.
+ * Distinctiveness is best-effort, not guaranteed — two prompts can still reduce to
+ * the same slug; uniqueName() in service.ts suffixes any clash.
  */
 export function normalize(s: string): string {
   const words = transliterate(s)
@@ -396,14 +397,18 @@ export function normalize(s: string): string {
   const specific = survivors.filter((w) => !COMMON.has(w));
   const kept = specific.length ? specific : survivors;
   const seen = new Set<string>();
-  const unique = kept.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
+  const unique = kept.filter((w) => {
+    if (seen.has(w)) return false;
+    seen.add(w);
+    return true;
+  });
   return unique.slice(0, 4).join("-");
 }
 
 /**
  * Derive a session name from a task prompt. Pure and deterministic — no network,
  * no local model. The salient words of a task prompt are already in the prompt,
- * so a heuristic slug matches or beats a local LLM for a 1–3 word name
+ * so a heuristic slug matches or beats a local LLM for a 1–4 word name
  * (benchmarked in PR #83) without the RAM/latency cost.
  */
 export function generateName(prompt: string): string {

@@ -143,14 +143,19 @@
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
 
-  // alert-by-exception: tint the header *only* when the agent wants the operator
-  // (blocked / waiting). running + idle stay neutral so attention reads as signal,
-  // not noise. The exact status still reaches assistive tech via .vp-status-sr.
+  // alert-by-exception: a *saturated* tint fires only when the agent wants the
+  // operator (blocked / done) so the tint stays a signal, not noise. The exact
+  // status still reaches assistive tech via .vp-status-sr.
   const tintColor = $derived(
     mobile && (session.status === "blocked" || session.status === "done")
       ? STATUS_COLOR[session.status]
       : null,
   );
+
+  // ...but a busy agent shouldn't read as idle either: running gets a faint,
+  // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
+  // "churning" from "idle" at a glance without competing with the alert states.
+  const working = $derived(mobile && session.status === "running");
 
   // phone: the usage gauge only mounts once the hotter window runs hot (≥70%),
   // i.e. exactly when the remaining token budget starts to matter mid-session
@@ -874,6 +879,7 @@
     class="vp-head"
     class:mobile={compact}
     class:phone={mobile}
+    class:working={working && !tintColor}
     style:background={tintColor
       ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
       : undefined}
@@ -1299,6 +1305,29 @@
     /* not overflow:hidden — the Open-PR popover drops below the header and must
        escape it; long content is still clipped by .viewport's overflow */
     overflow: visible;
+  }
+
+  /* running: a faint amber wash + a slow-breathing left edge. Lower intensity
+     than the saturated blocked/done tint so it reads as ambient "still busy",
+     never as an alert. Only applies when no saturated tint is present. */
+  .vp-head.working {
+    background: color-mix(in srgb, var(--color-amber) 5%, var(--color-head));
+    animation: vp-working-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes vp-working-pulse {
+    0%,
+    100% {
+      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 28%, transparent);
+    }
+    50% {
+      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 64%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vp-head.working {
+      animation: none;
+      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 45%, transparent);
+    }
   }
 
   .desig-wrap {

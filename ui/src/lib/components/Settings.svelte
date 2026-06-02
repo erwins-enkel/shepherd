@@ -457,8 +457,11 @@
     flex-direction: column;
     gap: 8px;
   }
+  /* Keyboard focus on the scrollable tabpanel gets a quiet inset hairline
+     rather than no ring at all (it's a tabindex=0 stop). */
   .panel:focus-visible {
-    outline: none;
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -2px;
   }
   .x {
     margin-left: auto;
@@ -776,8 +779,11 @@
       border: 0;
       overflow: hidden;
     }
+    /* Lift the list cap on mobile: the list flexes to fill the bounded panel
+       and stays the single scroll region (button pinned below), instead of a
+       capped list nested inside a separately-scrolling panel. */
     .list {
-      max-height: 50vh;
+      max-height: none;
     }
     .row,
     .up,

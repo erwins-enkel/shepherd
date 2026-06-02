@@ -545,7 +545,7 @@
   input:focus,
   select:focus {
     outline: none;
-    border-color: var(--color-amber);
+    border-color: var(--color-line-bright);
   }
   .err {
     color: var(--color-red);

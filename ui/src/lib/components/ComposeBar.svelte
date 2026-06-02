@@ -497,7 +497,7 @@
   }
   .field:focus {
     outline: none;
-    border-color: var(--color-ink);
+    border-color: var(--color-line-bright);
   }
 
   /* canned-steer row: scrolls horizontally so the presets never crowd the

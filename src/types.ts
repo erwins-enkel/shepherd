@@ -118,3 +118,31 @@ export interface ReviewVerdict {
   url?: string; // posted PR-review URL, when the host returns one
   updatedAt: number;
 }
+
+// ── learnings flywheel ────────────────────────────────────────────────────────
+export type SignalKind = "reply" | "critic" | "block" | "stall";
+
+export interface Signal {
+  id: string;
+  repoPath: string;
+  sessionId: string | null;
+  kind: SignalKind;
+  payload: string;
+  ts: number;
+}
+
+export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
+
+export interface Learning {
+  id: string;
+  repoPath: string;
+  rule: string;
+  rationale: string;
+  evidence: string[]; // signal ids the distiller cited
+  status: LearningStatus;
+  evidenceCount: number;
+  ineffectiveCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastEvidenceAt: number | null;
+}

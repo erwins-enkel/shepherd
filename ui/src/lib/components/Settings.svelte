@@ -768,7 +768,7 @@
     width: 38px;
     height: 20px;
     border: 1px solid var(--color-line-bright);
-    border-radius: 10px;
+    border-radius: 2px;
     background: var(--color-inset);
     transition: background 0.12s;
   }

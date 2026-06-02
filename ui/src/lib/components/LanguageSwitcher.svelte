@@ -67,7 +67,7 @@
     color: var(--color-term-fg);
     background: transparent;
     border: 1px solid var(--color-line);
-    border-radius: 0.4em;
+    border-radius: 2px;
     padding: 0.15em 0.5em;
     cursor: pointer;
   }
@@ -90,7 +90,7 @@
     list-style: none;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    border-radius: 0.5em;
+    border-radius: 2px;
     box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
     z-index: 40;
     min-width: 8em;
@@ -105,7 +105,7 @@
     color: var(--color-term-fg);
     background: transparent;
     border: 0;
-    border-radius: 0.35em;
+    border-radius: 2px;
     padding: 0.35em 0.5em;
     cursor: pointer;
   }

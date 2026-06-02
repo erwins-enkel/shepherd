@@ -32,18 +32,19 @@ function fake(agents: HerdrAgent[], tabs: HerdrTab[]): { h: ReapableHerdr; close
   };
 }
 
-test("reaps probe + review tabs that have no live agent", () => {
+test("reaps probe + review + namer tabs that have no live agent", () => {
   const { h, closed } = fake(
-    [agent("term_live", "w:3")], // the one live agent
+    [agent("term_live", "w:4")], // the one live agent
     [
       tab("w:1", PROBE_NAME),
       tab("w:2", "review TASK-09"),
-      tab("w:3", "addition-leaky"), // live session tab — backed by an agent
+      tab("w:3", "name TASK-09"), // orphaned background-namer tab
+      tab("w:4", "addition-leaky"), // live session tab — backed by an agent
     ],
   );
   const got = reapOrphanTabs(h);
-  expect(new Set(got)).toEqual(new Set(["w:1", "w:2"]));
-  expect(new Set(closed)).toEqual(new Set(["w:1", "w:2"]));
+  expect(new Set(got)).toEqual(new Set(["w:1", "w:2", "w:3"]));
+  expect(new Set(closed)).toEqual(new Set(["w:1", "w:2", "w:3"]));
 });
 
 test("never reaps a labeled tab that still has a live agent (in-progress probe/review)", () => {

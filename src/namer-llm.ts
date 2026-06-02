@@ -75,7 +75,7 @@ export async function llmName(
   const cleanup = deps.cleanup ?? defaultCleanup;
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? realSleep;
-  const timeoutMs = deps.timeoutMs ?? 30_000;
+  const timeoutMs = deps.timeoutMs ?? 60_000; // cold `claude` startup + a haiku turn needs headroom
   const pollMs = deps.pollMs ?? 1_000;
   const model = deps.model ?? "haiku";
 

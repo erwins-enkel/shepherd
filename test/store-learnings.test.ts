@@ -31,3 +31,36 @@ test("pruneSignals drops rows older than cutoff and returns count", () => {
   expect(removed).toBe(1);
   expect(s.listSignals("/r").length).toBe(0);
 });
+
+test("addLearning defaults to proposed; listLearnings filters by status", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "run cd ui && bun run check:i18n before pushing",
+    rationale: "agents forget the DE catalog",
+    evidence: ["sig1", "sig2"],
+  });
+  expect(l.status).toBe("proposed");
+  expect(l.evidence).toEqual(["sig1", "sig2"]);
+  expect(l.evidenceCount).toBe(2);
+  expect(s.listLearnings("/r", { status: "proposed" }).length).toBe(1);
+  expect(s.listLearnings("/r", { status: "active" }).length).toBe(0);
+});
+
+test("setLearningStatus transitions and can edit rule text; getLearning round-trips", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "old", rationale: "", evidence: [] });
+  const up = s.setLearningStatus(l.id, "active", "new wording")!;
+  expect(up.status).toBe("active");
+  expect(up.rule).toBe("new wording");
+  expect(s.getLearning(l.id)?.status).toBe("active");
+  expect(s.setLearningStatus("missing", "dismissed")).toBeNull();
+});
+
+test("pendingLearningCount counts proposed across all repos", () => {
+  const s = new SessionStore(":memory:");
+  s.addLearning({ repoPath: "/a", rule: "x", rationale: "", evidence: [] });
+  const b = s.addLearning({ repoPath: "/b", rule: "y", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  expect(s.pendingLearningCount()).toBe(1);
+});

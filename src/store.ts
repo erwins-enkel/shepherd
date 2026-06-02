@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import type { Session, ReviewVerdict, Signal, SignalKind } from "./types";
+import type { Session, ReviewVerdict, Signal, SignalKind, Learning, LearningStatus } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
 export interface RepoConfig {
@@ -86,6 +86,13 @@ export class SessionStore implements CapStore {
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS signals_repo_ts ON signals (repoPath, ts)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS learnings (
+  id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, rule TEXT NOT NULL,
+  rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL, evidenceCount INTEGER NOT NULL DEFAULT 0,
+  ineffectiveCount INTEGER NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -378,6 +385,102 @@ export class SessionStore implements CapStore {
     ).c;
     this.db.run(`DELETE FROM signals WHERE ts < ?`, [beforeTs]);
     return n;
+  }
+
+  // ── learnings ─────────────────────────────────────────────────────────────
+  private hydrateLearning(r: any): Learning {
+    return {
+      id: r.id,
+      repoPath: r.repoPath,
+      rule: r.rule,
+      rationale: r.rationale,
+      evidence: JSON.parse(r.evidence) as string[],
+      status: r.status as LearningStatus,
+      evidenceCount: r.evidenceCount,
+      ineffectiveCount: r.ineffectiveCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      lastEvidenceAt: r.lastEvidenceAt,
+    };
+  }
+
+  addLearning(input: {
+    repoPath: string;
+    rule: string;
+    rationale: string;
+    evidence: string[];
+  }): Learning {
+    const now = Date.now();
+    const l: Learning = {
+      id: randomUUID(),
+      repoPath: input.repoPath,
+      rule: input.rule,
+      rationale: input.rationale,
+      evidence: input.evidence,
+      status: "proposed",
+      evidenceCount: input.evidence.length,
+      ineffectiveCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      lastEvidenceAt: input.evidence.length ? now : null,
+    };
+    this.db.run(
+      `INSERT INTO learnings
+         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, createdAt, updatedAt, lastEvidenceAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        l.id,
+        l.repoPath,
+        l.rule,
+        l.rationale,
+        JSON.stringify(l.evidence),
+        l.status,
+        l.evidenceCount,
+        l.ineffectiveCount,
+        l.createdAt,
+        l.updatedAt,
+        l.lastEvidenceAt,
+      ],
+    );
+    return l;
+  }
+
+  listLearnings(repoPath: string, opts?: { status?: LearningStatus }): Learning[] {
+    const rows = opts?.status
+      ? this.db
+          .query(
+            `SELECT * FROM learnings WHERE repoPath = ? AND status = ? ORDER BY updatedAt DESC`,
+          )
+          .all(repoPath, opts.status)
+      : this.db
+          .query(`SELECT * FROM learnings WHERE repoPath = ? ORDER BY updatedAt DESC`)
+          .all(repoPath);
+    return (rows as any[]).map((r) => this.hydrateLearning(r));
+  }
+
+  getLearning(id: string): Learning | null {
+    const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as any;
+    return r ? this.hydrateLearning(r) : null;
+  }
+
+  setLearningStatus(id: string, status: LearningStatus, rule?: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur) return null;
+    this.db.run(`UPDATE learnings SET status = ?, rule = ?, updatedAt = ? WHERE id = ?`, [
+      status,
+      rule ?? cur.rule,
+      Date.now(),
+      id,
+    ]);
+    return this.getLearning(id);
+  }
+
+  pendingLearningCount(): number {
+    return (
+      this.db.query(`SELECT COUNT(*) AS c FROM learnings WHERE status = 'proposed'`).get() as {
+        c: number;
+      }
+    ).c;
   }
 
   private hydrate(r: any): Session {

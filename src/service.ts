@@ -167,19 +167,32 @@ export class SessionService {
     if (!raw) return;
     const slug = this.uniqueName(raw, herd);
     if (slug === session.name) return;
+    // Don't clobber a manual rename that landed during the (up-to-60s) refine window:
+    // re-read the row and bail if its name no longer matches the snapshot we started
+    // from — a manual rename is the user's intent and outranks the background guess.
+    const current = this.deps.store.get(session.id);
+    if (!current || current.name !== session.name) return;
     // Move the git branch too, but only inside the "nothing committed yet" window AND
     // when `shepherd/<slug>` is free. `uniqueName` de-dupes against live herdr agent
     // names, not branches, so a leftover branch from an archived session could still
-    // collide — and `git branch -m` onto an existing name throws, which (rename() moves
-    // the branch before updating the row) would abandon the whole refine and lose the
-    // better display name too. On collision we fall back to a display-only rename: the
-    // comprehended name still shows; the branch just stays on the heuristic slug.
+    // collide — and `git branch -m` onto an existing name throws. On collision (or a
+    // committed branch) we fall back to a display-only rename: the comprehended name
+    // still shows; the branch just stays on the heuristic slug.
     const safe =
       session.isolated &&
       !!session.branch &&
       !this.deps.worktree.branchExists(session.repoPath, `shepherd/${slug}`) &&
       this.deps.worktree.commitsAhead(session.repoPath, session.baseBranch, session.branch) === 0;
-    const updated = this.rename(session.id, slug, { renameLocalBranch: safe });
+    // The branchExists pre-check narrows the window, but a branch can still appear
+    // between it and `git branch -m` (concurrent create, archived-branch cleanup) —
+    // rename() moves the branch before updating the row, so a throw would abandon the
+    // refine and lose the better name. Retry display-only so the degradation is airtight.
+    let updated: Session | null;
+    try {
+      updated = this.rename(session.id, slug, { renameLocalBranch: safe });
+    } catch {
+      updated = this.rename(session.id, slug, { renameLocalBranch: false });
+    }
     if (!updated) return;
     this.deps.herdr.relabel(session.herdrAgentId, slug);
     this.deps.events?.emit("session:renamed", {

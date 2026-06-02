@@ -981,6 +981,50 @@ test("refine renames display only when the target branch already exists", async 
   ).toBe(true);
 });
 
+test("refine does not clobber a manual rename that landed during the window", async () => {
+  const { store, events, deps } = svcDeps();
+  let resolveRefine: (v: string) => void = () => {};
+  deps.refineName = () => new Promise<string>((res) => (resolveRefine = res));
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  // user manually renames while the namer is still "thinking"
+  store.update(s.id, { name: "my-manual-name", branch: "shepherd/my-manual-name" });
+  // the namer now returns its (now-stale) guess
+  resolveRefine("session-naming");
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("my-manual-name"); // manual rename preserved
+  expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
+});
+
+test("refine degrades to display-only when the branch move itself throws (TOCTOU)", async () => {
+  const { store, events, deps } = svcDeps();
+  // branchExists reports free, but the move races and throws between check and `git branch -m`
+  deps.worktree.branchExists = () => false;
+  deps.worktree.renameBranch = () => {
+    throw new Error("branch exists");
+  };
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("session-naming"); // better name still lands
+  expect(store.get(s.id)?.branch).toBe("shepherd/even-two-recent-prs"); // branch left put
+  expect(
+    events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
+  ).toBe(true);
+});
+
 test("refine is a no-op when the comprehended slug equals the heuristic name", async () => {
   const { events, deps } = svcDeps({ refineName: async () => "even-two-recent-prs" });
   const svc = new SessionService(deps);

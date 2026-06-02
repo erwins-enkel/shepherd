@@ -52,6 +52,7 @@
         type="button"
         class="micro fbtn"
         class:active={filter === "all"}
+        title={m.herd_all_title()}
         aria-pressed={filter === "all"}
         onclick={() => (filter = "all")}>{m.herd_all_hint()}</button
       >
@@ -59,6 +60,7 @@
         type="button"
         class="micro fbtn"
         class:active={filter === "ready"}
+        title={m.herd_ready_title()}
         aria-pressed={filter === "ready"}
         onclick={() => (filter = "ready")}>{m.herd_ready_filter()}</button
       >

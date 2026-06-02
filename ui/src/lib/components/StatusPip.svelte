@@ -36,6 +36,7 @@
     font-weight: 700;
   }
   .pulse {
-    animation: pip-pulse 1.5s ease-out infinite;
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: pip-pulse 1.5s ease-out infinite !important;
   }
 </style>

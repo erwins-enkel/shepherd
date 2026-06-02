@@ -69,8 +69,10 @@
   }
   .dot-pending {
     background: var(--color-amber);
-    /* CI running — pulse like every other in-progress indicator */
-    animation: dot-pulse 1.1s ease-in-out infinite;
+    /* CI running — pulse like every other in-progress indicator.
+       Functional status motion: intentionally overrides the reduced-motion
+       blanket (app.css) — the pulse encodes "work happening", not decoration. */
+    animation: dot-pulse 1.1s ease-in-out infinite !important;
   }
   .dot-success {
     background: var(--color-green, #5ad19a);

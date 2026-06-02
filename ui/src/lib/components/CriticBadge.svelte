@@ -54,7 +54,8 @@
     height: 6px;
     border-radius: 50%;
     background: var(--color-amber);
-    animation: rev-pulse 1.1s ease-in-out infinite;
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: rev-pulse 1.1s ease-in-out infinite !important;
   }
   @keyframes rev-pulse {
     0%,
@@ -63,12 +64,6 @@
     }
     50% {
       opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .rev-dot {
-      animation: none;
-      opacity: 0.9;
     }
   }
 </style>

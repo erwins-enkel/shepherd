@@ -36,9 +36,14 @@
   // Use untrack to read selectedPath without subscribing to it, so that
   // dismissDetail() (which sets selectedPath = null) does not re-fire this
   // effect and immediately re-seed the overlay from pinnedPath.
+  //
+  // Desktop only: pre-seeding fills the always-visible detail pane harmlessly.
+  // On mobile the detail is a full-screen overlay that hides the project list
+  // and the tab toggle, so auto-seeding would drop the user straight into a
+  // repo's items on load — skip it and let mobile open from the list on tap.
   $effect(() => {
     const pinned = payload?.pinnedPath;
-    if (pinned && untrack(() => selectedPath === null)) {
+    if (pinned && !mobile && untrack(() => selectedPath === null)) {
       selectedPath = pinned;
     }
   });
@@ -61,8 +66,72 @@
     <div class="state-full">
       <span class="empty-label">{m.backlog_no_forge_repos()}</span>
     </div>
+  {:else if mobile}
+    <!-- mobile: a single project list (the same list serves both tabs, so a
+         standalone top tab bar would be a dead toggle here). Selecting a project
+         opens a full-screen detail overlay; the overlay covers the top of the
+         view, so the Issues/PRs toggle lives in the overlay header — the only
+         place on a phone where flipping it actually changes what's on screen,
+         since list and detail are never co-visible. -->
+    <div class="mobile-master">
+      <ProjectBacklogList
+        projects={payload.projects}
+        pinnedPath={payload.pinnedPath}
+        {selectedPath}
+        onselect={(p) => (selectedPath = p)}
+      />
+    </div>
+    {#if selectedPath !== null}
+      <div class="mobile-detail-overlay" role="dialog" aria-modal="true">
+        <div class="overlay-head">
+          <button
+            class="overlay-close"
+            type="button"
+            onclick={dismissDetail}
+            aria-label={m.common_close()}
+          >
+            ‹ {m.common_close()}
+          </button>
+          <div class="overlay-tabs">
+            <button
+              class="tab-btn"
+              class:active={activeTab === "issues"}
+              type="button"
+              onclick={() => (activeTab = "issues")}
+            >
+              {m.backlog_tab_issues_count({ count: payload.totals.openIssues })}
+            </button>
+            <button
+              class="tab-btn"
+              class:active={activeTab === "prs"}
+              type="button"
+              onclick={() => (activeTab = "prs")}
+            >
+              {m.backlog_tab_prs_count({ count: payload.totals.openPRs })}
+            </button>
+          </div>
+        </div>
+        <div class="overlay-body">
+          {#if activeTab === "issues"}
+            <IssuesPanel
+              repoPath={selectedPath}
+              onnewtask={(issue) => {
+                onissue(selectedPath!, issue);
+              }}
+              onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
+              bodyPreview
+              age
+              filterLabels={BACKLOG_FILTER}
+            />
+          {:else}
+            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+          {/if}
+        </div>
+      </div>
+    {/if}
   {:else}
-    <!-- tab bar -->
+    <!-- desktop: persistent tab bar + side-by-side master / detail. Both panes
+         are always visible, so flipping the tab visibly swaps the detail pane. -->
     <div class="tab-bar">
       <button
         class="tab-btn"
@@ -82,78 +151,8 @@
       </button>
     </div>
 
-    <!-- tab content -->
-    {#if activeTab === "issues"}
-      {#if mobile}
-        <!-- mobile: full-width list; selected project opens overlay -->
-        <div class="mobile-master">
-          <ProjectBacklogList
-            projects={payload.projects}
-            pinnedPath={payload.pinnedPath}
-            {selectedPath}
-            onselect={(p) => (selectedPath = p)}
-          />
-        </div>
-        {#if selectedPath !== null}
-          <div class="mobile-detail-overlay" role="dialog" aria-modal="true">
-            <div class="overlay-head">
-              <button
-                class="overlay-close"
-                type="button"
-                onclick={dismissDetail}
-                aria-label={m.common_close()}
-              >
-                ‹ {m.common_close()}
-              </button>
-            </div>
-            <div class="overlay-body">
-              <IssuesPanel
-                repoPath={selectedPath}
-                onnewtask={(issue) => {
-                  onissue(selectedPath!, issue);
-                }}
-                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
-                bodyPreview
-                age
-                filterLabels={BACKLOG_FILTER}
-              />
-            </div>
-          </div>
-        {/if}
-      {:else}
-        <!-- desktop: side-by-side master + detail -->
-        <div class="desktop-split">
-          <div class="master-pane">
-            <ProjectBacklogList
-              projects={payload.projects}
-              pinnedPath={payload.pinnedPath}
-              {selectedPath}
-              onselect={(p) => (selectedPath = p)}
-            />
-          </div>
-          <div class="detail-pane">
-            {#if selectedPath !== null}
-              <IssuesPanel
-                repoPath={selectedPath}
-                onnewtask={(issue) => {
-                  onissue(selectedPath!, issue);
-                }}
-                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
-                bodyPreview
-                age
-                filterLabels={BACKLOG_FILTER}
-              />
-            {:else}
-              <div class="detail-empty">
-                <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
-              </div>
-            {/if}
-          </div>
-        </div>
-      {/if}
-    {:else if mobile}
-      <!-- PRs tab, mobile: full-width project list; selection opens overlay -->
-      <div class="mobile-master">
+    <div class="desktop-split">
+      <div class="master-pane">
         <ProjectBacklogList
           projects={payload.projects}
           pinnedPath={payload.pinnedPath}
@@ -161,45 +160,29 @@
           onselect={(p) => (selectedPath = p)}
         />
       </div>
-      {#if selectedPath !== null}
-        <div class="mobile-detail-overlay" role="dialog" aria-modal="true">
-          <div class="overlay-head">
-            <button
-              class="overlay-close"
-              type="button"
-              onclick={dismissDetail}
-              aria-label={m.common_close()}
-            >
-              ‹ {m.common_close()}
-            </button>
-          </div>
-          <div class="overlay-body">
-            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
-          </div>
-        </div>
-      {/if}
-    {:else}
-      <!-- PRs tab, desktop: side-by-side master + detail -->
-      <div class="desktop-split">
-        <div class="master-pane">
-          <ProjectBacklogList
-            projects={payload.projects}
-            pinnedPath={payload.pinnedPath}
-            {selectedPath}
-            onselect={(p) => (selectedPath = p)}
-          />
-        </div>
-        <div class="detail-pane">
-          {#if selectedPath !== null}
-            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+      <div class="detail-pane">
+        {#if selectedPath !== null}
+          {#if activeTab === "issues"}
+            <IssuesPanel
+              repoPath={selectedPath}
+              onnewtask={(issue) => {
+                onissue(selectedPath!, issue);
+              }}
+              onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
+              bodyPreview
+              age
+              filterLabels={BACKLOG_FILTER}
+            />
           {:else}
-            <div class="detail-empty">
-              <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
-            </div>
+            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
           {/if}
-        </div>
+        {:else}
+          <div class="detail-empty">
+            <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
+          </div>
+        {/if}
       </div>
-    {/if}
+    </div>
   {/if}
 </div>
 
@@ -385,6 +368,20 @@
 
   .overlay-close:hover {
     background: var(--color-hover);
+  }
+
+  /* Tab toggle relocated into the overlay header on mobile, pushed to the
+     right of the back/close button. Touch-sized to match .overlay-close. */
+  .overlay-tabs {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+  }
+
+  .overlay-tabs .tab-btn {
+    min-height: 40px;
+    padding: 0 12px;
+    touch-action: manipulation;
   }
 
   .overlay-body {

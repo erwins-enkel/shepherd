@@ -183,6 +183,34 @@ export class HerdrDriver {
     this.closeTab(agent.tabId);
   }
 
+  /**
+   * Rename a live agent and its dedicated tab so a background re-name (the LLM namer)
+   * is reflected in the herdr UI, not just shepherd's DB. Resolves the agent (and its
+   * tabId) FRESH from the live list by terminal id. Best-effort: a dead/already-renamed
+   * agent must never crash the caller, so every step is guarded.
+   */
+  relabel(terminalId: string, newName: string): void {
+    let agent;
+    try {
+      agent = this.list().find((a) => a.terminalId === terminalId);
+    } catch {
+      return;
+    }
+    if (!agent) return;
+    try {
+      this.runner(["agent", "rename", terminalId, newName]);
+    } catch {
+      /* best-effort */
+    }
+    if (agent.tabId) {
+      try {
+        this.runner(["tab", "rename", agent.tabId, newName]);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
   closeTab(tabId: string): void {
     try {

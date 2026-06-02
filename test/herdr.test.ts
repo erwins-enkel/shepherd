@@ -178,6 +178,30 @@ test("closeTab is best-effort: swallows a runner error", () => {
   expect(() => d.closeTab("w:9")).not.toThrow();
 });
 
+test("relabel: renames the agent and its tab via the looked-up tabId", () => {
+  const calls: string[][] = [];
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "agent" && args[1] === "list") {
+      return JSON.stringify({
+        result: { agents: [{ terminal_id: "term_1", tab_id: "tab_9", name: "old-name" }] },
+      });
+    }
+    return "{}";
+  };
+  const h = new HerdrDriver(runner);
+  h.relabel("term_1", "fresh-name");
+  expect(calls).toContainEqual(["agent", "rename", "term_1", "fresh-name"]);
+  expect(calls).toContainEqual(["tab", "rename", "tab_9", "fresh-name"]);
+});
+
+test("relabel: no-op (no throw) when the agent is gone", () => {
+  const runner = (args: string[]) =>
+    args[0] === "agent" && args[1] === "list" ? JSON.stringify({ result: { agents: [] } }) : "{}";
+  const h = new HerdrDriver(runner);
+  expect(() => h.relabel("term_gone", "fresh-name")).not.toThrow();
+});
+
 test("mapState maps herdr states to shepherd status", () => {
   expect(mapState("working")).toBe("running");
   expect(mapState("blocked")).toBe("blocked");

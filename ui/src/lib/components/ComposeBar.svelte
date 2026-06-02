@@ -4,7 +4,7 @@
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
   import { getCommands } from "$lib/api";
-  import { matchSlashTrigger, filterCommands } from "$lib/slash";
+  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -76,17 +76,20 @@
     }
   }
 
-  // Replace the leading `/query` token with the chosen command, leaving a
-  // trailing space so the user can type arguments straight away.
+  // Replace the typed `/query` token with the chosen command and hoist it to the
+  // front — Claude only runs a *leading* slash command, so a command typed mid-text
+  // becomes the leading command with the surrounding text as its argument. Caret
+  // lands past `/name ` so the user can type arguments straight away.
   function pickCommand(cmd: SlashCommand) {
     const caret = ta?.selectionStart ?? value.length;
-    const insert = `/${cmd.name} `;
-    value = insert + value.slice(caret);
+    const start = matchSlashTrigger(value, caret)?.start ?? 0;
+    const next = applyCommandPick(value, start, caret, cmd.name);
+    value = next.value;
     slashOpen = false;
     queueMicrotask(() => {
       autogrow();
       ta?.focus();
-      ta?.setSelectionRange(insert.length, insert.length);
+      ta?.setSelectionRange(next.caret, next.caret);
     });
   }
 

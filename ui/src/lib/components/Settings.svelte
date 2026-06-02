@@ -211,134 +211,155 @@
       {/each}
     </div>
 
+    <!-- All three panels stay mounted and toggle via `hidden`: every
+         settings-panel-* id resolves for the tabs' aria-controls, and the
+         steers editor keeps any in-progress draft across tab switches
+         instead of remounting and resyncing from the store. -->
     <div
       class="panel"
       role="tabpanel"
-      id="settings-panel-{tab}"
-      aria-labelledby="settings-tab-{tab}"
-      tabindex="-1"
+      id="settings-panel-workspace"
+      aria-labelledby="settings-tab-workspace"
+      tabindex="0"
+      hidden={tab !== "workspace"}
     >
-      {#if tab === "workspace"}
-        <div class="cur">
-          <span class="micro">{m.settings_current_root_label()}</span>
-          <code>{currentRoot || "—"}</code>
-        </div>
+      <div class="cur">
+        <span class="micro">{m.settings_current_root_label()}</span>
+        <code>{currentRoot || "—"}</code>
+      </div>
 
-        <span class="micro path-label">{m.settings_browse_label()}</span>
-        <div class="crumbs">
-          <button
-            type="button"
-            class="up"
-            disabled={!listing?.parent || loading}
-            onclick={() => listing?.parent && browse(listing.parent)}
-            title={m.settings_up_level()}
-          >
-            ↑
-          </button>
-          <code class="here">{listing?.display ?? "…"}</code>
-        </div>
-
-        <div class="list">
-          {#if loading}
-            <div class="placeholder">{m.settings_loading()}</div>
-          {:else if listing && listing.entries.length === 0}
-            <div class="placeholder">{m.settings_no_subfolders()}</div>
-          {:else if listing}
-            {#each listing.entries as e (e.path)}
-              <button type="button" class="row" onclick={() => browse(e.path)}>
-                <span class="ico">📁</span><span class="nm">{e.name}</span>
-                <span class="chev">›</span>
-              </button>
-            {/each}
-          {/if}
-        </div>
-
-        {#if error}<div class="err">{error}</div>{/if}
-
+      <span class="micro path-label">{m.settings_browse_label()}</span>
+      <div class="crumbs">
         <button
-          class="run"
           type="button"
-          disabled={!listing || saving || isCurrent}
-          onclick={useThisFolder}
+          class="up"
+          disabled={!listing?.parent || loading}
+          onclick={() => listing?.parent && browse(listing.parent)}
+          title={m.settings_up_level()}
         >
-          {#if saving}
+          ↑
+        </button>
+        <code class="here">{listing?.display ?? "…"}</code>
+      </div>
+
+      <div class="list">
+        {#if loading}
+          <div class="placeholder">{m.settings_loading()}</div>
+        {:else if listing && listing.entries.length === 0}
+          <div class="placeholder">{m.settings_no_subfolders()}</div>
+        {:else if listing}
+          {#each listing.entries as e (e.path)}
+            <button type="button" class="row" onclick={() => browse(e.path)}>
+              <span class="ico">📁</span><span class="nm">{e.name}</span>
+              <span class="chev">›</span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+
+      {#if error}<div class="err">{error}</div>{/if}
+
+      <button
+        class="run"
+        type="button"
+        disabled={!listing || saving || isCurrent}
+        onclick={useThisFolder}
+      >
+        {#if saving}
+          {m.settings_saving()}
+        {:else if isCurrent}
+          {m.settings_already_current()}
+        {:else}
+          {m.settings_use_folder()}
+        {/if}
+      </button>
+    </div>
+
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-session"
+      aria-labelledby="settings-tab-session"
+      tabindex="0"
+      hidden={tab !== "session"}
+    >
+      <div class="rc">
+        <span class="micro">{m.settings_remote_control_title()}</span>
+        <p class="hint">{m.settings_remote_control_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={remoteControl}
+          disabled={rcBusy}
+          onclick={toggleRemoteControl}
+        >
+          <span class="track" class:on={remoteControl}><span class="knob"></span></span>
+          <span class="state"
+            >{remoteControl
+              ? m.settings_remote_control_on()
+              : m.settings_remote_control_off()}</span
+          >
+        </button>
+      </div>
+      <div class="sc">
+        <span class="micro">{m.settings_standard_command_title()}</span>
+        <p class="hint">{m.settings_standard_command_hint()}</p>
+        <textarea
+          class="sc-input"
+          rows="4"
+          bind:value={standardCommand}
+          oninput={() => (scSaved = false)}
+          placeholder={m.settings_standard_command_placeholder()}
+        ></textarea>
+        <button type="button" class="run" disabled={scBusy} onclick={saveStandardCommand}>
+          {#if scBusy}
             {m.settings_saving()}
-          {:else if isCurrent}
-            {m.settings_already_current()}
+          {:else if scSaved}
+            {m.settings_standard_command_saved()}
           {:else}
-            {m.settings_use_folder()}
+            {m.settings_standard_command_save()}
           {/if}
         </button>
-      {:else if tab === "session"}
-        <div class="rc">
-          <span class="micro">{m.settings_remote_control_title()}</span>
-          <p class="hint">{m.settings_remote_control_hint()}</p>
-          <button
-            type="button"
-            class="toggle"
-            role="switch"
-            aria-checked={remoteControl}
-            disabled={rcBusy}
-            onclick={toggleRemoteControl}
-          >
-            <span class="track" class:on={remoteControl}><span class="knob"></span></span>
-            <span class="state"
-              >{remoteControl
-                ? m.settings_remote_control_on()
-                : m.settings_remote_control_off()}</span
+      </div>
+      <SteersEditor />
+    </div>
+
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-device"
+      aria-labelledby="settings-tab-device"
+      tabindex="0"
+      hidden={tab !== "device"}
+    >
+      <div class="theme-row">
+        <span class="micro">{m.actionbar_theme_group_aria()}</span>
+        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+          {#each THEMES as t (t.pref)}
+            <button
+              type="button"
+              class="t-opt"
+              class:on={theme.pref === t.pref}
+              aria-pressed={theme.pref === t.pref}
+              aria-label={m.actionbar_theme_option({ label: t.label() })}
+              onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
             >
+          {/each}
+        </div>
+      </div>
+      <div class="push">
+        <span class="micro">{m.settings_push_title()}</span>
+        {#if !push.supported}
+          <p class="hint">{m.settings_push_unsupported()}</p>
+        {:else if push.permission === "denied"}
+          <p class="hint">{m.settings_push_denied()}</p>
+        {:else}
+          <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
+            {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
           </button>
-        </div>
-        <div class="sc">
-          <span class="micro">{m.settings_standard_command_title()}</span>
-          <p class="hint">{m.settings_standard_command_hint()}</p>
-          <textarea
-            class="sc-input"
-            rows="4"
-            bind:value={standardCommand}
-            oninput={() => (scSaved = false)}
-            placeholder={m.settings_standard_command_placeholder()}
-          ></textarea>
-          <button type="button" class="run" disabled={scBusy} onclick={saveStandardCommand}>
-            {#if scBusy}
-              {m.settings_saving()}
-            {:else if scSaved}
-              {m.settings_standard_command_saved()}
-            {:else}
-              {m.settings_standard_command_save()}
-            {/if}
-          </button>
-        </div>
-        <SteersEditor />
-      {:else}
-        <div class="theme-row">
-          <span class="micro">{m.actionbar_theme_group_aria()}</span>
-          <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-            {#each THEMES as t (t.pref)}
-              <button
-                type="button"
-                class="t-opt"
-                class:on={theme.pref === t.pref}
-                aria-pressed={theme.pref === t.pref}
-                aria-label={m.actionbar_theme_option({ label: t.label() })}
-                onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
-              >
-            {/each}
-          </div>
-        </div>
-        <div class="push">
-          <span class="micro">{m.settings_push_title()}</span>
-          {#if !push.supported}
-            <p class="hint">{m.settings_push_unsupported()}</p>
-          {:else if push.permission === "denied"}
-            <p class="hint">{m.settings_push_denied()}</p>
-          {:else}
-            <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
-              {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
-            </button>
-          {/if}
-        </div>
-      {/if}
+        {/if}
+      </div>
     </div>
   </div>
 </div>
@@ -423,11 +444,16 @@
   }
   /* Only the active tab's content lives here; it carries the scroll so a tall
      tab (many steers) stays inside the bounded card instead of overflowing. */
+  /* `:not([hidden])` carries `display` so the `hidden` attribute on inactive
+     panels still collapses them (author `display` would otherwise beat the UA
+     `[hidden] { display: none }`). */
+  .panel:not([hidden]) {
+    display: flex;
+  }
   .panel {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    display: flex;
     flex-direction: column;
     gap: 8px;
   }

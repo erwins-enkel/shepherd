@@ -174,6 +174,11 @@
     outline: none;
     border-color: var(--color-line-bright);
   }
+  /* keyboard focus only — flat inset ring in the action color, no outer glow.
+     :focus-visible keeps mouse clicks from showing the ring. */
+  .rs-trigger:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   .rs-trigger b {
     font-weight: 600;

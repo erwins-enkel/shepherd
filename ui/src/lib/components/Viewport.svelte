@@ -151,6 +151,10 @@
       ? STATUS_COLOR[session.status]
       : null,
   );
+  // Non-hue partner to the tint: a leading shape mark so blocked (!) vs done (✓)
+  // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
+  // blocked/done-on-phone gate as the tint.
+  const statusGlyph = $derived(!tintColor ? null : session.status === "blocked" ? "!" : "✓");
 
   // ...but a busy agent shouldn't read as idle either: running gets a faint,
   // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
@@ -881,9 +885,8 @@
     class:phone={mobile}
     class:working={working && !tintColor}
     style:background={tintColor
-      ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
+      ? `color-mix(in srgb, ${tintColor} 24%, var(--color-head))`
       : undefined}
-    style:box-shadow={tintColor ? `inset 2px 0 0 0 ${tintColor}` : undefined}
   >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
@@ -922,6 +925,12 @@
           >›</button
         >
       </div>
+    {/if}
+    {#if statusGlyph}
+      <!-- phone: shape mark partnering the header tint so blocked/done read
+           without colour. The word is on .vp-status-sr for assistive tech. -->
+      <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true">{statusGlyph}</span
+      >
     {/if}
     {#if mobile}
       <!-- phone: the merged header carries repo · session (the top bar is hidden
@@ -1002,7 +1011,8 @@
           >
         </span>
       {/if}
-      <!-- status is conveyed by the header tint; keep the word for assistive tech -->
+      <!-- sighted users read status from the header tint + leading shape glyph;
+           keep the word for assistive tech -->
       <span class="vp-status-sr">{statusLabel(session.status)}</span>
     {:else}
       <span
@@ -1311,26 +1321,27 @@
     overflow: visible;
   }
 
-  /* running: a faint amber wash + a slow-breathing left edge. Lower intensity
-     than the saturated blocked/done tint so it reads as ambient "still busy",
-     never as an alert. Only applies when no saturated tint is present. */
+  /* running: a faint amber wash that slowly breathes in intensity. Lower
+     chroma than the saturated blocked/done tint so it reads as ambient
+     "still busy", never as an alert. Only applies when no saturated tint is
+     present. Status is carried by the background tint alone — no side stripe. */
   .vp-head.working {
-    background: color-mix(in srgb, var(--color-amber) 5%, var(--color-head));
+    background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
     animation: vp-working-pulse 2.4s ease-in-out infinite;
   }
   @keyframes vp-working-pulse {
     0%,
     100% {
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 28%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
     }
     50% {
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 64%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 9%, var(--color-head));
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .vp-head.working {
       animation: none;
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 45%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 7%, var(--color-head));
     }
   }
 
@@ -1349,10 +1360,14 @@
     cursor: default;
     border-bottom: 1px dotted var(--color-line);
   }
-  .desig-wrap:hover .desig,
+  .desig-wrap:hover .desig {
+    color: var(--color-ink);
+  }
+  /* keyboard focus — flat inset amber ring, distinct from the hover color shift */
   .desig:focus-visible {
     color: var(--color-ink);
     outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   /* secondary meta popover (profile + tokens), revealed on hover/focus of the desig */
@@ -1558,7 +1573,18 @@
     flex-shrink: 0;
   }
 
-  /* status word for assistive tech only; sighted users read it from the tint */
+  /* leading shape mark (! blocked / ✓ done) — the non-hue partner to the header
+     tint so the two alert states never rest on colour alone */
+  .vp-status-glyph {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+    margin-right: 1px;
+  }
+
+  /* status word for assistive tech only; sighted users read it from the tint +
+     the leading shape glyph (blocked/done) */
   .vp-status-sr {
     position: absolute;
     width: 1px;
@@ -1801,6 +1827,16 @@
     background: var(--color-hover);
     color: var(--color-ink-bright);
     transform: translateY(-1px);
+  }
+  /* Coarse pointers (touch): grow the free-floating affordance to a ≥44px tap
+     target. It sits in the terminal corner with room to spare, so enlarging the
+     element itself is simplest — stays round, stays flat. Desktop (fine pointer)
+     keeps the dense 30px glyph. */
+  @media (pointer: coarse) {
+    .scroll-bottom {
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
   @keyframes scroll-bottom-in {
     from {

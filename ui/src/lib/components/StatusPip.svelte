@@ -19,6 +19,10 @@
 
 {#if ready}
   <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
+{:else if status === "blocked"}
+  <!-- blocked: a bare red alarm mark (non-color cue, WCAG 1.4.1) so it never
+       reads as just a red dot vs. a green `done` dot for colorblind users -->
+  <span class="pip glyph" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
 {:else}
   <span
     class="pip"
@@ -46,8 +50,10 @@
     background: none;
     box-shadow: inset 0 0 0 1.5px var(--c);
   }
-  /* ready: a bare green check, no filled circle — the glyph itself is the signal */
-  .pip.check {
+  /* bare glyph (no filled circle) — the mark itself is the signal:
+     `ready` → green ✓, `blocked` → red ! alarm mark */
+  .pip.check,
+  .pip.glyph {
     display: inline-flex;
     align-items: center;
     justify-content: center;

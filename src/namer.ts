@@ -248,13 +248,14 @@ export function slugifyManual(input: string): string {
 }
 
 // Anchored regex that strips purely imperative command prefixes from the START of a
-// prompt (after transliteration + lowercasing). Without this, a prompt such as
-// "Prüfe, ob dieses Issue…" would yield "pruefe-ob-issue" — the 3 topical slots are
-// wasted on scaffolding words instead of the actual subject. The strip is intentionally
-// narrow: it only matches at position 0, removes at most one prefix, and leaves any
-// later occurrence of the same word untouched. slugifyManual is NOT affected.
+// prompt (after transliteration + lowercasing). For example, "Pruefe ob dieses Issue…"
+// is stripped to "dieses-issue-relevant", and the canonical comma form "Pruefe, ob …"
+// is now also matched because inter-word separators use [,\s]+ instead of \s+.
+// The strip is intentionally narrow: it only matches at position 0, removes at most one
+// prefix, and leaves any later occurrence of the same words untouched.
+// slugifyManual is NOT affected.
 const COMMAND_PREFIX_RE =
-  /^(?:pruefe\s+ob|gib\s+mir|kannst\s+du(?:\s+(?:mal|bitte))?|lass\s+uns|ich\s+(?:moechte|will)|schau\s+dir)[,\s]*/;
+  /^(?:pruefe[,\s]+ob|gib[,\s]+mir|kannst[,\s]+du(?:[,\s]+(?:mal|bitte))?|lass[,\s]+uns|ich[,\s]+(?:moechte|will)|schau[,\s]+dir)[,\s]*/;
 
 /**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.

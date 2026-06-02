@@ -56,14 +56,20 @@ test("slugifyManual caps length without a trailing dash", () => {
 // --- Command-prefix strip tests ---
 
 test("normalize strips leading 'pruefe ob' boilerplate but keeps topical words", () => {
-  // 'Prüfe, ob …' — comma breaks 'pruefe\s+ob', so prefix is NOT matched;
-  // 'pruefe' stays and occupies one of the three slots.
-  // Pipeline: transliterate → lowercase → no prefix strip (comma in between) →
-  // tokenize → drop stopwords (ob, dieses, ist, und, noch, aktuell) →
-  // first 3 meaningful: [pruefe, issue, relevant]
+  // 'Prüfe, ob …' — [,\s]+ in COMMAND_PREFIX_RE now matches the comma form too.
+  // Pipeline: transliterate → lowercase → prefix strip ('pruefe, ob ' consumed) →
+  // tokenize → drop stopwords (dieses, ist, und, ob, die, noch, aktuell) →
+  // first 3 meaningful: [issue, relevant, pr]
   expect(
     normalize("Prüfe, ob dieses Issue noch relevant ist und ob die PR noch aktuell ist."),
-  ).toBe("pruefe-issue-relevant");
+  ).toBe("issue-relevant-pr");
+});
+
+test("normalize strips leading 'pruefe ob' (no comma) and returns only topical words", () => {
+  // No comma → COMMAND_PREFIX_RE matches 'pruefe ob' → stripped entirely
+  // Pipeline: transliterate → lowercase → prefix strip ('pruefe ob ' consumed) →
+  // tokenize → drop stopwords (dieses) → meaningful: [issue, relevant]
+  expect(normalize("Pruefe ob dieses Issue relevant")).toBe("issue-relevant");
 });
 
 test("normalize prefix strip is anchored at the START — a later 'gib' survives", () => {

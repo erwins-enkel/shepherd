@@ -121,7 +121,8 @@ export class SessionService {
     if (!taken.has(base)) return base;
 
     if (herd) {
-      // Build a length-safe composed root: "base-herd" capped at 60 chars, no trailing dash.
+      // Cap at 60 chars (matching slugifyManual's convention). If base is already 59–60 chars
+      // the herd may be truncated away entirely; numeric fallback below still produces a valid name.
       const composed = `${base}-${herd}`.slice(0, 60).replace(/-+$/, "");
       if (!taken.has(composed)) return composed;
       for (let i = 2; ; i++) {

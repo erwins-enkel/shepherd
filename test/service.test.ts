@@ -544,6 +544,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       remove: () => {},
       branchExists: () => false,
       renameBranch: () => {},
+      commitsAhead: () => 0,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
@@ -582,6 +583,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       remove: () => {},
       branchExists: () => false,
       renameBranch: () => {},
+      commitsAhead: () => 0,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {} },
@@ -622,6 +624,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       remove: () => {},
       branchExists: () => false,
       renameBranch: () => {},
+      commitsAhead: () => 0,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -659,6 +662,7 @@ test("archive with no reap keys never calls the reaper", () => {
       remove: () => {},
       branchExists: () => false,
       renameBranch: () => {},
+      commitsAhead: () => 0,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -866,4 +870,180 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
     { target: "term_b", text: "run tests" },
     { target: "term_b", text: "\r" },
   ]);
+});
+
+function svcDeps(over: any = {}) {
+  const store = new SessionStore(":memory:");
+  const events: any = {
+    emitted: [] as any[],
+    emit(e: string, d: unknown) {
+      this.emitted.push({ e, d });
+    },
+  };
+  const relabelled: any[] = [];
+  const renamedBranches: any[] = [];
+  const worktree = {
+    create: (_r: string, _b: string, name: string) => ({
+      worktreePath: `/wt/${name}`,
+      branch: `shepherd/${name}`,
+      isolated: true,
+    }),
+    remove: () => {},
+    renameBranch: (_r: string, _o: string, n: string) => renamedBranches.push(n),
+    commitsAhead: () => 0,
+    branchExists: () => false,
+  };
+  const base = {
+    store,
+    namer: async () => "even-two-recent-prs",
+    worktree,
+    herdr: {
+      start: () => ({
+        terminalId: "term_real",
+        cwd: "/wt",
+        agent: "",
+        agentStatus: "working",
+        name: "",
+        paneId: "",
+        tabId: "",
+        workspaceId: "",
+      }),
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+      relabel: (id: string, name: string) => relabelled.push({ id, name }),
+    },
+    events,
+    refineName: async () => "session-naming",
+    ...over,
+  };
+  return { store, events, relabelled, renamedBranches, deps: base as any };
+}
+
+test("create schedules a refine that renames session, branch, and herdr tab", async () => {
+  const { store, events, relabelled, renamedBranches, deps } = svcDeps();
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "Even with the two recent PRs...",
+    model: null,
+    images: [],
+  });
+  expect(s.name).toBe("even-two-recent-prs");
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("session-naming");
+  expect(store.get(s.id)?.branch).toBe("shepherd/session-naming");
+  expect(renamedBranches).toContain("shepherd/session-naming");
+  expect(relabelled).toContainEqual({ id: "term_real", name: "session-naming" });
+  expect(
+    events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
+  ).toBe(true);
+});
+
+test("refine updates display name only (no branch rename) once commits exist", async () => {
+  const { store, renamedBranches, deps } = svcDeps();
+  deps.worktree.commitsAhead = () => 2;
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("session-naming");
+  expect(store.get(s.id)?.branch).toBe("shepherd/even-two-recent-prs");
+  expect(renamedBranches).toHaveLength(0);
+});
+
+test("refine renames display only when the target branch already exists", async () => {
+  const { store, renamedBranches, events, deps } = svcDeps();
+  // a leftover/archived branch already occupies shepherd/session-naming
+  deps.worktree.branchExists = (_r: string, b: string) => b === "shepherd/session-naming";
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  // the better display name still lands — the refine is NOT abandoned
+  expect(store.get(s.id)?.name).toBe("session-naming");
+  // but the branch stays put (no `git branch -m` onto an existing branch)
+  expect(store.get(s.id)?.branch).toBe("shepherd/even-two-recent-prs");
+  expect(renamedBranches).toHaveLength(0);
+  expect(
+    events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
+  ).toBe(true);
+});
+
+test("refine does not clobber a manual rename that landed during the window", async () => {
+  const { store, events, deps } = svcDeps();
+  let resolveRefine: (v: string) => void = () => {};
+  deps.refineName = () => new Promise<string>((res) => (resolveRefine = res));
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  // user manually renames while the namer is still "thinking"
+  store.update(s.id, { name: "my-manual-name", branch: "shepherd/my-manual-name" });
+  // the namer now returns its (now-stale) guess
+  resolveRefine("session-naming");
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("my-manual-name"); // manual rename preserved
+  expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
+});
+
+test("refine degrades to display-only when the branch move itself throws (TOCTOU)", async () => {
+  const { store, events, deps } = svcDeps();
+  // branchExists reports free, but the move races and throws between check and `git branch -m`
+  deps.worktree.branchExists = () => false;
+  deps.worktree.renameBranch = () => {
+    throw new Error("branch exists");
+  };
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("session-naming"); // better name still lands
+  expect(store.get(s.id)?.branch).toBe("shepherd/even-two-recent-prs"); // branch left put
+  expect(
+    events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
+  ).toBe(true);
+});
+
+test("refine is a no-op when the comprehended slug equals the heuristic name", async () => {
+  const { events, deps } = svcDeps({ refineName: async () => "even-two-recent-prs" });
+  const svc = new SessionService(deps);
+  await svc.create({ repoPath: "/repo", baseBranch: "main", prompt: "p", model: null, images: [] });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
+});
+
+test("refine skipped entirely when refineName dep is absent", async () => {
+  const { store, events, deps } = svcDeps({ refineName: undefined });
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("even-two-recent-prs");
+  expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
 });

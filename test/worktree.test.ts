@@ -146,6 +146,24 @@ test("createDetached: rejects a branch that could smuggle a git flag", () => {
   expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
 });
 
+test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
+  execFileSync("git", ["checkout", "-b", "feat"], { cwd: repo, stdio: "pipe" });
+  const wt = new WorktreeMgr();
+  expect(wt.commitsAhead(repo, "main", "feat")).toBe(0);
+  execFileSync("git", ["commit", "--allow-empty", "-m", "x"], {
+    cwd: repo,
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "t",
+      GIT_AUTHOR_EMAIL: "t@t",
+      GIT_COMMITTER_NAME: "t",
+      GIT_COMMITTER_EMAIL: "t@t",
+    },
+  });
+  expect(wt.commitsAhead(repo, "main", "feat")).toBe(1);
+});
+
 test("createDetached: reclaims a stale worktree path left by an interrupted run", () => {
   const env = {
     ...process.env,

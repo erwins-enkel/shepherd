@@ -65,6 +65,26 @@ export class WorktreeMgr {
     execFileSync("git", ["branch", "-m", oldBranch, newBranch], { cwd: repoPath, stdio: "pipe" });
   }
 
+  /** Commits on `branch` not yet on `baseBranch` (`git rev-list --count base..branch`).
+   *  0 means the branch tip still equals base — the "nothing committed yet" window in
+   *  which an auto-rename can safely move the branch. Returns a large number on any
+   *  git error so callers treat an unknowable state as "not safe to rename". */
+  commitsAhead(repoPath: string, baseBranch: string, branch: string): number {
+    for (const b of [baseBranch, branch]) {
+      if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(b)) return Number.MAX_SAFE_INTEGER;
+    }
+    try {
+      const out = execFileSync("git", ["rev-list", "--count", `${baseBranch}..${branch}`], {
+        cwd: repoPath,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      return Number.parseInt(out.trim(), 10) || 0;
+    } catch {
+      return Number.MAX_SAFE_INTEGER; // unknowable → not safe
+    }
+  }
+
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {

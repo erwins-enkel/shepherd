@@ -58,6 +58,12 @@ export const config = {
   standardCommand:
     process.env.SHEPHERD_STANDARD_COMMAND ??
     "Prüfe, ob dieses Issue noch relevant ist. Gib mir den aktuellen Stand des Issues und untersuche, wie weit wir das bereits in unserer Codebase umgesetzt haben. Fasse zusammen, was noch fehlt, und schlage die nächsten Schritte vor.",
+  // LLM session naming: after a session is created with the instant heuristic name,
+  // a transient haiku agent comprehends the prompt and renames it in the background.
+  // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.
+  llmNaming: process.env.SHEPHERD_LLM_NAMING !== "0",
+  // model for the background namer (cheap + fast is plenty for a 2-4 word slug).
+  namerModel: process.env.SHEPHERD_NAMER_MODEL ?? "haiku",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

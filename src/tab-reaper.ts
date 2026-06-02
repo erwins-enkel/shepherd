@@ -7,12 +7,13 @@ export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
  *  labels but no live agent is an orphaned husk (the probe/critic ended without its tab
  *  being closed — e.g. a shepherd restart cleared the in-memory tracking).
  *
- *  Both markers are collision-proof against user sessions, whose labels are prompt-derived
- *  `[a-z0-9-]` slugs: {@link PROBE_NAME} contains underscores, and a "review " prefix contains
- *  a space — neither is producible by a slug. (Reaping by a bare slug like "usage-probe" would
- *  be unsafe — a user prompt can slug to exactly that.) */
+ *  All markers are collision-proof against user sessions, whose labels are prompt-derived
+ *  `[a-z0-9-]` slugs: {@link PROBE_NAME} contains underscores, and the "review " / "name "
+ *  prefixes contain a space — none is producible by a slug. (Reaping by a bare slug like
+ *  "usage-probe" would be unsafe — a user prompt can slug to exactly that.) The "name "
+ *  prefix is the background LLM namer's transient tab (`name TASK-NN`). */
 function isShepherdHelperLabel(label: string): boolean {
-  return label === PROBE_NAME || label.startsWith("review ");
+  return label === PROBE_NAME || label.startsWith("review ") || label.startsWith("name ");
 }
 
 /** herdr tab ids are "workspace:N" with N a positional index. */

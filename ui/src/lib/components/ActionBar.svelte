@@ -2,12 +2,7 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
   import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
-
-  const REPO = "erwins-enkel/shepherd";
-  const REPO_URL = `https://github.com/${REPO}`;
-  const sha = __GIT_SHA__;
-  const version = __APP_VERSION__;
-  const commitUrl = sha === "unknown" ? REPO_URL : `https://github.com/${REPO}/commit/${sha}`;
+  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
 
   const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
     { pref: "dark", glyph: "☾", label: m.theme_dark },

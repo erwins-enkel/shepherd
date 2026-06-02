@@ -21,6 +21,7 @@
     type PushCategories,
   } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
   // but on phones the ActionBar hides it and it was dropped from the top bar,
@@ -31,14 +32,10 @@
     { pref: "system", glyph: "◐", label: m.theme_system },
   ];
 
-  // Build/repo facts — same source the desktop ActionBar footer uses. The
-  // footer is hidden on mobile, so the Device tab is where phone users read
-  // them (mirrors the theme picker, surfaced here for the same reason).
-  const REPO = "erwins-enkel/shepherd";
-  const REPO_URL = `https://github.com/${REPO}`;
-  const sha = __GIT_SHA__;
-  const version = __APP_VERSION__;
-  const commitUrl = sha === "unknown" ? REPO_URL : `https://github.com/${REPO}/commit/${sha}`;
+  // Build/repo facts ($lib/build-info) come from the same source the desktop
+  // ActionBar footer uses. That footer is hidden on mobile, so the Device tab is
+  // where phone users read them (mirrors the theme picker, surfaced for the same
+  // reason).
 
   // Settings group into three jobs so the modal never outgrows the viewport:
   // WORKSPACE (which repo root), SESSION (how agents start + steer), DEVICE

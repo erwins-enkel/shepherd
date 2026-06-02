@@ -4,6 +4,7 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
   validateCreate,
+  validateCloneUrl,
   isAuthorized,
   originAllowed,
   isValidTerminalId,
@@ -406,6 +407,103 @@ test("validateCreate rejects an issueRef with a non-http url", () => {
 });
 
 import { validateSteers, validateBroadcast } from "../src/validate";
+
+// ── validateCloneUrl ──────────────────────────────────────────────────────────
+
+test("validateCloneUrl: valid https URL yields name from slug", () => {
+  const r = validateCloneUrl("https://github.com/owner/myrepo");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.url).toBe("https://github.com/owner/myrepo");
+    expect(r.value.name).toBe("myrepo");
+  }
+});
+
+test("validateCloneUrl: .git suffix stripped from https URL", () => {
+  const r = validateCloneUrl("https://github.com/owner/myrepo.git");
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.name).toBe("myrepo");
+});
+
+test("validateCloneUrl: trailing slash tolerated on https URL", () => {
+  const r = validateCloneUrl("https://github.com/owner/myrepo/");
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.name).toBe("myrepo");
+});
+
+test("validateCloneUrl: valid scp-style git@ URL yields name", () => {
+  const r = validateCloneUrl("git@github.com:owner/myrepo.git");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.url).toBe("git@github.com:owner/myrepo.git");
+    expect(r.value.name).toBe("myrepo");
+  }
+});
+
+test("validateCloneUrl: scp URL without .git suffix yields name", () => {
+  const r = validateCloneUrl("git@bitbucket.org:acme/toolkit");
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.name).toBe("toolkit");
+});
+
+test("validateCloneUrl: http:// (no owner segment) rejected as _url", () => {
+  // parseRemote requires slug to contain '/' for url-style
+  const r = validateCloneUrl("http://example.com/repo");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_url");
+});
+
+test("validateCloneUrl: ftp:// rejected as _url", () => {
+  const r = validateCloneUrl("ftp://example.com/owner/repo");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_url");
+});
+
+test("validateCloneUrl: plain string not a URL rejected as _url", () => {
+  const r = validateCloneUrl("not-a-url");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_url");
+});
+
+test("validateCloneUrl: non-string input rejected as _url", () => {
+  expect(validateCloneUrl(42).ok).toBe(false);
+  expect(validateCloneUrl(null).ok).toBe(false);
+  expect(validateCloneUrl(undefined).ok).toBe(false);
+});
+
+test("validateCloneUrl: empty string rejected as _url", () => {
+  const r = validateCloneUrl("  ");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_url");
+});
+
+test("validateCloneUrl: leading-dash name rejected as _url", () => {
+  // Craft a URL whose final segment starts with '-'
+  const r = validateCloneUrl("https://github.com/owner/-evil-repo");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_url");
+});
+
+test("validateCloneUrl: crafted slug producing path traversal rejected as _outside", () => {
+  // scp form where the slug's last segment resolves to '..'
+  // parseRemote will parse "host:owner/.." → slug "owner/.." → last segment ".."
+  const r = validateCloneUrl("git@example.com:owner/../escape");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("clonerepo_failed_outside");
+});
+
+test("validateCloneUrl: name with backslash rejected as _outside", () => {
+  // Can only inject a backslash by passing a crafted value — simulate via a slug that would
+  // yield a name containing '\' (backslash is not valid in git repo names, but we guard anyway)
+  // Use the raw validator with a pre-built crafted slug path — the easiest approach is to
+  // directly verify the guard by constructing an impossible but valid-structure URL.
+  // Since we can't force parseRemote to include '\', we test validateCloneUrl returns _url
+  // for a URL that contains backslash (which is not a valid URL character).
+  const r = validateCloneUrl("https://github.com/owner/repo\\evil");
+  expect(r.ok).toBe(false);
+  // Either _url (parseRemote rejects it) or _outside is acceptable
+  if (!r.ok) expect(["clonerepo_failed_url", "clonerepo_failed_outside"]).toContain(r.error);
+});
 
 test("validateSteers normalizes valid entries and assigns missing ids", () => {
   const out = validateSteers([

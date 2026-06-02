@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import { MODELS, type CreateSessionInput, type IssueRef, type Steer } from "./types";
 import { stagingDir } from "./uploads";
+import { parseRemote } from "./forge/remote";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -136,6 +137,51 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   }
   if (new Set(images).size !== images.length) return err("duplicate image paths");
   return field(images);
+}
+
+const CLONE_URL_MAX = 2048;
+
+/**
+ * Validate a clone URL submitted by the user.
+ * Accepts https://, http://, and scp-style git@ URLs that parseRemote can parse.
+ * Derives the target folder name from the last path segment of the slug.
+ * Returns `{ url: trimmedUrl, name }` on success.
+ */
+export function validateCloneUrl(value: unknown): Field<{ url: string; name: string }> {
+  if (typeof value !== "string") return err("clonerepo_failed_url");
+  const url = value.trim();
+  if (url.length === 0 || url.length > CLONE_URL_MAX) return err("clonerepo_failed_url");
+
+  // Only permit http(s):// and scp-style git@ forms; reject ftp://, file://, etc.
+  const isHttps = /^https?:\/\//i.test(url);
+  const isScp = /^[^@]+@[^:/]+:/.test(url) && !url.includes("://");
+  if (!isHttps && !isScp) return err("clonerepo_failed_url");
+
+  const parsed = parseRemote(url);
+  if (parsed === null) return err("clonerepo_failed_url");
+
+  // Reject slugs containing any traversal segment
+  if (parsed.slug.split("/").some((s) => s === "..")) {
+    return err("clonerepo_failed_outside");
+  }
+
+  // Derive folder name from the last segment of the slug (e.g. "owner/repo" → "repo")
+  const segments = parsed.slug.split("/");
+  const last = segments[segments.length - 1] ?? "";
+  // Strip a trailing .git suffix
+  const name = last.replace(/\.git$/i, "").trim();
+
+  if (name.length === 0) return err("clonerepo_failed_url");
+
+  // Reject name-level traversal or separator characters
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+    return err("clonerepo_failed_outside");
+  }
+
+  // Reject names that would become a git flag
+  if (name.startsWith("-")) return err("clonerepo_failed_url");
+
+  return field({ url, name });
 }
 
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */

@@ -293,7 +293,6 @@
   "steerbar_send_failed": "send failed",
   "steerbar_coach_hint": "Tap a chip to steer the agent. Broadcast sends to many at once.",
   "steerbar_coach_dismiss": "Got it",
-  "steerbar_coach_dismiss_aria": "Dismiss steer hint",
   "steerseditor_title": "Saved Steers",
   "steerseditor_label_placeholder": "label",
   "steerseditor_text_placeholder": "prompt text",

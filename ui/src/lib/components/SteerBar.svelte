@@ -74,11 +74,10 @@
 {#if showCoach}
   <div class="coach" data-swipe-ignore>
     <span class="coach-text">{m.steerbar_coach_hint()}</span>
-    <button
-      type="button"
-      class="coach-dismiss"
-      aria-label={m.steerbar_coach_dismiss_aria()}
-      onclick={dismissCoach}>{m.steerbar_coach_dismiss()}</button
+    <!-- No aria-label: the visible "Got it" text is the accessible name, so it
+         stays voice-control addressable (WCAG 2.5.3 label-in-name). -->
+    <button type="button" class="coach-dismiss" onclick={dismissCoach}
+      >{m.steerbar_coach_dismiss()}</button
     >
   </div>
 {/if}

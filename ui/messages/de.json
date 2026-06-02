@@ -293,7 +293,6 @@
   "steerbar_send_failed": "Senden fehlgeschlagen",
   "steerbar_coach_hint": "Tippe einen Chip an, um den Agenten zu steuern. Broadcast sendet an mehrere zugleich.",
   "steerbar_coach_dismiss": "Verstanden",
-  "steerbar_coach_dismiss_aria": "Steer-Hinweis schließen",
   "steerseditor_title": "Gespeicherte Steers",
   "steerseditor_label_placeholder": "Bezeichnung",
   "steerseditor_text_placeholder": "Prompt-Text",

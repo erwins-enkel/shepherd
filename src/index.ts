@@ -28,6 +28,8 @@ import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
 import { listRepos } from "./repos";
+import { DistillerService, defaultScratch } from "./distiller";
+import { attachSignalCapture } from "./signals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -167,6 +169,24 @@ events.subscribe((event, data) => {
   if (event === "session:archived") reviewService.forget((data as { id: string }).id);
 });
 
+// Learnings flywheel: capture block/stall signals, run the distiller on a slow
+// cadence, and surface the proposed-rule count to clients.
+attachSignalCapture(events, store);
+const distiller = new DistillerService({
+  store,
+  herdr,
+  scratch: defaultScratch,
+  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+});
+setInterval(() => void distiller.tick(), 30_000);
+// Daily: prune old signals, then consider a distill per repo with enough recent signal.
+const runDistillSweep = () => {
+  store.pruneSignals(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
+};
+setTimeout(runDistillSweep, 10_000); // once shortly after boot
+setInterval(runDistillSweep, 24 * 60 * 60 * 1000);
+
 // recompute live limit % from local JSONL ~every 30s; push to clients
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
@@ -246,6 +266,7 @@ const server = serve(
       reviewing: () => reviewService.reviewingIds(),
     },
     backlog,
+    distiller,
   },
   config.port,
 );

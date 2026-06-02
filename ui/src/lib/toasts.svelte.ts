@@ -18,6 +18,14 @@ interface Toast {
   undoLabel?: string;
   /** Window length, fed to the depleting-bar animation (undo toasts only). */
   durationMs?: number;
+  /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
+  actionLabel?: string;
+}
+
+interface InfoOpts {
+  duration?: number;
+  /** An inline action button (e.g. Retry on a failed operation). */
+  action?: { label: string; run: () => void };
 }
 
 interface UndoOpts {
@@ -38,17 +46,26 @@ class ToastStore {
   #timers = new Map<number, ReturnType<typeof setTimeout>>();
   #commits = new Map<number, () => void | Promise<void>>();
   #undos = new Map<number, () => void>();
+  #actions = new Map<number, () => void>();
   #keyed = new Map<string, number>();
 
   /** Transient confirmation; auto-dismisses after `duration` ms. */
-  info(text: string, duration = 4000): number {
+  info(text: string, opts: InfoOpts = {}): number {
     const id = ++this.#seq;
-    this.items = [...this.items, { id, tone: "info", text }];
+    this.items = [...this.items, { id, tone: "info", text, actionLabel: opts.action?.label }];
+    if (opts.action) this.#actions.set(id, opts.action.run);
     this.#timers.set(
       id,
-      setTimeout(() => this.#drop(id), duration),
+      setTimeout(() => this.#drop(id), opts.duration ?? 4000),
     );
     return id;
+  }
+
+  /** Inline action (e.g. Retry) pressed on an info toast: run it and dismiss. */
+  act(id: number): void {
+    const run = this.#actions.get(id);
+    this.#drop(id);
+    run?.();
   }
 
   /** Deferred destructive action with an undo window; commits on expiry. */
@@ -113,6 +130,7 @@ class ToastStore {
     this.#clearTimer(id);
     this.#commits.delete(id);
     this.#undos.delete(id);
+    this.#actions.delete(id);
     for (const [k, v] of this.#keyed) if (v === id) this.#keyed.delete(k);
     this.items = this.items.filter((t) => t.id !== id);
   }

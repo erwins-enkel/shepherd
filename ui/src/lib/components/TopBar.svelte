@@ -226,7 +226,7 @@
           : m.updatemodal_commits_other()}"
       >
         <span class="up-dot">▲</span>
-        {#if !mobile}<span class="up-label">Update</span>{/if}
+        {#if !mobile}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
         <span class="up-n">{update!.behind}</span>
       </button>
     {/if}

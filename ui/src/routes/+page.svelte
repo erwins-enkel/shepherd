@@ -249,11 +249,14 @@
       },
       onCommit: async () => {
         // server stops the agent, removes the worktree, emits session:archived
-        // (store drops the row); a failure surfaces but leaves the row intact.
+        // (store drops the row); a failure surfaces with a Retry that re-defers
+        // the same decommission, so the row never dead-ends.
         try {
           await archiveSession(id, reap);
         } catch {
-          toasts.info(m.toast_decommission_failed({ name }));
+          toasts.info(m.toast_decommission_failed({ name }), {
+            action: { label: m.common_retry(), run: () => onarchive(id, reap) },
+          });
         }
       },
     });
@@ -394,6 +397,8 @@
           viewMode = "focus";
         }}
         onnew={() => (showNew = true)}
+        {standardCommandUnset}
+        onsettings={() => (showSettings = true)}
       />
     </div>
   {:else}

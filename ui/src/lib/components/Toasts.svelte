@@ -14,6 +14,11 @@
             <span class="bar" style="--ms:{t.durationMs}ms" aria-hidden="true"></span>
           </button>
         {:else}
+          {#if t.actionLabel}
+            <button type="button" class="undo" onclick={() => toasts.act(t.id)}>
+              {t.actionLabel}
+            </button>
+          {/if}
           <button
             type="button"
             class="x"

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import type { Session, ReviewVerdict } from "./types";
+import type { Session, ReviewVerdict, Signal, SignalKind } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
 export interface RepoConfig {
@@ -82,6 +82,10 @@ export class SessionStore implements CapStore {
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
       url TEXT, updatedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS signals (
+      id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
+      kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS signals_repo_ts ON signals (repoPath, ts)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -332,6 +336,48 @@ export class SessionStore implements CapStore {
     const out: Record<string, ReviewVerdict> = {};
     for (const r of rows) out[r.sessionId] = this.hydrateReview(r);
     return out;
+  }
+
+  // ── learning signals ─────────────────────────────────────────────────────────
+  addSignal(input: {
+    repoPath: string;
+    sessionId: string | null;
+    kind: SignalKind;
+    payload: string;
+  }): Signal {
+    const sig: Signal = {
+      id: randomUUID(),
+      repoPath: input.repoPath,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      payload: input.payload,
+      ts: Date.now(),
+    };
+    this.db.run(
+      `INSERT INTO signals (id, repoPath, sessionId, kind, payload, ts) VALUES (?,?,?,?,?,?)`,
+      [sig.id, sig.repoPath, sig.sessionId, sig.kind, sig.payload, sig.ts],
+    );
+    return sig;
+  }
+
+  listSignals(repoPath: string, opts?: { sinceTs?: number; limit?: number }): Signal[] {
+    const since = opts?.sinceTs ?? 0;
+    const limit = opts?.limit ?? 1000;
+    const rows = this.db
+      .query(
+        `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
+         WHERE repoPath = ? AND ts >= ? ORDER BY ts DESC LIMIT ?`,
+      )
+      .all(repoPath, since, limit) as Signal[];
+    return rows;
+  }
+
+  pruneSignals(beforeTs: number): number {
+    const n = (
+      this.db.query(`SELECT COUNT(*) AS c FROM signals WHERE ts < ?`).get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM signals WHERE ts < ?`, [beforeTs]);
+    return n;
   }
 
   private hydrate(r: any): Session {

@@ -216,6 +216,135 @@ const STOPWORDS = new Set([
   "make",
   "add",
   "fix",
+  // Sentence-frame words prose leans on but that name nothing — "could you TAKE a
+  // look WHERE…", "KOENNTEST du…". Always dropped; they carry no topic anywhere.
+  "take",
+  "why",
+  "where",
+  "weird",
+  "after",
+  "every",
+  "keep",
+  "keeps",
+  "very",
+  "really",
+  "warum",
+  "waere",
+  "koenntest",
+  "koennten",
+  "wollte",
+  "sollten",
+  "schauen",
+]);
+
+// Frequent-but-dull words: on-topic enough to keep when nothing better exists,
+// but they lose to more *specific* terms. Unlike STOPWORDS (always dropped),
+// COMMON words are dropped only when at least one specific word survives — so a
+// prose prompt names its distinctive subject ("export", not "button"; "scrollen",
+// not "geht") while an all-common prompt ("make the button nice") still gets a name.
+const COMMON = new Set([
+  // English — generic UI / filler / hedging vocabulary
+  "button",
+  "page",
+  "list",
+  "item",
+  "items",
+  "thing",
+  "things",
+  "app",
+  "screen",
+  "view",
+  "change",
+  "new",
+  "old",
+  "show",
+  "display",
+  "need",
+  "needs",
+  "want",
+  "wanted",
+  "like",
+  "nice",
+  "little",
+  "bit",
+  "more",
+  "less",
+  "better",
+  "good",
+  "bad",
+  "maybe",
+  "wonder",
+  "wondering",
+  "try",
+  "trying",
+  "get",
+  "got",
+  "use",
+  "using",
+  "used",
+  "way",
+  "ways",
+  "user",
+  "users",
+  "click",
+  "stuff",
+  "kind",
+  "sort",
+  "actually",
+  "basically",
+  "somehow",
+  "able",
+  "feature",
+  "option",
+  "options",
+  "top",
+  "bottom",
+  "lot",
+  "much",
+  // German — generic UI / filler / hedging vocabulary
+  "machen",
+  "macht",
+  "gemacht",
+  "gehen",
+  "geht",
+  "seite",
+  "seiten",
+  "knopf",
+  "liste",
+  "listen",
+  "sachen",
+  "irgendwie",
+  "vielleicht",
+  "schoen",
+  "schoener",
+  "besser",
+  "klein",
+  "gross",
+  "neu",
+  "anzeigen",
+  "zeigen",
+  "ansicht",
+  "brauche",
+  "brauchen",
+  "irgendwo",
+  "ding",
+  "dinge",
+  "stelle",
+  "funktioniert",
+  "funktion",
+  "moeglich",
+  "wirklich",
+  "ziemlich",
+  "bisschen",
+  "eher",
+  "richtig",
+  "oben",
+  "unten",
+  "links",
+  "rechts",
+  "teil",
+  "zusammen",
+  "mehr",
 ]);
 
 function transliterate(s: string): string {
@@ -243,12 +372,14 @@ export function slugifyManual(input: string): string {
 
 /**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.
- * Transliterates accents, strips filler words, and keeps the first 1–3 topical
- * words — so the name reads like a marker ("scrollen-mausrad-geht") rather than
- * the raw opening of a sentence. Three words (vs two) markedly lowers the chance
- * two distinct prompts collide on the same slug. Falls back to the raw words if
- * filtering wiped everything (a prompt made entirely of stopwords), and to "" if
- * truly empty.
+ * Transliterates accents, drops stopwords, then selects by *specificity* rather
+ * than position: the distinctive words win wherever they sit in the sentence, so
+ * prose names its subject ("export-obvious") instead of the dull opening words a
+ * positional namer would grab ("wondering-maybe-export"). Common-but-dull words
+ * are kept only when nothing more specific survives. Keeps reading order so a
+ * multi-word subject stays contiguous, and caps at 4 words (which lowers slug
+ * collisions on verbose prompts). Falls back to the raw words if the stopword
+ * filter wiped everything, and to "" if truly empty.
  */
 export function normalize(s: string): string {
   const words = transliterate(s)
@@ -257,8 +388,16 @@ export function normalize(s: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  const meaningful = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
-  return (meaningful.length ? meaningful : words).slice(0, 3).join("-");
+  const survivors = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
+  // Nothing topical survived (a prompt made entirely of stopwords) — keep the raw
+  // opening words rather than emit an empty slug.
+  if (!survivors.length) return words.slice(0, 4).join("-");
+  // Prefer specific words; drop the merely-common ones unless they're all we have.
+  const specific = survivors.filter((w) => !COMMON.has(w));
+  const kept = specific.length ? specific : survivors;
+  const seen = new Set<string>();
+  const unique = kept.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
+  return unique.slice(0, 4).join("-");
 }
 
 /**

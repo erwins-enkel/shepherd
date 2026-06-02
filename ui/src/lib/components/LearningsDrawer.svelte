@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import type { Learning } from "$lib/types";
   import { basename, groupByRepo } from "./learnings-drawer";
@@ -29,7 +30,14 @@
   const groups = $derived(groupByRepo(items));
 </script>
 
-<aside class="drawer" transition:fly={slide} aria-label={m.learnings_title()}>
+<div
+  class="drawer"
+  role="dialog"
+  aria-modal="true"
+  aria-label={m.learnings_title()}
+  use:dialog={{ onclose }}
+  transition:fly={slide}
+>
   <header class="bar">
     <span class="title">{m.learnings_title()}</span>
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
@@ -77,7 +85,7 @@
       </section>
     {/each}
   {/if}
-</aside>
+</div>
 
 <style>
   .drawer {

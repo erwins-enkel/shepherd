@@ -36,6 +36,7 @@
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
+  import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
@@ -514,7 +515,10 @@
         dismissLearning(id)
           .then(() => learnings.load())
           .catch(() => {})}
-      ondistill={(repoPath) => distillRepo(repoPath).catch(() => {})}
+      ondistill={(repoPath) =>
+        distillRepo(repoPath)
+          .then(() => toasts.info(m.learnings_distill_started({ repo: basename(repoPath) })))
+          .catch(() => {})}
       onclose={() => (showLearnings = false)}
     />
   {/if}

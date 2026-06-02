@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.6.0](https://github.com/erwins-enkel/shepherd/compare/v1.5.0...v1.6.0) (2026-06-02)
+
+
+### Features
+
+* detect & terminate leftover subprocesses on session close ([#89](https://github.com/erwins-enkel/shepherd/issues/89)) ([#163](https://github.com/erwins-enkel/shepherd/issues/163)) ([8b2c396](https://github.com/erwins-enkel/shepherd/commit/8b2c396d9684205b5a9730fc471a667a5cfc746e))
+* **onboard:** first-run empty-herd state + standard-command nudge ([#190](https://github.com/erwins-enkel/shepherd/issues/190)) ([7c33f03](https://github.com/erwins-enkel/shepherd/commit/7c33f039eadcdec7967a4b241f952a6ad012b0ee))
+* **ui:** harden destructive actions with confirm + undo toasts ([#185](https://github.com/erwins-enkel/shepherd/issues/185)) ([b384842](https://github.com/erwins-enkel/shepherd/commit/b384842ebb47bec5bd7033bade21d990a81dde2e))
+* **viewport:** group desktop git rail behind a PR disclosure ([#188](https://github.com/erwins-enkel/shepherd/issues/188)) ([5d6073b](https://github.com/erwins-enkel/shepherd/commit/5d6073b9a1789006ccd018076de82e2a7a695197))
+* **viewport:** tappable pulsing "add notes" key on mobile control row ([#180](https://github.com/erwins-enkel/shepherd/issues/180)) ([fbeeea5](https://github.com/erwins-enkel/shepherd/commit/fbeeea57c7de9e041f36216f111b3e55a8f65953))
+
+
+### Bug Fixes
+
+* **badge:** lead MERGED badge with checkmark to match siblings ([#176](https://github.com/erwins-enkel/shepherd/issues/176)) ([1bd64fe](https://github.com/erwins-enkel/shepherd/commit/1bd64fed5748fd28eeaa38de6c172b5148b44fdd))
+* **gitrail:** wrap markdown review findings (no horizontal scroll) ([#183](https://github.com/erwins-enkel/shepherd/issues/183)) ([cc5e3b2](https://github.com/erwins-enkel/shepherd/commit/cc5e3b2714d0fdd7b07623a16b0eab0ddf29d738))
+* **herdr:** close tab on teardown + reap orphan helper tabs ([#186](https://github.com/erwins-enkel/shepherd/issues/186)) ([b4e94c3](https://github.com/erwins-enkel/shepherd/commit/b4e94c3d8d592ff4157940bd6993941be17606a2))
+* **motion:** keep work-happening pulses under prefers-reduced-motion ([#191](https://github.com/erwins-enkel/shepherd/issues/191)) ([d083710](https://github.com/erwins-enkel/shepherd/commit/d083710f396d1fc8cb1eb5d4e3936187eaeddab8))
+* **reaper:** don't flag shepherd server itself on session close ([#89](https://github.com/erwins-enkel/shepherd/issues/89)) ([#184](https://github.com/erwins-enkel/shepherd/issues/184)) ([b964659](https://github.com/erwins-enkel/shepherd/commit/b964659100062d09c0181af2a42df2d15705f6f3))
+* **steerbar:** reliable gap between 📡 and broadcast label ([#178](https://github.com/erwins-enkel/shepherd/issues/178)) ([af64803](https://github.com/erwins-enkel/shepherd/commit/af64803a5fb063d35e2692e8ab6dc918e5e42afd))
+* **topbar:** hide clock time on unfolded foldable when update badge shown ([#175](https://github.com/erwins-enkel/shepherd/issues/175)) ([7363e96](https://github.com/erwins-enkel/shepherd/commit/7363e9613e1b663ef1a685ebbd8b7c1e000a4c98))
+* **topbar:** route self-update badge title through m.* (i18n) ([#179](https://github.com/erwins-enkel/shepherd/issues/179)) ([779a831](https://github.com/erwins-enkel/shepherd/commit/779a83132333079949ccfce3c9dda7e68993fbcc))
+* **ui:** actionable error states + inline retry for git/task/broadcast ([#189](https://github.com/erwins-enkel/shepherd/issues/189)) ([3ec900c](https://github.com/erwins-enkel/shepherd/commit/3ec900c9d417856fce0dcdd8038899df706a906d))
+* **usage-probe:** reap leftover herdr tabs so probes don't leak ([#182](https://github.com/erwins-enkel/shepherd/issues/182)) ([94f43b1](https://github.com/erwins-enkel/shepherd/commit/94f43b120a8dda524aff7e875ab4e7ac1fd926b7))
+* **viewport:** let bottom button bars scroll without triggering agent swipe ([#171](https://github.com/erwins-enkel/shepherd/issues/171)) ([286bcf3](https://github.com/erwins-enkel/shepherd/commit/286bcf367168ee22b93ad394834a466acc4530d8))
+
+
+### Performance Improvements
+
+* **topbar:** drive gauge fill via scaleX instead of width ([#187](https://github.com/erwins-enkel/shepherd/issues/187)) ([af9ce75](https://github.com/erwins-enkel/shepherd/commit/af9ce75db92c3588f75bd12ea41a0ae4f32fbf33))
+
+
+### Documentation
+
+* add impeccable PRODUCT.md + DESIGN.md design context ([#181](https://github.com/erwins-enkel/shepherd/issues/181)) ([b9b8cc8](https://github.com/erwins-enkel/shepherd/commit/b9b8cc89b4dd52c208cf54f6f9609faff424f2b8))
+
 ## [1.5.0](https://github.com/erwins-enkel/shepherd/compare/v1.4.0...v1.5.0) (2026-06-01)
 
 

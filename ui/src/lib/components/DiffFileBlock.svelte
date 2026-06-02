@@ -32,7 +32,11 @@
       .then((h) => {
         if (alive) html = h;
       })
-      .catch(() => {});
+      .catch((err) => {
+        // Highlighting is progressive enhancement — fall back to the plain diff,
+        // but surface the failure so a broken Shiki load isn't silent.
+        console.warn("diff syntax highlighting failed", err);
+      });
     return () => {
       alive = false;
     };

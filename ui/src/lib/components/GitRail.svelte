@@ -186,7 +186,11 @@
         if (alive)
           renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
       })
-      .catch(() => {});
+      .catch((err) => {
+        // Markdown render is progressive enhancement; warn so a broken
+        // marked/dompurify load isn't swallowed silently.
+        console.warn("PR body markdown render failed", err);
+      });
     return () => {
       alive = false;
     };

@@ -227,6 +227,7 @@
   const hasSessions = $derived(store.sessions.length > 0);
   $effect(() => {
     if (!hasSessions) return;
+    nowMs = Date.now(); // refresh on the empty→non-empty flip so the first frame isn't up to 1s stale
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => clearInterval(t);
   });

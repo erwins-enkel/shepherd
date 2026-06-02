@@ -269,6 +269,12 @@ export class SessionService {
   reply(id: string, text: string): boolean {
     const s = this.deps.store.get(id);
     if (!s) return false;
+    this.deps.store.addSignal({
+      repoPath: s.repoPath,
+      sessionId: s.id,
+      kind: "reply",
+      payload: text,
+    });
     this.deps.herdr.send(s.herdrAgentId, text);
     this.deps.herdr.send(s.herdrAgentId, "\r");
     return true;

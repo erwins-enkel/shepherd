@@ -11,9 +11,14 @@ import type { Leftover, ProcessReaper } from "./process-reaper";
 
 export interface ServiceDeps {
   store: SessionStore;
-  worktree: Pick<WorktreeMgr, "create" | "remove" | "renameBranch" | "branchExists">;
-  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send">;
+  worktree: Pick<
+    WorktreeMgr,
+    "create" | "remove" | "renameBranch" | "branchExists" | "commitsAhead"
+  >;
+  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel">;
   namer: (prompt: string) => string | Promise<string>;
+  /** Background namer: comprehends the prompt into a slug (null = keep heuristic). Absent → no refine. */
+  refineName?: (args: { taskText: string; label: string }) => Promise<string | null>;
   /** Event bus for live state pushes (e.g. session:ready); absent in tests that skip it. */
   events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs move. */
@@ -65,7 +70,7 @@ export class SessionService {
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
-      return this.deps.store.create({
+      const session = this.deps.store.create({
         name,
         prompt: input.prompt, // store the original user text, not the argv-augmented version
         repoPath: input.repoPath,
@@ -78,6 +83,8 @@ export class SessionService {
         claudeSessionId,
         model: input.model,
       });
+      this.scheduleRefine(session, herdSlug);
+      return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error
       if (wt.isolated) {
@@ -136,6 +143,42 @@ export class SessionService {
       const candidate = `${base}-${i}`;
       if (!taken.has(candidate)) return candidate;
     }
+  }
+
+  /** Kick off the background name refine without blocking create(). No-op when disabled. */
+  private scheduleRefine(session: Session, herd?: string): void {
+    if (!config.llmNaming || !this.deps.refineName) return;
+    void this.refineNameInBackground(session, herd).catch((err) =>
+      console.warn(`[namer] refine failed for ${session.id}:`, err),
+    );
+  }
+
+  /**
+   * Ask the LLM namer to comprehend the prompt, then — if it yields a *different*,
+   * collision-resolved slug — rename the session (display name always; local branch
+   * only while nothing has been committed yet) and relabel the herdr agent/tab.
+   * Emits session:renamed so every client patches the row live.
+   */
+  private async refineNameInBackground(session: Session, herd?: string): Promise<void> {
+    const raw = await this.deps.refineName!({
+      taskText: session.prompt,
+      label: `name ${session.desig}`,
+    });
+    if (!raw) return;
+    const slug = this.uniqueName(raw, herd);
+    if (slug === session.name) return;
+    const safe =
+      session.isolated &&
+      !!session.branch &&
+      this.deps.worktree.commitsAhead(session.repoPath, session.baseBranch, session.branch) === 0;
+    const updated = this.rename(session.id, slug, { renameLocalBranch: safe });
+    if (!updated) return;
+    this.deps.herdr.relabel(session.herdrAgentId, slug);
+    this.deps.events?.emit("session:renamed", {
+      id: updated.id,
+      name: updated.name,
+      branch: updated.branch,
+    });
   }
 
   /**

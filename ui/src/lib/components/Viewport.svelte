@@ -883,7 +883,6 @@
     style:background={tintColor
       ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
       : undefined}
-    style:box-shadow={tintColor ? `inset 2px 0 0 0 ${tintColor}` : undefined}
   >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
@@ -1311,26 +1310,27 @@
     overflow: visible;
   }
 
-  /* running: a faint amber wash + a slow-breathing left edge. Lower intensity
-     than the saturated blocked/done tint so it reads as ambient "still busy",
-     never as an alert. Only applies when no saturated tint is present. */
+  /* running: a faint amber wash that slowly breathes in intensity. Lower
+     chroma than the saturated blocked/done tint so it reads as ambient
+     "still busy", never as an alert. Only applies when no saturated tint is
+     present. Status is carried by the background tint alone — no side stripe. */
   .vp-head.working {
-    background: color-mix(in srgb, var(--color-amber) 5%, var(--color-head));
+    background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
     animation: vp-working-pulse 2.4s ease-in-out infinite;
   }
   @keyframes vp-working-pulse {
     0%,
     100% {
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 28%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
     }
     50% {
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 64%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 9%, var(--color-head));
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .vp-head.working {
       animation: none;
-      box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--color-amber) 45%, transparent);
+      background: color-mix(in srgb, var(--color-amber) 7%, var(--color-head));
     }
   }
 

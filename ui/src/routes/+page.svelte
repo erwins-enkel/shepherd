@@ -557,7 +557,7 @@
   /* touch devices on the desktop layout (e.g. unfolded foldables): the picker
      would otherwise eat too much of a narrow-ish wide screen */
   .grid.compact {
-    grid-template-columns: minmax(220px, 260px) 1fr;
+    grid-template-columns: minmax(244px, 288px) 1fr;
     gap: 10px;
   }
   .grid-all {

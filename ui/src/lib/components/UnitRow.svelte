@@ -136,10 +136,11 @@
         <span class="badge">{statusLabel(session.status)}</span>
       {/if}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
-      <span class="meta"
-        ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
-      >
     </div>
+
+    <span class="meta"
+      ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+    >
   </button>
 {/snippet}
 
@@ -176,7 +177,14 @@
     position: relative;
     display: grid;
     grid-template-columns: 14px 1fr auto;
-    gap: 12px;
+    /* meta (desig · session) drops to a full-width footer row so it no longer
+       fights the name for horizontal space — on a compact sidebar the right
+       rail used to win and crush the name to an ellipsis stub */
+    grid-template-areas:
+      "pip main right"
+      "pip meta meta";
+    column-gap: 12px;
+    row-gap: 3px;
     align-items: start;
     padding: 11px 13px 11px 14px;
     border: 1px solid transparent;
@@ -284,12 +292,14 @@
   }
 
   .pip-col {
+    grid-area: pip;
     display: flex;
     align-items: flex-start;
     padding-top: 5px;
   }
 
   .u-main {
+    grid-area: main;
     min-width: 0;
   }
 
@@ -357,6 +367,7 @@
   }
 
   .u-right {
+    grid-area: right;
     text-align: right;
     display: flex;
     flex-direction: column;
@@ -383,8 +394,13 @@
   }
 
   .meta {
+    grid-area: meta;
+    min-width: 0;
     color: var(--color-muted);
     font-size: 11.5px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   /* the task designation is metadata, not the human marker — demoted to the
      quietest spot, the bottom-right meta line, next to the herdr session */
@@ -396,6 +412,19 @@
   @media (max-width: 768px) {
     .unit {
       min-height: 44px;
+    }
+  }
+
+  /* Compact sidebar (touch foldables, narrow picker): the meta footer already
+     frees the name from the right rail; here we trade the 2nd prompt line for
+     density so more agents stay visible without the card growing taller. */
+  @container herd (max-width: 300px) {
+    .unit {
+      column-gap: 9px;
+    }
+    .u-sub {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
     }
   }
 </style>

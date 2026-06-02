@@ -11,6 +11,7 @@
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
+  import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
   import { onDestroy } from "svelte";
@@ -97,12 +98,17 @@
   });
 
   const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
+
+  // Decommission is deferred behind an undo window: while it's open, the row is
+  // doomed-but-still-present. Dim it so the operator sees it's on its way out.
+  const decommissioning = $derived(toasts.pendingUndo(session.id));
 </script>
 
 {#snippet row()}
   <button
     class="unit"
     class:sel={selected}
+    class:decommissioning
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
     onclick={() => onselect(session.id)}
     type="button"
@@ -195,6 +201,13 @@
     font: inherit;
     text-align: left;
     width: 100%;
+    transition: opacity 0.18s ease;
+  }
+
+  /* deferred decommission: row is doomed but still listed during the undo
+     window — fade it so it visibly recedes; restored instantly on UNDO */
+  .unit.decommissioning {
+    opacity: 0.4;
   }
 
   :global(.unit + .unit),

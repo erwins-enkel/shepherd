@@ -596,12 +596,16 @@
   }
   /* Primary landmark wrapping the herd/viewport content. Transparent to the
      flex layout: it fills the shell column and lets its own child (.col /
-     .grid / .grid-all) keep flexing exactly as before the <main> wrapper. */
+     .grid / .grid-all) keep flexing exactly as before the <main> wrapper.
+     gap:inherit takes .shell's computed gap (14px desktop, 10px mobile) so the
+     mobile list column + bottom ActionBar keep the spacing they had as direct
+     shell children; no-op where the region holds a single child. */
   .main-region {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    gap: inherit;
   }
 
   .shell.mobile {

@@ -103,7 +103,7 @@
   "herd_all_hint": "▦ All",
   "herd_ready_filter": "▤ Ready",
   "herd_ready_empty": "Nothing waiting. All hands working",
-  "herd_pr_running_group": "PR running ({count})",
+  "herd_ci_running_group": "CI running ({count})",
   "herd_reviewer_running_group": "Reviewing ({count})",
   "herd_ready_group": "Ready to merge ({count})",
   "herd_merged_group": "Merged ({count})",

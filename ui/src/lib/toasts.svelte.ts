@@ -18,6 +18,8 @@ interface Toast {
   undoLabel?: string;
   /** Window length, fed to the depleting-bar animation (undo toasts only). */
   durationMs?: number;
+  /** Dedupe key (undo toasts only); also lets the UI find the deferred target. */
+  key?: string;
   /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
   actionLabel?: string;
 }
@@ -86,7 +88,7 @@ class ToastStore {
     const id = ++this.#seq;
     this.items = [
       ...this.items,
-      { id, tone: "undo", text, undoLabel: opts.undoLabel, durationMs: duration },
+      { id, tone: "undo", text, undoLabel: opts.undoLabel, durationMs: duration, key: opts.key },
     ];
     this.#commits.set(id, opts.onCommit);
     if (opts.onUndo) this.#undos.set(id, opts.onUndo);
@@ -105,6 +107,11 @@ class ToastStore {
   /** Dismiss an info toast (no commit attached). */
   close(id: number): void {
     this.#drop(id);
+  }
+
+  /** Is a destructive action against `key` currently deferred in its undo window? */
+  pendingUndo(key: string): boolean {
+    return this.items.some((t) => t.tone === "undo" && t.key === key);
   }
 
   #arm(id: number, duration: number) {

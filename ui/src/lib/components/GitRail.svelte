@@ -28,6 +28,8 @@
   let git = $state<GitState | null>(null);
   let busy = $state(false);
   let err = $state<string | null>(null);
+  // which handler last failed, so the inline Retry re-invokes the same action
+  let retry = $state<(() => void) | null>(null);
 
   // Open-PR popover
   let showPr = $state(false);
@@ -66,6 +68,7 @@
     const id = sessionId;
     git = null;
     err = null;
+    retry = null;
     armed = null;
     showPr = false;
     showReview = false;
@@ -83,6 +86,7 @@
     showPr = true;
     showReview = false; // one popover at a time
     err = null;
+    retry = null;
   }
 
   function toggleReview() {
@@ -98,9 +102,16 @@
     if (showReview && wrapEl && !wrapEl.contains(e.target as Node)) showReview = false;
   }
 
+  // server message, when meaningful, becomes the {reason} clause; otherwise a generic fallback
+  function reason(e: unknown, fallback: string): string {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return msg || fallback;
+  }
+
   async function submitPr() {
     busy = true;
     err = null;
+    retry = null;
     try {
       git = {
         kind: git?.kind ?? "github",
@@ -108,33 +119,45 @@
       };
       showPr = false;
     } catch (e) {
-      err = e instanceof Error ? e.message : "open PR failed";
+      err = m.gitrail_open_pr_failed({ reason: reason(e, m.gitrail_open_pr()) });
+      retry = submitPr;
     } finally {
       busy = false;
     }
   }
 
-  async function doMerge() {
-    if (!arm("merge")) return;
+  // skipArm lets the inline Retry re-run a confirmed action without a second arm tap
+  async function doMerge(skipArm = false) {
+    if (!skipArm && !arm("merge")) return;
     busy = true;
     err = null;
+    retry = null;
     try {
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
     } catch (e) {
-      err = e instanceof Error ? e.message : "merge failed";
+      // prefer the known local cause over a raw server string
+      err =
+        git?.checks === "failure"
+          ? m.gitrail_merge_failed_checks()
+          : git?.mergeable === false
+            ? m.gitrail_merge_failed_unmergeable()
+            : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
+      retry = () => doMerge(true);
     } finally {
       busy = false;
     }
   }
 
-  async function doRedeploy() {
-    if (!arm("redeploy")) return;
+  async function doRedeploy(skipArm = false) {
+    if (!skipArm && !arm("redeploy")) return;
     busy = true;
     err = null;
+    retry = null;
     try {
       await redeploy(sessionId);
     } catch (e) {
-      err = e instanceof Error ? e.message : "redeploy failed";
+      err = m.gitrail_redeploy_failed({ reason: reason(e, m.gitrail_redeploy()) });
+      retry = () => doRedeploy(true);
     } finally {
       busy = false;
     }
@@ -201,7 +224,7 @@
           class:armed={armed === "merge"}
           type="button"
           disabled={mergeBlocked}
-          onclick={doMerge}
+          onclick={() => doMerge()}
         >
           {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
         </button>
@@ -213,7 +236,7 @@
             class:armed={armed === "redeploy"}
             type="button"
             disabled={busy}
-            onclick={doRedeploy}
+            onclick={() => doRedeploy()}
           >
             {armed === "redeploy" ? m.gitrail_confirm_redeploy() : m.gitrail_redeploy()}
           </button>
@@ -265,7 +288,14 @@
         </button>
       {/if}
 
-      {#if err}<span class="err" title={err}>{err}</span>{/if}
+      {#if err}
+        <span class="err" title={err}>{err}</span>
+        {#if retry}
+          <button class="gbtn" type="button" disabled={busy} onclick={() => retry?.()}
+            >{m.common_retry()}</button
+          >
+        {/if}
+      {/if}
     </span>
 
     {#if showPr}

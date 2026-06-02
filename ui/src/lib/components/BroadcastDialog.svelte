@@ -11,6 +11,7 @@
   let text = $state("");
   let sending = $state(false);
   let result = $state<string | null>(null);
+  let failed = $state(false);
 
   const allSelected = $derived(sessions.length > 0 && selected.size === sessions.length);
   const canSend = $derived(text.trim().length > 0 && selected.size > 0 && !sending);
@@ -31,12 +32,14 @@
     if (!canSend) return;
     sending = true;
     result = null;
+    failed = false;
     try {
       const r = await apiBroadcast(text.trim(), [...selected]);
       result = m.broadcast_result_sent({ sent: r.sent, total: r.total });
       setTimeout(onclose, 800);
     } catch {
       result = m.broadcast_failed();
+      failed = true;
       sending = false;
     }
   }
@@ -89,7 +92,16 @@
     </div>
     <textarea bind:value={text} rows="2" placeholder={m.broadcast_placeholder()}></textarea>
 
-    {#if result}<div class="result">{result}</div>{/if}
+    {#if result}
+      <div class="result" class:failed>
+        <span>{result}</span>
+        {#if failed}
+          <button type="button" class="retry" disabled={!canSend} onclick={send}
+            >{m.common_retry()}</button
+          >
+        {/if}
+      </div>
+    {/if}
 
     <button class="run" type="button" disabled={!canSend} onclick={send}>
       {sending ? m.broadcast_sending() : m.broadcast_send_to({ count: selected.size })}
@@ -206,6 +218,31 @@
   .result {
     color: var(--color-amber);
     font-size: 11.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .result.failed {
+    color: var(--color-red);
+  }
+  .retry {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font: inherit;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .retry:hover:not(:disabled) {
+    border-color: var(--color-amber);
+  }
+  .retry:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .run {
     margin-top: 4px;

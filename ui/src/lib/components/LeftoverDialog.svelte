@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
   import type { Leftover } from "$lib/types";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -33,7 +34,13 @@
     if (e.target === e.currentTarget) onclose();
   }}
 >
-  <div class="card" role="dialog" aria-modal="true" aria-label={m.leftover_title()}>
+  <div
+    class="card"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.leftover_title()}
+    use:dialog={{ onclose }}
+  >
     <div class="chead">
       <span class="micro">{m.leftover_title()}</span>
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>

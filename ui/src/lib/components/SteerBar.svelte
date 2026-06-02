@@ -72,7 +72,7 @@
       onpointerup={(e) => tap(e, () => send(s.text))}>{s.label}</button
     >
   {/each}
-  {#if flash}<span class="flash">{flash}</span>{/if}
+  {#if flash}<span class="flash" role="alert">{flash}</span>{/if}
 </div>
 
 <style>

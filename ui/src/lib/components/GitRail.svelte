@@ -291,7 +291,7 @@
       {/if}
 
       {#if err}
-        <span class="err" title={err}>{err}</span>
+        <span class="err" role="alert" title={err}>{err}</span>
         {#if retry}
           <button class="gbtn" type="button" disabled={busy} onclick={() => retry?.()}
             >{m.common_retry()}</button
@@ -306,11 +306,13 @@
           class="pr-title"
           bind:value={prTitle}
           placeholder={m.gitrail_pr_title_placeholder()}
+          aria-label={m.gitrail_pr_title_aria()}
         />
         <textarea
           class="pr-body"
           bind:value={prBody}
           placeholder={m.gitrail_pr_description_placeholder()}
+          aria-label={m.gitrail_pr_body_aria()}
           rows="4"
         ></textarea>
         <div class="pr-actions">

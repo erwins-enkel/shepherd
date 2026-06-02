@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { UpdateStatus, DeployState } from "$lib/types";
   import { applyUpdate } from "$lib/api";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -53,7 +54,13 @@
     if (e.target === e.currentTarget && !busy) onclose?.();
   }}
 >
-  <div class="card bracket">
+  <div
+    class="card bracket"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.updatemodal_available()}
+    use:dialog={{ onclose: () => !busy && onclose?.() }}
+  >
     <div class="chead">
       <span class="micro">{m.updatemodal_available()}</span>
       {#if !busy}
@@ -90,11 +97,11 @@
     </div>
 
     {#if busy}
-      <div class="status">{m.updatemodal_status()}</div>
+      <div class="status" aria-live="polite">{m.updatemodal_status()}</div>
     {/if}
     {#if liveLog}
       <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
-      <pre class="log">{liveLog}</pre>
+      <pre class="log" aria-live="polite">{liveLog}</pre>
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 

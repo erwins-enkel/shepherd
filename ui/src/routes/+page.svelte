@@ -337,9 +337,73 @@
     />
   {/if}
 
-  {#if mobile.current}
-    {#if mobileScreen === "list"}
-      <div class="col">
+  <main id="main-content" class="main-region">
+    {#if mobile.current}
+      {#if mobileScreen === "list"}
+        <div class="col">
+          <Herd
+            sessions={store.sessions}
+            {selectedId}
+            {nowMs}
+            onselect={(id) => selectUnit(id)}
+            onnew={() => (showNew = true)}
+            git={store.git}
+            ondecommission={onarchive}
+            {standardCommandUnset}
+            onsettings={() => (showSettings = true)}
+          />
+          {#if store.sessions.length === 0}
+            <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} />
+          {/if}
+        </div>
+        <ActionBar
+          onnew={() => (showNew = true)}
+          onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+          mobile={mobile.current}
+        />
+      {:else if selected}
+        <div class="col">
+          <Viewport
+            session={selected}
+            mobile={mobile.current}
+            connected={store.connected}
+            limits={store.usageLimits}
+            git={store.git[selected.id]}
+            queue={blockedEntries.map((e) => e.session.id)}
+            switchOrder={store.sessions.map((s) => s.id)}
+            onnavigate={(id) => selectUnit(id)}
+            {onarchive}
+            onback={() => (mobileScreen = "list")}
+            nextNeedsYou={otherNeedsYou.length}
+            onnextneedsyou={jumpNextNeedsYou}
+            onbroadcast={() => (showBroadcast = true)}
+            onnewtask={(repoPath, issue) => {
+              composeRepoPath = repoPath;
+              composeIssue = issue;
+              showNew = true;
+            }}
+            onquick={onquickissue}
+          />
+        </div>
+      {/if}
+    {:else if viewMode === "all"}
+      <div class="grid-all">
+        <HerdGrid
+          sessions={store.sessions}
+          {selectedId}
+          {nowMs}
+          git={store.git}
+          onselect={(id) => {
+            selectedId = id;
+            viewMode = "focus";
+          }}
+          onnew={() => (showNew = true)}
+          {standardCommandUnset}
+          onsettings={() => (showSettings = true)}
+        />
+      </div>
+    {:else}
+      <div class="grid" class:compact={touch.current}>
         <Herd
           sessions={store.sessions}
           {selectedId}
@@ -347,96 +411,34 @@
           onselect={(id) => selectUnit(id)}
           onnew={() => (showNew = true)}
           git={store.git}
-          ondecommission={onarchive}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
         />
         {#if store.sessions.length === 0}
-          <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} />
+          <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} />
+        {:else if selected}
+          <Viewport
+            session={selected}
+            touch={touch.current}
+            git={store.git[selected.id]}
+            queue={blockedEntries.map((e) => e.session.id)}
+            switchOrder={store.sessions.map((s) => s.id)}
+            onnavigate={(id) => selectUnit(id)}
+            {onarchive}
+            onbroadcast={() => (showBroadcast = true)}
+            onnewtask={(repoPath, issue) => {
+              composeRepoPath = repoPath;
+              composeIssue = issue;
+              showNew = true;
+            }}
+            onquick={onquickissue}
+          />
+        {:else}
+          <div class="empty">{m.main_no_unit_selected()}</div>
         {/if}
       </div>
-      <ActionBar
-        onnew={() => (showNew = true)}
-        onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
-        mobile={mobile.current}
-      />
-    {:else if selected}
-      <div class="col">
-        <Viewport
-          session={selected}
-          mobile={mobile.current}
-          connected={store.connected}
-          limits={store.usageLimits}
-          git={store.git[selected.id]}
-          queue={blockedEntries.map((e) => e.session.id)}
-          switchOrder={store.sessions.map((s) => s.id)}
-          onnavigate={(id) => selectUnit(id)}
-          {onarchive}
-          onback={() => (mobileScreen = "list")}
-          nextNeedsYou={otherNeedsYou.length}
-          onnextneedsyou={jumpNextNeedsYou}
-          onbroadcast={() => (showBroadcast = true)}
-          onnewtask={(repoPath, issue) => {
-            composeRepoPath = repoPath;
-            composeIssue = issue;
-            showNew = true;
-          }}
-          onquick={onquickissue}
-        />
-      </div>
     {/if}
-  {:else if viewMode === "all"}
-    <div class="grid-all">
-      <HerdGrid
-        sessions={store.sessions}
-        {selectedId}
-        {nowMs}
-        git={store.git}
-        onselect={(id) => {
-          selectedId = id;
-          viewMode = "focus";
-        }}
-        onnew={() => (showNew = true)}
-        {standardCommandUnset}
-        onsettings={() => (showSettings = true)}
-      />
-    </div>
-  {:else}
-    <div class="grid" class:compact={touch.current}>
-      <Herd
-        sessions={store.sessions}
-        {selectedId}
-        {nowMs}
-        onselect={(id) => selectUnit(id)}
-        onnew={() => (showNew = true)}
-        git={store.git}
-        {standardCommandUnset}
-        onsettings={() => (showSettings = true)}
-      />
-      {#if store.sessions.length === 0}
-        <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} />
-      {:else if selected}
-        <Viewport
-          session={selected}
-          touch={touch.current}
-          git={store.git[selected.id]}
-          queue={blockedEntries.map((e) => e.session.id)}
-          switchOrder={store.sessions.map((s) => s.id)}
-          onnavigate={(id) => selectUnit(id)}
-          {onarchive}
-          onbroadcast={() => (showBroadcast = true)}
-          onnewtask={(repoPath, issue) => {
-            composeRepoPath = repoPath;
-            composeIssue = issue;
-            showNew = true;
-          }}
-          onquick={onquickissue}
-        />
-      {:else}
-        <div class="empty">{m.main_no_unit_selected()}</div>
-      {/if}
-    </div>
-  {/if}
+  </main>
 
   <ActionBar
     onnew={() => (showNew = true)}
@@ -581,6 +583,15 @@
     text-transform: uppercase;
   }
   .col {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Primary landmark wrapping the herd/viewport content. Transparent to the
+     flex layout: it fills the shell column and lets its own child (.col /
+     .grid / .grid-all) keep flexing exactly as before the <main> wrapper. */
+  .main-region {
     flex: 1;
     min-height: 0;
     display: flex;

@@ -77,12 +77,14 @@
           class="label"
           bind:value={s.label}
           placeholder={m.steerseditor_label_placeholder()}
+          aria-label={m.steerseditor_label_aria()}
           oninput={() => (saved = false)}
         />
         <input
           class="text"
           bind:value={s.text}
           placeholder={m.steerseditor_text_placeholder()}
+          aria-label={m.steerseditor_text_aria()}
           oninput={() => (saved = false)}
         />
         <button

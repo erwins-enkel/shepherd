@@ -336,5 +336,14 @@
   "backlog_prs_soon": "PR details coming soon",
   "backlog_loading": "Loading backlog…",
   "backlog_no_forge_repos": "No forge-backed projects",
-  "backlog_select_a_project": "Select a project"
+  "backlog_select_a_project": "Select a project",
+  "a11y_skip_to_main": "Skip to main content",
+  "todopanel_add_aria": "New to-do item",
+  "todopanel_item_aria": "Toggle done: {item}",
+  "gitrail_pr_title_aria": "PR title",
+  "gitrail_pr_body_aria": "PR description",
+  "steerseditor_label_aria": "Steer label",
+  "steerseditor_text_aria": "Steer prompt text",
+  "broadcast_textarea_aria": "Steer message",
+  "statuspip_status_aria": "Status: {status}"
 }

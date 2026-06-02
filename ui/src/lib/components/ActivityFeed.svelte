@@ -38,7 +38,7 @@
 
 <div class="feed">
   {#if rows.length}
-    <ul>
+    <ul aria-live="polite">
       {#each rows as e (e.ts + e.tool + e.summary)}
         <li class:error={e.status === "error"} class:pending={e.status === "pending"}>
           <span class="time">{clock(e.ts)}</span>

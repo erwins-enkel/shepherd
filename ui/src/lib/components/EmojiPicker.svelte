@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { dialog } from "$lib/a11yDialog";
   import { searchEmoji, isSingleEmoji } from "$lib/emoji";
 
   let {
@@ -29,17 +30,9 @@
       custom = "";
     }
   }
-
-  $effect(() => {
-    function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") onclose();
-    }
-    window.addEventListener("keydown", onKeydown);
-    return () => window.removeEventListener("keydown", onKeydown);
-  });
 </script>
 
-<div class="ep" role="dialog" aria-label={m.reposelect_set_icon()}>
+<div class="ep" role="dialog" aria-label={m.reposelect_set_icon()} use:dialog={{ onclose }}>
   <input
     bind:this={searchInput}
     bind:value={query}

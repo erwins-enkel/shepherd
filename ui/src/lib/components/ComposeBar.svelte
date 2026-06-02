@@ -7,6 +7,7 @@
   import { matchSlashTrigger, filterCommands } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import { dialog } from "$lib/a11yDialog";
   import { steers } from "$lib/steers.svelte";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
@@ -311,6 +312,7 @@
   aria-modal="true"
   aria-label={m.composebar_overlay_aria()}
   tabindex="-1"
+  use:dialog={{ onclose: cancel }}
   onpointerdown={tapBackdrop}
 >
   <div class="sheet">

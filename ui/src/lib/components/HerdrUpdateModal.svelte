@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
   import { applyHerdrUpdate } from "$lib/api";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -56,7 +57,13 @@
     if (e.target === e.currentTarget && !busy) onclose?.();
   }}
 >
-  <div class="card bracket">
+  <div
+    class="card bracket"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.herdrupdate_title()}
+    use:dialog={{ onclose: () => !busy && onclose?.() }}
+  >
     <div class="chead">
       <span class="micro">{m.herdrupdate_title()}</span>
       {#if !busy}
@@ -89,10 +96,10 @@
     {/if}
 
     {#if busy}
-      <div class="status">{m.herdrupdate_busy()}</div>
+      <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
       {#if log.length > 0}
         <div class="log-label micro">{m.herdrupdate_log_label()}</div>
-        <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
+        <pre class="log" bind:this={logEl} aria-live="polite">{log.join("\n")}</pre>
       {/if}
     {/if}
     {#if error}<div class="err">{error}</div>{/if}

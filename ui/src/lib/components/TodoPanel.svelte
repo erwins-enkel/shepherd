@@ -80,7 +80,13 @@
         {#if match}
           {@const done = match[2] !== " "}
           <div class="item-row">
-            <input type="checkbox" class="cb" checked={done} onchange={() => toggle(i)} />
+            <input
+              type="checkbox"
+              class="cb"
+              checked={done}
+              onchange={() => toggle(i)}
+              aria-label={m.todopanel_item_aria({ item: match[3] })}
+            />
             <span class="item-label" class:done>{match[3]}</span>
           </div>
         {:else if line.trim() === ""}
@@ -99,6 +105,7 @@
       class="add-input"
       type="text"
       placeholder={m.todopanel_add_placeholder()}
+      aria-label={m.todopanel_add_aria()}
       bind:value={adding}
       onkeydown={handleKeydown}
     />

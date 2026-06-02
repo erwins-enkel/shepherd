@@ -51,7 +51,7 @@
 </script>
 
 <div class="file">
-  <button class="file-head" type="button" onclick={() => (open = !open)}>
+  <button class="file-head" type="button" aria-expanded={open} onclick={() => (open = !open)}>
     <span class="chev" class:open aria-hidden="true">▸</span>
     <span class="glyph status-{file.status}">{STATUS_GLYPH[file.status]}</span>
     <span class="path">

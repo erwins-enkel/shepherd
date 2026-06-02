@@ -11,6 +11,7 @@ import type {
   OpenPrInput,
   PostReviewInput,
   PrStatus,
+  PullRequest,
   RedeployInput,
 } from "./types";
 
@@ -110,6 +111,42 @@ export class GithubForge implements GitForge {
         url: i.url,
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      };
+    });
+  }
+
+  async listPullRequests(): Promise<PullRequest[]> {
+    const out = this.run([
+      "pr",
+      "list",
+      "--repo",
+      this.slug,
+      "--state",
+      "open",
+      "--json",
+      "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews",
+      "--limit",
+      "50",
+    ]);
+    const raw = JSON.parse(out || "[]") as Array<
+      GhPr & {
+        author?: { login?: string } | null;
+        createdAt?: string;
+        isDraft?: boolean;
+      }
+    >;
+    return raw.map((p) => {
+      const ts = Date.parse(p.createdAt ?? "");
+      return {
+        number: p.number,
+        title: p.title,
+        url: p.url,
+        author: p.author?.login ?? "",
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        isDraft: p.isDraft ?? false,
+        mergeable: mapMergeable(p.mergeable),
+        checks: rollupChecks(p.statusCheckRollup ?? []),
+        latestReview: latestHumanReview(p.reviews),
       };
     });
   }

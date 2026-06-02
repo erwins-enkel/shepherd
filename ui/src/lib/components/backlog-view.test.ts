@@ -110,21 +110,14 @@ describe("BacklogView display logic — integration of helpers", () => {
   });
 
   /**
-   * PRs tab shows backlog_prs_soon placeholder (not a spinner).
-   *
-   * The PRs tab in BacklogView.svelte renders `.prs-soon` with
-   * m.backlog_prs_soon() = "PR details coming soon" and does NOT render a
-   * loading spinner class. We assert the message key value here since
-   * the full message catalog is available via the paraglide runtime.
+   * The PRs tab is now a live master/detail (PrsPanel), not a placeholder.
+   * Spawning a review task seeds the New Task prompt with this template, which
+   * must interpolate the PR number and carry its URL on a second line.
    */
-  it("backlog_prs_soon message key yields a non-empty string (placeholder, not spinner)", async () => {
-    // Import the compiled paraglide message directly.
-    const { backlog_prs_soon } = await import("$lib/paraglide/messages");
-    const text = backlog_prs_soon();
-    expect(typeof text).toBe("string");
-    expect(text.length).toBeGreaterThan(0);
-    // Must not look like a loading/spinner label
-    expect(text.toLowerCase()).not.toContain("loading");
-    expect(text.toLowerCase()).not.toContain("spinner");
+  it("newtask_pr_review_template interpolates the PR number and url", async () => {
+    const { newtask_pr_review_template } = await import("$lib/paraglide/messages");
+    const text = newtask_pr_review_template({ number: 142, url: "https://example/pr/142" });
+    expect(text).toContain("142");
+    expect(text).toContain("https://example/pr/142");
   });
 });

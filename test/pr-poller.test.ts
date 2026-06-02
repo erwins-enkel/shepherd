@@ -22,6 +22,7 @@ function forgeReturning(status: () => PrStatus): GitForge {
     mergeMethod: "squash",
     deployWorkflow: null,
     listIssues: async () => [],
+    listPullRequests: async () => [],
     prStatus: async () => status(),
     openPr: async () => status(),
     merge: async () => {},

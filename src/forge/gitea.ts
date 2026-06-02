@@ -8,6 +8,7 @@ import type {
   OpenPrInput,
   PostReviewInput,
   PrStatus,
+  PullRequest,
   RedeployInput,
 } from "./types";
 
@@ -17,8 +18,37 @@ interface GiteaPr {
   state: string; // open | closed
   merged?: boolean;
   mergeable?: boolean;
+  draft?: boolean;
   html_url: string;
+  user?: { login?: string } | null;
+  created_at?: string;
   head?: { ref: string; sha: string };
+}
+
+/**
+ * Bound on simultaneous per-PR commit-status calls in listPullRequests. Mirrors
+ * backlog.ts's DEFAULT_MAX_CONCURRENCY: an unbounded fan-out over a 50-PR list
+ * would fire 50 requests at a self-hosted Gitea at once (rate limits / process
+ * pressure). A small pool keeps most of the parallel speedup without the burst.
+ */
+const STATUS_FETCH_CONCURRENCY = 6;
+
+/** Order-preserving bounded-concurrency map: at most `limit` `fn`s run at once. */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /** Map Gitea's server-computed combined commit status to our worst-of rollup. */
@@ -118,6 +148,33 @@ export class GiteaForge implements GitForge {
       headSha: pr.head?.sha,
       deployConfigured,
     };
+  }
+
+  async listPullRequests(): Promise<PullRequest[]> {
+    const prs = (await this.req(
+      "GET",
+      `/api/v1/repos/${this.slug}/pulls?state=open&limit=50`,
+    )) as GiteaPr[];
+    // Checks ride a per-PR commit-status call (same shape as prStatus); fan out
+    // (bounded — see STATUS_FETCH_CONCURRENCY) so the list isn't serialized on a
+    // chain of round-trips, nor bursts 50 requests at once. Gitea's list API
+    // exposes no human-review summary, so latestReview stays undefined here.
+    // A single PR's status call may 404 (e.g. a force-pushed/GC'd head SHA);
+    // swallow it to "none" so one bad PR can't reject the whole list.
+    return mapBounded(prs ?? [], STATUS_FETCH_CONCURRENCY, async (pr) => {
+      const ts = Date.parse(pr.created_at ?? "");
+      const checks = await this.checksFor(pr.head?.sha).catch((): ChecksState => "none");
+      return {
+        number: pr.number,
+        title: pr.title ?? "",
+        url: pr.html_url,
+        author: pr.user?.login ?? "",
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        isDraft: pr.draft ?? false,
+        mergeable: pr.mergeable ?? null,
+        checks,
+      } satisfies PullRequest;
+    });
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

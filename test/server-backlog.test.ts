@@ -53,6 +53,7 @@ function fakeForge(slug: string, kind: "github" | "gitea" = "github"): GitForge 
     mergeMethod: "squash",
     deployWorkflow: null,
     listIssues: async () => [],
+    listPullRequests: async () => [],
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},

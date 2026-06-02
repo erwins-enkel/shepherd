@@ -1,15 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload, Issue } from "$lib/types";
+  import type { BacklogPayload, Issue, PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
+  import PrsPanel from "./PrsPanel.svelte";
 
   let {
     payload,
     mobile,
     onissue,
     onquick = undefined,
+    onpr,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -17,6 +19,8 @@
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
     onquick?: (repoPath: string, issue: Issue) => void;
+    /** Open a review task seeded with a PR (PRs tab → New Task). */
+    onpr: (repoPath: string, pr: PullRequest) => void;
   } = $props();
 
   const BACKLOG_FILTER: string[] = ["bug", "enhancement"];
@@ -26,6 +30,7 @@
 
   // selectedPath: initialized from pinnedPath once payload arrives;
   // user selection is not clobbered (only set when currently null).
+  // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
   // Use untrack to read selectedPath without subscribing to it, so that
@@ -146,11 +151,53 @@
           </div>
         </div>
       {/if}
+    {:else if mobile}
+      <!-- PRs tab, mobile: full-width project list; selection opens overlay -->
+      <div class="mobile-master">
+        <ProjectBacklogList
+          projects={payload.projects}
+          pinnedPath={payload.pinnedPath}
+          {selectedPath}
+          onselect={(p) => (selectedPath = p)}
+        />
+      </div>
+      {#if selectedPath !== null}
+        <div class="mobile-detail-overlay" role="dialog" aria-modal="true">
+          <div class="overlay-head">
+            <button
+              class="overlay-close"
+              type="button"
+              onclick={dismissDetail}
+              aria-label={m.common_close()}
+            >
+              ‹ {m.common_close()}
+            </button>
+          </div>
+          <div class="overlay-body">
+            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+          </div>
+        </div>
+      {/if}
     {:else}
-      <!-- PRs tab: placeholder, intentional empty state -->
-      <div class="prs-tab">
-        <div class="prs-count">{payload.totals.openPRs}</div>
-        <div class="prs-soon">{m.backlog_prs_soon()}</div>
+      <!-- PRs tab, desktop: side-by-side master + detail -->
+      <div class="desktop-split">
+        <div class="master-pane">
+          <ProjectBacklogList
+            projects={payload.projects}
+            pinnedPath={payload.pinnedPath}
+            {selectedPath}
+            onselect={(p) => (selectedPath = p)}
+          />
+        </div>
+        <div class="detail-pane">
+          {#if selectedPath !== null}
+            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+          {:else}
+            <div class="detail-empty">
+              <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
+            </div>
+          {/if}
+        </div>
       </div>
     {/if}
   {/if}
@@ -279,6 +326,7 @@
     text-transform: uppercase;
     color: var(--color-faint);
   }
+  /* Both tabs share the split / master / detail / overlay chrome above. */
 
   /* ── mobile layout ── */
   .mobile-master {
@@ -344,33 +392,5 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-
-  /* ── PRs placeholder tab ── */
-  .prs-tab {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-
-  .prs-count {
-    font-size: 36px;
-    font-variant-numeric: tabular-nums;
-    color: var(--color-ink-bright);
-    line-height: 1;
-    letter-spacing: -0.02em;
-  }
-
-  .prs-soon {
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    padding: 4px 10px;
   }
 </style>

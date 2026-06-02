@@ -18,6 +18,31 @@ export const CRITIC_REVIEW_MARKER = "<!-- shepherd-critic -->";
 /** Worst-of CI rollup: failure dominates, then pending, then success. */
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
+/** A newest-review summary (critic-marked reviews excluded). Shared by PrStatus
+ *  and the backlog PullRequest row. */
+export interface PrReview {
+  state: "approved" | "changes_requested" | "commented";
+  author: string;
+  submittedAt: number; // epoch ms
+}
+
+/** An open PR surfaced in the backlog PRs tab. Lighter than PrStatus: it is a
+ *  list row across all forge repos, not one session's live git state. */
+export interface PullRequest {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  createdAt: number; // epoch ms
+  isDraft: boolean;
+  /** null = host still computing mergeability. */
+  mergeable: boolean | null;
+  /** Worst-of CI rollup over the head commit. */
+  checks: ChecksState;
+  /** Newest *human* review (critic-marked reviews excluded), or undefined. */
+  latestReview?: PrReview;
+}
+
 export interface PrStatus {
   state: "none" | "open" | "merged" | "closed";
   number?: number;
@@ -30,11 +55,7 @@ export interface PrStatus {
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
-  latestReview?: {
-    state: "approved" | "changes_requested" | "commented";
-    author: string;
-    submittedAt: number; // epoch ms
-  };
+  latestReview?: PrReview;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }
@@ -78,6 +99,8 @@ export interface GitForge {
   /** Configured deploy workflow filename, or null if redeploy is unavailable. */
   readonly deployWorkflow: string | null;
   listIssues(): Promise<Issue[]>;
+  /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
+  listPullRequests(): Promise<PullRequest[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:

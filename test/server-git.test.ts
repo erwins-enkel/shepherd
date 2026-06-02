@@ -42,6 +42,7 @@ function fakeForge(
     mergeMethod: extras.mergeMethod ?? "squash",
     deployWorkflow: extras.deployWorkflow === undefined ? "deploy.yaml" : extras.deployWorkflow,
     listIssues: async () => [],
+    listPullRequests: async () => [],
     prStatus: async (head) => {
       log.push(`status:${head}`);
       return { state: "open", number: 5, checks: "success", deployConfigured: true } as PrStatus;

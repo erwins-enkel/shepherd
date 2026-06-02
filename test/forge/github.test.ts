@@ -41,6 +41,57 @@ test("GithubForge.listIssues: parses gh issue list output", async () => {
   ]);
 });
 
+test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, review", async () => {
+  const prsJson = JSON.stringify([
+    {
+      number: 7,
+      title: "feat: thing",
+      url: "https://github.com/o/r/pull/7",
+      author: { login: "alice" },
+      createdAt: "2024-02-02T00:00:00Z",
+      isDraft: true,
+      mergeable: "CONFLICTING",
+      statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }],
+      reviews: [
+        {
+          author: { login: "bob" },
+          state: "CHANGES_REQUESTED",
+          submittedAt: "2024-02-03T00:00:00Z",
+        },
+      ],
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prsJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs).toEqual([
+    {
+      number: 7,
+      title: "feat: thing",
+      url: "https://github.com/o/r/pull/7",
+      author: "alice",
+      createdAt: Date.parse("2024-02-02T00:00:00Z"),
+      isDraft: true,
+      mergeable: false,
+      checks: "failure",
+      latestReview: {
+        state: "changes_requested",
+        author: "bob",
+        submittedAt: Date.parse("2024-02-03T00:00:00Z"),
+      },
+    },
+  ]);
+  // open-only, capped query
+  const prListCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
+  expect(prListCall).toContain("open");
+});
+
+test("GithubForge.listPullRequests: empty output → []", async () => {
+  const { run } = fakeRunner({ "pr list": "" });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.listPullRequests()).toEqual([]);
+});
+
 test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () => {
   const prJson = JSON.stringify([
     {

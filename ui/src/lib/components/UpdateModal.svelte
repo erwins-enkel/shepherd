@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { UpdateStatus, DeployState } from "$lib/types";
   import { applyUpdate } from "$lib/api";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -53,7 +54,13 @@
     if (e.target === e.currentTarget && !busy) onclose?.();
   }}
 >
-  <div class="card bracket">
+  <div
+    class="card bracket"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.updatemodal_available()}
+    use:dialog={{ onclose: () => !busy && onclose?.() }}
+  >
     <div class="chead">
       <span class="micro">{m.updatemodal_available()}</span>
       {#if !busy}
@@ -90,10 +97,12 @@
     </div>
 
     {#if busy}
-      <div class="status">{m.updatemodal_status()}</div>
+      <div class="status" aria-live="polite">{m.updatemodal_status()}</div>
     {/if}
     {#if liveLog}
       <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+      <!-- The concise .status line above is the polite announcement; the raw log
+           stays silent so a fast-appending stream doesn't re-announce every line. -->
       <pre class="log">{liveLog}</pre>
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
@@ -134,7 +143,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -318,13 +327,14 @@
     letter-spacing: 0.06em;
   }
   .run {
-    background: var(--color-amber);
+    background: transparent;
     border: 1px solid var(--color-amber);
-    color: #0c100f;
+    color: var(--color-amber);
     font-weight: 600;
     padding: 8px 16px;
     cursor: pointer;
     letter-spacing: 0.06em;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .run:disabled {
     opacity: 0.6;

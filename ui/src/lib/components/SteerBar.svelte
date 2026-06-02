@@ -72,7 +72,7 @@
       onpointerup={(e) => tap(e, () => send(s.text))}>{s.label}</button
     >
   {/each}
-  {#if flash}<span class="flash">{flash}</span>{/if}
+  {#if flash}<span class="flash" role="alert">{flash}</span>{/if}
 </div>
 
 <style>
@@ -93,11 +93,14 @@
   }
   .chip {
     flex: 0 0 auto;
-    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
     padding: 0 14px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 12.5px;

@@ -5,8 +5,6 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
-  import { marked } from "marked";
-  import DOMPurify from "dompurify";
 
   let {
     sessionId,
@@ -172,12 +170,31 @@
   const verdict = $derived(reviews.map[sessionId]);
   const verdictLabel = $derived(criticBadgeLabel(verdict));
   // Render the (AI-authored) findings as markdown, sanitized before @html.
-  // Gated on showReview so DOMPurify (browser-only) never runs during SSR.
-  const renderedBody = $derived(
-    showReview && verdict?.body
-      ? DOMPurify.sanitize(marked.parse(verdict.body, { async: false }) as string)
-      : "",
-  );
+  // marked + DOMPurify are dynamically imported on first render so they stay off
+  // the first-paint critical path; gated on showReview so the (browser-only)
+  // sanitizer never runs during SSR.
+  let renderedBody = $state("");
+  $effect(() => {
+    const body = showReview ? verdict?.body : undefined;
+    if (!body) {
+      renderedBody = "";
+      return;
+    }
+    let alive = true;
+    Promise.all([import("marked"), import("dompurify")])
+      .then(([{ marked }, { default: DOMPurify }]) => {
+        if (alive)
+          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+      })
+      .catch((err) => {
+        // Markdown render is progressive enhancement; warn so a broken
+        // marked/dompurify load isn't swallowed silently.
+        console.warn("PR body markdown render failed", err);
+      });
+    return () => {
+      alive = false;
+    };
+  });
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
@@ -291,7 +308,7 @@
       {/if}
 
       {#if err}
-        <span class="err" title={err}>{err}</span>
+        <span class="err" role="alert" title={err}>{err}</span>
         {#if retry}
           <button class="gbtn" type="button" disabled={busy} onclick={() => retry?.()}
             >{m.common_retry()}</button
@@ -306,11 +323,13 @@
           class="pr-title"
           bind:value={prTitle}
           placeholder={m.gitrail_pr_title_placeholder()}
+          aria-label={m.gitrail_pr_title_aria()}
         />
         <textarea
           class="pr-body"
           bind:value={prBody}
           placeholder={m.gitrail_pr_description_placeholder()}
+          aria-label={m.gitrail_pr_body_aria()}
           rows="4"
         ></textarea>
         <div class="pr-actions">
@@ -439,7 +458,7 @@
     background: var(--color-faint);
   }
   .crit-dot.on {
-    background: var(--color-green, #4caf50);
+    background: var(--color-green);
   }
   .crit-dot.reviewing {
     background: var(--color-amber);
@@ -540,10 +559,10 @@
     animation: dot-pulse 1.1s ease-in-out infinite !important;
   }
   .dot-success {
-    background: var(--color-green, #5ad19a);
+    background: var(--color-green);
   }
   .dot-failure {
-    background: var(--color-red, #d9534f);
+    background: var(--color-red);
   }
 
   .err,
@@ -555,10 +574,10 @@
     white-space: nowrap;
   }
   .err {
-    color: var(--color-red, #d9534f);
+    color: var(--color-red);
   }
   .ok {
-    color: var(--color-green, #5ad19a);
+    color: var(--color-green);
   }
 
   .pr-pop {
@@ -575,7 +594,7 @@
     max-width: 90vw;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    border-radius: 3px;
+    border-radius: 2px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
 
@@ -612,7 +631,7 @@
     max-height: 60vh;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    border-radius: 3px;
+    border-radius: 2px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
 
@@ -634,7 +653,7 @@
   }
   .rv-label.critic-commented,
   .verdict-chip.critic-commented {
-    color: var(--color-blue, #4a90d9);
+    color: var(--color-blue);
   }
   .rv-label.critic-error,
   .verdict-chip.critic-error {

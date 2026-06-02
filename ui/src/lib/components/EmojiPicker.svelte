@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { dialog } from "$lib/a11yDialog";
   import { searchEmoji, isSingleEmoji } from "$lib/emoji";
 
   let {
@@ -29,17 +30,9 @@
       custom = "";
     }
   }
-
-  $effect(() => {
-    function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") onclose();
-    }
-    window.addEventListener("keydown", onKeydown);
-    return () => window.removeEventListener("keydown", onKeydown);
-  });
 </script>
 
-<div class="ep" role="dialog" aria-label={m.reposelect_set_icon()}>
+<div class="ep" role="dialog" aria-label={m.reposelect_set_icon()} use:dialog={{ onclose }}>
   <input
     bind:this={searchInput}
     bind:value={query}
@@ -84,7 +77,7 @@
   .ep {
     background: var(--color-panel-2);
     border: 1px solid var(--color-line-bright);
-    border-radius: 4px;
+    border-radius: 2px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
     padding: 8px;
     width: 240px;
@@ -120,7 +113,7 @@
     font-size: 16px;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 2px;
     cursor: pointer;
     padding: 0;
   }
@@ -128,8 +121,8 @@
     background: var(--color-hover);
   }
   .ep-cell.on {
-    outline: 1.5px solid var(--color-amber);
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+    outline: 1.5px solid var(--color-line-bright);
+    background: var(--color-sel);
   }
   .ep-foot {
     display: flex;
@@ -148,7 +141,7 @@
     border-radius: 2px;
   }
   .ep-custom.bad {
-    border-color: var(--color-blue);
+    border-color: var(--color-line-bright);
   }
   .ep-clear {
     flex-shrink: 0;

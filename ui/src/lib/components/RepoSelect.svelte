@@ -302,7 +302,7 @@
     flex-shrink: 0;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: 2px;
     font-size: 14px;
     line-height: 1;
     padding: 1px 3px;

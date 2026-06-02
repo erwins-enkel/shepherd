@@ -30,12 +30,37 @@
   let el: HTMLDivElement | undefined = $state();
   let termRef = $state<Terminal | undefined>();
 
+  // Defer the heavy Terminal + PTY socket until the tile first scrolls into
+  // view: a large herd would otherwise spin up N canvases + WebSockets at once.
+  // One-shot — once visible we keep the terminal mounted (no teardown on
+  // scroll-away) to avoid buffer loss / reconnect churn.
+  let visible = $state(false);
+  $effect(() => {
+    if (!el || visible) return;
+    // No IntersectionObserver (older/edge runtimes) → show eagerly, as before.
+    if (typeof IntersectionObserver === "undefined") {
+      visible = true;
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          visible = true;
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  });
+
   // read-only live terminal: stream PTY output, never send input.
   // mirrors Viewport's xterm/fit/resize/teardown discipline minus input wiring
   // (no term.onData → send) and disableStdin.
   $effect(() => {
     const id = session.id;
-    if (!el) return;
+    if (!el || !visible) return;
 
     const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const term = new Terminal({

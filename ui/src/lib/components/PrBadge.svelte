@@ -75,10 +75,10 @@
     animation: dot-pulse 1.1s ease-in-out infinite !important;
   }
   .dot-success {
-    background: var(--color-green, #5ad19a);
+    background: var(--color-green);
   }
   .dot-failure {
-    background: var(--color-red, #d9534f);
+    background: var(--color-red);
   }
 
   .rdot {
@@ -89,12 +89,12 @@
     background: var(--color-faint);
   }
   .rdot-approved {
-    background: var(--color-green, #5ad19a);
+    background: var(--color-green);
   }
   .rdot-changes_requested {
     background: var(--color-amber);
   }
   .rdot-commented {
-    background: var(--color-blue, #4a90d9);
+    background: var(--color-blue);
   }
 </style>

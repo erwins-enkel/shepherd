@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import type { BlockedEntry } from "$lib/triage";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   // Slide the drawer in/out from the right edge. The {#if showTriage} guard in
@@ -51,7 +52,14 @@
   }
 </script>
 
-<aside class="drawer" transition:fly={slide}>
+<div
+  class="drawer"
+  role="dialog"
+  aria-modal="true"
+  aria-label={m.common_needs_you({ count: entries.length })}
+  use:dialog={{ onclose }}
+  transition:fly={slide}
+>
   <header>
     <span class="title">{m.common_needs_you({ count: entries.length })}</span>
     <button class="x" onclick={onclose} aria-label={m.triage_close_aria()}>✕</button>
@@ -140,7 +148,7 @@
       <button onclick={sendBatch}>{m.triage_batch_send({ count: selectedIds.length })}</button>
     </footer>
   {/if}
-</aside>
+</div>
 
 <style>
   .drawer {

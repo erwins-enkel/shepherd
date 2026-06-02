@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BacklogPayload, Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { dialog } from "$lib/a11yDialog";
   import BacklogView from "./BacklogView.svelte";
 
   let {
@@ -18,12 +19,6 @@
   } = $props();
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (e.key === "Escape") onclose();
-  }}
-/>
-
 <div
   class="overlay"
   class:mobile
@@ -32,7 +27,14 @@
     if (e.target === e.currentTarget) onclose();
   }}
 >
-  <div class="card" class:mobile>
+  <div
+    class="card"
+    class:mobile
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.actionbar_backlog()}
+    use:dialog={{ onclose }}
+  >
     <div class="chead">
       <span class="micro">{m.actionbar_backlog()}</span>
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
@@ -47,7 +49,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;

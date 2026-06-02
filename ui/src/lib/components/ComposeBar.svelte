@@ -7,6 +7,7 @@
   import { matchSlashTrigger, filterCommands } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import { dialog } from "$lib/a11yDialog";
   import { steers } from "$lib/steers.svelte";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
@@ -311,6 +312,7 @@
   aria-modal="true"
   aria-label={m.composebar_overlay_aria()}
   tabindex="-1"
+  use:dialog={{ onclose: cancel }}
   onpointerdown={tapBackdrop}
 >
   <div class="sheet">
@@ -441,14 +443,14 @@
     position: absolute;
     top: 6px;
     right: 6px;
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-faint);
     font-size: 15px;
     cursor: pointer;
@@ -478,7 +480,7 @@
     padding: 10px 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     /* a touch smaller for density; under the 16px iOS no-zoom threshold, an
@@ -511,11 +513,14 @@
   }
   .steer-chip {
     flex: 0 0 auto;
-    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
     padding: 0 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -543,7 +548,7 @@
     height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 15px;

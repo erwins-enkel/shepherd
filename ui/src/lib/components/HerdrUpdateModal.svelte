@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
   import { applyHerdrUpdate } from "$lib/api";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -56,7 +57,13 @@
     if (e.target === e.currentTarget && !busy) onclose?.();
   }}
 >
-  <div class="card bracket">
+  <div
+    class="card bracket"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.herdrupdate_title()}
+    use:dialog={{ onclose: () => !busy && onclose?.() }}
+  >
     <div class="chead">
       <span class="micro">{m.herdrupdate_title()}</span>
       {#if !busy}
@@ -89,9 +96,11 @@
     {/if}
 
     {#if busy}
-      <div class="status">{m.herdrupdate_busy()}</div>
+      <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
       {#if log.length > 0}
         <div class="log-label micro">{m.herdrupdate_log_label()}</div>
+        <!-- The concise .status line above is the polite announcement; the raw log
+             stays silent so a fast-appending stream doesn't re-announce every line. -->
         <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
       {/if}
     {/if}
@@ -114,7 +123,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -259,13 +268,14 @@
     border-color: var(--color-amber);
   }
   .run {
-    background: var(--color-amber);
+    background: transparent;
     border: 1px solid var(--color-amber);
-    color: #0c100f;
+    color: var(--color-amber);
     font-weight: 600;
     padding: 8px 16px;
     cursor: pointer;
     letter-spacing: 0.06em;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .run:disabled {
     opacity: 0.6;

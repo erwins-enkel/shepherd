@@ -1,17 +1,28 @@
 <script lang="ts">
   import type { SessionStatus } from "$lib/types";
-  import { STATUS_COLOR } from "$lib/format";
+  import { STATUS_COLOR, statusLabel } from "$lib/format";
+  import { m } from "$lib/paraglide/messages";
   let { status, ready = false }: { status: SessionStatus; ready?: boolean } = $props();
   // ready overrides status: a green ✓ reads as "parked / done, no next action".
   // A check (not a dot) so it's distinct from a `done` session, whose pip is also
   // green (--status-done === --color-green).
   const color = $derived(ready ? "var(--color-green)" : STATUS_COLOR[status]);
+  // Non-color cue: the pip is otherwise color-only, so carry the status word as
+  // an accessible label/tooltip for the dot states.
+  const label = $derived(m.statuspip_status_aria({ status: statusLabel(status) }));
 </script>
 
 {#if ready}
   <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
 {:else}
-  <span class="pip" class:pulse={status === "running"} style="--c:{color}"></span>
+  <span
+    class="pip"
+    class:pulse={status === "running"}
+    style="--c:{color}"
+    role="img"
+    aria-label={label}
+    title={label}
+  ></span>
 {/if}
 
 <style>

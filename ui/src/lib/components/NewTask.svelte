@@ -7,6 +7,7 @@
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -286,9 +287,18 @@
     if (e.target === e.currentTarget) onclose?.();
   }}
 >
+  <!-- The modal card is a <form> so the prompt submits natively; role="dialog"
+       on it is valid ARIA (a dialog whose content is a form). Svelte's
+       non-interactive→interactive-role heuristic flags <form>, so silence just
+       that one rule here. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
   <form
     class="card bracket"
     class:dragging
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.newtask_title()}
+    use:dialog={{ onclose: () => onclose?.() }}
     onsubmit={submit}
     ondragover={(e) => {
       e.preventDefault();
@@ -418,7 +428,7 @@
     </select>
 
     {#if error}
-      <div class="err">
+      <div class="err" role="alert">
         <span>{error}</span>
         {#if retry}
           <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button>
@@ -585,7 +595,7 @@
     text-transform: none;
     color: var(--color-amber);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     padding: 1px 5px;
     opacity: 0.75;
   }

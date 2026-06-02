@@ -9,6 +9,7 @@
   } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import { pushState, enablePush, disablePush, type PushStatus } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
@@ -169,7 +170,13 @@
     if (e.target === e.currentTarget) onclose?.();
   }}
 >
-  <div class="card bracket">
+  <div
+    class="card bracket"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.settings_title()}
+    use:dialog={{ onclose: () => onclose?.() }}
+  >
     <div class="chead">
       <span class="micro">{m.settings_title()}</span>
       <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
@@ -368,7 +375,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -705,8 +712,8 @@
     transition: background 0.12s;
   }
   .track.on {
-    background: color-mix(in srgb, var(--color-amber) 22%, transparent);
-    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-ink) 22%, transparent);
+    border-color: var(--color-line-bright);
   }
   .knob {
     position: absolute;
@@ -722,7 +729,7 @@
   }
   .track.on .knob {
     transform: translateX(18px);
-    background: var(--color-amber);
+    background: var(--color-ink-bright);
   }
   .toggle .state {
     font-size: 11px;

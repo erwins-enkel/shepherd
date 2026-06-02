@@ -4,6 +4,7 @@
   import { steers } from "$lib/steers.svelte";
   import { broadcast as apiBroadcast } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
+  import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
   let { sessions, onclose }: { sessions: Session[]; onclose: () => void } = $props();
@@ -74,7 +75,13 @@
     if (e.target === e.currentTarget) onclose();
   }}
 >
-  <div class="card">
+  <div
+    class="card"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.broadcast_title()}
+    use:dialog={{ onclose }}
+  >
     <div class="chead">
       <span class="micro">{m.broadcast_title()}</span>
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
@@ -112,7 +119,12 @@
         </button>
       {/each}
     </div>
-    <textarea bind:value={text} oninput={disarm} rows="2" placeholder={m.broadcast_placeholder()}
+    <textarea
+      bind:value={text}
+      oninput={disarm}
+      rows="2"
+      placeholder={m.broadcast_placeholder()}
+      aria-label={m.broadcast_textarea_aria()}
     ></textarea>
 
     {#if result}
@@ -142,7 +154,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -223,7 +235,7 @@
   .pick {
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
     font-size: 12px;

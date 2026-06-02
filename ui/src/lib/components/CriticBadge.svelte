@@ -36,7 +36,7 @@
     color: var(--color-amber);
   }
   .critic-commented {
-    color: var(--color-blue, #4a90d9);
+    color: var(--color-blue);
   }
   .critic-error {
     color: var(--color-faint);

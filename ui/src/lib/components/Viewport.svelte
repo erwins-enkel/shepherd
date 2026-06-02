@@ -1334,7 +1334,7 @@
     padding: 6px 9px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    border-radius: 3px;
+    border-radius: 2px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     white-space: nowrap;
     text-transform: none;
@@ -1661,20 +1661,26 @@
     overflow: hidden;
   }
 
-  /* faint amber scan line */
+  /* faint amber scan line: full-height layer with a 70px amber band at its top,
+     swept top→bottom via translateY (compositor-only) instead of animating top */
   .scan {
     position: absolute;
     left: 0;
     right: 0;
-    height: 70px;
-    background: linear-gradient(
+    top: 0;
+    height: 100%;
+    background-image: linear-gradient(
       to bottom,
       transparent,
       color-mix(in srgb, var(--color-amber) 4%, transparent),
       transparent
     );
+    background-repeat: no-repeat;
+    background-size: 100% 70px;
+    background-position: 0 0;
     pointer-events: none;
     z-index: 1;
+    will-change: transform;
     animation: scan 8s linear infinite;
   }
 
@@ -1696,7 +1702,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    background: color-mix(in srgb, var(--color-bg, #070a09) 78%, transparent);
+    background: color-mix(in srgb, var(--color-bg) 78%, transparent);
     backdrop-filter: blur(1.5px);
     border: 0;
     cursor: pointer;
@@ -1990,7 +1996,7 @@
     height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 4px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-size: 16px;
     cursor: pointer;
@@ -2032,7 +2038,7 @@
     min-width: 44px;
     height: 44px;
     padding: 0 10px;
-    border-radius: 4px;
+    border-radius: 2px;
     font-family: var(--font-mono);
     font-size: 14px;
     letter-spacing: 0.04em;

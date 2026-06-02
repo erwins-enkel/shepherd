@@ -24,8 +24,12 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function focusable(node: HTMLElement): HTMLElement[] {
+  // getClientRects().length (not offsetParent) for the visible check: offsetParent
+  // is null under any position:fixed ancestor, which would silently empty the trap
+  // if a future dialog card is made fixed. getClientRects is 0 only for genuinely
+  // unrendered (display:none) elements, so it stays correct for fixed cards too.
   return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
+    (el) => el.getClientRects().length > 0 || el === document.activeElement,
   );
 }
 

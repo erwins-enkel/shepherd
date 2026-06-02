@@ -99,7 +99,9 @@
       <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
       {#if log.length > 0}
         <div class="log-label micro">{m.herdrupdate_log_label()}</div>
-        <pre class="log" bind:this={logEl} aria-live="polite">{log.join("\n")}</pre>
+        <!-- The concise .status line above is the polite announcement; the raw log
+             stays silent so a fast-appending stream doesn't re-announce every line. -->
+        <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
       {/if}
     {/if}
     {#if error}<div class="err">{error}</div>{/if}

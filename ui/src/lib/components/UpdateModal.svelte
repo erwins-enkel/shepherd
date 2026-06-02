@@ -101,7 +101,9 @@
     {/if}
     {#if liveLog}
       <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
-      <pre class="log" aria-live="polite">{liveLog}</pre>
+      <!-- The concise .status line above is the polite announcement; the raw log
+           stays silent so a fast-appending stream doesn't re-announce every line. -->
+      <pre class="log">{liveLog}</pre>
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 

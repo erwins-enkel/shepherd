@@ -124,7 +124,7 @@
     flex: 0 0 auto;
     padding: 3px;
     background: color-mix(in srgb, var(--color-ink) 5%, transparent);
-    border-radius: 7px;
+    border-radius: 2px;
   }
 
   .key {
@@ -133,7 +133,7 @@
     height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 4px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 14px;

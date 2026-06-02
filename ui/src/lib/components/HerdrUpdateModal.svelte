@@ -121,7 +121,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -266,13 +266,14 @@
     border-color: var(--color-amber);
   }
   .run {
-    background: var(--color-amber);
+    background: transparent;
     border: 1px solid var(--color-amber);
-    color: #0c100f;
+    color: var(--color-amber);
     font-weight: 600;
     padding: 8px 16px;
     cursor: pointer;
     letter-spacing: 0.06em;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .run:disabled {
     opacity: 0.6;

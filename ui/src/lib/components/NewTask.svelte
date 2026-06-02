@@ -595,7 +595,7 @@
     text-transform: none;
     color: var(--color-amber);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     padding: 1px 5px;
     opacity: 0.75;
   }

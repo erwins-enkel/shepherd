@@ -375,7 +375,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -712,8 +712,8 @@
     transition: background 0.12s;
   }
   .track.on {
-    background: color-mix(in srgb, var(--color-amber) 22%, transparent);
-    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-ink) 22%, transparent);
+    border-color: var(--color-line-bright);
   }
   .knob {
     position: absolute;
@@ -729,7 +729,7 @@
   }
   .track.on .knob {
     transform: translateX(18px);
-    background: var(--color-amber);
+    background: var(--color-ink-bright);
   }
   .toggle .state {
     font-size: 11px;

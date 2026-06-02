@@ -154,7 +154,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(3, 6, 5, 0.66);
+    background: var(--color-scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -235,7 +235,7 @@
   .pick {
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
     font-size: 12px;

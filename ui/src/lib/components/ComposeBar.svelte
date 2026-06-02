@@ -450,7 +450,7 @@
     justify-content: center;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-faint);
     font-size: 15px;
     cursor: pointer;
@@ -480,7 +480,7 @@
     padding: 10px 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     /* a touch smaller for density; under the 16px iOS no-zoom threshold, an
@@ -517,7 +517,7 @@
     padding: 0 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -545,7 +545,7 @@
     height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 15px;

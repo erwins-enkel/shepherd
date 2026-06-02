@@ -97,7 +97,7 @@
     padding: 0 14px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
+    border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
     font-size: 12.5px;

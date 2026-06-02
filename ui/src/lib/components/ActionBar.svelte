@@ -4,10 +4,12 @@
   import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
 
-  const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
+  // Two explicit theme choices; "system" stays the implicit default (followed on
+  // first load + on OS changes until the operator picks one). The old third slot
+  // (◐ system) is repurposed as the standalone high-contrast / WCAG toggle below.
+  const THEMES: { pref: Exclude<ThemePref, "system">; glyph: string; label: () => string }[] = [
     { pref: "dark", glyph: "☾", label: m.theme_dark },
     { pref: "light", glyph: "☀", label: m.theme_light },
-    { pref: "system", glyph: "◐", label: m.theme_system },
   ];
 
   let {
@@ -78,14 +80,23 @@
             <button
               type="button"
               class="t-opt"
-              class:on={theme.pref === t.pref}
-              aria-pressed={theme.pref === t.pref}
+              class:on={theme.resolved === t.pref}
+              aria-pressed={theme.resolved === t.pref}
               title={m.actionbar_theme_option({ label: t.label() })}
               aria-label={m.actionbar_theme_option({ label: t.label() })}
               onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
             >
           {/each}
         </div>
+        <button
+          type="button"
+          class="contrast-toggle"
+          class:on={theme.contrast}
+          aria-pressed={theme.contrast}
+          title={m.actionbar_contrast_toggle()}
+          aria-label={m.actionbar_contrast_toggle()}
+          onclick={() => theme.toggleContrast()}>◐</button
+        >
         <LanguageSwitcher />
       </div>
     {/if}
@@ -183,6 +194,26 @@
   .t-opt.on {
     color: var(--color-amber);
     background: var(--color-inset);
+  }
+  /* High-contrast (WCAG) toggle — standalone so screen readers don't read it as
+     part of the theme radio group; styled to match the .t-opt seg buttons. */
+  .contrast-toggle {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .contrast-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .contrast-toggle.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    border-color: var(--color-amber);
   }
   .actions.mobile {
     padding: 10px;

@@ -757,10 +757,11 @@
   // repaint the live terminal when the active theme changes (no recreation)
   $effect(() => {
     const resolved = theme.resolved;
+    const highContrast = theme.contrast;
     const term = termRef;
     if (!term) return;
     term.options.theme = xtermTheme(resolved);
-    term.options.minimumContrastRatio = xtermMinContrast(resolved);
+    term.options.minimumContrastRatio = xtermMinContrast(resolved, highContrast);
     term.refresh(0, Math.max(0, term.rows - 1));
   });
 

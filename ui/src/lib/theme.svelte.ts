@@ -8,6 +8,7 @@ export type ThemePref = "dark" | "light" | "system";
 export type Resolved = "dark" | "light";
 
 const STORAGE_KEY = "shepherd:theme";
+const CONTRAST_KEY = "shepherd:contrast";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function readPref(): ThemePref {
@@ -20,6 +21,15 @@ function readPref(): ThemePref {
   return "system";
 }
 
+function readContrast(): boolean {
+  try {
+    return localStorage.getItem(CONTRAST_KEY) === "high";
+  } catch {
+    /* localStorage unavailable (SSR / privacy mode) */
+    return false;
+  }
+}
+
 function systemPrefersDark(): boolean {
   return typeof matchMedia !== "undefined" ? matchMedia(DARK_QUERY).matches : true;
 }
@@ -27,6 +37,11 @@ function systemPrefersDark(): boolean {
 class ThemeController {
   pref = $state<ThemePref>(readPref());
   systemDark = $state<boolean>(systemPrefersDark());
+
+  // High-contrast (WCAG / "Brillenträger") is a separate accessibility *layer*,
+  // not a theme: it composes on top of whichever dark/light theme is resolved,
+  // strengthening the low-contrast greys/hairlines via [data-contrast="high"].
+  contrast = $state<boolean>(readContrast());
 
   resolved = $derived<Resolved>(
     this.pref === "system" ? (this.systemDark ? "dark" : "light") : this.pref,
@@ -48,9 +63,27 @@ class ThemeController {
     this.setPref(this.pref === "dark" ? "light" : this.pref === "light" ? "system" : "dark");
   }
 
+  /** Persist + apply the high-contrast layer (independent of dark/light). */
+  setContrast(on: boolean) {
+    this.contrast = on;
+    try {
+      localStorage.setItem(CONTRAST_KEY, on ? "high" : "off");
+    } catch {
+      /* ignore — preference just won't survive reload */
+    }
+    this.#apply();
+  }
+
+  toggleContrast() {
+    this.setContrast(!this.contrast);
+  }
+
   #apply() {
     if (typeof document !== "undefined") {
-      document.documentElement.dataset.theme = this.resolved;
+      const root = document.documentElement;
+      root.dataset.theme = this.resolved;
+      if (this.contrast) root.dataset.contrast = "high";
+      else delete root.dataset.contrast;
     }
   }
 
@@ -104,7 +137,12 @@ export function xtermTheme(resolved: Resolved): { background: string; foreground
  *
  * Dark mode is already legible — `1` disables enforcement (xterm's no-op fast
  * path), so this never touches the dark palette.
+ *
+ * When the high-contrast layer is on, the floor jumps to `7` in *both* themes so
+ * the terminal's dim secondary lines are lifted to ~3.5:1 even on the dark
+ * palette — matching the WCAG boost the app chrome gets via [data-contrast].
  */
-export function xtermMinContrast(resolved: Resolved): number {
+export function xtermMinContrast(resolved: Resolved, highContrast = theme.contrast): number {
+  if (highContrast) return 7;
   return resolved === "light" ? 7 : 1;
 }

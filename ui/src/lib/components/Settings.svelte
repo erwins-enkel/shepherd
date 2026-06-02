@@ -21,6 +21,7 @@
     type PushCategories,
   } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
   // but on phones the ActionBar hides it and it was dropped from the top bar,
@@ -30,6 +31,11 @@
     { pref: "light", glyph: "☀", label: m.theme_light },
     { pref: "system", glyph: "◐", label: m.theme_system },
   ];
+
+  // Build/repo facts ($lib/build-info) come from the same source the desktop
+  // ActionBar footer uses. That footer is hidden on mobile, so the Device tab is
+  // where phone users read them (mirrors the theme picker, surfaced for the same
+  // reason).
 
   // Settings group into three jobs so the modal never outgrows the viewport:
   // WORKSPACE (which repo root), SESSION (how agents start + steer), DEVICE
@@ -405,6 +411,31 @@
             </fieldset>
           {/if}
         {/if}
+      </div>
+      <div class="about">
+        <span class="micro">{m.settings_about_title()}</span>
+        <dl class="about-grid">
+          <dt>{m.settings_about_version()}</dt>
+          <dd>v{version}</dd>
+          <dt>{m.settings_about_commit()}</dt>
+          <dd>
+            <a
+              href={commitUrl}
+              target="_blank"
+              rel="external noreferrer noopener"
+              title={m.actionbar_commit_title({ sha })}>{sha}</a
+            >
+          </dd>
+          <dt>{m.settings_about_repo()}</dt>
+          <dd>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="external noreferrer noopener"
+              title={m.actionbar_repo_link({ repo: REPO })}>{REPO}</a
+            >
+          </dd>
+        </dl>
       </div>
     </div>
   </div>
@@ -828,6 +859,40 @@
     color: var(--color-amber);
     background: var(--color-inset);
   }
+  /* Version / commit / repo — desktop reads these from the ActionBar footer,
+     so surface them here only on mobile, where that footer is hidden. */
+  .about {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-line);
+    padding-top: 12px;
+  }
+  .about-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 14px;
+    margin: 0;
+  }
+  .about-grid dt {
+    color: var(--color-faint);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+  }
+  .about-grid dd {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--color-ink-bright);
+    word-break: break-all;
+  }
+  .about-grid a {
+    color: var(--color-amber);
+    text-decoration: none;
+  }
+  .about-grid a:hover {
+    text-decoration: underline;
+  }
 
   @media (max-width: 768px) {
     .overlay {
@@ -838,6 +903,9 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+    }
+    .about {
+      display: flex;
     }
     .card {
       width: 100%;

@@ -905,3 +905,18 @@ test("POST /api/learnings/:id/dismiss sets status dismissed", async () => {
   expect(res.status).toBe(200);
   expect(deps.store.getLearning(l.id)?.status).toBe("dismissed");
 });
+
+test("POST /api/learnings/<bogus-id>/approve returns 404", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/does-not-exist/approve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Origin: "http://localhost:7330",
+      },
+      body: JSON.stringify({ rule: "anything" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});

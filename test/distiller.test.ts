@@ -91,3 +91,80 @@ test("onChange fires after a run that produced rules", async () => {
   await d.tick();
   expect(fired).toBe(1);
 });
+
+test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare Write, no skip-permissions)", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  let argv: string[] = [];
+  const deps = {
+    store,
+    herdr: {
+      start: (_name: string, _cwd: string, a: string[]) => {
+        argv = a;
+        return { terminalId: "d1" };
+      },
+      stop: () => {},
+    } as any,
+    scratch: { create: () => ({ dir: "/scratch" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 3,
+    writeSignals: () => {},
+    readProposals: () => null,
+  };
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+
+  expect(argv).not.toContain("--dangerously-skip-permissions");
+  const allow = argv.indexOf("--allowedTools");
+  const mode = argv.indexOf("--permission-mode");
+  expect(allow).toBeGreaterThan(-1);
+  expect(mode).toBeGreaterThan(allow); // dontAsk MUST come after the variadic allowlist
+  expect(argv[mode + 1]).toBe("dontAsk");
+  // bare Write (not path-scoped) and it sits within the allowlist, before --permission-mode
+  const write = argv.indexOf("Write");
+  expect(write).toBeGreaterThan(allow);
+  expect(write).toBeLessThan(mode);
+  // disableAllHooks settings present
+  expect(argv).toContain('{"disableAllHooks":true}');
+  // the prompt is the trailing positional (last arg), after --permission-mode dontAsk
+  expect(argv.length).toBeGreaterThan(mode + 2);
+});
+
+test("tick finalizes and reaps a run that times out without proposals", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  let t = 1000;
+  let stopped = 0;
+  let removed = 0;
+  let starts = 0;
+  const deps = {
+    store,
+    herdr: {
+      start: () => {
+        starts++;
+        return { terminalId: `d${starts}` };
+      },
+      stop: () => stopped++,
+    } as any,
+    scratch: { create: () => ({ dir: `/scratch/${starts}` }), remove: () => removed++ },
+    onChange: () => {},
+    now: () => t,
+    timeoutMs: 5_000,
+    minSignals: 3,
+    writeSignals: () => {},
+    readProposals: () => null, // proposals never written
+  };
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+  expect(starts).toBe(1);
+  await d.tick(); // not yet timed out
+  expect(stopped).toBe(0);
+  t += 6_000; // now past timeoutMs
+  await d.tick();
+  expect(stopped).toBe(1);
+  expect(removed).toBe(1);
+  expect(store.listLearnings("/r").length).toBe(0); // no proposals → nothing added
+  d.distillNow("/r"); // inflight cleared → a new run can start
+  expect(starts).toBe(2);
+});

@@ -958,6 +958,29 @@ test("refine updates display name only (no branch rename) once commits exist", a
   expect(renamedBranches).toHaveLength(0);
 });
 
+test("refine renames display only when the target branch already exists", async () => {
+  const { store, renamedBranches, events, deps } = svcDeps();
+  // a leftover/archived branch already occupies shepherd/session-naming
+  deps.worktree.branchExists = (_r: string, b: string) => b === "shepherd/session-naming";
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  // the better display name still lands — the refine is NOT abandoned
+  expect(store.get(s.id)?.name).toBe("session-naming");
+  // but the branch stays put (no `git branch -m` onto an existing branch)
+  expect(store.get(s.id)?.branch).toBe("shepherd/even-two-recent-prs");
+  expect(renamedBranches).toHaveLength(0);
+  expect(
+    events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
+  ).toBe(true);
+});
+
 test("refine is a no-op when the comprehended slug equals the heuristic name", async () => {
   const { events, deps } = svcDeps({ refineName: async () => "even-two-recent-prs" });
   const svc = new SessionService(deps);

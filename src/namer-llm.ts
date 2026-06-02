@@ -64,8 +64,10 @@ function defaultCleanup(cwd: string): void {
  *    making the agent thrash. `--disable-slash-commands` removes skills entirely.
  *    NOT `--bare`: it refuses subscription OAuth (demands ANTHROPIC_API_KEY).
  *  - Bare `Write` — NOT Write(<path>): path-scoped Write rules are silently denied
- *    under `dontAsk`, which would block the slug write. The cwd is a disposable temp
- *    dir; the agent can't exec, commit, push, or reach anything outside it.
+ *    under `dontAsk`, which would block the slug write. Bare Write is not cwd-scoped,
+ *    so an absolute-path write is technically permitted — an accepted trade-off (same
+ *    as the critic) because the only input is the user's OWN prompt, not untrusted text.
+ *    The agent still has no Bash/Edit/network, so it can't exec, commit, push, or fetch.
  *  - `--permission-mode dontAsk` LAST: `--allowedTools` is variadic and eats every
  *    following token until the next flag, so a single-value flag must sit between the
  *    allowlist and the trailing prompt — else the prompt is folded into the allowlist

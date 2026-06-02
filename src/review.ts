@@ -40,7 +40,13 @@ interface InFlight {
 export interface ReviewServiceDeps {
   store: Pick<
     SessionStore,
-    "getRepoConfig" | "getReview" | "putReview" | "dropReview" | "snapshotReviews"
+    | "getRepoConfig"
+    | "getReview"
+    | "putReview"
+    | "dropReview"
+    | "snapshotReviews"
+    | "addSignal"
+    | "get"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -194,6 +200,17 @@ export class ReviewService {
       }
     }
     this.deps.store.putReview(verdict);
+    if (verdict.decision === "changes_requested") {
+      const sess = this.deps.store.get(f.sessionId);
+      if (sess) {
+        this.deps.store.addSignal({
+          repoPath: f.repoPath,
+          sessionId: f.sessionId,
+          kind: "critic",
+          payload: `${verdict.summary}\n\n${verdict.body}`,
+        });
+      }
+    }
     this.deps.onChange(f.sessionId, verdict);
     this.deps.onReviewing?.(f.sessionId, false);
     this.deps.herdr.stop(f.terminalId);

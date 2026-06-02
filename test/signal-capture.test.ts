@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { SessionService } from "../src/service";
+import { ReviewService } from "../src/review";
 import { SessionStore } from "../src/store";
 
 function deps(store: SessionStore) {
@@ -38,4 +39,34 @@ test("reply to a missing session records nothing", () => {
   const svc = new SessionService(deps(store) as any);
   expect(svc.reply("nope", "x")).toBe(false);
   expect(store.listSignals("/r").length).toBe(0);
+});
+
+test("critic changes_requested records a 'critic' signal", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "b",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t1",
+  });
+  const svc = new ReviewService({
+    store,
+    herdr: { start: () => ({ terminalId: "rev1" }), stop: () => {} } as any,
+    worktree: { createDetached: () => ({ worktreePath: "/rev-wt" }), remove: () => {} } as any,
+    resolveForge: () => null,
+    onChange: () => {},
+    now: () => 1,
+    readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
+  });
+  svc.consider(session, { state: "open", checks: "success", headSha: "abc", number: 7 } as any);
+  await svc.tick();
+  const sigs = store.listSignals("/repo");
+  expect(sigs.length).toBe(1);
+  expect(sigs[0]!.kind).toBe("critic");
+  expect(sigs[0]!.payload).toContain("2 issues");
 });

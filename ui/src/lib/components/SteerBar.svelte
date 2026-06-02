@@ -93,7 +93,10 @@
   }
   .chip {
     flex: 0 0 auto;
-    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
     padding: 0 14px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);

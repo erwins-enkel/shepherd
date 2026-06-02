@@ -443,8 +443,8 @@
     position: absolute;
     top: 6px;
     right: 6px;
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -513,7 +513,10 @@
   }
   .steer-chip {
     flex: 0 0 auto;
-    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
     padding: 0 12px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);

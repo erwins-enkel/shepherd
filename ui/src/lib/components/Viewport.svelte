@@ -1032,45 +1032,49 @@
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
     {/if}
-    {#if renaming}
-      <span class="rename-edit">
-        <input
-          bind:this={renameInput}
-          class="rename-input"
-          class:err={renameError}
-          bind:value={renameDraft}
-          placeholder={m.viewport_rename_placeholder()}
-          aria-label={m.viewport_rename_aria()}
-          onkeydown={onRenameKey}
-          onblur={commitRename}
-        />
-        {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
-      </span>
-    {:else}
-      <button
-        class="rename-btn"
-        type="button"
-        onclick={startRename}
-        title={m.viewport_rename_aria()}
-        aria-label={m.viewport_rename_aria()}>✎</button
-      >
-      {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
-    {/if}
-    <button
-      class="decom"
-      class:armed
-      class:ready={prReady && !armed}
-      type="button"
-      onclick={decommission}
-      title={prReady ? m.viewport_decommission_ready_title() : m.viewport_decommission_title()}
-      aria-label={prReady ? m.viewport_decommission_ready_aria() : m.viewport_decommission_aria()}
-    >
-      {#if compact}
-        {armed ? "✓" : "✕"}
+    <!-- trailing controls: on compact/phone they group + wrap together as a
+         right-aligned cluster so the close button never orphans to its own row -->
+    <div class="vp-actions">
+      {#if renaming}
+        <span class="rename-edit">
+          <input
+            bind:this={renameInput}
+            class="rename-input"
+            class:err={renameError}
+            bind:value={renameDraft}
+            placeholder={m.viewport_rename_placeholder()}
+            aria-label={m.viewport_rename_aria()}
+            onkeydown={onRenameKey}
+            onblur={commitRename}
+          />
+          {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
+        </span>
       {:else}
-        {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+        <button
+          class="rename-btn"
+          type="button"
+          onclick={startRename}
+          title={m.viewport_rename_aria()}
+          aria-label={m.viewport_rename_aria()}>✎</button
+        >
+        {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
       {/if}
-    </button>
+      <button
+        class="decom"
+        class:armed
+        class:ready={prReady && !armed}
+        type="button"
+        onclick={decommission}
+        title={prReady ? m.viewport_decommission_ready_title() : m.viewport_decommission_title()}
+        aria-label={prReady ? m.viewport_decommission_ready_aria() : m.viewport_decommission_aria()}
+      >
+        {#if compact}
+          {armed ? "✓" : "✕"}
+        {:else}
+          {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+        {/if}
+      </button>
+    </div>
   </div>
 
   <!-- the git rail gets its own strip when there's no room for it inline:
@@ -1417,6 +1421,13 @@
 
   .spacer {
     flex: 1;
+  }
+
+  /* desktop: transparent to layout — rename + decom flow inline as before.
+     compact/phone override (see .vp-head.mobile .vp-actions) turns this into a
+     real flex cluster so the two trailing controls wrap together. */
+  .vp-actions {
+    display: contents;
   }
 
   .status-badge {
@@ -1924,6 +1935,17 @@
     flex-wrap: wrap;
     row-gap: 6px;
     padding: 8px 10px;
+  }
+  /* group the trailing controls (rename ✎ + close ✕) into one cluster that
+     wraps as a unit and stays right-aligned — margin-left:auto pins it to the
+     right edge of whichever row it lands on, so the close button can no longer
+     orphan to the left of its own line when the identity row gets crowded */
+  .vp-head.mobile .vp-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+    flex-shrink: 0;
   }
   /* let the task name claim the free space instead of splitting it with the
      spacer; its flex-grow still pushes the status badge + decom to the right */

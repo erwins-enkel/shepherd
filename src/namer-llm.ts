@@ -58,6 +58,73 @@ function defaultCleanup(cwd: string): void {
 }
 
 /**
+ * The `claude` argv for the namer spawn — mirrors the critic (src/review.ts):
+ *  - CLEAN context: user's global hooks (e.g. the SessionStart superpowers preamble)
+ *    would inject a "you MUST invoke a skill" message that dontAsk can't satisfy,
+ *    making the agent thrash. `--disable-slash-commands` removes skills entirely.
+ *    NOT `--bare`: it refuses subscription OAuth (demands ANTHROPIC_API_KEY).
+ *  - Bare `Write` — NOT Write(<path>): path-scoped Write rules are silently denied
+ *    under `dontAsk`, which would block the slug write. The cwd is a disposable temp
+ *    dir; the agent can't exec, commit, push, or reach anything outside it.
+ *  - `--permission-mode dontAsk` LAST: `--allowedTools` is variadic and eats every
+ *    following token until the next flag, so a single-value flag must sit between the
+ *    allowlist and the trailing prompt — else the prompt is folded into the allowlist
+ *    and the agent launches with no task. Don't reorder.
+ */
+function namerArgv(model: string | null, taskText: string): string[] {
+  const argv = [
+    "claude",
+    "--session-id",
+    randomUUID(),
+    "--settings",
+    '{"disableAllHooks":true}',
+    "--disable-slash-commands",
+    "--allowedTools",
+    "Write",
+  ];
+  if (model) argv.push("--model", model);
+  argv.push("--permission-mode", "dontAsk");
+  argv.push(namingPrompt(taskText));
+  return argv;
+}
+
+interface PollClock {
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  timeoutMs: number;
+  pollMs: number;
+}
+
+/** Poll `readName(cwd)` until it yields content or the deadline passes; null on timeout. */
+async function pollForRaw(
+  readName: (cwd: string) => string | null,
+  cwd: string,
+  clock: PollClock,
+): Promise<string | null> {
+  const start = clock.now();
+  while (clock.now() - start <= clock.timeoutMs) {
+    const raw = readName(cwd);
+    if (raw !== null) return raw;
+    await clock.sleep(clock.pollMs);
+  }
+  return null;
+}
+
+/** First non-empty line of the slug file → sanitized slug; null if nothing usable.
+ *  slugifyManual emits "task" for empty/symbol-only input (and contains any prompt
+ *  injection to a safe `[a-z0-9-]` slug) — we reject that generic fallback so the
+ *  caller keeps its better heuristic name. */
+function extractSlug(raw: string): string | null {
+  const firstLine =
+    raw
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? "";
+  const slug = slugifyManual(firstLine);
+  return slug && slug !== "task" ? slug : null;
+}
+
+/**
  * Comprehend a session's subject via a transient interactive `claude` (subscription
  * OAuth — NOT `claude -p`, which bills as extra API usage). Spawns haiku in a fresh
  * temp dir with only the Write tool, polls for the slug file, sanitizes it, then tears
@@ -70,69 +137,28 @@ export async function llmName(
   deps: LlmNamerDeps,
   label: string,
 ): Promise<string | null> {
-  const makeTmpDir = deps.makeTmpDir ?? defaultMakeTmpDir;
-  const readName = deps.readName ?? defaultReadName;
-  const cleanup = deps.cleanup ?? defaultCleanup;
-  const now = deps.now ?? Date.now;
-  const sleep = deps.sleep ?? realSleep;
-  const timeoutMs = deps.timeoutMs ?? 60_000; // cold `claude` startup + a haiku turn needs headroom
-  const pollMs = deps.pollMs ?? 1_000;
-  const model = deps.model ?? "haiku";
+  const {
+    makeTmpDir = defaultMakeTmpDir,
+    readName = defaultReadName,
+    cleanup = defaultCleanup,
+    model = "haiku",
+    now = Date.now,
+    sleep = realSleep,
+    timeoutMs = 60_000, // cold `claude` startup + a haiku turn needs headroom
+    pollMs = 1_000,
+  } = deps;
 
   let cwd: string | null = null;
   let terminalId: string | null = null;
   try {
     cwd = makeTmpDir();
-    const argv = [
-      "claude",
-      "--session-id",
-      randomUUID(),
-      // Run in a CLEAN context — same rationale as the critic: user's global hooks
-      // (e.g. SessionStart superpowers preamble) would inject a "you MUST invoke a
-      // skill" message that dontAsk can't satisfy, causing the agent to thrash.
-      // NOT --bare: it refuses subscription OAuth (strictly ANTHROPIC_API_KEY).
-      "--settings",
-      '{"disableAllHooks":true}',
-      "--disable-slash-commands",
-      "--allowedTools",
-      // Bare `Write` — NOT Write(<path>). Path-scoped Write rules are silently
-      // denied under --permission-mode dontAsk (every scoped form fails to match),
-      // so a scoped rule would block the slug write. Bare Write is an acceptable
-      // widening: the cwd is a disposable temp dir and the agent can't exec, commit,
-      // push, or reach anything outside it (no general Bash, no Edit, no network).
-      "Write",
-    ];
-    if (model) argv.push("--model", model);
-    // --permission-mode LAST: `--allowedTools <tools...>` is variadic and eats
-    // every following token until the next flag. The task prompt is a trailing
-    // positional, so a single-value flag MUST sit between the allowlist and the
-    // prompt — otherwise `claude` folds the prompt into the allowlist, launches
-    // with no task, and hangs until timeout. Don't reorder.
-    argv.push("--permission-mode", "dontAsk");
-    argv.push(namingPrompt(taskText));
-
-    const start = now();
     try {
-      terminalId = deps.herdr.start(label, cwd, argv).terminalId;
+      terminalId = deps.herdr.start(label, cwd, namerArgv(model, taskText)).terminalId;
     } catch {
       return null; // herdr/claude unavailable → fall back to heuristic
     }
-
-    let raw: string | null = null;
-    while (now() - start <= timeoutMs) {
-      raw = readName(cwd);
-      if (raw !== null) break;
-      await sleep(pollMs);
-    }
-    if (raw === null) return null; // timed out
-
-    const firstLine =
-      raw
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l.length > 0) ?? "";
-    const slug = slugifyManual(firstLine);
-    return slug && slug !== "task" ? slug : null;
+    const raw = await pollForRaw(readName, cwd, { now, sleep, timeoutMs, pollMs });
+    return raw === null ? null : extractSlug(raw);
   } finally {
     if (terminalId) {
       try {

@@ -175,16 +175,21 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 }
 
 // /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
-async function handleLearnings({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "learnings") return null;
+async function handleLearnings(ctx: Ctx): Promise<Response | null> {
+  if (ctx.parts[0] !== "api" || ctx.parts[1] !== "learnings") return null;
+  if (ctx.req.method === "GET") return handleLearningsGet(ctx);
+  if (ctx.req.method === "POST") return handleLearningsPost(ctx);
+  return null;
+}
 
+function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
   // GET /api/learnings/pending — all proposed rules across repos (drawer + badge)
-  if (req.method === "GET" && parts[2] === "pending") {
+  if (parts[2] === "pending") {
     return json(deps.store.listPendingLearnings());
   }
 
   // GET /api/learnings?repo=&status=
-  if (req.method === "GET" && !parts[2]) {
+  if (!parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
     if (!dir) return json({ error: "invalid repo" }, 400);
     const status = url.searchParams.get("status") ?? undefined;
@@ -193,8 +198,12 @@ async function handleLearnings({ req, parts, url, deps }: Ctx): Promise<Response
     );
   }
 
+  return null;
+}
+
+async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   // POST /api/learnings/distill?repo= — checked BEFORE :id so "distill" isn't an id
-  if (req.method === "POST" && parts[2] === "distill") {
+  if (parts[2] === "distill") {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
     if (!dir) return json({ error: "invalid repo" }, 400);
     deps.distiller?.distillNow(dir);
@@ -202,21 +211,29 @@ async function handleLearnings({ req, parts, url, deps }: Ctx): Promise<Response
   }
 
   // POST /api/learnings/:id/approve  |  /:id/dismiss
-  if (req.method === "POST" && parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
-    const id = parts[2];
-    let rule: string | undefined;
-    if (parts[3] === "approve") {
-      const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
-      if (body && typeof body.rule === "string") rule = body.rule;
-    }
-    const status = parts[3] === "approve" ? "active" : "dismissed";
-    const updated = deps.store.setLearningStatus(id, status, rule);
-    if (!updated) return json({ error: "not found" }, 404);
-    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
-    return json(updated);
+  if (parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
+    return handleLearningStatus(req, deps, parts[2], parts[3]);
   }
 
   return null;
+}
+
+async function handleLearningStatus(
+  req: Request,
+  deps: AppDeps,
+  id: string,
+  action: "approve" | "dismiss",
+): Promise<Response> {
+  let rule: string | undefined;
+  if (action === "approve") {
+    const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
+    if (body && typeof body.rule === "string") rule = body.rule;
+  }
+  const status = action === "approve" ? "active" : "dismissed";
+  const updated = deps.store.setLearningStatus(id, status, rule);
+  if (!updated) return json({ error: "not found" }, 404);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json(updated);
 }
 
 async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {

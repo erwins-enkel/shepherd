@@ -162,7 +162,7 @@ function normalizeRule(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-export function distillPrompt(): string {
+function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
     "It is a JSON array of past corrections, blocks, stalls, and critic findings for one repository,",

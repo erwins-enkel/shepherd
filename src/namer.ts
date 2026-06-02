@@ -70,6 +70,10 @@ const STOPWORDS = new Set([
   "dass",
   "wenn",
   "weil",
+  "ob",
+  "bis",
+  "denn",
+  "bzw",
   "ich",
   "du",
   "er",
@@ -216,6 +220,8 @@ const STOPWORDS = new Set([
   "make",
   "add",
   "fix",
+  "whether",
+  "while",
 ]);
 
 function transliterate(s: string): string {
@@ -241,6 +247,15 @@ export function slugifyManual(input: string): string {
   return slug || "task";
 }
 
+// Anchored regex that strips purely imperative command prefixes from the START of a
+// prompt (after transliteration + lowercasing). Without this, a prompt such as
+// "Prüfe, ob dieses Issue…" would yield "pruefe-ob-issue" — the 3 topical slots are
+// wasted on scaffolding words instead of the actual subject. The strip is intentionally
+// narrow: it only matches at position 0, removes at most one prefix, and leaves any
+// later occurrence of the same word untouched. slugifyManual is NOT affected.
+const COMMAND_PREFIX_RE =
+  /^(?:pruefe\s+ob|gib\s+mir|kannst\s+du(?:\s+(?:mal|bitte))?|lass\s+uns|ich\s+(?:moechte|will)|schau\s+dir)[,\s]*/;
+
 /**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.
  * Transliterates accents, strips filler words, and keeps the first 1–3 topical
@@ -253,6 +268,7 @@ export function slugifyManual(input: string): string {
 export function normalize(s: string): string {
   const words = transliterate(s)
     .toLowerCase()
+    .replace(COMMAND_PREFIX_RE, "") // strip leading imperative boilerplate before tokenizing
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)

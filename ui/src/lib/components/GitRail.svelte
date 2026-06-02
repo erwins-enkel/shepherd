@@ -719,7 +719,7 @@
     color: var(--color-ink-bright);
   }
   .rv-body :global(a) {
-    color: var(--color-accent, var(--color-ink-bright));
+    color: var(--color-blue);
     text-decoration: underline;
   }
   .rv-body :global(code) {

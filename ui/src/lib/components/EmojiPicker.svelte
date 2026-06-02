@@ -95,7 +95,7 @@
   }
   .ep-search:focus {
     outline: none;
-    border-color: var(--color-amber);
+    border-color: var(--color-line-bright);
   }
   .ep-grid {
     display: grid;

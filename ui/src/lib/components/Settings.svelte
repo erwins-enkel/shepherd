@@ -742,7 +742,7 @@
   }
   .sc-input:focus {
     outline: none;
-    border-color: var(--color-amber);
+    border-color: var(--color-line-bright);
   }
   .sc .run {
     align-self: flex-start;

@@ -172,7 +172,7 @@
 
   .rs-trigger:focus {
     outline: none;
-    border-color: var(--color-amber);
+    border-color: var(--color-line-bright);
   }
 
   .rs-trigger b {
@@ -232,7 +232,7 @@
 
   .rs-filter:focus {
     outline: none;
-    border-color: var(--color-amber);
+    border-color: var(--color-line-bright);
   }
 
   .rs-list {

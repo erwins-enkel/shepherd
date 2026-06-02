@@ -1650,8 +1650,8 @@
       border-color 0.12s;
   }
   .rename-btn:hover {
-    color: var(--color-fg);
-    border-color: color-mix(in srgb, var(--color-fg) 30%, transparent);
+    color: var(--color-ink);
+    border-color: color-mix(in srgb, var(--color-ink) 30%, transparent);
   }
 
   .rename-edit {
@@ -1662,9 +1662,9 @@
   }
   .rename-input {
     background: var(--color-bg);
-    border: 1px solid color-mix(in srgb, var(--color-fg) 35%, transparent);
+    border: 1px solid var(--color-line);
     border-radius: 2px;
-    color: var(--color-fg);
+    color: var(--color-ink-bright);
     font-family: var(--font-mono);
     font-size: 11px;
     padding: 2px 6px;
@@ -1673,7 +1673,7 @@
   }
   .rename-input:focus {
     outline: none;
-    border-color: var(--color-accent, var(--color-fg));
+    border-color: var(--color-line-bright);
   }
   .rename-input.err {
     border-color: var(--color-red);

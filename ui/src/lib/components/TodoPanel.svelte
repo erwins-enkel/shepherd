@@ -286,7 +286,7 @@
   }
 
   .add-input:focus {
-    border-color: var(--color-green);
+    border-color: var(--color-line-bright);
   }
 
   .add-btn {

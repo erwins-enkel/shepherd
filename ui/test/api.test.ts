@@ -6,7 +6,7 @@ test("elapsed formats mm:ss", () => {
   expect(elapsed(0, 0)).toBe("00:00");
 });
 
-test("statusLabel maps running→WORKING", () => {
-  expect(statusLabel("running")).toBe("WORKING");
+test("statusLabel maps running→BUSY", () => {
+  expect(statusLabel("running")).toBe("BUSY");
   expect(statusLabel("blocked")).toBe("BLOCKED");
 });

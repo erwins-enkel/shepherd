@@ -14,6 +14,8 @@
     onsettings,
     needsYou = 0,
     ontriage,
+    learnings = 0,
+    onlearnings,
     update = null,
     onupdate,
     herdrUpdate = null,
@@ -28,6 +30,8 @@
     onsettings?: () => void;
     needsYou?: number;
     ontriage?: () => void;
+    learnings?: number;
+    onlearnings?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
@@ -137,6 +141,16 @@
         {:else}
           {m.common_needs_you({ count: needsYou })}
         {/if}
+      </button>
+    {/if}
+    {#if learnings > 0}
+      <button
+        class="learnings-badge"
+        onclick={() => onlearnings?.()}
+        aria-label={m.learnings_open_aria({ count: learnings })}
+      >
+        {m.learnings_title()}
+        {learnings}
       </button>
     {/if}
     {#if touch}
@@ -333,6 +347,21 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+  .learnings-badge {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .learnings-badge:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink-bright);
   }
   .rightside {
     margin-left: auto;
@@ -643,6 +672,7 @@
     .gear,
     .needsyou,
     .needsyou.compact,
+    .learnings-badge,
     .gauge-btn,
     .update-badge {
       min-height: 44px;

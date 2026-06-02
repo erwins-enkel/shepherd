@@ -1349,10 +1349,14 @@
     cursor: default;
     border-bottom: 1px dotted var(--color-line);
   }
-  .desig-wrap:hover .desig,
+  .desig-wrap:hover .desig {
+    color: var(--color-ink);
+  }
+  /* keyboard focus — flat inset amber ring, distinct from the hover color shift */
   .desig:focus-visible {
     color: var(--color-ink);
     outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   /* secondary meta popover (profile + tokens), revealed on hover/focus of the desig */

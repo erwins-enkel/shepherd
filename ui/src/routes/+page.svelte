@@ -19,6 +19,8 @@
     approveLearning,
     dismissLearning,
     distillRepo,
+    getMergedClearable,
+    clearMerged,
   } from "$lib/api";
   import type {
     DeployState,
@@ -26,6 +28,7 @@
     Issue,
     IssueRef,
     PullRequest,
+    Session,
     Settings as Settings_,
   } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
@@ -42,6 +45,7 @@
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
+  import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import BacklogView from "$lib/components/BacklogView.svelte";
@@ -58,6 +62,10 @@
   let showNew = $state(false);
   let showSettings = $state(false);
   let showBroadcast = $state(false);
+  // "clear all merged" confirm modal: the merged sessions to clear + their total
+  // leftover subprocess count (both fetched server-side when the modal opens).
+  let clearMergedSessions = $state<Session[] | null>(null);
+  let clearMergedLeftovers = $state(0);
   let showTriage = $state(false);
   let showLearnings = $state(false);
   let showUpdate = $state(false);
@@ -301,6 +309,56 @@
     });
   }
 
+  // Open the "clear all merged" confirm modal. The server is the source of truth
+  // for which sessions are merged (same prCache the list partitions on) and for the
+  // leftover count, so we ask it rather than trust the local snapshot.
+  async function onclearmerged() {
+    try {
+      const { ids, leftovers } = await getMergedClearable();
+      // store.sessions mirrors every active session, so each merged id resolves to a
+      // row here — `targets` matches the server's `ids` and `leftovers` lines up with
+      // the listed sessions. (Were a merged id somehow absent, we'd list and clear only
+      // the rows we can show; the leftover figure would slightly overstate. Cosmetic.)
+      const targets = ids
+        .map((id) => store.sessions.find((s) => s.id === id))
+        .filter((s): s is Session => s != null);
+      if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
+      clearMergedLeftovers = leftovers;
+      clearMergedSessions = targets;
+    } catch {
+      toasts.info(m.toast_clear_merged_failed());
+    }
+  }
+
+  // Archive the given merged sessions. The server stops each agent, removes its
+  // worktree, deletes the merged branch, and emits session:archived so the rows drop
+  // from the store. Shared by the confirm and its Retry so a successful retry shows
+  // the same success toast and focus-move as the first attempt. Focus only moves
+  // off the cleared rows on success — a transient failure leaves selection put,
+  // since nothing was actually cleared.
+  async function runClearMerged(ids: string[]) {
+    try {
+      const { cleared } = await clearMerged(ids);
+      const gone = new Set(cleared);
+      if (selectedId && gone.has(selectedId)) {
+        selectedId = store.sessions.find((s) => !gone.has(s.id))?.id ?? null;
+      }
+      toasts.info(m.toast_cleared_merged({ count: cleared.length }));
+    } catch {
+      toasts.info(m.toast_clear_merged_failed(), {
+        action: { label: m.common_retry(), run: () => void runClearMerged(ids) },
+      });
+    }
+  }
+
+  // Confirmed: clear the dialog state (before the await, so it can't double-submit),
+  // then run the bulk archive.
+  function confirmClearMerged() {
+    const targets = clearMergedSessions ?? [];
+    clearMergedSessions = null;
+    void runClearMerged(targets.map((s) => s.id));
+  }
+
   // The deploy runs detached: it builds, restarts the server, and only then —
   // after the new process answers a health check — writes its success marker.
   // So a readable `done` GUARANTEES the new build is already live. We poll the
@@ -390,6 +448,7 @@
             onnew={() => (showNew = true)}
             git={store.git}
             ondecommission={onarchive}
+            {onclearmerged}
             {standardCommandUnset}
             onsettings={() => (showSettings = true)}
           />
@@ -452,6 +511,7 @@
           onselect={(id) => selectUnit(id)}
           onnew={() => (showNew = true)}
           git={store.git}
+          {onclearmerged}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
         />
@@ -578,6 +638,15 @@
 
 {#if showBroadcast}
   <BroadcastDialog sessions={store.sessions} onclose={() => (showBroadcast = false)} />
+{/if}
+
+{#if clearMergedSessions}
+  <ClearMergedDialog
+    sessions={clearMergedSessions}
+    leftovers={clearMergedLeftovers}
+    onclose={() => (clearMergedSessions = null)}
+    onconfirm={confirmClearMerged}
+  />
 {/if}
 
 {#if showBacklog}

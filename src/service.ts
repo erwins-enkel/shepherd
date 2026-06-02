@@ -307,18 +307,54 @@ export class SessionService {
    * Close a session: optionally terminate selected leftovers first, then stop the
    * agent, remove the worktree, and archive the row. `reapKeys` are leftover keys
    * the operator chose to kill; we re-detect and intersect by key so a stale/forged
-   * client selection can never make us kill an arbitrary pid.
+   * client selection can never make us kill an arbitrary pid. Returns the number of
+   * leftovers actually reaped (the intersection), so bulk callers can report a count
+   * that reflects what was killed rather than what was requested.
    */
-  archive(id: string, reapKeys?: string[]): void {
+  archive(id: string, reapKeys?: string[]): number {
     const s = this.deps.store.get(id);
-    if (!s) return;
+    if (!s) return 0;
+    let reaped = 0;
     if (reapKeys?.length && this.deps.reaper) {
       const want = new Set(reapKeys);
-      this.deps.reaper.reap(this.deps.reaper.detect(s).filter((l) => want.has(l.key)));
+      const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
+      this.deps.reaper.reap(hit);
+      reaped = hit.length;
     }
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     if (s.isolated)
       this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
     this.deps.store.archive(id);
+    return reaped;
+  }
+
+  /**
+   * Bulk-close sessions ("clear all merged"). Each session's leftover subprocesses
+   * are auto-detected and reaped before its teardown — unlike the single-session
+   * close (which asks per-process), bulk clear terminates them all so a landed
+   * session can't leave a dev server orphaned. Returns the ids actually archived
+   * (missing ones are skipped) and the total leftovers terminated — counted from
+   * what `archive` actually reaped, so the number never overstates. The caller must
+   * restrict `ids` to a safe set (e.g. merged-only) — this archives what it's given.
+   *
+   * One session's teardown failing (e.g. `worktree.remove` throwing) must not abort
+   * the rest, so each is isolated: a failed id is skipped and left out of `cleared`,
+   * so the caller emits archived events for exactly the rows that really went away.
+   */
+  archiveMany(ids: string[]): { cleared: string[]; leftovers: number } {
+    const cleared: string[] = [];
+    let leftovers = 0;
+    for (const id of ids) {
+      const s = this.deps.store.get(id);
+      if (!s) continue;
+      const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
+      try {
+        leftovers += this.archive(id, keys); // count what was reaped, not what was detected
+        cleared.push(id);
+      } catch {
+        // skip this one; its row stays active and gets no archived event
+      }
+    }
+    return { cleared, leftovers };
   }
 }

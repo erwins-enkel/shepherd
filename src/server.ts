@@ -403,6 +403,49 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   return null;
 }
 
+// Active sessions whose cached PR state is "merged" — the set "clear all merged"
+// operates on. Reads the same prCache snapshot the UI partitions on, so server and
+// client agree on what "merged" means without extra `gh` calls.
+function mergedSessionIds(deps: AppDeps): string[] {
+  const git = deps.prCache?.snapshot() ?? {};
+  return deps.store
+    .list({ activeOnly: true })
+    .filter((s) => git[s.id]?.state === "merged")
+    .map((s) => s.id);
+}
+
+// /api/sessions/clear-merged — bulk-close every merged-branch session.
+//   GET  → { ids, leftovers } summary feeding the confirm modal.
+//   POST {ids} → archive the merged subset, terminating each one's leftover
+//     subprocesses. The client ids are intersected with the server's merged set
+//     (re-validation) so a stale snapshot can never archive a still-live session;
+//     an absent or non-array `ids` falls back to the full merged set (an explicit
+//     empty array clears nothing). Returns what was actually cleared. Registered
+//     before the generic :id handlers so the literal "clear-merged" segment is never
+//     mistaken for a session id — including a 405 on DELETE/PUT so it can't fall
+//     through to handleSessionDelete and emit a spurious archived event.
+async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[2] !== "clear-merged" || parts[3]) return null;
+  const merged = new Set(mergedSessionIds(deps));
+  if (req.method === "GET") {
+    const ids = [...merged];
+    const leftovers = ids.reduce((n, id) => n + deps.service.leftovers(id).length, 0);
+    return json({ ids, leftovers });
+  }
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;
+  const requested = Array.isArray(body?.ids)
+    ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
+    : [...merged];
+  const target = requested.filter((id) => merged.has(id)); // merged-only, no matter what was sent
+  const { cleared, leftovers } = deps.service.archiveMany(target);
+  for (const id of cleared) {
+    deps.prCache?.drop(id);
+    deps.events.emit("session:archived", { id });
+  }
+  return json({ cleared, leftovers });
+}
+
 // DELETE /api/sessions/:id — archive. An optional `{reap: string[]}` body lists the
 // leftover keys (from GET …/leftovers) the operator chose to terminate alongside.
 async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -548,6 +591,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
   const { parts } = ctx;
   if (parts[0] !== "api" || parts[1] !== "sessions") return null;
   for (const sub of [
+    handleSessionsClearMerged,
     handleSessionCreate,
     handleSessionReads,
     handleSessionDelete,

@@ -1047,3 +1047,85 @@ test("refine skipped entirely when refineName dep is absent", async () => {
   expect(store.get(s.id)?.name).toBe("even-two-recent-prs");
   expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
 });
+
+test("archiveMany clears each session, reaping all its leftovers", () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = { stopped: [], removed: [], reaped: [] };
+  const detect = (sess: any): any[] => [
+    { kind: "process", key: `process:${sess.name}`, name: "vite", port: null },
+  ];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: (p: string) => calls.removed.push(p) } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [],
+      stop: (t: string) => calls.stopped.push(t),
+    } as any,
+    reaper: { detect, reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)) },
+  });
+  const mk = (name: string, term: string) =>
+    store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: term,
+    });
+  const a = mk("a", "term_a");
+  const b = mk("b", "term_b");
+
+  const res = svc.archiveMany([a.id, b.id, "missing-id"]);
+
+  expect(res.cleared).toEqual([a.id, b.id]); // missing id skipped
+  expect(res.leftovers).toBe(2); // one leftover each, both counted
+  expect(calls.stopped).toEqual(["term_a", "term_b"]); // both agents stopped
+  expect(calls.reaped).toEqual(["process:a", "process:b"]); // each session's leftovers killed
+  expect(store.get(a.id)?.status).toBe("archived");
+  expect(store.get(b.id)?.status).toBe("archived");
+});
+
+test("archiveMany isolates a failing session: others still clear, the failed id is excluded", () => {
+  const store = new SessionStore(":memory:");
+  const detect = (): any[] => [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      // session b's worktree teardown blows up mid-loop
+      remove: (p: string) => {
+        if (p === "/wt/b") throw new Error("worktree locked");
+      },
+    } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
+    reaper: { detect, reap: () => {} },
+  });
+  const mk = (name: string) =>
+    store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: `term_${name}`,
+    });
+  const a = mk("a");
+  const b = mk("b");
+  const c = mk("c");
+
+  const res = svc.archiveMany([a.id, b.id, c.id]);
+
+  expect(res.cleared).toEqual([a.id, c.id]); // b's failure didn't abort the loop, and b is excluded
+  expect(store.get(a.id)?.status).toBe("archived");
+  expect(store.get(c.id)?.status).toBe("archived");
+  expect(store.get(b.id)?.status).not.toBe("archived"); // b stays active (teardown threw)
+});

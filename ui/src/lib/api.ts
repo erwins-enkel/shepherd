@@ -85,6 +85,27 @@ export async function archiveSession(id: string, reap?: string[]): Promise<void>
   if (!r.ok) throw await failed(r, "archive");
 }
 
+/** Merged-branch session ids + aggregate leftover count, for the clear-all confirm modal. */
+export async function getMergedClearable(): Promise<{ ids: string[]; leftovers: number }> {
+  const r = await fetch("/api/sessions/clear-merged");
+  if (!r.ok) throw await failed(r, "merged clearable");
+  return r.json();
+}
+
+/** Archive every merged-branch session (the given ids), terminating their leftover
+ *  subprocesses. The server re-validates each id is merged before archiving. */
+export async function clearMerged(
+  ids: string[],
+): Promise<{ cleared: string[]; leftovers: number }> {
+  const r = await fetch("/api/sessions/clear-merged", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ ids }),
+  });
+  if (!r.ok) throw await failed(r, "clear merged");
+  return r.json();
+}
+
 export async function listRepos(): Promise<RepoEntry[]> {
   const r = await fetch("/api/repos");
   if (!r.ok) throw await failed(r, "repos");

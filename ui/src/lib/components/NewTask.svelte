@@ -3,7 +3,7 @@
   import { listRepos, listBranches, getCommands, uploadImage } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
   import { MODELS, type Issue, type IssueRef, type RepoEntry, type SlashCommand } from "$lib/types";
-  import { matchSlashTrigger, filterCommands } from "$lib/slash";
+  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -207,17 +207,20 @@
     refreshSlash();
   }
 
-  // Replace the leading `/query` token with the chosen command, leaving a trailing
-  // space so the user can type arguments straight away.
+  // Replace the typed `/query` token with the chosen command and hoist it to the
+  // front of the prompt — Claude only runs a *leading* slash command, so a command
+  // typed mid-text becomes the leading command with the surrounding text as its
+  // argument. Caret lands past `/name ` so the user can type arguments straight away.
   function pickCommand(cmd: SlashCommand) {
     const caret = promptInput?.selectionStart ?? prompt.length;
-    const insert = `/${cmd.name} `;
-    prompt = insert + prompt.slice(caret);
+    const start = matchSlashTrigger(prompt, caret)?.start ?? 0;
+    const next = applyCommandPick(prompt, start, caret, cmd.name);
+    prompt = next.value;
     slashOpen = false;
     queueMicrotask(() => {
       autogrow();
       promptInput?.focus();
-      promptInput?.setSelectionRange(insert.length, insert.length);
+      promptInput?.setSelectionRange(next.caret, next.caret);
     });
   }
 

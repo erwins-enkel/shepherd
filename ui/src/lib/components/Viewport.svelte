@@ -151,6 +151,10 @@
       ? STATUS_COLOR[session.status]
       : null,
   );
+  // Non-hue partner to the tint: a leading shape mark so blocked (!) vs done (✓)
+  // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
+  // blocked/done-on-phone gate as the tint.
+  const statusGlyph = $derived(!tintColor ? null : session.status === "blocked" ? "!" : "✓");
 
   // ...but a busy agent shouldn't read as idle either: running gets a faint,
   // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
@@ -881,7 +885,7 @@
     class:phone={mobile}
     class:working={working && !tintColor}
     style:background={tintColor
-      ? `color-mix(in srgb, ${tintColor} 16%, var(--color-head))`
+      ? `color-mix(in srgb, ${tintColor} 24%, var(--color-head))`
       : undefined}
   >
     {#if onback}
@@ -921,6 +925,12 @@
           >›</button
         >
       </div>
+    {/if}
+    {#if statusGlyph}
+      <!-- phone: shape mark partnering the header tint so blocked/done read
+           without colour. The word is on .vp-status-sr for assistive tech. -->
+      <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true">{statusGlyph}</span
+      >
     {/if}
     {#if mobile}
       <!-- phone: the merged header carries repo · session (the top bar is hidden
@@ -1001,7 +1011,8 @@
           >
         </span>
       {/if}
-      <!-- status is conveyed by the header tint; keep the word for assistive tech -->
+      <!-- sighted users read status from the header tint + leading shape glyph;
+           keep the word for assistive tech -->
       <span class="vp-status-sr">{statusLabel(session.status)}</span>
     {:else}
       <span
@@ -1562,7 +1573,18 @@
     flex-shrink: 0;
   }
 
-  /* status word for assistive tech only; sighted users read it from the tint */
+  /* leading shape mark (! blocked / ✓ done) — the non-hue partner to the header
+     tint so the two alert states never rest on colour alone */
+  .vp-status-glyph {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+    margin-right: 1px;
+  }
+
+  /* status word for assistive tech only; sighted users read it from the tint +
+     the leading shape glyph (blocked/done) */
   .vp-status-sr {
     position: absolute;
     width: 1px;

@@ -170,7 +170,7 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 2px;
+    width: 1px;
     background: var(--rule, var(--color-faint));
     z-index: 2;
   }
@@ -219,14 +219,14 @@
     letter-spacing: 0.08em;
     font-size: 10.5px;
   }
+  /* Quiet muted text, not a colored pill — the stripe (left) already encodes
+     status by hue, so an outlined `--rule`-tinted badge here triple-stacked the
+     same color. Matches UnitRow's demoted badge. */
   .badge {
     font-size: 9px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 2px 6px;
-    border: 1px solid var(--rule);
-    color: var(--rule);
-    border-radius: 2px;
+    color: var(--color-muted);
     flex-shrink: 0;
   }
 

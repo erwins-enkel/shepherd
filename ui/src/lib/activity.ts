@@ -14,6 +14,10 @@ export function glyph(tool: string): string {
     case "Glob":
       return "⌕";
     case "TodoWrite":
+    case "TaskCreate":
+    case "TaskUpdate":
+    case "TaskList":
+    case "TaskGet":
       return "⊞";
     case "Task":
     case "Agent":

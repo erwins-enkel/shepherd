@@ -216,6 +216,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
+    autopilotEnabled: cur.autopilotEnabled,
   });
   return json(deps.store.getRepoConfig(dir));
 }

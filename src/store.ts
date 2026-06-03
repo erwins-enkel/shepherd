@@ -27,6 +27,8 @@ export interface RepoConfig {
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
+  /** Pre-PR autopilot loop: drive procedural gates, surface real questions, lead to a PR. */
+  autopilotEnabled: boolean;
 }
 
 export interface PushSubInput {
@@ -63,10 +65,16 @@ type NewSession = Omit<
   | "model"
   | "claudeSessionId"
   | "readyToMerge"
+  | "autopilotEnabled"
+  | "autopilotStepCount"
+  | "autopilotPaused"
+  | "autopilotQuestion"
 > & { model?: string | null; claudeSessionId?: string };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
-  isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState, createdAt, updatedAt, archivedAt`;
+  isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
+  autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotQuestion,
+  createdAt, updatedAt, archivedAt`;
 
 export class SessionStore implements CapStore {
   private db: Database;
@@ -91,6 +99,19 @@ export class SessionStore implements CapStore {
     if (!cols.some((c) => c.name === "readyToMerge")) {
       this.db.run(`ALTER TABLE sessions ADD COLUMN readyToMerge INTEGER NOT NULL DEFAULT 0`);
     }
+    if (!cols.some((c) => c.name === "autopilotEnabled")) {
+      // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
+      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotEnabled INTEGER`);
+    }
+    if (!cols.some((c) => c.name === "autopilotStepCount")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotStepCount INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!cols.some((c) => c.name === "autopilotPaused")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotPaused INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!cols.some((c) => c.name === "autopilotQuestion")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotQuestion TEXT`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
@@ -111,6 +132,9 @@ export class SessionStore implements CapStore {
     }
     if (!repoCfgCols.some((c) => c.name === "learningsEnabled")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN learningsEnabled INTEGER NOT NULL DEFAULT 1`);
+    }
+    if (!repoCfgCols.some((c) => c.name === "autopilotEnabled")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
@@ -178,32 +202,37 @@ export class SessionStore implements CapStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled FROM repo_config WHERE repoPath = ?`,
+        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
       criticEnabled: number;
       autoAddressEnabled: number;
       learningsEnabled: number;
+      autopilotEnabled: number;
     } | null;
     // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
     return {
       criticEnabled: r ? !!r.criticEnabled : true,
       autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
       learningsEnabled: r ? !!r.learningsEnabled : true,
+      autopilotEnabled: r ? !!r.autopilotEnabled : false,
     };
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
-      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, updatedAt) VALUES (?,?,?,?,?)
+      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, updatedAt)
+         VALUES (?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
-         learningsEnabled = excluded.learningsEnabled, updatedAt = excluded.updatedAt`,
+         learningsEnabled = excluded.learningsEnabled,
+         autopilotEnabled = excluded.autopilotEnabled, updatedAt = excluded.updatedAt`,
       [
         repoPath,
         cfg.criticEnabled ? 1 : 0,
         cfg.autoAddressEnabled ? 1 : 0,
         cfg.learningsEnabled ? 1 : 0,
+        cfg.autopilotEnabled ? 1 : 0,
         Date.now(),
       ],
     );
@@ -267,33 +296,44 @@ export class SessionStore implements CapStore {
       id: randomUUID(),
       desig: `TASK-${String(n + 1).padStart(2, "0")}`,
       readyToMerge: false,
+      autopilotEnabled: null,
+      autopilotStepCount: 0,
+      autopilotPaused: false,
+      autopilotQuestion: null,
       status: "running",
       lastState: "idle",
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
     };
-    this.db.run(`INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
-      s.id,
-      s.desig,
-      s.name,
-      s.prompt,
-      s.repoPath,
-      s.baseBranch,
-      s.branch,
-      s.worktreePath,
-      s.isolated ? 1 : 0,
-      s.herdrSession,
-      s.herdrAgentId,
-      s.claudeSessionId,
-      s.model,
-      s.readyToMerge ? 1 : 0,
-      s.status,
-      s.lastState,
-      s.createdAt,
-      s.updatedAt,
-      s.archivedAt,
-    ]);
+    this.db.run(
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        s.id,
+        s.desig,
+        s.name,
+        s.prompt,
+        s.repoPath,
+        s.baseBranch,
+        s.branch,
+        s.worktreePath,
+        s.isolated ? 1 : 0,
+        s.herdrSession,
+        s.herdrAgentId,
+        s.claudeSessionId,
+        s.model,
+        s.readyToMerge ? 1 : 0,
+        s.status,
+        s.lastState,
+        null, // autopilotEnabled — inherit repo default
+        0, // autopilotStepCount
+        0, // autopilotPaused
+        null, // autopilotQuestion
+        s.createdAt,
+        s.updatedAt,
+        s.archivedAt,
+      ],
+    );
     return s;
   }
 
@@ -328,6 +368,35 @@ export class SessionStore implements CapStore {
         next.herdrAgentId,
         next.readyToMerge ? 1 : 0,
         next.updatedAt,
+        id,
+      ],
+    );
+  }
+
+  /** Patch a session's autopilot fields. Only the provided keys are written. */
+  setAutopilotState(
+    id: string,
+    patch: {
+      enabled?: boolean | null;
+      stepCount?: number;
+      paused?: boolean;
+      question?: string | null;
+    },
+  ): void {
+    const cur = this.get(id);
+    if (!cur) return;
+    const enabled = patch.enabled === undefined ? cur.autopilotEnabled : patch.enabled;
+    const stepCount = patch.stepCount ?? cur.autopilotStepCount;
+    const paused = patch.paused ?? cur.autopilotPaused;
+    const question = patch.question === undefined ? cur.autopilotQuestion : patch.question;
+    this.db.run(
+      `UPDATE sessions SET autopilotEnabled=?, autopilotStepCount=?, autopilotPaused=?, autopilotQuestion=?, updatedAt=? WHERE id=?`,
+      [
+        enabled === null ? null : enabled ? 1 : 0,
+        stepCount,
+        paused ? 1 : 0,
+        question,
+        Date.now(),
         id,
       ],
     );
@@ -742,6 +811,13 @@ export class SessionStore implements CapStore {
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
+      autopilotEnabled:
+        r.autopilotEnabled === null || r.autopilotEnabled === undefined
+          ? null
+          : !!r.autopilotEnabled,
+      autopilotStepCount: r.autopilotStepCount ?? 0,
+      autopilotPaused: !!r.autopilotPaused,
+      autopilotQuestion: r.autopilotQuestion ?? null,
     } as Session;
   }
 }

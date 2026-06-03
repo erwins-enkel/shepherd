@@ -184,6 +184,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -206,6 +207,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         criticEnabled: true,
         autoAddressEnabled: false,
         learningsEnabled: true,
+        autopilotEnabled: false,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

@@ -66,9 +66,10 @@ export function readActivitySignal(path: string): SessionActivity | null {
 
 /**
  * Read a session JSONL transcript ONCE and derive BOTH the stall snapshot and
- * the activity signal from that single read+parse pass — the per-tick probe for
- * a running agent. Missing/unreadable file → both null. Reuses the pure
- * `snapshotFromText`/`signalFromText` builders so there's no duplicate parsing.
+ * the activity signal from it — the per-tick probe for a running agent. Missing/
+ * unreadable file → both null. The win is a single file read (the prior split
+ * probes each read the whole file); the pure `snapshotFromText`/`signalFromText`
+ * builders still parse independently, but only one disk read happens per tick.
  */
 export function readTranscriptSignals(path: string): {
   snapshot: ActivitySnapshot | null;

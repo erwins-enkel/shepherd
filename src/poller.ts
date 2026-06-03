@@ -185,9 +185,9 @@ export class StatusPoller {
 
   /**
    * Manually clear a *stall* flag without re-arming it: broadcasts the clear but
-   * keeps `lastSig` so `maybeStall`'s once-per-episode guard suppresses an
+   * keeps `lastSig` so `maybeProbe`'s once-per-episode guard suppresses an
    * immediate re-fire. The episode re-arms on its own when activity resumes
-   * (the `!isStalled` path in `maybeStall` calls `clearBlock`), so a later
+   * (the `!isStalled` path in `maybeProbe` calls `clearBlock`), so a later
    * genuine stall still surfaces. No-op (returns false) unless a stall is live.
    */
   acknowledgeStall(id: string): boolean {

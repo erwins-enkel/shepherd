@@ -73,6 +73,7 @@ interface InFlight {
   sessionId: string;
   headSha: string;
   prNumber: number;
+  branch: string; // head branch, for the at-finalize live PR-state recheck (prStatus keys on it)
   repoPath: string;
   worktreePath: string;
   terminalId: string;
@@ -256,6 +257,7 @@ export class ReviewService {
       sessionId: session.id,
       headSha: git.headSha!,
       prNumber: git.number!,
+      branch: session.branch!,
       repoPath: session.repoPath,
       worktreePath: wt.worktreePath,
       terminalId,
@@ -348,35 +350,52 @@ export class ReviewService {
           });
         }
       } else {
-        const forge = this.deps.resolveForge(f.repoPath);
-        if (forge) {
-          try {
-            const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
-            const { url } = await forge.postReview(f.prNumber, {
-              event,
-              body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
-            });
-            verdict.url = url;
-          } catch (err) {
-            console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
-          }
-        }
-        verdict.addressRound = this.runAutoAddress(f, verdict); // errorRound stays 0 on a real verdict
+        await this.publishVerdict(f, verdict);
       }
       this.deps.store.putReview(verdict);
-      if (verdict.decision === "changes_requested") {
-        this.deps.store.addSignal({
-          repoPath: f.repoPath,
-          sessionId: f.sessionId,
-          kind: "critic",
-          payload: `${verdict.summary}\n\n${verdict.body}`,
-        });
-      }
       this.deps.onChange(f.sessionId, verdict);
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
+    }
+  }
+
+  /**
+   * Emit a real verdict's outward effects — post the review, steer findings to the agent,
+   * record the critic signal — but ONLY if the PR is still open. Critic spawn and PR merge
+   * both fire on CI-green, so they race by construction: the critic can finish AFTER the PR
+   * merged/closed, at which point the verdict is moot. Live fetch (not the cached snapshot —
+   * the 120s poll can lag the merge). Fail-closed: if we can't confirm "open" (no forge /
+   * forge throws) we emit nothing. The verdict row itself is still persisted by the caller.
+   */
+  private async publishVerdict(f: InFlight, verdict: ReviewVerdict): Promise<void> {
+    const forge = this.deps.resolveForge(f.repoPath);
+    let open = false;
+    try {
+      open = (await forge?.prStatus(f.branch))?.state === "open";
+    } catch (err) {
+      console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
+    }
+    if (!open || !forge) return; // not open (or unconfirmable) → moot, emit nothing
+    try {
+      const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
+      const { url } = await forge.postReview(f.prNumber, {
+        event,
+        body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+      });
+      verdict.url = url;
+    } catch (err) {
+      console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
+    }
+    verdict.addressRound = this.runAutoAddress(f, verdict); // reached only when the PR is open
+    if (verdict.decision === "changes_requested") {
+      this.deps.store.addSignal({
+        repoPath: f.repoPath,
+        sessionId: f.sessionId,
+        kind: "critic",
+        payload: `${verdict.summary}\n\n${verdict.body}`,
+      });
     }
   }
 
@@ -401,6 +420,8 @@ export class ReviewService {
     // this streak rather than resetting — the cap bounds total agent churn per PR, which
     // is fine for the prototype. Revisit if per-issue rounds become the intended model.
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
+    // The PR's still-open check lives in publishVerdict() (it also gates postReview + the
+    // critic signal), so reaching here already means the PR is open — just steer.
     // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
     // dead one, so a steer that can't land normally reports false. A throw is now only a
     // narrow race — the pane dies between the liveness check and herdr.send — and still
@@ -434,7 +455,7 @@ export class ReviewService {
       summary,
       body: raw && typeof raw.body === "string" ? raw.body : "",
       findings,
-      addressRound: 0, // finalize() overwrites with the streak round
+      addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)
       addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
       errorRound: 0, // finalize() overwrites on an error verdict
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward

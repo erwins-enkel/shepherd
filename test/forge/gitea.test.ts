@@ -33,7 +33,7 @@ function fakeFetch(routes: Record<string, { status?: number; json?: unknown }>) 
 
 test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", async () => {
   const { fn, calls } = fakeFetch({
-    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
       json: [
         {
           number: 9,
@@ -70,7 +70,7 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
 
 test("GiteaForge.listPullRequests: a failing per-PR status call degrades to checks:none, not a rejected list", async () => {
   const { fn } = fakeFetch({
-    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
       json: [
         {
           number: 9,

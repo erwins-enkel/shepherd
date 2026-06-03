@@ -126,7 +126,7 @@ export class GithubForge implements GitForge {
       "--json",
       "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews",
       "--limit",
-      "50",
+      "200",
     ]);
     const raw = JSON.parse(out || "[]") as Array<
       GhPr & {

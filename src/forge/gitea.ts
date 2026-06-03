@@ -153,7 +153,7 @@ export class GiteaForge implements GitForge {
   async listPullRequests(): Promise<PullRequest[]> {
     const prs = (await this.req(
       "GET",
-      `/api/v1/repos/${this.slug}/pulls?state=open&limit=50`,
+      `/api/v1/repos/${this.slug}/pulls?state=open&limit=200`,
     )) as GiteaPr[];
     // Checks ride a per-PR commit-status call (same shape as prStatus); fan out
     // (bounded — see STATUS_FETCH_CONCURRENCY) so the list isn't serialized on a

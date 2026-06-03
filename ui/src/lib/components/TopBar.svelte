@@ -15,6 +15,7 @@
     needsYou = 0,
     ontriage,
     learnings = 0,
+    overBudget = 0,
     onlearnings,
     update = null,
     onupdate,
@@ -31,6 +32,7 @@
     needsYou?: number;
     ontriage?: () => void;
     learnings?: number;
+    overBudget?: number;
     onlearnings?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
@@ -143,18 +145,22 @@
         {/if}
       </button>
     {/if}
-    {#if learnings > 0}
+    {#if learnings > 0 || overBudget > 0}
       <button
         class="learnings-badge"
         class:compact={mobile}
+        class:curate={learnings === 0}
         onclick={() => onlearnings?.()}
-        aria-label={m.learnings_open_aria({ count: learnings })}
+        aria-label={learnings > 0
+          ? m.learnings_open_aria({ count: learnings })
+          : m.learnings_open_curate_aria({ count: overBudget })}
       >
         {#if mobile}
-          <span class="lr-icon" aria-hidden="true">✦</span><span class="lr-n">{learnings}</span>
+          <span class="lr-icon" aria-hidden="true">✦</span>
+          {#if learnings > 0}<span class="lr-n">{learnings}</span>{/if}
         {:else}
           {m.learnings_title()}
-          {learnings}
+          {#if learnings > 0}{learnings}{/if}
         {/if}
       </button>
     {/if}
@@ -367,6 +373,11 @@
   .learnings-badge:hover {
     color: var(--color-ink-bright);
     border-color: var(--color-ink-bright);
+  }
+  /* Curate-only entry point (no pending proposals, just over-budget rules to prune):
+     a softer dashed border so it reads as informational rather than action-required. */
+  .learnings-badge.curate {
+    border-style: dashed;
   }
   .rightside {
     margin-left: auto;

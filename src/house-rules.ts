@@ -42,7 +42,9 @@ export function planHouseRulesInjection(rules: Learning[], budgetChars: number):
       dropped.push(r);
     }
   }
-  return { injected, dropped, budgetChars, usedChars: used };
+  // No rule made the cut → the block renders to null, so report 0 chars used
+  // (not the bare header length) to keep the drawer's budget meter truthful.
+  return { injected, dropped, budgetChars, usedChars: injected.length === 0 ? 0 : used };
 }
 
 /** Renders the injected rules into the prompt block, or null when none. */

@@ -251,6 +251,7 @@
   "triage_open_console_aria": "Open the full console for {desig}",
   "learnings_title": "Learnings",
   "learnings_open_aria": "Open learnings ({count} proposed)",
+  "learnings_open_curate_aria": "Open learnings to curate injected rules ({count} over budget)",
   "learnings_close_aria": "Close",
   "learnings_empty": "No proposed rules yet. The distiller surfaces recurring patterns from agent activity.",
   "learnings_rationale_label": "Why",

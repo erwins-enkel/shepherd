@@ -57,18 +57,21 @@ test("exact-fit boundary is included", () => {
   expect(plan.injected.map((r) => r.id)).toEqual(["a"]);
 });
 
-test("header alone exceeds budget → empty / null", () => {
+test("header alone exceeds budget → empty / null, usedChars 0", () => {
   const a = rule({ id: "a", rule: "anything" });
   const plan = planHouseRulesInjection([a], HOUSE_RULES_HEADER.length - 1);
   expect(plan.injected).toEqual([]);
+  // usedChars must report 0 (not the bare header length) so the meter matches the
+  // null block — nothing is actually prepended.
+  expect(plan.usedChars).toBe(0);
   expect(renderHouseRulesBlock(plan.injected)).toBeNull();
 });
 
-test("empty input → empty / null", () => {
+test("empty input → empty / null, usedChars 0", () => {
   const plan = planHouseRulesInjection([], 4000);
   expect(plan.injected).toEqual([]);
   expect(plan.dropped).toEqual([]);
-  expect(plan.usedChars).toBe(HOUSE_RULES_HEADER.length);
+  expect(plan.usedChars).toBe(0);
   expect(renderHouseRulesBlock(plan.injected)).toBeNull();
 });
 

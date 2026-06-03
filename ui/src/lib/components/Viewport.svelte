@@ -2010,10 +2010,27 @@
   .vp-head.mobile .spacer {
     display: none;
   }
-  /* phone drops the task name (it moved to the top bar), so the spacer comes back
-     to keep the status badge + decommission right-aligned */
+  /* phone: the identity cluster (back · ✓ · repo · title) MUST stay on one line.
+     The repo·title block becomes the row's grower (flex-basis:0 → its hypothetical
+     width is 0, so flex line-breaking never overflows and wraps the trailing
+     actions — or the title itself — onto a second row). It fills the gap to the
+     pinned-right actions and the title ellipsizes inside whatever width is left,
+     instead of forcing a wrap when repo + title get long. */
+  .vp-head.phone .desig-wrap.ctx {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .vp-head.phone .ctx-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    /* drop the fixed vw cap on phone — flex + ellipsis size it to the free space */
+    max-width: none;
+  }
+  /* the ctx block is now the sole grower pinning the actions right; the standalone
+     spacer would otherwise split the free space and starve the title's width */
   .vp-head.phone .spacer {
     display: block;
+    flex: 0;
   }
   .tab-group.mobile {
     order: 10;

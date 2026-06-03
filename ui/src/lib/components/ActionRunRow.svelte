@@ -2,7 +2,8 @@
   import { onDestroy } from "svelte";
   import type { WorkflowRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { rerunWorkflowRun, cancelWorkflowRun } from "$lib/api";
+  import { rerunWorkflowRun, cancelWorkflowRun, listWorkflowRunHistory } from "$lib/api";
+  import ActionHistoryRow from "./ActionHistoryRow.svelte";
 
   let {
     repoPath,
@@ -76,6 +77,49 @@
       busy = false;
     }
   }
+
+  // "Older runs" history: lazy, additive, never polled. Fetched the first time
+  // the expander opens; "load more" grows the limit and re-lists from the top
+  // (`gh run list` has no cursor), then drops the latest run (already shown at
+  // the card head) so the list is strictly older runs.
+  const HISTORY_STEP = 10;
+  const HISTORY_MAX = 50;
+
+  let histOpen = $state(false);
+  let history = $state<WorkflowRun[]>([]);
+  let histLoading = $state(false);
+  let histLoaded = $state(false);
+  let histFailed = $state(false);
+  let histLimit = $state(HISTORY_STEP);
+
+  // More to fetch only while the server returned a full page and we're under cap.
+  const canLoadMore = $derived(
+    histLoaded && history.length + 1 >= histLimit && histLimit < HISTORY_MAX,
+  );
+
+  async function loadHistory() {
+    histLoading = true;
+    histFailed = false;
+    try {
+      const r = await listWorkflowRunHistory(repoPath, run.workflowId, histLimit);
+      history = r.runs.filter((h) => h.runId !== run.runId);
+      histLoaded = true;
+    } catch {
+      histFailed = true;
+    } finally {
+      histLoading = false;
+    }
+  }
+
+  async function toggleHistory() {
+    histOpen = !histOpen;
+    if (histOpen && !histLoaded && !histLoading) await loadHistory();
+  }
+
+  async function loadMore() {
+    histLimit = Math.min(histLimit + HISTORY_STEP, HISTORY_MAX);
+    await loadHistory();
+  }
 </script>
 
 <div class="wf">
@@ -140,6 +184,36 @@
       </div>
     {/each}
   </div>
+  {#if run.workflowId}
+    <div class="history">
+      <button class="hist-toggle" type="button" onclick={toggleHistory} aria-expanded={histOpen}>
+        <span class="hist-caret" class:open={histOpen}>▸</span>
+        {m.actionspanel_older_runs()}
+      </button>
+      {#if histOpen}
+        {#if histLoading && !histLoaded}
+          <div class="hist-muted">{m.common_loading()}</div>
+        {:else if histFailed}
+          <button class="hist-muted retry" type="button" onclick={loadHistory}
+            >{m.actionspanel_history_failed()}</button
+          >
+        {:else if history.length === 0}
+          <div class="hist-muted">{m.actionspanel_history_empty()}</div>
+        {:else}
+          <div class="hist-list">
+            {#each history as h (h.runId)}
+              <ActionHistoryRow {repoPath} run={h} />
+            {/each}
+          </div>
+          {#if canLoadMore}
+            <button class="hist-more" type="button" disabled={histLoading} onclick={loadMore}>
+              {m.actionspanel_load_more()}
+            </button>
+          {/if}
+        {/if}
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -274,5 +348,90 @@
       min-height: 40px;
       padding: 2px 14px;
     }
+  }
+
+  .history {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 2px;
+    padding-top: 5px;
+    border-top: 1px dashed var(--color-line);
+  }
+
+  .hist-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    transition: color 0.12s;
+  }
+  .hist-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+
+  .hist-caret {
+    font-size: 9px;
+    color: var(--color-faint);
+    transition: transform 0.12s;
+  }
+  .hist-caret.open {
+    transform: rotate(90deg);
+  }
+
+  .hist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 13px;
+  }
+
+  .hist-muted {
+    font-size: 11px;
+    color: var(--color-faint);
+    padding: 2px 0 2px 13px;
+    text-align: left;
+  }
+  .retry {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+  }
+  .retry:hover {
+    color: var(--color-amber);
+  }
+
+  .hist-more {
+    align-self: flex-start;
+    margin-left: 13px;
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .hist-more:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .hist-more:disabled {
+    color: var(--color-faint);
+    cursor: not-allowed;
   }
 </style>

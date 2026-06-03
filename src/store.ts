@@ -536,9 +536,6 @@ export class SessionStore implements CapStore {
     })();
   }
 
-  // ── learnings ─────────────────────────────────────────────────────────────
-  /** Add columns laid after the original `learnings` table for existing DBs.
-   *  Idempotent: each column is only added when PRAGMA shows it absent. */
   // migrate reviews that predate the auto-address loop columns
   private migrateReviewColumns(): void {
     const cols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
@@ -562,6 +559,9 @@ export class SessionStore implements CapStore {
     add("finalRoundTimeoutMs", `finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000`);
   }
 
+  // ── learnings ─────────────────────────────────────────────────────────────
+  /** Add columns laid after the original `learnings` table for existing DBs.
+   *  Idempotent: each column is only added when PRAGMA shows it absent. */
   private migrateLearningsColumns(): void {
     const cols = this.db.query(`PRAGMA table_info(learnings)`).all() as { name: string }[];
     if (!cols.some((c) => c.name === "promotedPrUrl")) {

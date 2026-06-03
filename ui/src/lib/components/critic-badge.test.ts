@@ -59,4 +59,17 @@ describe("addressRoundInfo", () => {
       ),
     ).toEqual({ round: 3, cap: 3, status: "stalled" });
   });
+  it("a transient error verdict mid-streak keeps showing the in-progress round (no flicker)", () => {
+    // error verdict holds the round (addressRound > 0) but carries no findings
+    expect(addressRoundInfo(v({ addressRound: 2, findings: [] }), 2_000_000)).toEqual({
+      round: 2,
+      cap: 3,
+      status: "round",
+    });
+  });
+  it("a transient error verdict AT the cap is not mis-escalated to stalled", () => {
+    expect(
+      addressRoundInfo(v({ addressRound: 3, findings: [], finalRoundPending: false }), 2_000_000),
+    ).toEqual({ round: 3, cap: 3, status: "round" });
+  });
 });

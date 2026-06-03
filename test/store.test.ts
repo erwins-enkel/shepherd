@@ -152,6 +152,7 @@ test("putReview round-trips finalRoundPending + finalRoundTimeoutMs", () => {
   store.putReview({
     sessionId: "s1",
     headSha: "abc",
+    patchId: "",
     decision: "changes_requested",
     summary: "",
     body: "",

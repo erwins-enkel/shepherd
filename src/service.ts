@@ -327,13 +327,21 @@ export class SessionService {
   }
 
   /**
-   * Steer a session's live PTY (human-style): type the text, then submit it with
-   * a SEPARATE carriage return. The split is deliberate — herdr writes each `send`
-   * as one PTY chunk, so a multi-line steer (e.g. a pasted-in code review) glued to
-   * a trailing "\r" lands in Claude Code's input as a single paste-buffered blob and
-   * the CR is absorbed as just another newline, leaving the message typed-but-unsent.
-   * A discrete second write arrives as its own stdin chunk and registers as Enter, so
-   * one click both delivers and submits. Returns false if unknown.
+   * Steer a session's live PTY (human-style): deliver the text as a bracketed paste,
+   * then submit it with a carriage return.
+   *
+   * The wrap is load-bearing for multi-line steers (e.g. a pasted-in critic review).
+   * herdr does NOT bracket-wrap injected text, and back-to-back `send`s coalesce into a
+   * single PTY read — so a multi-line blob with a trailing "\r" reaches Claude Code as
+   * one chunk, trips its paste heuristic, and the CR is swallowed as just another
+   * newline: message typed-but-unsent. (Single-line steers escaped this because no
+   * embedded "\n" trips the heuristic — which is why short steers worked and reviews
+   * didn't.) Wrapping the text in the bracketed-paste markers (ESC[200~ … ESC[201~)
+   * gives an explicit paste-end, so the following CR is unambiguously Enter regardless
+   * of read boundaries — deterministic, no timing guesswork. Strip any stray paste
+   * markers from the payload first: a leaked end-marker would close the paste early
+   * (turning the rest into live keystrokes), and a leaked start-marker is benign but
+   * dropped for symmetry. Returns false if unknown.
    */
   reply(id: string, text: string): boolean {
     const s = this.deps.store.get(id);
@@ -344,7 +352,10 @@ export class SessionService {
       kind: "reply",
       payload: text,
     });
-    this.deps.herdr.send(s.herdrAgentId, text);
+    const PASTE_START = "\x1b[200~";
+    const PASTE_END = "\x1b[201~";
+    const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
+    this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
     this.deps.herdr.send(s.herdrAgentId, "\r");
     return true;
   }

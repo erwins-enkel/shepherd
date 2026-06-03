@@ -505,26 +505,32 @@ export class SessionStore implements CapStore {
   pruneArchivedSessions(opts: { maxAgeMs: number; keepNewest: number }): number {
     const cutoff = Date.now() - opts.maxAgeMs;
     const rank = `COALESCE(archivedAt, updatedAt, createdAt)`;
-    const ids = (
-      this.db
-        .query(
-          `SELECT id FROM sessions WHERE status = 'archived' AND (
-             ${rank} < ?
-             OR id NOT IN (
-               SELECT id FROM sessions WHERE status = 'archived'
-               ORDER BY ${rank} DESC LIMIT ?
-             )
-           )`,
+    // Victim set expressed as a predicate (re-used by the count + both deletes) rather
+    // than a bound id list — a large first sweep could otherwise exceed SQLite's 32766
+    // bound-parameter cap. Each use carries the same two params (cutoff, keepNewest).
+    const victims = `status = 'archived' AND (
+        ${rank} < ?
+        OR id NOT IN (
+          SELECT id FROM sessions WHERE status = 'archived' ORDER BY ${rank} DESC LIMIT ?
         )
-        .all(cutoff, opts.keepNewest) as { id: string }[]
-    ).map((r) => r.id);
-    if (ids.length === 0) return 0;
-    const placeholders = ids.map(() => "?").join(", ");
-    this.db.transaction(() => {
-      this.db.run(`DELETE FROM reviews WHERE sessionId IN (${placeholders})`, ids);
-      this.db.run(`DELETE FROM sessions WHERE id IN (${placeholders})`, ids);
+      )`;
+    const params = [cutoff, opts.keepNewest];
+    return this.db.transaction(() => {
+      const n = (
+        this.db.query(`SELECT COUNT(*) AS c FROM sessions WHERE ${victims}`).get(...params) as {
+          c: number;
+        }
+      ).c;
+      if (n === 0) return 0;
+      // reviews first (keyed by sessionId) so the cascade can't orphan; the sessions
+      // subquery still resolves the same set afterward (deleting reviews doesn't touch it).
+      this.db.run(
+        `DELETE FROM reviews WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
+      return n;
     })();
-    return ids.length;
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

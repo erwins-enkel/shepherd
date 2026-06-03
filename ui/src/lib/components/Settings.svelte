@@ -11,6 +11,7 @@
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { dialog } from "$lib/a11yDialog";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import {
     pushState,
@@ -138,6 +139,10 @@
     try {
       const s = await putSessionHousekeeping(next);
       housekeeping = s.sessionHousekeepingEnabled;
+    } catch {
+      // the switch stays in its prior position (state only advances on success);
+      // surface the failure so the no-op isn't silent.
+      toasts.info(m.settings_housekeeping_save_failed());
     } finally {
       hkBusy = false;
     }

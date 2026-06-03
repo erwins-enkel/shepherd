@@ -200,6 +200,7 @@
   "settings_housekeeping_hint": "Tägliche Bereinigung, die archivierte Sitzungen löscht, die älter als {days} Tage sind oder über die neuesten {count} hinausgehen. Aus behält alle archivierten Sitzungen dauerhaft.",
   "settings_housekeeping_on": "Aufräumen an",
   "settings_housekeeping_off": "Aufräumen aus",
+  "settings_housekeeping_save_failed": "Sitzungs-Aufräumen konnte nicht geändert werden. Erneut versuchen.",
   "settings_standard_command_title": "Standard-Befehl",
   "settings_standard_command_hint": "Prompt, den der ⚡-Standard-Button bei einem Backlog-Issue ausführt. Startet eine Session mit diesem Prompt plus dem Issue und überspringt den Aufgaben-Dialog. Leer lassen, um den Button zu deaktivieren.",
   "settings_standard_command_placeholder": "z. B. Prüfe, ob dieses Issue noch relevant ist und wie weit es umgesetzt wurde…",

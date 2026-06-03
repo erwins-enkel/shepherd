@@ -200,6 +200,7 @@
   "settings_housekeeping_hint": "Daily cleanup that deletes archived sessions older than {days} days or beyond the newest {count}. Off keeps every archived session forever.",
   "settings_housekeeping_on": "Cleanup on",
   "settings_housekeeping_off": "Cleanup off",
+  "settings_housekeeping_save_failed": "Couldn't change session cleanup. Retry.",
   "settings_standard_command_title": "Standard command",
   "settings_standard_command_hint": "Prompt run by the ⚡ Standard button on a backlog issue. It spawns a session with this prompt plus the issue, skipping the New Task dialog. Leave empty to disable the button.",
   "settings_standard_command_placeholder": "e.g. Check whether this issue is still relevant and how far it is implemented…",

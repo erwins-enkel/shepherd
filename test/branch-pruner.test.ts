@@ -76,6 +76,7 @@ test("caps forge lookups per tick and drains the backlog across ticks", async ()
   const pruner = new BranchPruner(
     store,
     () => forge({ "shepherd/a": "merged", "shepherd/b": "merged" }),
+    () => [],
     60 * 60 * 1000,
     1,
   );
@@ -105,6 +106,22 @@ test("deletes a merged orphan branch, keeps open and none", async () => {
   expect(left).not.toContain("shepherd/merged");
   expect(left).toContain("shepherd/open");
   expect(left).toContain("shepherd/never-pr");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("sweeps a repo present only via extraRepos (idle repo whose sessions were pruned)", async () => {
+  const repo = mkRepo();
+  git(repo, "branch", "shepherd/merged");
+  const store = new SessionStore(":memory:"); // no session row → store.list() is empty
+  const pruner = new BranchPruner(
+    store,
+    () => forge({ "shepherd/merged": "merged" }),
+    () => [repo], // durable source keeps the idle repo in scope
+  );
+
+  await pruner.tick();
+
+  expect(localBranches(repo)).not.toContain("shepherd/merged");
   rmSync(repo, { recursive: true, force: true });
 });
 

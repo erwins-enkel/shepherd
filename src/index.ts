@@ -164,7 +164,11 @@ events.subscribe((event, data) => {
 // them and they pile up — and at merge time the session still holds the worktree
 // so they can't be cleaned then anyway. Orphan branches only: never a checked-out
 // or active-session branch. Disable with setting branchPruneEnabled="0".
-const branchPruner = new BranchPruner(store, resolveForge);
+// Pass the configured repo root as a durable repo source so housekeeping-pruned
+// idle repos still get their leftover shepherd/* branches swept.
+const branchPruner = new BranchPruner(store, resolveForge, () =>
+  listRepos(config.repoRoot).map((r) => r.path),
+);
 setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
 branchPruner.start();
 

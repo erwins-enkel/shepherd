@@ -310,7 +310,7 @@
       {/if}
       {#if repoPath}
         <button
-          class={["gbtn", "learn-toggle"]}
+          class={["gbtn", "crit-toggle"]}
           type="button"
           aria-label={m.gitrail_learnings_toggle_aria()}
           aria-pressed={learningsOn}

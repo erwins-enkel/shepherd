@@ -150,4 +150,6 @@ export interface Learning {
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
+  /** URL of the CLAUDE.md promote PR, set when status becomes `promoted`. */
+  promotedPrUrl: string | null;
 }

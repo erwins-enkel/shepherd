@@ -284,6 +284,14 @@ export class GithubForge implements GitForge {
     };
   }
 
+  async defaultBranch(): Promise<string> {
+    const out = this.run(["repo", "view", this.slug, "--json", "defaultBranchRef"]);
+    const name = (JSON.parse(out || "{}") as { defaultBranchRef?: { name?: string } })
+      .defaultBranchRef?.name;
+    if (!name) throw new Error("could not resolve default branch");
+    return name;
+  }
+
   async openPr(o: OpenPrInput): Promise<PrStatus> {
     this.run([
       "pr",

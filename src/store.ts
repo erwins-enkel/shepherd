@@ -148,8 +148,10 @@ export class SessionStore implements CapStore {
   rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL, evidenceCount INTEGER NOT NULL DEFAULT 0,
   ineffectiveCount INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER)`);
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT,
+  ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
+    this.migrateLearningsColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -492,6 +494,23 @@ export class SessionStore implements CapStore {
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────
+  /** Add columns laid after the original `learnings` table for existing DBs.
+   *  Idempotent: each column is only added when PRAGMA shows it absent. */
+  private migrateLearningsColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(learnings)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === "promotedPrUrl")) {
+      this.db.run(`ALTER TABLE learnings ADD COLUMN promotedPrUrl TEXT`);
+    }
+    // Signal ids already counted toward each rule's ineffectiveCount. Without this
+    // the daily re-distill over the rolling 60-day window would re-increment the
+    // same rule from the same stale signals every run, inflating "Not working (N)".
+    if (!cols.some((c) => c.name === "ineffectiveSignalIds")) {
+      this.db.run(
+        `ALTER TABLE learnings ADD COLUMN ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]'`,
+      );
+    }
+  }
+
   private hydrateLearning(r: any): Learning {
     return {
       id: r.id,
@@ -505,6 +524,7 @@ export class SessionStore implements CapStore {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       lastEvidenceAt: r.lastEvidenceAt,
+      promotedPrUrl: r.promotedPrUrl ?? null,
     };
   }
 
@@ -527,6 +547,7 @@ export class SessionStore implements CapStore {
       createdAt: now,
       updatedAt: now,
       lastEvidenceAt: input.evidence.length ? now : null,
+      promotedPrUrl: null,
     };
     this.db.run(
       `INSERT INTO learnings
@@ -597,6 +618,40 @@ export class SessionStore implements CapStore {
       Date.now(),
       id,
     ]);
+    return this.getLearning(id);
+  }
+
+  /** Bump ineffectiveCount for an active/promoted rule (self-audit, spec §5) by the
+   *  number of `signalIds` not already counted against it, recording them so a later
+   *  re-distill over the same rolling window can't re-count the same evidence. A
+   *  no-op (returns null) for proposed/dismissed/missing rules, or when every cited
+   *  signal was already counted — keeping "Not working (N)" honest. */
+  incrementLearningIneffective(id: string, signalIds: string[]): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
+    const row = this.db
+      .query(`SELECT ineffectiveSignalIds FROM learnings WHERE id = ?`)
+      .get(id) as { ineffectiveSignalIds?: string } | null;
+    const counted = new Set(parseFindings(row?.ineffectiveSignalIds));
+    const fresh = signalIds.filter((s) => typeof s === "string" && s && !counted.has(s));
+    if (fresh.length === 0) return null;
+    for (const s of fresh) counted.add(s);
+    this.db.run(
+      `UPDATE learnings SET ineffectiveCount = ineffectiveCount + ?, ineffectiveSignalIds = ?, updatedAt = ? WHERE id = ?`,
+      [fresh.length, JSON.stringify([...counted]), Date.now(), id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** active → promoted, recording the CLAUDE.md PR url (spec §4b). Returns null
+   *  when the rule is missing or not in a state that allows promotion. */
+  promoteLearning(id: string, prUrl: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || !LEARNING_TRANSITIONS[cur.status].includes("promoted")) return null;
+    this.db.run(
+      `UPDATE learnings SET status = 'promoted', promotedPrUrl = ?, updatedAt = ? WHERE id = ?`,
+      [prUrl, Date.now(), id],
+    );
     return this.getLearning(id);
   }
 

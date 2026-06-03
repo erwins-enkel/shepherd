@@ -3,7 +3,13 @@
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import type { Learning, RepoInjectable } from "$lib/types";
-  import { basename, mergeRepoGroups, injectionBadge, injectedCount } from "./learnings-drawer";
+  import {
+    basename,
+    mergeRepoGroups,
+    injectionBadge,
+    injectedCount,
+    showIneffective,
+  } from "./learnings-drawer";
 
   let {
     items,
@@ -11,6 +17,7 @@
     onapprove,
     ondismiss,
     ondistill,
+    onpromote,
     onclose,
   }: {
     items: Learning[];
@@ -18,6 +25,7 @@
     onapprove: (id: string, rule: string) => void;
     ondismiss: (id: string) => void;
     ondistill: (repoPath: string) => void;
+    onpromote: (id: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -121,11 +129,32 @@
                   {:else}
                     <span class="badge off">⊘ {m.learnings_injection_disabled_badge()}</span>
                   {/if}
+                  {#if showIneffective(r)}
+                    <span class="badge bad" title={m.learnings_ineffective_title()}>
+                      ⚠ {m.learnings_ineffective_badge({ count: r.ineffectiveCount })}
+                    </span>
+                  {/if}
                   <span class="spacer"></span>
                   {#if r.status === "active"}
                     <button class="dismiss" onclick={() => ondismiss(r.id)}>
                       {m.learnings_dismiss()}
                     </button>
+                    <button
+                      class="promote"
+                      onclick={() => onpromote(r.id)}
+                      aria-label={m.learnings_promote_aria()}
+                    >
+                      {m.learnings_promote()}
+                    </button>
+                  {:else if r.status === "promoted" && r.promotedPrUrl}
+                    <a
+                      class="prlink"
+                      href={r.promotedPrUrl}
+                      target="_blank"
+                      rel="noopener external"
+                    >
+                      {m.learnings_promoted_pr()}
+                    </a>
                   {/if}
                 </div>
               </article>
@@ -253,6 +282,19 @@
     border-color: var(--color-green);
     color: var(--color-green);
   }
+  .promote {
+    font-size: 12px;
+    padding: 5px 12px;
+    cursor: pointer;
+    border: 1px solid var(--color-green);
+    background: none;
+    color: var(--color-green);
+  }
+  .prlink {
+    font-size: 12px;
+    color: var(--color-green);
+    text-decoration: none;
+  }
 
   /* ── injected house rules ────────────────────────────────────────────── */
   .injected {
@@ -319,6 +361,11 @@
   .badge.warn {
     border-color: var(--color-amber);
     color: var(--color-amber);
+    cursor: help;
+  }
+  .badge.bad {
+    border-color: var(--color-red, var(--color-amber));
+    color: var(--color-red, var(--color-amber));
     cursor: help;
   }
   .badge.off {

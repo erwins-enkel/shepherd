@@ -564,3 +564,11 @@ export async function distillRepo(repoPath: string): Promise<void> {
   });
   if (!r.ok) throw await failed(r, "distill");
 }
+
+/** Promote an active rule into the repo's CLAUDE.md via an auto-opened PR.
+ *  Returns the PR url; the rule flips to `promoted` server-side. */
+export async function promoteLearning(id: string): Promise<{ url: string }> {
+  const r = await fetch(`/api/learnings/${id}/promote`, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) throw await failed(r, "promote");
+  return r.json();
+}

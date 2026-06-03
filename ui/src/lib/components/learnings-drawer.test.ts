@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, test } from "vitest";
 import {
   basename,
   groupByRepo,
   mergeRepoGroups,
   injectionBadge,
   injectedCount,
+  showIneffective,
 } from "./learnings-drawer";
 import type { Learning, LearningStatus, RepoInjectable } from "../types";
 
@@ -21,6 +22,7 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
+    promotedPrUrl: null,
   };
 }
 
@@ -108,4 +110,9 @@ describe("injectedCount", () => {
     const inj = IR("/a", [{ id: "1", injected: false }], { enabled: false, usedChars: 0 });
     expect(injectedCount(inj)).toBe(0);
   });
+});
+
+test("showIneffective true only when ineffectiveCount > 0", () => {
+  expect(showIneffective({ ineffectiveCount: 0 } as never)).toBe(false);
+  expect(showIneffective({ ineffectiveCount: 3 } as never)).toBe(true);
 });

@@ -62,6 +62,7 @@ function fakeForge(
       commentCalls.push(n);
       return comments;
     },
+    defaultBranch: async () => "main",
   };
 }
 

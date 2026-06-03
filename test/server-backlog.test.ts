@@ -59,6 +59,7 @@ function fakeForge(slug: string, kind: "github" | "gitea" = "github"): GitForge 
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
   };
 }
 

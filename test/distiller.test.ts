@@ -191,6 +191,47 @@ test("consider does nothing when learnings disabled for the repo", () => {
   expect(started.length).toBe(0);
 });
 
+test("distiller increments ineffective for cited active rule ids with validated evidence", async () => {
+  const bumped: { id: string; signals: string[] }[] = [];
+  const active = [{ id: "rule-1", rule: "use bun", status: "active" }];
+  const svc = new DistillerService({
+    store: {
+      listSignals: () => [
+        { id: "s1", repoPath: "/r", sessionId: null, kind: "critic", payload: "ran npm", ts: 1 },
+      ],
+      addLearning: () => ({}) as never,
+      listLearnings: () => [],
+      listActiveLearnings: () => active as never,
+      getRepoConfig: () => ({
+        criticEnabled: true,
+        autoAddressEnabled: false,
+        learningsEnabled: true,
+      }),
+      incrementLearningIneffective: (id: string, signals: string[]) => {
+        bumped.push({ id, signals });
+        return {} as never;
+      },
+    },
+    herdr: { start: () => ({ terminalId: "t1" }) as never, stop: () => {} },
+    scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    writeSignals: () => {},
+    // rule-1 cites a real signal (s1) plus a hallucinated one (s99); bogus is not active
+    readProposals: () => ({
+      rules: [],
+      ineffective: [
+        { id: "rule-1", evidence: ["s1", "s99"] },
+        { id: "bogus", evidence: ["s1"] },
+      ],
+    }),
+  });
+  svc.distillNow("/r");
+  await svc.tick();
+  // only the real active id is bumped, and only the in-window signal id is passed through
+  expect(bumped).toEqual([{ id: "rule-1", signals: ["s1"] }]);
+});
+
 test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {
   const store = new SessionStore(":memory:");
   const dis = store.addLearning({

@@ -62,3 +62,8 @@ export function injectionBadge(
 export function injectedCount(repo: RepoInjectable): number {
   return repo.rules.reduce((n, r) => n + (r.injected ? 1 : 0), 0);
 }
+
+/** Whether to show the "not working" badge on an active rule (self-audit, §5). */
+export function showIneffective(rule: { ineffectiveCount: number }): boolean {
+  return rule.ineffectiveCount > 0;
+}

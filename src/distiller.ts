@@ -15,6 +15,11 @@ interface RawRule {
 }
 interface RawProposals {
   rules?: unknown;
+  ineffective?: unknown;
+}
+interface RawIneffective {
+  id?: unknown;
+  evidence?: unknown;
 }
 
 interface InFlight {
@@ -23,10 +28,21 @@ interface InFlight {
   terminalId: string;
   startedAt: number;
   finalizing?: boolean;
+  /** Signal ids handed to this run — the only ids whose citation as evidence for
+   *  an ineffective rule we trust (blocks a hallucinated id from being counted). */
+  signalIds: Set<string>;
 }
 
 export interface DistillerDeps {
-  store: Pick<SessionStore, "listSignals" | "addLearning" | "listLearnings" | "getRepoConfig">;
+  store: Pick<
+    SessionStore,
+    | "listSignals"
+    | "addLearning"
+    | "listLearnings"
+    | "listActiveLearnings"
+    | "getRepoConfig"
+    | "incrementLearningIneffective"
+  >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
@@ -35,7 +51,12 @@ export interface DistillerDeps {
   timeoutMs?: number;
   windowMs?: number; // how far back to read signals (default 60d)
   minSignals?: number; // threshold for consider() (default 5)
-  writeSignals?: (dir: string, signals: Signal[], existingRules: string[]) => void;
+  writeSignals?: (
+    dir: string,
+    signals: Signal[],
+    existingRules: string[],
+    activeRules: { id: string; rule: string }[],
+  ) => void;
   readProposals?: (dir: string) => RawProposals | null;
 }
 
@@ -83,8 +104,11 @@ export class DistillerService {
     // re-proposal of a known rule anyway, so omitting dismissed ones just wastes
     // a proposal slot + tokens re-suggesting something the operator already rejected.
     const existing = this.deps.store.listLearnings(repoPath).map((l) => l.rule);
+    const activeRules = this.deps.store
+      .listActiveLearnings(repoPath)
+      .map((l) => ({ id: l.id, rule: l.rule }));
     try {
-      this.writeSignals(dir, signals, existing);
+      this.writeSignals(dir, signals, existing, activeRules);
     } catch (err) {
       console.warn(`[distill] write signals failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);
@@ -118,7 +142,13 @@ export class DistillerService {
       this.deps.scratch.remove(dir);
       return;
     }
-    this.inflight.set(repoPath, { repoPath, dir, terminalId, startedAt: this.now() });
+    this.inflight.set(repoPath, {
+      repoPath,
+      dir,
+      terminalId,
+      startedAt: this.now(),
+      signalIds: new Set(signals.map((s) => s.id)),
+    });
   }
 
   /** Finalize any run whose proposals file is ready or that timed out. */
@@ -135,10 +165,17 @@ export class DistillerService {
   }
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
+    const added = this.applyProposals(f.repoPath, raw);
+    const flagged = this.applyIneffective(f, raw);
+    this.deps.herdr.stop(f.terminalId);
+    this.deps.scratch.remove(f.dir);
+    if (added > 0 || flagged > 0) this.deps.onChange();
+  }
+
+  /** Persist new (deduped) proposed rules from the distiller's output. Returns the count added. */
+  private applyProposals(repoPath: string, raw: RawProposals | null): number {
     let added = 0;
-    const have = new Set(
-      this.deps.store.listLearnings(f.repoPath).map((l) => normalizeRule(l.rule)),
-    );
+    const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
@@ -146,7 +183,7 @@ export class DistillerService {
       if (have.has(key)) continue;
       have.add(key);
       this.deps.store.addLearning({
-        repoPath: f.repoPath,
+        repoPath,
         rule: r.rule.trim().slice(0, 240),
         rationale: typeof r.rationale === "string" ? r.rationale : "",
         evidence: Array.isArray(r.evidence)
@@ -155,9 +192,26 @@ export class DistillerService {
       });
       added++;
     }
-    this.deps.herdr.stop(f.terminalId);
-    this.deps.scratch.remove(f.dir);
-    if (added > 0) this.deps.onChange();
+    return added;
+  }
+
+  /** Bump ineffectiveCount for any active rule the distiller cited as not working,
+   *  passing the cited evidence signal ids (validated against THIS run's signal set)
+   *  so the store can dedup them and not re-count on a later distill. Returns the
+   *  count of rules freshly flagged. */
+  private applyIneffective(f: InFlight, raw: RawProposals | null): number {
+    let flagged = 0;
+    const activeIds = new Set(this.deps.store.listActiveLearnings(f.repoPath).map((l) => l.id));
+    const entries = Array.isArray(raw?.ineffective) ? (raw!.ineffective as RawIneffective[]) : [];
+    for (const e of entries) {
+      const id = typeof e?.id === "string" ? e.id : undefined;
+      if (!id || !activeIds.has(id)) continue;
+      const evidence = Array.isArray(e.evidence)
+        ? e.evidence.filter((s): s is string => typeof s === "string" && f.signalIds.has(s))
+        : [];
+      if (this.deps.store.incrementLearningIneffective(id, evidence)) flagged++;
+    }
+    return flagged;
   }
 }
 
@@ -168,21 +222,31 @@ function normalizeRule(s: string): string {
 function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
-    "It is a JSON object with two fields: `signals` — an array of past corrections, blocks,",
-    "stalls, and critic findings for one repository; and `existingRules` — an array of rules",
-    "already recorded or previously dismissed (do NOT repeat any of these).",
+    "It is a JSON object with three fields: `signals` — an array of past corrections, blocks,",
+    "stalls, and critic findings for one repository; `existingRules` — an array of rules",
+    "already recorded or previously dismissed (do NOT repeat any of these);",
+    "and `activeRules` — an array of currently-active house rules as {id, rule} objects.",
+    "If a signal shows an activeRule was violated or did not prevent the mistake, add an",
+    "`ineffective` entry: {id: the activeRule id, evidence: the signal ids that show it",
+    "failing}. Only cite signal ids present in `signals` — never invent ids.",
     "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
     "Ignore one-off noise. Write at most 5 crisp imperative rules.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}]}',
-    'If nothing recurs, write {"rules": []}. Do not write anything else.',
+    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}], "ineffective": [{"id": "activeRuleId", "evidence": ["signalId", ...]}]}',
+    'If nothing recurs, write {"rules": [], "ineffective": []}. Do not write anything else.',
   ].join("\n");
 }
 
-function defaultWriteSignals(dir: string, signals: Signal[], existingRules: string[]): void {
+function defaultWriteSignals(
+  dir: string,
+  signals: Signal[],
+  existingRules: string[],
+  activeRules: { id: string; rule: string }[],
+): void {
   const payload = {
     signals: signals.map((s) => ({ kind: s.kind, payload: s.payload, ts: s.ts, id: s.id })),
     existingRules,
+    activeRules,
   };
   writeFileSync(join(dir, "signals.json"), JSON.stringify(payload, null, 2));
 }

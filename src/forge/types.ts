@@ -153,6 +153,8 @@ export interface GitForge {
   cancelWorkflowRun?(runId: number): Promise<void>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
+  /** The repo's default branch name (the promote PR's base). */
+  defaultBranch(): Promise<string>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:
    *  hosts that can't do this safely (Gitea) omit it, and the caller falls back to a
    *  display-only rename so an open PR is never orphaned. */

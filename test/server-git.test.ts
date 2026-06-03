@@ -58,6 +58,7 @@ function fakeForge(
       log.push(`redeploy:${o.workflow}:${o.ref}`);
     },
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
   };
   return Object.assign(base, over, { log });
 }

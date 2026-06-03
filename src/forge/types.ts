@@ -104,6 +104,9 @@ export interface WorkflowJob {
 export interface WorkflowRun {
   /** Host run id (gh's `databaseId`) — the handle re-run / cancel act on. */
   runId: number;
+  /** The workflow's stable id (gh's `workflowDatabaseId`) — the handle the
+   *  run-history call filters on (`gh run list --workflow <id>`). */
+  workflowId: number;
   workflowName: string;
   runUrl: string;
   headSha: string;
@@ -159,6 +162,13 @@ export interface GitForge {
   /** Cancel an in-progress workflow run by id (`gh run cancel`). Optional, same
    *  GitHub-only gating as {@link rerunWorkflowRun}. */
   cancelWorkflowRun?(runId: number): Promise<void>;
+  /** Prior runs of one workflow on the default branch (summary rows; `jobs`
+   *  empty), newest-first, capped by `limit`. Optional, GitHub-only like
+   *  {@link listWorkflowRuns}; other forges omit it and the history UI degrades. */
+  listWorkflowRunHistory?(workflowId: number, o: { limit: number }): Promise<WorkflowRun[]>;
+  /** Per-job breakdown for a single run, lazy-loaded when a history row expands.
+   *  Optional, same GitHub-only gating as {@link listWorkflowRunHistory}. */
+  listRunJobs?(runId: number): Promise<WorkflowJob[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** The repo's default branch name (the promote PR's base). */

@@ -6,8 +6,9 @@ import { m } from "$lib/paraglide/messages";
 
 // Visual grouping for the bar: keys in the same group sit together in one
 // "well" (Gestalt common-region), with a wider gap between groups so a glance
-// tells which keys belong together.
-export type ControlGroup = "edit" | "nav" | "signal";
+// tells which keys belong together. "cancel" (Esc) is frozen on the left edge;
+// edit/nav/signal scroll in the middle (see ControlBar usage in Viewport).
+export type ControlGroup = "cancel" | "edit" | "nav" | "signal";
 
 // Optional colour accent carrying meaning (used sparingly so it stays a signal):
 // escape = the odd-one-out cancel key, danger = interrupts the process.
@@ -21,12 +22,12 @@ export interface ControlKey {
   tone?: ControlTone; // optional colour accent
 }
 
-// The scrolling palette, ordered by group. Enter is intentionally absent — it's
-// the primary affirmative action and lives pinned in the thumb zone, see
-// enterKey().
+// The control palette, ordered by group (Esc frozen left, the rest scroll in
+// the middle). Enter is intentionally absent — it's the primary affirmative
+// action and lives pinned in the thumb zone, see enterKey().
 export function controlKeys(): ControlKey[] {
   return [
-    { label: "Esc", aria: m.controlkey_escape(), seq: "\x1b", group: "edit", tone: "escape" },
+    { label: "Esc", aria: m.controlkey_escape(), seq: "\x1b", group: "cancel", tone: "escape" },
     { label: "Tab", aria: m.controlkey_tab(), seq: "\x09", group: "edit" },
     { label: "␣", aria: m.controlkey_space(), seq: " ", group: "edit" },
     { label: "←", aria: m.controlkey_arrow_left(), seq: "\x1b[D", group: "nav" },

@@ -65,6 +65,12 @@ export const config = {
   standardCommand:
     process.env.SHEPHERD_STANDARD_COMMAND ??
     "Prüfe, ob dieses Issue noch relevant ist. Gib mir den aktuellen Stand des Issues und untersuche, wie weit wir das bereits in unserer Codebase umgesetzt haben. Fasse zusammen, was noch fehlt, und schlage die nächsten Schritte vor.",
+  // Database housekeeping: a daily sweep deletes archived sessions older than the
+  // retention window OR beyond the newest cap (see SESSION_RETENTION_* below),
+  // cascading their review rows. A safe sweep over already-archived history — default
+  // on, with this flag as the kill switch. UI-configurable + persisted; set
+  // SHEPHERD_SESSION_HOUSEKEEPING=0 to seed it off on a fresh DB.
+  sessionHousekeepingEnabled: process.env.SHEPHERD_SESSION_HOUSEKEEPING !== "0",
   // LLM session naming: after a session is created with the instant heuristic name,
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.
@@ -80,3 +86,12 @@ export const config = {
   forgesPath,
   forges: loadForgeMap(forgesPath),
 };
+
+// Session housekeeping retention thresholds (the daily sweep's policy). The single
+// tuning point: archived sessions older than SESSION_RETENTION_MS OR ranked past the
+// newest SESSION_RETENTION_KEEP are pruned (union, global). The kill switch is
+// config.sessionHousekeepingEnabled. The day/count values are surfaced in the settings
+// payload so the UI shows the real numbers rather than a hardcoded mirror.
+export const SESSION_RETENTION_DAYS = 30;
+export const SESSION_RETENTION_MS = SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export const SESSION_RETENTION_KEEP = 250;

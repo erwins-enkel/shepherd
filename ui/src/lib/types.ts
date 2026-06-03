@@ -14,6 +14,12 @@ export interface Settings {
   remoteControlAtStartup: boolean;
   /** Prompt seeded behind the backlog quick-launch button; empty disables it. */
   standardCommand: string;
+  /** Daily sweep that prunes old archived sessions; kill switch (default on). */
+  sessionHousekeepingEnabled: boolean;
+  /** Display-only: archived sessions older than this many days are pruned. */
+  sessionRetentionDays: number;
+  /** Display-only: newest archived sessions kept regardless of age. */
+  sessionRetentionKeep: number;
 }
 
 export interface DirEntry {

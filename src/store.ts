@@ -493,6 +493,40 @@ export class SessionStore implements CapStore {
     return n;
   }
 
+  /**
+   * Delete archived sessions beyond the retention window — those older than `maxAgeMs`
+   * OR ranked past the newest `keepNewest` (global, union: whichever evicts first). Only
+   * `status = 'archived'` rows are eligible; live sessions are never touched. Each victim's
+   * `reviews` row is cascaded in the same transaction so it can't orphan. `signals` are left
+   * to their own prune. Age and rank both key off COALESCE(archivedAt, updatedAt, createdAt)
+   * so legacy archived rows predating the `archivedAt` column still sort/expire correctly.
+   * Returns the number of sessions removed.
+   */
+  pruneArchivedSessions(opts: { maxAgeMs: number; keepNewest: number }): number {
+    const cutoff = Date.now() - opts.maxAgeMs;
+    const rank = `COALESCE(archivedAt, updatedAt, createdAt)`;
+    const ids = (
+      this.db
+        .query(
+          `SELECT id FROM sessions WHERE status = 'archived' AND (
+             ${rank} < ?
+             OR id NOT IN (
+               SELECT id FROM sessions WHERE status = 'archived'
+               ORDER BY ${rank} DESC LIMIT ?
+             )
+           )`,
+        )
+        .all(cutoff, opts.keepNewest) as { id: string }[]
+    ).map((r) => r.id);
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => "?").join(", ");
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM reviews WHERE sessionId IN (${placeholders})`, ids);
+      this.db.run(`DELETE FROM sessions WHERE id IN (${placeholders})`, ids);
+    })();
+    return ids.length;
+  }
+
   // ── learnings ─────────────────────────────────────────────────────────────
   /** Add columns laid after the original `learnings` table for existing DBs.
    *  Idempotent: each column is only added when PRAGMA shows it absent. */

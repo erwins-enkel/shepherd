@@ -12,6 +12,7 @@ let savedRoot: string;
 let savedCeiling: string;
 let savedRc: boolean;
 let savedSc: string;
+let savedHk: boolean;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -21,6 +22,7 @@ beforeEach(() => {
   savedCeiling = config.rootCeiling;
   savedRc = config.remoteControlAtStartup;
   savedSc = config.standardCommand;
+  savedHk = config.sessionHousekeepingEnabled;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -31,6 +33,7 @@ afterEach(() => {
   config.rootCeiling = savedCeiling;
   config.remoteControlAtStartup = savedRc;
   config.standardCommand = savedSc;
+  config.sessionHousekeepingEnabled = savedHk;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -66,6 +69,10 @@ test("GET /api/settings returns the current repo root and remote-control flag", 
   expect(typeof body.repoRootDisplay).toBe("string");
   expect(body.remoteControlAtStartup).toBe(false);
   expect(body.standardCommand).toBe("do the thing");
+  // housekeeping flag + display-only retention thresholds
+  expect(typeof body.sessionHousekeepingEnabled).toBe("boolean");
+  expect(body.sessionRetentionDays).toBeGreaterThan(0);
+  expect(body.sessionRetentionKeep).toBeGreaterThan(0);
 });
 
 test("PUT /api/settings sets standardCommand, persists, leaves repoRoot intact", async () => {
@@ -129,6 +136,30 @@ test("PUT /api/settings rejects a non-boolean remoteControlAtStartup", async () 
   const { app } = harness();
   const res = await put(app, { remoteControlAtStartup: "yes" });
   expect(res.status).toBe(400);
+});
+
+test("PUT /api/settings toggles sessionHousekeepingEnabled, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.sessionHousekeepingEnabled = true;
+  const { app, store } = harness();
+  const res = await put(app, { sessionHousekeepingEnabled: false });
+  expect(res.status).toBe(200);
+  expect((await res.json()).sessionHousekeepingEnabled).toBe(false);
+  expect(config.sessionHousekeepingEnabled).toBe(false); // live
+  expect(store.getSetting("sessionHousekeepingEnabled")).toBe("0"); // persisted as "1"/"0"
+  expect(config.repoRoot).toBe(tmp); // a housekeeping patch must not touch the repo root
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.sessionHousekeepingEnabled).toBe(false);
+  await put(app, { sessionHousekeepingEnabled: true });
+  expect(store.getSetting("sessionHousekeepingEnabled")).toBe("1");
+});
+
+test("PUT /api/settings rejects a non-boolean sessionHousekeepingEnabled", async () => {
+  const { app } = harness();
+  const before = config.sessionHousekeepingEnabled;
+  const res = await put(app, { sessionHousekeepingEnabled: "yes" });
+  expect(res.status).toBe(400);
+  expect(config.sessionHousekeepingEnabled).toBe(before); // unchanged on failure
 });
 
 test("PUT /api/settings updates config, persists, and is reflected by GET", async () => {

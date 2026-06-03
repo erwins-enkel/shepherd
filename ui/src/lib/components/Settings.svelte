@@ -5,6 +5,7 @@
     putSettings,
     putRemoteControl,
     putStandardCommand,
+    putSessionHousekeeping,
     listDirs,
   } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
@@ -100,6 +101,10 @@
   let standardCommand = $state(""); // prompt behind the backlog ⚡ Standard button
   let scBusy = $state(false);
   let scSaved = $state(false); // brief "saved" confirmation after a successful save
+  let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
+  let hkBusy = $state(false);
+  let retentionDays = $state(30); // display-only, from the settings payload
+  let retentionKeep = $state(250); // display-only, from the settings payload
 
   async function saveStandardCommand() {
     if (scBusy) return;
@@ -123,6 +128,18 @@
       remoteControl = s.remoteControlAtStartup;
     } finally {
       rcBusy = false;
+    }
+  }
+
+  async function toggleHousekeeping() {
+    if (hkBusy) return;
+    hkBusy = true;
+    const next = !housekeeping;
+    try {
+      const s = await putSessionHousekeeping(next);
+      housekeeping = s.sessionHousekeepingEnabled;
+    } finally {
+      hkBusy = false;
     }
   }
 
@@ -169,6 +186,9 @@
       currentRoot = s.repoRootDisplay;
       remoteControl = s.remoteControlAtStartup;
       standardCommand = s.standardCommand;
+      housekeeping = s.sessionHousekeepingEnabled;
+      retentionDays = s.sessionRetentionDays;
+      retentionKeep = s.sessionRetentionKeep;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -364,6 +384,25 @@
           {:else}
             {m.settings_standard_command_save()}
           {/if}
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_housekeeping_title()}</span>
+        <p class="hint">
+          {m.settings_housekeeping_hint({ days: retentionDays, count: retentionKeep })}
+        </p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={housekeeping}
+          disabled={hkBusy}
+          onclick={toggleHousekeeping}
+        >
+          <span class="track" class:on={housekeeping}><span class="knob"></span></span>
+          <span class="state"
+            >{housekeeping ? m.settings_housekeeping_on() : m.settings_housekeeping_off()}</span
+          >
         </button>
       </div>
       <SteersEditor />

@@ -161,6 +161,23 @@ export async function putRemoteControl(
   return r.json();
 }
 
+// Toggle the daily session-housekeeping sweep (prune of old archived sessions).
+// Standalone boolean patch — the server distinguishes it from a repoRoot change.
+export async function putSessionHousekeeping(
+  enabled: boolean,
+): Promise<{ sessionHousekeepingEnabled: boolean }> {
+  const r = await fetch("/api/settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ sessionHousekeepingEnabled: enabled }),
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+  return r.json();
+}
+
 // Persist the backlog quick-launch standard command. Standalone string patch —
 // the server distinguishes it from a repoRoot change. Empty string disables the
 // quick-launch shortcut.

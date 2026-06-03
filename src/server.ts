@@ -2,7 +2,7 @@ import type { SessionStore } from "./store";
 import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
-import { config } from "./config";
+import { config, SESSION_RETENTION_DAYS, SESSION_RETENTION_KEEP } from "./config";
 import {
   validateCreate,
   validateCloneUrl,
@@ -914,6 +914,11 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       repoRootDisplay: collapseHome(config.repoRoot),
       remoteControlAtStartup: config.remoteControlAtStartup,
       standardCommand: config.standardCommand,
+      sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
+      // display-only: the real retention thresholds, so the UI shows the actual numbers
+      // instead of hardcoding a mirror of the server constants.
+      sessionRetentionDays: SESSION_RETENTION_DAYS,
+      sessionRetentionKeep: SESSION_RETENTION_KEEP,
     });
   }
   if (req.method === "PUT") {
@@ -921,6 +926,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       repoRoot?: unknown;
       remoteControlAtStartup?: unknown;
       standardCommand?: unknown;
+      sessionHousekeepingEnabled?: unknown;
     } | null;
     // Remote Control toggle is a standalone boolean patch (no repoRoot in the body).
     if (body && "remoteControlAtStartup" in body && body.repoRoot === undefined) {
@@ -929,6 +935,10 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
     // Standard command is a standalone string patch (no repoRoot in the body).
     if (body && "standardCommand" in body && body.repoRoot === undefined) {
       return putStandardCommand(body.standardCommand, deps);
+    }
+    // Session housekeeping toggle is a standalone boolean patch (no repoRoot in the body).
+    if (body && "sessionHousekeepingEnabled" in body && body.repoRoot === undefined) {
+      return putSessionHousekeeping(body.sessionHousekeepingEnabled, deps);
     }
     return putRepoRoot(body?.repoRoot, deps);
   }
@@ -958,6 +968,15 @@ function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
   config.remoteControlAtStartup = value; // live: next spawn picks it up
   deps.store.setSetting("remoteControlAtStartup", value ? "1" : "0"); // persist
   return json({ remoteControlAtStartup: config.remoteControlAtStartup });
+}
+
+function putSessionHousekeeping(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "sessionHousekeepingEnabled must be a boolean" }, 400);
+  }
+  config.sessionHousekeepingEnabled = value; // live: the next daily sweep honors it
+  deps.store.setSetting("sessionHousekeepingEnabled", value ? "1" : "0"); // persist
+  return json({ sessionHousekeepingEnabled: config.sessionHousekeepingEnabled });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

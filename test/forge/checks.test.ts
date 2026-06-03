@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   jobsFromRollup,
   mapCheckState,
+  mapGiteaActionStatus,
   mapStatusState,
   rollupChecks,
 } from "../../src/forge/checks";
@@ -110,6 +111,29 @@ test("mapStatusState: maps the coarse StatusContext/Gitea vocab", () => {
   expect(mapStatusState("error")).toBe("failure");
   expect(mapStatusState("")).toBe("none");
   expect(mapStatusState(null)).toBe("none");
+});
+
+test("mapGiteaActionStatus: maps the native Actions tasks enum", () => {
+  expect(mapGiteaActionStatus("success")).toBe("success");
+  expect(mapGiteaActionStatus("failure")).toBe("failure");
+  expect(mapGiteaActionStatus("cancelled")).toBe("failure");
+  expect(mapGiteaActionStatus("canceled")).toBe("failure");
+  expect(mapGiteaActionStatus("running")).toBe("pending");
+  expect(mapGiteaActionStatus("waiting")).toBe("pending");
+  expect(mapGiteaActionStatus("blocked")).toBe("pending");
+  expect(mapGiteaActionStatus("cancelling")).toBe("pending");
+  expect(mapGiteaActionStatus("skipped")).toBe("none");
+  expect(mapGiteaActionStatus("unknown")).toBe("none");
+});
+
+test("mapGiteaActionStatus: case-insensitive + empty/nullish/unrecognized → none", () => {
+  expect(mapGiteaActionStatus("SUCCESS")).toBe("success");
+  expect(mapGiteaActionStatus("Failure")).toBe("failure");
+  expect(mapGiteaActionStatus("RUNNING")).toBe("pending");
+  expect(mapGiteaActionStatus("")).toBe("none");
+  expect(mapGiteaActionStatus(null)).toBe("none");
+  expect(mapGiteaActionStatus(undefined)).toBe("none");
+  expect(mapGiteaActionStatus("bogus")).toBe("none");
 });
 
 test("jobsFromRollup: CheckRun entries are qualified with their workflow name", () => {

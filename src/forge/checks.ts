@@ -40,6 +40,28 @@ export function mapStatusState(state?: string | null): ChecksState {
   }
 }
 
+/** Map Gitea/Forgejo's single native Actions status (the `tasks` endpoint's one
+ *  enum — there's no GitHub-style status+conclusion split): success → success;
+ *  failure / cancelled / canceled → failure; running / waiting / blocked /
+ *  cancelling → pending; skipped / unknown / anything else / empty → none. */
+export function mapGiteaActionStatus(status?: string | null): ChecksState {
+  switch ((status ?? "").toLowerCase()) {
+    case "success":
+      return "success";
+    case "failure":
+    case "cancelled":
+    case "canceled":
+      return "failure";
+    case "running":
+    case "waiting":
+    case "blocked":
+    case "cancelling":
+      return "pending";
+    default:
+      return "none";
+  }
+}
+
 /** A legacy StatusContext carries a context label + flat state (no lifecycle). */
 function isStatusContext(e: RollupEntry): boolean {
   return e.__typename === "StatusContext" || (e.name == null && e.context != null);

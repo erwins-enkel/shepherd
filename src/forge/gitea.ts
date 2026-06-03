@@ -1,4 +1,4 @@
-import { mapStatusState } from "./checks";
+import { mapGiteaActionStatus, mapStatusState } from "./checks";
 import type {
   ChecksState,
   ForgeConfig,
@@ -12,6 +12,7 @@ import type {
   PullRequest,
   RedeployInput,
   WorkflowJob,
+  WorkflowRun,
 } from "./types";
 
 interface GiteaPr {
@@ -34,6 +35,10 @@ interface GiteaPr {
  * pressure). A small pool keeps most of the parallel speedup without the burst.
  */
 const STATUS_FETCH_CONCURRENCY = 6;
+
+/** Cap on workflows surfaced in the Actions tab (one row per workflow, latest
+ *  run). Mirrors github.ts's own MAX_WORKFLOWS — the two packages don't share it. */
+const MAX_WORKFLOWS = 10;
 
 /** Order-preserving bounded-concurrency map: at most `limit` `fn`s run at once. */
 async function mapBounded<T, R>(
@@ -184,6 +189,53 @@ export class GiteaForge implements GitForge {
         checks,
         jobs,
       } satisfies PullRequest;
+    });
+  }
+
+  /** Latest run per workflow on the repo, for the backlog Actions tab. Reads the
+   *  `actions/tasks` endpoint — the only Actions API portable across Forgejo +
+   *  Gitea ≥1.23. Despite its name it lists *runs*, not jobs: there is no per-job
+   *  breakdown (so every `jobs` is empty) and no `conclusion` field — `status` is a
+   *  single native enum (mapped by {@link mapGiteaActionStatus}). We don't trust the
+   *  server's ordering: sort newest-first, then keep the latest run per workflow
+   *  (keyed on the displayed name, so the consumer's keyed list stays unique). */
+  async listWorkflowRuns(): Promise<WorkflowRun[]> {
+    const raw = (await this.req("GET", `/api/v1/repos/${this.slug}/actions/tasks?limit=50`)) as {
+      workflow_runs?: Array<{
+        id: number;
+        name?: string;
+        status?: string;
+        url?: string;
+        head_sha?: string;
+        workflow_id?: string;
+        created_at?: string;
+      }> | null;
+    } | null;
+
+    // Parse each created_at once and sort newest-first (don't assume server order).
+    const tasks = (raw?.workflow_runs ?? [])
+      .map((t) => ({ task: t, ts: Date.parse(t.created_at ?? "") }))
+      .sort((a, b) => (Number.isFinite(b.ts) ? b.ts : 0) - (Number.isFinite(a.ts) ? a.ts : 0));
+
+    // Dedup keeping the newest entry per workflow, keyed on the displayed name
+    // (name || workflow_id) so the keyed Actions list can't collide; then cap.
+    const newest = new Map<string, (typeof tasks)[number]>();
+    for (const entry of tasks) {
+      const key = entry.task.name || entry.task.workflow_id || "";
+      if (!newest.has(key)) newest.set(key, entry);
+    }
+    const selected = [...newest.values()].slice(0, MAX_WORKFLOWS);
+
+    return selected.map(({ task, ts }): WorkflowRun => {
+      return {
+        runId: task.id,
+        workflowName: task.name || (task.workflow_id ?? ""),
+        runUrl: task.url ?? "",
+        headSha: task.head_sha ?? "",
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        state: mapGiteaActionStatus(task.status),
+        jobs: [], // the tasks endpoint carries no per-job data
+      };
     });
   }
 

@@ -462,7 +462,7 @@
   "backlog_tab_actions_failing": "Actions · fehlerhaft",
   "actionspanel_title": "ACTIONS",
   "actionspanel_title_with_slug": "ACTIONS · {slug}",
-  "actionspanel_github_only": "Actions sind nur für GitHub-Repos verfügbar",
+  "actionspanel_unavailable": "Actions sind für dieses Repository nicht verfügbar",
   "actionspanel_no_runs": "keine aktuellen Workflow-Läufe",
   "actionspanel_run_link": "Lauf öffnen",
   "actionspanel_job_link": "Job öffnen",

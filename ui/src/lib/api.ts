@@ -307,11 +307,18 @@ export async function listPullRequests(
   return r.json();
 }
 
-/** Latest GitHub Actions run per workflow on a repo's default branch, with
- *  per-job breakdown. `kind !== "github"` → the repo has no Actions to show. */
-export async function listWorkflowRuns(
-  repoPath: string,
-): Promise<{ slug: string | null; kind: ForgeKind | null; runs: WorkflowRun[] }> {
+/** Latest Actions run per workflow on a repo's default branch (any forge that
+ *  supports Actions — GitHub + Gitea/Forgejo), with per-job breakdown where the
+ *  forge exposes one. The caller gates UI on the capability flags:
+ *  `supportsActions` (can list runs), `canRerun` / `canCancel` (REST controls). */
+export async function listWorkflowRuns(repoPath: string): Promise<{
+  slug: string | null;
+  kind: ForgeKind | null;
+  runs: WorkflowRun[];
+  supportsActions: boolean;
+  canRerun: boolean;
+  canCancel: boolean;
+}> {
   const r = await fetch(`/api/actions?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "actions");
   return r.json();

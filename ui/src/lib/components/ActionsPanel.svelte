@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listWorkflowRuns } from "$lib/api";
-  import type { ForgeKind, WorkflowRun } from "$lib/types";
+  import type { WorkflowRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ActionRunRow from "./ActionRunRow.svelte";
 
@@ -8,8 +8,13 @@
 
   let runs = $state<WorkflowRun[]>([]);
   let slug = $state<string | null>(null);
-  let kind = $state<ForgeKind | null>(null);
   let loading = $state(true);
+  // Server-reported forge capabilities. `supportsActions` defaults true so the
+  // first load doesn't flash the "unavailable" message before the response lands;
+  // the rerun/cancel controls default off until the forge confirms it has them.
+  let supportsActions = $state(true);
+  let canRerun = $state(false);
+  let canCancel = $state(false);
 
   // Any in-flight run or job keeps the silent poll alive. Once everything has
   // settled (all green/red), there is nothing left to update, so we stop
@@ -26,8 +31,10 @@
       .then((r) => {
         if (rp !== repoPath) return; // stale response for a since-changed repo
         slug = r.slug;
-        kind = r.kind;
         runs = r.runs;
+        supportsActions = r.supportsActions;
+        canRerun = r.canRerun;
+        canCancel = r.canCancel;
         loading = false;
       })
       .catch(() => {
@@ -67,13 +74,19 @@
   <div class="actions-list">
     {#if loading}
       <div class="muted">{m.common_loading()}</div>
-    {:else if kind !== "github"}
-      <div class="muted">{m.actionspanel_github_only()}</div>
+    {:else if !supportsActions}
+      <div class="muted">{m.actionspanel_unavailable()}</div>
     {:else if runs.length === 0}
       <div class="muted">{m.actionspanel_no_runs()}</div>
     {:else}
       {#each runs as run (run.workflowName)}
-        <ActionRunRow {repoPath} {run} onchanged={() => load(repoPath, true)} />
+        <ActionRunRow
+          {repoPath}
+          {run}
+          rerunnable={canRerun}
+          cancelable={canCancel}
+          onchanged={() => load(repoPath, true)}
+        />
       {/each}
     {/if}
   </div>

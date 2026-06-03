@@ -7,10 +7,16 @@
   let {
     repoPath,
     run,
+    rerunnable,
+    cancelable,
     onchanged,
   }: {
     repoPath: string;
     run: WorkflowRun;
+    /** Forge exposes a REST re-run control (GitHub yes, Gitea no). */
+    rerunnable: boolean;
+    /** Forge exposes a REST cancel control (GitHub yes, Gitea no). */
+    cancelable: boolean;
     /** Called after a re-run/cancel lands so the parent can re-poll live state. */
     onchanged: () => void;
   } = $props();
@@ -86,7 +92,7 @@
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
     {#if failed}<span class="wf-err">{m.actionspanel_action_failed()}</span>{/if}
-    {#if canCancel}
+    {#if cancelable && canCancel}
       <button
         class="act-btn"
         class:armed={armed === "cancel"}
@@ -96,7 +102,7 @@
       >
         {armed === "cancel" ? m.actionspanel_cancel_confirm() : m.actionspanel_cancel()}
       </button>
-    {:else if canRerun}
+    {:else if rerunnable && canRerun}
       <button
         class="act-btn"
         class:armed={armed === "rerun"}

@@ -379,6 +379,28 @@ test("unresolvable fingerprint never skips: reviews even with a prior verdict", 
   expect(started).toHaveLength(1); // reviewed
 });
 
+test("prior error verdict never rebase-skips (retries the transient failure)", async () => {
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => "pid-same" });
+  // an errored prior that (legacy row / defensive) still carries a matching fingerprint
+  reviews["s1"] = priorReview({ decision: "error", patchId: "pid-same", headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(bumped).toHaveLength(0); // not skipped despite identical fingerprint
+  expect(started).toHaveLength(1); // re-reviewed instead of inheriting the stale error
+});
+
+test("error verdict records no fingerprint (so a later head always re-reviews)", async () => {
+  const { deps: d, reviews } = makeDeps({
+    computePatchId: () => "pid-x",
+    readVerdict: () => ({ decision: "bogus", summary: "?", body: "" }), // unparseable → error
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.patchId).toBe(""); // no fingerprint persisted on a failed run
+});
+
 test("rebase-skip short-circuits before any forge call (no author-notes fetch)", async () => {
   const {
     deps: d,

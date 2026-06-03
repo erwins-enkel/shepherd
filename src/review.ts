@@ -244,6 +244,12 @@ export class ReviewService {
    * worktree, and skip the run — deliberately preserving findings/decision/rounds (those
    * still apply, and we must not double-post). Empty/failed fingerprint ('' or null) → never
    * skip; review. Returns the fingerprint (persisted on the verdict) + whether we skipped.
+   *
+   * Never skip past an `error` verdict: a timeout/unparseable run produced no real verdict,
+   * so its decision is a transient failure to RETRY, not a result to preserve — inheriting it
+   * across an identical-diff rebase would freeze the PR on a stale error. (Defensive even
+   * though buildVerdict no longer fingerprints error verdicts: this also covers error rows
+   * persisted before that change.)
    */
   private rebaseSkip(
     session: Session,
@@ -252,7 +258,7 @@ export class ReviewService {
     worktreePath: string,
   ): { patchId: string; skipped: boolean } {
     const patchId = this.computePatchId(worktreePath, session.baseBranch) ?? "";
-    if (patchId && prior?.patchId && prior.patchId === patchId) {
+    if (patchId && prior?.patchId && prior.decision !== "error" && prior.patchId === patchId) {
       this.deps.store.bumpReviewHead(session.id, git.headSha!, this.now());
       this.deps.worktree.remove(worktreePath);
       return { patchId, skipped: true };
@@ -513,7 +519,10 @@ export class ReviewService {
     return {
       sessionId: f.sessionId,
       headSha: f.headSha,
-      patchId: f.patchId, // fingerprint of this run's diff; a later identical head skips re-review
+      // Fingerprint of this run's diff; a later identical head skips re-review. NOT recorded
+      // for an error verdict (timeout/unparseable): that's a transient failure to retry, so a
+      // content-identical rebase must re-review rather than inherit the stale error.
+      patchId: resolved === "error" ? "" : f.patchId,
       decision: resolved,
       summary,
       body: raw && typeof raw.body === "string" ? raw.body : "",

@@ -229,6 +229,10 @@ export class GiteaForge implements GitForge {
     return selected.map(({ task, ts }): WorkflowRun => {
       return {
         runId: task.id,
+        // Gitea's tasks endpoint exposes no GitHub-style numeric workflow id, and
+        // the forge supports neither per-job nor run-history; 0 is the sentinel the
+        // history-expander gates off (`{#if run.workflowId}`), so it stays hidden.
+        workflowId: 0,
         workflowName: task.name || (task.workflow_id ?? ""),
         runUrl: task.url ?? "",
         headSha: task.head_sha ?? "",

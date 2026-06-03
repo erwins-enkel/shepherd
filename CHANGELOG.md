@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.10.0](https://github.com/erwins-enkel/shepherd/compare/v1.9.0...v1.10.0) (2026-06-03)
+
+
+### Features
+
+* **backlog:** live-poll Actions tab while runs pending ([#246](https://github.com/erwins-enkel/shepherd/issues/246)) ([af6c7c6](https://github.com/erwins-enkel/shepherd/commit/af6c7c65f781ce1085164184c42c9e27a2e7889d))
+* **critic:** auto-address loop — agent fixes critic findings until clean ([#243](https://github.com/erwins-enkel/shepherd/issues/243)) ([d841735](https://github.com/erwins-enkel/shepherd/commit/d841735c23737f13b218282e8613e0bbefa6f5ae))
+* **gitrail:** dim page behind review findings popover ([#259](https://github.com/erwins-enkel/shepherd/issues/259)) ([1325796](https://github.com/erwins-enkel/shepherd/commit/132579617d8feb76396839bf5bd186f597643868))
+* **herd:** group open PRs by CI/merge state so done-but-waiting cards sort down ([#261](https://github.com/erwins-enkel/shepherd/issues/261)) ([df94f30](https://github.com/erwins-enkel/shepherd/commit/df94f30e922f56daad95fc8855fb63ac324ee441))
+* **learnings:** close the flywheel — inject curated house rules into agents (PR2a) ([#249](https://github.com/erwins-enkel/shepherd/issues/249)) ([2517236](https://github.com/erwins-enkel/shepherd/commit/25172366aa827ef734a507909d28365a814be95e))
+* **namer:** pre-warn agent + toast when branch auto-renames ([#255](https://github.com/erwins-enkel/shepherd/issues/255)) ([a71dc5d](https://github.com/erwins-enkel/shepherd/commit/a71dc5ddcd3418e184b592da43349948299c288a))
+* **prune:** periodic local branch pruning for merged shepherd/* branches ([#257](https://github.com/erwins-enkel/shepherd/issues/257)) ([ccbbcff](https://github.com/erwins-enkel/shepherd/commit/ccbbcff046ee0f1210b397ea2ff46e4d88599309))
+
+
+### Bug Fixes
+
+* **backlog:** scope tab counts to selected repo + add Actions count ([#244](https://github.com/erwins-enkel/shepherd/issues/244)) ([ca91448](https://github.com/erwins-enkel/shepherd/commit/ca914489e03123e31713db56028b32109bfa026e))
+* **controlbar:** scroll Tab/Space, freeze only Esc so portrait scroll window isn't 2 keys wide ([#256](https://github.com/erwins-enkel/shepherd/issues/256)) ([37711f6](https://github.com/erwins-enkel/shepherd/commit/37711f624d37d6e79929f462a15782918c388a98))
+* **gitrail:** keep review send-to-agent button reachable on short viewports ([#248](https://github.com/erwins-enkel/shepherd/issues/248)) ([e2853b1](https://github.com/erwins-enkel/shepherd/commit/e2853b1fb9ffd8e76646dc76956325e59dc3ebe4))
+* **pr-poller:** recognize PRs after an agent renames its branch ([#254](https://github.com/erwins-enkel/shepherd/issues/254)) ([c28c5c7](https://github.com/erwins-enkel/shepherd/commit/c28c5c73a3631dc6c95c06e5c61b5755ee7f472f))
+* **steerbar:** align collapsed broadcast chip left edge with Esc key ([#258](https://github.com/erwins-enkel/shepherd/issues/258)) ([6266315](https://github.com/erwins-enkel/shepherd/commit/6266315d1ed597099294291f6c82b0aa634b0e0d))
+* **steerbar:** match collapsed broadcast chip width to Esc key ([#251](https://github.com/erwins-enkel/shepherd/issues/251)) ([f746420](https://github.com/erwins-enkel/shepherd/commit/f7464208fcfeed9ee86e9c3bbd3f49ebe8001580))
+* **steer:** bracketed-paste wrap so multi-line steers actually submit ([#260](https://github.com/erwins-enkel/shepherd/issues/260)) ([99effbd](https://github.com/erwins-enkel/shepherd/commit/99effbd820f5fbfb9e5dbcdec0f293298f558ef7))
+* **ui:** resync data on tab return (mobile stale-after-wake) ([#252](https://github.com/erwins-enkel/shepherd/issues/252)) ([b6d0fe0](https://github.com/erwins-enkel/shepherd/commit/b6d0fe042698b950007d3192438a4dde464d8575))
+* **viewport:** tighten mobile session-name cap so close button stays on row ([#250](https://github.com/erwins-enkel/shepherd/issues/250)) ([d7e611b](https://github.com/erwins-enkel/shepherd/commit/d7e611bffe08d8cff1af69cf52a9e23bbe84ca63))
+
 ## [1.9.0](https://github.com/erwins-enkel/shepherd/compare/v1.8.0...v1.9.0) (2026-06-03)
 
 

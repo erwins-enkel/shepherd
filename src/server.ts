@@ -36,6 +36,7 @@ import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
+import type { DrainStatus } from "./drain";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
@@ -100,6 +101,8 @@ export interface AppDeps {
   distiller?: { distillNow: (repoPath: string) => void };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
+  /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
+  drain?: { snapshot(): Promise<DrainStatus[]> };
 }
 
 const sessionUsage = (s: Session) =>
@@ -161,14 +164,25 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
+async function handleDrain({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "drain" && !parts[2]) {
+    return json((await deps.drain?.snapshot()) ?? []);
+  }
+  return null;
+}
+
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
-// All fields optional but each present one must be boolean, and at least one present.
+// All fields optional but each present one must pass its type check; at least one present.
 async function parseRepoConfigPatch(req: Request): Promise<
   | {
       criticEnabled?: boolean;
       autoAddressEnabled?: boolean;
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
+      autoDrainEnabled?: boolean;
+      maxAuto?: number;
+      autoLabel?: string;
+      usageCeilingPct?: number;
     }
   | Response
 > {
@@ -177,33 +191,71 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoAddressEnabled?: unknown;
     learningsEnabled?: unknown;
     autopilotEnabled?: unknown;
+    autoDrainEnabled?: unknown;
+    maxAuto?: unknown;
+    autoLabel?: unknown;
+    usageCeilingPct?: unknown;
   } | null;
-  const bad = (v: unknown) => v !== undefined && typeof v !== "boolean";
+  const badBool = (v: unknown) => v !== undefined && typeof v !== "boolean";
   if (
     !body ||
-    bad(body.criticEnabled) ||
-    bad(body.autoAddressEnabled) ||
-    bad(body.learningsEnabled) ||
-    bad(body.autopilotEnabled)
+    badBool(body.criticEnabled) ||
+    badBool(body.autoAddressEnabled) ||
+    badBool(body.learningsEnabled) ||
+    badBool(body.autopilotEnabled) ||
+    badBool(body.autoDrainEnabled)
   ) {
     return json(
       {
         error:
-          "fields criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled) must be booleans",
       },
       400,
     );
+  }
+  // maxAuto: finite integer ≥ 1; clamp > 20 to 20
+  let maxAuto: number | undefined;
+  if (body.maxAuto !== undefined) {
+    if (
+      typeof body.maxAuto !== "number" ||
+      !Number.isFinite(body.maxAuto) ||
+      body.maxAuto < 1 ||
+      !Number.isInteger(body.maxAuto)
+    ) {
+      return json({ error: "maxAuto must be an integer >= 1" }, 400);
+    }
+    maxAuto = Math.min(body.maxAuto, 20);
+  }
+  // autoLabel: non-empty string after trim
+  let autoLabel: string | undefined;
+  if (body.autoLabel !== undefined) {
+    if (typeof body.autoLabel !== "string" || body.autoLabel.trim() === "") {
+      return json({ error: "autoLabel must be a non-empty string" }, 400);
+    }
+    autoLabel = body.autoLabel.trim();
+  }
+  // usageCeilingPct: finite number; clamp to [0, 100], floor
+  let usageCeilingPct: number | undefined;
+  if (body.usageCeilingPct !== undefined) {
+    if (typeof body.usageCeilingPct !== "number" || !Number.isFinite(body.usageCeilingPct)) {
+      return json({ error: "usageCeilingPct must be a number" }, 400);
+    }
+    usageCeilingPct = Math.floor(Math.min(100, Math.max(0, body.usageCeilingPct)));
   }
   if (
     body.criticEnabled === undefined &&
     body.autoAddressEnabled === undefined &&
     body.learningsEnabled === undefined &&
-    body.autopilotEnabled === undefined
+    body.autopilotEnabled === undefined &&
+    body.autoDrainEnabled === undefined &&
+    maxAuto === undefined &&
+    autoLabel === undefined &&
+    usageCeilingPct === undefined
   ) {
     return json(
       {
         error:
-          "body must set criticEnabled, autoAddressEnabled, learningsEnabled, and/or autopilotEnabled",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -213,6 +265,10 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
+    autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
+    maxAuto,
+    autoLabel,
+    usageCeilingPct,
   };
 }
 
@@ -231,10 +287,10 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
-    autoDrainEnabled: cur.autoDrainEnabled,
-    maxAuto: cur.maxAuto,
-    autoLabel: cur.autoLabel,
-    usageCeilingPct: cur.usageCeilingPct,
+    autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
+    maxAuto: patch.maxAuto ?? cur.maxAuto,
+    autoLabel: patch.autoLabel ?? cur.autoLabel,
+    usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
   });
   return json(deps.store.getRepoConfig(dir));
 }
@@ -1421,6 +1477,7 @@ async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
 const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleReviews,
+  handleDrain,
   handleRepoConfig,
   handleLearnings,
   handlePush,

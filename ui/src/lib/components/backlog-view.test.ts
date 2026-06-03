@@ -12,11 +12,23 @@
  * delegates to these functions.
  */
 import { describe, it, expect } from "vitest";
-import { formatCount, isPinned, issuesTabLabel, prsTabLabel } from "./backlog-view";
+import {
+  formatCount,
+  isPinned,
+  selectedProject,
+  issuesTabLabel,
+  prsTabLabel,
+  actionsTabLabel,
+} from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
-function project(path: string, openIssues: number | null, openPRs: number | null): BacklogProject {
-  return { path, display: path, slug: "org/repo", kind: "github", openIssues, openPRs };
+function project(
+  path: string,
+  openIssues: number | null,
+  openPRs: number | null,
+  workflows: number | null = null,
+): BacklogProject {
+  return { path, display: path, slug: "org/repo", kind: "github", openIssues, openPRs, workflows };
 }
 
 function payload(
@@ -56,33 +68,80 @@ describe("isPinned", () => {
   });
 });
 
-describe("issuesTabLabel", () => {
-  it("includes the openIssues total count from the payload", () => {
-    const p = payload([], null, { openIssues: 24, openPRs: 3 });
-    const label = issuesTabLabel(p);
-    expect(label).toContain("24");
-    // Mirrors m.backlog_tab_issues_count({ count: payload.totals.openIssues })
-    expect(label).toMatch(/Issues\s*·\s*24/);
+describe("selectedProject", () => {
+  it("returns null when nothing is selected", () => {
+    const pl = payload([project("/repos/alpha", 5, 1)]);
+    expect(selectedProject(pl, null)).toBeNull();
   });
 
-  it("shows 0 when no issues", () => {
-    const p = payload([], null, { openIssues: 0, openPRs: 0 });
-    expect(issuesTabLabel(p)).toContain("0");
+  it("returns the project whose path matches the selection", () => {
+    const alpha = project("/repos/alpha", 5, 1);
+    const beta = project("/repos/beta", 2, 0);
+    const pl = payload([alpha, beta]);
+    expect(selectedProject(pl, "/repos/beta")).toBe(beta);
+  });
+
+  it("returns null when the selected path is not among the projects", () => {
+    const pl = payload([project("/repos/alpha", 5, 1)]);
+    expect(selectedProject(pl, "/repos/ghost")).toBeNull();
+  });
+});
+
+describe("issuesTabLabel", () => {
+  it("scopes the count to the selected project, not the all-repos total", () => {
+    // Selected repo has 0 open issues even though other repos contribute to the
+    // aggregate — the badge must read the per-repo value (the reported bug).
+    const sel = project("/repos/alpha", 0, 0);
+    const label = issuesTabLabel(sel);
+    expect(label).toMatch(/Issues\s*·\s*0/);
+  });
+
+  it("includes the selected project's openIssues count", () => {
+    expect(issuesTabLabel(project("/repos/a", 24, 3))).toMatch(/Issues\s*·\s*24/);
+  });
+
+  it("drops the count (bare label) when nothing is selected", () => {
+    expect(issuesTabLabel(null)).toBe("Issues");
+  });
+
+  it("drops the count when the per-repo count is unknown (null)", () => {
+    expect(issuesTabLabel(project("/repos/a", null, null))).toBe("Issues");
   });
 });
 
 describe("prsTabLabel", () => {
-  it("includes the openPRs total count from the payload", () => {
-    const p = payload([], null, { openIssues: 24, openPRs: 3 });
-    const label = prsTabLabel(p);
-    expect(label).toContain("3");
-    // Mirrors m.backlog_tab_prs_count({ count: payload.totals.openPRs })
-    expect(label).toMatch(/PRs\s*·\s*3/);
+  it("includes the selected project's openPRs count", () => {
+    expect(prsTabLabel(project("/repos/a", 24, 3))).toMatch(/PRs\s*·\s*3/);
   });
 
-  it("shows 0 when no PRs", () => {
-    const p = payload([], null, { openIssues: 10, openPRs: 0 });
-    expect(prsTabLabel(p)).toContain("0");
+  it("scopes to the selected repo: 5 total but 0 here → 'PRs · 0'", () => {
+    expect(prsTabLabel(project("/repos/a", 0, 0))).toMatch(/PRs\s*·\s*0/);
+  });
+
+  it("drops the count (bare label) when nothing is selected", () => {
+    expect(prsTabLabel(null)).toBe("PRs");
+  });
+
+  it("drops the count when the per-repo count is unknown (null)", () => {
+    expect(prsTabLabel(project("/repos/a", null, null))).toBe("PRs");
+  });
+});
+
+describe("actionsTabLabel", () => {
+  it("shows the workflows-defined count for the selected project", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3))).toMatch(/Actions\s*·\s*3/);
+  });
+
+  it("shows 'Actions · 0' for a github repo with no workflow files", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 0))).toMatch(/Actions\s*·\s*0/);
+  });
+
+  it("drops the count (bare label) when nothing is selected", () => {
+    expect(actionsTabLabel(null)).toBe("Actions");
+  });
+
+  it("drops the count for non-github forges (workflows null)", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, null))).toBe("Actions");
   });
 });
 
@@ -103,10 +162,13 @@ describe("BacklogView display logic — integration of helpers", () => {
     expect(isPinned(beta, pl.pinnedPath)).toBe(false);
   });
 
-  it("tab labels contain both issue and PR totals from payload", () => {
-    const pl = payload([], "/repos/alpha", { openIssues: 15, openPRs: 7 });
-    expect(issuesTabLabel(pl)).toContain("15");
-    expect(prsTabLabel(pl)).toContain("7");
+  it("tab labels reflect the selected project resolved from the payload", () => {
+    const alpha = project("/repos/alpha", 15, 7, 4);
+    const pl = payload([alpha], "/repos/alpha");
+    const sel = selectedProject(pl, "/repos/alpha");
+    expect(issuesTabLabel(sel)).toContain("15");
+    expect(prsTabLabel(sel)).toContain("7");
+    expect(actionsTabLabel(sel)).toContain("4");
   });
 
   /**

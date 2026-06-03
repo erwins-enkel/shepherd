@@ -32,6 +32,13 @@
   // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
+  // Tab badges count the SELECTED repo's items — the same repo the detail pane
+  // shows — not the all-repos `payload.totals` (which made "PRs · 5" sit over a
+  // repo with no open PRs). null when nothing is selected → bare tab labels.
+  let selected = $derived(
+    selectedPath === null ? null : (payload?.projects.find((p) => p.path === selectedPath) ?? null),
+  );
+
   // Use untrack to read selectedPath without subscribing to it, so that
   // dismissDetail() (which sets selectedPath = null) does not re-fire this
   // effect and immediately re-seed the overlay from pinnedPath.
@@ -98,7 +105,9 @@
               type="button"
               onclick={() => (activeTab = "issues")}
             >
-              {m.backlog_tab_issues_count({ count: payload.totals.openIssues })}
+              {selected && selected.openIssues !== null
+                ? m.backlog_tab_issues_count({ count: selected.openIssues })
+                : m.backlog_tab_issues()}
             </button>
             <button
               class="tab-btn"
@@ -106,7 +115,9 @@
               type="button"
               onclick={() => (activeTab = "prs")}
             >
-              {m.backlog_tab_prs_count({ count: payload.totals.openPRs })}
+              {selected && selected.openPRs !== null
+                ? m.backlog_tab_prs_count({ count: selected.openPRs })
+                : m.backlog_tab_prs()}
             </button>
             <button
               class="tab-btn"
@@ -114,7 +125,9 @@
               type="button"
               onclick={() => (activeTab = "actions")}
             >
-              {m.backlog_tab_actions()}
+              {selected && selected.workflows !== null
+                ? m.backlog_tab_actions_count({ count: selected.workflows })
+                : m.backlog_tab_actions()}
             </button>
           </div>
         </div>
@@ -147,7 +160,9 @@
         type="button"
         onclick={() => (activeTab = "issues")}
       >
-        {m.backlog_tab_issues_count({ count: payload.totals.openIssues })}
+        {selected && selected.openIssues !== null
+          ? m.backlog_tab_issues_count({ count: selected.openIssues })
+          : m.backlog_tab_issues()}
       </button>
       <button
         class="tab-btn"
@@ -155,7 +170,9 @@
         type="button"
         onclick={() => (activeTab = "prs")}
       >
-        {m.backlog_tab_prs_count({ count: payload.totals.openPRs })}
+        {selected && selected.openPRs !== null
+          ? m.backlog_tab_prs_count({ count: selected.openPRs })
+          : m.backlog_tab_prs()}
       </button>
       <button
         class="tab-btn"
@@ -163,7 +180,9 @@
         type="button"
         onclick={() => (activeTab = "actions")}
       >
-        {m.backlog_tab_actions()}
+        {selected && selected.workflows !== null
+          ? m.backlog_tab_actions_count({ count: selected.workflows })
+          : m.backlog_tab_actions()}
       </button>
     </div>
 

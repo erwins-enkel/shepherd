@@ -237,6 +237,8 @@ export interface BacklogProject {
   lastUsedAt?: number;
   openIssues: number | null;
   openPRs: number | null;
+  /** Workflows defined under .github/workflows; null for non-GitHub forges. */
+  workflows: number | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

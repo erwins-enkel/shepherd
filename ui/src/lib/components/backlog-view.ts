@@ -20,17 +20,40 @@ export function isPinned(project: BacklogProject, pinnedPath: string | null): bo
 }
 
 /**
- * Build the Issues tab label that BacklogView renders.
- * Mirrors: m.backlog_tab_issues_count({ count: payload.totals.openIssues })
+ * The project whose items the detail pane shows, or null when nothing is
+ * selected. Tab badges scope their counts to this project — not to the
+ * all-repos `payload.totals`, which would mis-report a single repo's tab.
  */
-export function issuesTabLabel(payload: BacklogPayload): string {
-  return `Issues · ${payload.totals.openIssues}`;
+export function selectedProject(
+  payload: BacklogPayload,
+  selectedPath: string | null,
+): BacklogProject | null {
+  if (selectedPath === null) return null;
+  return payload.projects.find((p) => p.path === selectedPath) ?? null;
 }
 
 /**
- * Build the PRs tab label that BacklogView renders.
- * Mirrors: m.backlog_tab_prs_count({ count: payload.totals.openPRs })
+ * Build the Issues tab label that BacklogView renders for the selected project.
+ * No selection or unknown count → the bare "Issues" label (no number).
+ * Mirrors: count → m.backlog_tab_issues_count, else m.backlog_tab_issues.
  */
-export function prsTabLabel(payload: BacklogPayload): string {
-  return `PRs · ${payload.totals.openPRs}`;
+export function issuesTabLabel(sel: BacklogProject | null): string {
+  return sel && sel.openIssues !== null ? `Issues · ${sel.openIssues}` : "Issues";
+}
+
+/**
+ * Build the PRs tab label for the selected project.
+ * Mirrors: count → m.backlog_tab_prs_count, else m.backlog_tab_prs.
+ */
+export function prsTabLabel(sel: BacklogProject | null): string {
+  return sel && sel.openPRs !== null ? `PRs · ${sel.openPRs}` : "PRs";
+}
+
+/**
+ * Build the Actions tab label for the selected project. The count is the number
+ * of workflows defined (github-only; null on other forges → bare label).
+ * Mirrors: count → m.backlog_tab_actions_count, else m.backlog_tab_actions.
+ */
+export function actionsTabLabel(sel: BacklogProject | null): string {
+  return sel && sel.workflows !== null ? `Actions · ${sel.workflows}` : "Actions";
 }

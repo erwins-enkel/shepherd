@@ -60,6 +60,12 @@
   import { registerSW, onSelectSession } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
+  import type { FeatureAnnouncement } from "$lib/feature-announcements";
+  import { featureAnnouncements } from "$lib/feature-announcements";
+  import { featureDiscovery } from "$lib/featureDiscovery.svelte";
+  import { computeNewEntries } from "$lib/feature-gate";
+  import { version } from "$lib/build-info";
+  import WhatsNew from "$lib/components/WhatsNew.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
@@ -81,6 +87,9 @@
   // set once the operator confirms the herdr update; herdr+shepherd restart drops
   // the WS and the store auto-reconnects, refreshing state once the new build is live.
   let herdrUpdating = $state(false);
+  let showWhatsNew = $state(false);
+  let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
+  let whatsNewDotOn = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
@@ -256,7 +265,8 @@
       showBroadcast ||
       showTriage ||
       showUpdate ||
-      showHerdrUpdate
+      showHerdrUpdate ||
+      showWhatsNew
     )
       return;
     switch (e.key.toLowerCase()) {
@@ -333,6 +343,26 @@
     reviews.load();
     learnings.load();
     loadSettings();
+    // Feature-discovery gate — synchronous, independent of loadSettings().
+    // hydrate() reads localStorage; version + featureAnnouncements are compile-time constants.
+    featureDiscovery.hydrate();
+    {
+      const lastSeen = featureDiscovery.lastSeenVersion;
+      if (lastSeen === null) {
+        // Fresh install: seed baseline so future updates can diff against it.
+        featureDiscovery.lastSeenVersion = version;
+      } else {
+        try {
+          const entries = computeNewEntries(lastSeen, version, featureAnnouncements);
+          if (entries.length > 0) {
+            whatsNewEntries = entries;
+            whatsNewDotOn = true;
+          }
+        } catch {
+          // should never throw, but guard defensively
+        }
+      }
+    }
     const dispose = store.connect();
     // visibilitychange only fires on a real hidden→visible flip (tab switch,
     // app switch, unlock), so this isn't chatty on plain window focus.
@@ -538,6 +568,8 @@
       onupdate={() => (showUpdate = true)}
       herdrUpdate={store.herdrUpdate}
       onherdrupdate={() => (showHerdrUpdate = true)}
+      whatsNew={whatsNewDotOn}
+      onwhatsnew={() => (showWhatsNew = true)}
     />
     <QueueStrip drain={store.drain} />
   {/if}
@@ -721,6 +753,17 @@
   />
 {/if}
 
+{#if showWhatsNew}
+  <WhatsNew
+    entries={whatsNewEntries}
+    ondismiss={() => {
+      featureDiscovery.lastSeenVersion = version;
+      whatsNewDotOn = false;
+    }}
+    onclose={() => (showWhatsNew = false)}
+  />
+{/if}
+
 {#if showNew}
   <NewTask
     {onsubmit}
@@ -754,6 +797,10 @@
     onclone={() => {
       showSettings = false;
       showClone = true;
+    }}
+    onwhatsnew={() => {
+      showSettings = false;
+      showWhatsNew = true;
     }}
   />
 {/if}

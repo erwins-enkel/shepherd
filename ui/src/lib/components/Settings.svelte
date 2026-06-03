@@ -71,12 +71,14 @@
     onclone,
     herdrUpdate = null,
     onherdrupdate,
+    onwhatsnew,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
     onclone?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
+    onwhatsnew?: () => void;
   } = $props();
 
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
@@ -467,7 +469,12 @@
         <span class="micro">{m.settings_about_title()}</span>
         <dl class="about-grid">
           <dt>{m.settings_about_version()}</dt>
-          <dd>v{version}</dd>
+          <dd>
+            v{version}
+            <button type="button" class="clone-trigger whatsnew-btn" onclick={() => onwhatsnew?.()}
+              >{m.whatsnew_open()}</button
+            >
+          </dd>
           <dt>{m.settings_about_commit()}</dt>
           <dd>
             <a
@@ -772,6 +779,11 @@
   .clone-trigger:hover {
     color: var(--color-ink-bright);
     border-color: var(--color-ink);
+  }
+  .whatsnew-btn {
+    padding: 4px 8px;
+    vertical-align: middle;
+    margin-left: 6px;
   }
   .push {
     display: flex;

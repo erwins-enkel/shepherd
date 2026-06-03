@@ -103,3 +103,31 @@ test("setLearningStatus enforces the state machine", () => {
   expect(s.setLearningStatus(d.id, "active")).toBeNull();
   expect(s.getLearning(d.id)?.status).toBe("dismissed");
 });
+
+test("listActiveLearnings returns active + promoted only, oldest-updated first", () => {
+  const s = new SessionStore(":memory:");
+  const act = s.addLearning({ repoPath: "/r", rule: "active rule", rationale: "", evidence: [] });
+  s.setLearningStatus(act.id, "active");
+  const prom = s.addLearning({
+    repoPath: "/r",
+    rule: "promoted rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(prom.id, "active");
+  s.setLearningStatus(prom.id, "promoted");
+  s.addLearning({ repoPath: "/r", rule: "still proposed", rationale: "", evidence: [] });
+  const dis = s.addLearning({
+    repoPath: "/r",
+    rule: "dismissed rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(dis.id, "dismissed");
+  // other repo's active rule must not leak in
+  const other = s.addLearning({ repoPath: "/other", rule: "other", rationale: "", evidence: [] });
+  s.setLearningStatus(other.id, "active");
+
+  const rules = s.listActiveLearnings("/r").map((l) => l.rule);
+  expect(rules.sort()).toEqual(["active rule", "promoted rule"]);
+});

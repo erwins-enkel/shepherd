@@ -518,6 +518,17 @@ export class SessionStore implements CapStore {
     return (rows as any[]).map((r) => this.hydrateLearning(r));
   }
 
+  /** Active + promoted rules for a repo, for prompt injection (spec §4a). Oldest-updated first. */
+  listActiveLearnings(repoPath: string): Learning[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM learnings WHERE repoPath = ? AND status IN ('active','promoted')
+         ORDER BY updatedAt ASC`,
+      )
+      .all(repoPath);
+    return (rows as any[]).map((r) => this.hydrateLearning(r));
+  }
+
   getLearning(id: string): Learning | null {
     const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as any;
     return r ? this.hydrateLearning(r) : null;

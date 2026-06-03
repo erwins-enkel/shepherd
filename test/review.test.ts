@@ -521,3 +521,38 @@ test("auto-address off: re-review does not fetch author notes", async () => {
   await svc.consider(session(), OPEN_GREEN);
   expect(commentCalls).toEqual([]); // gated on autoAddressEnabled — critic-only repos unchanged
 });
+
+test("steer that throws (dead pane) is not-delivered and still finalizes + reaps", async () => {
+  const {
+    deps: d,
+    reviews,
+    stopped,
+    removed,
+  } = makeDeps(
+    {
+      // a live-in-store / dead-pane agent: reply() reaches herdr.send → execFileSync throws
+      autoAddress: () => {
+        throw new Error("herdr: agent send failed (dead pane)");
+      },
+      readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN); // first review (no prior) → sync spawn
+  await svc.tick(); // must NOT reject
+  expect(reviews["s1"]?.decision).toBe("commented"); // verdict persisted
+  expect(reviews["s1"]?.addressRound).toBe(0); // throw = not delivered → round held
+  expect(stopped).toEqual(["rt"]); // terminal reaped despite the throw
+  expect(removed).toEqual(["/review-wt"]); // worktree reaped — no leak
+  expect(svc.reviewingIds()).toEqual([]); // in-flight entry cleared — not wedged
+});
+
+test("concurrent re-review considers spawn the critic only once (no TOCTOU double-run)", async () => {
+  const { deps: d, reviews, started } = makeDeps({}, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview(); // re-review path → begin awaits fetchAuthorNotes
+  const svc = new ReviewService(d as any);
+  // two session:git events for the same head land while the first is mid-await
+  await Promise.all([svc.consider(session(), OPEN_GREEN), svc.consider(session(), OPEN_GREEN)]);
+  expect(started).toHaveLength(1); // the slot is claimed before the await
+});

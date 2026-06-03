@@ -90,8 +90,9 @@ export interface ReviewServiceDeps {
   onReviewing?: (id: string, reviewing: boolean) => void;
   /**
    * Steer critic findings into a session's live PTY (typically SessionService.reply).
-   * Returns false when the agent pane is gone (the steer never landed). Absent → the
-   * auto-address loop is disabled regardless of per-repo config.
+   * Returns false (or throws — both treated as not-delivered) when the steer can't
+   * land; only a true return advances the round. Absent → the auto-address loop is
+   * disabled regardless of per-repo config.
    */
   autoAddress?: (sessionId: string, text: string) => boolean;
   cap?: number; // max auto-address rounds before escalating to the human (default 3)
@@ -111,6 +112,11 @@ interface RawVerdict {
 
 export class ReviewService {
   private inflight = new Map<string, InFlight>();
+  // Session ids whose critic is mid-spawn but not yet in `inflight`. begin() awaits a
+  // gh fetch on the re-review path, so this claims the slot across that await — without
+  // it, a second session:git event would pass the inflight guard and double-spawn,
+  // orphaning the first run's worktree + terminal.
+  private starting = new Set<string>();
   private now: () => number;
   private timeoutMs: number;
   private cap: number;
@@ -128,9 +134,15 @@ export class ReviewService {
     if (git.state !== "open" || git.checks !== "success" || !git.headSha || !git.number) return;
     if (!session.branch) return;
     if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return;
-    if (this.inflight.has(session.id)) return; // a run is already in flight
+    if (this.inflight.has(session.id) || this.starting.has(session.id)) return; // in flight / mid-spawn
     if (this.deps.store.getReview(session.id)?.headSha === git.headSha) return; // head already reviewed
-    await this.begin(session, git);
+    // Claim the slot synchronously, BEFORE begin()'s await, so a concurrent consider bails.
+    this.starting.add(session.id);
+    try {
+      await this.begin(session, git);
+    } finally {
+      this.starting.delete(session.id);
+    }
   }
 
   private async begin(session: Session, git: GitState): Promise<void> {
@@ -257,59 +269,78 @@ export class ReviewService {
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
       if (!raw && !timedOut) continue;
       f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
-      await this.finalize(f, raw);
-      this.inflight.delete(f.sessionId);
+      // Always drop the entry, even if finalize throws — otherwise it stays
+      // `finalizing=true` and every later tick `continue`s past it, wedging the
+      // session's critic forever (and leaking its worktree/terminal).
+      try {
+        await this.finalize(f, raw);
+      } finally {
+        this.inflight.delete(f.sessionId);
+      }
     }
   }
 
   private async finalize(f: InFlight, raw: RawVerdict | null): Promise<void> {
-    const verdict = this.buildVerdict(f, raw);
-    if (verdict.decision !== "error") {
-      const forge = this.deps.resolveForge(f.repoPath);
-      if (forge) {
-        try {
-          const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
-          const { url } = await forge.postReview(f.prNumber, {
-            event,
-            body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
-          });
-          verdict.url = url;
-        } catch (err) {
-          console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
+    // Reap the critic terminal + disposable worktree no matter what happens above
+    // (a forge/store/steer failure must not strand them).
+    try {
+      const verdict = this.buildVerdict(f, raw);
+      if (verdict.decision !== "error") {
+        const forge = this.deps.resolveForge(f.repoPath);
+        if (forge) {
+          try {
+            const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
+            const { url } = await forge.postReview(f.prNumber, {
+              event,
+              body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+            });
+            verdict.url = url;
+          } catch (err) {
+            console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
+          }
         }
       }
+      verdict.addressRound = this.runAutoAddress(f, verdict);
+      this.deps.store.putReview(verdict);
+      if (verdict.decision === "changes_requested") {
+        this.deps.store.addSignal({
+          repoPath: f.repoPath,
+          sessionId: f.sessionId,
+          kind: "critic",
+          payload: `${verdict.summary}\n\n${verdict.body}`,
+        });
+      }
+      this.deps.onChange(f.sessionId, verdict);
+    } finally {
+      this.deps.onReviewing?.(f.sessionId, false);
+      this.deps.herdr.stop(f.terminalId);
+      this.deps.worktree.remove(f.worktreePath);
     }
-    verdict.addressRound = this.runAutoAddress(f, verdict);
-    this.deps.store.putReview(verdict);
-    if (verdict.decision === "changes_requested") {
-      this.deps.store.addSignal({
-        repoPath: f.repoPath,
-        sessionId: f.sessionId,
-        kind: "critic",
-        payload: `${verdict.summary}\n\n${verdict.body}`,
-      });
-    }
-    this.deps.onChange(f.sessionId, verdict);
-    this.deps.onReviewing?.(f.sessionId, false);
-    this.deps.herdr.stop(f.terminalId);
-    this.deps.worktree.remove(f.worktreePath);
   }
 
   /**
    * Close the loop: feed the verdict's findings back to the task agent and return the
    * new streak round. Empty findings = clean → reset to 0. Otherwise, if auto-address
    * is enabled and the prior round is under the cap, steer once and advance — but only
-   * if the steer actually reached the agent (a dead pane holds the round). At/over the
-   * cap we stop steering and leave the round in place; the posted review + critic signal
-   * escalate it to the human.
+   * if the steer actually reached the agent (a dead/unreachable pane holds the round).
+   * At/over the cap we stop steering and leave the round in place; the posted review,
+   * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
    */
   private runAutoAddress(f: InFlight, verdict: ReviewVerdict): number {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
     if (!enabled || f.priorRound >= this.cap) return f.priorRound; // off, or gave up → hold
-    const delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));
-    return delivered ? f.priorRound + 1 : f.priorRound; // no progress if the pane is gone
+    // A dead pane makes herdr.send (execFileSync) throw rather than return false, so a
+    // throw counts as not-delivered too — the round must not advance on a steer that
+    // never landed, and the throw must not strand finalize().
+    let delivered = false;
+    try {
+      delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));
+    } catch (err) {
+      console.warn(`[review] auto-address steer failed for ${f.sessionId}:`, err);
+    }
+    return delivered ? f.priorRound + 1 : f.priorRound; // no progress if it didn't land
   }
 
   private buildVerdict(f: InFlight, raw: RawVerdict | null): ReviewVerdict {

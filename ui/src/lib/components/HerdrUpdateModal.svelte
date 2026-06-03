@@ -48,9 +48,10 @@
         try {
           html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
         } finally {
-          // Always drop the hook, even if parse/sanitize throws, so it can't
-          // leak onto the next render.
-          DOMPurify.removeAllHooks();
+          // Always drop our hook, even if parse/sanitize throws, so it can't
+          // leak onto the next render. Scoped to this event so we don't wipe
+          // any persistent hooks registered elsewhere on the shared singleton.
+          DOMPurify.removeHook("afterSanitizeAttributes");
         }
         if (alive) renderedNotes = html;
       })

@@ -171,6 +171,58 @@ async function handleDrain({ req, parts, deps }: Ctx): Promise<Response | null> 
   return null;
 }
 
+// maxAuto: finite integer ≥ 1; clamp > 20 to 20
+function parseMaxAuto(v: unknown): number | { error: string } {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || !Number.isInteger(v)) {
+    return { error: "maxAuto must be an integer >= 1" };
+  }
+  return Math.min(v, 20);
+}
+
+// autoLabel: non-empty string after trim
+function parseAutoLabel(v: unknown): string | { error: string } {
+  if (typeof v !== "string" || v.trim() === "") {
+    return { error: "autoLabel must be a non-empty string" };
+  }
+  return v.trim();
+}
+
+// usageCeilingPct: finite number; clamp to [0, 100], floor
+function parseUsageCeiling(v: unknown): number | { error: string } {
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    return { error: "usageCeilingPct must be a number" };
+  }
+  return Math.floor(Math.min(100, Math.max(0, v)));
+}
+
+// the optional boolean fields of a repo-config patch body
+const REPO_CFG_BOOL_FIELDS = [
+  "criticEnabled",
+  "autoAddressEnabled",
+  "learningsEnabled",
+  "autopilotEnabled",
+  "autoDrainEnabled",
+] as const;
+
+type RepoCfgBody = {
+  criticEnabled?: unknown;
+  autoAddressEnabled?: unknown;
+  learningsEnabled?: unknown;
+  autopilotEnabled?: unknown;
+  autoDrainEnabled?: unknown;
+  maxAuto?: unknown;
+  autoLabel?: unknown;
+  usageCeilingPct?: unknown;
+};
+
+// true when any present boolean field is not actually a boolean
+function hasBadBoolField(body: RepoCfgBody): boolean {
+  return REPO_CFG_BOOL_FIELDS.some((k) => {
+    const v = body[k];
+    return v !== undefined && typeof v !== "boolean";
+  });
+}
+
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
 // All fields optional but each present one must pass its type check; at least one present.
 async function parseRepoConfigPatch(req: Request): Promise<
@@ -186,25 +238,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     }
   | Response
 > {
-  const body = (await req.json().catch(() => null)) as {
-    criticEnabled?: unknown;
-    autoAddressEnabled?: unknown;
-    learningsEnabled?: unknown;
-    autopilotEnabled?: unknown;
-    autoDrainEnabled?: unknown;
-    maxAuto?: unknown;
-    autoLabel?: unknown;
-    usageCeilingPct?: unknown;
-  } | null;
-  const badBool = (v: unknown) => v !== undefined && typeof v !== "boolean";
-  if (
-    !body ||
-    badBool(body.criticEnabled) ||
-    badBool(body.autoAddressEnabled) ||
-    badBool(body.learningsEnabled) ||
-    badBool(body.autopilotEnabled) ||
-    badBool(body.autoDrainEnabled)
-  ) {
+  const body = (await req.json().catch(() => null)) as RepoCfgBody | null;
+  if (!body || hasBadBoolField(body)) {
     return json(
       {
         error:
@@ -213,45 +248,30 @@ async function parseRepoConfigPatch(req: Request): Promise<
       400,
     );
   }
-  // maxAuto: finite integer ≥ 1; clamp > 20 to 20
   let maxAuto: number | undefined;
   if (body.maxAuto !== undefined) {
-    if (
-      typeof body.maxAuto !== "number" ||
-      !Number.isFinite(body.maxAuto) ||
-      body.maxAuto < 1 ||
-      !Number.isInteger(body.maxAuto)
-    ) {
-      return json({ error: "maxAuto must be an integer >= 1" }, 400);
-    }
-    maxAuto = Math.min(body.maxAuto, 20);
+    const r = parseMaxAuto(body.maxAuto);
+    if (typeof r !== "number") return json(r, 400);
+    maxAuto = r;
   }
-  // autoLabel: non-empty string after trim
   let autoLabel: string | undefined;
   if (body.autoLabel !== undefined) {
-    if (typeof body.autoLabel !== "string" || body.autoLabel.trim() === "") {
-      return json({ error: "autoLabel must be a non-empty string" }, 400);
-    }
-    autoLabel = body.autoLabel.trim();
+    const r = parseAutoLabel(body.autoLabel);
+    if (typeof r !== "string") return json(r, 400);
+    autoLabel = r;
   }
-  // usageCeilingPct: finite number; clamp to [0, 100], floor
   let usageCeilingPct: number | undefined;
   if (body.usageCeilingPct !== undefined) {
-    if (typeof body.usageCeilingPct !== "number" || !Number.isFinite(body.usageCeilingPct)) {
-      return json({ error: "usageCeilingPct must be a number" }, 400);
-    }
-    usageCeilingPct = Math.floor(Math.min(100, Math.max(0, body.usageCeilingPct)));
+    const r = parseUsageCeiling(body.usageCeilingPct);
+    if (typeof r !== "number") return json(r, 400);
+    usageCeilingPct = r;
   }
-  if (
-    body.criticEnabled === undefined &&
-    body.autoAddressEnabled === undefined &&
-    body.learningsEnabled === undefined &&
-    body.autopilotEnabled === undefined &&
-    body.autoDrainEnabled === undefined &&
-    maxAuto === undefined &&
-    autoLabel === undefined &&
-    usageCeilingPct === undefined
-  ) {
+  const present =
+    REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
+    maxAuto !== undefined ||
+    autoLabel !== undefined ||
+    usageCeilingPct !== undefined;
+  if (!present) {
     return json(
       {
         error:

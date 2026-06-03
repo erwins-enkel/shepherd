@@ -43,6 +43,13 @@ async function failed(r: Response, label: string): Promise<Error> {
   return new Error(detail ?? `${label} failed: ${r.status}`);
 }
 
+/** GET a JSON resource, throwing `<label> failed: <status>` on a non-2xx response. */
+async function getJson<T>(url: string, label: string): Promise<T> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${label} failed: ${r.status}`);
+  return r.json() as Promise<T>;
+}
+
 export async function listSessions(): Promise<Session[]> {
   const r = await fetch("/api/sessions");
   if (!r.ok) throw await failed(r, "list");
@@ -508,16 +515,12 @@ export async function putProjectIcon(path: string, emoji: string): Promise<Proje
 }
 
 export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
-  const r = await fetch("/api/reviews");
-  if (!r.ok) throw new Error(`reviews failed: ${r.status}`);
-  return r.json();
+  return getJson("/api/reviews", "reviews");
 }
 
 /** Session ids with a critic run currently in flight (bootstrap for the reviewing indicator). */
 export async function getReviewingIds(): Promise<string[]> {
-  const r = await fetch("/api/reviews/inflight");
-  if (!r.ok) throw new Error(`reviewing failed: ${r.status}`);
-  return r.json();
+  return getJson("/api/reviews/inflight", "reviewing");
 }
 
 export async function getBacklog(): Promise<BacklogPayload> {
@@ -527,9 +530,7 @@ export async function getBacklog(): Promise<BacklogPayload> {
 }
 
 export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
-  const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`);
-  if (!r.ok) throw new Error(`repo-config failed: ${r.status}`);
-  return r.json();
+  return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
 }
 
 export async function putRepoConfig(
@@ -558,9 +559,7 @@ export async function putRepoConfig(
 }
 
 export async function getDrain(): Promise<DrainStatus[]> {
-  const r = await fetch("/api/drain");
-  if (!r.ok) throw new Error(`drain failed: ${r.status}`);
-  return r.json();
+  return getJson("/api/drain", "drain");
 }
 
 export async function setSessionAutopilot(id: string, enabled: boolean | null): Promise<void> {

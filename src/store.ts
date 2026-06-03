@@ -105,36 +105,7 @@ export class SessionStore implements CapStore {
       model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
-    // migrate older DBs that predate later columns
-    const cols = this.db.query(`PRAGMA table_info(sessions)`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === "model")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN model TEXT`);
-    }
-    if (!cols.some((c) => c.name === "claudeSessionId")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
-    }
-    if (!cols.some((c) => c.name === "readyToMerge")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN readyToMerge INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!cols.some((c) => c.name === "autopilotEnabled")) {
-      // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
-      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotEnabled INTEGER`);
-    }
-    if (!cols.some((c) => c.name === "autopilotStepCount")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotStepCount INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!cols.some((c) => c.name === "autopilotPaused")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotPaused INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!cols.some((c) => c.name === "autopilotQuestion")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotQuestion TEXT`);
-    }
-    if (!cols.some((c) => c.name === "auto")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN auto INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!cols.some((c) => c.name === "issueNumber")) {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN issueNumber INTEGER`);
-    }
+    this.migrateSessionColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
@@ -149,34 +120,7 @@ export class SessionStore implements CapStore {
       autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto',
       usageCeilingPct INTEGER NOT NULL DEFAULT 80,
       updatedAt INTEGER NOT NULL)`);
-    // migrate repo_config that predates these opt-in columns. auto-address defaults
-    // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
-    const repoCfgCols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
-    if (!repoCfgCols.some((c) => c.name === "autoAddressEnabled")) {
-      this.db.run(
-        `ALTER TABLE repo_config ADD COLUMN autoAddressEnabled INTEGER NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!repoCfgCols.some((c) => c.name === "learningsEnabled")) {
-      this.db.run(`ALTER TABLE repo_config ADD COLUMN learningsEnabled INTEGER NOT NULL DEFAULT 1`);
-    }
-    if (!repoCfgCols.some((c) => c.name === "autopilotEnabled")) {
-      this.db.run(`ALTER TABLE repo_config ADD COLUMN autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!repoCfgCols.some((c) => c.name === "autoDrainEnabled")) {
-      this.db.run(`ALTER TABLE repo_config ADD COLUMN autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!repoCfgCols.some((c) => c.name === "maxAuto")) {
-      this.db.run(`ALTER TABLE repo_config ADD COLUMN maxAuto INTEGER NOT NULL DEFAULT 1`);
-    }
-    if (!repoCfgCols.some((c) => c.name === "autoLabel")) {
-      this.db.run(
-        `ALTER TABLE repo_config ADD COLUMN autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`,
-      );
-    }
-    if (!repoCfgCols.some((c) => c.name === "usageCeilingPct")) {
-      this.db.run(`ALTER TABLE repo_config ADD COLUMN usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
-    }
+    this.migrateRepoConfigColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL,
@@ -673,6 +617,41 @@ export class SessionStore implements CapStore {
   }
 
   // migrate reviews that predate the auto-address loop columns
+  // migrate older DBs that predate later sessions columns
+  private migrateSessionColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(sessions)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE sessions ADD COLUMN ${ddl}`);
+    };
+    add("model", `model TEXT`);
+    add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
+    add("readyToMerge", `readyToMerge INTEGER NOT NULL DEFAULT 0`);
+    // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
+    add("autopilotEnabled", `autopilotEnabled INTEGER`);
+    add("autopilotStepCount", `autopilotStepCount INTEGER NOT NULL DEFAULT 0`);
+    add("autopilotPaused", `autopilotPaused INTEGER NOT NULL DEFAULT 0`);
+    add("autopilotQuestion", `autopilotQuestion TEXT`);
+    add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
+    add("issueNumber", `issueNumber INTEGER`);
+  }
+
+  // migrate repo_config that predates these opt-in columns. auto-address defaults
+  // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
+  private migrateRepoConfigColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE repo_config ADD COLUMN ${ddl}`);
+    };
+    add("autoAddressEnabled", `autoAddressEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
+    add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
+    add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
+    add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
+  }
+
   private migrateReviewColumns(): void {
     const cols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
     const add = (name: string, ddl: string) => {

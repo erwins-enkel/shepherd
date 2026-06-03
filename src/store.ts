@@ -573,6 +573,15 @@ export class SessionStore implements CapStore {
     return (rows as any[]).map((r) => this.hydrateLearning(r));
   }
 
+  /** Distinct repoPaths that have ≥1 active/promoted (injectable) rule, for the
+   *  cross-repo injectable sweep (GET /api/learnings/injectable). */
+  listRepoPathsWithInjectableLearnings(): string[] {
+    const rows = this.db
+      .query(`SELECT DISTINCT repoPath FROM learnings WHERE status IN ('active','promoted')`)
+      .all() as { repoPath: string }[];
+    return rows.map((r) => r.repoPath);
+  }
+
   getLearning(id: string): Learning | null {
     const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as any;
     return r ? this.hydrateLearning(r) : null;

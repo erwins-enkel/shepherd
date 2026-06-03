@@ -64,6 +64,11 @@ export const config = {
   llmNaming: process.env.SHEPHERD_LLM_NAMING !== "0",
   // model for the background namer (cheap + fast is plenty for a 2-4 word slug).
   namerModel: process.env.SHEPHERD_NAMER_MODEL ?? "haiku",
+  // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
+  // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
+  // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
+  // (~25 max-length rules); only an unusually large curated set is capped.
+  houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

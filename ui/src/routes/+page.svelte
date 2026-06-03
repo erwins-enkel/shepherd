@@ -85,8 +85,20 @@
     if (showTriage && blockedEntries.length === 0) showTriage = false;
   });
   $effect(() => {
-    if (showLearnings && learnings.items.length === 0) showLearnings = false;
+    // Close only when both the proposed list and the injected view are empty —
+    // a repo can have injected rules to curate with zero outstanding proposals.
+    if (showLearnings && learnings.items.length === 0 && learnings.injectable.length === 0)
+      showLearnings = false;
   });
+  // Active/promoted rules that an enabled repo wants to inject but couldn't fit in
+  // the budget — the #253 case. Drives a TopBar entry point even with zero proposals
+  // (disabled repos are excluded: pruning won't help, re-enabling injection would).
+  const overBudgetRules = $derived(
+    learnings.injectable.reduce(
+      (n, repo) => n + (repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0),
+      0,
+    ),
+  );
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
@@ -514,6 +526,7 @@
       needsYou={blockedEntries.length}
       ontriage={() => (showTriage = true)}
       learnings={learnings.items.length}
+      overBudget={overBudgetRules}
       onlearnings={() => (showLearnings = true)}
       update={store.update}
       onupdate={() => (showUpdate = true)}
@@ -653,6 +666,7 @@
   {#if showLearnings}
     <LearningsDrawer
       items={learnings.items}
+      injectable={learnings.injectable}
       onapprove={(id, rule) =>
         approveLearning(id, rule)
           .then(() => learnings.load())

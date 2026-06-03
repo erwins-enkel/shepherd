@@ -15,6 +15,7 @@ import {
   validateIconPatch,
 } from "./validate";
 import { slugifyManual } from "./namer";
+import { planHouseRulesInjection, prioritize } from "./house-rules";
 import { listRepos, readTodo, writeTodo, cloneRepo } from "./repos";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
@@ -229,6 +230,42 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
   // GET /api/learnings/pending — all proposed rules across repos (drawer + badge)
   if (parts[2] === "pending") {
     return json(deps.store.listPendingLearnings());
+  }
+
+  // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).
+  // One entry per repo with ≥1 active/promoted rule; the budget value flows from
+  // here so the UI never hardcodes it. Shares the planner with service.houseRules.
+  if (parts[2] === "injectable") {
+    const budgetChars = config.houseRulesBudgetChars;
+    const out = deps.store.listRepoPathsWithInjectableLearnings().map((repoPath) => {
+      const rules = deps.store.listActiveLearnings(repoPath);
+      const enabled = deps.store.getRepoConfig(repoPath).learningsEnabled;
+      if (!enabled) {
+        // Injection disabled: skip the planner; every rule uninjected, used 0.
+        return {
+          repoPath,
+          enabled,
+          budgetChars,
+          usedChars: 0,
+          rules: prioritize(rules).map((r) => ({ ...r, injected: false })),
+        };
+      }
+      const plan = planHouseRulesInjection(rules, budgetChars);
+      const injectedIds = new Set(plan.injected.map((r) => r.id));
+      // injected first (priority order), then dropped (priority order) — same
+      // ordering the drawer renders.
+      return {
+        repoPath,
+        enabled,
+        budgetChars,
+        usedChars: plan.usedChars,
+        rules: [...plan.injected, ...plan.dropped].map((r) => ({
+          ...r,
+          injected: injectedIds.has(r.id),
+        })),
+      };
+    });
+    return json(out);
   }
 
   // GET /api/learnings?repo=&status=

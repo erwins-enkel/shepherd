@@ -24,6 +24,7 @@ import type {
   SlashCommand,
   Leftover,
   Learning,
+  RepoInjectable,
   ForgeKind,
   WorkflowRun,
 } from "./types";
@@ -529,6 +530,14 @@ export async function putRepoConfig(
 export async function getPendingLearnings(): Promise<Learning[]> {
   const r = await fetch("/api/learnings/pending");
   if (!r.ok) throw await failed(r, "learnings");
+  return r.json();
+}
+
+/** Per-repo injected/active house rules with budget meter data, for the drawer's
+ *  "Injected house rules" view. One entry per repo with ≥1 active/promoted rule. */
+export async function getInjectableLearnings(): Promise<RepoInjectable[]> {
+  const r = await fetch("/api/learnings/injectable");
+  if (!r.ok) throw await failed(r, "injectable learnings");
   return r.json();
 }
 

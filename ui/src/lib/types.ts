@@ -341,6 +341,18 @@ export interface Learning {
   lastEvidenceAt: number | null;
 }
 
+/** GET /api/learnings/injectable: one entry per repo with ≥1 active/promoted rule.
+ *  Drives the drawer's "Injected house rules" view; the budget value flows from
+ *  here so the UI never hardcodes it. `injected` reflects the server-side planner's
+ *  greedy fit; when `enabled` is false every rule is `injected:false`, `usedChars:0`. */
+export interface RepoInjectable {
+  repoPath: string;
+  enabled: boolean;
+  budgetChars: number;
+  usedChars: number;
+  rules: (Learning & { injected: boolean })[];
+}
+
 // ── leftover subprocesses surfaced at session close ─────────────────────────
 export type LeftoverKind = "process" | "system";
 

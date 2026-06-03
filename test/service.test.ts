@@ -577,6 +577,67 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
   expect(store.get(s.id)?.prompt).toBe("fix it");
 });
 
+test("createSession: persists auto=true and issueNumber from issueRef.number", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "drain task",
+    model: null,
+    images: [],
+    auto: true,
+    issueRef: { number: 42, url: "https://github.com/o/r/issues/42", title: "Fix it", body: "" },
+  });
+
+  expect(s.auto).toBe(true);
+  expect(s.issueNumber).toBe(42);
+  // values round-trip through the store
+  expect(store.get(s.id)?.auto).toBe(true);
+  expect(store.get(s.id)?.issueNumber).toBe(42);
+});
+
+test("createSession: defaults auto=false and issueNumber=null when not provided", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "manual task",
+    model: null,
+    images: [],
+  });
+
+  expect(s.auto).toBe(false);
+  expect(s.issueNumber).toBeNull();
+  expect(store.get(s.id)?.auto).toBe(false);
+  expect(store.get(s.id)?.issueNumber).toBeNull();
+});
+
 test("createSession: rolls back the worktree when the agent fails to start", async () => {
   const store = new SessionStore(":memory:");
   const removed: { path: string; opts: any }[] = [];
@@ -1380,6 +1441,10 @@ test("create omits house rules when learnings disabled for the repo", async () =
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);

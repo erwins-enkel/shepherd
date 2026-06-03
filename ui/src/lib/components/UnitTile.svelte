@@ -11,6 +11,7 @@
   import { reviews } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
+  import AutoPip from "./AutoPip.svelte";
 
   let {
     session,
@@ -137,6 +138,7 @@
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
     <AutopilotBadge {session} />
+    <AutoPip {session} />
     {#if session.readyToMerge}
       <span class="badge">{m.status_ready_to_merge()}</span>
     {:else if !hideStatus}

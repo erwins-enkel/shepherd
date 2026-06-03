@@ -57,12 +57,16 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic + auto-address + learnings + autopilot on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address + learnings + autopilot + drain on/off, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
+  autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
+  maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
+  autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
+  usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
 
   async ensure(repoPath: string) {
     if (repoPath in this.enabled) return;
@@ -72,8 +76,12 @@ class RepoConfigStore {
       this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
       this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
+      this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
+      this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
+      this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
+      this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     } catch {
-      /* leave unset; UI shows defaults (critic on, auto-address off, learnings on, autopilot off) optimistically */
+      /* leave unset; UI shows defaults optimistically */
     }
   }
 
@@ -83,7 +91,14 @@ class RepoConfigStore {
     patch: Partial<
       Pick<
         RepoConfig,
-        "criticEnabled" | "autoAddressEnabled" | "learningsEnabled" | "autopilotEnabled"
+        | "criticEnabled"
+        | "autoAddressEnabled"
+        | "learningsEnabled"
+        | "autopilotEnabled"
+        | "autoDrainEnabled"
+        | "maxAuto"
+        | "autoLabel"
+        | "usageCeilingPct"
       >
     >,
     revert: () => void,
@@ -94,6 +109,10 @@ class RepoConfigStore {
       this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
       this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
+      this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
+      this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
+      this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
+      this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     } catch {
       revert();
     }
@@ -135,6 +154,39 @@ class RepoConfigStore {
     });
   }
 
+  async toggleAutoDrain(repoPath: string) {
+    const prev = this.autoDrain[repoPath];
+    const next = !this.isAutoDrainEnabled(repoPath);
+    this.autoDrain = { ...this.autoDrain, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { autoDrainEnabled: next }, () => {
+      this.autoDrain = { ...this.autoDrain, [repoPath]: prev };
+    });
+  }
+
+  async setMaxAuto(repoPath: string, n: number) {
+    const prev = this.maxAuto[repoPath];
+    this.maxAuto = { ...this.maxAuto, [repoPath]: n }; // optimistic
+    await this.apply(repoPath, { maxAuto: n }, () => {
+      this.maxAuto = { ...this.maxAuto, [repoPath]: prev };
+    });
+  }
+
+  async setAutoLabel(repoPath: string, s: string) {
+    const prev = this.autoLabel[repoPath];
+    this.autoLabel = { ...this.autoLabel, [repoPath]: s }; // optimistic
+    await this.apply(repoPath, { autoLabel: s }, () => {
+      this.autoLabel = { ...this.autoLabel, [repoPath]: prev };
+    });
+  }
+
+  async setUsageCeiling(repoPath: string, n: number) {
+    const prev = this.usageCeiling[repoPath];
+    this.usageCeiling = { ...this.usageCeiling, [repoPath]: n }; // optimistic
+    await this.apply(repoPath, { usageCeilingPct: n }, () => {
+      this.usageCeiling = { ...this.usageCeiling, [repoPath]: prev };
+    });
+  }
+
   isEnabled(repoPath: string): boolean {
     return this.enabled[repoPath] ?? true;
   }
@@ -149,6 +201,22 @@ class RepoConfigStore {
 
   isAutopilotEnabled(repoPath: string): boolean {
     return this.autopilot[repoPath] ?? false;
+  }
+
+  isAutoDrainEnabled(repoPath: string): boolean {
+    return this.autoDrain[repoPath] ?? false;
+  }
+
+  maxAutoFor(repoPath: string): number {
+    return this.maxAuto[repoPath] ?? 1;
+  }
+
+  autoLabelFor(repoPath: string): string {
+    return this.autoLabel[repoPath] ?? "shepherd:auto";
+  }
+
+  usageCeilingFor(repoPath: string): number {
+    return this.usageCeiling[repoPath] ?? 80;
   }
 }
 export const repoConfig = new RepoConfigStore();

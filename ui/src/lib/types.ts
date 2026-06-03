@@ -151,6 +151,21 @@ export interface RepoConfig {
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
   autopilotEnabled: boolean;
+  autoDrainEnabled: boolean;
+  maxAuto: number;
+  autoLabel: string;
+  usageCeilingPct: number;
+}
+
+export interface DrainStatus {
+  repoPath: string;
+  enabled: boolean;
+  paused: boolean;
+  reason: string | null;
+  detail: string | null;
+  queued: number;
+  inFlight: number;
+  max: number;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
@@ -179,6 +194,10 @@ export interface Session {
   autopilotStepCount: number;
   autopilotPaused: boolean;
   autopilotQuestion: string | null;
+  /** Whether this session was launched by the auto-drain queue. */
+  auto: boolean;
+  /** Issue number that seeded this session; null when launched without an issue. */
+  issueNumber: number | null;
   lastState: string;
   createdAt: number;
   updatedAt: number;
@@ -290,7 +309,8 @@ export type WsEvent =
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "learnings:update"; data: { pending: number } }
-  | { event: "backlog:update"; data: BacklogPayload };
+  | { event: "backlog:update"; data: BacklogPayload }
+  | { event: "drain:status"; data: DrainStatus };
 
 export interface CreateInput {
   repoPath: string;

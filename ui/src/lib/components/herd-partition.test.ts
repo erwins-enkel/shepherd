@@ -23,6 +23,8 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     autopilotStepCount: 0,
     autopilotPaused: false,
     autopilotQuestion: null,
+    auto: false,
+    issueNumber: null,
     lastState: "working",
     createdAt: 0,
     updatedAt: 0,

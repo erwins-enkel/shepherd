@@ -404,6 +404,18 @@ test("GiteaForge.listIssues: invalid created_at string falls back to Date.now()"
   expect(issues[0]!.createdAt).toBeLessThanOrEqual(after);
 });
 
+test("GiteaForge.closeIssue: PATCHes the issue state to closed", async () => {
+  const { fn, calls } = fakeFetch({
+    "PATCH /api/v1/repos/team/proj/issues/42": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.closeIssue(42);
+  const patch = calls[0]!;
+  expect(patch.method).toBe("PATCH");
+  expect(patch.url).toContain("/api/v1/repos/team/proj/issues/42");
+  expect(patch.body).toEqual({ state: "closed" });
+});
+
 test("GiteaForge.prStatus: surfaces head SHA from PR head.sha", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {

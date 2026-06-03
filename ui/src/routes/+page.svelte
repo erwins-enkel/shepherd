@@ -22,6 +22,7 @@
     promoteLearning,
     getMergedClearable,
     clearMerged,
+    getDrain,
   } from "$lib/api";
   import type {
     DeployState,
@@ -50,6 +51,7 @@
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
+  import QueueStrip from "$lib/components/QueueStrip.svelte";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -323,6 +325,9 @@
     gitStates()
       .then((m) => store.setGit(m))
       .catch(() => {});
+    getDrain()
+      .then((l) => store.setDrain(l))
+      .catch(() => {});
     steers.load();
     projectIcons.load();
     reviews.load();
@@ -534,6 +539,7 @@
       herdrUpdate={store.herdrUpdate}
       onherdrupdate={() => (showHerdrUpdate = true)}
     />
+    <QueueStrip drain={store.drain} />
   {/if}
 
   <main id="main-content" class="main-region">

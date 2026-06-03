@@ -28,6 +28,8 @@ const SESSION: Session = {
   autopilotStepCount: 0,
   autopilotPaused: false,
   autopilotQuestion: null,
+  auto: false,
+  issueNumber: null,
   status: "running",
   lastState: "working",
   createdAt: 0,

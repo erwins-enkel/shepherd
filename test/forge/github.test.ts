@@ -540,3 +540,10 @@ test("GithubForge.listPrComments: empty/absent comments → []", async () => {
   const forge = new GithubForge("o/r", {}, run);
   expect(await forge.listPrComments(7)).toEqual([]);
 });
+
+test("GithubForge.closeIssue: invokes gh issue close with the issue number and repo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.closeIssue(42);
+  expect(calls[0]).toEqual(["issue", "close", "42", "--repo", "o/r"]);
+});

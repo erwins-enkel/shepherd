@@ -223,6 +223,12 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  async closeIssue(issueNumber: number): Promise<void> {
+    await this.req("PATCH", `/api/v1/repos/${this.slug}/issues/${issueNumber}`, {
+      state: "closed",
+    });
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     await this.req(
       "POST",

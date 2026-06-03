@@ -92,6 +92,10 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
 });
 
@@ -128,6 +132,10 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
 
   const get = await app.fetch(new Request(url));
@@ -137,6 +145,10 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
 });
 
@@ -156,6 +168,10 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     autoAddressEnabled: true,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
 });
 
@@ -175,6 +191,10 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
 });
 

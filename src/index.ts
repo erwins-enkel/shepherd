@@ -26,6 +26,7 @@ import { PushService, attachPush, attachReviewPush, attachGitPush } from "./push
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { AutopilotService } from "./autopilot";
+import { DrainService } from "./drain";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
@@ -275,6 +276,40 @@ events.subscribe((event, data) => {
   }
 });
 
+// Self-draining work queue (#222): when an auto session's PR merges, archive it and
+// spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
+// core (computeNext) with side effects here; driven off the same poller events.
+const drain = new DrainService({
+  store,
+  service,
+  resolveForge,
+  prCache: prPoller, // has snapshot()
+  usage: usageLimits, // has limits(now)
+  repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  emitStatus: (status) => events.emit("drain:status", status),
+  emitArchived: (id) => events.emit("session:archived", { id }),
+  dropPrCache: (id) => prPoller.drop(id),
+});
+
+// Drive the drain off the poller events the rest of the system already emits.
+events.subscribe((event, data) => {
+  if (event === "session:git") {
+    const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+    void drain.onGit(id, git).catch((err) => console.warn("[drain] onGit:", err));
+  } else if (event === "session:status") {
+    const { id } = data as { id: string };
+    void drain.onStatus(id).catch((err) => console.warn("[drain] onStatus:", err));
+  } else if (event === "session:archived") {
+    const { id } = data as { id: string };
+    void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
+  } else if (event === "session:review") {
+    const { id } = data as { id: string };
+    void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
+  }
+});
+// Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).
+setInterval(() => void drain.tick().catch((err) => console.warn("[drain] tick:", err)), 30_000);
+
 // Learnings flywheel: capture block/stall signals, run the distiller on a slow
 // cadence, and surface the proposed-rule count to clients.
 attachSignalCapture(events, store);
@@ -397,6 +432,7 @@ const server = serve(
     backlog,
     distiller,
     promoter,
+    drain: { snapshot: () => drain.snapshot() },
   },
   config.port,
 );

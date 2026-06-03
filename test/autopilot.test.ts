@@ -23,6 +23,8 @@ function sess(over: Partial<Session> = {}): Session {
     autopilotStepCount: 0,
     autopilotPaused: false,
     autopilotQuestion: null,
+    auto: false,
+    issueNumber: null,
     status: "blocked",
     lastState: "blocked",
     createdAt: 0,

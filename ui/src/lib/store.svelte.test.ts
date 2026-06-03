@@ -1,7 +1,7 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
-import type { BacklogPayload, GitState, Session } from "./types";
+import type { BacklogPayload, DrainStatus, GitState, Session } from "./types";
 
 const GIT: GitState = {
   kind: "github",
@@ -32,12 +32,25 @@ function session(id: string): Session {
     autopilotStepCount: 0,
     autopilotPaused: false,
     autopilotQuestion: null,
+    auto: false,
+    issueNumber: null,
     lastState: "working",
     createdAt: 0,
     updatedAt: 0,
     archivedAt: null,
   };
 }
+
+const DRAIN: DrainStatus = {
+  repoPath: "/r",
+  enabled: true,
+  paused: false,
+  reason: null,
+  detail: null,
+  queued: 2,
+  inFlight: 1,
+  max: 3,
+};
 
 test("setGit hydrates the git map", () => {
   const s = new HerdStore();
@@ -301,4 +314,25 @@ test("dispose stops the reconnect loop", () => {
   dispose(); // closes the socket; stopped flag must suppress the reconnect
   vi.advanceTimersByTime(5000);
   expect(made.length).toBe(1);
+});
+
+// ── drain state ────────────────────────────────────────────────────────────
+
+test("setDrain hydrates the drain map from a list", () => {
+  const s = new HerdStore();
+  s.setDrain([DRAIN]);
+  expect(s.drain["/r"]?.queued).toBe(2);
+});
+
+test("drain:status merges into the drain map", () => {
+  const s = new HerdStore();
+  s.apply({ event: "drain:status", data: DRAIN });
+  expect(s.drain["/r"]?.inFlight).toBe(1);
+});
+
+test("drain:status overwrites a previous entry for the same repoPath", () => {
+  const s = new HerdStore();
+  s.setDrain([DRAIN]);
+  s.apply({ event: "drain:status", data: { ...DRAIN, queued: 0, inFlight: 0 } });
+  expect(s.drain["/r"]?.queued).toBe(0);
 });

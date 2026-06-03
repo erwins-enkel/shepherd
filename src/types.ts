@@ -25,6 +25,10 @@ export interface Session {
   autopilotPaused: boolean;
   /** The classifier's 1–2 sentence summary of what the agent is waiting for; null when not paused. */
   autopilotQuestion: string | null;
+  /** True when this session was auto-spawned by the drain queue. */
+  auto: boolean;
+  /** Backlog issue number this session was spawned for; null for manual/non-issue sessions. */
+  issueNumber: number | null;
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;
@@ -51,6 +55,10 @@ export interface CreateSessionInput {
   model: string | null; // null = claude default (no --model flag)
   images: string[]; // absolute paths to staged uploads (may be empty)
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
+  /** True when this session is auto-spawned by the drain queue (default false). The
+   *  persisted `issueNumber` is NOT an input here — the service derives it from
+   *  `issueRef.number`, so an attached issue is mapped for drain dedupe automatically. */
+  auto?: boolean;
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag. */

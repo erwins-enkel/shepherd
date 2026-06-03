@@ -59,7 +59,16 @@ class ToastStore {
   #commits = new Map<number, () => void | Promise<void>>();
   #undos = new Map<number, () => void>();
   #actions = new Map<number, () => void>();
+  // Caller key -> toast id. Namespaced by tone (#kk) so an info and an undo
+  // toast may safely reuse the same caller key without cross-mutating state.
   #keyed = new Map<string, number>();
+
+  /** Internal dedupe key: tone-prefixed so info/undo keys never collide. The
+   *  distinct "info"/"undo" prefix makes any cross-tone match impossible
+   *  whatever the caller key contains. */
+  #kk(tone: ToastTone, key: string): string {
+    return `${tone}:${key}`;
+  }
 
   /** Confirmation toast. Auto-dismisses after `duration` ms (default 4000);
    *  pass `duration: null` for a persistent toast that stays until retried or
@@ -68,8 +77,8 @@ class ToastStore {
     // Keyed dedupe: a repeated info with the same key refreshes the existing
     // toast (text / action / announcement / timer) instead of stacking another,
     // so e.g. repeated steer failures to one agent collapse to a single toast.
-    if (opts.key !== undefined && this.#keyed.has(opts.key)) {
-      const prev = this.#keyed.get(opts.key)!;
+    if (opts.key !== undefined && this.#keyed.has(this.#kk("info", opts.key))) {
+      const prev = this.#keyed.get(this.#kk("info", opts.key))!;
       this.#clearTimer(prev);
       if (opts.action) this.#actions.set(prev, opts.action.run);
       else this.#actions.delete(prev);
@@ -85,7 +94,7 @@ class ToastStore {
       { id, tone: "info", text, actionLabel: opts.action?.label, alert: opts.alert, key: opts.key },
     ];
     if (opts.action) this.#actions.set(id, opts.action.run);
-    if (opts.key !== undefined) this.#keyed.set(opts.key, id);
+    if (opts.key !== undefined) this.#keyed.set(this.#kk("info", opts.key), id);
     this.#armInfo(id, opts.duration);
     return id;
   }
@@ -113,8 +122,8 @@ class ToastStore {
 
     // Same target re-armed within its window: reset the timer + callbacks rather
     // than stacking two commits for one entity.
-    if (opts.key && this.#keyed.has(opts.key)) {
-      const prev = this.#keyed.get(opts.key)!;
+    if (opts.key && this.#keyed.has(this.#kk("undo", opts.key))) {
+      const prev = this.#keyed.get(this.#kk("undo", opts.key))!;
       this.#clearTimer(prev);
       this.#commits.set(prev, opts.onCommit);
       if (opts.onUndo) this.#undos.set(prev, opts.onUndo);
@@ -129,7 +138,7 @@ class ToastStore {
     ];
     this.#commits.set(id, opts.onCommit);
     if (opts.onUndo) this.#undos.set(id, opts.onUndo);
-    if (opts.key) this.#keyed.set(opts.key, id);
+    if (opts.key) this.#keyed.set(this.#kk("undo", opts.key), id);
     this.#arm(id, duration);
     return id;
   }

@@ -66,12 +66,15 @@
   // Route the failure through a persistent toast (duration: null, stays until
   // retried or closed) with an inline Retry (retry re-runs send(), so a repeated
   // failure re-toasts), announced assertively (alert) so a screen-reader
-  // operator hears it promptly. Replaces a self-clearing flash easily missed.
+  // operator hears it promptly. Keyed per focused agent so repeated failures
+  // collapse into one toast (Retry targets the latest) instead of stacking.
+  // Replaces a self-clearing flash easily missed.
   function send(text: string) {
     replySession(focusedId, text).catch(() => {
       toasts.info(m.steerbar_send_failed(), {
         duration: null,
         alert: true,
+        key: `steer-fail:${focusedId}`,
         action: { label: m.common_retry(), run: () => send(text) },
       });
     });

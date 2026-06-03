@@ -191,6 +191,39 @@ test("consider does nothing when learnings disabled for the repo", () => {
   expect(started.length).toBe(0);
 });
 
+test("distiller increments ineffective for cited active rule ids", async () => {
+  const bumped: string[] = [];
+  const active = [{ id: "rule-1", rule: "use bun", status: "active" }];
+  const svc = new DistillerService({
+    store: {
+      listSignals: () => [
+        { id: "s1", repoPath: "/r", sessionId: null, kind: "critic", payload: "ran npm", ts: 1 },
+      ],
+      addLearning: () => ({}) as never,
+      listLearnings: () => [],
+      listActiveLearnings: () => active as never,
+      getRepoConfig: () => ({
+        criticEnabled: true,
+        autoAddressEnabled: false,
+        learningsEnabled: true,
+      }),
+      incrementLearningIneffective: (id: string) => {
+        bumped.push(id);
+        return {} as never;
+      },
+    },
+    herdr: { start: () => ({ terminalId: "t1" }) as never, stop: () => {} },
+    scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    writeSignals: () => {},
+    readProposals: () => ({ rules: [], ineffective: ["rule-1", "bogus"] }),
+  });
+  svc.distillNow("/r");
+  await svc.tick();
+  expect(bumped).toEqual(["rule-1"]); // only the real active id is bumped
+});
+
 test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {
   const store = new SessionStore(":memory:");
   const dis = store.addLearning({

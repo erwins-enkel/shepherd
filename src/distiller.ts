@@ -15,6 +15,7 @@ interface RawRule {
 }
 interface RawProposals {
   rules?: unknown;
+  ineffective?: unknown;
 }
 
 interface InFlight {
@@ -26,7 +27,15 @@ interface InFlight {
 }
 
 export interface DistillerDeps {
-  store: Pick<SessionStore, "listSignals" | "addLearning" | "listLearnings" | "getRepoConfig">;
+  store: Pick<
+    SessionStore,
+    | "listSignals"
+    | "addLearning"
+    | "listLearnings"
+    | "listActiveLearnings"
+    | "getRepoConfig"
+    | "incrementLearningIneffective"
+  >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
@@ -35,7 +44,12 @@ export interface DistillerDeps {
   timeoutMs?: number;
   windowMs?: number; // how far back to read signals (default 60d)
   minSignals?: number; // threshold for consider() (default 5)
-  writeSignals?: (dir: string, signals: Signal[], existingRules: string[]) => void;
+  writeSignals?: (
+    dir: string,
+    signals: Signal[],
+    existingRules: string[],
+    activeRules: { id: string; rule: string }[],
+  ) => void;
   readProposals?: (dir: string) => RawProposals | null;
 }
 
@@ -83,8 +97,11 @@ export class DistillerService {
     // re-proposal of a known rule anyway, so omitting dismissed ones just wastes
     // a proposal slot + tokens re-suggesting something the operator already rejected.
     const existing = this.deps.store.listLearnings(repoPath).map((l) => l.rule);
+    const activeRules = this.deps.store
+      .listActiveLearnings(repoPath)
+      .map((l) => ({ id: l.id, rule: l.rule }));
     try {
-      this.writeSignals(dir, signals, existing);
+      this.writeSignals(dir, signals, existing, activeRules);
     } catch (err) {
       console.warn(`[distill] write signals failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);
@@ -155,9 +172,16 @@ export class DistillerService {
       });
       added++;
     }
+    let flagged = 0;
+    const activeIds = new Set(this.deps.store.listActiveLearnings(f.repoPath).map((l) => l.id));
+    const ineffective = Array.isArray(raw?.ineffective) ? raw!.ineffective : [];
+    for (const id of ineffective) {
+      if (typeof id !== "string" || !activeIds.has(id)) continue;
+      if (this.deps.store.incrementLearningIneffective(id)) flagged++;
+    }
     this.deps.herdr.stop(f.terminalId);
     this.deps.scratch.remove(f.dir);
-    if (added > 0) this.deps.onChange();
+    if (added > 0 || flagged > 0) this.deps.onChange();
   }
 }
 
@@ -168,21 +192,30 @@ function normalizeRule(s: string): string {
 function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
-    "It is a JSON object with two fields: `signals` — an array of past corrections, blocks,",
-    "stalls, and critic findings for one repository; and `existingRules` — an array of rules",
-    "already recorded or previously dismissed (do NOT repeat any of these).",
+    "It is a JSON object with three fields: `signals` — an array of past corrections, blocks,",
+    "stalls, and critic findings for one repository; `existingRules` — an array of rules",
+    "already recorded or previously dismissed (do NOT repeat any of these);",
+    "and `activeRules` — an array of currently-active house rules as {id, rule} objects.",
+    "If a NEW signal shows an activeRule was violated or did not prevent the mistake,",
+    "add its id to an `ineffective` array (the rule is not working — flag it).",
     "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
     "Ignore one-off noise. Write at most 5 crisp imperative rules.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}]}',
-    'If nothing recurs, write {"rules": []}. Do not write anything else.',
+    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}], "ineffective": ["activeRuleId", ...]}',
+    'If nothing recurs, write {"rules": [], "ineffective": []}. Do not write anything else.',
   ].join("\n");
 }
 
-function defaultWriteSignals(dir: string, signals: Signal[], existingRules: string[]): void {
+function defaultWriteSignals(
+  dir: string,
+  signals: Signal[],
+  existingRules: string[],
+  activeRules: { id: string; rule: string }[],
+): void {
   const payload = {
     signals: signals.map((s) => ({ kind: s.kind, payload: s.payload, ts: s.ts, id: s.id })),
     existingRules,
+    activeRules,
   };
   writeFileSync(join(dir, "signals.json"), JSON.stringify(payload, null, 2));
 }

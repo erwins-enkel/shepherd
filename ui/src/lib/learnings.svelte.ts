@@ -1,23 +1,33 @@
-import type { Learning } from "./types";
-import { getPendingLearnings } from "./api";
+import type { Learning, RepoInjectable } from "./types";
+import { getPendingLearnings, getInjectableLearnings } from "./api";
 
-/** Client cache of PROPOSED learnings across all repos. Loaded once on app start;
- *  live updates arrive via the `learnings:update` WS event (see store.svelte.ts),
- *  which triggers a reload. */
+/** Client cache of PROPOSED learnings (across all repos) plus the per-repo
+ *  INJECTABLE view (active/promoted rules + budget meter). Loaded once on app
+ *  start; live updates arrive via the `learnings:update` WS event (see
+ *  store.svelte.ts), which triggers a reload of both. */
 class LearningsStore {
   items = $state<Learning[]>([]);
+  injectable = $state<RepoInjectable[]>([]);
 
   async load() {
-    try {
-      this.items = await getPendingLearnings();
-    } catch {
-      /* best-effort; live events still trigger reloads */
-    }
+    // Independent best-effort fetches: a failure in one must not blank the other.
+    await Promise.all([
+      getPendingLearnings()
+        .then((v) => (this.items = v))
+        .catch(() => {
+          /* best-effort; live events still trigger reloads */
+        }),
+      getInjectableLearnings()
+        .then((v) => (this.injectable = v))
+        .catch(() => {
+          /* best-effort */
+        }),
+    ]);
   }
 
-  /** A learnings:update event just signals "something changed" — reload the list. */
+  /** A learnings:update event just signals "something changed" — reload the lists. */
   apply(d: { pending: number }) {
-    void d; // signal is sufficient — reload fetches fresh count
+    void d; // signal is sufficient — reload fetches fresh state
     void this.load();
   }
 

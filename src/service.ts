@@ -8,11 +8,7 @@ import type { CreateSessionInput, Session } from "./types";
 import { moveStagedIntoWorktree } from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
-
-/** Header for the Shepherd-curated house-rules block prepended to every agent prompt.
- *  Agent-facing prompt text (not operator UI), so it is a fixed English constant —
- *  same precedent as the distiller/critic spawn prompts. */
-const HOUSE_RULES_HEADER = "## Project house rules (curated by Shepherd)";
+import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 
 export interface ServiceDeps {
   store: SessionStore;
@@ -63,9 +59,11 @@ export class SessionService {
    *  none / learnings disabled. Prepended to every new agent's prompt (spec §4a). */
   private houseRules(repoPath: string): string | null {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
-    const rules = this.deps.store.listActiveLearnings(repoPath);
-    if (rules.length === 0) return null;
-    return `${HOUSE_RULES_HEADER}\n${rules.map((r) => `- ${r.rule}`).join("\n")}`;
+    const { injected } = planHouseRulesInjection(
+      this.deps.store.listActiveLearnings(repoPath),
+      config.houseRulesBudgetChars,
+    );
+    return renderHouseRulesBlock(injected);
   }
 
   async create(input: CreateSessionInput): Promise<Session> {

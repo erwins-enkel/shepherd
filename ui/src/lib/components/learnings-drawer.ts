@@ -1,4 +1,4 @@
-import type { Learning } from "../types";
+import type { Learning, RepoInjectable } from "../types";
 
 /** Last non-empty path segment (repo display name). */
 export function basename(p: string): string {
@@ -14,4 +14,51 @@ export function groupByRepo(items: Learning[]): [string, Learning[]][] {
     else map.set(l.repoPath, [l]);
   }
   return [...map.entries()];
+}
+
+/** One drawer section: a repo with its proposed (editable) rules and, when the
+ *  server reports any active/promoted rules, the injectable view (budget + badges). */
+export interface RepoGroup {
+  repoPath: string;
+  proposed: Learning[];
+  injectable: RepoInjectable | null;
+}
+
+/** Merge the proposed-rule groups and the per-repo injectable payloads into one
+ *  ordered repo list keyed by repoPath. Proposed repos come first (preserving
+ *  their first-seen order), then any injectable-only repos (those with active/
+ *  promoted rules but zero proposals — exactly the #253 case). */
+export function mergeRepoGroups(proposed: Learning[], injectable: RepoInjectable[]): RepoGroup[] {
+  const inj = new Map(injectable.map((r) => [r.repoPath, r]));
+  const groups: RepoGroup[] = [];
+  const seen = new Set<string>();
+  for (const [repoPath, rules] of groupByRepo(proposed)) {
+    seen.add(repoPath);
+    groups.push({ repoPath, proposed: rules, injectable: inj.get(repoPath) ?? null });
+  }
+  for (const r of injectable) {
+    if (seen.has(r.repoPath)) continue;
+    seen.add(r.repoPath);
+    groups.push({ repoPath: r.repoPath, proposed: [], injectable: r });
+  }
+  return groups;
+}
+
+export type InjectionBadge = "injected" | "over-budget" | "disabled";
+
+/** Which injection badge a rule shows, given the repo's enabled flag.
+ *  - disabled: repo injection is off → rule isn't injected regardless of budget
+ *  - injected: rule made the budget cut
+ *  - over-budget: enabled but the rule didn't fit (operator can prune to free room) */
+export function injectionBadge(
+  rule: Learning & { injected: boolean },
+  enabled: boolean,
+): InjectionBadge {
+  if (!enabled) return "disabled";
+  return rule.injected ? "injected" : "over-budget";
+}
+
+/** Count of rules the planner actually injected (true count for the meter). */
+export function injectedCount(repo: RepoInjectable): number {
+  return repo.rules.reduce((n, r) => n + (r.injected ? 1 : 0), 0);
 }

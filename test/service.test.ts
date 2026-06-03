@@ -1341,6 +1341,40 @@ test("create omits house rules when learnings disabled for the repo", async () =
   expect(captured.argv!.at(-1)).toBe("do the thing");
 });
 
+test("create injects only the planned house rules and drops the over-budget ones", async () => {
+  const store = new SessionStore(":memory:");
+  // Many 160-char rules so the combined block blows past the default 4000-char budget
+  // (~25 max-length rules fit). 40 rules → ~6.6 KB worth, well over budget.
+  for (let i = 0; i < 40; i++) {
+    const r = store.addLearning({
+      repoPath: "/repo",
+      rule: `R${String(i).padStart(2, "0")}-` + "x".repeat(150),
+      rationale: "",
+      evidence: [],
+    });
+    store.setLearningStatus(r.id, "active");
+  }
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  const promptArg = captured.argv!.at(-1)!;
+  expect(promptArg).toContain("Project house rules");
+  expect(promptArg.endsWith("do the thing")).toBe(true);
+  // Block (everything before the user text) must stay within the 4000-char budget.
+  const block = promptArg.slice(0, promptArg.indexOf("\n\ndo the thing"));
+  expect(block.length).toBeLessThanOrEqual(4000);
+  // Some rules injected, some dropped (not all 40 fit).
+  const injectedCount = (block.match(/^- /gm) ?? []).length;
+  expect(injectedCount).toBeGreaterThan(0);
+  expect(injectedCount).toBeLessThan(40);
+});
+
 test("archiveMany isolates a failing session: others still clear, the failed id is excluded", () => {
   const store = new SessionStore(":memory:");
   const detect = (): any[] => [];

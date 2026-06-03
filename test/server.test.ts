@@ -973,6 +973,77 @@ test("GET /api/learnings/pending returns all proposed learnings across repos", a
   expect(body[0].rule).toBe("p1");
 });
 
+test("GET /api/learnings/injectable returns per-repo injected flags + budget numbers", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // 40 max-ish-length active rules on /big → some over the 4000 budget.
+  for (let i = 0; i < 40; i++) {
+    const r = deps.store.addLearning({
+      repoPath: "/big",
+      rule: `R${String(i).padStart(2, "0")}-` + "x".repeat(150),
+      rationale: "",
+      evidence: [],
+    });
+    deps.store.setLearningStatus(r.id, "active");
+  }
+  // one small repo, all fit
+  const s = deps.store.addLearning({
+    repoPath: "/small",
+    rule: "tiny",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(s.id, "active");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+
+  const big = body.find((e: any) => e.repoPath === "/big");
+  expect(big.enabled).toBe(true);
+  expect(big.budgetChars).toBe(4000);
+  expect(big.usedChars).toBeGreaterThan(0);
+  expect(big.usedChars).toBeLessThanOrEqual(4000);
+  expect(big.rules.length).toBe(40);
+  const injected = big.rules.filter((r: any) => r.injected).length;
+  expect(injected).toBeGreaterThan(0);
+  expect(injected).toBeLessThan(40);
+  // every rule carries the injected flag
+  expect(big.rules.every((r: any) => typeof r.injected === "boolean")).toBe(true);
+
+  const small = body.find((e: any) => e.repoPath === "/small");
+  expect(small.rules.length).toBe(1);
+  expect(small.rules[0].injected).toBe(true);
+});
+
+test("GET /api/learnings/injectable marks all rules uninjected when learnings disabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const r = deps.store.addLearning({
+    repoPath: "/off",
+    rule: "use bun",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(r.id, "active");
+  deps.store.setRepoConfig("/off", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+  });
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const off = body.find((e: any) => e.repoPath === "/off");
+  expect(off.enabled).toBe(false);
+  expect(off.usedChars).toBe(0);
+  expect(off.budgetChars).toBe(4000);
+  expect(off.rules.length).toBe(1);
+  expect(off.rules[0].injected).toBe(false);
+});
+
 // ── clear-all-merged endpoint ────────────────────────────────────────────────
 // Build an app with a mutable stub prCache (the merged source of truth) + reaper.
 // Rows get random ids, so we create them first, then seed each session's PR state.

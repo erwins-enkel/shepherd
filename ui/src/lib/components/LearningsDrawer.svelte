@@ -2,17 +2,19 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-  import type { Learning } from "$lib/types";
-  import { basename, groupByRepo } from "./learnings-drawer";
+  import type { Learning, RepoInjectable } from "$lib/types";
+  import { basename, mergeRepoGroups, injectionBadge, injectedCount } from "./learnings-drawer";
 
   let {
     items,
+    injectable,
     onapprove,
     ondismiss,
     ondistill,
     onclose,
   }: {
     items: Learning[];
+    injectable: RepoInjectable[];
     onapprove: (id: string, rule: string) => void;
     ondismiss: (id: string) => void;
     ondistill: (repoPath: string) => void;
@@ -27,7 +29,9 @@
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   const slide = { x: 440, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
-  const groups = $derived(groupByRepo(items));
+  const groups = $derived(mergeRepoGroups(items, injectable));
+  // Empty only when there's nothing to curate in either view.
+  const empty = $derived(groups.length === 0);
 </script>
 
 <div
@@ -43,22 +47,23 @@
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
   </header>
 
-  {#if items.length === 0}
+  {#if empty}
     <p class="empty">{m.learnings_empty()}</p>
   {:else}
-    {#each groups as [repoPath, rules] (repoPath)}
+    {#each groups as group (group.repoPath)}
       <section class="group">
         <div class="ghead">
-          <span class="repo">{basename(repoPath)}</span>
+          <span class="repo">{basename(group.repoPath)}</span>
           <button
             class="distill"
-            onclick={() => ondistill(repoPath)}
-            aria-label={m.learnings_distill_aria({ repo: basename(repoPath) })}
+            onclick={() => ondistill(group.repoPath)}
+            aria-label={m.learnings_distill_aria({ repo: basename(group.repoPath) })}
           >
             {m.learnings_distill()}
           </button>
         </div>
-        {#each rules as l (l.id)}
+
+        {#each group.proposed as l (l.id)}
           <article class="rule">
             <textarea
               class="text"
@@ -82,6 +87,51 @@
             </div>
           </article>
         {/each}
+
+        {#if group.injectable && group.injectable.rules.length > 0}
+          {@const inj = group.injectable}
+          <div class="injected">
+            <div class="ihead">
+              <span class="ititle">{m.learnings_injected_section()}</span>
+              <span class="meter">
+                {m.learnings_budget_meter({
+                  used: inj.usedChars,
+                  budget: inj.budgetChars,
+                  injected: injectedCount(inj),
+                  total: inj.rules.length,
+                })}
+              </span>
+            </div>
+            {#each inj.rules as r (r.id)}
+              {@const badge = injectionBadge(r, inj.enabled)}
+              <article class="irule">
+                <p class="itext">{r.rule}</p>
+                <div class="ifoot">
+                  <span class="chip" class:promoted={r.status === "promoted"}>
+                    {r.status === "promoted"
+                      ? m.learnings_status_promoted()
+                      : m.learnings_status_active()}
+                  </span>
+                  {#if badge === "injected"}
+                    <span class="badge ok">✓ {m.learnings_injected_badge()}</span>
+                  {:else if badge === "over-budget"}
+                    <span class="badge warn" title={m.learnings_overbudget_title()}>
+                      ⊘ {m.learnings_overbudget_badge()}
+                    </span>
+                  {:else}
+                    <span class="badge off">⊘ {m.learnings_injection_disabled_badge()}</span>
+                  {/if}
+                  <span class="spacer"></span>
+                  {#if r.status === "active"}
+                    <button class="dismiss" onclick={() => ondismiss(r.id)}>
+                      {m.learnings_dismiss()}
+                    </button>
+                  {/if}
+                </div>
+              </article>
+            {/each}
+          </div>
+        {/if}
       </section>
     {/each}
   {/if}
@@ -202,5 +252,76 @@
   .approve {
     border-color: var(--color-green);
     color: var(--color-green);
+  }
+
+  /* ── injected house rules ────────────────────────────────────────────── */
+  .injected {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .ihead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .ititle {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+  }
+  .meter {
+    font-size: 11px;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .irule {
+    border: 1px solid var(--color-line);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .itext {
+    font-size: 13px;
+    color: var(--color-ink-bright);
+    line-height: 1.4;
+  }
+  .ifoot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+  }
+  .chip.promoted {
+    border-color: var(--color-green);
+    color: var(--color-green);
+  }
+  .badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border: 1px solid var(--color-line);
+  }
+  .badge.ok {
+    border-color: var(--color-green);
+    color: var(--color-green);
+  }
+  .badge.warn {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    cursor: help;
+  }
+  .badge.off {
+    color: var(--color-muted);
   }
 </style>

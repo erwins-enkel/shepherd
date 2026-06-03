@@ -85,7 +85,10 @@
     if (showTriage && blockedEntries.length === 0) showTriage = false;
   });
   $effect(() => {
-    if (showLearnings && learnings.items.length === 0) showLearnings = false;
+    // Close only when both the proposed list and the injected view are empty —
+    // a repo can have injected rules to curate with zero outstanding proposals.
+    if (showLearnings && learnings.items.length === 0 && learnings.injectable.length === 0)
+      showLearnings = false;
   });
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
@@ -653,6 +656,7 @@
   {#if showLearnings}
     <LearningsDrawer
       items={learnings.items}
+      injectable={learnings.injectable}
       onapprove={(id, rule) =>
         approveLearning(id, rule)
           .then(() => learnings.load())

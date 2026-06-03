@@ -954,7 +954,7 @@ test("resume returns null for unknown, archived, or pre-feature sessions", () =>
   expect(svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
 });
 
-test("reply types the text, then submits with a separate carriage return", () => {
+test("reply delivers the text as a bracketed paste, then submits with a carriage return", () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -981,13 +981,20 @@ test("reply types the text, then submits with a separate carriage return", () =>
   });
 
   expect(svc.reply(s.id, "1")).toBe(true);
-  // Enter is a discrete second write so Claude Code submits it instead of
-  // absorbing the CR into a paste-buffered multi-line blob.
+  // Wrapping in bracketed-paste markers gives an explicit paste-end, so the trailing
+  // CR registers as Enter even when herdr coalesces the two writes into one PTY read
+  // (a bare multi-line blob + "\r" trips Claude Code's paste heuristic and swallows
+  // the CR, leaving the message typed-but-unsent).
   expect(sent).toEqual([
-    { target: "term_z", text: "1" },
+    { target: "term_z", text: "\x1b[200~1\x1b[201~" },
     { target: "term_z", text: "\r" },
   ]);
   expect(svc.reply("nope", "1")).toBe(false);
+
+  // A stray paste-end marker in the payload would close the paste early — strip it.
+  sent.length = 0;
+  expect(svc.reply(s.id, "a\x1b[201~b")).toBe(true);
+  expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~ab\x1b[201~" });
 });
 
 test("broadcast fans the text out to known sessions, skips unknown ids", () => {
@@ -1022,9 +1029,9 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   const res = svc.broadcast([a.id, "ghost", b.id], "run tests");
   expect(res).toEqual({ sent: 2, total: 3 });
   expect(sent).toEqual([
-    { target: "term_a", text: "run tests" },
+    { target: "term_a", text: "\x1b[200~run tests\x1b[201~" },
     { target: "term_a", text: "\r" },
-    { target: "term_b", text: "run tests" },
+    { target: "term_b", text: "\x1b[200~run tests\x1b[201~" },
     { target: "term_b", text: "\r" },
   ]);
 });

@@ -146,11 +146,16 @@
     {#if learnings > 0}
       <button
         class="learnings-badge"
+        class:compact={mobile}
         onclick={() => onlearnings?.()}
         aria-label={m.learnings_open_aria({ count: learnings })}
       >
-        {m.learnings_title()}
-        {learnings}
+        {#if mobile}
+          <span class="lr-icon" aria-hidden="true">✦</span><span class="lr-n">{learnings}</span>
+        {:else}
+          {m.learnings_title()}
+          {learnings}
+        {/if}
       </button>
     {/if}
     {#if touch}
@@ -657,6 +662,25 @@
     line-height: 1;
   }
   .needsyou.compact .ny-n {
+    font-weight: 600;
+  }
+  /* Phone: same collapse for the LEARNINGS badge — icon+count chip so it fits
+     on line 1 instead of widening the right-side controls into a second row.
+     Full label stays as the aria-label. */
+  .learnings-badge.compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 44px;
+    padding: 8px 10px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .learnings-badge.compact .lr-icon {
+    line-height: 1;
+  }
+  .learnings-badge.compact .lr-n {
     font-weight: 600;
   }
   .hud.mobile .update-badge {

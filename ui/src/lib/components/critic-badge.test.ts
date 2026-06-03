@@ -14,6 +14,8 @@ const v = (
   findings: [],
   addressRound: 0,
   addressCap: 3,
+  finalRoundPending: false,
+  finalRoundTimeoutMs: 900_000,
   updatedAt: 0,
   ...over,
 });

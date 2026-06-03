@@ -82,6 +82,10 @@
   // opens; "load more" grows the limit and re-fetches from the top (replaces the
   // list — `gh run list` has no cursor), then drops the latest run (already shown
   // at the card head) so the list is strictly older runs.
+  // Snapshot semantics: the list is filtered against `run.runId` at fetch time, so
+  // if the card-head latest run advances via the live poll AFTER history loaded, the
+  // now-superseded prior run won't appear in the cached list. Consistent with the
+  // no-polling design — a fresh "load more" (or re-mount) re-lists and picks it up.
   const HISTORY_STEP = 10;
   const HISTORY_MAX = 50;
 

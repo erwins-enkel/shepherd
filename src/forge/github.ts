@@ -201,6 +201,9 @@ export class GithubForge implements GitForge {
     }
     const selected = [...newest.values()].slice(0, MAX_WORKFLOWS);
 
+    // NB: `this.run` is `execFileSync`, so these job fetches run serially despite
+    // the `Promise.all` — the wrapper only awaits `listRunJobs`'s async signature
+    // (shared with the lazy history path), it does not parallelize the subprocesses.
     const runs = await Promise.all(
       selected.map(async (r): Promise<WorkflowRun> => {
         const jobs = await this.listRunJobs(r.databaseId);

@@ -90,7 +90,14 @@ export class StatusPoller {
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
   private pruneInactive(activeIds: Set<string>): void {
-    for (const id of this.lastSig.keys()) {
+    const tracked = new Set([
+      ...this.lastSig.keys(),
+      ...this.lastReadAt.keys(),
+      ...this.lastStallAt.keys(),
+      ...this.lastActivityAt.keys(),
+      ...this.lastActivitySig.keys(),
+    ]);
+    for (const id of tracked) {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);

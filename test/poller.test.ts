@@ -513,7 +513,10 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
   const activities: unknown[] = [];
 
   let clock = 100_000;
-  const signal = { lastActivityTs: 1234, summary: "$ bun test" };
+  const signalA = { lastActivityTs: 1234, summary: "$ bun test" };
+  const signalB = { lastActivityTs: 5678, summary: "wrote config.ts" };
+  let currentSignal: typeof signalA | typeof signalB = signalA;
+
   const poller = new StatusPoller(
     store,
     runningHerdr as any,
@@ -529,41 +532,23 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
     () => {},
     (_id, activity) => activities.push(activity),
     7000,
-    () => signal,
+    () => currentSignal, // probe returns whatever currentSignal points to
   );
 
-  poller.tick(); // first emit
+  poller.tick(); // first emit — signalA
   expect(activities).toHaveLength(1);
 
-  // advance past throttle, same signal → no re-emit
+  // advance past throttle, same signal → dedup must suppress re-emit
   clock += 8000;
   poller.tick();
   expect(activities).toHaveLength(1);
 
-  // signal changes → re-emits
+  // swap signal in place → same poller must detect the change and re-emit
   clock += 8000;
-  const newSignal = { lastActivityTs: 5678, summary: "wrote config.ts" };
-  const poller2 = new StatusPoller(
-    store,
-    runningHerdr as any,
-    () => {},
-    () => {},
-    1000,
-    3000,
-    classifyBlocked,
-    () => clock,
-    undefined,
-    DEFAULT_STALL,
-    30_000,
-    () => {},
-    (_id, activity) => activities.push(activity),
-    7000,
-    () => newSignal,
-  );
-  // force a tick from a fresh poller so its sig map is empty → it emits
-  poller2.tick();
+  currentSignal = signalB;
+  poller.tick();
   expect(activities).toHaveLength(2);
-  expect(activities[1]).toEqual(newSignal);
+  expect(activities[1]).toEqual(signalB);
 });
 
 test("maybeActivity respects activityCheckMs throttle", () => {
@@ -683,4 +668,73 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
   poller.tick();
   expect(probeCallCount).toBe(0);
   expect(activities).toHaveLength(0);
+});
+
+test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
+  // A session that was only ever running (never blocked) populates lastActivityAt
+  // and lastActivitySig but never lastSig — the old pruneInactive iterated only
+  // lastSig.keys() and so those entries leaked. After prune, re-adding the same
+  // session must re-emit on the first tick (sig map was cleared).
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  let agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000,
+    () => ({ lastActivityTs: clock, summary: "edited x.ts" }),
+  );
+
+  poller.tick(); // populates lastActivityAt + lastActivitySig
+  expect(activities).toHaveLength(1);
+
+  // session is archived — poller sees empty store list → pruneInactive fires
+  store.update(s.id, { status: "archived" });
+  agents = [];
+  clock += 8000;
+  poller.tick(); // pruneInactive must clear lastActivityAt + lastActivitySig
+
+  // session comes back (status reset to pending then running via herdr)
+  store.update(s.id, { status: "running" });
+  agents = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+  clock += 8000;
+  poller.tick(); // must re-emit — activity sig map was cleared by prune
+  expect(activities).toHaveLength(2);
 });

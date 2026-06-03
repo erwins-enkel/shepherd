@@ -16,6 +16,7 @@ export interface SessionActivity {
  * favour of the last substantive tool-use. If every entry is noise, we fall
  * back to the newest entry so we always show *something*.
  */
+// Keep in sync with the bookkeeping-tool summarizers in src/activity.ts.
 const NOISE_TOOLS = new Set(["TodoWrite", "TaskList", "TaskGet", "TaskUpdate", "TaskCreate"]);
 
 /**

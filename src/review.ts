@@ -420,8 +420,8 @@ export class ReviewService {
     // this streak rather than resetting — the cap bounds total agent churn per PR, which
     // is fine for the prototype. Revisit if per-issue rounds become the intended model.
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
-    // The PR's still-open check lives in finalize() (it also gates postReview + the critic
-    // signal), so reaching here already means the PR is open — just steer.
+    // The PR's still-open check lives in publishVerdict() (it also gates postReview + the
+    // critic signal), so reaching here already means the PR is open — just steer.
     // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
     // dead one, so a steer that can't land normally reports false. A throw is now only a
     // narrow race — the pane dies between the liveness check and herdr.send — and still

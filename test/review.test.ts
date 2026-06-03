@@ -24,6 +24,8 @@ function session(over: Partial<Session> = {}): Session {
     autopilotStepCount: 0,
     autopilotPaused: false,
     autopilotQuestion: null,
+    auto: false,
+    issueNumber: null,
     status: "running",
     lastState: "idle",
     createdAt: 0,

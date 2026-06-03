@@ -231,6 +231,10 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
+    autoDrainEnabled: cur.autoDrainEnabled,
+    maxAuto: cur.maxAuto,
+    autoLabel: cur.autoLabel,
+    usageCeilingPct: cur.usageCeilingPct,
   });
   return json(deps.store.getRepoConfig(dir));
 }

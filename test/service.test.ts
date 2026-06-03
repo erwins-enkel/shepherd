@@ -1380,6 +1380,10 @@ test("create omits house rules when learnings disabled for the repo", async () =
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);

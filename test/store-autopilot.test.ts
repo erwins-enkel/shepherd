@@ -77,6 +77,10 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: true,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);
 });

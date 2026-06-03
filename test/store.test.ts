@@ -45,31 +45,93 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
+});
+
+test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, persist round-trip", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/d")).toMatchObject({
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+  });
+  store.setRepoConfig("/repo/d", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: false,
+    autoDrainEnabled: true,
+    maxAuto: 3,
+    autoLabel: "auto-go",
+    usageCeilingPct: 65,
+  });
+  expect(store.getRepoConfig("/repo/d")).toMatchObject({
+    autoDrainEnabled: true,
+    maxAuto: 3,
+    autoLabel: "auto-go",
+    usageCeilingPct: 65,
+  });
+});
+
+test("create: auto + issueNumber default false/null, persist when set, survive hydrate", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.auto).toBe(false);
+  expect(a.issueNumber).toBeNull();
+  const b = s.create({ ...base, herdrAgentId: "t2", auto: true, issueNumber: 42 });
+  expect(b.auto).toBe(true);
+  expect(b.issueNumber).toBe(42);
+  // re-read through hydrate()
+  expect(s.get(b.id)?.auto).toBe(true);
+  expect(s.get(b.id)?.issueNumber).toBe(42);
+  expect(s.get(a.id)?.auto).toBe(false);
+  expect(s.get(a.id)?.issueNumber).toBeNull();
+  expect(s.list({ activeOnly: true }).find((x) => x.id === b.id)?.auto).toBe(true);
 });
 
 test("reviews: upsert + read by session, snapshot all", () => {

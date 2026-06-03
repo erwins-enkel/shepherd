@@ -29,6 +29,14 @@ export interface RepoConfig {
   learningsEnabled: boolean;
   /** Pre-PR autopilot loop: drive procedural gates, surface real questions, lead to a PR. */
   autopilotEnabled: boolean;
+  /** Per-repo master switch for the self-draining work queue (default OFF). */
+  autoDrainEnabled: boolean;
+  /** Concurrency cap on auto-spawned agents for this repo (default 1). */
+  maxAuto: number;
+  /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
+  autoLabel: string;
+  /** Pause auto-spawns when usage % is at or above this threshold (default 80). */
+  usageCeilingPct: number;
 }
 
 export interface PushSubInput {
@@ -69,11 +77,19 @@ type NewSession = Omit<
   | "autopilotStepCount"
   | "autopilotPaused"
   | "autopilotQuestion"
-> & { model?: string | null; claudeSessionId?: string };
+  | "auto"
+  | "issueNumber"
+> & {
+  model?: string | null;
+  claudeSessionId?: string;
+  auto?: boolean;
+  issueNumber?: number | null;
+};
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotQuestion,
+  auto, issueNumber,
   createdAt, updatedAt, archivedAt`;
 
 export class SessionStore implements CapStore {
@@ -87,6 +103,7 @@ export class SessionStore implements CapStore {
       herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
       claudeSessionId TEXT NOT NULL DEFAULT '',
       model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     // migrate older DBs that predate later columns
     const cols = this.db.query(`PRAGMA table_info(sessions)`).all() as { name: string }[];
@@ -112,6 +129,12 @@ export class SessionStore implements CapStore {
     if (!cols.some((c) => c.name === "autopilotQuestion")) {
       this.db.run(`ALTER TABLE sessions ADD COLUMN autopilotQuestion TEXT`);
     }
+    if (!cols.some((c) => c.name === "auto")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN auto INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!cols.some((c) => c.name === "issueNumber")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN issueNumber INTEGER`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
@@ -121,6 +144,10 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       learningsEnabled INTEGER NOT NULL DEFAULT 1,
+      autoDrainEnabled INTEGER NOT NULL DEFAULT 0,
+      maxAuto INTEGER NOT NULL DEFAULT 1,
+      autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto',
+      usageCeilingPct INTEGER NOT NULL DEFAULT 80,
       updatedAt INTEGER NOT NULL)`);
     // migrate repo_config that predates these opt-in columns. auto-address defaults
     // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
@@ -135,6 +162,20 @@ export class SessionStore implements CapStore {
     }
     if (!repoCfgCols.some((c) => c.name === "autopilotEnabled")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!repoCfgCols.some((c) => c.name === "autoDrainEnabled")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!repoCfgCols.some((c) => c.name === "maxAuto")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN maxAuto INTEGER NOT NULL DEFAULT 1`);
+    }
+    if (!repoCfgCols.some((c) => c.name === "autoLabel")) {
+      this.db.run(
+        `ALTER TABLE repo_config ADD COLUMN autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`,
+      );
+    }
+    if (!repoCfgCols.some((c) => c.name === "usageCeilingPct")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
@@ -202,37 +243,59 @@ export class SessionStore implements CapStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled FROM repo_config WHERE repoPath = ?`,
+        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
+                autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct
+         FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
       criticEnabled: number;
       autoAddressEnabled: number;
       learningsEnabled: number;
       autopilotEnabled: number;
+      autoDrainEnabled: number;
+      maxAuto: number;
+      autoLabel: string;
+      usageCeilingPct: number;
     } | null;
     // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
+    // drain fields default OFF / cap-1 / default-label / ceiling-80
     return {
       criticEnabled: r ? !!r.criticEnabled : true,
       autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
       learningsEnabled: r ? !!r.learningsEnabled : true,
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
+      autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
+      maxAuto: r ? r.maxAuto : 1,
+      autoLabel: r ? r.autoLabel : "shepherd:auto",
+      usageCeilingPct: r ? r.usageCeilingPct : 80,
     };
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
-      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, updatedAt)
-         VALUES (?,?,?,?,?,?)
+      `INSERT INTO repo_config
+         (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
+          autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
-         autopilotEnabled = excluded.autopilotEnabled, updatedAt = excluded.updatedAt`,
+         autopilotEnabled = excluded.autopilotEnabled,
+         autoDrainEnabled = excluded.autoDrainEnabled,
+         maxAuto = excluded.maxAuto,
+         autoLabel = excluded.autoLabel,
+         usageCeilingPct = excluded.usageCeilingPct,
+         updatedAt = excluded.updatedAt`,
       [
         repoPath,
         cfg.criticEnabled ? 1 : 0,
         cfg.autoAddressEnabled ? 1 : 0,
         cfg.learningsEnabled ? 1 : 0,
         cfg.autopilotEnabled ? 1 : 0,
+        cfg.autoDrainEnabled ? 1 : 0,
+        cfg.maxAuto,
+        cfg.autoLabel,
+        cfg.usageCeilingPct,
         Date.now(),
       ],
     );
@@ -300,6 +363,8 @@ export class SessionStore implements CapStore {
       autopilotStepCount: 0,
       autopilotPaused: false,
       autopilotQuestion: null,
+      auto: input.auto ?? false,
+      issueNumber: input.issueNumber ?? null,
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -307,7 +372,7 @@ export class SessionStore implements CapStore {
       archivedAt: null,
     };
     this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         s.id,
         s.desig,
@@ -329,6 +394,8 @@ export class SessionStore implements CapStore {
         0, // autopilotStepCount
         0, // autopilotPaused
         null, // autopilotQuestion
+        s.auto ? 1 : 0,
+        s.issueNumber,
         s.createdAt,
         s.updatedAt,
         s.archivedAt,
@@ -818,6 +885,8 @@ export class SessionStore implements CapStore {
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,
       autopilotQuestion: r.autopilotQuestion ?? null,
+      auto: !!r.auto,
+      issueNumber: r.issueNumber ?? null,
     } as Session;
   }
 }

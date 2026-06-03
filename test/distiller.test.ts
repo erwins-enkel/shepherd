@@ -185,6 +185,10 @@ test("consider does nothing when learnings disabled for the repo", () => {
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -208,6 +212,10 @@ test("distiller increments ineffective for cited active rule ids with validated 
         autoAddressEnabled: false,
         learningsEnabled: true,
         autopilotEnabled: false,
+        autoDrainEnabled: false,
+        maxAuto: 1,
+        autoLabel: "shepherd:auto",
+        usageCeilingPct: 80,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

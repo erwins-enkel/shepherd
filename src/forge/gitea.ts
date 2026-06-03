@@ -105,7 +105,7 @@ export class GiteaForge implements GitForge {
   async listIssues(): Promise<Issue[]> {
     const raw = (await this.req(
       "GET",
-      `/api/v1/repos/${this.slug}/issues?state=open&type=issues&limit=50`,
+      `/api/v1/repos/${this.slug}/issues?state=open&type=issues&limit=200`,
     )) as Array<{
       number: number;
       title: string;

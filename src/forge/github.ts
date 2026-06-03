@@ -92,7 +92,7 @@ export class GithubForge implements GitForge {
       "--json",
       "number,title,body,url,labels,createdAt",
       "--limit",
-      "50",
+      "200",
     ]);
     const raw = JSON.parse(out || "[]") as Array<{
       number: number;

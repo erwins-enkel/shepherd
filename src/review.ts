@@ -455,7 +455,7 @@ export class ReviewService {
       summary,
       body: raw && typeof raw.body === "string" ? raw.body : "",
       findings,
-      addressRound: 0, // finalize() overwrites with the streak round
+      addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)
       addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
       errorRound: 0, // finalize() overwrites on an error verdict
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward

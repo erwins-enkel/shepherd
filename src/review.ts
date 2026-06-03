@@ -336,7 +336,10 @@ export class ReviewService {
         // freshly-fetched notes — roll the seen set back so they re-inject next round
         // instead of being silently swallowed by an error pass.
         verdict.seenNoteIds = f.priorSeenNoteIds;
-        if (verdict.errorRound === this.cap) {
+        // Escalate once, when the streak first reaches the cap. `>=` with a crossing guard
+        // (not `=== cap`) so a cap lowered between runs still fires rather than being
+        // stepped over, while errors past the cap don't re-signal every tick.
+        if (verdict.errorRound >= this.cap && f.priorErrorRound < this.cap) {
           this.deps.store.addSignal({
             repoPath: f.repoPath,
             sessionId: f.sessionId,
@@ -398,9 +401,11 @@ export class ReviewService {
     // this streak rather than resetting — the cap bounds total agent churn per PR, which
     // is fine for the prototype. Revisit if per-issue rounds become the intended model.
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
-    // A dead pane makes herdr.send (execFileSync) throw rather than return false, so a
-    // throw counts as not-delivered too — the round must not advance on a steer that
-    // never landed, and the throw must not strand finalize().
+    // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
+    // dead one, so a steer that can't land normally reports false. A throw is now only a
+    // narrow race — the pane dies between the liveness check and herdr.send — and still
+    // counts as not-delivered: the round must not advance on a steer that never landed,
+    // and the throw must not strand finalize().
     let delivered = false;
     try {
       delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));

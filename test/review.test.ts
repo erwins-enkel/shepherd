@@ -659,6 +659,21 @@ test("consecutive critic errors escalate via a stall signal at the cap", async (
   expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates to the human
 });
 
+test("errors past the cap do not re-signal (escalates once, on crossing)", async () => {
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps({ readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) });
+  // already over the cap (escalated on an earlier round) — a further error must stay quiet
+  reviews["s1"] = priorReview({ errorRound: 3 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.errorRound).toBe(4); // counter keeps climbing
+  expect(signals.some((s) => s.kind === "stall")).toBe(false); // but the loud signal fired once, on crossing
+});
+
 test("a critic error below the cap bumps the error streak without escalating", async () => {
   const {
     deps: d,

@@ -512,6 +512,10 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   if (!body || typeof (body as { text?: unknown }).text !== "string") {
     return json({ error: "body must be {text: string}" }, 400);
   }
+  // reply() returns false for an unknown id, a dead pane, OR a transient herdr-unreachable
+  // (it can't confirm liveness, so it can't deliver) — all collapse to 404 here. The last
+  // case is rare and "couldn't deliver" is honest; differentiating would need a richer
+  // return than the boolean that broadcast()/auto-address also rely on.
   const ok = deps.service.reply(parts[2], (body as { text: string }).text);
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }

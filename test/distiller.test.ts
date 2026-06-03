@@ -177,6 +177,16 @@ test("distillNow with zero signals does not spawn a run", () => {
   expect(started.length).toBe(0);
 });
 
+test("consider does nothing when learnings disabled for the repo", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 5);
+  store.setRepoConfig("/r", { criticEnabled: true, learningsEnabled: false });
+  const { deps, started } = mkDeps(store, { rules: [] });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  expect(started.length).toBe(0);
+});
+
 test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {
   const store = new SessionStore(":memory:");
   const dis = store.addLearning({

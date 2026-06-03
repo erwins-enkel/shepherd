@@ -26,7 +26,7 @@ interface InFlight {
 }
 
 export interface DistillerDeps {
-  store: Pick<SessionStore, "listSignals" | "addLearning" | "listLearnings">;
+  store: Pick<SessionStore, "listSignals" | "addLearning" | "listLearnings" | "getRepoConfig">;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
@@ -60,6 +60,7 @@ export class DistillerService {
   /** Start a distill run for `repoPath` if enough recent signals exist and none is in flight. */
   consider(repoPath: string): void {
     if (this.inflight.has(repoPath)) return;
+    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
     const since = this.now() - this.windowMs;
     const signals = this.deps.store.listSignals(repoPath, { sinceTs: since });
     if (signals.length < this.minSignals) return;

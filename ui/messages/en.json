@@ -462,7 +462,7 @@
   "backlog_tab_actions_failing": "Actions · failing",
   "actionspanel_title": "ACTIONS",
   "actionspanel_title_with_slug": "ACTIONS · {slug}",
-  "actionspanel_github_only": "Actions are only available for GitHub repos",
+  "actionspanel_unavailable": "Actions are not available for this repository",
   "actionspanel_no_runs": "no recent workflow runs",
   "actionspanel_run_link": "open run",
   "actionspanel_job_link": "open job",

@@ -416,6 +416,209 @@ test("GiteaForge.closeIssue: PATCHes the issue state to closed", async () => {
   expect(patch.body).toEqual({ state: "closed" });
 });
 
+const ACTIONS_TASKS = "GET /api/v1/repos/team/proj/actions/tasks?limit=50";
+
+test("GiteaForge.listWorkflowRuns: dedups to newest run per workflow, newest-first", async () => {
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: {
+      json: {
+        workflow_runs: [
+          // older CI run (should be dropped in favor of the newer one below)
+          {
+            id: 1,
+            name: "CI",
+            run_number: 1,
+            status: "failure",
+            url: "https://git.example.com/team/proj/actions/runs/1",
+            head_sha: "old",
+            workflow_id: "ci.yaml",
+            created_at: "2024-01-01T00:00:00Z",
+          },
+          // newest Deploy run
+          {
+            id: 3,
+            name: "Deploy",
+            run_number: 2,
+            status: "running",
+            url: "https://git.example.com/team/proj/actions/runs/3",
+            head_sha: "dep",
+            workflow_id: "deploy.yaml",
+            created_at: "2024-03-03T00:00:00Z",
+          },
+          // newer CI run
+          {
+            id: 2,
+            name: "CI",
+            run_number: 2,
+            status: "success",
+            url: "https://git.example.com/team/proj/actions/runs/2",
+            head_sha: "new",
+            workflow_id: "ci.yaml",
+            created_at: "2024-02-02T00:00:00Z",
+          },
+        ],
+        total_count: 3,
+      },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const runs = await forge.listWorkflowRuns!();
+  expect(runs).toEqual([
+    {
+      runId: 3,
+      workflowName: "Deploy",
+      runUrl: "https://git.example.com/team/proj/actions/runs/3",
+      headSha: "dep",
+      createdAt: Date.parse("2024-03-03T00:00:00Z"),
+      state: "pending",
+      jobs: [],
+    },
+    {
+      runId: 2,
+      workflowName: "CI",
+      runUrl: "https://git.example.com/team/proj/actions/runs/2",
+      headSha: "new",
+      createdAt: Date.parse("2024-02-02T00:00:00Z"),
+      state: "success",
+      jobs: [],
+    },
+  ]);
+});
+
+test("GiteaForge.listWorkflowRuns: maps native statuses to ChecksState", async () => {
+  const mk = (id: number, name: string, status: string, created_at: string) => ({
+    id,
+    name,
+    status,
+    url: `https://git.example.com/r/${id}`,
+    head_sha: `s${id}`,
+    workflow_id: `${name}.yaml`,
+    created_at,
+  });
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: {
+      json: {
+        workflow_runs: [
+          mk(1, "A", "success", "2024-01-04T00:00:00Z"),
+          mk(2, "B", "running", "2024-01-03T00:00:00Z"),
+          mk(3, "C", "waiting", "2024-01-02T00:00:00Z"),
+          mk(4, "D", "cancelled", "2024-01-01T00:00:00Z"),
+        ],
+        total_count: 4,
+      },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const runs = await forge.listWorkflowRuns!();
+  expect(runs.map((r) => [r.workflowName, r.state])).toEqual([
+    ["A", "success"],
+    ["B", "pending"],
+    ["C", "pending"],
+    ["D", "failure"],
+  ]);
+});
+
+test("GiteaForge.listWorkflowRuns: empty workflow_runs → []", async () => {
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: { json: { workflow_runs: [], total_count: 0 } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.listWorkflowRuns!()).toEqual([]);
+});
+
+test("GiteaForge.listWorkflowRuns: missing workflow_runs key → []", async () => {
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: { json: { total_count: 0 } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.listWorkflowRuns!()).toEqual([]);
+});
+
+test("GiteaForge.listWorkflowRuns: caps at 10 distinct workflows", async () => {
+  const workflow_runs = Array.from({ length: 25 }, (_, i) => ({
+    id: i + 1,
+    name: `wf-${i + 1}`,
+    status: "success",
+    url: `https://git.example.com/r/${i + 1}`,
+    head_sha: `s${i + 1}`,
+    workflow_id: `wf-${i + 1}.yaml`,
+    // ascending time so newest is the last (wf-25); cap keeps the 10 newest
+    created_at: `2024-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+  }));
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: { json: { workflow_runs, total_count: 25 } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const runs = await forge.listWorkflowRuns!();
+  expect(runs.length).toBe(10);
+  // newest-first, so the 10 highest-numbered workflows
+  expect(runs.map((r) => r.workflowName)).toEqual([
+    "wf-25",
+    "wf-24",
+    "wf-23",
+    "wf-22",
+    "wf-21",
+    "wf-20",
+    "wf-19",
+    "wf-18",
+    "wf-17",
+    "wf-16",
+  ]);
+});
+
+test("GiteaForge.listWorkflowRuns: every run has jobs: [] (no per-job data)", async () => {
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: {
+      json: {
+        workflow_runs: [
+          {
+            id: 1,
+            name: "CI",
+            status: "success",
+            url: "u",
+            head_sha: "s",
+            workflow_id: "ci.yaml",
+            created_at: "2024-01-01T00:00:00Z",
+          },
+        ],
+        total_count: 1,
+      },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const runs = await forge.listWorkflowRuns!();
+  expect(runs.every((r) => Array.isArray(r.jobs) && r.jobs.length === 0)).toBe(true);
+});
+
+test("GiteaForge.listWorkflowRuns: keys dedup on workflow_id when name is missing, unparseable created_at falls back to now", async () => {
+  const before = Date.now();
+  const { fn } = fakeFetch({
+    [ACTIONS_TASKS]: {
+      json: {
+        workflow_runs: [
+          {
+            id: 1,
+            name: "",
+            status: "success",
+            url: "u1",
+            head_sha: "s1",
+            workflow_id: "ci.yaml",
+            created_at: "bogus",
+          },
+        ],
+        total_count: 1,
+      },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const runs = await forge.listWorkflowRuns!();
+  const after = Date.now();
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.workflowName).toBe("ci.yaml");
+  expect(runs[0]!.createdAt).toBeGreaterThanOrEqual(before);
+  expect(runs[0]!.createdAt).toBeLessThanOrEqual(after);
+});
+
 test("GiteaForge.prStatus: surfaces head SHA from PR head.sha", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {

@@ -72,28 +72,70 @@ function postReq(path: string, body: unknown): Request {
   });
 }
 
-test("GET /api/actions resolves via the forge → {slug, kind, runs}", async () => {
+test("GET /api/actions resolves via the forge → {slug, kind, runs, capability flags}", async () => {
+  // fakeForge() has listWorkflowRuns but no rerun/cancel → supportsActions only.
   const app = makeApp(makeDeps(() => fakeForge()));
   const res = await app.fetch(getReq(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: "team/proj", kind: "github", runs: [RUN] });
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    kind: "github",
+    runs: [RUN],
+    supportsActions: true,
+    canRerun: false,
+    canCancel: false,
+  });
 });
 
-test("GET /api/actions with no forge → empty, null slug/kind", async () => {
+test("GET /api/actions: full GitHub forge (rerun+cancel) → all caps true", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        rerunWorkflowRun: async () => {},
+        cancelWorkflowRun: async () => {},
+      }),
+    ),
+  );
+  const res = await app.fetch(getReq(repoDir));
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    kind: "github",
+    runs: [RUN],
+    supportsActions: true,
+    canRerun: true,
+    canCancel: true,
+  });
+});
+
+test("GET /api/actions with no forge → empty, null slug/kind, all caps false", async () => {
   const app = makeApp(makeDeps(() => null));
   const res = await app.fetch(getReq(repoDir));
-  expect(await res.json()).toEqual({ slug: null, kind: null, runs: [] });
+  expect(await res.json()).toEqual({
+    slug: null,
+    kind: null,
+    runs: [],
+    supportsActions: false,
+    canRerun: false,
+    canCancel: false,
+  });
 });
 
-test("GET /api/actions for a forge without listWorkflowRuns (e.g. gitea) → empty", async () => {
+test("GET /api/actions for a forge without listWorkflowRuns (e.g. gitea) → empty, supportsActions false", async () => {
   const app = makeApp(
     makeDeps(() => fakeForge({ kind: "gitea", slug: "team/proj", listWorkflowRuns: undefined })),
   );
   const res = await app.fetch(getReq(repoDir));
-  expect(await res.json()).toEqual({ slug: "team/proj", kind: "gitea", runs: [] });
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    kind: "gitea",
+    runs: [],
+    supportsActions: false,
+    canRerun: false,
+    canCancel: false,
+  });
 });
 
-test("GET /api/actions swallows forge errors → empty runs", async () => {
+test("GET /api/actions swallows forge errors → empty runs, caps still reflect the forge", async () => {
   const app = makeApp(
     makeDeps(() =>
       fakeForge({
@@ -104,7 +146,14 @@ test("GET /api/actions swallows forge errors → empty runs", async () => {
     ),
   );
   const res = await app.fetch(getReq(repoDir));
-  expect(await res.json()).toEqual({ slug: "team/proj", kind: "github", runs: [] });
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    kind: "github",
+    runs: [],
+    supportsActions: true,
+    canRerun: false,
+    canCancel: false,
+  });
 });
 
 test("GET /api/actions?repo outside root → 400", async () => {

@@ -1240,22 +1240,35 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   }
 }
 
-// GET /api/actions?repo= — latest GitHub Actions run per workflow on the default
-// branch, with per-job breakdown (backlog Actions-tab detail pane). GitHub only;
-// other forges report no runs and the tab shows a "GitHub only" state.
+// GET /api/actions?repo= — latest Actions run per workflow on the default branch
+// (backlog Actions-tab detail pane). Alongside the runs it reports three capability
+// flags (supportsActions / canRerun / canCancel) derived from which optional forge
+// methods exist, so the UI can gate the empty-state and rerun/cancel buttons
+// forge-agnostically rather than hardcoding `kind`. Forges without an Actions API
+// (e.g. Gitea lacks rerun/cancel) report no runs / the relevant flag false.
 async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "actions" || parts[2]) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
+  const caps = {
+    supportsActions: Boolean(forge?.listWorkflowRuns),
+    canRerun: Boolean(forge?.rerunWorkflowRun),
+    canCancel: Boolean(forge?.cancelWorkflowRun),
+  };
   if (!forge?.listWorkflowRuns) {
-    return json({ slug: forge?.slug ?? null, kind: forge?.kind ?? null, runs: [] });
+    return json({ slug: forge?.slug ?? null, kind: forge?.kind ?? null, runs: [], ...caps });
   }
   try {
-    return json({ slug: forge.slug, kind: forge.kind, runs: await forge.listWorkflowRuns() });
+    return json({
+      slug: forge.slug,
+      kind: forge.kind,
+      runs: await forge.listWorkflowRuns(),
+      ...caps,
+    });
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches PRs path)
-    return json({ slug: forge.slug, kind: forge.kind, runs: [] });
+    return json({ slug: forge.slug, kind: forge.kind, runs: [], ...caps });
   }
 }
 

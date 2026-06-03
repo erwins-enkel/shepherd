@@ -355,6 +355,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
     {
       databaseId: 200,
       workflowName: "CI",
+      workflowDatabaseId: 11,
       status: "completed",
       conclusion: "failure",
       headSha: "sha2",
@@ -364,6 +365,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
     {
       databaseId: 150,
       workflowName: "Deploy",
+      workflowDatabaseId: 22,
       status: "in_progress",
       conclusion: null,
       headSha: "sha2",
@@ -373,6 +375,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
     {
       databaseId: 100,
       workflowName: "CI",
+      workflowDatabaseId: 11,
       status: "completed",
       conclusion: "success",
       headSha: "sha1",
@@ -406,6 +409,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
   expect(runs).toEqual([
     {
       runId: 200,
+      workflowId: 11,
       workflowName: "CI",
       runUrl: "https://gh/run/200",
       headSha: "sha2",
@@ -418,6 +422,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
     },
     {
       runId: 150,
+      workflowId: 22,
       workflowName: "Deploy",
       runUrl: "https://gh/run/150",
       headSha: "sha2",
@@ -553,4 +558,22 @@ test("GithubForge.comment: posts a PR comment via gh pr comment", async () => {
   const forge = new GithubForge("o/r", {}, run);
   await forge.comment(7, "@dependabot rebase");
   expect(calls).toEqual([["pr", "comment", "7", "--repo", "o/r", "--body", "@dependabot rebase"]]);
+});
+
+test("GithubForge.listRunJobs: maps a run's jobs to the four-light vocab", async () => {
+  const run = (args: string[]): string => {
+    if (args[0] === "run" && args[1] === "view" && args[2] === "200")
+      return JSON.stringify({
+        jobs: [
+          { name: "lint", status: "completed", conclusion: "success", url: "https://gh/job/a" },
+          { name: "test", status: "in_progress", conclusion: null },
+        ],
+      });
+    return "{}";
+  };
+  const jobs = await new GithubForge("o/r", {}, run).listRunJobs(200);
+  expect(jobs).toEqual([
+    { name: "lint", state: "success", url: "https://gh/job/a" },
+    { name: "test", state: "pending", url: undefined },
+  ]);
 });

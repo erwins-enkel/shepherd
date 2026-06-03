@@ -180,11 +180,12 @@ export class GithubForge implements GitForge {
       "--limit",
       "50",
       "--json",
-      "databaseId,workflowName,status,conclusion,headSha,createdAt,url",
+      "databaseId,workflowName,workflowDatabaseId,status,conclusion,headSha,createdAt,url",
     ]);
     const raw = JSON.parse(listOut || "[]") as Array<{
       databaseId: number;
       workflowName?: string;
+      workflowDatabaseId?: number;
       status?: string | null;
       conclusion?: string | null;
       headSha?: string;
@@ -200,44 +201,46 @@ export class GithubForge implements GitForge {
     }
     const selected = [...newest.values()].slice(0, MAX_WORKFLOWS);
 
-    const runs = selected.map((r): WorkflowRun => {
-      const jobsOut = this.run([
-        "run",
-        "view",
-        String(r.databaseId),
-        "--repo",
-        this.slug,
-        "--json",
-        "jobs",
-      ]);
-      const parsed = JSON.parse(jobsOut || "{}") as {
-        jobs?: Array<{
-          name?: string;
-          status?: string | null;
-          conclusion?: string | null;
-          url?: string;
-        }>;
-      };
-      const jobs: WorkflowJob[] = (parsed.jobs ?? []).map((j) => ({
-        name: j.name ?? "",
-        state: mapCheckState(j.status, j.conclusion),
-        url: j.url || undefined,
-      }));
-      const ts = Date.parse(r.createdAt ?? "");
-      return {
-        runId: r.databaseId,
-        workflowName: r.workflowName ?? "",
-        runUrl: r.url ?? "",
-        headSha: r.headSha ?? "",
-        createdAt: Number.isFinite(ts) ? ts : Date.now(),
-        state: mapCheckState(r.status, r.conclusion),
-        jobs,
-      };
-    });
+    const runs = await Promise.all(
+      selected.map(async (r): Promise<WorkflowRun> => {
+        const jobs = await this.listRunJobs(r.databaseId);
+        const ts = Date.parse(r.createdAt ?? "");
+        return {
+          runId: r.databaseId,
+          workflowId: r.workflowDatabaseId ?? 0,
+          workflowName: r.workflowName ?? "",
+          runUrl: r.url ?? "",
+          headSha: r.headSha ?? "",
+          createdAt: Number.isFinite(ts) ? ts : Date.now(),
+          state: mapCheckState(r.status, r.conclusion),
+          jobs,
+        };
+      }),
+    );
 
     // Newest workflow first.
     runs.sort((a, b) => b.createdAt - a.createdAt);
     return runs;
+  }
+
+  /** Per-job breakdown for a single run (`gh run view --json jobs`), mapped to
+   *  the four-light CI vocab. Shared by the latest-run listing and history-row
+   *  expansion. */
+  async listRunJobs(runId: number): Promise<WorkflowJob[]> {
+    const jobsOut = this.run(["run", "view", String(runId), "--repo", this.slug, "--json", "jobs"]);
+    const parsed = JSON.parse(jobsOut || "{}") as {
+      jobs?: Array<{
+        name?: string;
+        status?: string | null;
+        conclusion?: string | null;
+        url?: string;
+      }>;
+    };
+    return (parsed.jobs ?? []).map((j) => ({
+      name: j.name ?? "",
+      state: mapCheckState(j.status, j.conclusion),
+      url: j.url || undefined,
+    }));
   }
 
   async rerunWorkflowRun(runId: number, o: { failedOnly: boolean }): Promise<void> {

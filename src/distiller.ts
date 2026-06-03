@@ -152,10 +152,17 @@ export class DistillerService {
   }
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
+    const added = this.applyProposals(f.repoPath, raw);
+    const flagged = this.applyIneffective(f.repoPath, raw);
+    this.deps.herdr.stop(f.terminalId);
+    this.deps.scratch.remove(f.dir);
+    if (added > 0 || flagged > 0) this.deps.onChange();
+  }
+
+  /** Persist new (deduped) proposed rules from the distiller's output. Returns the count added. */
+  private applyProposals(repoPath: string, raw: RawProposals | null): number {
     let added = 0;
-    const have = new Set(
-      this.deps.store.listLearnings(f.repoPath).map((l) => normalizeRule(l.rule)),
-    );
+    const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
@@ -163,7 +170,7 @@ export class DistillerService {
       if (have.has(key)) continue;
       have.add(key);
       this.deps.store.addLearning({
-        repoPath: f.repoPath,
+        repoPath,
         rule: r.rule.trim().slice(0, 240),
         rationale: typeof r.rationale === "string" ? r.rationale : "",
         evidence: Array.isArray(r.evidence)
@@ -172,16 +179,19 @@ export class DistillerService {
       });
       added++;
     }
+    return added;
+  }
+
+  /** Bump ineffectiveCount for any active rule the distiller cited as not working. Returns the count flagged. */
+  private applyIneffective(repoPath: string, raw: RawProposals | null): number {
     let flagged = 0;
-    const activeIds = new Set(this.deps.store.listActiveLearnings(f.repoPath).map((l) => l.id));
+    const activeIds = new Set(this.deps.store.listActiveLearnings(repoPath).map((l) => l.id));
     const ineffective = Array.isArray(raw?.ineffective) ? raw!.ineffective : [];
     for (const id of ineffective) {
       if (typeof id !== "string" || !activeIds.has(id)) continue;
       if (this.deps.store.incrementLearningIneffective(id)) flagged++;
     }
-    this.deps.herdr.stop(f.terminalId);
-    this.deps.scratch.remove(f.dir);
-    if (added > 0 || flagged > 0) this.deps.onChange();
+    return flagged;
   }
 }
 

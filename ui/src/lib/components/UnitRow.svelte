@@ -430,6 +430,14 @@
     }
   }
 
+  /* Touch devices at any width (landscape foldables, tablets) get the same
+     44px row floor — the width-based rule above misses coarse pointers > 768px. */
+  @media (pointer: coarse) {
+    .unit {
+      min-height: 44px;
+    }
+  }
+
   /* Compact sidebar (touch foldables, narrow picker): the meta footer already
      frees the name from the right rail; here we trade the 2nd prompt line for
      density so more agents stay visible without the card growing taller. */

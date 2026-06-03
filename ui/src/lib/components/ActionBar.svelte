@@ -236,10 +236,12 @@
     flex: 1;
     text-align: center;
     padding: 12px;
+    min-height: 44px;
     font-size: var(--fs-base);
   }
   .actions.mobile .btn.backlog {
     padding: 12px 16px;
+    min-height: 44px;
     font-size: var(--fs-base);
   }
 

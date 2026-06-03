@@ -554,6 +554,7 @@
     right: 0;
     z-index: 50;
     min-width: 200px;
+    max-width: min(280px, 85vw);
     background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;

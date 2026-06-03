@@ -111,19 +111,28 @@ export class HerdrUpdateService {
    *  (ending live agent panes), after which we restart shepherd so it re-establishes
    *  its herdr session and clients reconnect to a fresh build.
    *
-   *  `--handoff` is required because Shepherd itself runs as a live herdr target:
-   *  a protocol-bumping update (e.g. 0.6.5 proto 11 → 0.6.6 proto 12) refuses to
-   *  proceed while targets are running unless it can restart them. Without the
-   *  flag `herdr update` exits 1 ("one or more herdr targets must restart … run
-   *  from an interactive terminal, or stop those targets"), which can never be
-   *  satisfied from this non-interactive transient unit — so the update would
-   *  always fail. `--handoff` hands the running targets to the new version. */
+   *  We `herdr server stop` FIRST. A protocol-bumping update (e.g. 0.6.5 proto 11
+   *  → 0.6.6 proto 12) refuses to proceed while herdr targets are running: it
+   *  exits 1 with "one or more herdr targets … requires live server handoff; run
+   *  `herdr update` from an interactive terminal, or stop those targets and run
+   *  `herdr update` again". Live handoff needs a TTY, which a detached transient
+   *  unit can't provide (and `--handoff` alone doesn't satisfy — the already-
+   *  running server still can't be handed off without an interactive terminal).
+   *  So we take herdr's other documented escape hatch: stop the running server,
+   *  which clears the targets, letting the non-interactive update proceed. The
+   *  shepherd restart then brings up a fresh session on the new version. Stopping
+   *  ends live agent panes, but `herdr update` is destructive by design anyway.
+   *  `|| true` so a "no server running" stop never blocks the update. */
   private defaultLaunch(): void {
     // forward our PATH: a transient --user unit gets a bare environment, but the
     // command needs herdr/systemctl, which live on the service's PATH.
     const args = ["--user", "--collect", "--unit=herdr-update"];
     if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
-    args.push("bash", "-lc", "herdr update --handoff && systemctl --user restart shepherd");
+    args.push(
+      "bash",
+      "-lc",
+      "herdr server stop || true; herdr update && systemctl --user restart shepherd",
+    );
     const child = spawn("systemd-run", args, { stdio: "ignore" });
     child.unref();
   }

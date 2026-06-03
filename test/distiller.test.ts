@@ -180,7 +180,11 @@ test("distillNow with zero signals does not spawn a run", () => {
 test("consider does nothing when learnings disabled for the repo", () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 5);
-  store.setRepoConfig("/r", { criticEnabled: true, learningsEnabled: false });
+  store.setRepoConfig("/r", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+  });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
   d.consider("/r");

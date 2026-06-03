@@ -178,6 +178,7 @@ test("PUT /api/repo-config with empty body (no recognized fields) → 400", asyn
     }),
   );
   expect(res.status).toBe(400);
+});
 
 test("PUT /api/repo-config with non-boolean body → 400", async () => {
   const { app } = harness();

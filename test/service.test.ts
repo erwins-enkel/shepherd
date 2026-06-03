@@ -1312,7 +1312,11 @@ test("create omits house rules when learnings disabled for the repo", async () =
   const store = new SessionStore(":memory:");
   const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
   store.setLearningStatus(a.id, "active");
-  store.setRepoConfig("/repo", { criticEnabled: true, learningsEnabled: false });
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+  });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
   await svc.create({

@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
 import type { ForgeMap } from "./forge/types";
@@ -58,6 +60,27 @@ class Semaphore {
         next(); // hand the slot off — keep `active`
       else this.active--; // no waiter — free the slot
     }
+  }
+}
+
+/**
+ * Number of workflows *defined* in a repo working copy — the count shown on the
+ * backlog Actions tab. "Defined" = files directly under `.github/workflows`
+ * ending in `.yml`/`.yaml`. Read from the local checkout, so it adds zero
+ * GitHub API pressure to the rate-limited counts warmer (unlike issue/PR counts,
+ * which hit the forge). Missing dir / unreadable → 0.
+ *
+ * Deliberately diverges from ActionsPanel, which lists workflow *runs* from
+ * GitHub: a never-run (or non-default-branch) workflow still counts here but
+ * has no run row there, so the badge can read higher than the panel.
+ */
+export function countDefinedWorkflows(repoDir: string): number {
+  try {
+    return readdirSync(join(repoDir, ".github", "workflows"), { withFileTypes: true }).filter(
+      (e) => e.isFile() && /\.ya?ml$/i.test(e.name),
+    ).length;
+  } catch {
+    return 0;
   }
 }
 

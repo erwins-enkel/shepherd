@@ -35,7 +35,7 @@ import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
-import type { CountsService, RepoCounts } from "./backlog";
+import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
@@ -1062,6 +1062,8 @@ export interface BacklogProject {
   lastUsedAt: number | null;
   openIssues: number | null;
   openPRs: number | null;
+  /** Workflows defined under .github/workflows; null for non-GitHub forges. */
+  workflows: number | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -1119,6 +1121,9 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       lastUsedAt: lastUsed[r.path] ?? null,
       openIssues: counts.openIssues,
       openPRs: counts.openPRs,
+      // GitHub-only: the Actions panel is github-gated, so other forges get null
+      // (plain "Actions" label) rather than a count that has no panel behind it.
+      workflows: r.forge.kind === "github" ? countDefinedWorkflows(r.path) : null,
     };
   });
 

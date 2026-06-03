@@ -1,52 +1,62 @@
 import { describe, it, expect } from "vitest";
 import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
-import type { ReviewVerdict } from "../types";
+import type { ReviewVerdict } from "$lib/types";
 
-const v = (
-  decision: ReviewVerdict["decision"],
-  over: Partial<ReviewVerdict> = {},
-): ReviewVerdict => ({
-  sessionId: "s",
-  headSha: "h",
-  decision,
+const base: ReviewVerdict = {
+  sessionId: "s1",
+  headSha: "abc",
+  decision: "changes_requested",
   summary: "",
   body: "",
-  findings: [],
+  findings: ["x"],
   addressRound: 0,
   addressCap: 3,
   finalRoundPending: false,
   finalRoundTimeoutMs: 900_000,
-  updatedAt: 0,
-  ...over,
-});
+  updatedAt: 1_000_000,
+};
+const v = (p: Partial<ReviewVerdict>): ReviewVerdict => ({ ...base, ...p });
 
 describe("criticBadgeLabel", () => {
   it("returns null when there is no verdict", () => expect(criticBadgeLabel(undefined)).toBeNull());
   it("maps changes_requested", () =>
-    expect(criticBadgeLabel(v("changes_requested"))).not.toBeNull());
-  it("maps commented", () => expect(criticBadgeLabel(v("commented"))).not.toBeNull());
-  it("maps error", () => expect(criticBadgeLabel(v("error"))).not.toBeNull());
+    expect(criticBadgeLabel(v({ decision: "changes_requested" }))).not.toBeNull());
+  it("maps commented", () => expect(criticBadgeLabel(v({ decision: "commented" }))).not.toBeNull());
+  it("maps error", () => expect(criticBadgeLabel(v({ decision: "error" }))).not.toBeNull());
 });
 
 describe("addressRoundInfo", () => {
-  it("is null with no verdict", () => expect(addressRoundInfo(undefined)).toBeNull());
-  it("is null when no auto-address round is in progress", () =>
-    expect(addressRoundInfo(v("commented", { addressRound: 0 }))).toBeNull());
-  it("reports the round while addressing under the cap", () => {
-    const info = addressRoundInfo(v("changes_requested", { addressRound: 1, findings: ["x"] }));
-    expect(info).toEqual({ round: 1, cap: 3, stalled: false });
+  it("returns null when no streak is in progress", () => {
+    expect(addressRoundInfo(v({ addressRound: 0 }), 2_000_000)).toBeNull();
   });
-  it("flags stalled when the round hits the cap with findings still open", () => {
-    const info = addressRoundInfo(
-      v("changes_requested", { addressRound: 3, addressCap: 3, findings: ["still broken"] }),
-    );
-    expect(info?.stalled).toBe(true);
+  it("below the cap is an in-progress round", () => {
+    expect(addressRoundInfo(v({ addressRound: 2 }), 2_000_000)).toEqual({
+      round: 2,
+      cap: 3,
+      status: "round",
+    });
   });
-  it("reads the cap off the verdict, not a hardcoded mirror", () => {
-    // a deployment with a wider cap surfaces it on the verdict — badge math follows
-    const info = addressRoundInfo(
-      v("changes_requested", { addressRound: 4, addressCap: 5, findings: ["x"] }),
-    );
-    expect(info).toEqual({ round: 4, cap: 5, stalled: false });
+  it("at the cap but pending (within timeout) is the dimmed final round", () => {
+    expect(
+      addressRoundInfo(
+        v({ addressRound: 3, finalRoundPending: true, updatedAt: 1_000_000 }),
+        1_000_000 + 60_000,
+      ),
+    ).toEqual({ round: 3, cap: 3, status: "final" });
+  });
+  it("at the cap, held (not pending) is a confirmed stall", () => {
+    expect(addressRoundInfo(v({ addressRound: 3, finalRoundPending: false }), 2_000_000)).toEqual({
+      round: 3,
+      cap: 3,
+      status: "stalled",
+    });
+  });
+  it("a pending final round past its timeout escalates to stalled", () => {
+    expect(
+      addressRoundInfo(
+        v({ addressRound: 3, finalRoundPending: true, updatedAt: 1_000_000 }),
+        1_000_000 + 900_000 + 1,
+      ),
+    ).toEqual({ round: 3, cap: 3, status: "stalled" });
   });
 });

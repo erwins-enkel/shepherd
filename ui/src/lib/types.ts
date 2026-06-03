@@ -97,6 +97,8 @@ export interface PullRequest {
   /** null = host still computing mergeability. */
   mergeable: boolean | null;
   checks: ChecksState;
+  /** Per-check breakdown of the head commit, expanded from the rollup dot. */
+  jobs: WorkflowJob[];
   latestReview?: {
     state: "approved" | "changes_requested" | "commented";
     author: string;

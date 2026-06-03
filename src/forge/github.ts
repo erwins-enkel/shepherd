@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mapCheckState, rollupChecks } from "./checks";
+import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
 import { CRITIC_REVIEW_MARKER } from "./types";
 import type {
-  CheckRun,
   ForgeConfig,
   GitForge,
   Issue,
@@ -14,6 +13,7 @@ import type {
   PrStatus,
   PullRequest,
   RedeployInput,
+  RollupEntry,
   WorkflowJob,
   WorkflowRun,
 } from "./types";
@@ -63,7 +63,7 @@ interface GhPr {
   title: string;
   state: string; // OPEN | MERGED | CLOSED
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
-  statusCheckRollup?: CheckRun[];
+  statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
   reviews?: GhReview[];
 }
@@ -157,6 +157,7 @@ export class GithubForge implements GitForge {
         isDraft: p.isDraft ?? false,
         mergeable: mapMergeable(p.mergeable),
         checks: rollupChecks(p.statusCheckRollup ?? []),
+        jobs: jobsFromRollup(p.statusCheckRollup ?? []),
         latestReview: latestHumanReview(p.reviews),
       };
     });

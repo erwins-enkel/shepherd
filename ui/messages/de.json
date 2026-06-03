@@ -442,6 +442,8 @@
   "prspanel_merging": "merge läuft…",
   "prspanel_merge_failed": "Merge fehlgeschlagen",
   "prspanel_merge_blocked_title": "Konflikte vor dem Merge auflösen",
+  "prspanel_jobs_show": "CI-Jobs anzeigen",
+  "prspanel_jobs_hide": "CI-Jobs ausblenden",
   "newtask_pr_review_template": "Prüfe PR #{number} wie beschrieben.\n{url}",
   "backlog_loading": "Backlog wird geladen…",
   "backlog_no_forge_repos": "Keine Forge-Projekte",

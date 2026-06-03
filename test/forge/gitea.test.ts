@@ -48,7 +48,15 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
         },
       ],
     },
-    "GET /api/v1/repos/team/proj/commits/deadbeef/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/deadbeef/status": {
+      json: {
+        state: "success",
+        statuses: [
+          { status: "success", context: "build", target_url: "https://git.example.com/build" },
+          { status: "success", context: "test", target_url: "" },
+        ],
+      },
+    },
   });
   const forge = new GiteaForge("team/proj", CFG, fn);
   const prs = await forge.listPullRequests();
@@ -62,6 +70,10 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
       isDraft: false,
       mergeable: true,
       checks: "success",
+      jobs: [
+        { name: "build", state: "success", url: "https://git.example.com/build" },
+        { name: "test", state: "success", url: undefined },
+      ],
     },
   ]);
   // list call + one commit-status call

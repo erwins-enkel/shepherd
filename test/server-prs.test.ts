@@ -27,6 +27,7 @@ const PR: PullRequest = {
   isDraft: false,
   mergeable: true,
   checks: "success",
+  jobs: [{ name: "CI / test", state: "success", url: "https://gh/job/1" }],
   latestReview: { state: "approved", author: "bob", submittedAt: 1_700_000_100_000 },
 };
 

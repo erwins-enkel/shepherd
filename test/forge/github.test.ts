@@ -41,7 +41,7 @@ test("GithubForge.listIssues: parses gh issue list output", async () => {
   ]);
 });
 
-test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, review", async () => {
+test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs, review", async () => {
   const prsJson = JSON.stringify([
     {
       number: 7,
@@ -51,7 +51,30 @@ test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, revie
       createdAt: "2024-02-02T00:00:00Z",
       isDraft: true,
       mergeable: "CONFLICTING",
-      statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }],
+      statusCheckRollup: [
+        {
+          __typename: "CheckRun",
+          name: "lint",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://gh/job/a",
+        },
+        {
+          __typename: "CheckRun",
+          name: "test",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "FAILURE",
+          detailsUrl: "https://gh/job/b",
+        },
+        {
+          __typename: "StatusContext",
+          context: "netlify/deploy",
+          state: "PENDING",
+          targetUrl: "https://netlify/x",
+        },
+      ],
       reviews: [
         {
           author: { login: "bob" },
@@ -73,7 +96,12 @@ test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, revie
       createdAt: Date.parse("2024-02-02T00:00:00Z"),
       isDraft: true,
       mergeable: false,
-      checks: "failure",
+      checks: "failure", // worst-of over the three checks
+      jobs: [
+        { name: "CI / lint", state: "success", url: "https://gh/job/a" },
+        { name: "CI / test", state: "failure", url: "https://gh/job/b" },
+        { name: "netlify/deploy", state: "pending", url: "https://netlify/x" },
+      ],
       latestReview: {
         state: "changes_requested",
         author: "bob",

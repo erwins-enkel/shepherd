@@ -56,6 +56,10 @@ export interface PullRequest {
   mergeable: boolean | null;
   /** Worst-of CI rollup over the head commit. */
   checks: ChecksState;
+  /** Per-check breakdown of the head commit (one entry per CI job / status
+   *  context), powering the PRs tab's expand-the-dot view. Empty when the host
+   *  reports no checks. */
+  jobs: WorkflowJob[];
   /** Newest *human* review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
 }
@@ -181,8 +185,20 @@ export interface ForgeConfig {
 
 export type ForgeMap = Record<string, ForgeConfig>;
 
-/** One forge-reported check run: a lifecycle status + (when complete) a conclusion. */
-export interface CheckRun {
+/** One raw entry in GitHub's `statusCheckRollup`: either a modern CheckRun (an
+ *  Actions job — lifecycle status + conclusion) or a legacy StatusContext (a
+ *  commit status — a flat state). The two shapes are disjoint, so every field is
+ *  optional and the checks helpers branch on `__typename` to read the right ones. */
+export interface RollupEntry {
+  __typename?: string;
+  // CheckRun
+  name?: string | null;
+  workflowName?: string | null;
   status?: string | null;
   conclusion?: string | null;
+  detailsUrl?: string | null;
+  // StatusContext
+  context?: string | null;
+  state?: string | null;
+  targetUrl?: string | null;
 }

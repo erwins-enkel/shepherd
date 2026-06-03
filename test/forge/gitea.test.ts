@@ -416,6 +416,58 @@ test("GiteaForge.closeIssue: PATCHes the issue state to closed", async () => {
   expect(patch.body).toEqual({ state: "closed" });
 });
 
+test("GiteaForge.ensureIssueLink: appends Closes #N when body has no link", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "Some PR description" } },
+    "PATCH /api/v1/repos/team/proj/pulls/7": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.ensureIssueLink!(7, 3);
+  const patch = calls.find((c) => c.method === "PATCH")!;
+  expect(patch).toBeDefined();
+  expect(patch.body).toEqual({ body: "Some PR description\n\nCloses #3" });
+});
+
+test("GiteaForge.ensureIssueLink: appends to empty body without leading newlines", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "" } },
+    "PATCH /api/v1/repos/team/proj/pulls/7": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.ensureIssueLink!(7, 3);
+  const patch = calls.find((c) => c.method === "PATCH")!;
+  expect(patch.body).toEqual({ body: "Closes #3" });
+});
+
+test("GiteaForge.ensureIssueLink: no-op when body already contains Closes #N", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "Description\n\nCloses #3" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.ensureIssueLink!(7, 3);
+  expect(calls.find((c) => c.method === "PATCH")).toBeUndefined();
+});
+
+test("GiteaForge.ensureIssueLink: no-op when body contains a different closing keyword (Fixes #N)", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "Description\n\nFixes #3" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.ensureIssueLink!(7, 3);
+  expect(calls.find((c) => c.method === "PATCH")).toBeUndefined();
+});
+
+test("GiteaForge.ensureIssueLink: does not treat Closes #15 as a link for issue #1", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "Description\n\nCloses #15" } },
+    "PATCH /api/v1/repos/team/proj/pulls/7": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.ensureIssueLink!(7, 1);
+  // #15 should NOT match issue #1 — PATCH must be called
+  expect(calls.find((c) => c.method === "PATCH")).toBeDefined();
+});
+
 const ACTIONS_TASKS = "GET /api/v1/repos/team/proj/actions/tasks?limit=50";
 
 test("GiteaForge.listWorkflowRuns: dedups to newest run per workflow, newest-first", async () => {

@@ -193,6 +193,11 @@ export interface GitForge {
   /** Close an issue by number (best-effort; used by the drain to retire a backlog
    *  issue once its auto PR merges). Optional: hosts without an issues-close API omit it. */
   closeIssue?(issueNumber: number): Promise<void>;
+  /** Ensure the PR body links the issue so the forge auto-closes it on merge.
+   *  Idempotent: appends a `Closes #<issueNumber>` line only when no closing
+   *  keyword for that issue is already present. Best-effort; optional (hosts
+   *  without a PR-body edit API omit it). */
+  ensureIssueLink?(prNumber: number, issueNumber: number): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

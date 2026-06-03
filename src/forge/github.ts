@@ -393,6 +393,27 @@ export class GithubForge implements GitForge {
     this.run(["pr", "comment", String(prNumber), "--repo", this.slug, "--body", body]);
   }
 
+  async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
+    const body = this.run([
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      "body",
+      "-q",
+      ".body // empty",
+    ]).trim();
+    const pattern = new RegExp(
+      `\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#${issueNumber}\\b`,
+      "i",
+    );
+    if (pattern.test(body)) return;
+    const newBody = body ? `${body}\n\nCloses #${issueNumber}` : `Closes #${issueNumber}`;
+    this.run(["pr", "edit", String(prNumber), "--repo", this.slug, "--body", newBody]);
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
   }

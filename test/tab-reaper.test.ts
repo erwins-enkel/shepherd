@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { reapOrphanTabs, type ReapableHerdr } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
+import { DISTILL_LABEL } from "../src/distiller";
 import type { HerdrAgent } from "../src/herdr";
 import type { HerdrTab } from "../src/herdr";
 
@@ -32,19 +33,20 @@ function fake(agents: HerdrAgent[], tabs: HerdrTab[]): { h: ReapableHerdr; close
   };
 }
 
-test("reaps probe + review + namer tabs that have no live agent", () => {
+test("reaps probe + review + namer + distill tabs that have no live agent", () => {
   const { h, closed } = fake(
-    [agent("term_live", "w:4")], // the one live agent
+    [agent("term_live", "w:5")], // the one live agent
     [
       tab("w:1", PROBE_NAME),
       tab("w:2", "review TASK-09"),
       tab("w:3", "name TASK-09"), // orphaned background-namer tab
-      tab("w:4", "addition-leaky"), // live session tab — backed by an agent
+      tab("w:4", DISTILL_LABEL), // orphaned distiller tab
+      tab("w:5", "addition-leaky"), // live session tab — backed by an agent
     ],
   );
   const got = reapOrphanTabs(h);
-  expect(new Set(got)).toEqual(new Set(["w:1", "w:2", "w:3"]));
-  expect(new Set(closed)).toEqual(new Set(["w:1", "w:2", "w:3"]));
+  expect(new Set(got)).toEqual(new Set(["w:1", "w:2", "w:3", "w:4"]));
+  expect(new Set(closed)).toEqual(new Set(["w:1", "w:2", "w:3", "w:4"]));
 });
 
 test("never reaps a labeled tab that still has a live agent (in-progress probe/review)", () => {
@@ -56,10 +58,15 @@ test("never reaps a labeled tab that still has a live agent (in-progress probe/r
   expect(closed).toEqual([]);
 });
 
-test("never touches non-shepherd tabs — incl. a user session slugged 'usage-probe'", () => {
-  // "usage-probe" is a producible prompt slug (normalize("usage probe") === "usage-probe"); an
-  // agentless tab with that label is a real user session, NOT a probe — must never be reaped.
-  const { h, closed } = fake([], [tab("w:1", "my editor"), tab("w:2", "usage-probe")]);
+test("never touches non-shepherd tabs — incl. user sessions slugged 'usage-probe' / 'distill'", () => {
+  // "usage-probe" and "distill" are producible prompt slugs (normalize("usage probe") ===
+  // "usage-probe"; slugifyManual("distill") === "distill"); an agentless tab with such a bare
+  // slug is a real user session, NOT a helper — must never be reaped. The helpers use the
+  // collision-proof __usage_probe__ / __distill__ markers instead.
+  const { h, closed } = fake(
+    [],
+    [tab("w:1", "my editor"), tab("w:2", "usage-probe"), tab("w:3", "distill")],
+  );
   reapOrphanTabs(h);
   expect(closed).toEqual([]);
 });

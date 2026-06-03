@@ -120,6 +120,8 @@ export interface ReviewVerdict {
   addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)
   addressCap: number; // the streak cap this run used — surfaced so the UI badge math need not mirror it
   errorRound: number; // consecutive critic error/timeout verdicts (separate no-progress counter; 0 on any real verdict)
+  finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
+  finalRoundTimeoutMs: number; // live abandonment timeout; surfaced so the UI never hardcodes it
   seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
   url?: string; // posted PR-review URL, when the host returns one
   updatedAt: number;

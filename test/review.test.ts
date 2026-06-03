@@ -315,6 +315,8 @@ test("forget reaps an in-flight critic and drops the stored review", () => {
     addressRound: 0,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 15 * 60_000,
     seenNoteIds: [],
     updatedAt: 1,
   };
@@ -511,6 +513,8 @@ test("clean verdict (no findings) stops the loop and resets the round", async ()
     addressRound: 2,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 15 * 60_000,
     seenNoteIds: [],
     updatedAt: 1,
   };
@@ -550,6 +554,8 @@ test("round cap reached: holds the round, posts the review + signal, does not st
     addressRound: 3, // == cap: the agent has had its 3 tries
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 15 * 60_000,
     seenNoteIds: [],
     updatedAt: 1,
   };
@@ -630,6 +636,58 @@ test("PR closed (not merged) before finalize: also fully inert", async () => {
   expect(rec.event).toBeUndefined(); // closed PR → review not posted
 });
 
+test("advancing into the cap marks the final round pending (not yet stalled)", async () => {
+  const { deps: d, reviews } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "still broken",
+        body: "b",
+        findings: ["still broken"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ addressRound: 2 }); // one try left; cap is 3
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressRound).toBe(3);
+  expect(reviews["s1"]?.finalRoundPending).toBe(true);
+});
+
+test("holding at the cap is a confirmed stall, not pending", async () => {
+  const { deps: d, reviews } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "still broken",
+        body: "b",
+        findings: ["still broken"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ addressRound: 3 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressRound).toBe(3);
+  expect(reviews["s1"]?.finalRoundPending).toBe(false);
+});
+
+test("clean verdict is never final-round-pending", async () => {
+  const { deps: d, reviews } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "lgtm", body: "b", findings: [] }) },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ addressRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.finalRoundPending).toBe(false);
+});
+
 test("dead agent pane: steer attempted but the round does not advance", async () => {
   const {
     deps: d,
@@ -660,6 +718,8 @@ function priorReview(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
     addressRound: 1,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 15 * 60_000,
     seenNoteIds: [],
     updatedAt: 1,
     ...over,

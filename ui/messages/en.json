@@ -328,6 +328,8 @@
   "criticbadge_round_title": "Auto-addressing critic findings — round {round} of {cap}",
   "criticbadge_stalled": "STALLED {round}/{cap}",
   "criticbadge_stalled_title": "Auto-address gave up after {cap} rounds with findings still open — needs a human.",
+  "criticbadge_final": "FINAL {round}/{cap}",
+  "criticbadge_final_title": "Addressing the last allowed round — no more rounds after this.",
   "viewport_decommission_title": "stop agent + remove worktree",
   "viewport_decommission_ready_title": "PR is up. Close this session & clean up its worktree",
   "viewport_decommission_ready_aria": "PR ready. Decommission unit and clean up worktree",

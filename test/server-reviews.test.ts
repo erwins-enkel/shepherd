@@ -46,6 +46,8 @@ test("GET /api/reviews returns snapshot when reviewCache is present", async () =
     addressRound: 0,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
     seenNoteIds: [],
     updatedAt: 1000,
   };

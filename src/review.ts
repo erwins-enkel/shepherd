@@ -69,6 +69,11 @@ const VERDICT_FILE = ".shepherd-review.json";
 // reads it off the payload instead of mirroring this number (which would silently drift
 // if `deps.cap` ever varies per deployment).
 const DEFAULT_CAP = 3;
+// How long a delivered final round may run before the badge escalates from dimmed
+// FINAL to orange STALLED on its own (covers an agent that abandons the last round
+// without re-pushing). Surfaced per-verdict as `finalRoundTimeoutMs` so the UI reads
+// the live value instead of mirroring this number.
+const DEFAULT_FINAL_ROUND_TIMEOUT_MS = 15 * 60_000;
 
 interface InFlight {
   sessionId: string;
@@ -457,6 +462,16 @@ export class ReviewService {
       console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
     }
     verdict.addressRound = this.runAutoAddress(f, verdict); // reached only when the PR is open
+    // The cap-th steer was just delivered when the round ADVANCES into the cap
+    // (priorRound < cap → addressRound === cap). The agent is now addressing that
+    // final round → dimmed FINAL badge, not orange. A round HELD at the cap
+    // (addressRound === priorRound) means that final round already failed re-review
+    // → confirmed stall. A moot/closed PR returns above before this, leaving the
+    // buildVerdict default false. Error verdicts hold the round, so they stay false too.
+    verdict.finalRoundPending =
+      verdict.findings.length > 0 &&
+      verdict.addressRound >= this.cap &&
+      verdict.addressRound > f.priorRound;
     if (verdict.decision === "changes_requested") {
       this.deps.store.addSignal({
         repoPath: f.repoPath,
@@ -530,6 +545,8 @@ export class ReviewService {
       addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)
       addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
       errorRound: 0, // finalize() overwrites on an error verdict
+      finalRoundPending: false, // finalize() sets this on a real verdict
+      finalRoundTimeoutMs: DEFAULT_FINAL_ROUND_TIMEOUT_MS, // live escalation timeout
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
       updatedAt: this.now(),
     };

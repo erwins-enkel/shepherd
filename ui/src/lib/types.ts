@@ -141,6 +141,8 @@ export interface ReviewVerdict {
   findings: string[]; // discrete actionable items; [] = nothing to address
   addressRound: number; // auto-address steers spent on the current findings streak
   addressCap: number; // server's streak cap for this run — the badge reads it instead of mirroring
+  finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
+  finalRoundTimeoutMs: number; // live abandonment timeout (ms); UI escalates FINAL→STALLED after this
   url?: string;
   updatedAt: number;
 }

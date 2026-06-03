@@ -119,32 +119,10 @@ export class SessionStore implements CapStore {
       findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
       addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
       seenNoteIds TEXT NOT NULL DEFAULT '[]',
+      finalRoundPending INTEGER NOT NULL DEFAULT 0,
+      finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000,
       url TEXT, updatedAt INTEGER NOT NULL)`);
-    // migrate reviews that predate the auto-address loop columns
-    const reviewCols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
-    if (!reviewCols.some((c) => c.name === "findings")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN findings TEXT NOT NULL DEFAULT '[]'`);
-    }
-    if (!reviewCols.some((c) => c.name === "addressRound")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN addressRound INTEGER NOT NULL DEFAULT 0`);
-    }
-    // addressCap's DEFAULT 3 only backfills pre-#247 rows; every live row carries
-    // ReviewService's actual cap, so the literal here is a one-time migration value, not
-    // an ongoing mirror. errorRound/seenNoteIds back the error-escalation + note dedup.
-    if (!reviewCols.some((c) => c.name === "addressCap")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN addressCap INTEGER NOT NULL DEFAULT 3`);
-    }
-    if (!reviewCols.some((c) => c.name === "errorRound")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN errorRound INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!reviewCols.some((c) => c.name === "seenNoteIds")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN seenNoteIds TEXT NOT NULL DEFAULT '[]'`);
-    }
-    // patchId backs rebase-skip: pre-existing rows backfill to '' (unknown), so the
-    // next head change reviews once and records the fingerprint going forward.
-    if (!reviewCols.some((c) => c.name === "patchId")) {
-      this.db.run(`ALTER TABLE reviews ADD COLUMN patchId TEXT NOT NULL DEFAULT ''`);
-    }
+    this.migrateReviewColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
@@ -399,6 +377,8 @@ export class SessionStore implements CapStore {
       addressRound: r.addressRound ?? 0,
       addressCap: r.addressCap ?? 3,
       errorRound: r.errorRound ?? 0,
+      finalRoundPending: !!r.finalRoundPending,
+      finalRoundTimeoutMs: r.finalRoundTimeoutMs ?? 900_000,
       seenNoteIds: parseFindings(r.seenNoteIds), // same string[] JSON shape as findings
       url: r.url ?? undefined,
     } as ReviewVerdict;
@@ -408,7 +388,7 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, errorRound, seenNoteIds, url, updatedAt
+                addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as any;
@@ -418,13 +398,14 @@ export class SessionStore implements CapStore {
   putReview(v: ReviewVerdict): void {
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-         addressCap, errorRound, seenNoteIds, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          addressRound=excluded.addressRound, addressCap=excluded.addressCap,
-         errorRound=excluded.errorRound, seenNoteIds=excluded.seenNoteIds,
+         errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
+         finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
          url=excluded.url, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
@@ -437,6 +418,8 @@ export class SessionStore implements CapStore {
         v.addressRound ?? 0,
         v.addressCap ?? 3,
         v.errorRound ?? 0,
+        v.finalRoundPending ? 1 : 0,
+        v.finalRoundTimeoutMs ?? 900_000,
         JSON.stringify(v.seenNoteIds ?? []),
         v.url ?? null,
         v.updatedAt,
@@ -463,7 +446,7 @@ export class SessionStore implements CapStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, errorRound, seenNoteIds, url, updatedAt FROM reviews`,
+                addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt FROM reviews`,
       )
       .all() as any[];
     const out: Record<string, ReviewVerdict> = {};
@@ -551,6 +534,29 @@ export class SessionStore implements CapStore {
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
+  }
+
+  // migrate reviews that predate the auto-address loop columns
+  private migrateReviewColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE reviews ADD COLUMN ${ddl}`);
+    };
+    add("findings", `findings TEXT NOT NULL DEFAULT '[]'`);
+    add("addressRound", `addressRound INTEGER NOT NULL DEFAULT 0`);
+    // addressCap's DEFAULT 3 only backfills pre-#247 rows; every live row carries
+    // ReviewService's actual cap, so the literal here is a one-time migration value, not
+    // an ongoing mirror. errorRound/seenNoteIds back the error-escalation + note dedup.
+    add("addressCap", `addressCap INTEGER NOT NULL DEFAULT 3`);
+    add("errorRound", `errorRound INTEGER NOT NULL DEFAULT 0`);
+    add("seenNoteIds", `seenNoteIds TEXT NOT NULL DEFAULT '[]'`);
+    // patchId backs rebase-skip: pre-existing rows backfill to '' (unknown), so the
+    // next head change reviews once and records the fingerprint going forward.
+    add("patchId", `patchId TEXT NOT NULL DEFAULT ''`);
+    add("finalRoundPending", `finalRoundPending INTEGER NOT NULL DEFAULT 0`);
+    // 900000ms = 15min; one-time backfill for pre-existing rows, not an ongoing mirror —
+    // live rows carry ReviewService's DEFAULT_FINAL_ROUND_TIMEOUT_MS.
+    add("finalRoundTimeoutMs", `finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

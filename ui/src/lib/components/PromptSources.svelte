@@ -142,7 +142,7 @@
   </div>
 
   <div class="ps-body">
-    {#if loading || hasTodo === null}
+    {#if loading || (tab === "todo" && hasTodo === null)}
       <div class="muted">{m.common_loading()}</div>
     {:else if tab === "todo"}
       {#if todos.length === 0}

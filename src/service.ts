@@ -9,6 +9,11 @@ import { moveStagedIntoWorktree } from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 
+/** Header for the Shepherd-curated house-rules block prepended to every agent prompt.
+ *  Agent-facing prompt text (not operator UI), so it is a fixed English constant —
+ *  same precedent as the distiller/critic spawn prompts. */
+const HOUSE_RULES_HEADER = "## Project house rules (curated by Shepherd)";
+
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
@@ -41,6 +46,15 @@ export function spawnSettingsOverlay(): string {
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
+  /** Active+promoted rules for the repo as a delimited prompt block, or null when
+   *  none / learnings disabled. Prepended to every new agent's prompt (spec §4a). */
+  private houseRules(repoPath: string): string | null {
+    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
+    const rules = this.deps.store.listActiveLearnings(repoPath);
+    if (rules.length === 0) return null;
+    return `${HOUSE_RULES_HEADER}\n${rules.map((r) => `- ${r.rule}`).join("\n")}`;
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
     const basename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = basename ? slugifyManual(basename) : undefined;
@@ -64,6 +78,11 @@ export class SessionService {
         const r = input.issueRef;
         promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
       }
+
+      // Prepend Shepherd-curated house rules so every spawn (manual AND auto-spawned,
+      // e.g. the work-queue drain #222) inherits the repo's learned corrections.
+      const houseRules = this.houseRules(input.repoPath);
+      if (houseRules) promptArg = `${houseRules}\n\n${promptArg}`;
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
       argv.push("--settings", spawnSettingsOverlay());

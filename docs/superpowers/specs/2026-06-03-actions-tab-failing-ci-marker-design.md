@@ -91,9 +91,8 @@ exactly the at-a-glance signal wanted, and far cheaper than listing runs.
   `.overlay-tabs`): when `selected?.ciStatus === "failure"`, render
   `m.backlog_tab_actions_failing()` and apply `class:failing`. Otherwise the
   existing `workflows`-count / bare-label expression is unchanged.
-- A decorative `✕` glyph (`aria-hidden="true"`) precedes the failing label; the
-  **word** "failing" carries the meaning so the marker is not color-only
-  (a11y). `.tab-btn.failing` is styled with `var(--color-red)`.
+- `.tab-btn.failing` is styled with `var(--color-red)`. The marker is not
+  color-only — the **word** "failing" in the label carries the meaning (a11y).
 
 ### i18n — `ui/messages/{en,de}.json`
 

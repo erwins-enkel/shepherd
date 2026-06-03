@@ -185,16 +185,10 @@ export interface ForgeConfig {
 
 export type ForgeMap = Record<string, ForgeConfig>;
 
-/** One forge-reported check run: a lifecycle status + (when complete) a conclusion. */
-export interface CheckRun {
-  status?: string | null;
-  conclusion?: string | null;
-}
-
 /** One raw entry in GitHub's `statusCheckRollup`: either a modern CheckRun (an
- *  Actions job) or a legacy StatusContext (a commit status). The two shapes are
- *  disjoint, so every field is optional and {@link jobsFromRollup} branches on
- *  `__typename` to read the right ones. */
+ *  Actions job — lifecycle status + conclusion) or a legacy StatusContext (a
+ *  commit status — a flat state). The two shapes are disjoint, so every field is
+ *  optional and the checks helpers branch on `__typename` to read the right ones. */
 export interface RollupEntry {
   __typename?: string;
   // CheckRun

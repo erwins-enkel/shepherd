@@ -1,4 +1,4 @@
-import type { CheckRun, ChecksState, RollupEntry, WorkflowJob } from "./types";
+import type { ChecksState, RollupEntry, WorkflowJob } from "./types";
 
 const FAILURE = new Set([
   "failure",
@@ -45,6 +45,12 @@ function isStatusContext(e: RollupEntry): boolean {
   return e.__typename === "StatusContext" || (e.name == null && e.context != null);
 }
 
+/** Resolve one rollup entry to a single state, reading the right fields for its
+ *  shape: a CheckRun's status/conclusion, or a StatusContext's flat state. */
+function entryState(e: RollupEntry): ChecksState {
+  return isStatusContext(e) ? mapStatusState(e.state) : mapCheckState(e.status, e.conclusion);
+}
+
 /** Map one rollup entry to a job, or null when it has no usable label. */
 function rollupEntryToJob(e: RollupEntry): WorkflowJob | null {
   if (isStatusContext(e)) {
@@ -67,13 +73,15 @@ export function jobsFromRollup(entries: ReadonlyArray<RollupEntry>): WorkflowJob
   return entries.map(rollupEntryToJob).filter((j): j is WorkflowJob => j != null);
 }
 
-/** Roll a list of forge-reported check runs into a single worst-of state
- *  (failure > pending > success > none). */
-export function rollupChecks(runs: ReadonlyArray<CheckRun>): ChecksState {
+/** Roll a list of `statusCheckRollup` entries into a single worst-of state
+ *  (failure > pending > success > none). Folds in legacy StatusContext entries
+ *  via {@link entryState}, so a repo running only commit statuses still rolls up
+ *  to a real state (not "none") and the PRs-tab dot — and its expand — show. */
+export function rollupChecks(runs: ReadonlyArray<RollupEntry>): ChecksState {
   let sawPending = false;
   let sawSuccess = false;
   for (const r of runs) {
-    const st = mapCheckState(r.status, r.conclusion);
+    const st = entryState(r);
     if (st === "failure") return "failure";
     if (st === "pending") sawPending = true;
     else if (st === "success") sawSuccess = true;

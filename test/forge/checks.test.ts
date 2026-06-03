@@ -87,6 +87,20 @@ test("rollupChecks: case-insensitive conclusions", () => {
   expect(rollupChecks([{ status: "Completed", conclusion: "Failure" }])).toBe("failure");
 });
 
+test("rollupChecks: folds in legacy StatusContext entries (not 'none')", () => {
+  // A repo running only commit statuses (no Actions) — must still roll up to a
+  // real state so the PRs-tab dot (and its expand) appear.
+  expect(
+    rollupChecks([{ __typename: "StatusContext", context: "ci/circleci", state: "SUCCESS" }]),
+  ).toBe("success");
+  expect(
+    rollupChecks([
+      { __typename: "StatusContext", context: "ci/circleci", state: "SUCCESS" },
+      { __typename: "StatusContext", context: "netlify", state: "FAILURE" },
+    ]),
+  ).toBe("failure");
+});
+
 test("mapStatusState: maps the coarse StatusContext/Gitea vocab", () => {
   expect(mapStatusState("SUCCESS")).toBe("success");
   expect(mapStatusState("pending")).toBe("pending");

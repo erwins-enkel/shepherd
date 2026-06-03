@@ -328,6 +328,8 @@
   "criticbadge_round_title": "Kritiker-Befunde werden bearbeitet — Runde {round} von {cap}",
   "criticbadge_stalled": "STECKT {round}/{cap}",
   "criticbadge_stalled_title": "Auto-Bearbeitung hat nach {cap} Runden mit offenen Befunden aufgegeben — braucht einen Menschen.",
+  "criticbadge_final": "FINALE {round}/{cap}",
+  "criticbadge_final_title": "Bearbeitet die letzte erlaubte Runde — danach folgt keine weitere.",
   "viewport_decommission_title": "Agent stoppen + Worktree entfernen",
   "viewport_decommission_ready_title": "PR steht. Session schließen & Worktree aufräumen",
   "viewport_decommission_ready_aria": "PR bereit. Einheit stilllegen und Worktree aufräumen",

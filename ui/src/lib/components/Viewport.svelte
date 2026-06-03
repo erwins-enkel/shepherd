@@ -34,6 +34,7 @@
   import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
   import { repoConfig } from "$lib/reviews.svelte";
+  import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -295,8 +296,15 @@
 
   async function toggleSessionAutopilot() {
     // Flip the effective state to an explicit override (this never restores `null`/inherit —
-    // an accepted limitation; clearing back to inherit isn't exposed in the UI).
-    await setSessionAutopilot(session.id, !autopilotEffective).catch(() => {});
+    // an accepted limitation; clearing back to inherit isn't exposed in the UI). The button
+    // reflects server-confirmed state via the session:autopilot WS event, so there's no local
+    // optimistic state to revert — on failure it simply won't move; surface a toast so the
+    // operator knows the click didn't take.
+    try {
+      await setSessionAutopilot(session.id, !autopilotEffective);
+    } catch {
+      toasts.info(m.session_autopilot_toggle_failed());
+    }
   }
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change

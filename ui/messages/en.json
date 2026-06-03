@@ -476,5 +476,6 @@
   "session_autopilot_on_label": "Autopilot on",
   "session_autopilot_off_label": "Autopilot off",
   "session_autopilot_paused_label": "Autopilot paused — needs you",
-  "session_autopilot_paused_title": "Autopilot handed this back for a decision: {question}"
+  "session_autopilot_paused_title": "Autopilot handed this back for a decision: {question}",
+  "session_autopilot_toggle_failed": "Couldn't change autopilot for this session. Try again."
 }

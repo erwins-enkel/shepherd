@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -21,32 +22,46 @@
   let loading = $state(false);
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
+  // null = TODO.md presence not yet resolved for this repo; hide the tab until known.
+  let hasTodo = $state<boolean | null>(null);
 
   const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
+
+  // Resolve TODO.md eagerly per repo (independent of the active tab) so the To-Do
+  // tab is hidden outright when the repo has no TODO.md, and the panel opens on
+  // Issues instead of a dead empty To-Do tab.
+  $effect(() => {
+    const rp = repoPath;
+    hasTodo = null;
+    todos = [];
+    if (!rp) return;
+    getTodo(rp)
+      .then((r) => {
+        if (rp !== repoPath) return;
+        hasTodo = r.exists;
+        const matches: string[] = [];
+        for (const line of r.content.split("\n")) {
+          const match = OPEN_RE.exec(line);
+          if (match) matches.push(match[1].trim());
+        }
+        todos = matches;
+        // Don't leave the user on a tab that's about to vanish.
+        if (!r.exists) untrack(() => tab === "todo" && (tab = "issues"));
+      })
+      .catch(() => {
+        if (rp !== repoPath) return;
+        hasTodo = false;
+        todos = [];
+        untrack(() => tab === "todo" && (tab = "issues"));
+      });
+  });
 
   $effect(() => {
     const rp = repoPath;
     const t = tab;
-    if (!rp) return;
+    if (!rp || t === "todo") return; // todo is loaded eagerly above
     loading = true;
-    if (t === "todo") {
-      getTodo(rp)
-        .then((r) => {
-          if (rp !== repoPath || t !== tab) return;
-          const matches: string[] = [];
-          for (const line of r.content.split("\n")) {
-            const match = OPEN_RE.exec(line);
-            if (match) matches.push(match[1].trim());
-          }
-          todos = matches;
-          loading = false;
-        })
-        .catch(() => {
-          if (rp !== repoPath || t !== tab) return;
-          todos = [];
-          loading = false;
-        });
-    } else if (t === "commands") {
+    if (t === "commands") {
       getCommands(rp)
         .then((r) => {
           if (rp !== repoPath || t !== tab) return;
@@ -97,14 +112,16 @@
   <div class="ps-head">
     <span class="micro seed-label">{m.promptsources_title()}</span>
     <div class="tabs">
-      <button
-        class="tab"
-        class:active={tab === "todo"}
-        type="button"
-        onclick={() => (tab = "todo")}
-      >
-        {m.promptsources_todo_tab()}
-      </button>
+      {#if hasTodo}
+        <button
+          class="tab"
+          class:active={tab === "todo"}
+          type="button"
+          onclick={() => (tab = "todo")}
+        >
+          {m.promptsources_todo_tab()}
+        </button>
+      {/if}
       <button
         class="tab"
         class:active={tab === "issues"}
@@ -125,7 +142,7 @@
   </div>
 
   <div class="ps-body">
-    {#if loading}
+    {#if loading || (tab === "todo" && hasTodo === null)}
       <div class="muted">{m.common_loading()}</div>
     {:else if tab === "todo"}
       {#if todos.length === 0}

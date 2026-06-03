@@ -238,7 +238,6 @@ ui/                 SvelteKit 5 SPA (built to ui/build)
 test/               backend bun:test suites
 docs/superpowers/   design specs + implementation plans (v1–v5)
 PRD.md              product vision + ToS-compliance model (source of truth)
-TODO.md             roadmap / status
 ```
 
 ## Status
@@ -247,8 +246,10 @@ Core through the v5 responsive mobile HUD is shipped: spawn → live PTY → bro
 persistence/resume, repo + branch pickers, per-repo TODO sync, issue prompt sources (GitHub +
 Gitea/Forgejo), platform-agnostic git host buttons (open PR / merge / redeploy),
 per-session model picker, session decommission, and real usage tracking (per-session token counts +
-account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See `TODO.md` for the open backlog and
-`PRD.md` for the full feature set and roadmap.
+account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See the [GitHub issues][issues] for the
+open backlog and `PRD.md` for the full feature set and roadmap.
+
+[issues]: https://github.com/erwins-enkel/shepherd/issues
 
 ### Usage tracking
 

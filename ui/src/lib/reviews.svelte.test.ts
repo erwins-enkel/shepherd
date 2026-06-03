@@ -31,6 +31,7 @@ beforeEach(() => {
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
   repoConfig.learnings = {};
+  repoConfig.autopilot = {};
   vi.clearAllMocks();
 });
 
@@ -91,6 +92,7 @@ test("repoConfig.toggle flips enabled state", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.enabled = { "/repo": true };
   await repoConfig.toggle("/repo");
@@ -102,6 +104,7 @@ test("repoConfig.toggle defaults to false when state unknown (default-on)", asyn
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   // unknown repo → isEnabled returns true → toggle should flip to false
   await repoConfig.toggle("/new-repo");
@@ -122,6 +125,7 @@ test("repoConfig.ensure fetches and caches", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   await repoConfig.ensure("/repo");
   expect(repoConfig.isEnabled("/repo")).toBe(false);
@@ -139,6 +143,7 @@ test("repoConfig.ensure caches the auto-address flag too", async () => {
     criticEnabled: true,
     autoAddressEnabled: true,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   await repoConfig.ensure("/repo");
   expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(true);
@@ -149,6 +154,7 @@ test("repoConfig.toggleAutoAddress flips the flag and sends only that field", as
     criticEnabled: true,
     autoAddressEnabled: true,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.autoAddress = { "/repo": false };
   await repoConfig.toggleAutoAddress("/repo");
@@ -161,6 +167,7 @@ test("repoConfig.toggle sends only the criticEnabled field", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.enabled = { "/repo": true };
   await repoConfig.toggle("/repo");
@@ -181,6 +188,7 @@ test("repoConfig.toggleLearnings flips learnings state", async () => {
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   repoConfig.learnings = { "/repo": true };
   await repoConfig.toggleLearnings("/repo");
@@ -192,4 +200,44 @@ test("repoConfig.toggleLearnings reverts on error", async () => {
   repoConfig.learnings = { "/repo": true };
   await repoConfig.toggleLearnings("/repo");
   expect(repoConfig.learningsOn("/repo")).toBe(true); // reverted to prev
+});
+
+test("repoConfig.isAutopilotEnabled defaults to false for unknown repo", () => {
+  expect(repoConfig.isAutopilotEnabled("/unknown")).toBe(false);
+});
+
+test("repoConfig.isAutopilotEnabled reflects set value", () => {
+  repoConfig.autopilot = { "/repo": true };
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.ensure caches the autopilot flag too", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: true,
+  });
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutopilot flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: true,
+  });
+  repoConfig.autopilot = { "/repo": false };
+  await repoConfig.toggleAutopilot("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autopilotEnabled: true });
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutopilot reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.autopilot = { "/repo": true };
+  await repoConfig.toggleAutopilot("/repo");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true); // reverted to prev
 });

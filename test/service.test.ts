@@ -1379,6 +1379,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);

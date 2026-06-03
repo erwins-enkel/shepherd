@@ -25,6 +25,9 @@ import { HerdrUpdateService } from "./herdr-update";
 import { PushService, attachPush, attachReviewPush, attachGitPush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
+import { AutopilotService } from "./autopilot";
+import { classifyStop } from "./autopilot-llm";
+import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
@@ -205,6 +208,71 @@ setInterval(() => void reviewService.tick(), 15_000);
 // archived sessions: reap any in-flight critic + drop the verdict
 events.subscribe((event, data) => {
   if (event === "session:archived") reviewService.forget((data as { id: string }).id);
+});
+
+// Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
+// session (per-repo default + per-session override) stalls on a procedural gate with no PR
+// yet, a transient classifier decides gate (auto-proceed) / question (surface) / finished
+// (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
+const autopilot = new AutopilotService({
+  store,
+  classify: (tail, taskPrompt, label) =>
+    classifyStop(tail, taskPrompt, { herdr, model: config.autopilotModel }, label),
+  steer: (id, text) => service.reply(id, text),
+  resume: (id) => service.resume(id),
+  paneAlive: (id) => {
+    const s = store.get(id);
+    return !!s && herdr.list().some((a) => a.terminalId === s.herdrAgentId);
+  },
+  readTail: (id) => {
+    const s = store.get(id);
+    return s ? tailLines(herdr.read(s.herdrAgentId, "visible")) : [];
+  },
+  // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
+  // territory. `state` is "none" when no PR exists; anything else means one does.
+  hasPr: (id) => {
+    const st = prPoller.snapshot()[id]?.state;
+    return st !== undefined && st !== "none";
+  },
+  refreshPr: (id) => prPoller.pollSession(id),
+  onPause: (id, question) => {
+    const s = store.get(id);
+    if (!s) return;
+    void push.notify({
+      kind: "autopilot",
+      sessionId: id,
+      tag: id,
+      name: s.name,
+      summary: question,
+    });
+  },
+  onState: (id) => {
+    const s = store.get(id);
+    if (s)
+      events.emit("session:autopilot", {
+        id,
+        paused: s.autopilotPaused,
+        question: s.autopilotQuestion,
+        enabled: s.autopilotEnabled,
+      });
+  },
+  stepCap: config.autopilotStepCap,
+});
+
+// Drive autopilot off the same poller events the rest of the system already emits.
+events.subscribe((event, data) => {
+  if (event === "session:block") {
+    const { id, block } = data as { id: string; block: import("./blocked").BlockReason | null };
+    void autopilot.onBlock(id, block).catch((err) => console.warn("[autopilot] onBlock:", err));
+  } else if (event === "session:status") {
+    const { id, status } = data as { id: string; status: string };
+    autopilot.onStatus(id, status); // clears a pause when the operator replies
+    if (status === "done")
+      void autopilot.onDone(id).catch((err) => console.warn("[autopilot] onDone:", err));
+  } else if (event === "session:git") {
+    const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+    if (git.state === "open") autopilot.onPrOpen(id); // handoff to the critic loop
+  }
 });
 
 // Learnings flywheel: capture block/stall signals, run the distiller on a slow

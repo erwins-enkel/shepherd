@@ -201,6 +201,7 @@
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
   const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
   const learningsOn = $derived(repoConfig.learningsOn(repoPath));
+  const autopilotOn = $derived(repoConfig.isAutopilotEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
@@ -321,6 +322,16 @@
           onclick={() => repoConfig.toggleLearnings(repoPath)}
         >
           🎓<span class="crit-dot" class:on={learningsOn} aria-hidden="true"></span>
+        </button>
+        <button
+          class={["gbtn", "crit-toggle"]}
+          type="button"
+          aria-label={m.gitrail_autopilot_toggle_aria()}
+          aria-pressed={autopilotOn}
+          title={autopilotOn ? m.gitrail_autopilot_on_title() : m.gitrail_autopilot_off_title()}
+          onclick={() => repoConfig.toggleAutopilot(repoPath)}
+        >
+          🛫<span class="crit-dot" class:on={autopilotOn} aria-hidden="true"></span>
         </button>
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}

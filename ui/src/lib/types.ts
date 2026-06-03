@@ -150,6 +150,7 @@ export interface RepoConfig {
   criticEnabled: boolean;
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
+  autopilotEnabled: boolean;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
@@ -174,6 +175,10 @@ export interface Session {
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;
+  autopilotEnabled: boolean | null;
+  autopilotStepCount: number;
+  autopilotPaused: boolean;
+  autopilotQuestion: string | null;
   lastState: string;
   createdAt: number;
   updatedAt: number;
@@ -269,6 +274,10 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  | {
+      event: "session:autopilot";
+      data: { id: string; paused: boolean; question: string | null; enabled: boolean | null };
+    }
   | { event: "session:archived"; data: { id: string } }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }

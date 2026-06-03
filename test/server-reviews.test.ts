@@ -91,6 +91,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
 });
 
@@ -126,6 +127,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
 
   const get = await app.fetch(new Request(url));
@@ -134,6 +136,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
 });
 
@@ -152,6 +155,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     criticEnabled: true,
     autoAddressEnabled: true,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
 });
 
@@ -170,6 +174,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
 });
 

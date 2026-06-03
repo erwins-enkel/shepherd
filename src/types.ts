@@ -17,6 +17,14 @@ export interface Session {
 
   model: string | null; // claude --model alias; null = claude's own default (no flag)
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
+  /** Autopilot opt-in: true/false override, or null to inherit the repo default. */
+  autopilotEnabled: boolean | null;
+  /** Count of auto-steers autopilot has spent on this session (runaway guard; reset on PR-open / operator reply). */
+  autopilotStepCount: number;
+  /** True when autopilot handed control back for a genuine question / step-cap. */
+  autopilotPaused: boolean;
+  /** The classifier's 1–2 sentence summary of what the agent is waiting for; null when not paused. */
+  autopilotQuestion: string | null;
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;
@@ -125,6 +133,15 @@ export interface ReviewVerdict {
   seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
   url?: string; // posted PR-review URL, when the host returns one
   updatedAt: number;
+}
+
+// ── autopilot mode ──────────────────────────────────────────────────────────
+export type AutopilotKind = "gate" | "question" | "finished" | "unknown";
+
+export interface AutopilotVerdict {
+  kind: AutopilotKind;
+  /** 1–2 sentence plain-English description of what the agent is waiting for. */
+  summary: string;
 }
 
 // ── learnings flywheel ────────────────────────────────────────────────────────

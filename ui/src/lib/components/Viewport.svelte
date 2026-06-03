@@ -16,6 +16,7 @@
     resumeSession as apiResumeSession,
     renameSession,
     getLeftovers,
+    setSessionAutopilot,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -31,6 +32,9 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import ReadyToggle from "$lib/components/ReadyToggle.svelte";
+  import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
+  import { repoConfig } from "$lib/reviews.svelte";
+  import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -278,6 +282,30 @@
       session.status !== "running" &&
       session.status !== "blocked",
   );
+
+  // desktop: per-session autopilot toggle — always visible on desktop when not
+  // compact; mirrors readyVisible's placement pattern in the primary header row.
+  const autopilotToggleVisible = $derived(!compact);
+
+  // Effective autopilot state: the session override when set, otherwise the repo default.
+  // The button must reflect THIS (not `=== true`) — a null-override session under an
+  // autopilot-on repo is actually running, and showing it as "off" would mislead.
+  const autopilotEffective = $derived(
+    session.autopilotEnabled ?? repoConfig.isAutopilotEnabled(session.repoPath),
+  );
+
+  async function toggleSessionAutopilot() {
+    // Flip the effective state to an explicit override (this never restores `null`/inherit —
+    // an accepted limitation; clearing back to inherit isn't exposed in the UI). The button
+    // reflects server-confirmed state via the session:autopilot WS event, so there's no local
+    // optimistic state to revert — on failure it simply won't move; surface a toast so the
+    // operator knows the click didn't take.
+    try {
+      await setSessionAutopilot(session.id, !autopilotEffective);
+    } catch {
+      toasts.info(m.session_autopilot_toggle_failed());
+    }
+  }
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -1115,6 +1143,25 @@
              rail unconditionally via GitRail). Shared component → no drift. -->
         <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
       {/if}
+      {#if autopilotToggleVisible}
+        <!-- desktop: per-session autopilot override toggle. Reflects the EFFECTIVE state
+             (session override, else repo default) so a null-override session isn't shown
+             as off while the repo default has it running. -->
+        <button
+          class="ap-toggle"
+          class:on={autopilotEffective}
+          type="button"
+          aria-pressed={autopilotEffective}
+          aria-label={m.session_autopilot_toggle_aria()}
+          title={autopilotEffective
+            ? m.session_autopilot_on_label()
+            : m.session_autopilot_off_label()}
+          onclick={toggleSessionAutopilot}
+        >
+          {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
+        </button>
+        <AutopilotBadge {session} />
+      {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
@@ -1583,6 +1630,33 @@
   .git-toggle.attention .gt-caret,
   .git-toggle.clear .gt-caret {
     color: currentColor;
+  }
+
+  /* per-session autopilot toggle: matches .git-toggle sizing + .ready-toggle.bar style */
+  .ap-toggle {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .ap-toggle:hover {
+    color: var(--color-ink);
+  }
+  .ap-toggle.on {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

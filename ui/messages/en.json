@@ -98,6 +98,9 @@
   "gitrail_learnings_toggle_aria": "Toggle Shepherd house-rule injection for this repo",
   "gitrail_learnings_on_title": "House rules injected into new agents — click to disable",
   "gitrail_learnings_off_title": "House rules NOT injected — click to enable",
+  "gitrail_autopilot_toggle_aria": "Toggle autopilot for this repository",
+  "gitrail_autopilot_on_title": "Autopilot is on by default: new sessions drive through procedural stops and head for a PR on their own, pausing only for genuine questions. Click to turn it off for this repository.",
+  "gitrail_autopilot_off_title": "Autopilot is off: turn it on so sessions auto-proceed through procedural stops and lead themselves to a PR, surfacing only real questions. Click to turn it on for this repository.",
   "gitrail_send_review": "↩ Send review to agent",
   "gitrail_send_review_failed": "send failed",
   "gitrail_review_title": "Critic findings",
@@ -468,5 +471,11 @@
   "steerseditor_label_aria": "Steer label",
   "steerseditor_text_aria": "Steer prompt text",
   "broadcast_textarea_aria": "Steer message",
-  "statuspip_status_aria": "Status: {status}"
+  "statuspip_status_aria": "Status: {status}",
+  "session_autopilot_toggle_aria": "Toggle autopilot for this session",
+  "session_autopilot_on_label": "Autopilot on",
+  "session_autopilot_off_label": "Autopilot off",
+  "session_autopilot_paused_label": "Autopilot paused — needs you",
+  "session_autopilot_paused_title": "Autopilot handed this back for a decision: {question}",
+  "session_autopilot_toggle_failed": "Couldn't change autopilot for this session. Try again."
 }

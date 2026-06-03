@@ -113,6 +113,18 @@ export class HerdStore {
           s.id === ev.data.id ? { ...s, readyToMerge: ev.data.ready } : s,
         );
         break;
+      case "session:autopilot":
+        this.sessions = this.sessions.map((s) =>
+          s.id === ev.data.id
+            ? {
+                ...s,
+                autopilotPaused: ev.data.paused,
+                autopilotQuestion: ev.data.question,
+                autopilotEnabled: ev.data.enabled,
+              }
+            : s,
+        );
+        break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);

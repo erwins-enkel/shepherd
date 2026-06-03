@@ -82,6 +82,10 @@ export const config = {
   // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
   // (~25 max-length rules); only an unusually large curated set is capped.
   houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
+  // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
+  autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
+  // Model alias for the transient autopilot stop-classifier spawn (cheap + fast is plenty).
+  autopilotModel: process.env.SHEPHERD_AUTOPILOT_MODEL ?? "haiku",
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

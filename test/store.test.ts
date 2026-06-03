@@ -44,26 +44,31 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
 });
 

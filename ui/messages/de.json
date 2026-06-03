@@ -98,6 +98,9 @@
   "gitrail_learnings_toggle_aria": "Shepherd-Hausregeln für dieses Repo umschalten",
   "gitrail_learnings_on_title": "Hausregeln werden in neue Agenten injiziert — zum Deaktivieren klicken",
   "gitrail_learnings_off_title": "Hausregeln werden NICHT injiziert — zum Aktivieren klicken",
+  "gitrail_autopilot_toggle_aria": "Autopilot für dieses Repository umschalten",
+  "gitrail_autopilot_on_title": "Autopilot ist standardmäßig an: Neue Sessions arbeiten sich selbst durch prozedurale Stopps und steuern auf einen PR zu; sie pausieren nur bei echten Fragen. Klicken zum Ausschalten für dieses Repository.",
+  "gitrail_autopilot_off_title": "Autopilot ist aus: Einschalten, damit Sessions prozedurale Stopps selbst überspringen und sich zu einem PR führen und nur echte Fragen melden. Klicken zum Einschalten für dieses Repository.",
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",
   "gitrail_review_title": "Kritiker-Befunde",
@@ -468,5 +471,11 @@
   "steerseditor_label_aria": "Steer-Bezeichnung",
   "steerseditor_text_aria": "Steer-Prompttext",
   "broadcast_textarea_aria": "Steer-Nachricht",
-  "statuspip_status_aria": "Status: {status}"
+  "statuspip_status_aria": "Status: {status}",
+  "session_autopilot_toggle_aria": "Autopilot für diese Session umschalten",
+  "session_autopilot_on_label": "Autopilot an",
+  "session_autopilot_off_label": "Autopilot aus",
+  "session_autopilot_paused_label": "Autopilot pausiert — braucht dich",
+  "session_autopilot_paused_title": "Autopilot hat dies für eine Entscheidung zurückgegeben: {question}",
+  "session_autopilot_toggle_failed": "Autopilot für diese Session konnte nicht geändert werden. Erneut versuchen."
 }

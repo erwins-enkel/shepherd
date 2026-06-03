@@ -28,6 +28,10 @@ function session(id: string): Session {
     model: null,
     status: "running",
     readyToMerge: false,
+    autopilotEnabled: null,
+    autopilotStepCount: 0,
+    autopilotPaused: false,
+    autopilotQuestion: null,
     lastState: "working",
     createdAt: 0,
     updatedAt: 0,
@@ -86,6 +90,29 @@ test("session:archived drops the git entry", () => {
   s.setGit({ s1: GIT });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.git.s1).toBeUndefined();
+});
+
+test("session:autopilot merges autopilot fields into the matching session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({
+    event: "session:autopilot",
+    data: { id: "s1", paused: true, question: "Which provider?", enabled: true },
+  });
+  const a = s.byId("s1");
+  const b = s.byId("s2");
+  expect(a?.autopilotPaused).toBe(true);
+  expect(a?.autopilotQuestion).toBe("Which provider?");
+  expect(a?.autopilotEnabled).toBe(true);
+  expect(b?.autopilotPaused).toBe(false); // other sessions untouched
+  // clear path
+  s.apply({
+    event: "session:autopilot",
+    data: { id: "s1", paused: false, question: null, enabled: null },
+  });
+  expect(s.byId("s1")?.autopilotPaused).toBe(false);
+  expect(s.byId("s1")?.autopilotQuestion).toBeNull();
+  expect(s.byId("s1")?.autopilotEnabled).toBeNull();
 });
 
 test("session:renamed patches the name + branch of the matching session", () => {

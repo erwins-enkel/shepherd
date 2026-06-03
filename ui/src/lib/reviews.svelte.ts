@@ -57,11 +57,12 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic + auto-address + learnings on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address + learnings + autopilot on/off, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
+  autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
 
   async ensure(repoPath: string) {
     if (repoPath in this.enabled) return;
@@ -70,15 +71,21 @@ class RepoConfigStore {
       this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
       this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
+      this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
     } catch {
-      /* leave unset; UI shows defaults (critic on, auto-address off, learnings on) optimistically */
+      /* leave unset; UI shows defaults (critic on, auto-address off, learnings on, autopilot off) optimistically */
     }
   }
 
   /** Optimistically apply a patch, then reconcile from the server (or revert on error). */
   private async apply(
     repoPath: string,
-    patch: Partial<Pick<RepoConfig, "criticEnabled" | "autoAddressEnabled" | "learningsEnabled">>,
+    patch: Partial<
+      Pick<
+        RepoConfig,
+        "criticEnabled" | "autoAddressEnabled" | "learningsEnabled" | "autopilotEnabled"
+      >
+    >,
     revert: () => void,
   ) {
     try {
@@ -86,6 +93,7 @@ class RepoConfigStore {
       this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
       this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
+      this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
     } catch {
       revert();
     }
@@ -118,6 +126,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleAutopilot(repoPath: string) {
+    const prev = this.autopilot[repoPath];
+    const next = !this.isAutopilotEnabled(repoPath);
+    this.autopilot = { ...this.autopilot, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { autopilotEnabled: next }, () => {
+      this.autopilot = { ...this.autopilot, [repoPath]: prev };
+    });
+  }
+
   isEnabled(repoPath: string): boolean {
     return this.enabled[repoPath] ?? true;
   }
@@ -128,6 +145,10 @@ class RepoConfigStore {
 
   learningsOn(repoPath: string): boolean {
     return this.learnings[repoPath] ?? true;
+  }
+
+  isAutopilotEnabled(repoPath: string): boolean {
+    return this.autopilot[repoPath] ?? false;
   }
 }
 export const repoConfig = new RepoConfigStore();

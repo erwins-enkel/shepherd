@@ -80,6 +80,7 @@ function makeDeps(
   const started: { name: string; cwd: string; argv: string[] }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
+  const bumped: { id: string; headSha: string }[] = []; // bumpReviewHead calls (rebase-skip)
   const steers: { id: string; text: string }[] = [];
   const signals: { kind: string; payload: string }[] = [];
   const commentCalls: number[] = []; // prNumbers passed to listPrComments
@@ -93,6 +94,11 @@ function makeDeps(
       getReview: (id: string) => reviews[id] ?? null,
       putReview: (v: ReviewVerdict) => {
         reviews[v.sessionId] = v;
+      },
+      bumpReviewHead: (id: string, headSha: string, updatedAt: number) => {
+        bumped.push({ id, headSha });
+        const r = reviews[id];
+        if (r) reviews[id] = { ...r, headSha, updatedAt };
       },
       dropReview: (id: string) => {
         delete reviews[id];
@@ -121,7 +127,18 @@ function makeDeps(
     readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
     ...over,
   };
-  return { deps: base, reviews, started, stopped, removed, steers, signals, commentCalls, rec };
+  return {
+    deps: base,
+    reviews,
+    started,
+    stopped,
+    removed,
+    bumped,
+    steers,
+    signals,
+    commentCalls,
+    rec,
+  };
 }
 
 test("reviewPrompt embeds base + task and asks for the verdict file", () => {
@@ -290,6 +307,7 @@ test("forget reaps an in-flight critic and drops the stored review", () => {
   reviews["s1"] = {
     sessionId: "s1",
     headSha: "abc",
+    patchId: "pid-abc",
     decision: "commented",
     summary: "",
     body: "",
@@ -304,6 +322,97 @@ test("forget reaps an in-flight critic and drops the stored review", () => {
   expect(stopped).toEqual(["rt"]); // critic terminal reaped
   expect(removed).toEqual(["/review-wt"]); // worktree removed
   expect(reviews["s1"]).toBeUndefined(); // stored verdict dropped
+});
+
+// ── rebase-skip (content-fingerprint dedup) ───────────────────────────────────
+
+test("rebase with identical diff: skips the critic, re-points head, preserves the verdict", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+    removed,
+    bumped,
+  } = makeDeps({
+    computePatchId: () => "pid-same",
+  });
+  // prior verdict was for head "old"; the branch is force-pushed/rebased to "newsha"
+  // but its diff is identical → same patch-id.
+  reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(0); // no critic spawned
+  expect(removed).toEqual(["/review-wt"]); // the probe worktree is reaped
+  expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
+  // verdict otherwise intact: outstanding findings + patch-id survive (not re-posted)
+  expect(reviews["s1"]?.findings).toEqual(["fix the race in worker.ts"]);
+  expect(reviews["s1"]?.patchId).toBe("pid-same");
+});
+
+test("new commit (different diff): reviews and records the new fingerprint", async () => {
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => "pid-new" });
+  reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(bumped).toHaveLength(0); // not a skip
+  expect(started).toHaveLength(1); // critic spawned
+  await svc.tick();
+  expect(reviews["s1"]?.patchId).toBe("pid-new"); // fingerprint persisted on the verdict
+});
+
+test("first review records the fingerprint for later rebase-skip", async () => {
+  const { deps: d, reviews, started } = makeDeps({ computePatchId: () => "pid-first" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN); // no prior
+  expect(started).toHaveLength(1);
+  await svc.tick();
+  expect(reviews["s1"]?.patchId).toBe("pid-first");
+});
+
+test("unresolvable fingerprint never skips: reviews even with a prior verdict", async () => {
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => null });
+  // prior has a real patch-id, but this run can't fingerprint (git failed / empty diff)
+  reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(bumped).toHaveLength(0); // safety default → do not skip
+  expect(started).toHaveLength(1); // reviewed
+});
+
+test("prior error verdict never rebase-skips (retries the transient failure)", async () => {
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => "pid-same" });
+  // an errored prior that (legacy row / defensive) still carries a matching fingerprint
+  reviews["s1"] = priorReview({ decision: "error", patchId: "pid-same", headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(bumped).toHaveLength(0); // not skipped despite identical fingerprint
+  expect(started).toHaveLength(1); // re-reviewed instead of inheriting the stale error
+});
+
+test("error verdict records no fingerprint (so a later head always re-reviews)", async () => {
+  const { deps: d, reviews } = makeDeps({
+    computePatchId: () => "pid-x",
+    readVerdict: () => ({ decision: "bogus", summary: "?", body: "" }), // unparseable → error
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.patchId).toBe(""); // no fingerprint persisted on a failed run
+});
+
+test("rebase-skip short-circuits before any forge call (no author-notes fetch)", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+    commentCalls,
+  } = makeDeps({ computePatchId: () => "pid-same" }, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" }); // has findings
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(0); // skipped
+  expect(commentCalls).toEqual([]); // skip happened before fetchAuthorNotes
 });
 
 // ── auto-address loop ─────────────────────────────────────────────────────────
@@ -394,6 +503,7 @@ test("clean verdict (no findings) stops the loop and resets the round", async ()
   reviews["s1"] = {
     sessionId: "s1",
     headSha: "old",
+    patchId: "pid-old",
     decision: "changes_requested",
     summary: "",
     body: "",
@@ -432,6 +542,7 @@ test("round cap reached: holds the round, posts the review + signal, does not st
   reviews["s1"] = {
     sessionId: "s1",
     headSha: "old",
+    patchId: "pid-old",
     decision: "changes_requested",
     summary: "",
     body: "",
@@ -541,6 +652,7 @@ function priorReview(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
   return {
     sessionId: "s1",
     headSha: "old",
+    patchId: "pid-old",
     decision: "changes_requested",
     summary: "",
     body: "",

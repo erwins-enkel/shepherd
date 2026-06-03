@@ -73,6 +73,7 @@ test("reviews: upsert + read by session, snapshot all", () => {
   const v = {
     sessionId: "s1",
     headSha: "abc",
+    patchId: "pid-abc",
     decision: "changes_requested" as const,
     summary: "2 issues",
     body: "## findings",
@@ -114,6 +115,30 @@ test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default w
   expect(r?.addressCap).toBe(3); // backfilled to the migration default
   expect(r?.errorRound).toBe(0);
   expect(r?.seenNoteIds).toEqual([]);
+  expect(r?.patchId).toBe(""); // pre-rebase-skip rows backfill to '' (unknown → always reviews)
+});
+
+test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise intact", () => {
+  const store = new SessionStore(":memory:");
+  const v = {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "pid-1",
+    decision: "changes_requested" as const,
+    summary: "still broken",
+    body: "## findings",
+    findings: ["fix the off-by-one"],
+    addressRound: 2,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: ["c1"],
+    url: "u",
+    updatedAt: 100,
+  };
+  store.putReview(v);
+  store.bumpReviewHead("s1", "def", 200);
+  // identical-content rebase: head + clock move, everything else (incl. patchId) holds
+  expect(store.getReview("s1")).toEqual({ ...v, headSha: "def", updatedAt: 200 });
 });
 
 test("readyToMerge: defaults false on create, round-trips through update", () => {

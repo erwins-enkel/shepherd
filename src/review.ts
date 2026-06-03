@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -72,6 +73,7 @@ const DEFAULT_CAP = 3;
 interface InFlight {
   sessionId: string;
   headSha: string;
+  patchId: string; // fingerprint of this run's reviewed diff; persisted on the verdict for rebase-skip
   prNumber: number;
   branch: string; // head branch, for the at-finalize live PR-state recheck (prStatus keys on it)
   repoPath: string;
@@ -88,7 +90,13 @@ interface InFlight {
 export interface ReviewServiceDeps {
   store: Pick<
     SessionStore,
-    "getRepoConfig" | "getReview" | "putReview" | "dropReview" | "snapshotReviews" | "addSignal"
+    | "getRepoConfig"
+    | "getReview"
+    | "putReview"
+    | "bumpReviewHead"
+    | "dropReview"
+    | "snapshotReviews"
+    | "addSignal"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -109,6 +117,9 @@ export interface ReviewServiceDeps {
   timeoutMs?: number; // give up waiting on the verdict file
   /** Injectable verdict reader (default: read VERDICT_FILE from the worktree). */
   readVerdict?: (worktreePath: string) => RawVerdict | null;
+  /** Injectable content fingerprint of `git diff base...HEAD` in the worktree (default:
+   *  real `git patch-id`). Returns null when there's no diff or git fails → never skips. */
+  computePatchId?: (worktreePath: string, base: string) => string | null;
 }
 
 interface RawVerdict {
@@ -129,12 +140,14 @@ export class ReviewService {
   private timeoutMs: number;
   private cap: number;
   private readVerdict: (worktreePath: string) => RawVerdict | null;
+  private computePatchId: (worktreePath: string, base: string) => string | null;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
     this.cap = deps.cap ?? DEFAULT_CAP;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
+    this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. */
@@ -158,34 +171,10 @@ export class ReviewService {
     // carries this streak's accountability state: its findings get fed to the critic
     // to verify they were addressed, and its addressRound bounds the auto-address loop.
     const prior = this.deps.store.getReview(session.id);
-    const priorFindings = prior?.findings ?? [];
-    const priorRound = prior?.addressRound ?? 0;
-    const priorErrorRound = prior?.errorRound ?? 0;
-    // On a re-review under auto-address, pull the author's PR notes so a justified
-    // decline isn't blindly re-raised. Gated on autoAddressEnabled (the path that
-    // creates those notes) so critic-only repos make no extra forge call. This is
-    // the one async step; a first review skips it and stays fully synchronous.
-    //
-    // Inject only notes NOT already shown to the critic on an earlier round (tracked
-    // by comment id, carried on the prior verdict): each note responded to one round's
-    // findings, so re-feeding every marked comment every round would grow the prompt
-    // unboundedly and resurrect stale justifications. Id-based — never timestamp-based:
-    // the host clock and GitHub's comment clock can skew and drop a valid decline.
-    const priorSeenNoteIds = prior?.seenNoteIds ?? [];
-    let seenNoteIds = priorSeenNoteIds;
-    let authorNotes: string[] = [];
-    if (
-      priorFindings.length &&
-      this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled
-    ) {
-      const fresh = await this.fetchAuthorNotes(session.repoPath, git.number!, priorSeenNoteIds);
-      authorNotes = fresh.notes;
-      seenNoteIds = [...priorSeenNoteIds, ...fresh.ids];
-    }
-    // forget() (session archived) may have fired during the await above; it clears our
-    // `starting` claim as a tombstone. Abort before allocating a worktree/critic so we
-    // don't run for — and re-post a review + re-insert a verdict row for — a gone session.
-    if (!this.starting.has(session.id)) return;
+
+    // Allocate the disposable worktree at the PR head first: it's the cheap, reliable way
+    // to resolve both head + base locally (a force-pushed SHA may not be in the repo until
+    // it's checked out), and it's exactly the tree the critic would review.
     let wt;
     try {
       wt = this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
@@ -193,12 +182,117 @@ export class ReviewService {
       console.warn(`[review] worktree failed for ${session.id}:`, err);
       return;
     }
-    // Read-only critic — deliberately NOT --dangerously-skip-permissions. It
-    // inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff
-    // must not be able to run commands or escape its worktree. `dontAsk`
-    // auto-denies anything off the allowlist (an unattended PTY would otherwise
-    // hang on a permission prompt); the allowlist is read-only inspection +
-    // read-only git + writing files in its own disposable worktree.
+
+    const { patchId, skipped } = this.rebaseSkip(session, git, prior, wt.worktreePath);
+    if (skipped) return;
+
+    // Notes are fetched lazily (only a re-review under auto-address needs them) so a first
+    // review / critic-only repo stays fully synchronous up to the spawn — the await below is
+    // never reached when `wantNotes` is false, so it doesn't suspend.
+    const wantNotes =
+      !!prior?.findings?.length &&
+      this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled;
+    const { seenNoteIds, authorNotes } = wantNotes
+      ? await this.gatherAuthorNotes(session, git, prior)
+      : { seenNoteIds: prior?.seenNoteIds ?? [], authorNotes: [] as string[] };
+    // forget() (session archived) may have fired during the await above; it clears our
+    // `starting` claim as a tombstone. Abort (reaping the worktree we allocated) before
+    // spawning so we don't run for — and re-post a review + re-insert a verdict row for —
+    // a gone session.
+    if (!this.starting.has(session.id)) {
+      this.deps.worktree.remove(wt.worktreePath);
+      return;
+    }
+
+    const argv = this.criticArgv(session, prior?.findings ?? [], authorNotes);
+    let terminalId: string;
+    try {
+      terminalId = this.deps.herdr.start(
+        `review ${session.desig}`,
+        wt.worktreePath,
+        argv,
+      ).terminalId;
+    } catch (err) {
+      console.warn(`[review] spawn failed for ${session.id}:`, err);
+      this.deps.worktree.remove(wt.worktreePath);
+      return;
+    }
+    this.inflight.set(session.id, {
+      sessionId: session.id,
+      headSha: git.headSha!,
+      patchId,
+      prNumber: git.number!,
+      branch: session.branch!,
+      repoPath: session.repoPath,
+      worktreePath: wt.worktreePath,
+      terminalId,
+      startedAt: this.now(),
+      priorRound: prior?.addressRound ?? 0,
+      priorErrorRound: prior?.errorRound ?? 0,
+      priorSeenNoteIds: prior?.seenNoteIds ?? [],
+      seenNoteIds,
+    });
+    this.deps.onReviewing?.(session.id, true);
+  }
+
+  /**
+   * Rebase-skip: dedup on WHAT the critic reviews (the branch diff `base...HEAD`), not on
+   * the head SHA. A rebase/force-push moves the SHA but leaves the branch's own diff
+   * identical, so its patch-id is stable (patch-id ignores line numbers — robust to the new
+   * base shifting hunks). Identical fingerprint → the prior verdict still holds: re-point it
+   * at the new head (so consider()'s SHA guard short-circuits next poll), reap the probe
+   * worktree, and skip the run — deliberately preserving findings/decision/rounds (those
+   * still apply, and we must not double-post). Empty/failed fingerprint ('' or null) → never
+   * skip; review. Returns the fingerprint (persisted on the verdict) + whether we skipped.
+   *
+   * Never skip past an `error` verdict: a timeout/unparseable run produced no real verdict,
+   * so its decision is a transient failure to RETRY, not a result to preserve — inheriting it
+   * across an identical-diff rebase would freeze the PR on a stale error. (Defensive even
+   * though buildVerdict no longer fingerprints error verdicts: this also covers error rows
+   * persisted before that change.)
+   */
+  private rebaseSkip(
+    session: Session,
+    git: GitState,
+    prior: ReviewVerdict | null,
+    worktreePath: string,
+  ): { patchId: string; skipped: boolean } {
+    const patchId = this.computePatchId(worktreePath, session.baseBranch) ?? "";
+    if (patchId && prior?.patchId && prior.decision !== "error" && prior.patchId === patchId) {
+      this.deps.store.bumpReviewHead(session.id, git.headSha!, this.now());
+      this.deps.worktree.remove(worktreePath);
+      return { patchId, skipped: true };
+    }
+    return { patchId, skipped: false };
+  }
+
+  /**
+   * Pull the author's PR notes for a re-review so a justified decline isn't blindly
+   * re-raised (caller gates this on a prior-with-findings under auto-address).
+   *
+   * Inject only notes NOT already shown to the critic on an earlier round (tracked by comment
+   * id, carried on the prior verdict): each note responded to one round's findings, so
+   * re-feeding every marked comment every round would grow the prompt unboundedly and
+   * resurrect stale justifications. Id-based — never timestamp-based: the host clock and
+   * GitHub's comment clock can skew and drop a valid decline. Returns the per-round seen-note
+   * set to carry forward plus the note bodies for the critic prompt.
+   */
+  private async gatherAuthorNotes(
+    session: Session,
+    git: GitState,
+    prior: ReviewVerdict | null,
+  ): Promise<{ seenNoteIds: string[]; authorNotes: string[] }> {
+    const priorSeenNoteIds = prior?.seenNoteIds ?? [];
+    const fresh = await this.fetchAuthorNotes(session.repoPath, git.number!, priorSeenNoteIds);
+    return { seenNoteIds: [...priorSeenNoteIds, ...fresh.ids], authorNotes: fresh.notes };
+  }
+
+  /** Build the read-only critic's argv — deliberately NOT --dangerously-skip-permissions. It
+   *  inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff must not be able
+   *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
+   *  (an unattended PTY would otherwise hang on a permission prompt); the allowlist is
+   *  read-only inspection + read-only git + writing files in its own disposable worktree. */
+  private criticArgv(session: Session, priorFindings: string[], authorNotes: string[]): string[] {
     const argv = [
       "claude",
       "--session-id",
@@ -241,33 +335,7 @@ export class ReviewService {
     // with no task, and hangs until timeout (every review). Don't reorder.
     argv.push("--permission-mode", "dontAsk");
     argv.push(reviewPrompt(session.baseBranch, session.prompt, priorFindings, authorNotes));
-    let terminalId: string;
-    try {
-      terminalId = this.deps.herdr.start(
-        `review ${session.desig}`,
-        wt.worktreePath,
-        argv,
-      ).terminalId;
-    } catch (err) {
-      console.warn(`[review] spawn failed for ${session.id}:`, err);
-      this.deps.worktree.remove(wt.worktreePath);
-      return;
-    }
-    this.inflight.set(session.id, {
-      sessionId: session.id,
-      headSha: git.headSha!,
-      prNumber: git.number!,
-      branch: session.branch!,
-      repoPath: session.repoPath,
-      worktreePath: wt.worktreePath,
-      terminalId,
-      startedAt: this.now(),
-      priorRound,
-      priorErrorRound,
-      priorSeenNoteIds,
-      seenNoteIds,
-    });
-    this.deps.onReviewing?.(session.id, true);
+    return argv;
   }
 
   /** Read the author's marked decline notes back off the PR, restricted to comments not
@@ -451,6 +519,10 @@ export class ReviewService {
     return {
       sessionId: f.sessionId,
       headSha: f.headSha,
+      // Fingerprint of this run's diff; a later identical head skips re-review. NOT recorded
+      // for an error verdict (timeout/unparseable): that's a transient failure to retry, so a
+      // content-identical rebase must re-review rather than inherit the stale error.
+      patchId: resolved === "error" ? "" : f.patchId,
       decision: resolved,
       summary,
       body: raw && typeof raw.body === "string" ? raw.body : "",
@@ -484,6 +556,51 @@ export class ReviewService {
       this.deps.onReviewing?.(sessionId, false);
     }
     this.deps.store.dropReview(sessionId);
+  }
+}
+
+/** Fingerprint the branch diff with `git patch-id` so a rebase (same diff, new SHA) is a
+ *  no-op. patch-id ignores line numbers, so it stays stable when the rebased-onto base
+ *  shifts hunks elsewhere; it changes only when the branch's own changed lines or their
+ *  context change. Null on no diff or any git failure → caller never skips (reviews). */
+function defaultComputePatchId(worktreePath: string, base: string): string | null {
+  try {
+    // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
+    // only the head branch, so local `main` can lag behind origin; on a rebase onto newer
+    // main the three-dot merge-base would then sit at the OLD main and fold everyone else's
+    // merges (M_old..M_new) into `base...HEAD`. The fingerprint would never match the prior
+    // review and the skip would silently never fire — exactly the merge-train case it
+    // targets. So fetch the base fresh and diff against FETCH_HEAD: the merge-base becomes
+    // the true current fork point, which is stable across a clean rebase. Offline / no origin
+    // → fall back to the local base ref (best-effort; worst case we review).
+    let ref = base;
+    try {
+      // `--` blocks flag-smuggling via a hostile branch name (mirrors createDetached).
+      execFileSync("git", ["fetch", "origin", "--", base], { cwd: worktreePath, stdio: "pipe" });
+      ref = "FETCH_HEAD";
+    } catch {
+      /* offline or no origin remote — fall through to the local base ref */
+    }
+    // 64 MiB ceiling: a real branch diff won't approach it; a runaway one just falls back
+    // to null (review) rather than throwing.
+    const diff = execFileSync("git", ["diff", `${ref}...HEAD`], {
+      cwd: worktreePath,
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (!diff.length) return null; // no diff → nothing to fingerprint
+    const out = execFileSync("git", ["patch-id", "--stable"], {
+      cwd: worktreePath,
+      input: diff,
+      maxBuffer: 1024 * 1024,
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    const id = out.split(/\s+/)[0] ?? ""; // "<patch-id> <commit-id>" → take the patch-id
+    return id || null;
+  } catch {
+    return null; // git missing / bad base / empty → don't skip
   }
 }
 

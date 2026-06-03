@@ -226,6 +226,83 @@ test("emits when only the latest review changes", async () => {
   expect(emitted.length).toBe(2);
 });
 
+function forgeByBranch(byBranch: Record<string, PrStatus>): GitForge {
+  return {
+    kind: "github",
+    slug: "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    listIssues: async () => [],
+    listPullRequests: async () => [],
+    prStatus: async (head: string) => byBranch[head] ?? NONE,
+    openPr: async () => NONE,
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async () => ({}),
+  };
+}
+
+test("reconciles to the live worktree branch when the stored branch has no PR", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession); // stored branch shepherd/x has no PR
+  const emitted: { id: string; state: string; number?: number }[] = [];
+  let reconcileCalls = 0;
+  const poller = new PrPoller(
+    store,
+    () => forgeByBranch({ "shepherd/renamed": OPEN }), // PR lives on the renamed branch
+    (id, git) => emitted.push({ id, state: git.state, number: git.number }),
+    120_000,
+    1000,
+    (sess) => {
+      reconcileCalls++;
+      expect(sess.id).toBe(s.id);
+      return "shepherd/renamed"; // agent renamed the worktree branch
+    },
+  );
+
+  await poller.tick();
+  expect(reconcileCalls).toBe(1);
+  expect(emitted).toEqual([{ id: s.id, state: "open", number: 7 }]);
+});
+
+test("does not reconcile when the stored branch already has a PR", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let reconcileCalls = 0;
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN),
+    () => {},
+    120_000,
+    1000,
+    () => {
+      reconcileCalls++;
+      return "shepherd/renamed";
+    },
+  );
+
+  await poller.tick();
+  expect(reconcileCalls).toBe(0); // stored branch matched → no reconcile attempt
+});
+
+test("leaves state none when reconcile finds no other branch", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => NONE),
+    (_id, git) => emitted.push({ state: git.state }),
+    120_000,
+    1000,
+    () => null, // nothing to adopt
+  );
+
+  await poller.tick();
+  expect(emitted).toEqual([{ state: "none" }]);
+  expect(poller.snapshot()[s.id]?.state).toBe("none");
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

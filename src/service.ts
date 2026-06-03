@@ -13,7 +13,7 @@ export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
     WorktreeMgr,
-    "create" | "remove" | "renameBranch" | "branchExists" | "commitsAhead"
+    "create" | "remove" | "renameBranch" | "branchExists" | "commitsAhead" | "currentBranch"
   >;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel">;
   namer: (prompt: string) => string | Promise<string>;
@@ -243,6 +243,42 @@ export class SessionService {
   /** Whether a local branch already exists — the server's pre-flight check before a rename. */
   branchExists(repoPath: string, branch: string): boolean {
     return this.deps.worktree.branchExists(repoPath, branch);
+  }
+
+  /**
+   * Reconcile a session's stored branch with the one actually checked out in its
+   * worktree. An agent that runs `git checkout -b` / `git branch -m` renames the
+   * branch out from under us, so the stored `branch` goes stale and PR detection
+   * (which queries `gh pr list --head <branch>`) silently misses the opened PR.
+   * Called by the PR poller on a "no PR found" miss. When the live branch differs,
+   * adopt it (re-point `branch`) — that alone is what restores PR recognition.
+   * Returns the adopted branch (so the poller can re-query), or null when nothing
+   * changed / it can't be determined.
+   *
+   * The display `name` follows only when it still trivially mirrors the *old* branch
+   * (i.e. was auto-derived). A name that already diverged is a chosen name — a manual
+   * rename or an LLM refine — and outranks a raw branch slug, the same precedence
+   * `refineNameInBackground` enforces. When it does follow, it's de-duped through
+   * `uniqueName` like the other automatic rename paths so it can't clash with a
+   * sibling's tab label.
+   */
+  syncWorktreeBranch(id: string): string | null {
+    const s = this.deps.store.get(id);
+    if (!s || !s.isolated || !s.branch) return null;
+    const live = this.deps.worktree.currentBranch(s.worktreePath);
+    if (!live || live === s.branch) return null;
+    const nameMirrorsBranch = s.name === s.branch.replace(/^shepherd\//, "");
+    const label = nameMirrorsBranch ? this.uniqueName(live.replace(/^shepherd\//, "")) : null;
+    this.deps.store.update(id, label ? { name: label, branch: live } : { branch: live });
+    if (label) {
+      try {
+        this.deps.herdr.relabel(s.herdrAgentId, label);
+      } catch {
+        /* tab may be gone — branch adoption still stands */
+      }
+    }
+    this.deps.events?.emit("session:renamed", { id, name: label ?? s.name, branch: live });
+    return live;
   }
 
   rename(id: string, slug: string, opts: { renameLocalBranch: boolean }): Session | null {

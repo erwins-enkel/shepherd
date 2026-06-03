@@ -93,6 +93,159 @@ test("setReadyToMerge persists the flag and emits session:ready", () => {
   expect(emitted[1]).toEqual({ event: "session:ready", data: { id: s.id, ready: false } });
 });
 
+test("syncWorktreeBranch adopts the agent's renamed branch, syncs name + tab, emits", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "view-refresh",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const emitted: { event: string; data: unknown }[] = [];
+  const relabels: { id: string; label: string }[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    herdr: {
+      relabel: (id: string, label: string) => relabels.push({ id, label }),
+      list: () => [],
+    } as any,
+    events: { emit: (event, data) => emitted.push({ event, data }) },
+  });
+
+  const adopted = service.syncWorktreeBranch(s.id);
+  expect(adopted).toBe("shepherd/refresh-on-wake");
+  const row = store.get(s.id)!;
+  expect(row.branch).toBe("shepherd/refresh-on-wake");
+  expect(row.name).toBe("refresh-on-wake"); // shepherd/ prefix stripped for display
+  expect(relabels).toEqual([{ id: "term_a", label: "refresh-on-wake" }]);
+  expect(emitted).toEqual([
+    {
+      event: "session:renamed",
+      data: { id: s.id, name: "refresh-on-wake", branch: "shepherd/refresh-on-wake" },
+    },
+  ]);
+});
+
+test("syncWorktreeBranch adopts the branch but preserves a chosen display name", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "nice-human-name", // diverged from the branch slug → a chosen name
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const emitted: { event: string; data: unknown }[] = [];
+  const relabels: unknown[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    herdr: { relabel: (...a: unknown[]) => relabels.push(a), list: () => [] } as any,
+    events: { emit: (event, data) => emitted.push({ event, data }) },
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  const row = store.get(s.id)!;
+  expect(row.branch).toBe("shepherd/refresh-on-wake"); // branch adopted (fixes PR recognition)
+  expect(row.name).toBe("nice-human-name"); // chosen name outranks the raw branch slug
+  expect(relabels).toHaveLength(0); // tab label left alone
+  expect(emitted).toEqual([
+    {
+      event: "session:renamed",
+      data: { id: s.id, name: "nice-human-name", branch: "shepherd/refresh-on-wake" },
+    },
+  ]);
+});
+
+test("syncWorktreeBranch de-dupes the adopted name against live tab labels", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "view-refresh",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    // a sibling already owns the bare slug → uniqueName suffixes it
+    herdr: { relabel: () => {}, list: () => [{ name: "refresh-on-wake" }] } as any,
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  const row = store.get(s.id)!;
+  expect(row.branch).toBe("shepherd/refresh-on-wake"); // branch still the live one
+  expect(row.name).toBe("refresh-on-wake-2"); // display name de-duped
+});
+
+test("syncWorktreeBranch is a no-op when the live branch matches the stored one", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const emitted: unknown[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/x" } as any,
+    herdr: { relabel: () => {} } as any,
+    events: { emit: (...args: unknown[]) => emitted.push(args) },
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBeNull();
+  expect(store.get(s.id)?.name).toBe("x");
+  expect(emitted).toHaveLength(0);
+});
+
+test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => null } as any,
+    herdr: { relabel: () => {} } as any,
+  });
+  expect(service.syncWorktreeBranch(s.id)).toBeNull();
+  expect(store.get(s.id)?.branch).toBe("shepherd/x");
+});
+
 test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)", () => {
   const prev = config.remoteControlAtStartup;
   try {
@@ -545,6 +698,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       branchExists: () => false,
       renameBranch: () => {},
       commitsAhead: () => 0,
+      currentBranch: () => null,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
@@ -584,6 +738,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       branchExists: () => false,
       renameBranch: () => {},
       commitsAhead: () => 0,
+      currentBranch: () => null,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {} },
@@ -625,6 +780,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       branchExists: () => false,
       renameBranch: () => {},
       commitsAhead: () => 0,
+      currentBranch: () => null,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -663,6 +819,7 @@ test("archive with no reap keys never calls the reaper", () => {
       branchExists: () => false,
       renameBranch: () => {},
       commitsAhead: () => 0,
+      currentBranch: () => null,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {

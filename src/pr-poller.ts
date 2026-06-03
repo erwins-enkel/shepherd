@@ -29,6 +29,10 @@ export class PrPoller implements PrCache {
     /** Coalescing window for `pollSession` — bursts of status flips near a
      *  turn's end collapse into one `gh` call. */
     private pollDelayMs = 1000,
+    /** Called when the stored branch yields no PR: re-resolves the session's live
+     *  worktree branch (an agent may have renamed it), persists the adoption, and
+     *  returns the new branch to retry against — or null when nothing changed. */
+    private reconcileBranch: (s: Session) => string | null = () => null,
   ) {}
 
   async tick(): Promise<void> {
@@ -52,6 +56,18 @@ export class PrPoller implements PrCache {
       git = { kind: forge.kind, ...(await forge.prStatus(s.branch)) };
     } catch {
       return; // transient gh failure → keep last cached value
+    }
+    // No PR for the stored branch — the agent may have renamed the worktree's
+    // branch out from under us. Adopt the live branch and retry against it.
+    if (git.state === "none") {
+      const live = this.reconcileBranch(s);
+      if (live) {
+        try {
+          git = { kind: forge.kind, ...(await forge.prStatus(live)) };
+        } catch {
+          return;
+        }
+      }
     }
     const prev = this.cache.get(s.id);
     if (

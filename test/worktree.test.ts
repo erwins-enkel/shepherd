@@ -37,6 +37,26 @@ test("create makes an isolated worktree on a shepherd/ branch", () => {
   expect(branches).toContain("shepherd/repo-flatten");
 });
 
+test("currentBranch reports the worktree's checked-out branch and follows a rename", () => {
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "view-refresh");
+  expect(wt.currentBranch(r.worktreePath)).toBe("shepherd/view-refresh");
+  // agent renames the branch out from under the stored value
+  execFileSync("git", ["branch", "-m", "shepherd/view-refresh", "shepherd/refresh-on-wake"], {
+    cwd: r.worktreePath,
+  });
+  expect(wt.currentBranch(r.worktreePath)).toBe("shepherd/refresh-on-wake");
+  wt.remove(r.worktreePath);
+});
+
+test("currentBranch returns null on a detached HEAD", () => {
+  const wt = new WorktreeMgr();
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+  const r = wt.createDetached(repo, "main", sha);
+  expect(wt.currentBranch(r.worktreePath)).toBeNull();
+  wt.remove(r.worktreePath);
+});
+
 test("remove force-deletes the workspace even when git worktree remove refuses", () => {
   const wt = new WorktreeMgr();
   // a populated dir inside the repo that git does NOT track as a worktree:

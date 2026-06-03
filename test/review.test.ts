@@ -41,6 +41,7 @@ function fakeForge(
   rec: { event?: string; body?: string },
   comments: PrComment[],
   commentCalls: number[],
+  prStatus: () => Promise<PrStatus> = async () => OPEN_GREEN as PrStatus,
 ): GitForge {
   return {
     kind: "github",
@@ -49,7 +50,7 @@ function fakeForge(
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
-    prStatus: async () => OPEN_GREEN as PrStatus,
+    prStatus,
     openPr: async () => OPEN_GREEN as PrStatus,
     merge: async () => {},
     redeploy: async () => {},
@@ -72,6 +73,7 @@ function makeDeps(
     autoAddressEnabled?: boolean;
     autoAddressReturns?: boolean;
     comments?: PrComment[];
+    prStatus?: () => Promise<PrStatus>;
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -109,7 +111,7 @@ function makeDeps(
       createDetached: () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
       remove: (p: string) => removed.push(p),
     },
-    resolveForge: () => fakeForge(rec, opts.comments ?? [], commentCalls),
+    resolveForge: () => fakeForge(rec, opts.comments ?? [], commentCalls, opts.prStatus),
     onChange: () => {},
     autoAddress: (id: string, text: string) => {
       steers.push({ id, text });
@@ -447,6 +449,33 @@ test("round cap reached: holds the round, posts the review + signal, does not st
   expect(reviews["s1"]?.addressRound).toBe(3); // round preserved (not reset, not advanced)
   expect(rec.event).toBe("REQUEST_CHANGES"); // still posts to the PR
   expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human/learnings
+});
+
+test("PR merged before finalize: holds the round, posts the review, does NOT steer", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    rec,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["fix x"],
+      }),
+    },
+    // critic spawned while open, but the PR merged before the verdict finalized
+    { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "merged" }) },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
+  await svc.tick(); // finalize: live recheck sees "merged"
+  expect(steers).toHaveLength(0); // no churn steered onto a merged branch
+  expect(reviews["s1"]?.addressRound).toBe(0); // round held (priorRound 0), not advanced
+  expect(rec.event).toBe("REQUEST_CHANGES"); // surgical: review still posted
+  expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted
 });
 
 test("dead agent pane: steer attempted but the round does not advance", async () => {

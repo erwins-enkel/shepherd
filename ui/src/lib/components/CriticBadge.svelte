@@ -1,13 +1,14 @@
 <script lang="ts">
   import { reviews } from "$lib/reviews.svelte";
   import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
+  import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { sessionId }: { sessionId: string } = $props();
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
   const label = $derived(criticBadgeLabel(verdict));
-  const round = $derived(addressRoundInfo(verdict));
+  const round = $derived(addressRoundInfo(verdict, clock.current));
 </script>
 
 {#if reviewing}
@@ -21,11 +22,15 @@
   >
 {/if}
 {#if round}
-  {#if round.stalled}
+  {#if round.status === "stalled"}
     <span
       class="critic-badge critic-stalled"
       title={m.criticbadge_stalled_title({ cap: round.cap })}
       >{m.criticbadge_stalled({ round: round.round, cap: round.cap })}</span
+    >
+  {:else if round.status === "final"}
+    <span class="critic-badge critic-final" title={m.criticbadge_final_title()}
+      >{m.criticbadge_final({ round: round.round, cap: round.cap })}</span
     >
   {:else}
     <span
@@ -58,6 +63,12 @@
   .critic-round {
     border-color: var(--color-blue);
     color: var(--color-blue);
+  }
+  /* final allowed round in flight: agent is addressing it — recessive vs. both the
+     blue in-progress rounds and the orange confirmed stall. */
+  .critic-final {
+    border-color: var(--color-line);
+    color: var(--color-faint);
   }
   /* auto-address gave up at the cap — needs a human */
   .critic-stalled {

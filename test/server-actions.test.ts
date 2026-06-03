@@ -20,6 +20,7 @@ afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
 const RUN: WorkflowRun = {
   runId: 1,
+  workflowId: 5,
   workflowName: "CI",
   runUrl: "https://github.com/team/proj/actions/runs/1",
   headSha: "sha1",
@@ -262,4 +263,101 @@ test("POST /api/actions/cancel surfaces forge failure → 502", async () => {
   const res = await app.fetch(postReq("cancel", { repo: repoDir, runId: 9 }));
   expect(res.status).toBe(502);
   expect((await res.json()).error).toContain("already done");
+});
+
+function historyReq(repo: string, workflowId: number, limit = 10): Request {
+  return new Request(
+    `http://localhost/api/actions/history?repo=${encodeURIComponent(repo)}&workflowId=${workflowId}&limit=${limit}`,
+  );
+}
+function jobsReq(repo: string, runId: number): Request {
+  return new Request(
+    `http://localhost/api/actions/run-jobs?repo=${encodeURIComponent(repo)}&runId=${runId}`,
+  );
+}
+
+test("GET /api/actions/history returns the workflow's prior runs", async () => {
+  let got: { workflowId: number; limit: number } | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listWorkflowRunHistory: async (workflowId, o) => {
+          got = { workflowId, limit: o.limit };
+          return [RUN];
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(historyReq(repoDir, 5, 25));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ runs: [RUN] });
+  expect(got!).toEqual({ workflowId: 5, limit: 25 });
+});
+
+test("GET /api/actions/history clamps limit to 50 and requires a workflowId", async () => {
+  let seenLimit = 0;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listWorkflowRunHistory: async (_w, o) => {
+          seenLimit = o.limit;
+          return [];
+        },
+      }),
+    ),
+  );
+  await app.fetch(historyReq(repoDir, 5, 999));
+  expect(seenLimit).toBe(50);
+  const bad = await app.fetch(
+    new Request(`http://localhost/api/actions/history?repo=${encodeURIComponent(repoDir)}`),
+  );
+  expect(bad.status).toBe(400);
+});
+
+test("GET /api/actions/history for a forge without the method → empty", async () => {
+  const app = makeApp(
+    makeDeps(() => fakeForge({ kind: "gitea", listWorkflowRunHistory: undefined })),
+  );
+  const res = await app.fetch(historyReq(repoDir, 5));
+  expect(await res.json()).toEqual({ runs: [] });
+});
+
+test("GET /api/actions/history swallows forge errors → empty", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listWorkflowRunHistory: async () => {
+          throw new Error("gh boom");
+        },
+      }),
+    ),
+  );
+  expect(await (await app.fetch(historyReq(repoDir, 5))).json()).toEqual({ runs: [] });
+});
+
+test("GET /api/actions/run-jobs returns a run's jobs", async () => {
+  let gotRunId = 0;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listRunJobs: async (runId) => {
+          gotRunId = runId;
+          return RUN.jobs;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(jobsReq(repoDir, 42));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ jobs: RUN.jobs });
+  expect(gotRunId).toBe(42);
+});
+
+test("GET /api/actions/run-jobs requires a runId; missing method → empty", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ listRunJobs: undefined })));
+  expect(await (await app.fetch(jobsReq(repoDir, 42))).json()).toEqual({ jobs: [] });
+  const bad = await app.fetch(
+    new Request(`http://localhost/api/actions/run-jobs?repo=${encodeURIComponent(repoDir)}`),
+  );
+  expect(bad.status).toBe(400);
 });

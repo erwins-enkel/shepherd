@@ -16,6 +16,7 @@
     resumeSession as apiResumeSession,
     renameSession,
     getLeftovers,
+    setReadyToMerge,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -234,6 +235,18 @@
   // the decommission button as a bright "ready to clean up the worktree" nudge so the
   // operator can wrap the session without hunting for the otherwise-faint ✕.
   const prReady = $derived(git?.state === "open" || git?.state === "merged");
+
+  // desktop parity for the rail's Ready toggle: #188 moved the git rail behind the
+  // "Git actions" disclosure, hiding ready-to-merge on desktop while mobile (always-on
+  // rail) still showed it. Surface just this one high-frequency control in the primary
+  // row. Gate mirrors GitRail's own ({git open || already ready} & not running/blocked),
+  // desktop-only — on compact the rail itself still owns the toggle (see showReady below).
+  const readyVisible = $derived(
+    !compact &&
+      (git?.state === "open" || session.readyToMerge) &&
+      session.status !== "running" &&
+      session.status !== "blocked",
+  );
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -1060,6 +1073,22 @@
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
+      {#if readyVisible}
+        <!-- desktop: the ready-to-merge toggle graduates out of the git-actions
+             disclosure into the always-visible primary row (mobile shows it in the
+             rail unconditionally). Gate + action mirror GitRail's ready toggle. -->
+        <button
+          class="ready-toggle"
+          class:on={session.readyToMerge}
+          type="button"
+          aria-pressed={session.readyToMerge}
+          aria-label={m.gitrail_ready_aria()}
+          title={session.readyToMerge ? m.gitrail_ready_on_title() : m.gitrail_ready_off_title()}
+          onclick={() => setReadyToMerge(session.id, !session.readyToMerge)}
+        >
+          {session.readyToMerge ? "✓ " : ""}{m.gitrail_ready()}
+        </button>
+      {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
@@ -1118,6 +1147,7 @@
         prompt={session.prompt}
         ready={session.readyToMerge}
         status={session.status}
+        showReady={compact}
         mobile
       />
     </div>
@@ -1520,6 +1550,32 @@
   .git-toggle.open .gt-caret,
   .git-toggle.ready .gt-caret {
     color: currentColor;
+  }
+  .ready-toggle {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .ready-toggle:hover {
+    color: var(--color-ink);
+  }
+  .ready-toggle.on {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

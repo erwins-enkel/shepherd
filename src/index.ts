@@ -30,6 +30,7 @@ import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
 import { listRepos } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
+import { Promoter } from "./promote";
 import { attachSignalCapture } from "./signals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -205,6 +206,7 @@ const distiller = new DistillerService({
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });
 setInterval(() => void distiller.tick(), 30_000);
+const promoter = new Promoter({ store, worktree, resolveForge });
 // Daily: prune old signals, then consider a distill per repo with enough recent signal.
 const runDistillSweep = () => {
   store.pruneSignals(Date.now() - 60 * 24 * 60 * 60 * 1000);
@@ -309,6 +311,7 @@ const server = serve(
     },
     backlog,
     distiller,
+    promoter,
   },
   config.port,
 );

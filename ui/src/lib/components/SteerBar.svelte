@@ -157,11 +157,15 @@
   }
   /* on mobile the broadcast chip collapses to just its 📡 icon to reclaim
      space; matches the ControlBar Esc key's box model (min-width 44px, no
-     horizontal padding) so the collapsed chip and Esc render an identical width */
+     horizontal padding) so the collapsed chip and Esc render an identical width.
+     Esc additionally sits inside a 3px-padded group "well", nudging its box that
+     far right of the bar edge — match it with an equal left margin so the two
+     left edges line up, not just the widths */
   @media (max-width: 768px) {
     .chip.bc {
       min-width: 44px;
       padding: 0;
+      margin-left: 3px;
     }
     .bc-label {
       display: none;

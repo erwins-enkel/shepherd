@@ -4,8 +4,8 @@
 
   // `include` renders only the listed groups (omit for all); `scroll=false`
   // fits content instead of growing+scrolling, for a fixed edge cluster. This
-  // lets the ctrl-row freeze Esc/Tab on the left and scroll the arrows + ^-keys
-  // in the middle, each as its own ControlBar.
+  // lets the ctrl-row freeze Esc on the left and scroll Tab/Space + arrows +
+  // ^-keys in the middle, each as its own ControlBar.
   let {
     onkey,
     include,
@@ -117,7 +117,7 @@
   }
 
   /* one "well" per group — faint common-region backing so the eye chunks
-     Esc/Tab · arrows · ^-signals into three units instead of one long row */
+     Tab/Space · arrows · ^-signals into three units instead of one long row */
   .group {
     display: flex;
     gap: 4px;

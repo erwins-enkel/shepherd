@@ -1203,11 +1203,14 @@
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
   {#if (mobile || touch) && tab === "term"}
     <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
-      <!-- Esc/Tab frozen on the left edge; the arrows + ^-keys scroll in the
-           middle; attach/dictate/Enter frozen on the right. There's no compose
-           chip — swipe up from this row to summon the compose sheet. -->
-      <ControlBar onkey={(seq) => conn?.send(seq)} include={["edit"]} scroll={false} />
-      <ControlBar onkey={(seq) => conn?.send(seq)} include={["nav", "signal"]} />
+      <!-- Esc frozen on the left edge; Tab/Space + arrows + ^-keys scroll in the
+           middle; attach/dictate/Enter frozen on the right. Tab/Space ride along
+           in the scroll well so the frozen edge stays one button wide — on a
+           portrait phone a wider frozen cluster squeezed the scroll window to ~2
+           keys. There's no compose chip — swipe up from this row to summon the
+           compose sheet. -->
+      <ControlBar onkey={(seq) => conn?.send(seq)} include={["cancel"]} scroll={false} />
+      <ControlBar onkey={(seq) => conn?.send(seq)} include={["edit", "nav", "signal"]} />
       <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
            no keyboard on a phone to press the letter, so this is the sole way into
            the dialog's notes branch; it pulses to catch the eye and vanishes once

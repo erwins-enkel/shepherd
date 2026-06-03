@@ -20,9 +20,10 @@
 {#if ready}
   <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
 {:else if status === "blocked"}
-  <!-- blocked: a bare red alarm mark (non-color cue, WCAG 1.4.1) so it never
+  <!-- blocked: a filled red alarm badge — loud enough to catch the eye in a long
+       list, and the `!` glyph keeps a non-color cue (WCAG 1.4.1) so it never
        reads as just a red dot vs. a green `done` dot for colorblind users -->
-  <span class="pip glyph" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
+  <span class="pip badge" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
 {:else}
   <span
     class="pip"
@@ -51,9 +52,8 @@
     box-shadow: inset 0 0 0 1.5px var(--c);
   }
   /* bare glyph (no filled circle) — the mark itself is the signal:
-     `ready` → green ✓, `blocked` → red ! alarm mark */
-  .pip.check,
-  .pip.glyph {
+     `ready` → green ✓ */
+  .pip.check {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -63,6 +63,22 @@
     font-size: 10px;
     line-height: 1;
     font-weight: 700;
+  }
+  /* blocked: a filled red badge with a white `!` — a deliberately loud "needs
+     you" marker that reads at a glance in a long list, vs. the quiet 9px dots */
+  .pip.badge {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: var(--c);
+    box-shadow: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 800;
   }
   .pulse {
     /* functional status motion — exempt from the reduced-motion blanket (app.css) */

@@ -133,19 +133,24 @@
   </button>
 
   {#if open}
-    <div class="rs-panel" role="listbox">
+    <div class="rs-panel">
       <input
         bind:this={filterInput}
         bind:value={filter}
         class="rs-filter"
         placeholder={m.reposelect_filter_placeholder()}
+        aria-label={m.reposelect_filter_placeholder()}
         type="text"
         autocomplete="off"
         spellcheck="false"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="rs-listbox"
+        aria-autocomplete="list"
         aria-activedescendant={shown.length ? `rs-opt-${activeIdx}` : undefined}
         onkeydown={onFilterKey}
       />
-      <ul class="rs-list" bind:this={listEl}>
+      <ul class="rs-list" id="rs-listbox" role="listbox" bind:this={listEl}>
         {#each shown as r, i (r.path)}
           <li
             id={`rs-opt-${i}`}
@@ -177,7 +182,7 @@
           </li>
         {/each}
         {#if shown.length === 0}
-          <li class="rs-empty">{m.reposelect_no_matches()}</li>
+          <li class="rs-empty" role="presentation">{m.reposelect_no_matches()}</li>
         {/if}
       </ul>
       {#if onclone}

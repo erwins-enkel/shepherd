@@ -129,6 +129,8 @@ export class SessionService {
         herdrAgentId: agent.terminalId,
         claudeSessionId,
         model: input.model,
+        auto: input.auto ?? false,
+        issueNumber: input.issueRef?.number ?? null,
       });
       this.scheduleRefine(session, herdSlug);
       return session;

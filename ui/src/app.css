@@ -149,6 +149,14 @@
   --amber: #ffc266;
   --slate: #8a9893;
   --term-fg: #eef4f0;
+
+  /* Status/info hues are read as text & borders for meaning (ready/blocked/info),
+     so they must clear AAA too. Brighter, more-luminous siblings of the base
+     accents — kept in the green-tinted family — on the near-black --bg #0a0d0c:
+     green ~12.6:1, red ~7.8:1, blue ~9.7:1. */
+  --green: #7ee3b4;
+  --red: #ff7a7e;
+  --blue: #7fbdf0;
 }
 [data-theme="light"][data-contrast="high"] {
   --line: #9aa8a2;
@@ -162,6 +170,13 @@
   --amber: #7a4a00;
   --slate: #3c4946;
   --term-fg: #161d1b;
+
+  /* Darker siblings of the base accents — same green-tinted family — so the
+     status/info text & borders clear AAA on the near-white --panel #f7f9f8:
+     green ~7.4:1, red ~7.5:1, blue ~7.2:1. */
+  --green: #0c5e3a;
+  --red: #9a2429;
+  --blue: #1c5590;
 }
 
 html,

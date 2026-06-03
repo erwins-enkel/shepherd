@@ -127,7 +127,7 @@
 
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    border-radius: 4px;
+    border-radius: 2px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 
     /* Reset browser popover defaults */
@@ -157,15 +157,15 @@
     padding: 3px 10px;
     font-size: var(--fs-meta);
     font-weight: 500;
-    background: var(--color-accent, #5f6ad2);
-    color: #fff;
-    border: none;
-    border-radius: 3px;
+    background: transparent;
+    color: var(--color-ink);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
     cursor: pointer;
   }
 
   .coachmark-btn:hover {
-    opacity: 0.85;
+    background: var(--color-hover);
   }
 
   /* Entrance slide-in. The global blanket in app.css already suppresses this with

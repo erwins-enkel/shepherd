@@ -1559,7 +1559,7 @@
     font-size: 12px;
     min-width: 0;
     /* ellipsize well before the row fills, ceding width to the close button */
-    max-width: 42vw;
+    max-width: 34vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

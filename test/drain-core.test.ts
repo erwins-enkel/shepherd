@@ -136,26 +136,26 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "hold", reason: { code: "empty" } });
   });
 
-  test("merge: open+green+mergeable, no blocking review → merge", () => {
+  test("retire: open+green+mergeable, no blocking review → retire", () => {
     const d = computeNext(
       state({
         maxAuto: 2,
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "merge", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
   });
 
-  test("merge: commented review still merges", () => {
+  test("retire: commented review still retires", () => {
     const d = computeNext(
       state({
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: "commented" })],
       }),
     );
-    expect(d.kind).toBe("merge");
+    expect(d.kind).toBe("retire");
   });
 
-  test("merge takes priority over spawning a fresh item", () => {
+  test("retire takes priority over spawning a fresh item", () => {
     const d = computeNext(
       state({
         maxAuto: 3,
@@ -163,10 +163,10 @@ describe("computeNext", () => {
         candidates: [issue(2)],
       }),
     );
-    expect(d.kind).toBe("merge");
+    expect(d.kind).toBe("retire");
   });
 
-  test("merge still allowed while a different session is in trouble", () => {
+  test("retire still allowed while a different session is in trouble", () => {
     const d = computeNext(
       state({
         autoSessions: [
@@ -175,10 +175,10 @@ describe("computeNext", () => {
         ],
       }),
     );
-    expect(d).toEqual({ kind: "merge", sessionId: "ok", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "ok", prNumber: 7 });
   });
 
-  test("no merge when that session's critic requested changes", () => {
+  test("no retire when that session's critic requested changes", () => {
     const d = computeNext(
       state({
         autoSessions: [
@@ -195,7 +195,7 @@ describe("computeNext", () => {
     expect((d as any).reason.code).toBe("changes_requested");
   });
 
-  test("no merge when critic verdict is error", () => {
+  test("no retire when critic verdict is error", () => {
     const d = computeNext(
       state({
         autoSessions: [
@@ -207,16 +207,16 @@ describe("computeNext", () => {
     expect((d as any).reason.code).toBe("error");
   });
 
-  test("no merge when mergeable is false/null", () => {
+  test("no retire when mergeable is false/null", () => {
     const notYet: GitState = { ...MERGEABLE, mergeable: null };
     const d = computeNext(state({ autoSessions: [autoSession({ id: "sX", git: notYet })] }));
-    expect(d.kind).not.toBe("merge");
+    expect(d.kind).not.toBe("retire");
   });
 
-  test("no merge when checks are not success", () => {
+  test("no retire when checks are not success", () => {
     const pending: GitState = { ...MERGEABLE, checks: "pending" };
     const d = computeNext(state({ autoSessions: [autoSession({ id: "sX", git: pending })] }));
-    expect(d.kind).not.toBe("merge");
+    expect(d.kind).not.toBe("retire");
   });
 
   test("critic on + no verdict yet → hold (don't merge unreviewed)", () => {
@@ -229,7 +229,7 @@ describe("computeNext", () => {
     expect(d.kind).toBe("hold");
   });
 
-  test("critic on + commented verdict for current head → merge", () => {
+  test("critic on + commented verdict for current head → retire", () => {
     const d = computeNext(
       state({
         criticEnabled: true,
@@ -243,7 +243,7 @@ describe("computeNext", () => {
         ],
       }),
     );
-    expect(d).toEqual({ kind: "merge", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
   });
 
   test("critic on + verdict for an older head → hold (re-review pending)", () => {
@@ -263,14 +263,14 @@ describe("computeNext", () => {
     expect(d.kind).toBe("hold");
   });
 
-  test("critic off + no verdict → still merge (CI-green sole gate)", () => {
+  test("critic off + no verdict → still retire (CI-green sole gate)", () => {
     const d = computeNext(
       state({
         criticEnabled: false,
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "merge", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
   });
 });
 

@@ -13,6 +13,8 @@
     onclose: () => void;
   } = $props();
 
+  // Single source of truth for the grid width: drives both the arrow-key row
+  // jump and the CSS column count (via the --ep-cols custom property below).
   const COLS = 7;
 
   let query = $state("");
@@ -89,13 +91,14 @@
     role="combobox"
     aria-expanded="true"
     aria-controls="ep-grid"
+    aria-autocomplete="list"
     aria-activedescendant={shown.length ? `ep-cell-${active}` : undefined}
     autocomplete="off"
     spellcheck="false"
     oninput={() => (active = 0)}
     onkeydown={onSearchKey}
   />
-  <div class="ep-grid" id="ep-grid" role="listbox">
+  <div class="ep-grid" id="ep-grid" role="listbox" style="--ep-cols: {COLS}">
     {#each shown as e, i (e.char)}
       <button
         bind:this={cells[i]}
@@ -106,6 +109,7 @@
         class:active={i === active}
         role="option"
         aria-selected={i === active}
+        tabindex={-1}
         title={e.keywords}
         onclick={() => onpick(e.char)}
       >
@@ -157,7 +161,8 @@
   }
   .ep-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    /* Column count is set inline from the COLS constant (keeps JS row-jump in sync). */
+    grid-template-columns: repeat(var(--ep-cols, 7), 1fr);
     gap: 2px;
     margin-top: 7px;
     max-height: 180px;

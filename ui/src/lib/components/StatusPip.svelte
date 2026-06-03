@@ -20,9 +20,10 @@
 {#if ready}
   <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
 {:else if status === "blocked"}
-  <!-- blocked: a bare red alarm mark (non-color cue, WCAG 1.4.1) so it never
+  <!-- blocked: a filled red alarm badge — loud enough to catch the eye in a long
+       list, and the `!` glyph keeps a non-color cue (WCAG 1.4.1) so it never
        reads as just a red dot vs. a green `done` dot for colorblind users -->
-  <span class="pip glyph" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
+  <span class="pip badge" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
 {:else}
   <span
     class="pip"
@@ -51,9 +52,8 @@
     box-shadow: inset 0 0 0 1.5px var(--c);
   }
   /* bare glyph (no filled circle) — the mark itself is the signal:
-     `ready` → green ✓, `blocked` → red ! alarm mark */
-  .pip.check,
-  .pip.glyph {
+     `ready` → green ✓ */
+  .pip.check {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -63,6 +63,33 @@
     font-size: 10px;
     line-height: 1;
     font-weight: 700;
+  }
+  /* blocked: a filled red badge with a white `!` — a deliberately loud
+     "needs you" marker that reads at a glance in a long list, vs. the quiet 9px
+     dots. Pulled up 3px (margin-top) so its center lines up with the name's
+     first text line: .pip-col's padding-top was tuned for the 9px dot, and the
+     taller badge would otherwise sit low. */
+  .pip.badge {
+    width: 16px;
+    height: 16px;
+    margin-top: -3px;
+    border-radius: 4px;
+    /* darken --red ~12% toward black: pure --red (#e5484d dark) under white only
+       hits ~3.9:1, just shy of WCAG AA 4.5:1 for the 12px glyph; the deeper red
+       clears ~5:1 in both themes and reads as a stronger alarm, not weaker. */
+    background: color-mix(in srgb, var(--c) 88%, #000);
+    box-shadow: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* fixed white glyph, NOT a theme token: the badge ground is red in every
+       theme, so the text must stay light in light mode too — any --color-ink*
+       token inverts to dark there and would tank the contrast. White maximizes
+       it (~5:1 on the darkened red above). */
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 800;
   }
   .pulse {
     /* functional status motion — exempt from the reduced-motion blanket (app.css) */

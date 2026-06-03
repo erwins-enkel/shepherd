@@ -182,7 +182,7 @@
   .unit {
     position: relative;
     display: grid;
-    grid-template-columns: 14px 1fr auto;
+    grid-template-columns: 16px 1fr auto;
     /* meta (desig · session) drops to a full-width footer row so it no longer
        fights the name for horizontal space — on a compact sidebar the right
        rail used to win and crush the name to an ellipsis stub */

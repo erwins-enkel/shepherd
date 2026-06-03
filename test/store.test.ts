@@ -81,6 +81,8 @@ test("reviews: upsert + read by session, snapshot all", () => {
     addressRound: 1,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
     seenNoteIds: ["c1", "c2"],
     url: "u",
     updatedAt: 100,
@@ -116,6 +118,8 @@ test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default w
   expect(r?.errorRound).toBe(0);
   expect(r?.seenNoteIds).toEqual([]);
   expect(r?.patchId).toBe(""); // pre-rebase-skip rows backfill to '' (unknown → always reviews)
+  expect(r?.finalRoundPending).toBe(false); // backfilled to the migration default
+  expect(r?.finalRoundTimeoutMs).toBe(900_000);
 });
 
 test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise intact", () => {
@@ -131,6 +135,8 @@ test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise i
     addressRound: 2,
     addressCap: 3,
     errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
     seenNoteIds: ["c1"],
     url: "u",
     updatedAt: 100,
@@ -139,6 +145,28 @@ test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise i
   store.bumpReviewHead("s1", "def", 200);
   // identical-content rebase: head + clock move, everything else (incl. patchId) holds
   expect(store.getReview("s1")).toEqual({ ...v, headSha: "def", updatedAt: 200 });
+});
+
+test("putReview round-trips finalRoundPending + finalRoundTimeoutMs", () => {
+  const store = new SessionStore(":memory:");
+  store.putReview({
+    sessionId: "s1",
+    headSha: "abc",
+    decision: "changes_requested",
+    summary: "",
+    body: "",
+    findings: ["x"],
+    addressRound: 3,
+    addressCap: 3,
+    errorRound: 0,
+    finalRoundPending: true,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  });
+  const got = store.getReview("s1");
+  expect(got?.finalRoundPending).toBe(true);
+  expect(got?.finalRoundTimeoutMs).toBe(900_000);
 });
 
 test("readyToMerge: defaults false on create, round-trips through update", () => {

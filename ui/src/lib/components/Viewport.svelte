@@ -236,6 +236,37 @@
   // operator can wrap the session without hunting for the otherwise-faint ✕.
   const prReady = $derived(git?.state === "open" || git?.state === "merged");
 
+  // The PR disclosure toggle's hue tracks merge-readiness — NOT mere PR existence
+  // (that's prReady above, which still drives the decommission nudge). This toggle is a
+  // single rolled-up verdict for the collapsed rail, so amber = "needs you" deliberately
+  // folds BOTH CI failure and critic changes_requested into one attention hue. That
+  // diverges from PrBadge on purpose: PrBadge has room for granular per-check dots, so it
+  // keeps red for CI failure and amber for pending/changes_requested — red stays exclusive
+  // to those dots, never the rolled-up toggle. Green = CI green & critic clear, i.e. ready
+  // to merge — where "clear" means only changes_requested blocks green; approved,
+  // commented, and no-review-yet all pass. Pending / merged / closed / none stay neutral.
+  // Known limitation: there is no critic-pending field, so prClear goes green on CI
+  // success even before the critic posts (latestReview undefined) — "ready to merge" can
+  // show a beat early, and stays green when the critic is disabled (no gate to wait on).
+  const prAttention = $derived(
+    git?.state === "open" &&
+      (git.checks === "failure" || git.latestReview?.state === "changes_requested"),
+  );
+  const prClear = $derived(
+    git?.state === "open" &&
+      git.checks === "success" &&
+      git.latestReview?.state !== "changes_requested",
+  );
+  // Localized status word folded into the toggle's title/aria so the hue isn't the only
+  // signal — color-only status fails colorblind users and screen readers.
+  const gitToggleState = $derived(
+    prClear
+      ? m.viewport_git_actions_state_clear()
+      : prAttention
+        ? m.viewport_git_actions_state_attention()
+        : "",
+  );
+
   // desktop parity for the rail's Ready toggle: #188 moved the git rail behind the
   // "Git actions" disclosure, hiding ready-to-merge on desktop while mobile (always-on
   // rail) still showed it. Surface just this one high-frequency control in the primary
@@ -1063,12 +1094,17 @@
       <button
         class="git-toggle"
         class:open={gitOpen}
-        class:ready={prReady}
+        class:attention={prAttention}
+        class:clear={prClear}
         type="button"
         aria-expanded={gitOpen}
         onclick={() => (gitOpen = !gitOpen)}
-        title={m.viewport_git_actions_title()}
-        aria-label={m.viewport_git_actions_aria()}
+        title={gitToggleState
+          ? m.viewport_git_actions_title_state({ state: gitToggleState })
+          : m.viewport_git_actions_title()}
+        aria-label={gitToggleState
+          ? m.viewport_git_actions_aria_state({ state: gitToggleState })
+          : m.viewport_git_actions_aria()}
       >
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
@@ -1498,8 +1534,9 @@
   }
 
   /* desktop disclosure for the git rail — a ghost chip that toggles the second
-     header row. Stays neutral until a PR exists, then warms to amber to advertise
-     that there are merge/ready actions worth opening. */
+     header row. Stays neutral until the PR has an actionable verdict, then takes a
+     hue: green = CI green & critic clear (ready to merge), amber = needs you (CI
+     failed or critic requested changes). Pending / merged / closed stay neutral. */
   .git-toggle {
     display: inline-flex;
     align-items: center;
@@ -1527,10 +1564,15 @@
     color: var(--color-ink-bright);
     background: var(--color-inset);
   }
-  .git-toggle.ready {
+  .git-toggle.attention {
     color: var(--color-amber);
     border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
     box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  .git-toggle.clear {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
+    box-shadow: inset 0 0 18px -10px var(--color-green);
   }
   .gt-caret {
     color: var(--color-faint);
@@ -1538,7 +1580,8 @@
     line-height: 1;
   }
   .git-toggle.open .gt-caret,
-  .git-toggle.ready .gt-caret {
+  .git-toggle.attention .gt-caret,
+  .git-toggle.clear .gt-caret {
     color: currentColor;
   }
 

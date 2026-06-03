@@ -36,22 +36,33 @@ test("lastUsedByRepo returns max createdAt per repoPath", () => {
   expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
 });
 
-test("repo_config: defaults to critic on + auto-address off, persists toggles", () => {
+test("repo_config: defaults to critic on + auto-address off + learnings on, persists toggles", () => {
   const store = new SessionStore(":memory:");
-  // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
+  // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     autoAddressEnabled: false,
+    learningsEnabled: true,
   });
-  store.setRepoConfig("/repo/a", { criticEnabled: false, autoAddressEnabled: true });
+  store.setRepoConfig("/repo/a", {
+    criticEnabled: false,
+    autoAddressEnabled: true,
+    learningsEnabled: false,
+  });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
     autoAddressEnabled: true,
+    learningsEnabled: false,
   });
-  store.setRepoConfig("/repo/a", { criticEnabled: true, autoAddressEnabled: false });
+  store.setRepoConfig("/repo/a", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+  });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     autoAddressEnabled: false,
+    learningsEnabled: true,
   });
 });
 

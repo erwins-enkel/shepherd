@@ -26,6 +26,7 @@ export interface RepoConfig {
   criticEnabled: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
+  learningsEnabled: boolean;
 }
 
 export interface PushSubInput {
@@ -98,14 +99,18 @@ export class SessionStore implements CapStore {
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      learningsEnabled INTEGER NOT NULL DEFAULT 1,
       updatedAt INTEGER NOT NULL)`);
-    // migrate repo_config that predates the auto-address opt-in (default OFF: it's
-    // the spendier loop, so existing repos must opt in explicitly).
+    // migrate repo_config that predates these opt-in columns. auto-address defaults
+    // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
     const repoCfgCols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
     if (!repoCfgCols.some((c) => c.name === "autoAddressEnabled")) {
       this.db.run(
         `ALTER TABLE repo_config ADD COLUMN autoAddressEnabled INTEGER NOT NULL DEFAULT 0`,
       );
+    }
+    if (!repoCfgCols.some((c) => c.name === "learningsEnabled")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
@@ -172,21 +177,35 @@ export class SessionStore implements CapStore {
   // ── per-repo config (critic on/off) ───────────────────────────────────────
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
-      .query(`SELECT criticEnabled, autoAddressEnabled FROM repo_config WHERE repoPath = ?`)
-      .get(repoPath) as { criticEnabled: number; autoAddressEnabled: number } | null;
-    // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
+      .query(
+        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled FROM repo_config WHERE repoPath = ?`,
+      )
+      .get(repoPath) as {
+      criticEnabled: number;
+      autoAddressEnabled: number;
+      learningsEnabled: number;
+    } | null;
+    // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
     return {
       criticEnabled: r ? !!r.criticEnabled : true,
       autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
+      learningsEnabled: r ? !!r.learningsEnabled : true,
     };
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
-      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, updatedAt) VALUES (?,?,?,?)
+      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, updatedAt) VALUES (?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
-         autoAddressEnabled = excluded.autoAddressEnabled, updatedAt = excluded.updatedAt`,
-      [repoPath, cfg.criticEnabled ? 1 : 0, cfg.autoAddressEnabled ? 1 : 0, Date.now()],
+         autoAddressEnabled = excluded.autoAddressEnabled,
+         learningsEnabled = excluded.learningsEnabled, updatedAt = excluded.updatedAt`,
+      [
+        repoPath,
+        cfg.criticEnabled ? 1 : 0,
+        cfg.autoAddressEnabled ? 1 : 0,
+        cfg.learningsEnabled ? 1 : 0,
+        Date.now(),
+      ],
     );
   }
 

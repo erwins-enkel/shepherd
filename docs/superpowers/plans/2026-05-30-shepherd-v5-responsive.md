@@ -680,8 +680,8 @@ git commit -m "feat(ui): touch scroll + tap sizing in todo/issues panels"
 
 - [ ] **Step 1: Full check + build**
 
-Run: `cd ~/Work/tank && bun run test && bun run lint && bunx tsc --noEmit`
-Run: `cd ~/Work/tank/ui && bun run check && bun run test && bun run build`
+Run: `cd ~/Work/shepherd && bun run test && bun run lint && bunx tsc --noEmit`
+Run: `cd ~/Work/shepherd/ui && bun run check && bun run test && bun run build`
 Expected: all PASS.
 
 - [ ] **Step 2: Boot an instance with a real (bash-backed) session**

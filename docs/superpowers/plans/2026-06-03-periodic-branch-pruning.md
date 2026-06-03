@@ -169,7 +169,7 @@ test("keeps the branch when the forge errors or is absent", async () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/patrick/Work/tank && bun test ./test/branch-pruner.test.ts`
+Run: `cd /home/patrick/Work/shepherd && bun test ./test/branch-pruner.test.ts`
 Expected: FAIL — `Cannot find module "../src/branch-pruner"`.
 
 - [ ] **Step 3: Implement `BranchPruner`**
@@ -315,18 +315,18 @@ export class BranchPruner {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/patrick/Work/tank && bun test ./test/branch-pruner.test.ts`
+Run: `cd /home/patrick/Work/shepherd && bun test ./test/branch-pruner.test.ts`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 5: Lint + typecheck**
 
-Run: `cd /home/patrick/Work/tank && bun run lint && bunx tsc --noEmit`
+Run: `cd /home/patrick/Work/shepherd && bun run lint && bunx tsc --noEmit`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/patrick/Work/tank
+cd /home/patrick/Work/shepherd
 git add src/branch-pruner.ts test/branch-pruner.test.ts
 git commit -m "feat(prune): BranchPruner deletes merged shepherd/* orphan branches"
 ```
@@ -363,18 +363,18 @@ branchPruner.start();
 
 - [ ] **Step 3: Typecheck + lint**
 
-Run: `cd /home/patrick/Work/tank && bunx tsc --noEmit && bun run lint`
+Run: `cd /home/patrick/Work/shepherd && bunx tsc --noEmit && bun run lint`
 Expected: no errors.
 
 - [ ] **Step 4: Full server test suite (no regressions)**
 
-Run: `cd /home/patrick/Work/tank && bun test ./test`
+Run: `cd /home/patrick/Work/shepherd && bun test ./test`
 Expected: PASS (existing suite + the new branch-pruner tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/patrick/Work/tank
+cd /home/patrick/Work/shepherd
 git add src/index.ts
 git commit -m "feat(prune): run BranchPruner hourly on server boot"
 ```
@@ -390,7 +390,7 @@ git commit -m "feat(prune): run BranchPruner hourly on server boot"
 In a scratch git repo, simulate the squash-merge residue and confirm the sweep removes it while sparing live work:
 
 ```bash
-cd /home/patrick/Work/tank
+cd /home/patrick/Work/shepherd
 bun test ./test/branch-pruner.test.ts   # automated proof of all branch cases
 ```
 

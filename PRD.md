@@ -54,7 +54,7 @@ monitoring + light steering on the go.
 
 ## 5. Architecture
 
-Greenfield app in `~/Work/tank/`. Thin orchestrator over existing infra.
+Greenfield app in `~/Work/shepherd/`. Thin orchestrator over existing infra.
 
 ```
 ┌─ Shepherd Web/PWA (SvelteKit5 + Bun + Tailwind4) ─┐      browser + mobile

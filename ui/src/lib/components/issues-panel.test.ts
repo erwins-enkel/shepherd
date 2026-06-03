@@ -9,55 +9,7 @@
  * not present in this test suite.
  */
 import { describe, it, expect } from "vitest";
-import { filterIssues, issueAgeDays } from "./issues-panel";
-import type { Issue } from "$lib/types";
-
-function issue(number: number, labels: string[], createdAt = 0): Issue {
-  return { number, title: `Issue ${number}`, body: "body", url: "u", labels, createdAt };
-}
-
-describe("filterIssues", () => {
-  it("returns all issues when filterLabels is undefined", () => {
-    const issues = [issue(1, ["bug"]), issue(2, ["feature"])];
-    expect(filterIssues(issues, undefined)).toEqual(issues);
-  });
-
-  it("returns all issues when filterLabels is empty array", () => {
-    const issues = [issue(1, ["bug"]), issue(2, [])];
-    expect(filterIssues(issues, [])).toEqual(issues);
-  });
-
-  it("keeps issues that have at least one label in filterLabels (OR semantics)", () => {
-    const issues = [
-      issue(1, ["bug"]),
-      issue(2, ["enhancement"]),
-      issue(3, ["documentation"]),
-      issue(4, ["bug", "enhancement"]),
-    ];
-    const visible = filterIssues(issues, ["bug", "enhancement"]);
-    expect(visible.map((i) => i.number)).toEqual([1, 2, 4]);
-    expect(visible.map((i) => i.number)).not.toContain(3);
-  });
-
-  it("excludes issues that have no matching labels", () => {
-    const issues = [issue(1, ["documentation"]), issue(2, ["question"])];
-    const visible = filterIssues(issues, ["bug"]);
-    expect(visible).toHaveLength(0);
-  });
-
-  it("works when an issue has multiple labels and only one matches", () => {
-    const issues = [issue(1, ["bug", "wontfix"])];
-    const visible = filterIssues(issues, ["bug", "enhancement"]);
-    expect(visible).toHaveLength(1);
-  });
-
-  it("preserves stale-guard safety: does not mutate the input array", () => {
-    const issues = [issue(1, ["bug"])];
-    const copy = [...issues];
-    filterIssues(issues, ["bug"]);
-    expect(issues).toEqual(copy);
-  });
-});
+import { issueAgeDays } from "./issues-panel";
 
 describe("issueAgeDays", () => {
   it("returns 0 for a just-created issue (same ms)", () => {

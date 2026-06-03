@@ -55,6 +55,7 @@
   "controlkey_ctrl_d": "Ctrl D, end of file",
   "actionbar_new_task": "+ New Task",
   "actionbar_backlog": "Backlog",
+  "actionbar_shortcut_hint": "Shortcut: {key}",
   "actionbar_all_mode": "All ▦",
   "actionbar_focus_mode": "Focus ⌖",
   "actionbar_theme_group_aria": "Theme",

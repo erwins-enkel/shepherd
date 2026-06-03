@@ -66,11 +66,13 @@
   let {
     onclose,
     onsaved,
+    onclone,
     herdrUpdate = null,
     onherdrupdate,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
+    onclone?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
   } = $props();
@@ -310,6 +312,11 @@
           {m.settings_use_folder()}
         {/if}
       </button>
+      {#if onclone}
+        <button type="button" class="clone-trigger" onclick={() => onclone?.()}
+          >{m.clonerepo_trigger()}</button
+        >
+      {/if}
     </div>
 
     <div
@@ -704,6 +711,23 @@
     opacity: 0.5;
     cursor: default;
     box-shadow: none;
+  }
+  /* Secondary/outline button — same shape as .run but uses the panel's neutral
+     line colour rather than amber, so it reads as a lower-priority action. */
+  .clone-trigger {
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink);
+    background: var(--color-inset);
+    padding: 9px 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .clone-trigger:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink);
   }
   .push {
     display: flex;

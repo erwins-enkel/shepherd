@@ -112,6 +112,16 @@ export async function listRepos(): Promise<RepoEntry[]> {
   return r.json();
 }
 
+export async function cloneRepo(url: string): Promise<RepoEntry> {
+  const r = await fetch("/api/repos", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ url }),
+  });
+  if (!r.ok) throw await failed(r, "clone");
+  return r.json();
+}
+
 export async function getSettings(): Promise<Settings> {
   const r = await fetch("/api/settings");
   if (!r.ok) throw await failed(r, "settings");

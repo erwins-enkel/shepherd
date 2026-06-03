@@ -1098,3 +1098,78 @@ test("DELETE /api/sessions/clear-merged → 405, never archives the literal segm
   expect(res.status).toBe(405); // doesn't fall through to handleSessionDelete
   expect(h.emitted).toEqual([]); // no spurious session:archived for "clear-merged"
 });
+
+// ── POST /api/repos ──────────────────────────────────────────────────────────
+
+function postRepos(app: ReturnType<typeof makeApp>, body: unknown, headers?: HeadersInit) {
+  return app.fetch(
+    new Request("http://x/api/repos", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("POST /api/repos missing Content-Type → 415", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request("http://x/api/repos", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ url: "https://github.com/owner/repo" }),
+    }),
+  );
+  expect(res.status).toBe(415);
+});
+
+test("POST /api/repos bad url body → 400", async () => {
+  const app = harness();
+  const res = await postRepos(app, { url: "not-a-valid-url" });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toBe("clonerepo_failed_url");
+});
+
+// Note: validateCloneUrl intentionally blocks file:// URLs (only https:// and scp git@ allowed).
+// The 201 happy path is fully covered by the cloneRepo unit test in repos.test.ts.
+// Here we verify that an unreachable https URL correctly routes through the clone attempt
+// and returns 422 (clone failed, not a validation error), confirming the POST branch wiring.
+test("POST /api/repos unreachable https url → 422 (clone attempted, not a validation error)", async () => {
+  const app = harness();
+  const res = await postRepos(app, { url: "https://nonexistent.invalid/owner/my-test-repo" });
+  // 400 would mean validation failed; 422 means validation passed but clone failed
+  expect(res.status).toBe(422);
+  const body = await res.json();
+  expect(typeof body.error).toBe("string");
+  expect(body.error).toMatch(/^clonerepo_/);
+});
+
+test("POST /api/repos target already exists → 409", async () => {
+  // Pre-create the target directory inside repoRoot so cloneRepo returns clonerepo_failed_exists
+  // before attempting any network access. Uses a well-formed https URL that passes validateCloneUrl.
+  const targetName = "my-repo-exists-test";
+  mkdirSync(join(config.repoRoot, targetName), { recursive: true });
+  try {
+    const app = harness();
+    // URL slug's last segment must match targetName; validateCloneUrl strips .git suffix
+    const res = await postRepos(app, {
+      url: `https://github.com/owner/${targetName}.git`,
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("clonerepo_failed_exists");
+  } finally {
+    rmSync(join(config.repoRoot, targetName), { recursive: true, force: true });
+  }
+});
+
+test("POST /api/repos with foreign Origin → 403", async () => {
+  const app = harness();
+  const res = await postRepos(
+    app,
+    { url: "https://github.com/owner/repo" },
+    { Origin: "https://evil.com" },
+  );
+  expect(res.status).toBe(403);
+});

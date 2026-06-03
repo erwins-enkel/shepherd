@@ -8,7 +8,9 @@
     repos,
     value,
     onchange,
-  }: { repos: RepoEntry[]; value: string; onchange: (path: string) => void } = $props();
+    onclone,
+  }: { repos: RepoEntry[]; value: string; onchange: (path: string) => void; onclone?: () => void } =
+    $props();
 
   let open = $state(false);
   let filter = $state("");
@@ -134,6 +136,19 @@
           <li class="rs-empty">{m.reposelect_no_matches()}</li>
         {/if}
       </ul>
+      {#if onclone}
+        <button
+          type="button"
+          class="rs-clone-row"
+          onclick={() => {
+            open = false;
+            filter = "";
+            onclone?.();
+          }}
+        >
+          {m.clonerepo_trigger()}
+        </button>
+      {/if}
       {#if pickerFor !== null}
         <div class="rs-picker">
           <EmojiPicker
@@ -296,6 +311,25 @@
     font-size: 12px;
     font-style: italic;
     text-align: center;
+  }
+
+  .rs-clone-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 7px 10px;
+    cursor: pointer;
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+    color: var(--color-amber);
+    text-align: left;
+  }
+
+  .rs-clone-row:hover {
+    background: var(--color-hover);
   }
 
   .rs-emoji {

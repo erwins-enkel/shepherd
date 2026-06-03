@@ -1,8 +1,9 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listRepos, readTodo, writeTodo } from "../src/repos";
+import { execFileSync } from "node:child_process";
+import { listRepos, readTodo, writeTodo, cloneRepo, classifyCloneError } from "../src/repos";
 
 let root: string;
 
@@ -75,4 +76,91 @@ test("a symlink inside repoRoot pointing outside is rejected (realpath containme
   } finally {
     rmSync(outside, { recursive: true, force: true });
   }
+});
+
+// ── cloneRepo ─────────────────────────────────────────────────────────────────
+
+/** Create a minimal bare git repo so we can clone from a file:// URL. */
+function makeBareSrc(parent: string): string {
+  const bare = join(parent, "bare-src.git");
+  execFileSync("git", ["init", "--bare", bare], { stdio: "pipe" });
+  return bare;
+}
+
+test("cloneRepo happy path: clones repo, returns entry with correct name/path, dir exists", () => {
+  const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
+  try {
+    const bareSrc = makeBareSrc(cloneRoot);
+    const url = `file://${bareSrc}`;
+    const result = cloneRepo(url, "my-clone", cloneRoot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return; // narrow type
+    expect(result.entry.name).toBe("my-clone");
+    expect(result.entry.path).toBe(join(cloneRoot, "my-clone"));
+    expect(existsSync(result.entry.path)).toBe(true);
+  } finally {
+    rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
+test("cloneRepo: returns clonerepo_failed_exists when target dir already exists", () => {
+  const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
+  try {
+    const bareSrc = makeBareSrc(cloneRoot);
+    const url = `file://${bareSrc}`;
+    // pre-create the target
+    mkdirSync(join(cloneRoot, "already-there"));
+    const result = cloneRepo(url, "already-there", cloneRoot);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("clonerepo_failed_exists");
+  } finally {
+    rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
+test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", () => {
+  const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
+  try {
+    const bareSrc = makeBareSrc(cloneRoot);
+    const url = `file://${bareSrc}`;
+    const result = cloneRepo(url, "../escape", cloneRoot);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("clonerepo_failed_outside");
+  } finally {
+    rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
+// ── classifyCloneError ────────────────────────────────────────────────────────
+
+test("classifyCloneError: killed+SIGTERM → clonerepo_failed_timeout", () => {
+  expect(classifyCloneError({ killed: true, signal: "SIGTERM" })).toBe("clonerepo_failed_timeout");
+});
+
+test("classifyCloneError: stderr 'Authentication failed' → clonerepo_failed_auth", () => {
+  expect(classifyCloneError({ stderr: Buffer.from("fatal: Authentication failed") })).toBe(
+    "clonerepo_failed_auth",
+  );
+});
+
+test("classifyCloneError: stderr 'destination path … already exists' → clonerepo_failed_exists", () => {
+  expect(
+    classifyCloneError({
+      stderr: Buffer.from(
+        "fatal: destination path 'x' already exists and is not an empty directory",
+      ),
+    }),
+  ).toBe("clonerepo_failed_exists");
+});
+
+test("classifyCloneError: stderr 'repository not found' → clonerepo_failed_url", () => {
+  expect(classifyCloneError({ stderr: Buffer.from("ERROR: Repository not found.") })).toBe(
+    "clonerepo_failed_url",
+  );
+});
+
+test("classifyCloneError: empty error object → clonerepo_failed_url (fallback)", () => {
+  expect(classifyCloneError({})).toBe("clonerepo_failed_url");
 });

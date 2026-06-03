@@ -5,6 +5,7 @@ import { PtyBridge } from "./pty-bridge";
 import { config } from "./config";
 import {
   validateCreate,
+  validateCloneUrl,
   isAuthorized,
   originAllowed,
   safeRepoDir,
@@ -14,7 +15,7 @@ import {
   validateIconPatch,
 } from "./validate";
 import { slugifyManual } from "./namer";
-import { listRepos, readTodo, writeTodo } from "./repos";
+import { listRepos, readTodo, writeTodo, cloneRepo } from "./repos";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
@@ -777,7 +778,25 @@ function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
   return null;
 }
 
-function handleRepos({ req, parts, deps }: Ctx): Response | null {
+// HTTP status per clone-failure code; anything unlisted falls back to 422.
+const CLONE_ERROR_STATUS: Record<string, number> = {
+  clonerepo_failed_exists: 409,
+  clonerepo_failed_outside: 400,
+  clonerepo_failed_timeout: 504,
+};
+
+async function cloneRepoFromRequest(req: Request): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
+  const parsed = validateCloneUrl(body?.url);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const r = cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
+  if (!r.ok) return json({ error: r.error }, CLONE_ERROR_STATUS[r.error] ?? 422);
+  return json(r.entry, 201);
+}
+
+async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
     if (req.method === "GET") {
       const lastUsed = deps.store.lastUsedByRepo();
@@ -787,6 +806,7 @@ function handleRepos({ req, parts, deps }: Ctx): Response | null {
       }));
       return json(repos);
     }
+    if (req.method === "POST") return cloneRepoFromRequest(req);
   }
   return null;
 }

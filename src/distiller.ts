@@ -165,8 +165,9 @@ function normalizeRule(s: string): string {
 function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
-    "It is a JSON array of past corrections, blocks, stalls, and critic findings for one repository,",
-    "plus `existingRules` — house rules already recorded (do NOT repeat these).",
+    "It is a JSON object with two fields: `signals` — an array of past corrections, blocks,",
+    "stalls, and critic findings for one repository; and `existingRules` — an array of house",
+    "rules already recorded (do NOT repeat these).",
     "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
     "Ignore one-off noise. Write at most 5 crisp imperative rules.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,

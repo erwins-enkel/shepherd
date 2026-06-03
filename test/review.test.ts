@@ -74,7 +74,6 @@ function makeDeps(over: any) {
         delete reviews[id];
       },
       snapshotReviews: () => reviews,
-      get: () => null,
       addSignal: () => {},
     },
     herdr: {
@@ -210,7 +209,6 @@ test("skips when repo critic disabled", () => {
       putReview: () => {},
       dropReview: () => {},
       snapshotReviews: () => ({}),
-      get: () => null,
       addSignal: () => {},
     },
   });

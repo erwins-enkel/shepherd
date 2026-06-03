@@ -128,9 +128,12 @@ Prompt asks it to read the tail and write a JSON verdict file:
 - `finished` — the agent believes it's done / has nothing queued, but no PR exists yet.
 - `unknown` — can't tell. Treated as `question` (bias-to-surface).
 
-Polled from the verdict file (15s interval, 10m timeout, like the critic). A timeout / unusable
-verdict is treated as `unknown` → surface. The summary is **never** typed into the agent's pane;
-it only feeds the operator-facing paused state.
+Polled from the verdict file (1s interval, 2m timeout — **deliberately not** the critic's
+15s/10m: this is a fast tail-triage on haiku, not a full-diff review, so a stuck classifier
+should surface to the operator promptly rather than block for minutes; 2m gives a cold/queued
+spawn enough headroom to avoid a spurious surface). A timeout / unusable verdict is treated as
+`unknown` → surface. The summary is **never** typed into the agent's pane; it only feeds the
+operator-facing paused state.
 
 ## Actions
 

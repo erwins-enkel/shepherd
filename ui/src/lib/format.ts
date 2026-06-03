@@ -6,6 +6,32 @@ export function elapsed(fromMs: number, nowMs: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Compact elapsed for the row heartbeat: `<60s → "{n}s"`, `<60m → "{n}m"`,
+ * `<24h → "{n}h"`, else `"{n}d"`. Each unit floored; negative/0 → "0s".
+ * Unit letters s/m/h/d are tech notation, NOT translated (same as `elapsed`).
+ */
+export function formatAgo(deltaMs: number): string {
+  const s = Math.max(0, Math.floor(deltaMs / 1000));
+  if (s < 60) return `${s}s`;
+  const min = Math.floor(s / 60);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+/**
+ * Cosmetic freshness tier for the heartbeat dot: `live` (<10s), `recent` (<60s),
+ * else `stale`. Drives a brightness class only — the real stall alarm lives
+ * elsewhere (8min), so this never blocks or warns.
+ */
+export function heartbeatTone(deltaMs: number): "live" | "recent" | "stale" {
+  if (deltaMs < 10_000) return "live";
+  if (deltaMs < 60_000) return "recent";
+  return "stale";
+}
+
 /** Compact token count: 1234 → "1.2k", 1_500_000 → "1.5M". */
 export function formatTokens(n: number): string {
   if (n < 1000) return String(n);
@@ -55,13 +81,10 @@ export function statusLabel(s: SessionStatus): string {
 }
 
 /** Compact age like "5m", "2h", "3d", or "now" under a minute. Units are
- *  abbreviations, intentionally untranslated — same precedent as `elapsed`. */
+ *  abbreviations, intentionally untranslated — same precedent as `elapsed`.
+ *  Shares the m/h/d tail with `formatAgo`; only the sub-minute label differs
+ *  ("now" here vs. second-granularity there, which the heartbeat needs). */
 export function relativeAge(fromMs: number, nowMs: number): string {
-  const s = Math.max(0, Math.floor((nowMs - fromMs) / 1000));
-  if (s < 60) return "now";
-  const min = Math.floor(s / 60);
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
+  const delta = nowMs - fromMs;
+  return delta < 60_000 ? "now" : formatAgo(delta);
 }

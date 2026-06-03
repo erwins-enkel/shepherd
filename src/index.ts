@@ -228,7 +228,12 @@ const autopilot = new AutopilotService({
     const s = store.get(id);
     return s ? tailLines(herdr.read(s.herdrAgentId, "visible")) : [];
   },
-  hasOpenPr: (id) => prPoller.snapshot()[id]?.state === "open",
+  // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
+  // territory. `state` is "none" when no PR exists; anything else means one does.
+  hasPr: (id) => {
+    const st = prPoller.snapshot()[id]?.state;
+    return st !== undefined && st !== "none";
+  },
   refreshPr: (id) => prPoller.pollSession(id),
   onPause: (id, question) => {
     const s = store.get(id);

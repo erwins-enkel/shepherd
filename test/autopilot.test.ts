@@ -86,7 +86,7 @@ function harness(opts: {
     },
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
-    hasOpenPr: () => opts.openPr ?? false,
+    hasPr: () => opts.openPr ?? false,
     refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
     onState: (id) => events.push({ state: id }),
@@ -165,10 +165,14 @@ test("session override off beats repo on", async () => {
   expect(h.events.length).toBe(0);
 });
 
-test("open PR → autopilot stands down (critic owns it)", async () => {
-  const h = harness({ session: sess(), openPr: true, verdict: { kind: "gate", summary: "x" } });
+test("any PR (open/merged/closed) → autopilot stands down", async () => {
+  // hasPr is true for a PR in ANY state — open is the critic's territory, merged/closed mean
+  // the pre-PR mission is over; autopilot must never steer such a session to open another PR.
+  const h = harness({ session: sess(), openPr: true, verdict: { kind: "finished", summary: "x" } });
   await h.svc.onBlock("s1", block());
   expect(h.events.length).toBe(0);
+  await h.svc.onDone("s1"); // even the finished-no-PR path stands down once a PR exists
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
 });
 
 test("already paused → no re-classify", async () => {
@@ -295,7 +299,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     resume: () => true,
     paneAlive: () => true,
     readTail: () => [],
-    hasOpenPr: () => false,
+    hasPr: () => false,
     onPause: () => {},
     stepCap: 10,
   });

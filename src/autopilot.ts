@@ -35,10 +35,11 @@ export interface AutopilotDeps {
   paneAlive: (id: string) => boolean;
   /** Visible terminal tail for a session (herdr.read → tailLines). */
   readTail: (id: string) => string[];
-  /** Whether the session already has an open PR (critic territory → autopilot stands down). */
-  hasOpenPr: (id: string) => boolean;
+  /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
+   *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
+  hasPr: (id: string) => boolean;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
-   *  so the `hasOpenPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
+   *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
   refreshPr?: (id: string) => void;
   /** Fired when autopilot hands a session back for a genuine question / step-cap. */
@@ -76,7 +77,10 @@ export class AutopilotService {
     if (!s || s.status === "archived") return null;
     if (!this.enabled(s)) return null;
     if (s.autopilotPaused) return null; // already handed back; waits for operator
-    if (this.deps.hasOpenPr(id)) return null; // PR exists → critic loop owns it
+    // A PR exists in ANY state → autopilot stands down: open is the critic loop's territory,
+    // and merged/closed mean the pre-PR mission is over (work landed / human closed it) — never
+    // steer such a session to open ANOTHER PR.
+    if (this.deps.hasPr(id)) return null;
     if (this.pending.has(id)) return null; // a classify is already in flight
     return s;
   }
@@ -151,7 +155,7 @@ export class AutopilotService {
   async onDone(id: string): Promise<void> {
     // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
     // be in the cached PR snapshot yet. Firing it here puts the poll in flight during the
-    // (multi-second) classify spawn, so the post-classify eligible()/hasOpenPr re-check in
+    // (multi-second) classify spawn, so the post-classify eligible()/hasPr re-check in
     // consider() sees the fresh PR and stands down instead of redundantly steering "open a PR".
     this.deps.refreshPr?.(id);
     let tail: string[] = [];

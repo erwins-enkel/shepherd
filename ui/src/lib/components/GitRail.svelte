@@ -221,6 +221,12 @@
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
 {#if git}
+  <!-- dim the rest of the page behind the findings popover (mirrors the compose-bar
+       sheet). Sits OUTSIDE wrapEl so a backdrop click trips the existing
+       click-outside dismiss; Escape closes it too. Purely visual → aria-hidden. -->
+  {#if showReview && verdict}
+    <div class="review-scrim" aria-hidden="true"></div>
+  {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile>
       {#if git.state === "none"}
@@ -634,12 +640,23 @@
     gap: 6px;
   }
 
-  /* findings popover: same anchoring as .pr-pop, wider + scrollable body */
+  /* full-page dim behind the findings popover, matching the compose-bar sheet */
+  .review-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.45);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+
+  /* findings popover: same anchoring as .pr-pop, wider + scrollable body.
+     Rides above .review-scrim (z-index 50) so it stays lit while the page dims. */
   .review-pop {
     position: absolute;
     top: 100%;
     right: 8px;
-    z-index: 20;
+    z-index: 51;
     margin-top: 4px;
     display: flex;
     flex-direction: column;

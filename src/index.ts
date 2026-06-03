@@ -165,7 +165,10 @@ events.subscribe((event, data) => {
 // so they can't be cleaned then anyway. Orphan branches only: never a checked-out
 // or active-session branch. Disable with setting branchPruneEnabled="0".
 // Pass the configured repo root as a durable repo source so housekeeping-pruned
-// idle repos still get their leftover shepherd/* branches swept.
+// idle repos still get their leftover shepherd/* branches swept. Boundary: a repo
+// whose archived sessions lived OUTSIDE repoRoot isn't covered here — once
+// housekeeping prunes its last row it leaves branch-pruner scope (acceptable; such
+// repos are outside the configured working area anyway).
 const branchPruner = new BranchPruner(store, resolveForge, () =>
   listRepos(config.repoRoot).map((r) => r.path),
 );

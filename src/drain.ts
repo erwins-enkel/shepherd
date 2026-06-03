@@ -16,7 +16,7 @@ export interface DrainStatus {
   enabled: boolean;
   /** Held on trouble (blocked / changes_requested / error) — an operator banner. */
   paused: boolean;
-  /** The HoldReason.code when holding; null while active (spawning/merging). */
+  /** The HoldReason.code when holding; null while active (spawning/retiring). */
   reason: string | null;
   /** HoldReason.detail (a desig or pct) when holding; else null. */
   detail: string | null;
@@ -58,19 +58,20 @@ export interface DrainDeps {
 /**
  * Side-effect harness for the self-draining work queue. It assembles a
  * {@link DrainRepoState} per repo, calls the pure {@link computeNext} core, and
- * applies the returned decision (spawn / merge / hold), looping until the core
+ * applies the returned decision (spawn / retire / hold), looping until the core
  * holds. Driven by pr-poller events (onGit/onStatus), the archive event
  * (onArchived), and a periodic tick().
+ *
+ * The drain NEVER merges PRs. A ready session is retired (session archived,
+ * pane stopped, worktree removed) and its open, issue-linked PR is left for a
+ * human to merge. Archiving frees the concurrency slot so the next backlog item
+ * can spawn. When the human merges, the `Closes #N` link auto-closes the issue,
+ * preventing re-spawn.
  */
 export class DrainService {
   // repoPath lock held across the whole async pump — a concurrent pump for the
-  // same repo bails immediately so we never double-spawn/double-merge.
+  // same repo bails immediately so we never double-spawn/double-retire.
   private pumping = new Set<string>();
-  // sessionIds whose forge.merge SUCCEEDED but whose merged state the pr-poller
-  // hasn't reported yet. buildState forces their `git` to null so computeNext
-  // can't re-emit the merge (the PR still reads "open" until the next poll),
-  // while they STILL count toward the cap. Cleared in onGit when merged observed.
-  private merging = new Set<string>();
   private issuesCache = new Map<string, { issues: Issue[]; ts: number }>();
   private now: () => number;
   private issuesTtlMs: number;
@@ -85,7 +86,7 @@ export class DrainService {
   private async buildState(repoPath: string): Promise<DrainRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     // ALL sessions (incl. archived) for dedup: an issue drained once stays mapped via
-    // its archived session, so a merged-but-still-open issue isn't re-pulled (bounded by
+    // its archived session, so a retired-but-not-yet-merged issue isn't re-pulled (bounded by
     // session retention). autoSessions/cap use only the non-archived subset.
     const allRepoSessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
     const snapshot = this.deps.prCache.snapshot();
@@ -96,9 +97,7 @@ export class DrainService {
         desig: s.desig,
         issueNumber: s.issueNumber,
         status: s.status,
-        // mid-merge (merge fired, not yet observed merged) → null so computeNext
-        // won't re-emit the merge; the session still counts toward the cap.
-        git: this.merging.has(s.id) ? null : (snapshot[s.id] ?? null),
+        git: snapshot[s.id] ?? null,
         reviewDecision: this.deps.store.getReview(s.id)?.decision ?? null,
         reviewHeadSha: this.deps.store.getReview(s.id)?.headSha ?? null,
       }));
@@ -167,11 +166,12 @@ export class DrainService {
     if (this.pumping.has(repoPath)) return; // a drain for this repo is already running
     this.pumping.add(repoPath);
     try {
-      // Per-pump guard: each session is merge-attempted at most once per pump
-      // invocation. If a merge throws and computeNext re-selects the same session,
-      // we break instead of retrying — leaving it for the next pump/tick.
-      const attemptedMerge = new Set<string>();
-      // Hard iteration cap as a runaway backstop; each spawn/merge changes state,
+      // Per-pump guard: each session is retire-attempted at most once per pump
+      // invocation. service.archive takes effect immediately, so the next buildState
+      // sees the session as archived and won't re-select it — but if computeNext
+      // somehow re-selects the same session anyway, we break rather than loop.
+      const attemptedRetire = new Set<string>();
+      // Hard iteration cap as a runaway backstop; each spawn/retire changes state,
       // so a well-behaved drain ends on a hold well before this.
       for (let i = 0; i < 100; i++) {
         let decision: DrainDecision;
@@ -183,10 +183,10 @@ export class DrainService {
           console.warn(`[drain] pump iteration failed for ${repoPath}:`, err);
           break; // don't spin on a bad iteration
         }
-        if (decision.kind === "merge") {
-          if (attemptedMerge.has(decision.sessionId)) break; // already tried this pump; defer to next tick
-          attemptedMerge.add(decision.sessionId);
-          await this.doMerge(repoPath, decision);
+        if (decision.kind === "retire") {
+          if (attemptedRetire.has(decision.sessionId)) break; // already tried this pump; defer to next tick
+          attemptedRetire.add(decision.sessionId);
+          await this.doRetire(repoPath, decision);
           continue;
         }
         if (decision.kind === "spawn") {
@@ -200,25 +200,34 @@ export class DrainService {
     }
   }
 
-  private async doMerge(
+  /**
+   * Retire a ready session: ensure the PR links its issue (so the forge
+   * auto-closes the issue when a human merges), then archive the session
+   * (stops the pane, removes the worktree, marks the row archived). The open,
+   * linked PR is left for a human to merge — the drain never merges.
+   * Archiving frees the concurrency slot so the next backlog item can spawn.
+   */
+  private async doRetire(
     repoPath: string,
-    decision: Extract<DrainDecision, { kind: "merge" }>,
+    decision: Extract<DrainDecision, { kind: "retire" }>,
   ): Promise<void> {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
-    // Claim BEFORE the await: the next loop iteration must see this session as
-    // mid-merge (git → null) so it can't double-merge the still-"open" PR.
-    this.merging.add(decision.sessionId);
-    try {
-      await forge.merge(decision.prNumber, { method: forge.mergeMethod, deleteBranch: true });
-      // SUCCESS → leave it in `merging`; onGit clears it when the merged state lands.
-      // The slot stays consumed until the pr-poller reports "merged" (frees on its signal, not self-recovering).
-      // Issue close happens in onGit's merged branch — covers drain-initiated AND out-of-band merges.
-    } catch (err) {
-      console.warn(`[drain] merge failed for ${decision.sessionId}:`, err);
-      // A throw (race / conflict) → remove so a later poll can retry the merge.
-      this.merging.delete(decision.sessionId);
+    const s = this.deps.store.get(decision.sessionId);
+    // Best-effort issue link: a failure must NOT block teardown.
+    if (s?.issueNumber != null) {
+      try {
+        await forge.ensureIssueLink?.(decision.prNumber, s.issueNumber);
+      } catch (err) {
+        console.warn(
+          `[drain] ensureIssueLink pr#${decision.prNumber} issue#${s.issueNumber} failed for ${decision.sessionId}:`,
+          err,
+        );
+      }
     }
+    this.deps.service.archive(decision.sessionId);
+    this.deps.dropPrCache(decision.sessionId);
+    this.deps.emitArchived(decision.sessionId);
   }
 
   private async doSpawn(
@@ -258,14 +267,13 @@ export class DrainService {
     const s = this.deps.store.get(id);
     if (!s || !s.auto) return; // drain only manages auto sessions
     if (git.state === "merged") {
-      // Clear the merge guard and reap — regardless of whether drain is still
-      // enabled (avoid leaking a merged auto session). Do NOT pump here: the
+      // Reap on any observed merge — drain-initiated retire, manual, or GitHub
+      // auto-merge all land here via the pr-poller. Do NOT pump here: the
       // emitted session:archived routes to onArchived, the single advance path.
-      this.merging.delete(id);
-      // Retire the backlog issue on ANY merge — drain-initiated, manual, or GitHub
-      // auto-merge all land here via the pr-poller. Best-effort: the merge is done, so
-      // a close failure must not block teardown. (closeIssue is idempotent, so a drain
-      // merge that the poller later re-confirms can't double-close harmfully.)
+      // Best-effort: the merge is done, so a close failure must not block teardown.
+      // closeIssue is idempotent, so this path (human merges a still-tracked session)
+      // and the doRetire path (drain retires first, then human merges — poller no longer
+      // tracks it) are independent and safe.
       if (s.issueNumber != null) {
         try {
           await this.deps.resolveForge(s.repoPath)?.closeIssue?.(s.issueNumber);
@@ -278,17 +286,16 @@ export class DrainService {
       this.deps.emitArchived(id);
       return;
     }
-    // open/green/other → the merge gate may now fire (e.g. CI just went green).
-    // Skip drain-disabled repos — no spawn/merge there, just WS noise.
+    // open/green/other → the retire gate may now fire (e.g. CI just went green).
+    // Skip drain-disabled repos — no spawn/retire there, just WS noise.
     if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
     await this.pump(s.repoPath);
   }
 
-  /** A session was archived (merged auto session, or a manual archive). The
+  /** A session was archived (retired auto session, or a manual archive). The
    *  single advance step: a freed slot lets the next candidate spawn. Skips
    *  drain-disabled repos so a manual archive there doesn't pump/emit. */
   async onArchived(id: string): Promise<void> {
-    this.merging.delete(id); // harmless no-op if not present; clears any stale merge guard
     const s = this.deps.store.get(id); // archived rows still return → repoPath available
     if (!s) return;
     if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
@@ -304,7 +311,7 @@ export class DrainService {
   }
 
   /** A critic verdict landed for a session. A clean verdict for the current head
-   *  may now unblock the merge gate — pump promptly rather than waiting for the tick. */
+   *  may now unblock the retire gate — pump promptly rather than waiting for the tick. */
   async onReview(id: string): Promise<void> {
     const s = this.deps.store.get(id);
     if (!s) return;
@@ -320,7 +327,7 @@ export class DrainService {
   }
 
   /** Client bootstrap: a status per drain-enabled repo, WITHOUT applying side
-   *  effects (no spawn/merge, no `merging` mutation). Disabled repos are skipped. */
+   *  effects (no spawn/retire). Disabled repos are skipped. */
   async snapshot(): Promise<DrainStatus[]> {
     const out: DrainStatus[] = [];
     for (const repoPath of this.deps.repos()) {

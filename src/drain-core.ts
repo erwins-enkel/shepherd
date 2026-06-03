@@ -6,7 +6,7 @@ import type { SessionStatus, ReviewDecision } from "./types";
  *  sibling so operators don't have to wire up two labels). */
 export const PRIORITY_LABEL = "shepherd:priority";
 
-/** Why the drain is holding rather than spawning/merging — surfaced on `drain:status`. */
+/** Why the drain is holding rather than spawning/retiring — surfaced on `drain:status`. */
 export interface HoldReason {
   code:
     | "disabled" // per-repo toggle off

@@ -23,6 +23,7 @@ const NO_USAGE: UsageLimitsType = { session5h: null, week: null, stale: false, c
 
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
+  links: { prNumber: number; issueNumber: number }[];
   listIssuesCalls: number;
   closedIssues: number[];
 }
@@ -34,6 +35,7 @@ function fakeForge(
     merge?: () => Promise<void>;
     listIssues?: () => Promise<Issue[]>;
     closeIssue?: (n: number) => Promise<void>;
+    ensureIssueLink?: (prNumber: number, issueNumber: number) => Promise<void>;
   } = {},
 ): GitForge {
   return {
@@ -59,6 +61,10 @@ function fakeForge(
     closeIssue: async (issueNumber: number) => {
       rec.closedIssues.push(issueNumber);
       if (opts.closeIssue) await opts.closeIssue(issueNumber);
+    },
+    ensureIssueLink: async (prNumber: number, issueNumber: number) => {
+      rec.links.push({ prNumber, issueNumber });
+      if (opts.ensureIssueLink) await opts.ensureIssueLink(prNumber, issueNumber);
     },
   };
 }
@@ -99,7 +105,7 @@ function makeHarness(
     usageCeilingPct: opts.usageCeilingPct ?? 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0, closedIssues: [] };
+  const forgeRec: ForgeRec = { merges: [], links: [], listIssuesCalls: 0, closedIssues: [] };
   const forge = fakeForge(opts.issues ?? [], forgeRec, {
     merge: opts.mergeImpl,
     listIssues: opts.listIssuesImpl,
@@ -237,7 +243,7 @@ test("dedupe: an existing session mapped to #1 → spawns #2 next, not #1", asyn
   expect(h.creates[0]!.issueRef?.number).toBe(2);
 });
 
-test("auto-merge gate: mergeable session → merges once; immediate second pump does not re-merge", async () => {
+test("retire gate: ready session → retired once; forge.merge never called; ensureIssueLink + archive + emitArchived fire", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -256,13 +262,22 @@ test("auto-merge gate: mergeable session → merges once; immediate second pump 
   // critic enabled (repo default) → seed a clean verdict for the current head so the gate opens
   h.setReview(s.id, "commented", "sha-7");
   await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toEqual([{ prNumber: 7, method: "squash", deleteBranch: true }]);
-  // second pump: still in `merging` (pr-poller hasn't reported merged), git → null → no re-merge
+  // drain never merges
+  expect(h.forgeRec.merges).toHaveLength(0);
+  // issue link ensured
+  expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7 }]);
+  // session archived
+  expect(h.store.get(s.id)?.status).toBe("archived");
+  // emitArchived and dropPrCache fired
+  expect(h.archived).toEqual([s.id]);
+  expect(h.dropped).toEqual([s.id]);
+  // second pump: session archived → no longer in autoSessions → no retire
   await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(1);
+  expect(h.forgeRec.links).toHaveLength(1); // not called again
+  expect(h.archived).toHaveLength(1); // not emitted again
 });
 
-test("critic enabled + no verdict yet → holds, does not merge (gate not bypassed)", async () => {
+test("critic enabled + no verdict yet → holds, does not retire (gate not bypassed)", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -281,9 +296,12 @@ test("critic enabled + no verdict yet → holds, does not merge (gate not bypass
   // no verdict seeded → critic-on gate holds
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(0);
+  expect(h.forgeRec.links).toHaveLength(0);
+  expect(h.archived).toHaveLength(0);
+  expect(h.store.get(s.id)?.status).not.toBe("archived");
 });
 
-test("onReview triggers a pump: a clean verdict landing causes the merge", async () => {
+test("onReview triggers a pump: a clean verdict landing causes retire (archive + ensureIssueLink)", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -299,10 +317,13 @@ test("onReview triggers a pump: a clean verdict landing causes the merge", async
     issueNumber: 7,
   });
   h.prCache[s.id] = openGreen(7);
-  // verdict lands now (matching head) → onReview pumps → merge fires
+  // verdict lands now (matching head) → onReview pumps → retire fires
   h.setReview(s.id, "commented", "sha-7");
   await h.drain.onReview(s.id);
-  expect(h.forgeRec.merges).toEqual([{ prNumber: 7, method: "squash", deleteBranch: true }]);
+  expect(h.forgeRec.merges).toHaveLength(0);
+  expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7 }]);
+  expect(h.store.get(s.id)?.status).toBe("archived");
+  expect(h.archived).toEqual([s.id]);
 });
 
 test("re-spawn guard: a merged+archived auto session for #N keeps #N out of candidates", async () => {
@@ -320,7 +341,7 @@ test("re-spawn guard: a merged+archived auto session for #N keeps #N out of cand
     auto: true,
     issueNumber: 7,
   });
-  // simulate the merged → archived lifecycle: its issueNumber must stay mapped
+  // simulate the retired → archived lifecycle: its issueNumber must stay mapped
   h.store.archive(s.id);
   await h.drain.pump(REPO);
   // issue #7 still open+labeled, but already drained → not re-spawned
@@ -351,7 +372,7 @@ test("drain-disabled repo: a manual archive does not pump / emit drain:status", 
   expect(h.statuses).toHaveLength(0);
 });
 
-test("no merge when review decision is changes_requested (and status is paused)", async () => {
+test("no retire when review decision is changes_requested (status paused)", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -370,12 +391,14 @@ test("no merge when review decision is changes_requested (and status is paused)"
   h.setReview(s.id, "changes_requested");
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(0);
+  expect(h.forgeRec.links).toHaveLength(0);
+  expect(h.archived).toHaveLength(0);
   const last = h.statuses.at(-1)!;
   expect(last.paused).toBe(true);
   expect(last.reason).toBe("changes_requested");
 });
 
-test("no merge when mergeable !== true", async () => {
+test("no retire when mergeable !== true", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -393,6 +416,8 @@ test("no merge when mergeable !== true", async () => {
   h.prCache[s.id] = openGreen(7, false);
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(0);
+  expect(h.forgeRec.links).toHaveLength(0);
+  expect(h.archived).toHaveLength(0);
 });
 
 test("usage ceiling hold → status paused (usage banner reachable)", async () => {
@@ -458,18 +483,12 @@ test("pumping lock: an in-flight pump makes a concurrent pump return immediately
   expect(h.creates).toHaveLength(1); // exactly one spawn for the single slot
 });
 
-test("merge-throw → retry: failed merge defers to next pump (at most one attempt per pump)", async () => {
-  let callCount = 0;
-  const h = makeHarness({
-    maxAuto: 1,
-    issues: [],
-    mergeImpl: async () => {
-      callCount++;
-      if (callCount === 1) throw new Error("conflict");
-      // second call succeeds
-    },
-  });
-  const s = h.store.create({
+test("ensureIssueLink failure is best-effort: retire still archives and emits even if link throws", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  // override ensureIssueLink to throw
+  const store = h.store;
+  const forgeRec = h.forgeRec;
+  const s = store.create({
     name: "auto",
     prompt: "p",
     repoPath: REPO,
@@ -483,18 +502,38 @@ test("merge-throw → retry: failed merge defers to next pump (at most one attem
     issueNumber: 7,
   });
   h.prCache[s.id] = openGreen(7);
-  h.setReview(s.id, "commented", "sha-7"); // clean verdict for current head opens the gate
-  // first pump: merge throws on first attempt → id removed from merging →
-  // attemptedMerge guard fires → breaks without retrying in the same pump
-  await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(1); // attempted exactly once; NOT retried same pump
-  // second pump: fresh attemptedMerge; id not in merging (throw cleared it) →
-  // merge is retried and succeeds
-  await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(2); // retried across pumps; total 2 calls
-  // third pump: id now in merging (success); git → null → no further merge
-  await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(2); // no third attempt
+  h.setReview(s.id, "commented", "sha-7");
+
+  // Build a drain that uses a forge where ensureIssueLink throws
+  const throwingForge = fakeForge([], forgeRec, {
+    ensureIssueLink: async () => {
+      throw new Error("link failed");
+    },
+  });
+  const drain2 = new DrainService({
+    store,
+    service: {
+      create: async () => {
+        throw new Error("should not spawn");
+      },
+      archive: (id: string): number => {
+        store.archive(id);
+        return 1;
+      },
+    },
+    resolveForge: () => throwingForge,
+    prCache: { snapshot: () => h.prCache },
+    usage: { limits: (): UsageLimitsType => NO_USAGE },
+    repos: () => [REPO],
+    emitStatus: () => {},
+    emitArchived: (id) => h.archived.push(id),
+    dropPrCache: (id) => h.dropped.push(id),
+  });
+  await drain2.pump(REPO);
+  // Link failed but teardown still ran
+  expect(store.get(s.id)?.status).toBe("archived");
+  expect(h.archived).toEqual([s.id]);
+  expect(h.dropped).toEqual([s.id]);
 });
 
 test("tick + snapshot over repos: only drain-enabled repo is acted on and reported", async () => {
@@ -521,7 +560,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     usageCeilingPct: 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0, closedIssues: [] };
+  const forgeRec: ForgeRec = { merges: [], links: [], listIssuesCalls: 0, closedIssues: [] };
   const forge = fakeForge([issue(1)], forgeRec);
   const creates: CreateSessionInput[] = [];
   const statuses: DrainStatus[] = [];
@@ -579,33 +618,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   expect(creates.length).toBe(createsAfterSnapshot);
 });
 
-test("closeIssue called once with issueNumber when onGit observes merged state", async () => {
-  const h = makeHarness({ maxAuto: 1, issues: [] });
-  const s = h.store.create({
-    name: "auto",
-    prompt: "p",
-    repoPath: REPO,
-    baseBranch: "main",
-    branch: "shepherd/auto-7",
-    worktreePath: "/wt",
-    isolated: true,
-    herdrSession: "default",
-    herdrAgentId: "t",
-    auto: true,
-    issueNumber: 7,
-  });
-  // drain-initiated merge: pump fires doMerge, then poller reports merged
-  h.prCache[s.id] = openGreen(7);
-  h.setReview(s.id, "commented", "sha-7");
-  await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(1);
-  // doMerge no longer closes — close happens in onGit when merged observed
-  expect(h.forgeRec.closedIssues).toHaveLength(0);
-  await h.drain.onGit(s.id, { ...openGreen(7), state: "merged" });
-  expect(h.forgeRec.closedIssues).toEqual([7]);
-});
-
-test("out-of-band merge: onGit(merged) without prior doMerge closes issue and archives", async () => {
+test("out-of-band merge: onGit(merged) without prior retire closes issue and archives", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -620,10 +633,10 @@ test("out-of-band merge: onGit(merged) without prior doMerge closes issue and ar
     auto: true,
     issueNumber: 42,
   });
-  // No pump / doMerge — simulate a human or GitHub auto-merge observed by the poller
+  // No pump / doRetire — simulate a human or GitHub auto-merge observed by the poller
   await h.drain.onGit(s.id, { ...openGreen(42), state: "merged" });
   expect(h.forgeRec.merges).toHaveLength(0); // drain never called forge.merge
-  expect(h.forgeRec.closedIssues).toEqual([42]); // issue still closed
+  expect(h.forgeRec.closedIssues).toEqual([42]); // issue closed
   expect(h.store.get(s.id)?.status).toBe("archived");
   expect(h.archived).toEqual([s.id]);
   expect(h.dropped).toEqual([s.id]);
@@ -649,33 +662,27 @@ test("closeIssue not called when session has issueNumber === null (onGit merged 
   expect(h.store.get(s.id)?.status).toBe("archived");
 });
 
-test("closeIssue not called when merge throws (no merged observed → onGit merged never runs)", async () => {
-  const h = makeHarness({
-    maxAuto: 1,
-    issues: [],
-    mergeImpl: async () => {
-      throw new Error("conflict");
-    },
-  });
+test("ensureIssueLink not called when session has issueNumber === null", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
     prompt: "p",
     repoPath: REPO,
     baseBranch: "main",
-    branch: "shepherd/auto-7",
+    branch: "shepherd/auto-no-issue",
     worktreePath: "/wt",
     isolated: true,
     herdrSession: "default",
     herdrAgentId: "t",
     auto: true,
-    issueNumber: 7,
+    issueNumber: null,
   });
-  h.prCache[s.id] = openGreen(7);
-  h.setReview(s.id, "commented", "sha-7");
+  h.prCache[s.id] = openGreen(99);
+  h.setReview(s.id, "commented", "sha-99");
   await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(1); // attempted
-  // merge failed → not in merging → onGit(merged) never called → no close
-  expect(h.forgeRec.closedIssues).toHaveLength(0);
+  // session archived but no link attempted
+  expect(h.forgeRec.links).toHaveLength(0);
+  expect(h.store.get(s.id)?.status).toBe("archived");
 });
 
 // ── queue(): the actual backlog issues behind DrainStatus.queued ──────────────

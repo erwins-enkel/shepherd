@@ -9,7 +9,7 @@ export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done" | "review" | "ci" | "review-human";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot";
   tag: string;
 }
 
@@ -20,6 +20,7 @@ type PushCategory = "agent" | "reviews" | "ci";
 const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   blocked: "agent",
   done: "agent",
+  autopilot: "agent",
   review: "reviews",
   "review-human": "reviews",
   ci: "ci",
@@ -27,7 +28,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done" | "review" | "ci" | "review-human";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot";
   sessionId: string;
   tag: string;
   name: string;
@@ -38,6 +39,8 @@ export interface NotifyInput {
   ciState?: ChecksState;
   /** For kind "review-human": the human review state, selecting the body copy. */
   reviewState?: "approved" | "changes_requested" | "commented";
+  /** For kind "autopilot": the classifier's question summary (verbatim passthrough). */
+  summary?: string;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -73,6 +76,8 @@ const NOTIFY_TEXT = {
     humanApproved: "A reviewer approved your PR.",
     humanChanges: "A reviewer requested changes.",
     humanCommented: "A reviewer left a comment.",
+    autopilotTitle: (name: string) => `${name} — needs you`,
+    autopilotFallback: "Autopilot paused for your input.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -93,6 +98,8 @@ const NOTIFY_TEXT = {
     humanApproved: "Ein Reviewer hat deinen PR genehmigt.",
     humanChanges: "Ein Reviewer fordert Änderungen an.",
     humanCommented: "Ein Reviewer hat einen Kommentar hinterlassen.",
+    autopilotTitle: (name: string) => `${name} — braucht dich`,
+    autopilotFallback: "Autopilot pausiert für deine Eingabe.",
   },
 } as const;
 
@@ -151,6 +158,12 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         ...base,
         title: t.humanReviewTitle(input.name),
         body: humanReviewBody(t, input.reviewState),
+      };
+    case "autopilot":
+      return {
+        ...base,
+        title: t.autopilotTitle(input.name),
+        body: input.summary && input.summary.trim() ? input.summary : t.autopilotFallback,
       };
     default:
       return {

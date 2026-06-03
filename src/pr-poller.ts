@@ -98,7 +98,10 @@ export class PrPoller implements PrCache {
   async fastTick(): Promise<void> {
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
-    if (open.length === 0) return;
+    if (open.length === 0) {
+      this.fastCapLogged = false; // dropped under cap (to zero) → re-arm the notice
+      return;
+    }
     let batch = open;
     if (open.length > this.fastBatch) {
       const start = this.fastCursor % open.length;

@@ -371,6 +371,45 @@ test("fast tick caps open-PR polling per tick and rotates to cover all", async (
   expect(new Set(polled).size).toBe(5); // every open PR covered across ticks
 });
 
+test("over-cap notice re-logs after the open-PR count drops to zero and back", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  let cur: PrStatus = OPEN_PENDING;
+  let warnings = 0;
+  const orig = console.warn;
+  console.warn = (msg?: unknown) => {
+    if (typeof msg === "string" && msg.includes("exceed fast-poll cap")) warnings++;
+  };
+  try {
+    const poller = new PrPoller(
+      store,
+      () => ({ ...forgeByBranch({}), prStatus: async () => cur }),
+      () => {},
+      120_000,
+      1000,
+      () => null,
+      15_000,
+      1, // fastBatch=1 → 3 open PRs are over-cap
+    );
+    await poller.tick(); // cache 3 open PRs
+    await poller.fastTick(); // over-cap → logs once
+    await poller.fastTick(); // still over-cap → latched, no re-log
+    expect(warnings).toBe(1);
+
+    cur = { state: "merged", number: 1, checks: "success", deployConfigured: false };
+    await poller.tick(); // PRs settle → cache holds no open entries
+    await poller.fastTick(); // zero open → re-arms the latch
+    expect(warnings).toBe(1);
+
+    cur = OPEN_PENDING;
+    await poller.tick(); // open again, still over-cap
+    await poller.fastTick(); // latch re-armed → logs again
+    expect(warnings).toBe(2);
+  } finally {
+    console.warn = orig;
+  }
+});
+
 test("serializes a targeted poll behind a sweep — one gh at a time", async () => {
   const store = new SessionStore(":memory:");
   for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });

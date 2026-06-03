@@ -404,7 +404,7 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.detail).toBe("92");
 });
 
-test("merged → archive → advance chain: onGit(merged) archives, drops, emits, and onArchived spawns #2", async () => {
+test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {
   const advances: Promise<void>[] = [];
   const h = makeHarness({
     maxAuto: 1,
@@ -430,6 +430,8 @@ test("merged → archive → advance chain: onGit(merged) archives, drops, emits
   expect(h.store.get(s.id)?.status).toBe("archived");
   expect(h.dropped).toEqual([s.id]);
   expect(h.archived).toEqual([s.id]);
+  // closeIssue called in onGit's merged branch
+  expect(h.forgeRec.closedIssues).toEqual([1]);
   // onArchived pumped → a slot freed → issue #2 spawned
   expect(h.creates).toHaveLength(1);
   expect(h.creates[0]!.issueRef?.number).toBe(2);
@@ -577,7 +579,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   expect(creates.length).toBe(createsAfterSnapshot);
 });
 
-test("closeIssue called once with issueNumber after successful auto-merge", async () => {
+test("closeIssue called once with issueNumber when onGit observes merged state", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -592,14 +594,42 @@ test("closeIssue called once with issueNumber after successful auto-merge", asyn
     auto: true,
     issueNumber: 7,
   });
+  // drain-initiated merge: pump fires doMerge, then poller reports merged
   h.prCache[s.id] = openGreen(7);
   h.setReview(s.id, "commented", "sha-7");
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(1);
+  // doMerge no longer closes — close happens in onGit when merged observed
+  expect(h.forgeRec.closedIssues).toHaveLength(0);
+  await h.drain.onGit(s.id, { ...openGreen(7), state: "merged" });
   expect(h.forgeRec.closedIssues).toEqual([7]);
 });
 
-test("closeIssue not called when session has issueNumber === null", async () => {
+test("out-of-band merge: onGit(merged) without prior doMerge closes issue and archives", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-42",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 42,
+  });
+  // No pump / doMerge — simulate a human or GitHub auto-merge observed by the poller
+  await h.drain.onGit(s.id, { ...openGreen(42), state: "merged" });
+  expect(h.forgeRec.merges).toHaveLength(0); // drain never called forge.merge
+  expect(h.forgeRec.closedIssues).toEqual([42]); // issue still closed
+  expect(h.store.get(s.id)?.status).toBe("archived");
+  expect(h.archived).toEqual([s.id]);
+  expect(h.dropped).toEqual([s.id]);
+});
+
+test("closeIssue not called when session has issueNumber === null (onGit merged path)", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "auto",
@@ -614,14 +644,12 @@ test("closeIssue not called when session has issueNumber === null", async () => 
     auto: true,
     issueNumber: null,
   });
-  h.prCache[s.id] = openGreen(99);
-  h.setReview(s.id, "commented", "sha-99");
-  await h.drain.pump(REPO);
-  expect(h.forgeRec.merges).toHaveLength(1);
+  await h.drain.onGit(s.id, { ...openGreen(99), state: "merged" });
   expect(h.forgeRec.closedIssues).toHaveLength(0);
+  expect(h.store.get(s.id)?.status).toBe("archived");
 });
 
-test("closeIssue not called when merge throws", async () => {
+test("closeIssue not called when merge throws (no merged observed → onGit merged never runs)", async () => {
   const h = makeHarness({
     maxAuto: 1,
     issues: [],
@@ -646,5 +674,6 @@ test("closeIssue not called when merge throws", async () => {
   h.setReview(s.id, "commented", "sha-7");
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(1); // attempted
-  expect(h.forgeRec.closedIssues).toHaveLength(0); // not called; merge failed
+  // merge failed → not in merging → onGit(merged) never called → no close
+  expect(h.forgeRec.closedIssues).toHaveLength(0);
 });

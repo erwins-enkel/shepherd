@@ -87,6 +87,7 @@
     bind:value={query}
     class="ep-search"
     placeholder={m.emojipicker_search()}
+    aria-label={m.emojipicker_search()}
     type="text"
     role="combobox"
     aria-expanded="true"

@@ -16,6 +16,11 @@
   let filter = $state("");
   let root = $state<HTMLElement | null>(null);
   let filterInput = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLUListElement | null>(null);
+
+  // Roving keyboard cursor: the filter input keeps DOM focus while open, so it
+  // drives a virtual active row (aria-activedescendant) the way EmojiPicker does.
+  let activeIdx = $state(0);
 
   // repo path whose emoji picker is currently open (null = none)
   let pickerFor = $state<string | null>(null);
@@ -49,6 +54,41 @@
       filterInput.focus();
     }
   });
+
+  // Reset the cursor to the top whenever the filtered list changes (open/typing).
+  $effect(() => {
+    void shown;
+    activeIdx = 0;
+  });
+
+  // Keyboard-driven row navigation from the focused filter input.
+  function onFilterKey(e: KeyboardEvent) {
+    if (shown.length === 0) return;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, shown.length - 1);
+        scrollActiveIntoView();
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        scrollActiveIntoView();
+        break;
+      case "Enter": {
+        e.preventDefault();
+        const r = shown[activeIdx];
+        if (r) pick(r.path);
+        break;
+      }
+      // Escape falls through to the window handler that closes the panel.
+    }
+  }
+
+  function scrollActiveIntoView() {
+    const row = listEl?.children[activeIdx] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest" });
+  }
 
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
@@ -102,12 +142,16 @@
         type="text"
         autocomplete="off"
         spellcheck="false"
+        aria-activedescendant={shown.length ? `rs-opt-${activeIdx}` : undefined}
+        onkeydown={onFilterKey}
       />
-      <ul class="rs-list">
-        {#each shown as r (r.path)}
+      <ul class="rs-list" bind:this={listEl}>
+        {#each shown as r, i (r.path)}
           <li
+            id={`rs-opt-${i}`}
             class="rs-row"
             class:active={r.path === value}
+            class:kbd-active={i === activeIdx}
             role="option"
             aria-selected={r.path === value}
             tabindex="-1"
@@ -288,7 +332,8 @@
     border-bottom: 0;
   }
 
-  .rs-row:hover {
+  .rs-row:hover,
+  .rs-row.kbd-active {
     background: var(--color-hover);
   }
 

@@ -4,6 +4,7 @@ import { mapState, type HerdrDriver, type HerdrAgent } from "./herdr";
 import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
 import { isStalled, readSnapshot, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
+import { readActivitySignal, type SessionActivity } from "./activity-signal";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
@@ -12,6 +13,8 @@ export class StatusPoller {
   private lastReadAt = new Map<string, number>();
   private lastSig = new Map<string, string>();
   private lastStallAt = new Map<string, number>();
+  private lastActivityAt = new Map<string, number>();
+  private lastActivitySig = new Map<string, string>();
 
   constructor(
     private store: SessionStore,
@@ -29,6 +32,14 @@ export class StatusPoller {
     private stallCheckMs = 30_000,
     /** Pushed when a session's manual readyToMerge flag is auto-cleared on resume. */
     private onReady: (id: string, ready: boolean) => void = () => {},
+    /** Pushed when a running session's heartbeat or current activity changes. */
+    private onActivity: (id: string, activity: SessionActivity) => void = () => {},
+    private activityCheckMs = 7000,
+    /** Current activity signal for a session; defaults to reading its JSONL. */
+    private activityProbe: (s: Session) => SessionActivity | null = (s) =>
+      s.claudeSessionId
+        ? readActivitySignal(jsonlPathFor(s.worktreePath, s.claudeSessionId))
+        : null,
   ) {}
 
   tick(): void {
@@ -71,8 +82,10 @@ export class StatusPoller {
       this.onReady(s.id, false);
     }
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
-    else if (status === "running") this.maybeStall(s);
-    else this.clearBlock(s.id);
+    else if (status === "running") {
+      this.maybeStall(s);
+      this.maybeActivity(s);
+    } else this.clearBlock(s.id);
   }
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
@@ -82,6 +95,8 @@ export class StatusPoller {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
         this.lastStallAt.delete(id);
+        this.lastActivityAt.delete(id);
+        this.lastActivitySig.delete(id);
       }
     }
   }
@@ -116,6 +131,30 @@ export class StatusPoller {
       // terminal read is best-effort context; an empty tail still flags the stall
     }
     this.onBlock(s.id, { shape: "stall", options: [], tail });
+  }
+
+  /**
+   * Probe a *running* agent's transcript for its latest heartbeat + activity
+   * summary. Throttled to `activityCheckMs` per session; deduped by signal
+   * content so clients only receive genuine changes. A null probe result (no
+   * transcript yet) is silently skipped.
+   */
+  private maybeActivity(s: Session): void {
+    const t = this.now();
+    if (t - (this.lastActivityAt.get(s.id) ?? 0) < this.activityCheckMs) return;
+    this.lastActivityAt.set(s.id, t);
+    let signal: SessionActivity | null;
+    try {
+      signal = this.activityProbe(s);
+    } catch (err) {
+      console.warn(`[poller] activity probe failed for ${s.id}:`, err);
+      return; // best-effort; retry next cadence
+    }
+    if (!signal) return; // no transcript yet — nothing to emit
+    const sig = JSON.stringify(signal);
+    if (sig === this.lastActivitySig.get(s.id)) return; // unchanged → skip
+    this.lastActivitySig.set(s.id, sig);
+    this.onActivity(s.id, signal);
   }
 
   /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */

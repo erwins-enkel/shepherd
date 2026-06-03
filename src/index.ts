@@ -130,6 +130,7 @@ const poller = new StatusPoller(
   undefined, // stallCfg
   undefined, // stallCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
+  (id, activity) => events.emit("session:activity", { id, activity }),
 );
 poller.start();
 

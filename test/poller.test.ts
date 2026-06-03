@@ -458,3 +458,229 @@ test("does not emit onBlock when reading the terminal throws", () => {
   poller.tick();
   expect(blocks).toHaveLength(0);
 });
+
+// ── maybeActivity ─────────────────────────────────────────────────────────────
+
+const runningHerdr = {
+  list: (): HerdrAgent[] => [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ],
+  read: () => "",
+};
+
+test("maybeActivity emits via onActivity when the probe returns a signal", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: { id: string; activity: unknown }[] = [];
+
+  const clock = 100_000;
+  const signal = { lastActivityTs: 999, summary: "edited poller.ts" };
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined, // stallProbe
+    DEFAULT_STALL,
+    30_000,
+    () => {}, // onReady
+    (id, activity) => activities.push({ id, activity }),
+    7000, // activityCheckMs
+    () => signal, // activityProbe — always returns the same signal
+  );
+
+  poller.tick();
+  expect(activities).toHaveLength(1);
+  expect(activities[0]!.activity).toEqual(signal);
+});
+
+test("maybeActivity dedups identical signals — does not re-emit unchanged activity", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  const signal = { lastActivityTs: 1234, summary: "$ bun test" };
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000,
+    () => signal,
+  );
+
+  poller.tick(); // first emit
+  expect(activities).toHaveLength(1);
+
+  // advance past throttle, same signal → no re-emit
+  clock += 8000;
+  poller.tick();
+  expect(activities).toHaveLength(1);
+
+  // signal changes → re-emits
+  clock += 8000;
+  const newSignal = { lastActivityTs: 5678, summary: "wrote config.ts" };
+  const poller2 = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000,
+    () => newSignal,
+  );
+  // force a tick from a fresh poller so its sig map is empty → it emits
+  poller2.tick();
+  expect(activities).toHaveLength(2);
+  expect(activities[1]).toEqual(newSignal);
+});
+
+test("maybeActivity respects activityCheckMs throttle", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  let callCount = 0;
+  const probe = () => {
+    callCount++;
+    return { lastActivityTs: clock, summary: `tick ${callCount}` };
+  };
+
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000, // activityCheckMs
+    probe,
+  );
+
+  poller.tick(); // probe called, signal emitted
+  expect(callCount).toBe(1);
+  expect(activities).toHaveLength(1);
+
+  clock += 3000; // within activityCheckMs (7000) → throttled
+  poller.tick();
+  expect(callCount).toBe(1); // probe NOT called again yet
+
+  clock += 5000; // now past the 7000ms throttle
+  poller.tick();
+  expect(callCount).toBe(2); // probe called again
+});
+
+test("maybeActivity skips emit when probe returns null", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 100_000,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000,
+    () => null, // no signal yet
+  );
+
+  poller.tick();
+  expect(activities).toHaveLength(0);
+});
+
+test("maybeActivity does not run for non-running (idle/blocked) sessions", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+  let probeCallCount = 0;
+
+  // herdr reports "done" → maps to idle
+  const idleHerdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "done" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "",
+  };
+
+  const poller = new StatusPoller(
+    store,
+    idleHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 100_000,
+    undefined,
+    DEFAULT_STALL,
+    30_000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+    7000,
+    () => {
+      probeCallCount++;
+      return { lastActivityTs: 1, summary: "edited x.ts" };
+    },
+  );
+
+  poller.tick();
+  expect(probeCallCount).toBe(0);
+  expect(activities).toHaveLength(0);
+});

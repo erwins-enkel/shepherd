@@ -21,6 +21,8 @@
     onupdate,
     herdrUpdate = null,
     onherdrupdate,
+    whatsNew = false,
+    onwhatsnew,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -38,6 +40,8 @@
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
+    whatsNew?: boolean;
+    onwhatsnew?: () => void;
   } = $props();
 
   const updateAvailable = $derived(!!update && update.behind > 0);
@@ -270,6 +274,30 @@
         <span class="up-label">{m.topbar_herdr_update_badge()}</span>
       </button>
     {/if}
+    {#if whatsNew}
+      <!-- Desktop: labelled button with hover-tip; Mobile: dot-only to avoid
+           crowding the single-row control cluster (mirrors .gear-dot pattern). -->
+      {#if !mobile}
+        <button
+          class="whatsnew-badge tip"
+          type="button"
+          onclick={() => onwhatsnew?.()}
+          data-tip={m.whatsnew_open()}
+          aria-label={m.whatsnew_topbar_aria()}
+        >
+          <span class="wn-dot" aria-hidden="true">●</span>
+          <span class="wn-label">{m.whatsnew_open()}</span>
+        </button>
+      {:else}
+        <button
+          class="whatsnew-dot-btn"
+          type="button"
+          onclick={() => onwhatsnew?.()}
+          aria-label={m.whatsnew_topbar_aria()}
+          ><span class="wn-pip" aria-hidden="true"></span></button
+        >
+      {/if}
+    {/if}
     <button
       class="gear tip"
       class:has-update={herdrUpdateAvailable && mobile}
@@ -414,6 +442,53 @@
   }
   .gear.has-update {
     border-color: var(--color-green);
+  }
+  /* What's New affordance — blue accent, distinct from green (herdr) and amber (app-update). */
+  .whatsnew-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    background: color-mix(in srgb, var(--color-blue, #4a9eff) 14%, transparent);
+    border: 1px solid var(--color-blue, #4a9eff);
+    color: var(--color-blue, #4a9eff);
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-radius: 2px;
+  }
+  .whatsnew-badge:hover {
+    background: color-mix(in srgb, var(--color-blue, #4a9eff) 22%, transparent);
+  }
+  .whatsnew-badge .wn-dot {
+    font-size: 8px;
+  }
+  /* Phone-only: bare pip button, no label — mirrors .gear-dot folded pattern. */
+  .whatsnew-dot-btn {
+    position: relative;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 5px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    min-height: 44px;
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wn-pip {
+    display: block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--color-blue, #4a9eff);
+    box-shadow: 0 0 0 2px var(--color-panel);
   }
   .gauges {
     display: flex;

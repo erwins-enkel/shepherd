@@ -41,7 +41,7 @@ terminal use on a subscription but restricts programmatic use (Agent SDK / `clau
 
 ## 2. Architecture
 
-Single self-contained app in `~/Work/tank/`: one **Bun/TS server process** that serves a
+Single self-contained app in `~/Work/shepherd/`: one **Bun/TS server process** that serves a
 **SvelteKit 5** UI, a REST API, and two WebSocket channels.
 
 ```

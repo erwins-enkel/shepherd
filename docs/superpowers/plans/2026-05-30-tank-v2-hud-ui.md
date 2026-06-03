@@ -61,7 +61,7 @@ tank/
 - [ ] **Step 1: Scaffold**
 
 ```bash
-cd ~/Work/tank
+cd ~/Work/shepherd
 bunx sv create ui --template minimal --types ts --no-add-ons --no-install
 cd ui && bun install
 bun add -d @tailwindcss/vite @sveltejs/adapter-static
@@ -128,7 +128,7 @@ Verify: `cd ui && bun run dev` boots without error (Ctrl-C after confirming). Ru
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/Work/tank
+cd ~/Work/shepherd
 echo "ui/build/" >> .gitignore
 git add -A && git commit -m "chore(ui): scaffold sveltekit5 spa (tailwind4, xterm, adapter-static)"
 ```
@@ -647,8 +647,8 @@ git add src/server.ts test/server.test.ts && git commit -m "feat: backend serves
 - [ ] **Step 1: Build UI + boot backend on a temp DB/port**
 
 ```bash
-cd ~/Work/tank/ui && bun run build
-cd ~/Work/tank && SHEPHERD_DB=/tmp/tank-e2e.db SHEPHERD_PORT=7346 SHEPHERD_REPO_ROOT=/tmp bun run src/index.ts &
+cd ~/Work/shepherd/ui && bun run build
+cd ~/Work/shepherd && SHEPHERD_DB=/tmp/tank-e2e.db SHEPHERD_PORT=7346 SHEPHERD_REPO_ROOT=/tmp bun run src/index.ts &
 sleep 1.5
 ```
 

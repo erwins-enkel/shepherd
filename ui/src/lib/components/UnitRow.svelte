@@ -173,7 +173,7 @@
       <span class="meta-text"
         ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
       >
-      {#if showStepper}
+      {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">
           <Stepper sessionId={session.id} {git} readyToMerge={session.readyToMerge} />
         </span>
@@ -428,7 +428,6 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-variant-numeric: tabular-nums;
   }
 
   .car {

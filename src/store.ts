@@ -600,6 +600,19 @@ export class SessionStore implements CapStore {
     return this.getLearning(id);
   }
 
+  /** Bump ineffectiveCount for an active/promoted rule (self-audit, spec §5). A
+   *  no-op returning null for proposed/dismissed/missing rules — only live rules
+   *  can be "not working". */
+  incrementLearningIneffective(id: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
+    this.db.run(
+      `UPDATE learnings SET ineffectiveCount = ineffectiveCount + 1, updatedAt = ? WHERE id = ?`,
+      [Date.now(), id],
+    );
+    return this.getLearning(id);
+  }
+
   pendingLearningCount(): number {
     return (
       this.db.query(`SELECT COUNT(*) AS c FROM learnings WHERE status = 'proposed'`).get() as {

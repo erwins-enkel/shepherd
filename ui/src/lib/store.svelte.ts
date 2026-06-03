@@ -151,6 +151,25 @@ export class HerdStore {
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
         break;
+      case "session:review":
+        reviews.apply(ev.data);
+        break;
+      case "session:reviewing":
+        reviews.setReviewing(ev.data.id, ev.data.reviewing);
+        break;
+      default:
+        // App-global (non-per-session-row) events are handled out of line to keep
+        // this dispatch switch under the complexity gate.
+        this.applyGlobalEvent(ev);
+        break;
+    }
+  }
+
+  /** Handle the app-global (non per-session-row) WS events: usage limits, the
+   *  self/herdr update channels, project icons, learnings, backlog + drain.
+   *  Split out of apply() so its dispatch switch stays under the complexity gate. */
+  private applyGlobalEvent(ev: WsEvent) {
+    switch (ev.event) {
       case "usage:limits":
         this.usageLimits = ev.data;
         break;
@@ -165,12 +184,6 @@ export class HerdStore {
         break;
       case "project-icons:update":
         projectIcons.apply(ev.data);
-        break;
-      case "session:review":
-        reviews.apply(ev.data);
-        break;
-      case "session:reviewing":
-        reviews.setReviewing(ev.data.id, ev.data.reviewing);
         break;
       case "learnings:update":
         learnings.apply(ev.data);

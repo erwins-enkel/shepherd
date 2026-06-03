@@ -1,8 +1,8 @@
 import { test, expect } from "vitest";
 import { partitionSessions } from "./herd-partition";
-import type { Session, GitState } from "$lib/types";
+import type { Session, GitState, SessionStatus } from "$lib/types";
 
-function session(id: string, readyToMerge = false): Session {
+function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
   return {
     id,
     desig: "TASK-01",
@@ -17,7 +17,7 @@ function session(id: string, readyToMerge = false): Session {
     herdrAgentId: "a",
     claudeSessionId: "c",
     model: null,
-    status: "running",
+    status,
     readyToMerge,
     lastState: "working",
     createdAt: 0,
@@ -85,8 +85,8 @@ test("open PR with pending CI lands in the ciRunning group", () => {
   expect(ciRunning.map((s) => s.id)).toEqual(["p1"]);
 });
 
-test("open PR with green CI lands in awaitingMerge; no-checks PR stays active", () => {
-  const list = [session("s"), session("n")];
+test("idle session with green CI lands in awaitingMerge; no-checks PR stays active", () => {
+  const list = [session("s", false, "idle"), session("n")];
   const { active, awaitingMerge, ciRunning } = partitionSessions(list, {
     s: git("open", "success"),
     n: git("open", "none"),
@@ -94,6 +94,23 @@ test("open PR with green CI lands in awaitingMerge; no-checks PR stays active", 
   expect(active.map((s) => s.id)).toEqual(["n"]);
   expect(awaitingMerge.map((s) => s.id)).toEqual(["s"]);
   expect(ciRunning).toHaveLength(0);
+});
+
+test("a busy agent with green CI stays active, not awaitingMerge (auto-correct in flight)", () => {
+  // After a critic steers findings back, the task agent goes `running` again while
+  // the PR is still open+green (no new push yet). It is working, not handed off.
+  const list = [session("c", false, "running")];
+  const { active, awaitingMerge } = partitionSessions(list, { c: git("open", "success") });
+  expect(awaitingMerge).toHaveLength(0);
+  expect(active.map((s) => s.id)).toEqual(["c"]);
+});
+
+test("a blocked agent with green CI stays active, not awaitingMerge (needs operator input)", () => {
+  // Blocked = mid-turn, awaiting operator input — still in the loop, not handed off.
+  const list = [session("b", false, "blocked")];
+  const { active, awaitingMerge } = partitionSessions(list, { b: git("open", "success") });
+  expect(awaitingMerge).toHaveLength(0);
+  expect(active.map((s) => s.id)).toEqual(["b"]);
 });
 
 test("open PR with failed CI lands in the ciFailed group", () => {

@@ -98,6 +98,8 @@ export interface AppDeps {
    *  Optional so environments/tests that don't wire it still type-check; the route
    *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
   distiller?: { distillNow: (repoPath: string) => void };
+  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
+  promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
 }
 
 const sessionUsage = (s: Session) =>
@@ -288,6 +290,15 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
     if (!dir) return json({ error: "invalid repo" }, 400);
     deps.distiller?.distillNow(dir);
     return json({ ok: true });
+  }
+
+  // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
+  if (parts[2] && parts[3] === "promote") {
+    if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
+    const res = await deps.promoter.promote(parts[2]);
+    if (!res.ok) return json({ error: res.error }, res.status);
+    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+    return json({ url: res.url });
   }
 
   // POST /api/learnings/:id/approve  |  /:id/dismiss

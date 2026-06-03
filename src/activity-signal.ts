@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseActivity, latestRecordTs, type ActivityEntry } from "./activity";
-import { snapshotFromText, type ActivitySnapshot } from "./stall";
+import { snapshotFrom, type ActivitySnapshot } from "./stall";
 
 /** Per-agent liveness + current-activity signal pushed to UI clients. */
 export interface SessionActivity {
@@ -37,16 +37,23 @@ export function latestMeaningfulSummary(entries: ActivityEntry[]): string | null
 }
 
 /**
- * Pure: derive an activity signal from already-read transcript text. Returns
- * null when the text has no parseable records at all (e.g. a brand-new session).
+ * Pure: derive an activity signal from already-parsed tool-use entries plus the
+ * newest record ts. Returns null when there's no parseable activity at all
+ * (e.g. a brand-new session).
  */
-export function signalFromText(text: string): SessionActivity | null {
-  const lastActivityTs = latestRecordTs(text);
-  const entries = parseActivity(text);
+export function signalFrom(
+  entries: ActivityEntry[],
+  lastActivityTs: number,
+): SessionActivity | null {
   const summary = latestMeaningfulSummary(entries);
   // no signal yet — transcript exists but contains no parseable activity
   if (lastActivityTs === 0 && summary === null) return null;
   return { lastActivityTs, summary };
+}
+
+/** Pure: derive an activity signal from already-read transcript text. */
+export function signalFromText(text: string): SessionActivity | null {
+  return signalFrom(parseActivity(text), latestRecordTs(text));
 }
 
 /**
@@ -66,10 +73,10 @@ export function readActivitySignal(path: string): SessionActivity | null {
 
 /**
  * Read a session JSONL transcript ONCE and derive BOTH the stall snapshot and
- * the activity signal from it — the per-tick probe for a running agent. Missing/
- * unreadable file → both null. The win is a single file read (the prior split
- * probes each read the whole file); the pure `snapshotFromText`/`signalFromText`
- * builders still parse independently, but only one disk read happens per tick.
+ * the activity signal from a SINGLE parse — the per-tick probe for a running
+ * agent. Missing/unreadable file → both null. One `readFileSync`, one
+ * `parseActivity`, one `latestRecordTs`, both builders fed from the result —
+ * no duplicate disk read or in-memory parse per tick.
  */
 export function readTranscriptSignals(path: string): {
   snapshot: ActivitySnapshot | null;
@@ -81,5 +88,7 @@ export function readTranscriptSignals(path: string): {
   } catch {
     return { snapshot: null, activity: null };
   }
-  return { snapshot: snapshotFromText(text), activity: signalFromText(text) };
+  const entries = parseActivity(text);
+  const lastTs = latestRecordTs(text);
+  return { snapshot: snapshotFrom(entries, lastTs), activity: signalFrom(entries, lastTs) };
 }

@@ -2,9 +2,25 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isStalled, readSnapshot, snapshotFromText, DEFAULT_STALL } from "../src/stall";
+import {
+  isStalled,
+  readSnapshot,
+  snapshotFrom,
+  snapshotFromText,
+  DEFAULT_STALL,
+} from "../src/stall";
+import type { ActivityEntry } from "../src/activity";
 
 const NOW = 1_000_000_000_000;
+
+test("snapshotFrom: null for empty entries; pending keys off the newest entry", () => {
+  expect(snapshotFrom([], 0)).toBeNull();
+  const entries: ActivityEntry[] = [
+    { ts: 1_000, tool: "Edit", summary: "edited a.ts", status: "ok" },
+    { ts: 2_000, tool: "Bash", summary: "$ bun test", status: "pending" },
+  ];
+  expect(snapshotFrom(entries, 5_000)).toEqual({ lastTs: 5_000, pending: true });
+});
 
 test("not stalled when last tool finished within the window", () => {
   const snap = { lastTs: NOW - 2 * 60_000, pending: false };

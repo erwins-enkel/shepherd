@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   latestMeaningfulSummary,
   readActivitySignal,
+  signalFrom,
   signalFromText,
   readTranscriptSignals,
 } from "../src/activity-signal";
@@ -151,6 +152,18 @@ test("readActivitySignal omits noise tools from summary but still returns signal
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── signalFrom (pure, from parsed entries) ────────────────────────────────────
+
+test("signalFrom: null when no activity at all", () => {
+  expect(signalFrom([], 0)).toBeNull();
+});
+
+test("signalFrom: heartbeat ts + meaningful summary from parsed entries", () => {
+  const entries = [entry("Read", "read a.ts", 1_000), entry("Edit", "edited b.ts", 2_000)];
+  const signal = signalFrom(entries, 5_000);
+  expect(signal).toEqual({ lastActivityTs: 5_000, summary: "edited b.ts" });
 });
 
 // ── signalFromText / readTranscriptSignals ────────────────────────────────────

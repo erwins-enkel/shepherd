@@ -78,10 +78,10 @@
     }
   }
 
-  // "Older runs" history: lazy, additive, never polled. Fetched the first time
-  // the expander opens; "load more" grows the limit and re-lists from the top
-  // (`gh run list` has no cursor), then drops the latest run (already shown at
-  // the card head) so the list is strictly older runs.
+  // "Older runs" history: lazy, never polled. Fetched the first time the expander
+  // opens; "load more" grows the limit and re-fetches from the top (replaces the
+  // list — `gh run list` has no cursor), then drops the latest run (already shown
+  // at the card head) so the list is strictly older runs.
   const HISTORY_STEP = 10;
   const HISTORY_MAX = 50;
 
@@ -93,6 +93,9 @@
   let histLimit = $state(HISTORY_STEP);
 
   // More to fetch only while the server returned a full page and we're under cap.
+  // The +1 accounts for filtering out this card's run; if that run isn't in the
+  // page (e.g. a newer run started since last poll), it can trigger one extra
+  // no-op fetch — harmless, capped by HISTORY_MAX.
   const canLoadMore = $derived(
     histLoaded && history.length + 1 >= histLimit && histLimit < HISTORY_MAX,
   );
@@ -117,6 +120,7 @@
   }
 
   async function loadMore() {
+    if (histLoading) return;
     histLimit = Math.min(histLimit + HISTORY_STEP, HISTORY_MAX);
     await loadHistory();
   }

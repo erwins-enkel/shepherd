@@ -21,6 +21,7 @@ import type {
   ReviewVerdict,
   RepoConfig,
   DrainStatus,
+  QueuedItem,
   BacklogPayload,
   SlashCommand,
   Leftover,
@@ -560,6 +561,12 @@ export async function putRepoConfig(
 
 export async function getDrain(): Promise<DrainStatus[]> {
   return getJson("/api/drain", "drain");
+}
+
+/** The backlog issues behind a repo's `queued` count — fetched lazily when the
+ *  QueueStrip popover opens (the drain:status WS event stays count-only). */
+export async function getDrainQueue(repoPath: string): Promise<QueuedItem[]> {
+  return getJson(`/api/drain/queue?repo=${encodeURIComponent(repoPath)}`, "drain-queue");
 }
 
 export async function setSessionAutopilot(id: string, enabled: boolean | null): Promise<void> {

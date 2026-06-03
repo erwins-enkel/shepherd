@@ -168,6 +168,14 @@ export interface DrainStatus {
   max: number;
 }
 
+/** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.
+ *  GET /api/drain/queue?repo= payload (in drain order). */
+export interface QueuedItem {
+  number: number;
+  title: string;
+  url: string;
+}
+
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;

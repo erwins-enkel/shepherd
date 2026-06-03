@@ -36,7 +36,7 @@ import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
-import type { DrainStatus } from "./drain";
+import type { DrainStatus, QueuedItem } from "./drain";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
@@ -102,7 +102,10 @@ export interface AppDeps {
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
-  drain?: { snapshot(): Promise<DrainStatus[]> };
+  drain?: {
+    snapshot(): Promise<DrainStatus[]>;
+    queue(repoPath: string): Promise<QueuedItem[]>;
+  };
 }
 
 const sessionUsage = (s: Session) =>
@@ -164,10 +167,16 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-async function handleDrain({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (req.method === "GET" && parts[0] === "api" && parts[1] === "drain" && !parts[2]) {
-    return json((await deps.drain?.snapshot()) ?? []);
+async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "drain")) return null;
+  // GET /api/drain/queue?repo= — the backlog issues behind a repo's `queued` count
+  if (parts[2] === "queue") {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    return json((await deps.drain?.queue(dir)) ?? []);
   }
+  // GET /api/drain — a status per drain-enabled repo
+  if (!parts[2]) return json((await deps.drain?.snapshot()) ?? []);
   return null;
 }
 

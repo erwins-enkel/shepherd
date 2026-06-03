@@ -432,7 +432,7 @@ const server = serve(
     backlog,
     distiller,
     promoter,
-    drain: { snapshot: () => drain.snapshot() },
+    drain: { snapshot: () => drain.snapshot(), queue: (repoPath) => drain.queue(repoPath) },
   },
   config.port,
 );

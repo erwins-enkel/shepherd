@@ -197,7 +197,7 @@ test("GET /api/drain returns array from drain.snapshot()", async () => {
     inFlight: 1,
     max: 3,
   };
-  const { app } = harness({ snapshot: async () => [status] });
+  const { app } = harness({ snapshot: async () => [status], queue: async () => [] });
   const res = await app.fetch(new Request("http://x/api/drain"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([status]);
@@ -211,7 +211,45 @@ test("GET /api/drain returns [] when deps.drain is absent", async () => {
 });
 
 test("GET /api/drain with extra path segment → 404", async () => {
-  const { app } = harness({ snapshot: async () => [] });
+  const { app } = harness({ snapshot: async () => [], queue: async () => [] });
   const res = await app.fetch(new Request("http://x/api/drain/extra"));
   expect(res.status).toBe(404);
+});
+
+// ── GET /api/drain/queue?repo= ──────────────────────────────────────────────
+
+test("GET /api/drain/queue returns the repo's queued items from drain.queue()", async () => {
+  const items = [
+    { number: 7, title: "fix the thing", url: "https://x/7" },
+    { number: 9, title: "do the other", url: "https://x/9" },
+  ];
+  let askedFor = "";
+  const { app } = harness({
+    snapshot: async () => [],
+    queue: async (repoPath) => {
+      askedFor = repoPath;
+      return items;
+    },
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/drain/queue?repo=${encodeURIComponent(repoDir)}`),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(items);
+  expect(askedFor).toBe(repoDir);
+});
+
+test("GET /api/drain/queue with invalid repo → 400", async () => {
+  const { app } = harness({ snapshot: async () => [], queue: async () => [] });
+  const res = await app.fetch(new Request("http://x/api/drain/queue?repo=/nope/not/here"));
+  expect(res.status).toBe(400);
+});
+
+test("GET /api/drain/queue returns [] when deps.drain is absent", async () => {
+  const { app } = harness(undefined);
+  const res = await app.fetch(
+    new Request(`http://x/api/drain/queue?repo=${encodeURIComponent(repoDir)}`),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
 });

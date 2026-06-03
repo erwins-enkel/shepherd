@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.11.0](https://github.com/erwins-enkel/shepherd/compare/v1.10.0...v1.11.0) (2026-06-03)
+
+
+### Features
+
+* **actions:** re-run / cancel buttons per workflow run ([#232](https://github.com/erwins-enkel/shepherd/issues/232)) ([#264](https://github.com/erwins-enkel/shepherd/issues/264)) ([5a40ab3](https://github.com/erwins-enkel/shepherd/commit/5a40ab36529942d31a4b1f11017837f0c5bc02cd))
+* **critic:** [#247](https://github.com/erwins-enkel/shepherd/issues/247) follow-up polish for auto-address loop ([#266](https://github.com/erwins-enkel/shepherd/issues/266)) ([0bb7282](https://github.com/erwins-enkel/shepherd/commit/0bb7282b3fab36fc28ee682f7761202862570446))
+* **herd:** rename auto post-agent group "Waiting for merge" → "Your turn" ([#268](https://github.com/erwins-enkel/shepherd/issues/268)) ([63a2fa4](https://github.com/erwins-enkel/shepherd/commit/63a2fa472caff078719b0bf8d41db737bc8a7e88))
+* **learnings:** bound injected house-rules block with operator-visible budget ([#253](https://github.com/erwins-enkel/shepherd/issues/253)) ([#265](https://github.com/erwins-enkel/shepherd/issues/265)) ([fd93bfa](https://github.com/erwins-enkel/shepherd/commit/fd93bfa816139c0962139cd2b517c781fd3aaa18))
+
+
+### Bug Fixes
+
+* **controlbar:** drop scrolling bar's left gutter so Esc→Tab gap isn't doubled ([#262](https://github.com/erwins-enkel/shepherd/issues/262)) ([521fc2e](https://github.com/erwins-enkel/shepherd/commit/521fc2e15b15d075e45c20ba950670e5078ce837))
+* **herd:** keep in-loop agent out of "waiting for merge" during auto-correct ([#267](https://github.com/erwins-enkel/shepherd/issues/267)) ([b8098d5](https://github.com/erwins-enkel/shepherd/commit/b8098d5004f846c6f7c8d91d2d1b3c5fb49a6a59))
+* **newtask:** seed issue title verbatim into task prompt so session names aren't nonsensical ([#263](https://github.com/erwins-enkel/shepherd/issues/263)) ([8318331](https://github.com/erwins-enkel/shepherd/commit/8318331a0adc1813002a178e68ed07fab75c0e9c))
+
 ## [1.10.0](https://github.com/erwins-enkel/shepherd/compare/v1.9.0...v1.10.0) (2026-06-03)
 
 

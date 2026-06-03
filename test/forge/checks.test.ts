@@ -1,5 +1,25 @@
 import { test, expect } from "bun:test";
-import { rollupChecks } from "../../src/forge/checks";
+import { mapCheckState, rollupChecks } from "../../src/forge/checks";
+
+test("mapCheckState: incomplete status → pending", () => {
+  expect(mapCheckState("in_progress", null)).toBe("pending");
+  expect(mapCheckState("queued", null)).toBe("pending");
+  expect(mapCheckState("waiting", null)).toBe("pending");
+});
+
+test("mapCheckState: completed conclusions", () => {
+  expect(mapCheckState("completed", "success")).toBe("success");
+  expect(mapCheckState("completed", "failure")).toBe("failure");
+  expect(mapCheckState("completed", "cancelled")).toBe("failure");
+  expect(mapCheckState("completed", "timed_out")).toBe("failure");
+  expect(mapCheckState("completed", "skipped")).toBe("none");
+  expect(mapCheckState("completed", "neutral")).toBe("none");
+});
+
+test("mapCheckState: case-insensitive + nullish", () => {
+  expect(mapCheckState("COMPLETED", "SUCCESS")).toBe("success");
+  expect(mapCheckState(null, null)).toBe("none");
+});
 
 test("rollupChecks: no checks → none", () => {
   expect(rollupChecks([])).toBe("none");

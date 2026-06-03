@@ -104,6 +104,23 @@ export interface PullRequest {
   };
 }
 
+/** One job within a workflow run (mirrors server `WorkflowJob`). */
+export interface WorkflowJob {
+  name: string;
+  state: ChecksState;
+  url?: string;
+}
+
+/** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */
+export interface WorkflowRun {
+  workflowName: string;
+  runUrl: string;
+  headSha: string;
+  createdAt: number;
+  state: ChecksState;
+  jobs: WorkflowJob[];
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;

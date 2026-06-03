@@ -24,6 +24,8 @@ import type {
   SlashCommand,
   Leftover,
   Learning,
+  ForgeKind,
+  WorkflowRun,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -276,6 +278,16 @@ export async function listPullRequests(
 ): Promise<{ slug: string | null; prs: PullRequest[] }> {
   const r = await fetch(`/api/prs?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "prs");
+  return r.json();
+}
+
+/** Latest GitHub Actions run per workflow on a repo's default branch, with
+ *  per-job breakdown. `kind !== "github"` → the repo has no Actions to show. */
+export async function listWorkflowRuns(
+  repoPath: string,
+): Promise<{ slug: string | null; kind: ForgeKind | null; runs: WorkflowRun[] }> {
+  const r = await fetch(`/api/actions?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "actions");
   return r.json();
 }
 

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { rollupChecks } from "./checks";
+import { mapCheckState, rollupChecks } from "./checks";
 import { CRITIC_REVIEW_MARKER } from "./types";
 import type {
   CheckRun,
@@ -13,7 +13,13 @@ import type {
   PrStatus,
   PullRequest,
   RedeployInput,
+  WorkflowJob,
+  WorkflowRun,
 } from "./types";
+
+/** Cap on distinct workflows fetched per repo: each kept run costs one extra
+ *  `gh run view` subprocess, so bound the fan-out. */
+const MAX_WORKFLOWS = 10;
 
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => string;
@@ -153,6 +159,82 @@ export class GithubForge implements GitForge {
         latestReview: latestHumanReview(p.reviews),
       };
     });
+  }
+
+  async listWorkflowRuns(): Promise<WorkflowRun[]> {
+    // Resolve the default branch; CI health is read from its runs, not PR branches.
+    const repoOut = this.run(["repo", "view", this.slug, "--json", "defaultBranchRef"]);
+    const branch = (JSON.parse(repoOut || "{}") as { defaultBranchRef?: { name?: string } })
+      .defaultBranchRef?.name;
+    if (!branch) return [];
+
+    const listOut = this.run([
+      "run",
+      "list",
+      "--repo",
+      this.slug,
+      "--branch",
+      branch,
+      "--limit",
+      "50",
+      "--json",
+      "databaseId,workflowName,status,conclusion,headSha,createdAt,url",
+    ]);
+    const raw = JSON.parse(listOut || "[]") as Array<{
+      databaseId: number;
+      workflowName?: string;
+      status?: string | null;
+      conclusion?: string | null;
+      headSha?: string;
+      createdAt?: string;
+      url?: string;
+    }>;
+
+    // `gh run list` is newest-first, so the first row per workflow is its latest run.
+    const newest = new Map<string, (typeof raw)[number]>();
+    for (const r of raw) {
+      const wf = r.workflowName ?? "";
+      if (!newest.has(wf)) newest.set(wf, r);
+    }
+    const selected = [...newest.values()].slice(0, MAX_WORKFLOWS);
+
+    const runs = selected.map((r): WorkflowRun => {
+      const jobsOut = this.run([
+        "run",
+        "view",
+        String(r.databaseId),
+        "--repo",
+        this.slug,
+        "--json",
+        "jobs",
+      ]);
+      const parsed = JSON.parse(jobsOut || "{}") as {
+        jobs?: Array<{
+          name?: string;
+          status?: string | null;
+          conclusion?: string | null;
+          url?: string;
+        }>;
+      };
+      const jobs: WorkflowJob[] = (parsed.jobs ?? []).map((j) => ({
+        name: j.name ?? "",
+        state: mapCheckState(j.status, j.conclusion),
+        url: j.url || undefined,
+      }));
+      const ts = Date.parse(r.createdAt ?? "");
+      return {
+        workflowName: r.workflowName ?? "",
+        runUrl: r.url ?? "",
+        headSha: r.headSha ?? "",
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        state: mapCheckState(r.status, r.conclusion),
+        jobs,
+      };
+    });
+
+    // Newest workflow first.
+    runs.sort((a, b) => b.createdAt - a.createdAt);
+    return runs;
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

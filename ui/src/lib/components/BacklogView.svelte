@@ -5,6 +5,7 @@
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
   import PrsPanel from "./PrsPanel.svelte";
+  import ActionsPanel from "./ActionsPanel.svelte";
 
   let {
     payload,
@@ -23,7 +24,7 @@
     onpr: (repoPath: string, pr: PullRequest) => void;
   } = $props();
 
-  type Tab = "issues" | "prs";
+  type Tab = "issues" | "prs" | "actions";
   let activeTab = $state<Tab>("issues");
 
   // selectedPath: initialized from pinnedPath once payload arrives;
@@ -107,6 +108,14 @@
             >
               {m.backlog_tab_prs_count({ count: payload.totals.openPRs })}
             </button>
+            <button
+              class="tab-btn"
+              class:active={activeTab === "actions"}
+              type="button"
+              onclick={() => (activeTab = "actions")}
+            >
+              {m.backlog_tab_actions()}
+            </button>
           </div>
         </div>
         <div class="overlay-body">
@@ -120,8 +129,10 @@
               bodyPreview
               age
             />
-          {:else}
+          {:else if activeTab === "prs"}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+          {:else}
+            <ActionsPanel repoPath={selectedPath} />
           {/if}
         </div>
       </div>
@@ -146,6 +157,14 @@
       >
         {m.backlog_tab_prs_count({ count: payload.totals.openPRs })}
       </button>
+      <button
+        class="tab-btn"
+        class:active={activeTab === "actions"}
+        type="button"
+        onclick={() => (activeTab = "actions")}
+      >
+        {m.backlog_tab_actions()}
+      </button>
     </div>
 
     <div class="desktop-split">
@@ -169,8 +188,10 @@
               bodyPreview
               age
             />
-          {:else}
+          {:else if activeTab === "prs"}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+          {:else}
+            <ActionsPanel repoPath={selectedPath} />
           {/if}
         {:else}
           <div class="detail-empty">

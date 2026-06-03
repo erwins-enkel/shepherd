@@ -66,6 +66,26 @@ export interface GitState extends PrStatus {
   kind: ForgeKind;
 }
 
+/** One job within a workflow run, mapped to the four-light CI vocab. */
+export interface WorkflowJob {
+  name: string;
+  state: ChecksState;
+  /** Link to the job on the host, when provided. */
+  url?: string;
+}
+
+/** The latest run of one workflow on a repo's default branch, broken into its
+ *  individual jobs. Surfaced in the backlog Actions tab (GitHub only). */
+export interface WorkflowRun {
+  workflowName: string;
+  runUrl: string;
+  headSha: string;
+  createdAt: number; // epoch ms
+  /** Worst-of state for the whole run (the run's own status/conclusion). */
+  state: ChecksState;
+  jobs: WorkflowJob[];
+}
+
 export interface OpenPrInput {
   head: string;
   base: string;
@@ -101,6 +121,10 @@ export interface GitForge {
   listIssues(): Promise<Issue[]>;
   /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
   listPullRequests(): Promise<PullRequest[]>;
+  /** Latest run per workflow on the default branch, with per-job breakdown, for
+   *  the backlog Actions tab. Optional: only hosts with an Actions API implement
+   *  it (GitHub); others omit it and the tab shows a "GitHub only" state. */
+  listWorkflowRuns?(): Promise<WorkflowRun[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:

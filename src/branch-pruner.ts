@@ -81,6 +81,33 @@ export class BranchPruner {
     }
   }
 
+  /** Prune merged shepherd branches for a single repo. */
+  private async pruneRepo(repo: string, activeBranches: Set<string>): Promise<void> {
+    const forge = this.resolveForge(repo);
+    if (!forge) return; // can't confirm merged → leave the repo alone
+    const checkedOut = this.checkedOut(repo);
+    let pruned = false;
+    for (const branch of this.shepherdBranches(repo)) {
+      if (checkedOut.has(branch) || activeBranches.has(branch)) continue;
+      let merged: boolean;
+      try {
+        merged = (await forge.prStatus(branch)).state === "merged";
+      } catch {
+        continue; // gh error → unknown → keep
+      }
+      if (!merged) continue;
+      this.deleteBranch(repo, branch);
+      pruned = true;
+    }
+    if (pruned) {
+      try {
+        execFileSync("git", ["worktree", "prune"], { cwd: repo, stdio: "pipe" });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   async tick(): Promise<void> {
     if (this.running || !this.enabled()) return;
     this.running = true;
@@ -96,29 +123,7 @@ export class BranchPruner {
           .filter((b): b is string => !!b),
       );
       for (const repo of repos) {
-        const forge = this.resolveForge(repo);
-        if (!forge) continue; // can't confirm merged → leave the repo alone
-        const checkedOut = this.checkedOut(repo);
-        let pruned = false;
-        for (const branch of this.shepherdBranches(repo)) {
-          if (checkedOut.has(branch) || activeBranches.has(branch)) continue;
-          let merged = false;
-          try {
-            merged = (await forge.prStatus(branch)).state === "merged";
-          } catch {
-            continue; // gh error → unknown → keep
-          }
-          if (!merged) continue;
-          this.deleteBranch(repo, branch);
-          pruned = true;
-        }
-        if (pruned) {
-          try {
-            execFileSync("git", ["worktree", "prune"], { cwd: repo, stdio: "pipe" });
-          } catch {
-            /* best-effort */
-          }
-        }
+        await this.pruneRepo(repo, activeBranches);
       }
     } finally {
       this.running = false;

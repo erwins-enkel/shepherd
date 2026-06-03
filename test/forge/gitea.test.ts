@@ -450,6 +450,42 @@ test("GiteaForge.addIssueLabel: creates the label when the repo lacks it", async
   expect(apply.body).toEqual({ labels: [99] });
 });
 
+test("GiteaForge.addIssueLabel: a concurrent create (409) re-resolves the id instead of throwing", async () => {
+  // First lookup misses; a sibling instance creates the label; our create 409s; we
+  // re-resolve and apply the id another instance just minted.
+  const calls: { method: string; url: string; body: unknown }[] = [];
+  let labelLookups = 0;
+  const fn = (async (input: string | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = init?.body ? JSON.parse(init.body as string) : undefined;
+    calls.push({ method, url, body });
+    const json = (v: unknown, status = 200) =>
+      new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
+    if (method === "GET" && url.includes("/labels?limit=")) {
+      // miss on the first lookup, hit on the post-conflict re-resolve
+      return json(labelLookups++ === 0 ? [] : [{ id: 55, name: "shepherd:active" }]);
+    }
+    if (method === "POST" && url.endsWith("/proj/labels")) return json({ message: "exists" }, 409);
+    if (method === "POST" && url.includes("/issues/7/labels")) return json({});
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
+
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.addIssueLabel(7, "shepherd:active"); // must not throw
+  const apply = calls.find((c) => c.method === "POST" && c.url.includes("/issues/7/labels"))!;
+  expect(apply.body).toEqual({ labels: [55] }); // re-resolved id applied
+});
+
+test("GiteaForge.addIssueLabel: a create failure with the label still absent propagates", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": { json: [] },
+    "POST /api/v1/repos/team/proj/labels": { status: 500, json: { message: "boom" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await expect(forge.addIssueLabel(7, "shepherd:active")).rejects.toThrow();
+});
+
 test("GiteaForge.addIssueLabel: paginates past a full first page to find the label (no spurious create)", async () => {
   const firstPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: `label-${i}` }));
   const { fn, calls } = fakeFetch({

@@ -319,11 +319,20 @@ export class GiteaForge implements GitForge {
   async addIssueLabel(issueNumber: number, label: string): Promise<void> {
     let id = await this.findLabelId(label);
     if (id == null) {
-      const created = (await this.req("POST", `/api/v1/repos/${this.slug}/labels`, {
-        name: label,
-        color: "#5319e7",
-      })) as { id: number };
-      id = created.id;
+      // Create the label — but a concurrent first-ever claim on another instance
+      // may have created it between our lookup and now (409 duplicate name). Re-
+      // resolve on any create failure rather than throwing the claim out; only a
+      // genuine failure (still absent) propagates. Mirrors GithubForge.ensureLabel.
+      try {
+        const created = (await this.req("POST", `/api/v1/repos/${this.slug}/labels`, {
+          name: label,
+          color: "#5319e7",
+        })) as { id: number };
+        id = created.id;
+      } catch (err) {
+        id = await this.findLabelId(label);
+        if (id == null) throw err;
+      }
     }
     await this.req("POST", `/api/v1/repos/${this.slug}/issues/${issueNumber}/labels`, {
       labels: [id],

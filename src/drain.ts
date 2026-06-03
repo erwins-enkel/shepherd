@@ -362,7 +362,12 @@ export class DrainService {
     // retired), which re-queues the issue. NOTE: the abandoning instance still maps
     // this issue via its own archived session, so the release re-queues it for OTHER
     // instances — and for this one only after its archived session is pruned.
-    // Unconditional of the drain toggle (mirrors onGit's closeIssue) so a
+    // CAVEAT: an abandon does not inspect PR state, so manually archiving a session
+    // that already opened a PR (without going through the retire path) releases the
+    // claim and lets another instance spawn a DUPLICATE against that still-open PR.
+    // Accepted: a manual archive is a deliberate "drop this" signal, and the retire
+    // path (not manual archive) is how a ready PR is normally handed off with its
+    // claim kept. Unconditional of the drain toggle (mirrors onGit's closeIssue) so a
     // disabled-mid-flight session still frees its claim. Non-auto sessions never set
     // a claim, so they're skipped.
     if (!retainClaim && s.auto && s.issueNumber != null) {

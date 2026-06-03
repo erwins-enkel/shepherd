@@ -12,6 +12,8 @@ import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews } from "./reviews.svelte";
 import { learnings } from "./learnings.svelte";
+import { toasts } from "./toasts.svelte";
+import { m } from "$lib/paraglide/messages";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -80,6 +82,19 @@ export class HerdStore {
     this.blocks = { ...this.blocks, [id]: { reason, since: prev?.since ?? Date.now() } };
   }
 
+  /** Patch a session's name + branch, then surface the rename (esp. the async
+   *  namer's auto-rename, which lands while the agent is already working) so the
+   *  row changing under the user is explained. Toasts only when the visible name
+   *  actually changed: the contingency path (syncWorktreeBranch) re-emits with an
+   *  unchanged name when only the branch moved, which would otherwise read as a
+   *  "Renamed to <same name>" non-event. Extracted from apply() to keep that
+   *  dispatch switch under the complexity gate. */
+  private applyRenamed(id: string, name: string, branch: string | null) {
+    const prevName = this.byId(id)?.name;
+    this.sessions = this.sessions.map((s) => (s.id === id ? { ...s, name, branch } : s));
+    if (prevName !== undefined && prevName !== name) toasts.info(m.toast_renamed({ name }));
+  }
+
   apply(ev: WsEvent) {
     switch (ev.event) {
       case "session:new":
@@ -91,9 +106,7 @@ export class HerdStore {
         );
         break;
       case "session:renamed":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id ? { ...s, name: ev.data.name, branch: ev.data.branch } : s,
-        );
+        this.applyRenamed(ev.data.id, ev.data.name, ev.data.branch);
         break;
       case "session:ready":
         this.sessions = this.sessions.map((s) =>

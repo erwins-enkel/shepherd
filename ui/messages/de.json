@@ -372,6 +372,7 @@
   "toast_cleared_merged": "{count} gemergte Sessions aufgeräumt",
   "toast_clear_merged_failed": "Gemergte Sessions konnten nicht aufgeräumt werden",
   "toast_merged": "{name} gemergt",
+  "toast_renamed": "Umbenannt in {name}",
   "emojipicker_search": "Emoji suchen…",
   "emojipicker_custom": "Emoji einfügen",
   "emojipicker_clear": "Symbol entfernen",

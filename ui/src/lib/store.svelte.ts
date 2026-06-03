@@ -146,6 +146,7 @@ export class HerdStore {
   connect(makeWs: () => WebSocket = () => new WebSocket(wsUrl("/events"))): () => void {
     let ws: WebSocket | null = null;
     let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     // Report whether this window is actively in use so the server can suppress
     // push banners while it is (the live UI already shows the change). Page-context
     // focus+visibility is reliable on Android, unlike a SW's WindowClient.focused.
@@ -159,6 +160,20 @@ export class HerdStore {
       }
     };
     const open = () => {
+      // Drop the previous socket's handlers before replacing it so a superseded
+      // socket's late onclose can't schedule a second, parallel reconnect.
+      if (ws) {
+        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        try {
+          ws.close();
+        } catch {
+          /* already closed */
+        }
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       ws = makeWs();
       ws.onopen = () => {
         this.connected = true;
@@ -173,22 +188,50 @@ export class HerdStore {
       };
       ws.onclose = () => {
         this.connected = false;
-        if (!stopped) setTimeout(open, 1000);
+        if (!stopped && !reconnectTimer)
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            open();
+          }, 1000);
       };
       ws.onerror = () => ws?.close();
     };
+    // Mobile freezes a backgrounded tab and silently drops the WS; the onclose
+    // backoff timer is frozen too, so a returning tab can sit on a dead socket
+    // and never resume the stream. On return, reconnect at once if the socket
+    // isn't live — mirrors the PTY's visibility/pageshow poke. pageshow+persisted
+    // covers iOS bfcache restore, which doesn't reliably fire visibilitychange.
+    const wake = () => {
+      if (stopped) return;
+      // Only a confirmed-OPEN socket is left alone. A tab frozen mid-handshake
+      // resumes in CONNECTING with a dead connection that may never fire
+      // onopen/onclose, so treat it as stale and reopen — the open() swap nulls
+      // the old socket's handlers first, so the abandoned connect is harmless.
+      if (ws && ws.readyState === WebSocket.OPEN) reportPresence();
+      else open(); // CONNECTING/CLOSING/CLOSED/none — resume the stream now
+    };
+    const onVisible = () => (document.visibilityState === "visible" ? wake() : reportPresence());
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) wake();
+    };
     if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", reportPresence);
+      document.addEventListener("visibilitychange", onVisible);
       window.addEventListener("focus", reportPresence);
       window.addEventListener("blur", reportPresence);
+      window.addEventListener("pageshow", onPageShow);
     }
     open();
     return () => {
       stopped = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", reportPresence);
+        document.removeEventListener("visibilitychange", onVisible);
         window.removeEventListener("focus", reportPresence);
         window.removeEventListener("blur", reportPresence);
+        window.removeEventListener("pageshow", onPageShow);
       }
       ws?.close();
     };

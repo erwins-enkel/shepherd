@@ -108,6 +108,28 @@
       .catch(() => {});
   }
 
+  // Re-pull the REST-loaded state on tab return. The live /events stream is
+  // delta-only: while a mobile tab is frozen (locked phone / backgrounded app)
+  // the socket drops and every missed event is gone for good, so sessions, git,
+  // usage and backlog sit stale until a manual refresh. Resync the high-signal
+  // data when the tab comes back so launching from a notification or unlocking
+  // shows current state without one. Always fires — a half-open socket can read
+  // as connected, so we can't gate on store.connected.
+  function resync() {
+    listSessions()
+      .then((list) => store.setAll(list))
+      .catch(() => {});
+    getUsageLimits()
+      .then((l) => store.setUsageLimits(l))
+      .catch(() => {});
+    gitStates()
+      .then((m) => store.setGit(m))
+      .catch(() => {});
+    getBacklog()
+      .then((p) => (backlog = p))
+      .catch(() => {});
+  }
+
   // Fetch backlog when the overview is empty, or when the operator opens the
   // backlog overlay while agents are running. Reading store.sessions.length and
   // showBacklog inside the effect body makes Svelte track them; backlog is
@@ -294,9 +316,21 @@
     learnings.load();
     loadSettings();
     const dispose = store.connect();
+    // visibilitychange only fires on a real hidden→visible flip (tab switch,
+    // app switch, unlock), so this isn't chatty on plain window focus.
+    const onWake = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) resync();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       dispose();
       disposeSelect();
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("pageshow", onPageShow);
     };
   });
 

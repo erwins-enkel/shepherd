@@ -492,7 +492,7 @@ export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
 
 export async function putRepoConfig(
   repoPath: string,
-  patch: { criticEnabled?: boolean; autoAddressEnabled?: boolean },
+  patch: Partial<Pick<RepoConfig, "criticEnabled" | "autoAddressEnabled" | "learningsEnabled">>,
 ): Promise<RepoConfig> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",

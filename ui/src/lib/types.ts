@@ -136,6 +136,7 @@ export interface ReviewVerdict {
 export interface RepoConfig {
   criticEnabled: boolean;
   autoAddressEnabled: boolean;
+  learningsEnabled: boolean;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */

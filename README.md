@@ -93,6 +93,13 @@ All via environment variables (`src/config.ts`):
 | `HERDR_SESSION`          | `default`                       | herdr session name                                                              |
 | `SHEPHERD_FORGES`        | `~/.shepherd/forges.json`       | Path to the git-host config (see [Git host integration](#git-host-integration)) |
 
+A few runtime toggles live in the SQLite `settings` table (`~/.shepherd/shepherd.db`) rather than env:
+
+- **`branchPruneEnabled`** — hourly cleanup of local `shepherd/*` branches whose PR has merged (squash-merges defeat the at-archive ancestry prune, so they otherwise accumulate). **On by default**; disable with
+  ```sh
+  sqlite3 ~/.shepherd/shepherd.db "INSERT OR REPLACE INTO settings (key, value) VALUES ('branchPruneEnabled', '0')"
+  ```
+
 ### Git host integration
 
 The Viewport header shows a contextual git rail — **Open PR → Merge → Redeploy** —

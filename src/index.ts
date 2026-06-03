@@ -10,6 +10,7 @@ import { EventHub } from "./events";
 import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
+import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
 import { reapOrphanTabs } from "./tab-reaper";
 import { serve, buildBacklogPayload } from "./server";
@@ -152,6 +153,15 @@ events.subscribe((event, data) => {
   const { id, status } = data as { id: string; status: string };
   if (status !== "running") prPoller.pollSession(id);
 });
+
+// Hourly: delete local shepherd/* branches whose PR has merged. The merge train
+// squash-merges, so the at-archive ancestry prune (worktree.ts) never catches
+// them and they pile up — and at merge time the session still holds the worktree
+// so they can't be cleaned then anyway. Orphan branches only: never a checked-out
+// or active-session branch. Disable with setting branchPruneEnabled="0".
+const branchPruner = new BranchPruner(store, resolveForge);
+setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
+branchPruner.start();
 
 const reviewService = new ReviewService({
   store,

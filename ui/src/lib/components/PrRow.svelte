@@ -42,6 +42,9 @@
   // The toggle replaces the plain dot, so its label must still announce the
   // aggregate CI state ("CI: failure") alongside the show/hide action.
   const ciToggleLabel = $derived(`${ciStatus} · ${ciToggleTitle}`);
+  // Ties the toggle to the region it reveals (aria-controls ↔ id) for the
+  // standard disclosure pattern.
+  const jobsId = $derived(`pr-jobs-${pr.number}`);
   const reviewTitle = $derived(
     pr.latestReview?.state === "approved"
       ? m.prbadge_review_approved()
@@ -108,6 +111,7 @@
           class:expanded
           onclick={() => (expanded = !expanded)}
           aria-expanded={expanded}
+          aria-controls={jobsId}
           title={ciToggleLabel}
           aria-label={ciToggleLabel}
         >
@@ -136,7 +140,7 @@
   </div>
 
   {#if expanded && hasJobs}
-    <div class="pr-jobs">
+    <div class="pr-jobs" id={jobsId}>
       <!-- key includes the index: a matrix build can repeat a check name on one
            head commit, which would otherwise collide in the keyed each. -->
       {#each pr.jobs as job, i (job.name + " " + i)}

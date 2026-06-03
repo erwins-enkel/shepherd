@@ -7,9 +7,11 @@
   let {
     onclose,
     ondone,
+    repoRootDisplay = "~/projects",
   }: {
     onclose?: () => void;
     ondone: (entry: RepoEntry) => void;
+    repoRootDisplay?: string;
   } = $props();
 
   let url = $state("");
@@ -17,7 +19,7 @@
   let error = $state<string | null>(null);
   let retry = $state<(() => void) | null>(null);
 
-  const targetName = $derived(() => {
+  const targetName = $derived.by(() => {
     const segment = url.split("/").filter(Boolean).at(-1) ?? "";
     return segment.replace(/\.git$/i, "").trim();
   });
@@ -49,7 +51,7 @@
       const entry = await cloneRepo(url.trim());
       ondone(entry);
     } catch (err) {
-      const code = err instanceof Error ? err.message : "";
+      const code = err instanceof Error ? err.message.replace(/^clonerepo_failed_/, "") : "";
       error = msg(code);
       retry = () => submit(e);
     } finally {
@@ -94,8 +96,10 @@
       required
     />
 
-    {#if targetName()}
-      <p class="preview">{m.clonerepo_target_preview({ name: targetName() })}</p>
+    {#if targetName}
+      <p class="preview">
+        {m.clonerepo_target_preview({ root: repoRootDisplay, name: targetName })}
+      </p>
     {/if}
 
     {#if error}

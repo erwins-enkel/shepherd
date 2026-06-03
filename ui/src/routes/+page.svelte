@@ -706,6 +706,7 @@
       composeRepoPath = entry.path;
       showNew = true;
     }}
+    repoRootDisplay={settings?.repoRootDisplay}
   />
 {/if}
 

@@ -158,7 +158,7 @@
   "clonerepo_title": "Clone repo by URL",
   "clonerepo_url_label": "Git URL",
   "clonerepo_url_placeholder": "https://github.com/owner/repo.git",
-  "clonerepo_target_preview": "→ ~/projects/{name}",
+  "clonerepo_target_preview": "→ {root}/{name}",
   "clonerepo_submit": "Clone",
   "clonerepo_cloning": "Cloning…",
   "clonerepo_trigger": "+ Clone repo by URL",

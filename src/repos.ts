@@ -123,10 +123,7 @@ export function classifyCloneError(e: unknown): string {
   ) {
     return "clonerepo_failed_auth";
   }
-  if (
-    stderr.includes("already exists and is not an empty directory") ||
-    stderr.includes("destination path")
-  ) {
+  if (stderr.includes("already exists and is not an empty directory")) {
     return "clonerepo_failed_exists";
   }
   if (

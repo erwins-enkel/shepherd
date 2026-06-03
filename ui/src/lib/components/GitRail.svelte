@@ -14,6 +14,7 @@
     mobile = false,
     ready = false,
     status = "idle",
+    showReady = true,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -22,6 +23,7 @@
     mobile?: boolean;
     ready?: boolean;
     status?: SessionStatus;
+    showReady?: boolean;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -320,7 +322,7 @@
           🎓<span class="crit-dot" class:on={learningsOn} aria-hidden="true"></span>
         </button>
       {/if}
-      {#if (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
+      {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
         <button
           class={["gbtn", { "ready-on": ready }]}
           type="button"

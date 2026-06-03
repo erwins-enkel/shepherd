@@ -30,6 +30,7 @@
   import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
+  import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -234,6 +235,18 @@
   // the decommission button as a bright "ready to clean up the worktree" nudge so the
   // operator can wrap the session without hunting for the otherwise-faint ✕.
   const prReady = $derived(git?.state === "open" || git?.state === "merged");
+
+  // desktop parity for the rail's Ready toggle: #188 moved the git rail behind the
+  // "Git actions" disclosure, hiding ready-to-merge on desktop while mobile (always-on
+  // rail) still showed it. Surface just this one high-frequency control in the primary
+  // row. Gate mirrors GitRail's own ({git open || already ready} & not running/blocked),
+  // desktop-only — on compact the rail itself still owns the toggle (see showReady below).
+  const readyVisible = $derived(
+    !compact &&
+      (git?.state === "open" || session.readyToMerge) &&
+      session.status !== "running" &&
+      session.status !== "blocked",
+  );
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -1060,6 +1073,12 @@
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
+      {#if readyVisible}
+        <!-- desktop: the ready-to-merge toggle graduates out of the git-actions
+             disclosure into the always-visible primary row (mobile shows it in the
+             rail unconditionally via GitRail). Shared component → no drift. -->
+        <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
+      {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
@@ -1118,6 +1137,7 @@
         prompt={session.prompt}
         ready={session.readyToMerge}
         status={session.status}
+        showReady={compact}
         mobile
       />
     </div>

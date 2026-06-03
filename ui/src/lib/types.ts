@@ -248,6 +248,8 @@ export interface BacklogProject {
   openPRs: number | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
   workflows: number | null;
+  /** Default-branch CI rollup for the Actions tab marker; null = unknown / non-GitHub. */
+  ciStatus: "success" | "failure" | "pending" | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

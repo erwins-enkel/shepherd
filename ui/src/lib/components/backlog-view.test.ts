@@ -27,8 +27,18 @@ function project(
   openIssues: number | null,
   openPRs: number | null,
   workflows: number | null = null,
+  ciStatus: BacklogProject["ciStatus"] = null,
 ): BacklogProject {
-  return { path, display: path, slug: "org/repo", kind: "github", openIssues, openPRs, workflows };
+  return {
+    path,
+    display: path,
+    slug: "org/repo",
+    kind: "github",
+    openIssues,
+    openPRs,
+    workflows,
+    ciStatus,
+  };
 }
 
 function payload(
@@ -142,6 +152,19 @@ describe("actionsTabLabel", () => {
 
   it("drops the count for non-github forges (workflows null)", () => {
     expect(actionsTabLabel(project("/repos/a", 0, 0, null))).toBe("Actions");
+  });
+
+  it("shows the failing marker when the selected repo's CI is failing", () => {
+    // ciStatus "failure" wins over the workflows-defined count.
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, "failure"))).toMatch(/failing/i);
+  });
+
+  it("shows the workflows count (not failing) when CI is healthy", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, "success"))).toMatch(/Actions\s*·\s*3/);
+  });
+
+  it("shows the workflows count when CI status is unknown (null)", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, null))).toMatch(/Actions\s*·\s*3/);
   });
 });
 

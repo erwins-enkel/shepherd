@@ -50,10 +50,14 @@ export function prsTabLabel(sel: BacklogProject | null): string {
 }
 
 /**
- * Build the Actions tab label for the selected project. The count is the number
- * of workflows defined (github-only; null on other forges → bare label).
- * Mirrors: count → m.backlog_tab_actions_count, else m.backlog_tab_actions.
+ * Build the Actions tab label for the selected project.
+ * - Failing default-branch CI → "Actions · failing" (the marker; red in the UI).
+ * - Otherwise: the number of workflows defined (github-only; null on other
+ *   forges → bare label).
+ * Mirrors: failure → m.backlog_tab_actions_failing,
+ *          count → m.backlog_tab_actions_count, else m.backlog_tab_actions.
  */
 export function actionsTabLabel(sel: BacklogProject | null): string {
+  if (sel && sel.ciStatus === "failure") return "Actions · failing";
   return sel && sel.workflows !== null ? `Actions · ${sel.workflows}` : "Actions";
 }

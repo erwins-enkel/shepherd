@@ -81,7 +81,11 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     new Request(`http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`),
   );
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ criticEnabled: true, autoAddressEnabled: false });
+  expect(await res.json()).toEqual({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+  });
 });
 
 test("GET /api/repo-config with empty repo param → 400", async () => {
@@ -112,11 +116,19 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     }),
   );
   expect(put.status).toBe(200);
-  expect(await put.json()).toEqual({ criticEnabled: false, autoAddressEnabled: false });
+  expect(await put.json()).toEqual({
+    criticEnabled: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+  });
 
   const get = await app.fetch(new Request(url));
   expect(get.status).toBe(200);
-  expect(await get.json()).toEqual({ criticEnabled: false, autoAddressEnabled: false });
+  expect(await get.json()).toEqual({
+    criticEnabled: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+  });
 });
 
 test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEnabled", async () => {
@@ -130,7 +142,29 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     }),
   );
   expect(put.status).toBe(200);
-  expect(await put.json()).toEqual({ criticEnabled: true, autoAddressEnabled: true });
+  expect(await put.json()).toEqual({
+    criticEnabled: true,
+    autoAddressEnabled: true,
+    learningsEnabled: true,
+  });
+});
+
+test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ learningsEnabled: false }),
+    }),
+  );
+  expect(put.status).toBe(200);
+  expect(await put.json()).toEqual({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+  });
 });
 
 test("PUT /api/repo-config with empty body (no recognized fields) → 400", async () => {
@@ -144,7 +178,6 @@ test("PUT /api/repo-config with empty body (no recognized fields) → 400", asyn
     }),
   );
   expect(res.status).toBe(400);
-});
 
 test("PUT /api/repo-config with non-boolean body → 400", async () => {
   const { app } = harness();

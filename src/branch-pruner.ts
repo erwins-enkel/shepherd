@@ -33,7 +33,10 @@ export class BranchPruner {
     /** Max forge lookups per sweep. Each `forge.prStatus` is a blocking
      *  `execFileSync("gh")` (see github.ts), so an unbounded first sweep over a
      *  large accumulated backlog would stall the event loop; capping bounds the
-     *  blocking and lets the backlog drain across subsequent hourly ticks. */
+     *  blocking and lets the backlog drain across subsequent hourly ticks.
+     *  Residual: even capped, up to this many sequential `gh` calls still run per
+     *  tick, so under high gh latency the loop can briefly block for their sum —
+     *  lower this to trade slower backlog drain for shorter stalls. */
     private maxChecksPerTick = 20,
   ) {}
 

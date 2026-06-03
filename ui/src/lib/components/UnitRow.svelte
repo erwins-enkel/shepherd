@@ -5,11 +5,13 @@
 </script>
 
 <script lang="ts">
-  import type { Session, GitState } from "$lib/types";
+  import type { Session, GitState, SessionActivity } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge } from "$lib/format";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
+  import Heartbeat from "./Heartbeat.svelte";
+  import Stepper from "./Stepper.svelte";
   import { reviews } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -31,6 +33,7 @@
     nowMs,
     onselect,
     git,
+    activity,
     ondecommission,
   }: {
     session: Session;
@@ -38,6 +41,8 @@
     nowMs: number;
     onselect: (id: string) => void;
     git?: GitState;
+    // live per-session signal (heartbeat + current tool summary); undefined until first event
+    activity?: SessionActivity;
     // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
     ondecommission?: (id: string) => void;
   } = $props();
@@ -100,6 +105,15 @@
 
   const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
 
+  // live signals (heartbeat + current tool) only make sense while the agent works
+  const live = $derived(session.status === "running");
+  // verbatim tool summary — NOT translated; shown as a quiet line when present
+  const summary = $derived(activity?.summary?.trim() || null);
+  // stepper conveys "how close to finishing" across the active lifecycle (not archived)
+  const showStepper = $derived(
+    session.status === "running" || session.status === "blocked" || session.status === "done",
+  );
+
   // Decommission is deferred behind an undo window: while it's open, the row is
   // doomed-but-still-present. Dim it so the operator sees it's on its way out.
   const decommissioning = $derived(toasts.pendingUndo(session.id));
@@ -132,6 +146,15 @@
           <span class="car">▏</span>
         {/if}
       </div>
+      {#if live}
+        <div class="u-activity">
+          <Heartbeat lastActivityTs={activity?.lastActivityTs ?? 0} {nowMs} />
+          {#if summary}
+            <span class="act-sep" aria-hidden="true">·</span>
+            <span class="act-sum" title={summary}>{summary}</span>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <div class="u-right">
@@ -146,9 +169,16 @@
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     </div>
 
-    <span class="meta"
-      ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
-    >
+    <span class="meta">
+      <span class="meta-text"
+        ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+      >
+      {#if showStepper}
+        <span class="meta-stepper">
+          <Stepper sessionId={session.id} {git} readyToMerge={session.readyToMerge} />
+        </span>
+      {/if}
+    </span>
   </button>
 {/snippet}
 
@@ -375,6 +405,32 @@
     max-width: 34ch;
   }
 
+  /* Live activity sub-line: heartbeat + verbatim current-tool summary. Quiet,
+     single-line, ellipsized — the priority signal for a working row without
+     adding a colored badge. */
+  .u-activity {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--color-muted);
+    max-width: 34ch;
+  }
+  .act-sep {
+    color: var(--color-faint);
+    flex: none;
+  }
+  .act-sum {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+
   .car {
     color: var(--color-amber);
     /* functional in-progress motion — exempt from the reduced-motion blanket (app.css) */
@@ -411,11 +467,24 @@
   .meta {
     grid-area: meta;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     color: var(--color-muted);
     font-size: var(--fs-meta);
+  }
+  .meta-text {
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* thin stage stepper on the quietest row — pushed to the right edge */
+  .meta-stepper {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
   }
   /* the task designation is metadata, not the human marker — demoted to the
      quietest spot, the bottom-right meta line, next to the herdr session */
@@ -448,6 +517,13 @@
     .u-sub {
       -webkit-line-clamp: 1;
       line-clamp: 1;
+    }
+    /* keep the heartbeat (tiny), drop the verbatim summary + separator and the
+       stepper so a narrow sidebar row stays dense and doesn't balloon */
+    .act-sum,
+    .act-sep,
+    .meta-stepper {
+      display: none;
     }
   }
 </style>

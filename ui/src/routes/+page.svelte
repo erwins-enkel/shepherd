@@ -585,6 +585,7 @@
             onselect={(id) => selectUnit(id)}
             onnew={() => (showNew = true)}
             git={store.git}
+            activity={store.activity}
             ondecommission={onarchive}
             {onclearmerged}
             {standardCommandUnset}
@@ -649,6 +650,7 @@
           onselect={(id) => selectUnit(id)}
           onnew={() => (showNew = true)}
           git={store.git}
+          activity={store.activity}
           {onclearmerged}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}

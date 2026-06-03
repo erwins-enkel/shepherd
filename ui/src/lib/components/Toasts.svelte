@@ -6,7 +6,7 @@
 {#if toasts.items.length}
   <div class="toasts" aria-live="polite" aria-atomic="false">
     {#each toasts.items as t (t.id)}
-      <div class="toast" class:is-undo={t.tone === "undo"} role="status">
+      <div class="toast" class:is-undo={t.tone === "undo"} role={t.alert ? "alert" : "status"}>
         <span class="msg">{t.text}</span>
         {#if t.tone === "undo"}
           <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>

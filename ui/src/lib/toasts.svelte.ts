@@ -22,12 +22,19 @@ interface Toast {
   key?: string;
   /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
   actionLabel?: string;
+  /** Assertive announcement (role="alert") for failures; default polite. */
+  alert?: boolean;
 }
 
 interface InfoOpts {
-  duration?: number;
+  /** Auto-dismiss delay in ms (default 4000). Pass `null` to stay until the
+   *  operator retries or closes it (use for failures that must not vanish). */
+  duration?: number | null;
   /** An inline action button (e.g. Retry on a failed operation). */
   action?: { label: string; run: () => void };
+  /** Announce assertively (role="alert") rather than politely. For failures
+   *  that must reach a screen-reader operator promptly. */
+  alert?: boolean;
 }
 
 interface UndoOpts {
@@ -51,15 +58,22 @@ class ToastStore {
   #actions = new Map<number, () => void>();
   #keyed = new Map<string, number>();
 
-  /** Transient confirmation; auto-dismisses after `duration` ms. */
+  /** Confirmation toast. Auto-dismisses after `duration` ms (default 4000);
+   *  pass `duration: null` for a persistent toast that stays until retried or
+   *  closed. `alert: true` announces it assertively (role="alert"). */
   info(text: string, opts: InfoOpts = {}): number {
     const id = ++this.#seq;
-    this.items = [...this.items, { id, tone: "info", text, actionLabel: opts.action?.label }];
+    this.items = [
+      ...this.items,
+      { id, tone: "info", text, actionLabel: opts.action?.label, alert: opts.alert },
+    ];
     if (opts.action) this.#actions.set(id, opts.action.run);
-    this.#timers.set(
-      id,
-      setTimeout(() => this.#drop(id), opts.duration ?? 4000),
-    );
+    if (opts.duration !== null) {
+      this.#timers.set(
+        id,
+        setTimeout(() => this.#drop(id), opts.duration ?? 4000),
+      );
+    }
     return id;
   }
 

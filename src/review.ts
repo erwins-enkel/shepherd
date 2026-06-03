@@ -556,9 +556,25 @@ export class ReviewService {
  *  context change. Null on no diff or any git failure → caller never skips (reviews). */
 function defaultComputePatchId(worktreePath: string, base: string): string | null {
   try {
+    // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
+    // only the head branch, so local `main` can lag behind origin; on a rebase onto newer
+    // main the three-dot merge-base would then sit at the OLD main and fold everyone else's
+    // merges (M_old..M_new) into `base...HEAD`. The fingerprint would never match the prior
+    // review and the skip would silently never fire — exactly the merge-train case it
+    // targets. So fetch the base fresh and diff against FETCH_HEAD: the merge-base becomes
+    // the true current fork point, which is stable across a clean rebase. Offline / no origin
+    // → fall back to the local base ref (best-effort; worst case we review).
+    let ref = base;
+    try {
+      // `--` blocks flag-smuggling via a hostile branch name (mirrors createDetached).
+      execFileSync("git", ["fetch", "origin", "--", base], { cwd: worktreePath, stdio: "pipe" });
+      ref = "FETCH_HEAD";
+    } catch {
+      /* offline or no origin remote — fall through to the local base ref */
+    }
     // 64 MiB ceiling: a real branch diff won't approach it; a runaway one just falls back
     // to null (review) rather than throwing.
-    const diff = execFileSync("git", ["diff", `${base}...HEAD`], {
+    const diff = execFileSync("git", ["diff", `${ref}...HEAD`], {
       cwd: worktreePath,
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["ignore", "pipe", "ignore"],

@@ -38,6 +38,16 @@ token (the patch id). Rationale:
   when there are new commits, or when conflict resolution during the rebase
   altered the branch's content. Both genuinely warrant a fresh review.
 
+**Base currency (critical).** The three-dot `base...HEAD` diff is taken from the
+merge-base of `base` and `HEAD`. `createDetached` fetches only the *head* branch,
+so the local `base` (`main`) ref can lag origin. On a rebase onto newer main, a
+stale `base` would put the merge-base at the *old* main and fold everyone else's
+merges into the diff — the fingerprint would never match and the skip would
+silently never fire for the merge-train case it targets. So the fingerprint
+**fetches the base fresh and diffs against `FETCH_HEAD`**, making the merge-base
+the true current fork point (stable across a clean rebase). Offline / no origin →
+fall back to the local base ref (worst case: we review).
+
 Rejected alternatives:
 
 - **Raw `sha256` of the diff text** — not line-number invariant; a rebase that

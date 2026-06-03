@@ -299,6 +299,43 @@ export class GiteaForge implements GitForge {
     await this.req("PATCH", `/api/v1/repos/${this.slug}/pulls/${prNumber}`, { body: newBody });
   }
 
+  /** Gitea's issue-label API keys on numeric label IDs, so resolve (or create) the
+   *  label by name first. Paginated, unlike listIssues' bounded truncation: missing
+   *  an existing label here would make addIssueLabel attempt a duplicate create
+   *  (409), so walk every page (50-page / 5000-label backstop against a runaway). */
+  private async findLabelId(name: string): Promise<number | null> {
+    for (let page = 1; page <= 50; page++) {
+      const batch = ((await this.req(
+        "GET",
+        `/api/v1/repos/${this.slug}/labels?limit=100&page=${page}`,
+      )) ?? []) as Array<{ id: number; name: string }>;
+      const found = batch.find((l) => l.name === name);
+      if (found) return found.id;
+      if (batch.length < 100) break; // short page → last page
+    }
+    return null;
+  }
+
+  async addIssueLabel(issueNumber: number, label: string): Promise<void> {
+    let id = await this.findLabelId(label);
+    if (id == null) {
+      const created = (await this.req("POST", `/api/v1/repos/${this.slug}/labels`, {
+        name: label,
+        color: "#5319e7",
+      })) as { id: number };
+      id = created.id;
+    }
+    await this.req("POST", `/api/v1/repos/${this.slug}/issues/${issueNumber}/labels`, {
+      labels: [id],
+    });
+  }
+
+  async removeIssueLabel(issueNumber: number, label: string): Promise<void> {
+    const id = await this.findLabelId(label);
+    if (id == null) return; // never defined → nothing applied to remove
+    await this.req("DELETE", `/api/v1/repos/${this.slug}/issues/${issueNumber}/labels/${id}`);
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     await this.req(
       "POST",

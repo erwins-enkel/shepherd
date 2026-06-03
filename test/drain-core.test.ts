@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { computeNext, selectCandidates, PRIORITY_LABEL } from "../src/drain-core";
+import { computeNext, selectCandidates, PRIORITY_LABEL, ACTIVE_LABEL } from "../src/drain-core";
 import type { DrainRepoState, AutoSessionView } from "../src/drain-core";
 import type { Issue, GitState } from "../src/forge/types";
 
@@ -301,5 +301,21 @@ describe("selectCandidates", () => {
   test("a priority label without the auto label is ignored", () => {
     const out = selectCandidates([issue(3, [PRIORITY_LABEL])], AUTO_LABEL);
     expect(out).toEqual([]);
+  });
+
+  test("claimed (active-labeled) issues are excluded — another instance has them", () => {
+    const out = selectCandidates(
+      [issue(1), issue(2, [AUTO_LABEL, ACTIVE_LABEL]), issue(3)],
+      AUTO_LABEL,
+    );
+    expect(out.map((i) => i.number)).toEqual([1, 3]);
+  });
+
+  test("a claimed priority issue is skipped, ceding it to the claiming instance", () => {
+    const out = selectCandidates(
+      [issue(5), issue(2, [AUTO_LABEL, PRIORITY_LABEL, ACTIVE_LABEL])],
+      AUTO_LABEL,
+    );
+    expect(out.map((i) => i.number)).toEqual([5]);
   });
 });

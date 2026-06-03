@@ -414,6 +414,39 @@ export class GithubForge implements GitForge {
     this.run(["pr", "edit", String(prNumber), "--repo", this.slug, "--body", newBody]);
   }
 
+  async addIssueLabel(issueNumber: number, label: string): Promise<void> {
+    // `gh issue edit --add-label` 422s on a label the repo hasn't defined. The
+    // operator creates the opt-in label, but the claim label is ours — create it
+    // first (ignoring "already exists") so the claim doesn't fail on a fresh repo.
+    this.ensureLabel(label);
+    this.run(["issue", "edit", String(issueNumber), "--repo", this.slug, "--add-label", label]);
+  }
+
+  async removeIssueLabel(issueNumber: number, label: string): Promise<void> {
+    this.run(["issue", "edit", String(issueNumber), "--repo", this.slug, "--remove-label", label]);
+  }
+
+  /** Best-effort create-if-missing for a repo label. No `--force`, so an existing
+   *  label the operator may have recolored is left untouched; the throw on "already
+   *  exists" is swallowed and a real failure surfaces on the subsequent --add-label. */
+  private ensureLabel(label: string): void {
+    try {
+      this.run([
+        "label",
+        "create",
+        label,
+        "--repo",
+        this.slug,
+        "--color",
+        "5319e7",
+        "--description",
+        "Claimed by a Shepherd auto-drain session",
+      ]);
+    } catch {
+      // already exists (or a transient gh error) — ignore.
+    }
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
   }

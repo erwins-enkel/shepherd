@@ -122,12 +122,17 @@
             <button
               class="tab-btn"
               class:active={activeTab === "actions"}
+              class:failing={selected?.ciStatus === "failure"}
               type="button"
               onclick={() => (activeTab = "actions")}
             >
-              {selected && selected.workflows !== null
-                ? m.backlog_tab_actions_count({ count: selected.workflows })
-                : m.backlog_tab_actions()}
+              {#if selected?.ciStatus === "failure"}
+                {m.backlog_tab_actions_failing()}
+              {:else if selected && selected.workflows !== null}
+                {m.backlog_tab_actions_count({ count: selected.workflows })}
+              {:else}
+                {m.backlog_tab_actions()}
+              {/if}
             </button>
           </div>
         </div>
@@ -177,12 +182,17 @@
       <button
         class="tab-btn"
         class:active={activeTab === "actions"}
+        class:failing={selected?.ciStatus === "failure"}
         type="button"
         onclick={() => (activeTab = "actions")}
       >
-        {selected && selected.workflows !== null
-          ? m.backlog_tab_actions_count({ count: selected.workflows })
-          : m.backlog_tab_actions()}
+        {#if selected?.ciStatus === "failure"}
+          {m.backlog_tab_actions_failing()}
+        {:else if selected && selected.workflows !== null}
+          {m.backlog_tab_actions_count({ count: selected.workflows })}
+        {:else}
+          {m.backlog_tab_actions()}
+        {/if}
       </button>
     </div>
 
@@ -297,6 +307,17 @@
   .tab-btn.active {
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
+    background: var(--color-inset);
+  }
+
+  .tab-btn.failing {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+  }
+
+  .tab-btn.failing.active {
+    color: var(--color-red);
+    border-color: var(--color-red);
     background: var(--color-inset);
   }
 

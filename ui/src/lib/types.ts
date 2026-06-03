@@ -183,6 +183,13 @@ export interface GitState extends PrStatus {
   kind: ForgeKind;
 }
 
+export interface SessionActivity {
+  /** ms epoch of the newest transcript record — the heartbeat. 0 if none yet. */
+  lastActivityTs: number;
+  /** Latest meaningful tool-use summary, verbatim (e.g. "edited poller.ts", "$ bun test"); null if no tool-use yet. */
+  summary: string | null;
+}
+
 export interface Session {
   id: string;
   desig: string;
@@ -312,6 +319,7 @@ export type WsEvent =
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:git"; data: { id: string; git: GitState } }
+  | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "herdr-update:log"; data: { line: string } }

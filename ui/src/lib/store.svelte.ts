@@ -5,6 +5,7 @@ import type {
   UpdateStatus,
   HerdrUpdateStatus,
   GitState,
+  SessionActivity,
   BacklogPayload,
   BlockReason,
   DrainStatus,
@@ -25,6 +26,8 @@ export class HerdStore {
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   herdrUpdateLog = $state<string[]>([]);
   git = $state<Record<string, GitState>>({});
+  /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
+  activity = $state<Record<string, SessionActivity>>({});
   /** Live backlog overview, pushed over the WS by the server's warm poller
    *  (`backlog:update`, ~every 45s). Stays null until the first push arrives —
    *  the page's instant first paint comes from a separate one-shot GET
@@ -136,10 +139,14 @@ export class HerdStore {
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
+        this.activity = dropKey(this.activity, ev.data.id);
         reviews.drop(ev.data.id);
         break;
       case "session:git":
         this.git = { ...this.git, [ev.data.id]: ev.data.git };
+        break;
+      case "session:activity":
+        this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
         break;
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);

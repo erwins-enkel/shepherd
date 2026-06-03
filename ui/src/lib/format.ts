@@ -53,3 +53,15 @@ export function statusLabel(s: SessionStatus): string {
       return m.status_archived();
   }
 }
+
+/** Compact age like "5m", "2h", "3d", or "now" under a minute. Units are
+ *  abbreviations, intentionally untranslated — same precedent as `elapsed`. */
+export function relativeAge(fromMs: number, nowMs: number): string {
+  const s = Math.max(0, Math.floor((nowMs - fromMs) / 1000));
+  if (s < 60) return "now";
+  const min = Math.floor(s / 60);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}

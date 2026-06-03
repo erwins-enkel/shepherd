@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.9.0](https://github.com/erwins-enkel/shepherd/compare/v1.8.0...v1.9.0) (2026-06-03)
+
+
+### Features
+
+* **activity:** render Task* tools in the activity feed ([#219](https://github.com/erwins-enkel/shepherd/issues/219)) ([4105227](https://github.com/erwins-enkel/shepherd/commit/410522778939862f11712c06bcb49b48e78dd832))
+* **backlog:** per-job GitHub Actions tab per repo ([#240](https://github.com/erwins-enkel/shepherd/issues/240)) ([bff9257](https://github.com/erwins-enkel/shepherd/commit/bff9257bd22b47083987e596b01720c98be037c2))
+* **backlog:** push live counts over WS so overview never goes stale ([#230](https://github.com/erwins-enkel/shepherd/issues/230)) ([5765d6a](https://github.com/erwins-enkel/shepherd/commit/5765d6a8faee48a788997fbc60b8cbfd6aea69b7))
+* **controlbar:** add Space key to mobile control bar ([#223](https://github.com/erwins-enkel/shepherd/issues/223)) ([34e4b0d](https://github.com/erwins-enkel/shepherd/commit/34e4b0d29ecf469852e23aba448597db38c9fc63))
+* **learnings:** learnings flywheel — capture, distill, approve (PR1) ([#224](https://github.com/erwins-enkel/shepherd/issues/224)) ([006aedc](https://github.com/erwins-enkel/shepherd/commit/006aedc0778c409ff60ef8974bad2097b8f642ca))
+* **namer:** LLM-comprehended session names (async refine) ([#218](https://github.com/erwins-enkel/shepherd/issues/218)) ([d09b0a5](https://github.com/erwins-enkel/shepherd/commit/d09b0a53dc9906874810471cdc3bed1698feda69))
+* **sessions:** clear out all merged-branch sessions ([#221](https://github.com/erwins-enkel/shepherd/issues/221)) ([2340ea6](https://github.com/erwins-enkel/shepherd/commit/2340ea6c875e39a68c5298e76fd8d7d959077b67))
+* **ui:** add WCAG high-contrast toggle to footer theme controls ([#226](https://github.com/erwins-enkel/shepherd/issues/226)) ([d5e9c7e](https://github.com/erwins-enkel/shepherd/commit/d5e9c7eb8aa83aca6bb5a8cd0b37553df709ec19))
+* **ui:** expose version/SHA/repo in Settings for mobile ([#214](https://github.com/erwins-enkel/shepherd/issues/214)) ([7facfd7](https://github.com/erwins-enkel/shepherd/commit/7facfd76dbb03b435268858495f606b81d674813))
+* **ui:** keyboard shortcuts for New Task (n) and Backlog (b) ([#225](https://github.com/erwins-enkel/shepherd/issues/225)) ([b2f6a57](https://github.com/erwins-enkel/shepherd/commit/b2f6a57a1948931e26c267a26db7f95075326e38))
+
+
+### Bug Fixes
+
+* **backlog:** make Issues/PRs toggle work on mobile ([#215](https://github.com/erwins-enkel/shepherd/issues/215)) ([ff0ff44](https://github.com/erwins-enkel/shepherd/commit/ff0ff440d8a22e02de32d8af16454f773c9ca0ae))
+* **backlog:** show all open issues so list matches the count ([#239](https://github.com/erwins-enkel/shepherd/issues/239)) ([0834743](https://github.com/erwins-enkel/shepherd/commit/08347438b4f98ce7dda954c20d29597d3993e88c))
+* **gitignore:** stop ignoring docs/superpowers ([#238](https://github.com/erwins-enkel/shepherd/issues/238)) ([929b68d](https://github.com/erwins-enkel/shepherd/commit/929b68d2e1be7a96de6ee20bb65f6c5b4dc6d810))
+* **herdr-update:** stop herdr server before non-interactive update ([#241](https://github.com/erwins-enkel/shepherd/issues/241)) ([f88d607](https://github.com/erwins-enkel/shepherd/commit/f88d6075fd780ef06be83a0a0e70423d844b879b))
+* **i18n:** rename EN status WORKING→BUSY to disambiguate from WAITING ([#216](https://github.com/erwins-enkel/shepherd/issues/216)) ([0b18564](https://github.com/erwins-enkel/shepherd/commit/0b18564661bc3324c848b59470fe87f41d26fda2))
+* **topbar:** collapse Learnings badge to icon+count on mobile ([#237](https://github.com/erwins-enkel/shepherd/issues/237)) ([0feea23](https://github.com/erwins-enkel/shepherd/commit/0feea23bac60531d02550134d42ebbe847ac73bf))
+* **ui:** retune blocked-header wash for light theme ([#217](https://github.com/erwins-enkel/shepherd/issues/217)) ([7cf48ef](https://github.com/erwins-enkel/shepherd/commit/7cf48ef3b4d61cf759a9a0fe6cab4ddb06a8558e))
+* **viewport:** show jump-to-bottom when the agent owns the scroll ([#242](https://github.com/erwins-enkel/shepherd/issues/242)) ([9c669a2](https://github.com/erwins-enkel/shepherd/commit/9c669a2a0a6f197685293b27771f65c4cb066d25))
+
 ## [1.8.0](https://github.com/erwins-enkel/shepherd/compare/v1.7.0...v1.8.0) (2026-06-02)
 
 

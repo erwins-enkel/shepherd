@@ -181,10 +181,15 @@
             <span class="dim">{r.display}</span>
           </li>
         {/each}
-        {#if shown.length === 0}
-          <li class="rs-empty" role="presentation">{m.reposelect_no_matches()}</li>
-        {/if}
       </ul>
+      <!-- Live region (always mounted + in the a11y tree while open) so screen
+           readers hear when a filter yields zero results. Lives outside the
+           listbox so that owns only role=option rows; only the text toggles
+           (reliable announce), and the .filled padding keeps the empty state at
+           zero visual footprint. -->
+      <div class="rs-empty" class:filled={shown.length === 0} role="status" aria-live="polite">
+        {shown.length === 0 ? m.reposelect_no_matches() : ""}
+      </div>
       {#if onclone}
         <button
           type="button"
@@ -356,11 +361,13 @@
   }
 
   .rs-empty {
-    padding: 10px;
     color: var(--color-muted);
     font-size: var(--fs-base);
     font-style: italic;
     text-align: center;
+  }
+  .rs-empty.filled {
+    padding: 10px;
   }
 
   .rs-clone-row {

@@ -466,6 +466,7 @@ test("GiteaForge.listWorkflowRuns: dedups to newest run per workflow, newest-fir
   expect(runs).toEqual([
     {
       runId: 3,
+      workflowId: 0,
       workflowName: "Deploy",
       runUrl: "https://git.example.com/team/proj/actions/runs/3",
       headSha: "dep",
@@ -475,6 +476,7 @@ test("GiteaForge.listWorkflowRuns: dedups to newest run per workflow, newest-fir
     },
     {
       runId: 2,
+      workflowId: 0,
       workflowName: "CI",
       runUrl: "https://git.example.com/team/proj/actions/runs/2",
       headSha: "new",

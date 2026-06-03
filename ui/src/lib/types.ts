@@ -123,6 +123,8 @@ export interface WorkflowJob {
 export interface WorkflowRun {
   /** Host run id — the handle re-run / cancel act on. */
   runId: number;
+  /** Workflow's stable id (server `workflowDatabaseId`); used to fetch history. */
+  workflowId: number;
   workflowName: string;
   runUrl: string;
   headSha: string;

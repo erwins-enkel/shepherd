@@ -1329,6 +1329,57 @@ async function handleActionsCancel({ req, parts, deps }: Ctx): Promise<Response 
   }
 }
 
+// GET /api/actions/history?repo=&workflowId=&limit= — prior runs of one workflow
+// on the default branch (summary rows, jobs empty; lazy-loaded history). GitHub
+// only; other forges lack the method → empty. limit defaults to 10, clamped 1..50.
+async function handleActionsHistory({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "GET" ||
+    parts[0] !== "api" ||
+    parts[1] !== "actions" ||
+    parts[2] !== "history"
+  )
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const wfRaw = url.searchParams.get("workflowId");
+  const workflowId = Number(wfRaw);
+  if (!wfRaw || !Number.isFinite(workflowId)) return json({ error: "workflowId required" }, 400);
+  const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 10), 50);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.listWorkflowRunHistory) return json({ runs: [] });
+  try {
+    return json({ runs: await forge.listWorkflowRunHistory(workflowId, { limit }) });
+  } catch {
+    // missing/un-authed CLI or network error → graceful empty (matches list path)
+    return json({ runs: [] });
+  }
+}
+
+// GET /api/actions/run-jobs?repo=&runId= — per-job breakdown for a single run,
+// lazy-loaded when a history row is expanded. GitHub only; others → empty.
+async function handleActionsRunJobs({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "GET" ||
+    parts[0] !== "api" ||
+    parts[1] !== "actions" ||
+    parts[2] !== "run-jobs"
+  )
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const runRaw = url.searchParams.get("runId");
+  const runId = Number(runRaw);
+  if (!runRaw || !Number.isFinite(runId)) return json({ error: "runId required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.listRunJobs) return json({ jobs: [] });
+  try {
+    return json({ jobs: await forge.listRunJobs(runId) });
+  } catch {
+    return json({ jobs: [] });
+  }
+}
+
 // POST /api/prs/merge — merge a backlog PR by repo + number (no session involved).
 async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
@@ -1567,6 +1618,8 @@ const ROUTE_HANDLERS = [
   handleActionsList,
   handleActionsRerun,
   handleActionsCancel,
+  handleActionsHistory,
+  handleActionsRunJobs,
   handlePrMerge,
   handleDependabotRebase,
   handleBacklog,

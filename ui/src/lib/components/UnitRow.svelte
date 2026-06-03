@@ -148,7 +148,7 @@
       </div>
       {#if live}
         <div class="u-activity">
-          <Heartbeat lastActivityTs={activity?.lastActivityTs ?? 0} {nowMs} />
+          <Heartbeat {activity} {nowMs} />
           {#if summary}
             <span class="act-sep" aria-hidden="true">·</span>
             <span class="act-sum" title={summary}>{summary}</span>

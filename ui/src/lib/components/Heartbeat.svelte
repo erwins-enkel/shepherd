@@ -1,18 +1,25 @@
 <script lang="ts">
   import { formatAgo, heartbeatTone } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
+  import type { SessionActivity } from "$lib/types";
 
-  let { lastActivityTs, nowMs }: { lastActivityTs: number; nowMs: number } = $props();
+  let { activity, nowMs }: { activity?: SessionActivity; nowMs: number } = $props();
 
-  const delta = $derived(nowMs - lastActivityTs);
+  const delta = $derived(nowMs - (activity?.lastActivityTs ?? 0));
   const tone = $derived(heartbeatTone(delta));
 </script>
 
-{#if lastActivityTs <= 0}
+{#if !activity}
   <span class="hb starting">{m.activity_starting()}</span>
-{:else}
+{:else if activity.lastActivityTs > 0}
   <span class="hb {tone}">
     <span class="dot" aria-hidden="true"></span>{m.activity_active({ ago: formatAgo(delta) })}
+  </span>
+{:else}
+  <!-- signal present but timestamp-less (transcript edge) — quiet dot only; the
+       summary line carries the detail, so no "starting…" text or "ago". -->
+  <span class="hb live">
+    <span class="dot" aria-hidden="true"></span>
   </span>
 {/if}
 

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
-import type { WorktreeMgr } from "./worktree";
+import type { WorktreeMgr, WorktreeResult } from "./worktree";
 import type { GitForge } from "./forge/types";
 import type { Learning } from "./types";
 
@@ -77,13 +77,13 @@ export class Promoter {
     try {
       await this.git(learning.repoPath, ["fetch", "origin", "--", base]);
     } catch {
-      /* offline / no origin — fall back to the local base ref */
+      /* offline / no origin — createPromoteWorktree falls back to the local base ref */
     }
 
     // Unique per-attempt branch: a partial failure (push ok but PR url missing → 502)
     // must not wedge a retry on a stale branch name / non-fast-forward push.
     const name = `learnings-promote-${id.slice(0, 8)}-${randomUUID().slice(0, 8)}`;
-    const wt = this.deps.worktree.create(learning.repoPath, `origin/${base}`, name);
+    const wt = this.createPromoteWorktree(learning.repoPath, base, name);
     if (!wt.isolated || !wt.branch) {
       if (wt.worktreePath !== learning.repoPath) this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, error: "worktree creation failed", status: 500 };
@@ -97,6 +97,16 @@ export class Promoter {
     } finally {
       await this.cleanup(learning.repoPath, wt.worktreePath, wt.branch);
     }
+  }
+
+  /** Create the throwaway promote worktree, preferring the freshly-fetched origin
+   *  head (branch hygiene). Falls back to the local base ref when `origin/<base>`
+   *  isn't available — offline, or a fresh repo with no remote-tracking ref — so an
+   *  unreachable remote degrades to a local-base PR rather than an opaque 500. */
+  private createPromoteWorktree(repoPath: string, base: string, name: string): WorktreeResult {
+    const wt = this.deps.worktree.create(repoPath, `origin/${base}`, name);
+    if (wt.isolated && wt.branch) return wt;
+    return this.deps.worktree.create(repoPath, base, name);
   }
 
   /** Tear down the throwaway worktree and force-delete its local branch. The pushed

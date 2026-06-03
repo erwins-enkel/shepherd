@@ -89,6 +89,38 @@ test("Promoter.promote opens a PR and marks the rule promoted", async () => {
   expect(gitCalls).toContainEqual(["branch", "-D", "shepherd/learnings-promote-x"]);
 });
 
+test("Promoter.promote falls back to the local base ref when origin/<base> is unavailable", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/r", rule: "stay linear", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  const wtDir = mkdtempSync(join(tmpdir(), "promote-fallback-"));
+  const baseRefs: string[] = [];
+  const p = new Promoter({
+    store,
+    worktree: {
+      // origin/main unavailable (offline); local main works — mirrors worktree.create
+      // returning isolated:false on an unresolvable base rather than throwing.
+      create: (_repo: string, baseRef: string) => {
+        baseRefs.push(baseRef);
+        const ok = baseRef === "main";
+        return {
+          worktreePath: ok ? wtDir : "/r",
+          branch: ok ? "shepherd/fallback" : null,
+          isolated: ok,
+        };
+      },
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge(),
+    git: async () => {},
+  });
+  const res = await p.promote(l.id);
+  expect(res.ok).toBe(true);
+  // tried origin/<base> first (hygiene), then fell back to the local base ref
+  expect(baseRefs).toEqual(["origin/main", "main"]);
+  expect(store.getLearning(l.id)!.status).toBe("promoted");
+});
+
 test("Promoter.promote rejects non-active rules", async () => {
   const store = new SessionStore(":memory:");
   const l = store.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });

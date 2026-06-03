@@ -19,6 +19,7 @@ const verdict = (id: string): ReviewVerdict => ({
   body: "test body",
   findings: [],
   addressRound: 0,
+  addressCap: 3,
   updatedAt: 0,
 });
 

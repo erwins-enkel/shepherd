@@ -978,7 +978,7 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
-      list: () => [],
+      list: () => [{ terminalId: "term_z" }], // pane is live
       stop: () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
     } as any,
@@ -1000,6 +1000,37 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
   sent.length = 0;
   expect(svc.reply(s.id, "a\x1b[201~b\x1b[200~c")).toBe(true);
   expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~abc\x1b[201~" });
+});
+
+test("reply returns false for a live-in-store session whose pane is dead (no throw, no send)", () => {
+  const sent: unknown[] = [];
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_dead",
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [{ terminalId: "term_other" }], // session's pane is NOT listed → dead
+      stop: () => {},
+      send: () => sent.push("sent"),
+    } as any,
+  });
+  // honest boolean instead of letting herdr.send throw, and no steer is attempted
+  expect(svc.reply(s.id, "hi")).toBe(false);
+  expect(sent).toEqual([]);
+  expect(store.listSignals("/r").length).toBe(0); // undelivered steer records no signal
 });
 
 test("broadcast fans the text out to known sessions, skips unknown ids", () => {
@@ -1025,7 +1056,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
-      list: () => [],
+      list: () => [{ terminalId: "term_a" }, { terminalId: "term_b" }], // both panes live
       stop: () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
     } as any,

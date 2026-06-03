@@ -292,6 +292,9 @@ test("forget reaps an in-flight critic and drops the stored review", () => {
     body: "",
     findings: [],
     addressRound: 0,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: [],
     updatedAt: 1,
   };
   svc.forget("s1");
@@ -393,6 +396,9 @@ test("clean verdict (no findings) stops the loop and resets the round", async ()
     body: "",
     findings: ["was broken"],
     addressRound: 2,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: [],
     updatedAt: 1,
   };
   const svc = new ReviewService(d as any);
@@ -428,6 +434,9 @@ test("round cap reached: holds the round, posts the review + signal, does not st
     body: "",
     findings: ["still broken"],
     addressRound: 3, // == cap: the agent has had its 3 tries
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: [],
     updatedAt: 1,
   };
   const svc = new ReviewService(d as any);
@@ -466,6 +475,9 @@ function priorReview(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
     body: "",
     findings: ["fix the race in worker.ts"],
     addressRound: 1,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: [],
     updatedAt: 1,
     ...over,
   };
@@ -504,8 +516,9 @@ test("re-review fetches the author's PR notes and injects them into the prompt",
     {
       autoAddressEnabled: true,
       comments: [
-        { author: "me", body: "unrelated chatter", createdAt: 1 },
+        { id: "c1", author: "me", body: "unrelated chatter", createdAt: 1 },
         {
+          id: "c2",
           author: "me",
           body: `${AUTHOR_RESPONSE_MARKER} #2 is intentional: it mirrors the spec`,
           createdAt: 2,
@@ -581,4 +594,118 @@ test("forget() during the re-review await aborts the spawn (no critic for an arc
   await p;
   expect(started).toHaveLength(0); // begin saw the forget and aborted before spawning
   expect(svc.reviewingIds()).toEqual([]); // nothing left in flight
+});
+
+// ── follow-up polish (#247) ─────────────────────────────────────────────────────
+
+test("verdict surfaces the configured cap so the UI need not mirror it", async () => {
+  const { deps: d, reviews } = makeDeps({ cap: 5 });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressCap).toBe(5); // ReviewService({cap}) → verdict payload
+});
+
+test("re-review injects only author notes not already shown on an earlier round", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps(
+    {},
+    {
+      autoAddressEnabled: true,
+      comments: [
+        {
+          id: "c2",
+          author: "me",
+          body: `${AUTHOR_RESPONSE_MARKER} round-1 note (already seen)`,
+          createdAt: 1,
+        },
+        {
+          id: "c3",
+          author: "me",
+          body: `${AUTHOR_RESPONSE_MARKER} round-2 note (new)`,
+          createdAt: 2,
+        },
+      ],
+    },
+  );
+  // a streak already injected c2 on the previous round
+  reviews["s1"] = priorReview({ seenNoteIds: ["c2"] });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("round-2 note (new)"); // the fresh note reaches the critic
+  expect(prompt).not.toContain("round-1 note (already seen)"); // the stale one does not re-feed
+  await svc.tick();
+  expect(reviews["s1"]?.seenNoteIds).toEqual(["c2", "c3"]); // dedup set carried forward
+});
+
+test("consecutive critic errors escalate via a stall signal at the cap", async () => {
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps({ readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) });
+  // two errors already on the no-progress streak; this one hits cap (3)
+  reviews["s1"] = priorReview({ errorRound: 2, addressRound: 1 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.errorRound).toBe(3); // separate counter advanced
+  expect(reviews["s1"]?.addressRound).toBe(1); // findings streak preserved, NOT reset to clean
+  expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates to the human
+});
+
+test("a critic error below the cap bumps the error streak without escalating", async () => {
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps({ readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) });
+  reviews["s1"] = priorReview({ errorRound: 0, addressRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.errorRound).toBe(1);
+  expect(reviews["s1"]?.addressRound).toBe(2); // preserved
+  expect(signals.some((s) => s.kind === "stall")).toBe(false); // not yet at the cap
+});
+
+test("a real verdict resets the error streak", async () => {
+  const { deps: d, reviews } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "ok", body: "b", findings: [] }) },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ errorRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.errorRound).toBe(0); // any successful verdict clears the no-progress streak
+});
+
+test("an error verdict does not consume freshly-fetched author notes (re-inject next round)", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) },
+    {
+      autoAddressEnabled: true,
+      comments: [
+        { id: "c9", author: "me", body: `${AUTHOR_RESPONSE_MARKER} a fresh note`, createdAt: 1 },
+      ],
+    },
+  );
+  reviews["s1"] = priorReview({ seenNoteIds: [] }); // re-review fetches + injects c9
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv.at(-1)).toContain("a fresh note"); // the note reached the (doomed) critic
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  // the errored critic never produced a verdict on c9, so it must NOT be marked seen
+  expect(reviews["s1"]?.seenNoteIds).toEqual([]);
 });

@@ -117,6 +117,9 @@ export interface ReviewVerdict {
   body: string; // full markdown findings (seeds the steer-back)
   findings: string[]; // discrete actionable items; [] = nothing to address (loop terminates)
   addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)
+  addressCap: number; // the streak cap this run used — surfaced so the UI badge math need not mirror it
+  errorRound: number; // consecutive critic error/timeout verdicts (separate no-progress counter; 0 on any real verdict)
+  seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
   url?: string; // posted PR-review URL, when the host returns one
   updatedAt: number;
 }

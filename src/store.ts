@@ -116,6 +116,8 @@ export class SessionStore implements CapStore {
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
+      addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
+      seenNoteIds TEXT NOT NULL DEFAULT '[]',
       url TEXT, updatedAt INTEGER NOT NULL)`);
     // migrate reviews that predate the auto-address loop columns
     const reviewCols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
@@ -124,6 +126,18 @@ export class SessionStore implements CapStore {
     }
     if (!reviewCols.some((c) => c.name === "addressRound")) {
       this.db.run(`ALTER TABLE reviews ADD COLUMN addressRound INTEGER NOT NULL DEFAULT 0`);
+    }
+    // addressCap's DEFAULT 3 only backfills pre-#247 rows; every live row carries
+    // ReviewService's actual cap, so the literal here is a one-time migration value, not
+    // an ongoing mirror. errorRound/seenNoteIds back the error-escalation + note dedup.
+    if (!reviewCols.some((c) => c.name === "addressCap")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN addressCap INTEGER NOT NULL DEFAULT 3`);
+    }
+    if (!reviewCols.some((c) => c.name === "errorRound")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN errorRound INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!reviewCols.some((c) => c.name === "seenNoteIds")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN seenNoteIds TEXT NOT NULL DEFAULT '[]'`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
@@ -374,6 +388,9 @@ export class SessionStore implements CapStore {
       ...r,
       findings: parseFindings(r.findings),
       addressRound: r.addressRound ?? 0,
+      addressCap: r.addressCap ?? 3,
+      errorRound: r.errorRound ?? 0,
+      seenNoteIds: parseFindings(r.seenNoteIds), // same string[] JSON shape as findings
       url: r.url ?? undefined,
     } as ReviewVerdict;
   }
@@ -381,7 +398,8 @@ export class SessionStore implements CapStore {
   getReview(sessionId: string): ReviewVerdict | null {
     const r = this.db
       .query(
-        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt
+        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound,
+                addressCap, errorRound, seenNoteIds, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as any;
@@ -390,11 +408,14 @@ export class SessionStore implements CapStore {
 
   putReview(v: ReviewVerdict): void {
     this.db.run(
-      `INSERT INTO reviews (sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?)
+      `INSERT INTO reviews (sessionId, headSha, decision, summary, body, findings, addressRound,
+         addressCap, errorRound, seenNoteIds, url, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
-         addressRound=excluded.addressRound, url=excluded.url, updatedAt=excluded.updatedAt`,
+         addressRound=excluded.addressRound, addressCap=excluded.addressCap,
+         errorRound=excluded.errorRound, seenNoteIds=excluded.seenNoteIds,
+         url=excluded.url, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
         v.headSha,
@@ -403,6 +424,9 @@ export class SessionStore implements CapStore {
         v.body,
         JSON.stringify(v.findings ?? []),
         v.addressRound ?? 0,
+        v.addressCap ?? 3,
+        v.errorRound ?? 0,
+        JSON.stringify(v.seenNoteIds ?? []),
         v.url ?? null,
         v.updatedAt,
       ],
@@ -416,7 +440,8 @@ export class SessionStore implements CapStore {
   snapshotReviews(): Record<string, ReviewVerdict> {
     const rows = this.db
       .query(
-        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt FROM reviews`,
+        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound,
+                addressCap, errorRound, seenNoteIds, url, updatedAt FROM reviews`,
       )
       .all() as any[];
     const out: Record<string, ReviewVerdict> = {};

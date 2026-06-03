@@ -7,7 +7,8 @@ function deps(store: SessionStore) {
   return {
     store,
     worktree: {} as any,
-    herdr: { send: () => {} } as any,
+    // reply() now liveness-checks the pane before sending; list the session's agent live.
+    herdr: { send: () => {}, list: () => [{ terminalId: "t1" }] } as any,
     namer: (p: string) => p,
   };
 }

@@ -43,6 +43,9 @@ test("GET /api/reviews returns snapshot when reviewCache is present", async () =
     body: "Full body here",
     findings: [],
     addressRound: 0,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: [],
     updatedAt: 1000,
   };
   const { app } = harness({ snapshot: () => ({ "sess-1": verdict }) });

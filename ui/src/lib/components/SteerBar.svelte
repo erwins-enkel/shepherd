@@ -160,12 +160,18 @@
      horizontal padding) so the collapsed chip and Esc render an identical width.
      Esc additionally sits inside a 3px-padded group "well", nudging its box that
      far right of the bar edge — match it with an equal left margin so the two
-     left edges line up, not just the widths */
+     left edges line up, not just the widths.
+     The steer row also mirrors the ControlBar's *grouping*: 📡 plays Esc's part
+     (own box, frozen left) and the steer chips play the Tab/nav groups. To line
+     the first steer chip up under the Tab key, the 📡→first-chip channel must
+     equal the Esc→Tab channel (3px Esc-well + 6px ctrl-row gap + 3px Tab-well =
+     12px). The flex `gap` already gives 4px, so add the remaining 8px here. */
   @media (max-width: 768px) {
     .chip.bc {
       min-width: 44px;
       padding: 0;
       margin-left: 3px;
+      margin-right: 8px;
     }
     .bc-label {
       display: none;

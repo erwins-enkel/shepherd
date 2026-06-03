@@ -683,6 +683,8 @@
     margin: 0;
     font-size: 11px;
     color: var(--color-ink);
+    /* pinned alongside head/footer; only .rv-body scrolls */
+    flex-shrink: 0;
   }
   .rv-body {
     margin: 0;

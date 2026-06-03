@@ -577,3 +577,77 @@ test("GithubForge.listRunJobs: maps a run's jobs to the four-light vocab", async
     { name: "test", state: "pending", url: undefined },
   ]);
 });
+
+test("GithubForge.listWorkflowRunHistory: filters by workflow + branch, jobs empty, newest-first", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "repo" && args[1] === "view")
+      return JSON.stringify({ defaultBranchRef: { name: "main" } });
+    if (args[0] === "run" && args[1] === "list")
+      return JSON.stringify([
+        {
+          databaseId: 90,
+          workflowName: "CI",
+          workflowDatabaseId: 11,
+          status: "completed",
+          conclusion: "success",
+          headSha: "shaA",
+          createdAt: "2024-05-01T00:00:00Z",
+          url: "https://gh/run/90",
+        },
+        {
+          databaseId: 99,
+          workflowName: "CI",
+          workflowDatabaseId: 11,
+          status: "completed",
+          conclusion: "failure",
+          headSha: "shaB",
+          createdAt: "2024-05-03T00:00:00Z",
+          url: "https://gh/run/99",
+        },
+      ]);
+    return "";
+  };
+  const runs = await new GithubForge("o/r", {}, run).listWorkflowRunHistory(11, { limit: 10 });
+
+  // newest-first; jobs deliberately empty (lazy)
+  expect(runs).toEqual([
+    {
+      runId: 99,
+      workflowId: 11,
+      workflowName: "CI",
+      runUrl: "https://gh/run/99",
+      headSha: "shaB",
+      createdAt: Date.parse("2024-05-03T00:00:00Z"),
+      state: "failure",
+      jobs: [],
+    },
+    {
+      runId: 90,
+      workflowId: 11,
+      workflowName: "CI",
+      runUrl: "https://gh/run/90",
+      headSha: "shaA",
+      createdAt: Date.parse("2024-05-01T00:00:00Z"),
+      state: "success",
+      jobs: [],
+    },
+  ]);
+  const listCall = calls.find((c) => c[0] === "run" && c[1] === "list")!;
+  expect(listCall).toContain("--workflow");
+  expect(listCall).toContain("11");
+  expect(listCall).toContain("--branch");
+  expect(listCall).toContain("main");
+  expect(listCall).toContain("--limit");
+  expect(listCall).toContain("10");
+  // never fans out to per-run job views for history
+  expect(calls.some((c) => c[0] === "run" && c[1] === "view")).toBe(false);
+});
+
+test("GithubForge.listWorkflowRunHistory: no default branch → []", async () => {
+  const run = (args: string[]): string => (args[0] === "repo" ? "{}" : "");
+  expect(await new GithubForge("o/r", {}, run).listWorkflowRunHistory(11, { limit: 10 })).toEqual(
+    [],
+  );
+});

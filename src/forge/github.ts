@@ -243,6 +243,53 @@ export class GithubForge implements GitForge {
     }));
   }
 
+  /** Prior runs of one workflow on the default branch, newest-first, capped by
+   *  `limit`. Summary rows only — `jobs` is empty; callers lazy-load per-run
+   *  jobs via {@link listRunJobs}. */
+  async listWorkflowRunHistory(workflowId: number, o: { limit: number }): Promise<WorkflowRun[]> {
+    const branch = await this.defaultBranch().catch(() => null);
+    if (!branch) return [];
+    const listOut = this.run([
+      "run",
+      "list",
+      "--repo",
+      this.slug,
+      "--branch",
+      branch,
+      "--workflow",
+      String(workflowId),
+      "--limit",
+      String(o.limit),
+      "--json",
+      "databaseId,workflowName,workflowDatabaseId,status,conclusion,headSha,createdAt,url",
+    ]);
+    const raw = JSON.parse(listOut || "[]") as Array<{
+      databaseId: number;
+      workflowName?: string;
+      workflowDatabaseId?: number;
+      status?: string | null;
+      conclusion?: string | null;
+      headSha?: string;
+      createdAt?: string;
+      url?: string;
+    }>;
+    const runs = raw.map((r): WorkflowRun => {
+      const ts = Date.parse(r.createdAt ?? "");
+      return {
+        runId: r.databaseId,
+        workflowId: r.workflowDatabaseId ?? workflowId,
+        workflowName: r.workflowName ?? "",
+        runUrl: r.url ?? "",
+        headSha: r.headSha ?? "",
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        state: mapCheckState(r.status, r.conclusion),
+        jobs: [],
+      };
+    });
+    runs.sort((a, b) => b.createdAt - a.createdAt);
+    return runs;
+  }
+
   async rerunWorkflowRun(runId: number, o: { failedOnly: boolean }): Promise<void> {
     const args = ["run", "rerun", String(runId), "--repo", this.slug];
     // `--failed` retries only the failed jobs (+ their dependents) of a failed run;

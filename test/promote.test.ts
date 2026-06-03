@@ -85,6 +85,8 @@ test("Promoter.promote opens a PR and marks the rule promoted", async () => {
   expect(readFileSync(join(wtDir, "CLAUDE.md"), "utf8")).toContain("- rebase onto main");
   expect(gitCalls.some((a) => a[0] === "push")).toBe(true);
   expect(removed).toContain(wtDir);
+  // local branch force-deleted on cleanup (the pushed remote branch backs the PR)
+  expect(gitCalls).toContainEqual(["branch", "-D", "shepherd/learnings-promote-x"]);
 });
 
 test("Promoter.promote rejects non-active rules", async () => {
@@ -120,4 +122,56 @@ test("Promoter.promote 400s when no forge configured", async () => {
   const res = await p.promote(l.id);
   expect(res.ok).toBe(false);
   if (!res.ok) expect(res.status).toBe(400);
+});
+
+test("Promoter.promote returns a generic 500 (not raw git stderr) on failure", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/r", rule: "y", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  const wtDir = mkdtempSync(join(tmpdir(), "promote-fail-"));
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge(),
+    git: async (_cwd, args) => {
+      if (args[0] === "push") throw new Error("fatal: remote rejected [secret-token-in-stderr]");
+    },
+  });
+  const res = await p.promote(l.id);
+  expect(res.ok).toBe(false);
+  if (!res.ok) {
+    expect(res.status).toBe(500);
+    expect(res.error).toBe("promote failed"); // no raw stderr leaked to the client
+  }
+  // rule stays active (not wedged) so a retry can succeed
+  expect(store.getLearning(l.id)!.status).toBe("active");
+});
+
+test("Promoter.promote rejects a concurrent double-click with 409", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/r", rule: "z", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  const wtDir = mkdtempSync(join(tmpdir(), "promote-race-"));
+  let releaseForge: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (releaseForge = resolve));
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "shepherd/z", isolated: true }),
+      remove: () => {},
+    },
+    // hold the first promote inside its first await so the second click overlaps it
+    resolveForge: () => fakeForge({ defaultBranch: async () => (await gate, "main") }),
+    git: async () => {},
+  });
+  const first = p.promote(l.id);
+  const second = await p.promote(l.id); // claim was synchronous → this sees in-flight
+  expect(second.ok).toBe(false);
+  if (!second.ok) expect(second.status).toBe(409);
+  releaseForge();
+  const firstRes = await first;
+  expect(firstRes.ok).toBe(true);
 });

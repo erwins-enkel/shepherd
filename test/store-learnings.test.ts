@@ -104,18 +104,30 @@ test("setLearningStatus enforces the state machine", () => {
   expect(s.getLearning(d.id)?.status).toBe("dismissed");
 });
 
-test("incrementLearningIneffective bumps active rules, no-ops others", () => {
+test("incrementLearningIneffective bumps active rules by new signal count, no-ops others", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({ repoPath: "/r", rule: "use bun", rationale: "", evidence: [] });
   // proposed → no-op
-  expect(s.incrementLearningIneffective(l.id)).toBeNull();
+  expect(s.incrementLearningIneffective(l.id, ["s1"])).toBeNull();
   expect(s.getLearning(l.id)!.ineffectiveCount).toBe(0);
-  // activate, then bump twice
+  // activate, then bump by the number of fresh signal ids
   s.setLearningStatus(l.id, "active");
-  expect(s.incrementLearningIneffective(l.id)!.ineffectiveCount).toBe(1);
-  expect(s.incrementLearningIneffective(l.id)!.ineffectiveCount).toBe(2);
+  expect(s.incrementLearningIneffective(l.id, ["s1"])!.ineffectiveCount).toBe(1);
+  expect(s.incrementLearningIneffective(l.id, ["s2", "s3"])!.ineffectiveCount).toBe(3);
   // missing id → null
-  expect(s.incrementLearningIneffective("nope")).toBeNull();
+  expect(s.incrementLearningIneffective("nope", ["x"])).toBeNull();
+});
+
+test("incrementLearningIneffective dedups already-counted signals across distill runs", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "rebase first", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.incrementLearningIneffective(l.id, ["s1", "s2"])!.ineffectiveCount).toBe(2);
+  // a later distill over the same window re-cites s1/s2 → no inflation
+  expect(s.incrementLearningIneffective(l.id, ["s1", "s2"])).toBeNull();
+  expect(s.getLearning(l.id)!.ineffectiveCount).toBe(2);
+  // only the genuinely-new signal counts
+  expect(s.incrementLearningIneffective(l.id, ["s2", "s4"])!.ineffectiveCount).toBe(3);
 });
 
 test("promoteLearning records PR url and enforces active→promoted", () => {

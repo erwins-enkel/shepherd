@@ -191,8 +191,8 @@ test("consider does nothing when learnings disabled for the repo", () => {
   expect(started.length).toBe(0);
 });
 
-test("distiller increments ineffective for cited active rule ids", async () => {
-  const bumped: string[] = [];
+test("distiller increments ineffective for cited active rule ids with validated evidence", async () => {
+  const bumped: { id: string; signals: string[] }[] = [];
   const active = [{ id: "rule-1", rule: "use bun", status: "active" }];
   const svc = new DistillerService({
     store: {
@@ -207,8 +207,8 @@ test("distiller increments ineffective for cited active rule ids", async () => {
         autoAddressEnabled: false,
         learningsEnabled: true,
       }),
-      incrementLearningIneffective: (id: string) => {
-        bumped.push(id);
+      incrementLearningIneffective: (id: string, signals: string[]) => {
+        bumped.push({ id, signals });
         return {} as never;
       },
     },
@@ -217,11 +217,19 @@ test("distiller increments ineffective for cited active rule ids", async () => {
     onChange: () => {},
     now: () => 1000,
     writeSignals: () => {},
-    readProposals: () => ({ rules: [], ineffective: ["rule-1", "bogus"] }),
+    // rule-1 cites a real signal (s1) plus a hallucinated one (s99); bogus is not active
+    readProposals: () => ({
+      rules: [],
+      ineffective: [
+        { id: "rule-1", evidence: ["s1", "s99"] },
+        { id: "bogus", evidence: ["s1"] },
+      ],
+    }),
   });
   svc.distillNow("/r");
   await svc.tick();
-  expect(bumped).toEqual(["rule-1"]); // only the real active id is bumped
+  // only the real active id is bumped, and only the in-window signal id is passed through
+  expect(bumped).toEqual([{ id: "rule-1", signals: ["s1"] }]);
 });
 
 test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {

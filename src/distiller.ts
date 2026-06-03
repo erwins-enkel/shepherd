@@ -17,6 +17,10 @@ interface RawProposals {
   rules?: unknown;
   ineffective?: unknown;
 }
+interface RawIneffective {
+  id?: unknown;
+  evidence?: unknown;
+}
 
 interface InFlight {
   repoPath: string;
@@ -24,6 +28,9 @@ interface InFlight {
   terminalId: string;
   startedAt: number;
   finalizing?: boolean;
+  /** Signal ids handed to this run — the only ids whose citation as evidence for
+   *  an ineffective rule we trust (blocks a hallucinated id from being counted). */
+  signalIds: Set<string>;
 }
 
 export interface DistillerDeps {
@@ -135,7 +142,13 @@ export class DistillerService {
       this.deps.scratch.remove(dir);
       return;
     }
-    this.inflight.set(repoPath, { repoPath, dir, terminalId, startedAt: this.now() });
+    this.inflight.set(repoPath, {
+      repoPath,
+      dir,
+      terminalId,
+      startedAt: this.now(),
+      signalIds: new Set(signals.map((s) => s.id)),
+    });
   }
 
   /** Finalize any run whose proposals file is ready or that timed out. */
@@ -153,7 +166,7 @@ export class DistillerService {
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
     const added = this.applyProposals(f.repoPath, raw);
-    const flagged = this.applyIneffective(f.repoPath, raw);
+    const flagged = this.applyIneffective(f, raw);
     this.deps.herdr.stop(f.terminalId);
     this.deps.scratch.remove(f.dir);
     if (added > 0 || flagged > 0) this.deps.onChange();
@@ -182,14 +195,21 @@ export class DistillerService {
     return added;
   }
 
-  /** Bump ineffectiveCount for any active rule the distiller cited as not working. Returns the count flagged. */
-  private applyIneffective(repoPath: string, raw: RawProposals | null): number {
+  /** Bump ineffectiveCount for any active rule the distiller cited as not working,
+   *  passing the cited evidence signal ids (validated against THIS run's signal set)
+   *  so the store can dedup them and not re-count on a later distill. Returns the
+   *  count of rules freshly flagged. */
+  private applyIneffective(f: InFlight, raw: RawProposals | null): number {
     let flagged = 0;
-    const activeIds = new Set(this.deps.store.listActiveLearnings(repoPath).map((l) => l.id));
-    const ineffective = Array.isArray(raw?.ineffective) ? raw!.ineffective : [];
-    for (const id of ineffective) {
-      if (typeof id !== "string" || !activeIds.has(id)) continue;
-      if (this.deps.store.incrementLearningIneffective(id)) flagged++;
+    const activeIds = new Set(this.deps.store.listActiveLearnings(f.repoPath).map((l) => l.id));
+    const entries = Array.isArray(raw?.ineffective) ? (raw!.ineffective as RawIneffective[]) : [];
+    for (const e of entries) {
+      const id = typeof e?.id === "string" ? e.id : undefined;
+      if (!id || !activeIds.has(id)) continue;
+      const evidence = Array.isArray(e.evidence)
+        ? e.evidence.filter((s): s is string => typeof s === "string" && f.signalIds.has(s))
+        : [];
+      if (this.deps.store.incrementLearningIneffective(id, evidence)) flagged++;
     }
     return flagged;
   }
@@ -206,12 +226,13 @@ function distillPrompt(): string {
     "stalls, and critic findings for one repository; `existingRules` — an array of rules",
     "already recorded or previously dismissed (do NOT repeat any of these);",
     "and `activeRules` — an array of currently-active house rules as {id, rule} objects.",
-    "If a NEW signal shows an activeRule was violated or did not prevent the mistake,",
-    "add its id to an `ineffective` array (the rule is not working — flag it).",
+    "If a signal shows an activeRule was violated or did not prevent the mistake, add an",
+    "`ineffective` entry: {id: the activeRule id, evidence: the signal ids that show it",
+    "failing}. Only cite signal ids present in `signals` — never invent ids.",
     "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
     "Ignore one-off noise. Write at most 5 crisp imperative rules.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}], "ineffective": ["activeRuleId", ...]}',
+    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}], "ineffective": [{"id": "activeRuleId", "evidence": ["signalId", ...]}]}',
     'If nothing recurs, write {"rules": [], "ineffective": []}. Do not write anything else.',
   ].join("\n");
 }

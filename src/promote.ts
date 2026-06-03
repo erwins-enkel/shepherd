@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -33,6 +34,9 @@ export class Promoter {
   private git: (cwd: string, args: string[]) => Promise<void>;
   private readClaudeMd: (path: string) => string;
   private writeClaudeMd: (path: string, content: string) => void;
+  /** Learning ids with a promote in flight — guards against a double-click firing
+   *  two PRs (the second would race the first's `active → promoted` transition). */
+  private inflight = new Set<string>();
 
   constructor(private deps: PromoterDeps) {
     this.git = deps.git ?? defaultGit;
@@ -42,6 +46,20 @@ export class Promoter {
   }
 
   async promote(id: string): Promise<PromoteResult> {
+    // Claim the in-flight slot synchronously, before any await, so a second click
+    // landing mid-promote is rejected rather than racing the status transition.
+    if (this.inflight.has(id)) {
+      return { ok: false, error: "promote already in progress", status: 409 };
+    }
+    this.inflight.add(id);
+    try {
+      return await this.run(id);
+    } finally {
+      this.inflight.delete(id);
+    }
+  }
+
+  private async run(id: string): Promise<PromoteResult> {
     const learning = this.deps.store.getLearning(id);
     if (!learning) return { ok: false, error: "not found", status: 404 };
     if (learning.status !== "active") {
@@ -62,7 +80,9 @@ export class Promoter {
       /* offline / no origin — fall back to the local base ref */
     }
 
-    const name = `learnings-promote-${id.slice(0, 8)}`;
+    // Unique per-attempt branch: a partial failure (push ok but PR url missing → 502)
+    // must not wedge a retry on a stale branch name / non-fast-forward push.
+    const name = `learnings-promote-${id.slice(0, 8)}-${randomUUID().slice(0, 8)}`;
     const wt = this.deps.worktree.create(learning.repoPath, `origin/${base}`, name);
     if (!wt.isolated || !wt.branch) {
       if (wt.worktreePath !== learning.repoPath) this.deps.worktree.remove(wt.worktreePath);
@@ -71,9 +91,23 @@ export class Promoter {
     try {
       return await this.commitAndOpen(forge, learning, base, wt.worktreePath, wt.branch);
     } catch (err) {
-      return { ok: false, error: String(err), status: 500 };
+      // Don't leak raw git stderr to the client; log it server-side.
+      console.warn(`[promote] failed for ${id}:`, err);
+      return { ok: false, error: "promote failed", status: 500 };
     } finally {
-      this.deps.worktree.remove(wt.worktreePath, { branch: wt.branch });
+      await this.cleanup(learning.repoPath, wt.worktreePath, wt.branch);
+    }
+  }
+
+  /** Tear down the throwaway worktree and force-delete its local branch. The pushed
+   *  remote branch backs any opened PR; the local copy is disposable, so leaving it
+   *  would just accumulate `shepherd/learnings-promote-*` branches. Best-effort. */
+  private async cleanup(repoPath: string, worktreePath: string, branch: string): Promise<void> {
+    this.deps.worktree.remove(worktreePath);
+    try {
+      await this.git(repoPath, ["branch", "-D", branch]);
+    } catch {
+      /* best-effort: a never-committed branch may already be gone */
     }
   }
 

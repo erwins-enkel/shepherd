@@ -370,12 +370,17 @@ export class GithubForge implements GitForge {
     ]);
     const parsed = JSON.parse(out || "{}") as {
       comments?: {
+        id?: string | null;
+        url?: string | null;
         author?: { login?: string } | null;
         body?: string | null;
         createdAt?: string | null;
       }[];
     };
     return (parsed.comments ?? []).map((c) => ({
+      // gh exposes a node `id`; fall back to the comment url (also unique) so the
+      // per-round dedup always has a stable key even if one field is absent.
+      id: c.id ?? c.url ?? "",
       author: c.author?.login ?? "",
       body: c.body ?? "",
       createdAt: c.createdAt ? Date.parse(c.createdAt) : 0,

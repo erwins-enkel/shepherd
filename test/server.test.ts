@@ -20,7 +20,9 @@ beforeEach(() => {
 
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function makeDeps(): AppDeps {
+// liveTerminals: terminal ids herdr should report as live (drives reply()'s pane-liveness
+// check). Defaults to none — resume/most tests assume the started pane is already dead.
+function makeDeps(liveTerminals: string[] = []): AppDeps {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const service = new SessionService({
@@ -40,7 +42,7 @@ function makeDeps(): AppDeps {
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      list: () => liveTerminals.map((terminalId) => ({ terminalId })),
       stop: () => {},
       send: () => {},
     } as any,
@@ -626,7 +628,7 @@ test("POST /api/uploads rejects a non-image", async () => {
 });
 
 test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", async () => {
-  const app = harness();
+  const app = makeApp(makeDeps(["term_x"])); // created session's pane (term_x) reads as live
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();

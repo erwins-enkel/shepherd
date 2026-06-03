@@ -459,19 +459,30 @@ test("GithubForge.postReview: request-changes falls back to pr comment when revi
   expect(calls[1]).toEqual(["pr", "comment", "7", "--repo", "o/r", "--body", "nope"]);
 });
 
-test("GithubForge.listPrComments: parses author/body/createdAt from gh pr view", async () => {
+test("GithubForge.listPrComments: parses id/author/body/createdAt from gh pr view", async () => {
   const COMMENTS_JSON = JSON.stringify({
     comments: [
-      { author: { login: "alice" }, body: "first", createdAt: "2024-02-02T00:00:00Z" },
-      { author: { login: "bob" }, body: "second", createdAt: "2024-02-03T00:00:00Z" },
+      { id: "IC_1", author: { login: "alice" }, body: "first", createdAt: "2024-02-02T00:00:00Z" },
+      // no id → falls back to the comment url so per-round dedup still has a stable key
+      {
+        url: "https://gh/c/2",
+        author: { login: "bob" },
+        body: "second",
+        createdAt: "2024-02-03T00:00:00Z",
+      },
     ],
   });
   const { run, calls } = fakeRunner({ "pr view": COMMENTS_JSON });
   const forge = new GithubForge("o/r", {}, run);
   const comments = await forge.listPrComments(7);
   expect(comments).toEqual([
-    { author: "alice", body: "first", createdAt: Date.parse("2024-02-02T00:00:00Z") },
-    { author: "bob", body: "second", createdAt: Date.parse("2024-02-03T00:00:00Z") },
+    { id: "IC_1", author: "alice", body: "first", createdAt: Date.parse("2024-02-02T00:00:00Z") },
+    {
+      id: "https://gh/c/2",
+      author: "bob",
+      body: "second",
+      createdAt: Date.parse("2024-02-03T00:00:00Z"),
+    },
   ]);
   expect(calls[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "comments"]);
 });

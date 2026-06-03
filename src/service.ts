@@ -341,11 +341,40 @@ export class SessionService {
    * of read boundaries — deterministic, no timing guesswork. Strip any stray paste
    * markers from the payload first: a leaked end-marker would close the paste early
    * (turning the rest into live keystrokes), and a leaked start-marker is benign but
-   * dropped for symmetry. Returns false if unknown.
+   * dropped for symmetry. Returns false when the session is unknown OR its pane is dead
+   * (claude exited / terminal reaped) — a live store row can still back a dead pane,
+   * which would make herdr.send throw. The up-front liveness check keeps reply an honest,
+   * non-throwing boolean for human steers, and hands the auto-address loop a clean
+   * "not delivered" instead of relying on it to catch the throw downstream.
    */
   reply(id: string, text: string): boolean {
+    return this.replyToLive(id, text, this.liveTerminalIds());
+  }
+
+  /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.
+   *  Lists herdr's live agents ONCE up front rather than per id, so a wide fan-out
+   *  doesn't spawn one blocking `herdr agent list` per target. */
+  broadcast(ids: string[], text: string): { sent: number; total: number } {
+    const live = this.liveTerminalIds();
+    let sent = 0;
+    for (const id of ids) if (this.replyToLive(id, text, live)) sent++;
+    return { sent, total: ids.length };
+  }
+
+  /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so
+   *  callers treat an unlisted agent as a dead pane (the steer won't land). */
+  private liveTerminalIds(): Set<string> {
+    try {
+      return new Set(this.deps.herdr.list().map((a) => a.terminalId));
+    } catch {
+      return new Set();
+    }
+  }
+
+  /** Steer one session against a pre-fetched live set. False on unknown id or dead pane. */
+  private replyToLive(id: string, text: string, live: Set<string>): boolean {
     const s = this.deps.store.get(id);
-    if (!s) return false;
+    if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
@@ -358,13 +387,6 @@ export class SessionService {
     this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
     this.deps.herdr.send(s.herdrAgentId, "\r");
     return true;
-  }
-
-  /** Fan a steer out to many sessions (human-style). Skips unknown ids. */
-  broadcast(ids: string[], text: string): { sent: number; total: number } {
-    let sent = 0;
-    for (const id of ids) if (this.reply(id, text)) sent++;
-    return { sent, total: ids.length };
   }
 
   /**

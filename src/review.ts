@@ -63,10 +63,10 @@ function steerText(findings: string[], prNumber: number): string {
 }
 
 const VERDICT_FILE = ".shepherd-review.json";
-// Max auto-address steers per outstanding-findings streak. The UI mirrors this as
-// CRITIC_ROUND_CAP (ui/.../critic-badge.ts) for the round/stalled badge math; if this
-// ever becomes a per-deployment `deps.cap`, surface it in the verdict/config payload and
-// drop the UI constant rather than letting the two drift.
+// Max auto-address steers per outstanding-findings streak, and the same ceiling for the
+// consecutive-error counter. Surfaced on every verdict as `addressCap`, so the UI badge
+// reads it off the payload instead of mirroring this number (which would silently drift
+// if `deps.cap` ever varies per deployment).
 const DEFAULT_CAP = 3;
 
 interface InFlight {
@@ -78,6 +78,9 @@ interface InFlight {
   terminalId: string;
   startedAt: number;
   priorRound: number; // auto-address steers already spent on this findings streak
+  priorErrorRound: number; // consecutive critic error/timeout verdicts before this run
+  priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
+  seenNoteIds: string[]; // priorSeen + notes fed to THIS run's critic; only "consumed" on a real verdict
   finalizing?: boolean;
 }
 
@@ -156,16 +159,27 @@ export class ReviewService {
     const prior = this.deps.store.getReview(session.id);
     const priorFindings = prior?.findings ?? [];
     const priorRound = prior?.addressRound ?? 0;
+    const priorErrorRound = prior?.errorRound ?? 0;
     // On a re-review under auto-address, pull the author's PR notes so a justified
     // decline isn't blindly re-raised. Gated on autoAddressEnabled (the path that
     // creates those notes) so critic-only repos make no extra forge call. This is
     // the one async step; a first review skips it and stays fully synchronous.
+    //
+    // Inject only notes NOT already shown to the critic on an earlier round (tracked
+    // by comment id, carried on the prior verdict): each note responded to one round's
+    // findings, so re-feeding every marked comment every round would grow the prompt
+    // unboundedly and resurrect stale justifications. Id-based — never timestamp-based:
+    // the host clock and GitHub's comment clock can skew and drop a valid decline.
+    const priorSeenNoteIds = prior?.seenNoteIds ?? [];
+    let seenNoteIds = priorSeenNoteIds;
     let authorNotes: string[] = [];
     if (
       priorFindings.length &&
       this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled
     ) {
-      authorNotes = await this.fetchAuthorNotes(session.repoPath, git.number!);
+      const fresh = await this.fetchAuthorNotes(session.repoPath, git.number!, priorSeenNoteIds);
+      authorNotes = fresh.notes;
+      seenNoteIds = [...priorSeenNoteIds, ...fresh.ids];
     }
     // forget() (session archived) may have fired during the await above; it clears our
     // `starting` claim as a tombstone. Abort before allocating a worktree/critic so we
@@ -247,25 +261,42 @@ export class ReviewService {
       terminalId,
       startedAt: this.now(),
       priorRound,
+      priorErrorRound,
+      priorSeenNoteIds,
+      seenNoteIds,
     });
     this.deps.onReviewing?.(session.id, true);
   }
 
-  /** Read the author's marked decline notes back off the PR (best-effort; [] on any
-   *  failure, on a host without a comments API, or when nothing is marked). The
-   *  marker is stripped so only the author's reasoning reaches the critic prompt. */
-  private async fetchAuthorNotes(repoPath: string, prNumber: number): Promise<string[]> {
+  /** Read the author's marked decline notes back off the PR, restricted to comments not
+   *  already fed to the critic on an earlier round (`seenIds`). Returns the stripped note
+   *  bodies and the ids that backed them (so the caller can mark them seen). Best-effort:
+   *  empty on any failure, on a host without a comments API, or when nothing new is marked.
+   *  The marker is stripped so only the author's reasoning reaches the critic prompt. */
+  private async fetchAuthorNotes(
+    repoPath: string,
+    prNumber: number,
+    seenIds: string[],
+  ): Promise<{ notes: string[]; ids: string[] }> {
     const forge = this.deps.resolveForge(repoPath);
-    if (!forge?.listPrComments) return [];
+    if (!forge?.listPrComments) return { notes: [], ids: [] };
     try {
+      const seen = new Set(seenIds);
       const comments = await forge.listPrComments(prNumber);
-      return comments
-        .filter((c) => c.body.includes(AUTHOR_RESPONSE_MARKER))
-        .map((c) => c.body.split(AUTHOR_RESPONSE_MARKER).join("").trim())
-        .filter(Boolean);
+      const notes: string[] = [];
+      const ids: string[] = [];
+      for (const c of comments) {
+        if (!c.body.includes(AUTHOR_RESPONSE_MARKER)) continue;
+        if (c.id && seen.has(c.id)) continue; // already shown on an earlier round
+        const note = c.body.split(AUTHOR_RESPONSE_MARKER).join("").trim();
+        if (!note) continue;
+        notes.push(note);
+        if (c.id) ids.push(c.id); // id-less hosts: note still injected, just not deduped
+      }
+      return { notes, ids };
     } catch (err) {
       console.warn(`[review] listPrComments failed for ${repoPath}#${prNumber}:`, err);
-      return [];
+      return { notes: [], ids: [] };
     }
   }
 
@@ -293,7 +324,30 @@ export class ReviewService {
     // (a forge/store/steer failure must not strand them).
     try {
       const verdict = this.buildVerdict(f, raw);
-      if (verdict.decision !== "error") {
+      if (verdict.decision === "error") {
+        // A transient critic failure (timeout / unparseable verdict) posts nothing and
+        // has no findings to steer. Don't let it pose as "clean": count it on a separate
+        // no-progress streak so a flapping critic still escalates instead of looping
+        // forever, and preserve the findings round (those findings are still outstanding,
+        // just un-reverified this push).
+        verdict.errorRound = f.priorErrorRound + 1;
+        verdict.addressRound = f.priorRound;
+        // The critic never produced a verdict, so it didn't actually consider this run's
+        // freshly-fetched notes — roll the seen set back so they re-inject next round
+        // instead of being silently swallowed by an error pass.
+        verdict.seenNoteIds = f.priorSeenNoteIds;
+        // Escalate once, when the streak first reaches the cap. `>=` with a crossing guard
+        // (not `=== cap`) so a cap lowered between runs still fires rather than being
+        // stepped over, while errors past the cap don't re-signal every tick.
+        if (verdict.errorRound >= this.cap && f.priorErrorRound < this.cap) {
+          this.deps.store.addSignal({
+            repoPath: f.repoPath,
+            sessionId: f.sessionId,
+            kind: "stall",
+            payload: `critic produced ${verdict.errorRound} consecutive error verdicts for this PR — auto-address can't make progress`,
+          });
+        }
+      } else {
         const forge = this.deps.resolveForge(f.repoPath);
         if (forge) {
           try {
@@ -307,8 +361,8 @@ export class ReviewService {
             console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
           }
         }
+        verdict.addressRound = this.runAutoAddress(f, verdict); // errorRound stays 0 on a real verdict
       }
-      verdict.addressRound = this.runAutoAddress(f, verdict);
       this.deps.store.putReview(verdict);
       if (verdict.decision === "changes_requested") {
         this.deps.store.addSignal({
@@ -328,7 +382,9 @@ export class ReviewService {
 
   /**
    * Close the loop: feed the verdict's findings back to the task agent and return the
-   * new streak round. Empty findings = clean → reset to 0. Otherwise, if auto-address
+   * new streak round. Only real (non-error) verdicts reach here — error verdicts are
+   * counted on the separate no-progress streak in finalize(). Empty findings = clean
+   * (e.g. a "comment" verdict with nothing left to fix) → reset to 0. Otherwise, if auto-address
    * is enabled and the prior round is under the cap, steer once and advance — but only
    * if the steer actually reached the agent (a dead/unreachable pane holds the round).
    * At/over the cap we stop steering and leave the round in place; the posted review,
@@ -345,9 +401,11 @@ export class ReviewService {
     // this streak rather than resetting — the cap bounds total agent churn per PR, which
     // is fine for the prototype. Revisit if per-issue rounds become the intended model.
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
-    // A dead pane makes herdr.send (execFileSync) throw rather than return false, so a
-    // throw counts as not-delivered too — the round must not advance on a steer that
-    // never landed, and the throw must not strand finalize().
+    // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
+    // dead one, so a steer that can't land normally reports false. A throw is now only a
+    // narrow race — the pane dies between the liveness check and herdr.send — and still
+    // counts as not-delivered: the round must not advance on a steer that never landed,
+    // and the throw must not strand finalize().
     let delivered = false;
     try {
       delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));
@@ -377,6 +435,9 @@ export class ReviewService {
       body: raw && typeof raw.body === "string" ? raw.body : "",
       findings,
       addressRound: 0, // finalize() overwrites with the streak round
+      addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
+      errorRound: 0, // finalize() overwrites on an error verdict
+      seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
       updatedAt: this.now(),
     };
   }

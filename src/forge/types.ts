@@ -23,6 +23,10 @@ export const AUTHOR_RESPONSE_MARKER = "<!-- shepherd-author-note -->";
 
 /** One issue comment on a PR (author responses to review rounds). */
 export interface PrComment {
+  /** Host-stable comment id, used to inject each author note into the critic exactly
+   *  once (scoped to the round it responded to) rather than re-feeding every marked
+   *  comment on every re-review. Empty when the host can't supply one. */
+  id: string;
   author: string;
   body: string;
   createdAt: number; // epoch ms

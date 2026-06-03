@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
+import type { ReviewVerdict } from "../src/types";
 
 function mk() {
   return new SessionStore(":memory:");
@@ -77,6 +78,9 @@ test("reviews: upsert + read by session, snapshot all", () => {
     body: "## findings",
     findings: ["fix the off-by-one", "handle the null case"],
     addressRound: 1,
+    addressCap: 3,
+    errorRound: 0,
+    seenNoteIds: ["c1", "c2"],
     url: "u",
     updatedAt: 100,
   };
@@ -91,8 +95,9 @@ test("reviews: upsert + read by session, snapshot all", () => {
   expect(store.getReview("s1")).toBeNull();
 });
 
-test("reviews: findings + addressRound default to [] / 0 when absent", () => {
+test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default when absent", () => {
   const store = new SessionStore(":memory:");
+  // a verdict row written before the #247 columns existed (missing the new fields)
   store.putReview({
     sessionId: "s2",
     headSha: "abc",
@@ -102,10 +107,13 @@ test("reviews: findings + addressRound default to [] / 0 when absent", () => {
     findings: [],
     addressRound: 0,
     updatedAt: 1,
-  });
+  } as unknown as ReviewVerdict);
   const r = store.getReview("s2");
   expect(r?.findings).toEqual([]);
   expect(r?.addressRound).toBe(0);
+  expect(r?.addressCap).toBe(3); // backfilled to the migration default
+  expect(r?.errorRound).toBe(0);
+  expect(r?.seenNoteIds).toEqual([]);
 });
 
 test("readyToMerge: defaults false on create, round-trips through update", () => {

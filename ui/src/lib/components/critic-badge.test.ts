@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { criticBadgeLabel, addressRoundInfo, CRITIC_ROUND_CAP } from "./critic-badge";
+import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
 import type { ReviewVerdict } from "../types";
 
 const v = (
@@ -13,6 +13,7 @@ const v = (
   body: "",
   findings: [],
   addressRound: 0,
+  addressCap: 3,
   updatedAt: 0,
   ...over,
 });
@@ -31,12 +32,19 @@ describe("addressRoundInfo", () => {
     expect(addressRoundInfo(v("commented", { addressRound: 0 }))).toBeNull());
   it("reports the round while addressing under the cap", () => {
     const info = addressRoundInfo(v("changes_requested", { addressRound: 1, findings: ["x"] }));
-    expect(info).toEqual({ round: 1, cap: CRITIC_ROUND_CAP, stalled: false });
+    expect(info).toEqual({ round: 1, cap: 3, stalled: false });
   });
   it("flags stalled when the round hits the cap with findings still open", () => {
     const info = addressRoundInfo(
-      v("changes_requested", { addressRound: CRITIC_ROUND_CAP, findings: ["still broken"] }),
+      v("changes_requested", { addressRound: 3, addressCap: 3, findings: ["still broken"] }),
     );
     expect(info?.stalled).toBe(true);
+  });
+  it("reads the cap off the verdict, not a hardcoded mirror", () => {
+    // a deployment with a wider cap surfaces it on the verdict — badge math follows
+    const info = addressRoundInfo(
+      v("changes_requested", { addressRound: 4, addressCap: 5, findings: ["x"] }),
+    );
+    expect(info).toEqual({ round: 4, cap: 5, stalled: false });
   });
 });

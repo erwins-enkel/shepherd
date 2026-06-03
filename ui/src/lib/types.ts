@@ -130,6 +130,7 @@ export interface ReviewVerdict {
   body: string;
   findings: string[]; // discrete actionable items; [] = nothing to address
   addressRound: number; // auto-address steers spent on the current findings streak
+  addressCap: number; // server's streak cap for this run — the badge reads it instead of mirroring
   url?: string;
   updatedAt: number;
 }

@@ -5,6 +5,7 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
+  import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import ReadyToggle from "./ReadyToggle.svelte";
 
   let {
@@ -42,6 +43,12 @@
   let showReview = $state(false);
   let wrapEl = $state<HTMLElement | null>(null);
 
+  // Auto-drain config popover (per-repo cap / label / usage ceiling)
+  let showDrain = $state(false);
+  let drainCap = $state(1);
+  let drainLabel = $state("");
+  let drainCeiling = $state(80);
+
   // two-step confirm for destructive actions (mirrors decommission UX)
   let armed = $state<"merge" | "redeploy" | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
@@ -74,6 +81,7 @@
     armed = null;
     showPr = false;
     showReview = false;
+    showDrain = false;
     load(id);
     // light poll only while a PR is open (CI/merge state can change)
     const t = setInterval(() => {
@@ -87,21 +95,67 @@
     prBody = prompt;
     showPr = true;
     showReview = false; // one popover at a time
+    showDrain = false;
     err = null;
     retry = null;
   }
 
   function toggleReview() {
     showReview = !showReview;
-    if (showReview) showPr = false; // one popover at a time
+    if (showReview) {
+      showPr = false; // one popover at a time
+      showDrain = false;
+    }
   }
 
-  // Escape / click-outside dismiss the findings popover (matches read-only intent)
+  // open the drain config popover, seeding the inputs from current config
+  function toggleDrain() {
+    showDrain = !showDrain;
+    if (showDrain) {
+      showPr = false;
+      showReview = false; // one popover at a time
+      drainCap = repoConfig.maxAutoFor(repoPath);
+      drainLabel = repoConfig.autoLabelFor(repoPath);
+      drainCeiling = repoConfig.usageCeilingFor(repoPath);
+    }
+  }
+
+  async function commitDrainCap() {
+    const n = clampCap(drainCap);
+    drainCap = n;
+    await repoConfig.setMaxAuto(repoPath, n);
+    drainCap = repoConfig.maxAutoFor(repoPath);
+  }
+  async function commitDrainLabel() {
+    const t = sanitizeLabel(drainLabel);
+    if (t === null) {
+      // ignore empty → revert to stored value
+      drainLabel = repoConfig.autoLabelFor(repoPath);
+      return;
+    }
+    drainLabel = t;
+    await repoConfig.setAutoLabel(repoPath, t);
+    drainLabel = repoConfig.autoLabelFor(repoPath);
+  }
+  async function commitDrainCeiling() {
+    const n = clampCeiling(drainCeiling);
+    drainCeiling = n;
+    await repoConfig.setUsageCeiling(repoPath, n);
+    drainCeiling = repoConfig.usageCeilingFor(repoPath);
+  }
+
+  // Escape / click-outside dismiss the findings + drain popovers
   function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && showReview) showReview = false;
+    if (e.key === "Escape") {
+      if (showReview) showReview = false;
+      if (showDrain) showDrain = false;
+    }
   }
   function onWindowPointerdown(e: PointerEvent) {
-    if (showReview && wrapEl && !wrapEl.contains(e.target as Node)) showReview = false;
+    if (wrapEl && !wrapEl.contains(e.target as Node)) {
+      if (showReview) showReview = false;
+      if (showDrain) showDrain = false;
+    }
   }
 
   // server message, when meaningful, becomes the {reason} clause; otherwise a generic fallback
@@ -202,6 +256,7 @@
   const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
   const learningsOn = $derived(repoConfig.learningsOn(repoPath));
   const autopilotOn = $derived(repoConfig.isAutopilotEnabled(repoPath));
+  const autoDrainOn = $derived(repoConfig.isAutoDrainEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
@@ -333,6 +388,29 @@
         >
           🛫<span class="crit-dot" class:on={autopilotOn} aria-hidden="true"></span>
         </button>
+        <button
+          class={["gbtn", "crit-toggle"]}
+          type="button"
+          aria-label={m.gitrail_autodrain_toggle_aria()}
+          aria-pressed={autoDrainOn}
+          title={autoDrainOn ? m.gitrail_autodrain_on_title() : m.gitrail_autodrain_off_title()}
+          onclick={() => repoConfig.toggleAutoDrain(repoPath)}
+        >
+          🚰<span class="crit-dot" class:on={autoDrainOn} aria-hidden="true"></span>
+        </button>
+        {#if autoDrainOn}
+          <!-- config affordance: a gear shown only while drain is on -->
+          <button
+            class={["gbtn", { armed: showDrain }]}
+            type="button"
+            aria-label={m.drain_config_open_aria()}
+            aria-expanded={showDrain}
+            title={m.drain_config_open_aria()}
+            onclick={toggleDrain}
+          >
+            ⚙
+          </button>
+        {/if}
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
         <ReadyToggle {sessionId} {ready} variant="rail" />
@@ -387,6 +465,47 @@
             {m.gitrail_create_pr()}
           </button>
         </div>
+      </div>
+    {/if}
+
+    {#if showDrain}
+      <div class="pr-pop drain-pop" role="dialog" aria-label={m.drain_panel_title()}>
+        <div class="drain-head">{m.drain_panel_title()}</div>
+        <label class="drain-field">
+          <span class="drain-label">{m.drain_cap_label()}</span>
+          <input
+            class="pr-title"
+            type="number"
+            min="1"
+            max="20"
+            bind:value={drainCap}
+            aria-label={m.drain_cap_label()}
+            onchange={commitDrainCap}
+          />
+        </label>
+        <label class="drain-field">
+          <span class="drain-label">{m.drain_label_label()}</span>
+          <input
+            class="pr-title"
+            type="text"
+            bind:value={drainLabel}
+            aria-label={m.drain_label_label()}
+            onchange={commitDrainLabel}
+            onblur={commitDrainLabel}
+          />
+        </label>
+        <label class="drain-field">
+          <span class="drain-label">{m.drain_ceiling_label()}</span>
+          <input
+            class="pr-title"
+            type="number"
+            min="0"
+            max="100"
+            bind:value={drainCeiling}
+            aria-label={m.drain_ceiling_label()}
+            onchange={commitDrainCeiling}
+          />
+        </label>
       </div>
     {/if}
 
@@ -647,6 +766,32 @@
     display: flex;
     justify-content: flex-end;
     gap: 6px;
+  }
+
+  /* drain config popover: same chrome as .pr-pop, narrower, label+input rows */
+  .drain-pop {
+    width: 240px;
+  }
+  .drain-head {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .drain-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .drain-label {
+    font-size: 11px;
+    color: var(--color-ink);
+    white-space: nowrap;
+  }
+  .drain-field .pr-title {
+    flex: 0 0 auto;
+    width: 110px;
   }
 
   /* full-page dim behind the findings popover, matching the compose-bar sheet */

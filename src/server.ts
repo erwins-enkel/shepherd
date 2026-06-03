@@ -94,7 +94,7 @@ export interface AppDeps {
   backlog?: Pick<CountsService, "counts">;
   /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
    *  Optional so environments/tests that don't wire it still type-check; the route
-   *  no-ops the trigger when absent. Production wiring lands in Task 9. */
+   *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
   distiller?: { distillNow: (repoPath: string) => void };
 }
 
@@ -227,7 +227,13 @@ async function handleLearningStatus(
   let rule: string | undefined;
   if (action === "approve") {
     const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
-    if (body && typeof body.rule === "string") rule = body.rule;
+    if (body && typeof body.rule === "string") {
+      // Normalize an edited rule to match addLearning's contract (trim + 240 cap).
+      // An empty/whitespace-only edit falls back to the stored rule rather than
+      // persisting a blank active rule (e.g. operator cleared the textarea).
+      const trimmed = body.rule.trim().slice(0, 240);
+      if (trimmed) rule = trimmed;
+    }
   }
   const status = action === "approve" ? "active" : "dismissed";
   const updated = deps.store.setLearningStatus(id, status, rule);

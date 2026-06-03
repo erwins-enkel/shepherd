@@ -168,3 +168,39 @@ test("tick finalizes and reaps a run that times out without proposals", async ()
   d.distillNow("/r"); // inflight cleared → a new run can start
   expect(starts).toBe(2);
 });
+
+test("distillNow with zero signals does not spawn a run", () => {
+  const store = new SessionStore(":memory:");
+  const { deps, started } = mkDeps(store, { rules: [] }); // no signals seeded
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+  expect(started.length).toBe(0);
+});
+
+test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {
+  const store = new SessionStore(":memory:");
+  const dis = store.addLearning({
+    repoPath: "/r",
+    rule: "dismissed rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(dis.id, "dismissed");
+  seedSignals(store, "/r", 3);
+  let captured: string[] = [];
+  const deps = {
+    store,
+    herdr: { start: () => ({ terminalId: "d1" }), stop: () => {} } as any,
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 3,
+    writeSignals: (_dir: string, _sigs: unknown, existingRules: string[]) => {
+      captured = existingRules;
+    },
+    readProposals: () => null,
+  };
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+  expect(captured).toContain("dismissed rule");
+});

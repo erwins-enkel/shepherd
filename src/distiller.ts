@@ -66,20 +66,22 @@ export class DistillerService {
     this.begin(repoPath, signals);
   }
 
-  /** Force a distill run regardless of the signal threshold (manual trigger). */
+  /** Force a distill run regardless of the signal threshold (manual trigger).
+   *  Still requires at least one signal — nothing to distill from otherwise. */
   distillNow(repoPath: string): void {
     if (this.inflight.has(repoPath)) return;
     const since = this.now() - this.windowMs;
     const signals = this.deps.store.listSignals(repoPath, { sinceTs: since });
+    if (signals.length === 0) return;
     this.begin(repoPath, signals);
   }
 
   private begin(repoPath: string, signals: Signal[]): void {
     const { dir } = this.deps.scratch.create();
-    const existing = this.deps.store
-      .listLearnings(repoPath)
-      .filter((l) => l.status !== "dismissed")
-      .map((l) => l.rule);
+    // Include dismissed rules in the "do NOT repeat" list: finalize() drops any
+    // re-proposal of a known rule anyway, so omitting dismissed ones just wastes
+    // a proposal slot + tokens re-suggesting something the operator already rejected.
+    const existing = this.deps.store.listLearnings(repoPath).map((l) => l.rule);
     try {
       this.writeSignals(dir, signals, existing);
     } catch (err) {
@@ -166,8 +168,8 @@ function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
     "It is a JSON object with two fields: `signals` — an array of past corrections, blocks,",
-    "stalls, and critic findings for one repository; and `existingRules` — an array of house",
-    "rules already recorded (do NOT repeat these).",
+    "stalls, and critic findings for one repository; and `existingRules` — an array of rules",
+    "already recorded or previously dismissed (do NOT repeat any of these).",
     "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
     "Ignore one-off noise. Write at most 5 crisp imperative rules.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,

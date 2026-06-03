@@ -884,6 +884,45 @@ test("POST /api/learnings/:id/approve sets status active and applies the rule ov
   expect(deps.store.getLearning(l.id)?.status).toBe("active");
   expect(deps.store.getLearning(l.id)?.rule).toBe("new");
 });
+test("POST /api/learnings/:id/approve with an empty rule keeps the stored rule", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const l = deps.store.addLearning({
+    repoPath: realpathSync(validRepo),
+    rule: "keep me",
+    rationale: "",
+    evidence: [],
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ rule: "   " }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.status).toBe("active");
+  expect(deps.store.getLearning(l.id)?.rule).toBe("keep me"); // blank edit ignored
+});
+test("POST /api/learnings/:id/approve caps an over-long rule to 240 chars", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const l = deps.store.addLearning({
+    repoPath: realpathSync(validRepo),
+    rule: "x",
+    rationale: "",
+    evidence: [],
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ rule: "a".repeat(300) }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.rule.length).toBe(240);
+});
 
 test("POST /api/learnings/:id/dismiss sets status dismissed", async () => {
   const deps = makeDeps();

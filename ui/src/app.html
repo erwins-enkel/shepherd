@@ -25,6 +25,8 @@
             pref === "dark" ||
             (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.theme = dark ? "dark" : "light";
+          if (localStorage.getItem("shepherd:contrast") === "high")
+            document.documentElement.dataset.contrast = "high";
         } catch (e) {
           document.documentElement.dataset.theme = "dark";
         }

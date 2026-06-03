@@ -59,6 +59,7 @@
   "actionbar_focus_mode": "Focus ⌖",
   "actionbar_theme_group_aria": "Theme",
   "actionbar_theme_option": "{label} theme",
+  "actionbar_contrast_toggle": "High contrast (better readability)",
   "actionbar_commit_title": "commit {sha}",
   "actionbar_repo_link": "{repo} on GitHub",
   "lang_switcher_aria": "Language",

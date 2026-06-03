@@ -116,6 +116,44 @@
   --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
 }
 
+/* ── High contrast (WCAG / "Brillenträger") ──────────────────────────────────
+   An accessibility *layer* toggled independently of dark/light (data-contrast),
+   so it composes with whichever theme is resolved. It overrides only the
+   low-contrast tokens — secondary/muted text, the faint hairlines, the dim
+   status accents — pushing them toward the foreground so every pair clears WCAG
+   AAA. Body text (--ink) is already AAA; this rescues the greys (--muted/
+   --faint), the near-invisible --line hairlines, and the muted slate/amber.
+
+   Both blocks are scoped to [data-theme][data-contrast] (specificity 0,2,0) so
+   they beat the base :root / [data-theme="light"] blocks (0,1,0) regardless of
+   source order — the theme JS always sets data-theme to the resolved value. */
+[data-theme="dark"][data-contrast="high"] {
+  --line: #3a4744;
+  --line-bright: #586a64;
+
+  --ink: #eef4f0;
+  --ink-bright: #ffffff;
+  --muted: #d6e0db;
+  --faint: #9fb0aa;
+
+  --amber: #ffc266;
+  --slate: #8a9893;
+  --term-fg: #eef4f0;
+}
+[data-theme="light"][data-contrast="high"] {
+  --line: #9aa8a2;
+  --line-bright: #7c8b85;
+
+  --ink: #161d1b;
+  --ink-bright: #000000;
+  --muted: #2f3b37;
+  --faint: #4d5a55;
+
+  --amber: #7a4a00;
+  --slate: #3c4946;
+  --term-fg: #161d1b;
+}
+
 html,
 body {
   background:

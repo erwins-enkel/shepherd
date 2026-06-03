@@ -160,6 +160,10 @@ const reviewService = new ReviewService({
   resolveForge,
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
+  // auto-address: steer critic findings straight into the task agent's PTY (same path
+  // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
+  // round cap inside ReviewService stops it ping-ponging forever.
+  autoAddress: (id, text) => service.reply(id, text),
 });
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
@@ -168,7 +172,12 @@ events.subscribe((event, data) => {
   if (event !== "session:git") return;
   const { id, git } = data as { id: string; git: import("./forge/types").GitState };
   const s = store.get(id);
-  if (s) reviewService.consider(s, git);
+  // consider() is async (it may fetch PR notes); swallow rejections so a throw in the
+  // review path can't become an unhandled rejection that takes down the process.
+  if (s)
+    void reviewService
+      .consider(s, git)
+      .catch((err) => console.warn("[review] consider failed:", err));
 });
 setInterval(() => void reviewService.tick(), 15_000);
 // archived sessions: reap any in-flight critic + drop the verdict

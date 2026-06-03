@@ -128,11 +128,14 @@ export interface ReviewVerdict {
   decision: ReviewDecision;
   summary: string;
   body: string;
+  findings: string[]; // discrete actionable items; [] = nothing to address
+  addressRound: number; // auto-address steers spent on the current findings streak
   url?: string;
   updatedAt: number;
 }
 export interface RepoConfig {
   criticEnabled: boolean;
+  autoAddressEnabled: boolean;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */

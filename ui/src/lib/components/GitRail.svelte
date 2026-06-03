@@ -196,6 +196,7 @@
     };
   });
   const criticOn = $derived(repoConfig.isEnabled(repoPath));
+  const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
@@ -281,6 +282,23 @@
           onclick={() => repoConfig.toggle(repoPath)}
         >
           🔍<span class="crit-dot" class:reviewing class:on={criticOn} aria-hidden="true"></span>
+        </button>
+        <!-- auto-address: feed critic findings back to the agent. Depends on the critic,
+             so it's disabled (not hidden) when the critic is off. -->
+        <button
+          class={["gbtn", "crit-toggle"]}
+          type="button"
+          disabled={!criticOn}
+          aria-label={m.gitrail_autoaddress_toggle_aria()}
+          aria-pressed={autoAddressOn && criticOn}
+          title={!criticOn
+            ? m.gitrail_autoaddress_needs_critic_title()
+            : autoAddressOn
+              ? m.gitrail_autoaddress_on_title()
+              : m.gitrail_autoaddress_off_title()}
+          onclick={() => repoConfig.toggleAutoAddress(repoPath)}
+        >
+          🤖<span class="crit-dot" class:on={autoAddressOn && criticOn} aria-hidden="true"></span>
         </button>
       {/if}
       {#if (git.state === "open" || ready) && status !== "running" && status !== "blocked"}

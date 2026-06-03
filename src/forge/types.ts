@@ -15,6 +15,19 @@ export type MergeMethod = "merge" | "squash" | "rebase";
  *  gh identity). HTML comments don't render in GitHub's UI. */
 export const CRITIC_REVIEW_MARKER = "<!-- shepherd-critic -->";
 
+/** Invisible marker the task agent prefixes onto a PR comment when it declines a
+ *  critic finding. Lets the re-review fetch the author's justifications back out of
+ *  the PR's comments (so a sound decline isn't blindly re-raised) without parsing
+ *  free-form human chatter. HTML comments don't render in GitHub's UI. */
+export const AUTHOR_RESPONSE_MARKER = "<!-- shepherd-author-note -->";
+
+/** One issue comment on a PR (author responses to review rounds). */
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: number; // epoch ms
+}
+
 /** Worst-of CI rollup: failure dominates, then pending, then success. */
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
@@ -136,6 +149,10 @@ export interface GitForge {
   /** Post a critic review (request-changes / comment) on a PR. Returns the
    *  review's URL when the host provides one. */
   postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }>;
+  /** Issue comments on a PR (oldest first), used to read back the author's
+   *  responses to earlier review rounds. Optional: only hosts with a comments API
+   *  implement it (GitHub); others omit it and no author notes are surfaced. */
+  listPrComments?(prNumber: number): Promise<PrComment[]>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

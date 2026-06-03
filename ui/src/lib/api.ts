@@ -490,11 +490,14 @@ export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
   return r.json();
 }
 
-export async function putRepoConfig(repoPath: string, criticEnabled: boolean): Promise<RepoConfig> {
+export async function putRepoConfig(
+  repoPath: string,
+  patch: { criticEnabled?: boolean; autoAddressEnabled?: boolean },
+): Promise<RepoConfig> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ criticEnabled }),
+    body: JSON.stringify(patch),
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();

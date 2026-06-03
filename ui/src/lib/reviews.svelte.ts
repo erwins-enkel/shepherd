@@ -57,17 +57,19 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address on/off, cached lazily by repoPath. */
 class RepoConfigStore {
-  enabled = $state<Record<string, boolean>>({});
+  enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
+  autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
 
   async ensure(repoPath: string) {
     if (repoPath in this.enabled) return;
     try {
       const c = await getRepoConfig(repoPath);
       this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
+      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
     } catch {
-      /* leave unset; UI shows default-on optimistically */
+      /* leave unset; UI shows defaults (critic on, auto-address off) optimistically */
     }
   }
 
@@ -75,15 +77,30 @@ class RepoConfigStore {
     const next = !(this.enabled[repoPath] ?? true);
     this.enabled = { ...this.enabled, [repoPath]: next }; // optimistic
     try {
-      const c = await putRepoConfig(repoPath, next);
+      const c = await putRepoConfig(repoPath, { criticEnabled: next });
       this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     } catch {
       this.enabled = { ...this.enabled, [repoPath]: !next }; // revert
     }
   }
 
+  async toggleAutoAddress(repoPath: string) {
+    const next = !(this.autoAddress[repoPath] ?? false);
+    this.autoAddress = { ...this.autoAddress, [repoPath]: next }; // optimistic
+    try {
+      const c = await putRepoConfig(repoPath, { autoAddressEnabled: next });
+      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
+    } catch {
+      this.autoAddress = { ...this.autoAddress, [repoPath]: !next }; // revert
+    }
+  }
+
   isEnabled(repoPath: string): boolean {
     return this.enabled[repoPath] ?? true;
+  }
+
+  isAutoAddressEnabled(repoPath: string): boolean {
+    return this.autoAddress[repoPath] ?? false;
   }
 }
 export const repoConfig = new RepoConfigStore();

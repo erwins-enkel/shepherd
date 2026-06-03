@@ -36,13 +36,23 @@ test("lastUsedByRepo returns max createdAt per repoPath", () => {
   expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
 });
 
-test("repo_config: defaults to critic enabled, persists toggles", () => {
+test("repo_config: defaults to critic on + auto-address off, persists toggles", () => {
   const store = new SessionStore(":memory:");
-  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: true }); // absent → default on
-  store.setRepoConfig("/repo/a", { criticEnabled: false });
-  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: false });
-  store.setRepoConfig("/repo/a", { criticEnabled: true });
-  expect(store.getRepoConfig("/repo/a")).toEqual({ criticEnabled: true });
+  // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
+  expect(store.getRepoConfig("/repo/a")).toEqual({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+  });
+  store.setRepoConfig("/repo/a", { criticEnabled: false, autoAddressEnabled: true });
+  expect(store.getRepoConfig("/repo/a")).toEqual({
+    criticEnabled: false,
+    autoAddressEnabled: true,
+  });
+  store.setRepoConfig("/repo/a", { criticEnabled: true, autoAddressEnabled: false });
+  expect(store.getRepoConfig("/repo/a")).toEqual({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+  });
 });
 
 test("reviews: upsert + read by session, snapshot all", () => {
@@ -54,6 +64,8 @@ test("reviews: upsert + read by session, snapshot all", () => {
     decision: "changes_requested" as const,
     summary: "2 issues",
     body: "## findings",
+    findings: ["fix the off-by-one", "handle the null case"],
+    addressRound: 1,
     url: "u",
     updatedAt: 100,
   };
@@ -66,6 +78,23 @@ test("reviews: upsert + read by session, snapshot all", () => {
   });
   store.dropReview("s1");
   expect(store.getReview("s1")).toBeNull();
+});
+
+test("reviews: findings + addressRound default to [] / 0 when absent", () => {
+  const store = new SessionStore(":memory:");
+  store.putReview({
+    sessionId: "s2",
+    headSha: "abc",
+    decision: "commented",
+    summary: "",
+    body: "",
+    findings: [],
+    addressRound: 0,
+    updatedAt: 1,
+  });
+  const r = store.getReview("s2");
+  expect(r?.findings).toEqual([]);
+  expect(r?.addressRound).toBe(0);
 });
 
 test("readyToMerge: defaults false on create, round-trips through update", () => {

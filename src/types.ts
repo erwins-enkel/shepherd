@@ -115,6 +115,8 @@ export interface ReviewVerdict {
   decision: ReviewDecision;
   summary: string; // <=100 char one-liner for the badge tooltip
   body: string; // full markdown findings (seeds the steer-back)
+  findings: string[]; // discrete actionable items; [] = nothing to address (loop terminates)
+  addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)
   url?: string; // posted PR-review URL, when the host returns one
   updatedAt: number;
 }

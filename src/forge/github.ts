@@ -10,6 +10,7 @@ import type {
   MergeMethod,
   OpenPrInput,
   PostReviewInput,
+  PrComment,
   PrStatus,
   PullRequest,
   RedeployInput,
@@ -355,5 +356,29 @@ export class GithubForge implements GitForge {
       o.body,
     ]);
     return {}; // gh pr review prints no machine-readable URL
+  }
+
+  async listPrComments(prNumber: number): Promise<PrComment[]> {
+    const out = this.run([
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      "comments",
+    ]);
+    const parsed = JSON.parse(out || "{}") as {
+      comments?: {
+        author?: { login?: string } | null;
+        body?: string | null;
+        createdAt?: string | null;
+      }[];
+    };
+    return (parsed.comments ?? []).map((c) => ({
+      author: c.author?.login ?? "",
+      body: c.body ?? "",
+      createdAt: c.createdAt ? Date.parse(c.createdAt) : 0,
+    }));
   }
 }

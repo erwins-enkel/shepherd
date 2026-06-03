@@ -158,21 +158,43 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] === "api" && parts[1] === "repo-config" && !parts[2]) {
-    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-    if (!dir) return json({ error: "invalid repo" }, 400);
-    if (req.method === "GET") return json(deps.store.getRepoConfig(dir));
-    if (req.method === "PUT") {
-      const body = (await req.json().catch(() => null)) as { criticEnabled?: unknown } | null;
-      if (!body || typeof body.criticEnabled !== "boolean") {
-        return json({ error: "body must be {criticEnabled: boolean}" }, 400);
-      }
-      deps.store.setRepoConfig(dir, { criticEnabled: body.criticEnabled });
-      return json(deps.store.getRepoConfig(dir));
-    }
+// Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
+// Both fields optional but each present one must be boolean, and at least one present.
+async function parseRepoConfigPatch(
+  req: Request,
+): Promise<{ criticEnabled?: boolean; autoAddressEnabled?: boolean } | Response> {
+  const body = (await req.json().catch(() => null)) as {
+    criticEnabled?: unknown;
+    autoAddressEnabled?: unknown;
+  } | null;
+  const bad = (v: unknown) => v !== undefined && typeof v !== "boolean";
+  if (!body || bad(body.criticEnabled) || bad(body.autoAddressEnabled)) {
+    return json({ error: "fields criticEnabled/autoAddressEnabled must be booleans" }, 400);
   }
-  return null;
+  if (body.criticEnabled === undefined && body.autoAddressEnabled === undefined) {
+    return json({ error: "body must set criticEnabled and/or autoAddressEnabled" }, 400);
+  }
+  return {
+    criticEnabled: body.criticEnabled as boolean | undefined,
+    autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
+  };
+}
+
+async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (req.method === "GET") return json(deps.store.getRepoConfig(dir));
+  if (req.method !== "PUT") return null;
+
+  const patch = await parseRepoConfigPatch(req);
+  if (patch instanceof Response) return patch;
+  const cur = deps.store.getRepoConfig(dir);
+  deps.store.setRepoConfig(dir, {
+    criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
+    autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
+  });
+  return json(deps.store.getRepoConfig(dir));
 }
 
 // /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)

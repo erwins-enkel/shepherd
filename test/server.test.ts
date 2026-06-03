@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
@@ -49,7 +49,8 @@ function makeDeps(): AppDeps {
   const usageLimits = {
     limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
   };
-  return { store, service, events, usageLimits };
+  const distiller = { distillNow: () => {} };
+  return { store, service, events, usageLimits, distiller };
 }
 
 function harness() {
@@ -183,7 +184,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any }) {
   const usageLimits = {
     limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
   };
-  const app = makeApp({ store, service, events, usageLimits });
+  const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };
 }
 
@@ -840,4 +841,134 @@ test("GET /api/update/log with no updater → idle", async () => {
   const res = await harness().fetch(new Request("http://x/api/update/log"));
   expect(res.status).toBe(200);
   expect((await res.json()).phase).toBe("idle");
+});
+
+// ── /api/learnings ──────────────────────────────────────────────────────────
+
+test("GET /api/learnings?repo=&status=proposed lists the repo's proposed learnings", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // safeRepoDir realpaths the dir; store by the same value so the query key matches
+  const repo = realpathSync(validRepo);
+  deps.store.addLearning({ repoPath: repo, rule: "use bun", rationale: "", evidence: [] });
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings?repo=${encodeURIComponent(validRepo)}&status=proposed`),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+  expect(body.length).toBe(1);
+  expect(body[0].rule).toBe("use bun");
+});
+
+test("POST /api/learnings/:id/approve sets status active and applies the rule override", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const repo = realpathSync(validRepo);
+  const l = deps.store.addLearning({
+    repoPath: repo,
+    rule: "use bun",
+    rationale: "",
+    evidence: [],
+  });
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ rule: "new" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.status).toBe("active");
+  expect(deps.store.getLearning(l.id)?.rule).toBe("new");
+});
+test("POST /api/learnings/:id/approve with an empty rule keeps the stored rule", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const l = deps.store.addLearning({
+    repoPath: realpathSync(validRepo),
+    rule: "keep me",
+    rationale: "",
+    evidence: [],
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ rule: "   " }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.status).toBe("active");
+  expect(deps.store.getLearning(l.id)?.rule).toBe("keep me"); // blank edit ignored
+});
+test("POST /api/learnings/:id/approve caps an over-long rule to 240 chars", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const l = deps.store.addLearning({
+    repoPath: realpathSync(validRepo),
+    rule: "x",
+    rationale: "",
+    evidence: [],
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify({ rule: "a".repeat(300) }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.rule.length).toBe(240);
+});
+
+test("POST /api/learnings/:id/dismiss sets status dismissed", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const repo = realpathSync(validRepo);
+  const l = deps.store.addLearning({
+    repoPath: repo,
+    rule: "use bun",
+    rationale: "",
+    evidence: [],
+  });
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/dismiss`, {
+      method: "POST",
+      headers: { Origin: "http://localhost:7330" },
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps.store.getLearning(l.id)?.status).toBe("dismissed");
+});
+
+test("POST /api/learnings/<bogus-id>/approve returns 404", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/does-not-exist/approve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Origin: "http://localhost:7330",
+      },
+      body: JSON.stringify({ rule: "anything" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("GET /api/learnings/pending returns all proposed learnings across repos", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  deps.store.addLearning({ repoPath: "/x", rule: "p1", rationale: "", evidence: [] });
+
+  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+  expect(body.length).toBe(1);
+  expect(body[0].rule).toBe("p1");
 });

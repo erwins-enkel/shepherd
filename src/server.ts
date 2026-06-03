@@ -27,7 +27,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type { Session } from "./types";
+import type { Session, LearningStatus } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import type { PrCache } from "./pr-poller";
@@ -92,6 +92,10 @@ export interface AppDeps {
   };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
+  /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
+   *  Optional so environments/tests that don't wire it still type-check; the route
+   *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
+  distiller?: { distillNow: (repoPath: string) => void };
 }
 
 const sessionUsage = (s: Session) =>
@@ -168,6 +172,74 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     }
   }
   return null;
+}
+
+// /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
+async function handleLearnings(ctx: Ctx): Promise<Response | null> {
+  if (ctx.parts[0] !== "api" || ctx.parts[1] !== "learnings") return null;
+  if (ctx.req.method === "GET") return handleLearningsGet(ctx);
+  if (ctx.req.method === "POST") return handleLearningsPost(ctx);
+  return null;
+}
+
+function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
+  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge)
+  if (parts[2] === "pending") {
+    return json(deps.store.listPendingLearnings());
+  }
+
+  // GET /api/learnings?repo=&status=
+  if (!parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    const status = url.searchParams.get("status") ?? undefined;
+    return json(
+      deps.store.listLearnings(dir, status ? { status: status as LearningStatus } : undefined),
+    );
+  }
+
+  return null;
+}
+
+async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  // POST /api/learnings/distill?repo= — checked BEFORE :id so "distill" isn't an id
+  if (parts[2] === "distill") {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    deps.distiller?.distillNow(dir);
+    return json({ ok: true });
+  }
+
+  // POST /api/learnings/:id/approve  |  /:id/dismiss
+  if (parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
+    return handleLearningStatus(req, deps, parts[2], parts[3]);
+  }
+
+  return null;
+}
+
+async function handleLearningStatus(
+  req: Request,
+  deps: AppDeps,
+  id: string,
+  action: "approve" | "dismiss",
+): Promise<Response> {
+  let rule: string | undefined;
+  if (action === "approve") {
+    const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
+    if (body && typeof body.rule === "string") {
+      // Normalize an edited rule to match addLearning's contract (trim + 240 cap).
+      // An empty/whitespace-only edit falls back to the stored rule rather than
+      // persisting a blank active rule (e.g. operator cleared the textarea).
+      const trimmed = body.rule.trim().slice(0, 240);
+      if (trimmed) rule = trimmed;
+    }
+  }
+  const status = action === "approve" ? "active" : "dismissed";
+  const updated = deps.store.setLearningStatus(id, status, rule);
+  if (!updated) return json({ error: "not found" }, 404);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json(updated);
 }
 
 async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
@@ -1008,6 +1080,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleReviews,
   handleRepoConfig,
+  handleLearnings,
   handlePush,
   handleSessions,
   handleSessionGit,

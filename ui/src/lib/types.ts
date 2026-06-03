@@ -241,7 +241,8 @@ export type WsEvent =
   | { event: "herdr-update:log"; data: { line: string } }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
-  | { event: "session:reviewing"; data: { id: string; reviewing: boolean } };
+  | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
+  | { event: "learnings:update"; data: { pending: number } };
 
 export interface CreateInput {
   repoPath: string;
@@ -296,6 +297,21 @@ export interface DiffResult {
   fetchFailed: boolean; // true when `git fetch` failed and we fell back to local base
   truncated: boolean; // true when any file was truncated
   files: DiffFile[];
+}
+
+export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
+export interface Learning {
+  id: string;
+  repoPath: string;
+  rule: string;
+  rationale: string;
+  evidence: string[];
+  status: LearningStatus;
+  evidenceCount: number;
+  ineffectiveCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastEvidenceAt: number | null;
 }
 
 // ── leftover subprocesses surfaced at session close ─────────────────────────

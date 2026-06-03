@@ -74,6 +74,7 @@ function makeDeps(over: any) {
         delete reviews[id];
       },
       snapshotReviews: () => reviews,
+      addSignal: () => {},
     },
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
@@ -208,6 +209,7 @@ test("skips when repo critic disabled", () => {
       putReview: () => {},
       dropReview: () => {},
       snapshotReviews: () => ({}),
+      addSignal: () => {},
     },
   });
   new ReviewService(d as any).consider(session(), OPEN_GREEN);

@@ -23,6 +23,7 @@ import type {
   BacklogPayload,
   SlashCommand,
   Leftover,
+  Learning,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -454,4 +455,34 @@ export async function putRepoConfig(repoPath: string, criticEnabled: boolean): P
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();
+}
+
+export async function getPendingLearnings(): Promise<Learning[]> {
+  const r = await fetch("/api/learnings/pending");
+  if (!r.ok) throw await failed(r, "learnings");
+  return r.json();
+}
+
+export async function approveLearning(id: string, rule?: string): Promise<Learning> {
+  const r = await fetch(`/api/learnings/${id}/approve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(rule !== undefined ? { rule } : {}),
+  });
+  if (!r.ok) throw await failed(r, "approve");
+  return r.json();
+}
+
+export async function dismissLearning(id: string): Promise<Learning> {
+  const r = await fetch(`/api/learnings/${id}/dismiss`, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) throw await failed(r, "dismiss");
+  return r.json();
+}
+
+export async function distillRepo(repoPath: string): Promise<void> {
+  const r = await fetch(`/api/learnings/distill?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "distill");
 }

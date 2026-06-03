@@ -16,6 +16,9 @@
     getBacklog,
     getSettings,
     listBranches,
+    approveLearning,
+    dismissLearning,
+    distillRepo,
   } from "$lib/api";
   import type {
     DeployState,
@@ -29,8 +32,11 @@
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews } from "$lib/reviews.svelte";
+  import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
+  import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
+  import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
@@ -53,6 +59,7 @@
   let showSettings = $state(false);
   let showBroadcast = $state(false);
   let showTriage = $state(false);
+  let showLearnings = $state(false);
   let showUpdate = $state(false);
   // live state of a launched deploy → modal tails its log + surfaces failures
   let deploy = $state<DeployState | null>(null);
@@ -66,6 +73,9 @@
   // close it so it slides out instead of lingering on an empty state.
   $effect(() => {
     if (showTriage && blockedEntries.length === 0) showTriage = false;
+  });
+  $effect(() => {
+    if (showLearnings && learnings.items.length === 0) showLearnings = false;
   });
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
@@ -223,6 +233,7 @@
     steers.load();
     projectIcons.load();
     reviews.load();
+    learnings.load();
     loadSettings();
     const dispose = store.connect();
     return () => {
@@ -358,6 +369,8 @@
       onsettings={() => (showSettings = true)}
       needsYou={blockedEntries.length}
       ontriage={() => (showTriage = true)}
+      learnings={learnings.items.length}
+      onlearnings={() => (showLearnings = true)}
       update={store.update}
       onupdate={() => (showUpdate = true)}
       herdrUpdate={store.herdrUpdate}
@@ -488,6 +501,25 @@
         showTriage = false;
       }}
       onclose={() => (showTriage = false)}
+    />
+  {/if}
+
+  {#if showLearnings}
+    <LearningsDrawer
+      items={learnings.items}
+      onapprove={(id, rule) =>
+        approveLearning(id, rule)
+          .then(() => learnings.load())
+          .catch(() => {})}
+      ondismiss={(id) =>
+        dismissLearning(id)
+          .then(() => learnings.load())
+          .catch(() => {})}
+      ondistill={(repoPath) =>
+        distillRepo(repoPath)
+          .then(() => toasts.info(m.learnings_distill_started({ repo: basename(repoPath) })))
+          .catch(() => {})}
+      onclose={() => (showLearnings = false)}
     />
   {/if}
 </div>

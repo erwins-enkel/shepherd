@@ -16,15 +16,22 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function harness(): { app: ReturnType<typeof makeApp>; store: SessionStore } {
+function harness(): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  emitted: { event: string; data: unknown }[];
+} {
   const store = new SessionStore(":memory:");
+  const emitted: { event: string; data: unknown }[] = [];
+  const hub = new EventHub();
+  hub.subscribe((event, data) => emitted.push({ event, data }));
   const deps: AppDeps = {
     store,
     service: {} as any,
-    events: new EventHub(),
+    events: hub,
     usageLimits: { limits: () => ({}) } as any,
   };
-  return { app: makeApp(deps), store };
+  return { app: makeApp(deps), store, emitted };
 }
 
 // ── PUT /api/repo-config accepts autopilotEnabled ────────────────────────────
@@ -199,4 +206,23 @@ test("PUT /api/sessions/:id/autopilot returns updated session", async () => {
   const body = await res.json();
   expect(body.id).toBe(session.id);
   expect(body.autopilotEnabled).toBe(false);
+});
+
+test("PUT /api/sessions/:id/autopilot emits session:autopilot with new enabled value", async () => {
+  const { app, store, emitted } = harness();
+  const session = makeSession(store, repoDir);
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/autopilot`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    }),
+  );
+
+  const ev = emitted.find((e) => e.event === "session:autopilot");
+  expect(ev).toBeDefined();
+  const data = ev!.data as { id: string; enabled: boolean | null };
+  expect(data.id).toBe(session.id);
+  expect(data.enabled).toBe(true);
 });

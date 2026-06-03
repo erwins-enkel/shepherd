@@ -240,6 +240,16 @@ const autopilot = new AutopilotService({
       summary: question,
     });
   },
+  onState: (id) => {
+    const s = store.get(id);
+    if (s)
+      events.emit("session:autopilot", {
+        id,
+        paused: s.autopilotPaused,
+        question: s.autopilotQuestion,
+        enabled: s.autopilotEnabled,
+      });
+  },
   stepCap: config.autopilotStepCap,
 });
 

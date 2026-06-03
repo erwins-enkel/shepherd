@@ -706,8 +706,15 @@ async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Respon
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "no session" }, 404);
   deps.store.setAutopilotState(parts[2], { enabled: e });
-  deps.events.emit("session:status", { id: parts[2], status: s.status });
-  return json(deps.store.get(parts[2]));
+  const updated = deps.store.get(parts[2]);
+  if (updated)
+    deps.events.emit("session:autopilot", {
+      id: parts[2],
+      paused: updated.autopilotPaused,
+      question: updated.autopilotQuestion,
+      enabled: updated.autopilotEnabled,
+    });
+  return json(updated);
 }
 
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,

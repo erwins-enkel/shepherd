@@ -274,6 +274,10 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  | {
+      event: "session:autopilot";
+      data: { id: string; paused: boolean; question: string | null; enabled: boolean | null };
+    }
   | { event: "session:archived"; data: { id: string } }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }

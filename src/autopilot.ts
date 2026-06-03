@@ -39,6 +39,8 @@ export interface AutopilotDeps {
   hasOpenPr: (id: string) => boolean;
   /** Fired when autopilot hands a session back for a genuine question / step-cap. */
   onPause: (id: string, question: string) => void;
+  /** Fired after any autopilot-field mutation (pause / clear) so the wiring can emit a live event. */
+  onState?: (id: string) => void;
   stepCap?: number;
 }
 
@@ -81,6 +83,7 @@ export class AutopilotService {
   private pause(s: Session, question: string): void {
     this.deps.store.setAutopilotState(s.id, { paused: true, question });
     this.deps.onPause(s.id, question);
+    this.deps.onState?.(s.id);
   }
 
   private bump(s: Session): void {
@@ -159,6 +162,7 @@ export class AutopilotService {
     const s = this.deps.store.get(id);
     if (!s || !s.autopilotPaused) return;
     this.deps.store.setAutopilotState(id, { paused: false, question: null, stepCount: 0 });
+    this.deps.onState?.(id);
   }
 
   /** A PR opened → hand off to the critic loop. Clear pause + reset the step budget. */
@@ -166,5 +170,6 @@ export class AutopilotService {
     const s = this.deps.store.get(id);
     if (!s) return;
     this.deps.store.setAutopilotState(id, { paused: false, question: null, stepCount: 0 });
+    this.deps.onState?.(id);
   }
 }

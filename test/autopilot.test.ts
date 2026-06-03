@@ -88,6 +88,7 @@ function harness(opts: {
     readTail: () => ["finished, nothing else"],
     hasOpenPr: () => opts.openPr ?? false,
     onPause: (id, q) => events.push({ pause: id, q }),
+    onState: (id) => events.push({ state: id }),
     stepCap: 10,
   });
   return { svc, events, state: () => cur };
@@ -229,6 +230,27 @@ test("onPrOpen resets steps + clears pause (handoff)", async () => {
   h.svc.onPrOpen("s1");
   expect(h.state().autopilotStepCount).toBe(0);
   expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("onState fired after question verdict pause", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "question", summary: "Which auth provider?" },
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.events).toContainEqual({ state: "s1" });
+});
+
+test("onState fired after onStatus clears a pause", () => {
+  const h = harness({ session: sess({ autopilotPaused: true }) });
+  h.svc.onStatus("s1", "running");
+  expect(h.events).toContainEqual({ state: "s1" });
+});
+
+test("onState fired after onPrOpen handoff clear", () => {
+  const h = harness({ session: sess({ autopilotPaused: true, autopilotStepCount: 3 }) });
+  h.svc.onPrOpen("s1");
+  expect(h.events).toContainEqual({ state: "s1" });
 });
 
 test("re-entrant onBlock during an in-flight classify spawns + steers only once", async () => {

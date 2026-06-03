@@ -350,42 +350,7 @@ export class ReviewService {
           });
         }
       } else {
-        // Critic spawn and PR merge both fire on CI-green, so they race by construction:
-        // the critic can finish AFTER the PR merged/closed. A merged/closed PR's verdict is
-        // moot — re-confirm the PR is still open before acting on it: don't post the review,
-        // don't steer the agent (churn on a dead branch), and don't record a learnings signal
-        // for a PR that's already gone. Live fetch, not the cached snapshot: the 120s poll can
-        // lag the merge, and staleness reintroduces the race. Fail-closed — if we can't confirm
-        // "open" (no forge / forge throws), stay fully inert.
-        const forge = this.deps.resolveForge(f.repoPath);
-        let open = false;
-        try {
-          open = (await forge?.prStatus(f.branch))?.state === "open";
-        } catch (err) {
-          console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
-        }
-        if (open && forge) {
-          try {
-            const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
-            const { url } = await forge.postReview(f.prNumber, {
-              event,
-              body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
-            });
-            verdict.url = url;
-          } catch (err) {
-            console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
-          }
-          // reached only when the PR is confirmed open (errorRound stays 0 on a real verdict)
-          verdict.addressRound = this.runAutoAddress(f, verdict);
-          if (verdict.decision === "changes_requested") {
-            this.deps.store.addSignal({
-              repoPath: f.repoPath,
-              sessionId: f.sessionId,
-              kind: "critic",
-              payload: `${verdict.summary}\n\n${verdict.body}`,
-            });
-          }
-        }
+        await this.publishVerdict(f, verdict);
       }
       this.deps.store.putReview(verdict);
       this.deps.onChange(f.sessionId, verdict);
@@ -393,6 +358,44 @@ export class ReviewService {
       this.deps.onReviewing?.(f.sessionId, false);
       this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
+    }
+  }
+
+  /**
+   * Emit a real verdict's outward effects — post the review, steer findings to the agent,
+   * record the critic signal — but ONLY if the PR is still open. Critic spawn and PR merge
+   * both fire on CI-green, so they race by construction: the critic can finish AFTER the PR
+   * merged/closed, at which point the verdict is moot. Live fetch (not the cached snapshot —
+   * the 120s poll can lag the merge). Fail-closed: if we can't confirm "open" (no forge /
+   * forge throws) we emit nothing. The verdict row itself is still persisted by the caller.
+   */
+  private async publishVerdict(f: InFlight, verdict: ReviewVerdict): Promise<void> {
+    const forge = this.deps.resolveForge(f.repoPath);
+    let open = false;
+    try {
+      open = (await forge?.prStatus(f.branch))?.state === "open";
+    } catch (err) {
+      console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
+    }
+    if (!open || !forge) return; // not open (or unconfirmable) → moot, emit nothing
+    try {
+      const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
+      const { url } = await forge.postReview(f.prNumber, {
+        event,
+        body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+      });
+      verdict.url = url;
+    } catch (err) {
+      console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
+    }
+    verdict.addressRound = this.runAutoAddress(f, verdict); // reached only when the PR is open
+    if (verdict.decision === "changes_requested") {
+      this.deps.store.addSignal({
+        repoPath: f.repoPath,
+        sessionId: f.sessionId,
+        kind: "critic",
+        payload: `${verdict.summary}\n\n${verdict.body}`,
+      });
     }
   }
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseActivity, latestRecordTs, type ActivityEntry } from "./activity";
+import { snapshotFromText, type ActivitySnapshot } from "./stall";
 
 /** Per-agent liveness + current-activity signal pushed to UI clients. */
 export interface SessionActivity {
@@ -36,6 +37,19 @@ export function latestMeaningfulSummary(entries: ActivityEntry[]): string | null
 }
 
 /**
+ * Pure: derive an activity signal from already-read transcript text. Returns
+ * null when the text has no parseable records at all (e.g. a brand-new session).
+ */
+export function signalFromText(text: string): SessionActivity | null {
+  const lastActivityTs = latestRecordTs(text);
+  const entries = parseActivity(text);
+  const summary = latestMeaningfulSummary(entries);
+  // no signal yet — transcript exists but contains no parseable activity
+  if (lastActivityTs === 0 && summary === null) return null;
+  return { lastActivityTs, summary };
+}
+
+/**
  * Synchronously derive an activity signal from a session JSONL transcript.
  * Missing/unreadable file → null ("no signal yet"). Also returns null when the
  * transcript has no parseable records at all (e.g. a brand-new session).
@@ -47,10 +61,24 @@ export function readActivitySignal(path: string): SessionActivity | null {
   } catch {
     return null;
   }
-  const lastActivityTs = latestRecordTs(text);
-  const entries = parseActivity(text);
-  const summary = latestMeaningfulSummary(entries);
-  // no signal yet — transcript exists but contains no parseable activity
-  if (lastActivityTs === 0 && summary === null) return null;
-  return { lastActivityTs, summary };
+  return signalFromText(text);
+}
+
+/**
+ * Read a session JSONL transcript ONCE and derive BOTH the stall snapshot and
+ * the activity signal from that single read+parse pass — the per-tick probe for
+ * a running agent. Missing/unreadable file → both null. Reuses the pure
+ * `snapshotFromText`/`signalFromText` builders so there's no duplicate parsing.
+ */
+export function readTranscriptSignals(path: string): {
+  snapshot: ActivitySnapshot | null;
+  activity: SessionActivity | null;
+} {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return { snapshot: null, activity: null };
+  }
+  return { snapshot: snapshotFromText(text), activity: signalFromText(text) };
 }

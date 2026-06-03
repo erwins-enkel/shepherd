@@ -239,9 +239,13 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ lastTs: stalled ? clock - 600_000 : clock, pending: false }),
+    // combined probe: one read → both signals. activity null here (stall-only test).
+    () => ({
+      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      activity: null,
+    }),
     { stallMs: 1, pendingStallMs: 1 }, // 10m-old activity counts as stalled; fresh does not
-    30_000,
+    7000, // probeCheckMs
   );
 
   poller.tick();
@@ -249,25 +253,25 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
   expect((blocks[0]!.block as any).shape).toBe("stall");
   expect((blocks[0]!.block as any).tail).toEqual(["still chewing on it"]);
 
-  // throttled within stallCheckMs → no re-probe
+  // throttled within probeCheckMs → no re-probe
   clock += 1000;
   poller.tick();
   expect(blocks).toHaveLength(1);
 
   // past the throttle, still stalled → fires only once per episode
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(1);
 
   // activity resumes → one clear, then re-arms for the next episode
   stalled = false;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
   stalled = true;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(3);
   expect((blocks[2]!.block as any).shape).toBe("stall");
@@ -305,9 +309,12 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ lastTs: stalled ? clock - 600_000 : clock, pending: false }),
+    () => ({
+      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      activity: null,
+    }),
     { stallMs: 1, pendingStallMs: 1 },
-    30_000,
+    7000, // probeCheckMs
   );
 
   poller.tick(); // stall fires
@@ -320,19 +327,19 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
   // still stalled on the next probe → does NOT re-announce (episode acknowledged)
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
 
   // activity resumes → episode re-arms; acknowledgeStall now no-ops (no live stall)
   stalled = false;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(poller.acknowledgeStall(s.id)).toBe(false);
 
   // a later stall fires again
   stalled = true;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect((blocks[blocks.length - 1]!.block as any).shape).toBe("stall");
 });
@@ -493,13 +500,11 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
     3000,
     classifyBlocked,
     () => clock,
-    undefined, // stallProbe
+    () => ({ snapshot: null, activity: signal }), // combined probe — same signal
     DEFAULT_STALL,
-    30_000,
+    7000, // probeCheckMs
     () => {}, // onReady
     (id, activity) => activities.push({ id, activity }),
-    7000, // activityCheckMs
-    () => signal, // activityProbe — always returns the same signal
   );
 
   poller.tick();
@@ -526,13 +531,11 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
     3000,
     classifyBlocked,
     () => clock,
-    undefined,
+    () => ({ snapshot: null, activity: currentSignal }), // probe tracks currentSignal
     DEFAULT_STALL,
-    30_000,
+    7000,
     () => {},
     (_id, activity) => activities.push(activity),
-    7000,
-    () => currentSignal, // probe returns whatever currentSignal points to
   );
 
   poller.tick(); // first emit — signalA
@@ -560,7 +563,7 @@ test("maybeActivity respects activityCheckMs throttle", () => {
   let callCount = 0;
   const probe = () => {
     callCount++;
-    return { lastActivityTs: clock, summary: `tick ${callCount}` };
+    return { snapshot: null, activity: { lastActivityTs: clock, summary: `tick ${callCount}` } };
   };
 
   const poller = new StatusPoller(
@@ -572,20 +575,18 @@ test("maybeActivity respects activityCheckMs throttle", () => {
     3000,
     classifyBlocked,
     () => clock,
-    undefined,
+    probe,
     DEFAULT_STALL,
-    30_000,
+    7000, // probeCheckMs
     () => {},
     (_id, activity) => activities.push(activity),
-    7000, // activityCheckMs
-    probe,
   );
 
   poller.tick(); // probe called, signal emitted
   expect(callCount).toBe(1);
   expect(activities).toHaveLength(1);
 
-  clock += 3000; // within activityCheckMs (7000) → throttled
+  clock += 3000; // within probeCheckMs (7000) → throttled
   poller.tick();
   expect(callCount).toBe(1); // probe NOT called again yet
 
@@ -608,13 +609,11 @@ test("maybeActivity skips emit when probe returns null", () => {
     3000,
     classifyBlocked,
     () => 100_000,
-    undefined,
+    () => ({ snapshot: null, activity: null }), // no signal yet
     DEFAULT_STALL,
-    30_000,
+    7000,
     () => {},
     (_id, activity) => activities.push(activity),
-    7000,
-    () => null, // no signal yet
   );
 
   poller.tick();
@@ -653,16 +652,14 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
     3000,
     classifyBlocked,
     () => 100_000,
-    undefined,
-    DEFAULT_STALL,
-    30_000,
-    () => {},
-    (_id, activity) => activities.push(activity),
-    7000,
     () => {
       probeCallCount++;
-      return { lastActivityTs: 1, summary: "edited x.ts" };
+      return { snapshot: null, activity: { lastActivityTs: 1, summary: "edited x.ts" } };
     },
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
   );
 
   poller.tick();
@@ -671,7 +668,7 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
 });
 
 test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
-  // A session that was only ever running (never blocked) populates lastActivityAt
+  // A session that was only ever running (never blocked) populates lastProbeAt
   // and lastActivitySig but never lastSig — the old pruneInactive iterated only
   // lastSig.keys() and so those entries leaked. After prune, re-adding the same
   // session must re-emit on the first tick (sig map was cleared).
@@ -702,23 +699,21 @@ test("pruneInactive clears activity tracking for a running-only session that goe
     3000,
     classifyBlocked,
     () => clock,
-    undefined,
+    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
     DEFAULT_STALL,
-    30_000,
+    7000,
     () => {},
     (_id, activity) => activities.push(activity),
-    7000,
-    () => ({ lastActivityTs: clock, summary: "edited x.ts" }),
   );
 
-  poller.tick(); // populates lastActivityAt + lastActivitySig
+  poller.tick(); // populates lastProbeAt + lastActivitySig
   expect(activities).toHaveLength(1);
 
   // session is archived — poller sees empty store list → pruneInactive fires
   store.update(s.id, { status: "archived" });
   agents = [];
   clock += 8000;
-  poller.tick(); // pruneInactive must clear lastActivityAt + lastActivitySig
+  poller.tick(); // pruneInactive must clear lastProbeAt + lastActivitySig
 
   // session comes back (status reset to pending then running via herdr)
   store.update(s.id, { status: "running" });

@@ -2,7 +2,12 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { latestMeaningfulSummary, readActivitySignal } from "../src/activity-signal";
+import {
+  latestMeaningfulSummary,
+  readActivitySignal,
+  signalFromText,
+  readTranscriptSignals,
+} from "../src/activity-signal";
 import type { ActivityEntry } from "../src/activity";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -146,4 +151,51 @@ test("readActivitySignal omits noise tools from summary but still returns signal
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── signalFromText / readTranscriptSignals ────────────────────────────────────
+
+test("signalFromText returns null for text with no parseable records", () => {
+  expect(signalFromText("")).toBeNull();
+  expect(signalFromText("not json\n")).toBeNull();
+});
+
+test("signalFromText derives heartbeat + meaningful summary from text", () => {
+  const text = [
+    toolLine("Edit", { file_path: "/a/b/poller.ts" }, "u1", "2026-05-31T10:00:00.000Z"),
+    resultLine("u1", "2026-05-31T10:05:00.000Z"),
+  ].join("\n");
+  const signal = signalFromText(text);
+  expect(signal).not.toBeNull();
+  expect(signal!.lastActivityTs).toBe(Date.parse("2026-05-31T10:05:00.000Z"));
+  expect(signal!.summary).toBe("edited poller.ts");
+});
+
+test("readTranscriptSignals: one read yields both snapshot + activity", () => {
+  const dir = mkdtempSync(join(tmpdir(), "transcript-signals-"));
+  const path = join(dir, "s.jsonl");
+  try {
+    const lines = [
+      toolLine("Edit", { file_path: "/a/poller.ts" }, "u1", "2026-05-31T10:00:00.000Z"),
+      resultLine("u1", "2026-05-31T10:00:01.000Z"),
+      toolLine("Bash", { command: "bun test" }, "u2", "2026-05-31T10:05:00.000Z"),
+    ];
+    writeFileSync(path, lines.join("\n"));
+    const { snapshot, activity } = readTranscriptSignals(path);
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.pending).toBe(true); // u2 has no result yet
+    expect(snapshot!.lastTs).toBe(Date.parse("2026-05-31T10:05:00.000Z"));
+    expect(activity).not.toBeNull();
+    expect(activity!.summary).toBe("$ bun test");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readTranscriptSignals: missing file → both null", () => {
+  const { snapshot, activity } = readTranscriptSignals(
+    join(tmpdir(), "does-not-exist-shepherd-transcript.jsonl"),
+  );
+  expect(snapshot).toBeNull();
+  expect(activity).toBeNull();
 });

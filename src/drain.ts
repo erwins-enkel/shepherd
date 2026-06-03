@@ -225,7 +225,17 @@ export class DrainService {
         );
       }
     }
-    this.deps.service.archive(decision.sessionId);
+    // Isolate teardown: a worktree-remove / archive throw must not abort the
+    // whole pump (which would skip remaining spawns/retires this tick). On
+    // failure we warn and defer — the session stays live and mergeable, so the
+    // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
+    // session that didn't actually archive.
+    try {
+      this.deps.service.archive(decision.sessionId);
+    } catch (err) {
+      console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
+      return;
+    }
     this.deps.dropPrCache(decision.sessionId);
     this.deps.emitArchived(decision.sessionId);
   }

@@ -90,6 +90,7 @@ function makeHarness(
     usageCeilingPct?: number;
     mergeImpl?: () => Promise<void>;
     listIssuesImpl?: () => Promise<Issue[]>;
+    archiveImpl?: (id: string) => number;
     onArchived?: (h: Harness, id: string) => void;
   } = {},
 ): Harness {
@@ -137,6 +138,7 @@ function makeHarness(
       });
     },
     archive: (id: string): number => {
+      if (opts.archiveImpl) return opts.archiveImpl(id);
       store.archive(id);
       return 1;
     },
@@ -275,6 +277,47 @@ test("retire gate: ready session → retired once; forge.merge never called; ens
   await h.drain.pump(REPO);
   expect(h.forgeRec.links).toHaveLength(1); // not called again
   expect(h.archived).toHaveLength(1); // not emitted again
+});
+
+test("retire: archive failure is isolated — warns and defers, does not drop pr-cache / emit archived", async () => {
+  let throwOnArchive = true;
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    archiveImpl: (id) => {
+      if (throwOnArchive) throw new Error("worktree.remove failed");
+      h.store.archive(id);
+      return 1;
+    },
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  h.setReview(s.id, "commented", "sha-7");
+  // archive throws → pump must not bubble it (defer to next tick)
+  await h.drain.pump(REPO);
+  // link was attempted, but teardown was NOT completed on a non-archived session
+  expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7 }]);
+  expect(h.store.get(s.id)?.status).not.toBe("archived");
+  expect(h.dropped).toHaveLength(0);
+  expect(h.archived).toHaveLength(0);
+  // next tick: archive now succeeds → retire completes
+  throwOnArchive = false;
+  await h.drain.pump(REPO);
+  expect(h.store.get(s.id)?.status).toBe("archived");
+  expect(h.dropped).toEqual([s.id]);
+  expect(h.archived).toEqual([s.id]);
 });
 
 test("critic enabled + no verdict yet → holds, does not retire (gate not bypassed)", async () => {

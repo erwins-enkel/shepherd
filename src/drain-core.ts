@@ -61,7 +61,7 @@ export interface DrainRepoState {
  *  ENABLED we additionally require a clean verdict for the CURRENT head — so a first-time
  *  auto PR can't be retired in the same CI-green tick the critic fires on, before it's posted
  *  a verdict. */
-function mergeable(s: AutoSessionView, criticEnabled: boolean): boolean {
+function readyToRetire(s: AutoSessionView, criticEnabled: boolean): boolean {
   const g = s.git;
   if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
     return false;
@@ -86,8 +86,8 @@ function mergeable(s: AutoSessionView, criticEnabled: boolean): boolean {
 export function computeNext(state: DrainRepoState): DrainDecision {
   if (!state.enabled) return { kind: "hold", reason: { code: "disabled" } };
 
-  // 1. Retire gate — first mergeable session wins (hand-off before we consider trouble).
-  const toRetire = state.autoSessions.find((s) => mergeable(s, state.criticEnabled));
+  // 1. Retire gate — first retire-ready session wins (hand-off before we consider trouble).
+  const toRetire = state.autoSessions.find((s) => readyToRetire(s, state.criticEnabled));
   if (toRetire) {
     return { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! };
   }

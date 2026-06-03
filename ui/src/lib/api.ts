@@ -29,6 +29,7 @@ import type {
   RepoInjectable,
   ForgeKind,
   WorkflowRun,
+  WorkflowJob,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -322,6 +323,32 @@ export async function listWorkflowRuns(repoPath: string): Promise<{
 }> {
   const r = await fetch(`/api/actions?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "actions");
+  return r.json();
+}
+
+/** Prior runs of one workflow on the default branch (summary rows; `jobs` empty).
+ *  GitHub only — other forges return no runs. `limit` caps how many are fetched. */
+export async function listWorkflowRunHistory(
+  repoPath: string,
+  workflowId: number,
+  limit: number,
+): Promise<{ runs: WorkflowRun[] }> {
+  const r = await fetch(
+    `/api/actions/history?repo=${encodeURIComponent(repoPath)}&workflowId=${workflowId}&limit=${limit}`,
+  );
+  if (!r.ok) throw await failed(r, "actions history");
+  return r.json();
+}
+
+/** Per-job breakdown for a single run, lazy-loaded when a history row expands. */
+export async function listRunJobs(
+  repoPath: string,
+  runId: number,
+): Promise<{ jobs: WorkflowJob[] }> {
+  const r = await fetch(
+    `/api/actions/run-jobs?repo=${encodeURIComponent(repoPath)}&runId=${runId}`,
+  );
+  if (!r.ok) throw await failed(r, "run jobs");
   return r.json();
 }
 

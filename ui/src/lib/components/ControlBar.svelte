@@ -96,7 +96,10 @@
     /* wide gap between groups; keys *within* a group sit tight (see .group) so
        proximity tells which keys belong together */
     gap: 10px;
-    padding: 6px 0 6px 10px;
+    /* no horizontal gutter by default — the leading frozen .noscroll bar owns the
+       left gutter (see below); a trailing scrolling bar must not repeat it or it
+       opens a double gap from the frozen edge (e.g. Esc→Tab) */
+    padding: 6px 0;
     overflow-x: auto;
     white-space: nowrap;
     /* take remaining row width and allow shrink-to-fit so the internal
@@ -109,11 +112,13 @@
   .ctrl-bar::-webkit-scrollbar {
     display: none;
   }
-  /* fixed edge cluster (e.g. Esc/Tab): fit content, never grow or scroll */
+  /* fixed edge cluster (e.g. Esc): fit content, never grow or scroll. Owns the
+     row's left gutter (10px) which — with the group's 3px well padding — lines
+     Esc's left edge up with the collapsed broadcast chip above it. */
   .ctrl-bar.noscroll {
     flex: 0 0 auto;
     overflow: visible;
-    padding-right: 0;
+    padding-left: 10px;
   }
 
   /* one "well" per group — faint common-region backing so the eye chunks

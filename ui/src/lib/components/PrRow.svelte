@@ -39,6 +39,9 @@
 
   const ciStatus = $derived(m.gitrail_ci_status({ status: pr.checks }));
   const ciToggleTitle = $derived(expanded ? m.prspanel_jobs_hide() : m.prspanel_jobs_show());
+  // The toggle replaces the plain dot, so its label must still announce the
+  // aggregate CI state ("CI: failure") alongside the show/hide action.
+  const ciToggleLabel = $derived(`${ciStatus} · ${ciToggleTitle}`);
   const reviewTitle = $derived(
     pr.latestReview?.state === "approved"
       ? m.prbadge_review_approved()
@@ -106,7 +109,7 @@
           onclick={() => (expanded = !expanded)}
           aria-expanded={expanded}
           title={ciToggleTitle}
-          aria-label={ciToggleTitle}
+          aria-label={ciToggleLabel}
         >
           <span class="dot dot-{pr.checks}"></span>
           <span class="caret" aria-hidden="true">▸</span>

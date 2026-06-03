@@ -100,11 +100,41 @@
           />
         {/each}
       {/if}
+      {#if partition.ciFailed.length > 0}
+        <div class="ci-failed-head micro">
+          {m.herd_ci_failed_group({ count: partition.ciFailed.length })}
+        </div>
+        {#each partition.ciFailed as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
       {#if partition.reviewerRunning.length > 0}
         <div class="reviewing-head micro">
           {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
         </div>
         {#each partition.reviewerRunning as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.awaitingMerge.length > 0}
+        <div class="awaiting-head micro">
+          {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
+        </div>
+        {#each partition.awaitingMerge as session (session.id)}
           <UnitRow
             {session}
             selected={session.id === selectedId}
@@ -236,7 +266,19 @@
     border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
   }
 
-  /* green section header for the parked "ready to merge" group */
+  /* red section header for an open PR whose CI failed — done but needs a look */
+  .ci-failed-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-red);
+    border-top: 1px solid color-mix(in srgb, var(--color-red) 30%, var(--color-line));
+  }
+
+  /* green section headers for the "waiting for a human to merge" stages:
+     auto-detected (open PR, CI green) and operator-parked "ready to merge" */
+  .awaiting-head,
   .ready-head {
     display: flex;
     align-items: center;

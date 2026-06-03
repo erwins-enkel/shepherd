@@ -85,14 +85,40 @@ test("open PR with pending CI lands in the ciRunning group", () => {
   expect(ciRunning.map((s) => s.id)).toEqual(["p1"]);
 });
 
-test("open PR with non-pending CI stays active", () => {
+test("open PR with green CI lands in awaitingMerge; no-checks PR stays active", () => {
   const list = [session("s"), session("n")];
-  const { active, ciRunning } = partitionSessions(list, {
+  const { active, awaitingMerge, ciRunning } = partitionSessions(list, {
     s: git("open", "success"),
     n: git("open", "none"),
   });
-  expect(active.map((s) => s.id)).toEqual(["s", "n"]);
+  expect(active.map((s) => s.id)).toEqual(["n"]);
+  expect(awaitingMerge.map((s) => s.id)).toEqual(["s"]);
   expect(ciRunning).toHaveLength(0);
+});
+
+test("open PR with failed CI lands in the ciFailed group", () => {
+  const list = [session("a"), session("f1"), session("b")];
+  const { active, ciFailed } = partitionSessions(list, { f1: git("open", "failure") });
+  expect(active.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(ciFailed.map((s) => s.id)).toEqual(["f1"]);
+});
+
+test("reviewing wins over green CI (awaitingMerge) when both apply", () => {
+  const list = [session("x")];
+  const { awaitingMerge, reviewerRunning } = partitionSessions(
+    list,
+    { x: git("open", "success") },
+    () => true,
+  );
+  expect(awaitingMerge).toHaveLength(0);
+  expect(reviewerRunning.map((s) => s.id)).toEqual(["x"]);
+});
+
+test("operator-parked ready wins over green CI (awaitingMerge)", () => {
+  const list = [session("r", true)];
+  const { awaitingMerge, ready } = partitionSessions(list, { r: git("open", "success") });
+  expect(awaitingMerge).toHaveLength(0);
+  expect(ready.map((s) => s.id)).toEqual(["r"]);
 });
 
 test("a session under review lands in the reviewerRunning group", () => {

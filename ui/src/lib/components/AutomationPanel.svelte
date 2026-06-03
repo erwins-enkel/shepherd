@@ -6,11 +6,7 @@
 
   let { repoPath, sessionId }: { repoPath: string; sessionId: string } = $props();
 
-  const criticOn = $derived(repoConfig.isEnabled(repoPath));
-  const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
-  const learningsOn = $derived(repoConfig.learningsOn(repoPath));
-  const autopilotOn = $derived(repoConfig.isAutopilotEnabled(repoPath));
-  const autoDrainOn = $derived(repoConfig.isAutoDrainEnabled(repoPath));
+  const flags = $derived(repoConfig.flags(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
 
   // Drain config fields, seeded from stored config and re-seeded whenever the
@@ -26,7 +22,7 @@
     // untrack the store reads so committing a field (which writes back to the
     // store) never retriggers this effect and clobbers an in-flight edit.
     const repo = repoPath;
-    if (!autoDrainOn) return;
+    if (!flags.autoDrain) return;
     untrack(() => {
       drainCap = repoConfig.maxAutoFor(repo);
       drainLabel = repoConfig.autoLabelFor(repo);
@@ -69,10 +65,10 @@
       <div class="auto-desc">{m.automation_critic_desc()}</div>
     </div>
     <button
-      class={["sw", { on: criticOn, reviewing }]}
+      class={["sw", { on: flags.critic, reviewing }]}
       type="button"
       role="switch"
-      aria-checked={criticOn}
+      aria-checked={flags.critic}
       aria-busy={reviewing}
       aria-label={m.automation_critic_name()}
       onclick={() => repoConfig.toggle(repoPath)}
@@ -80,19 +76,19 @@
       <span class="knob"></span>
     </button>
   </div>
-  <div class={["auto-row", { disabled: !criticOn }]}>
+  <div class={["auto-row", { disabled: !flags.critic }]}>
     <div class="auto-meta">
       <div class="auto-name">🤖 {m.automation_autoaddress_name()}</div>
       <div class="auto-desc">
-        {criticOn ? m.automation_autoaddress_desc() : m.automation_autoaddress_needs_critic()}
+        {flags.critic ? m.automation_autoaddress_desc() : m.automation_autoaddress_needs_critic()}
       </div>
     </div>
     <button
-      class={["sw", { on: autoAddressOn && criticOn }]}
+      class={["sw", { on: flags.autoAddress && flags.critic }]}
       type="button"
       role="switch"
-      aria-checked={autoAddressOn && criticOn}
-      disabled={!criticOn}
+      aria-checked={flags.autoAddress && flags.critic}
+      disabled={!flags.critic}
       aria-label={m.automation_autoaddress_name()}
       onclick={() => repoConfig.toggleAutoAddress(repoPath)}
     >
@@ -108,10 +104,10 @@
       <div class="auto-desc">{m.automation_learnings_desc()}</div>
     </div>
     <button
-      class={["sw", { on: learningsOn }]}
+      class={["sw", { on: flags.learnings }]}
       type="button"
       role="switch"
-      aria-checked={learningsOn}
+      aria-checked={flags.learnings}
       aria-label={m.automation_learnings_name()}
       onclick={() => repoConfig.toggleLearnings(repoPath)}
     >
@@ -124,10 +120,10 @@
       <div class="auto-desc">{m.automation_autopilot_desc()}</div>
     </div>
     <button
-      class={["sw", { on: autopilotOn }]}
+      class={["sw", { on: flags.autopilot }]}
       type="button"
       role="switch"
-      aria-checked={autopilotOn}
+      aria-checked={flags.autopilot}
       aria-label={m.automation_autopilot_name()}
       onclick={() => repoConfig.toggleAutopilot(repoPath)}
     >
@@ -143,17 +139,17 @@
       <div class="auto-desc">{m.automation_autodrain_desc()}</div>
     </div>
     <button
-      class={["sw", { on: autoDrainOn }]}
+      class={["sw", { on: flags.autoDrain }]}
       type="button"
       role="switch"
-      aria-checked={autoDrainOn}
+      aria-checked={flags.autoDrain}
       aria-label={m.automation_autodrain_name()}
       onclick={() => repoConfig.toggleAutoDrain(repoPath)}
     >
       <span class="knob"></span>
     </button>
   </div>
-  {#if autoDrainOn}
+  {#if flags.autoDrain}
     <div class="drain-fields">
       <label class="drain-field">
         <span class="drain-label">{m.drain_cap_label()}</span>

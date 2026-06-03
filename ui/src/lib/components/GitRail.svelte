@@ -229,21 +229,8 @@
       alive = false;
     };
   });
-  const criticOn = $derived(repoConfig.isEnabled(repoPath));
-  const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
-  const learningsOn = $derived(repoConfig.learningsOn(repoPath));
-  const autopilotOn = $derived(repoConfig.isAutopilotEnabled(repoPath));
-  const autoDrainOn = $derived(repoConfig.isAutoDrainEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
-  const autoCount = $derived(
-    automationCount({
-      critic: criticOn,
-      autoAddress: autoAddressOn,
-      learnings: learningsOn,
-      autopilot: autopilotOn,
-      autoDrain: autoDrainOn,
-    }),
-  );
+  const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
 
@@ -257,9 +244,7 @@
   const PILL_FEATURE_IDS = ["critic", "auto-address", "learnings"] as const;
 
   // A passive "new" dot rides the pill while any relocated feature is still unseen.
-  const automationHasUnseen = $derived(
-    PILL_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)),
-  );
+  const automationHasUnseen = $derived(PILL_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)));
 
   // Arm the first relocated feature that is unseen AND has a pill target registered.
   function armFirstUnseenAutomation() {
@@ -365,8 +350,9 @@
         >
           ⚙ {m.automation_pill_label()}
           <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
-          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"
-            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
+          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
+              class="sr-only">{m.newdot_aria()}</span
+            >{/if}
         </button>
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}

@@ -697,6 +697,7 @@
     .needsyou,
     .needsyou.compact,
     .learnings-badge,
+    .learnings-badge.compact,
     .gauge-btn,
     .update-badge {
       min-height: 44px;

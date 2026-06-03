@@ -29,6 +29,11 @@ export class BranchPruner {
   constructor(
     private store: Pick<SessionStore, "list" | "getSetting">,
     private resolveForge: (repoPath: string) => GitForge | null,
+    /** Durable repo source unioned with the session-derived set. Session housekeeping
+     *  prunes old archived rows, so a fully-idle repo can drop out of `store.list()`
+     *  entirely — without this its leftover `shepherd/*` branches would never be swept
+     *  again. Defaults to none (tests / callers that don't wire it). */
+    private extraRepos: () => string[] = () => [],
     private intervalMs = 60 * 60 * 1000,
     /** Max forge lookups per sweep. Each `forge.prStatus` is a blocking
      *  `execFileSync("gh")` (see github.ts), so an unbounded first sweep over a
@@ -148,9 +153,13 @@ export class BranchPruner {
     if (this.running || !this.enabled()) return;
     this.running = true;
     try {
-      // Repos Shepherd has used (including archived sessions), de-duped — we only
-      // ever look at `shepherd/*` branches, which Shepherd itself created.
-      const repos = [...new Set(this.store.list().map((s) => s.repoPath))];
+      // Repos Shepherd has used (including archived sessions) unioned with the durable
+      // repo source, de-duped — we only ever look at `shepherd/*` branches, which
+      // Shepherd itself created. The union keeps fully-idle repos in scope even after
+      // session housekeeping prunes their last archived row from `store.list()`.
+      const repos = [
+        ...new Set([...this.store.list().map((s) => s.repoPath), ...this.extraRepos()]),
+      ];
       // Branches of live sessions are off-limits regardless of merge state.
       const activeBranches = new Set(
         this.store

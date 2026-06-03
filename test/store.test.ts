@@ -139,3 +139,93 @@ test("get / list / update / archive", () => {
   expect(s.get(a.id)?.archivedAt).toBeGreaterThan(0);
   expect(s.list({ activeOnly: true }).length).toBe(0);
 });
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+test("pruneArchivedSessions: count rule keeps newest N, deletes older archived", async () => {
+  const s = mk();
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const a = s.create({ ...base, herdrAgentId: `t${i}` });
+    s.archive(a.id);
+    ids.push(a.id);
+    await sleep(2); // distinct archivedAt so the rank ordering is deterministic
+  }
+  // huge age window → only the count rule bites; keep the newest 2
+  const removed = s.pruneArchivedSessions({ maxAgeMs: YEAR_MS, keepNewest: 2 });
+  expect(removed).toBe(1);
+  expect(s.get(ids[0]!)).toBeNull(); // oldest evicted
+  expect(s.get(ids[1]!)).not.toBeNull();
+  expect(s.get(ids[2]!)).not.toBeNull();
+});
+
+test("pruneArchivedSessions: age rule deletes archived older than the window (even within count)", async () => {
+  const s = mk();
+  const a = s.create(base);
+  s.archive(a.id);
+  await sleep(5);
+  // 1ms window → the 5ms-old row is past it; keepNewest is generous so only age bites
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 1, keepNewest: 250 });
+  expect(removed).toBe(1);
+  expect(s.get(a.id)).toBeNull();
+});
+
+test("pruneArchivedSessions: recent archived within both limits is kept", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.archive(a.id);
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 30 * 24 * 60 * 60 * 1000, keepNewest: 250 });
+  expect(removed).toBe(0);
+  expect(s.get(a.id)).not.toBeNull();
+});
+
+test("pruneArchivedSessions: never deletes non-archived rows, however aggressive the sweep", () => {
+  const s = mk();
+  const a = s.create(base); // status 'running', never archived
+  // keepNewest 0 + zero age window would evict every *archived* row — live rows are exempt
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 0, keepNewest: 0 });
+  expect(removed).toBe(0);
+  expect(s.get(a.id)).not.toBeNull();
+});
+
+test("pruneArchivedSessions: cascades the victim's review, keeps survivors', leaves signals", async () => {
+  const s = mk();
+  const victim = s.create({ ...base, herdrAgentId: "tv" });
+  s.archive(victim.id);
+  await sleep(2);
+  const keep = s.create({ ...base, herdrAgentId: "tk" });
+  s.archive(keep.id);
+  const review = (sessionId: string, headSha: string) =>
+    ({
+      sessionId,
+      headSha,
+      decision: "commented",
+      summary: "",
+      body: "",
+      findings: [],
+      addressRound: 0,
+      updatedAt: 1,
+    }) as unknown as ReviewVerdict;
+  s.putReview(review(victim.id, "a"));
+  s.putReview(review(keep.id, "b"));
+  s.addSignal({ repoPath: base.repoPath, sessionId: victim.id, kind: "reply", payload: "x" });
+  const removed = s.pruneArchivedSessions({ maxAgeMs: YEAR_MS, keepNewest: 1 });
+  expect(removed).toBe(1);
+  expect(s.get(victim.id)).toBeNull();
+  expect(s.getReview(victim.id)).toBeNull(); // review cascaded with the session
+  expect(s.getReview(keep.id)).not.toBeNull(); // survivor's review intact
+  expect(s.listSignals(base.repoPath).length).toBe(1); // signals untouched (own prune)
+});
+
+test("pruneArchivedSessions: legacy archived row with null archivedAt expires via COALESCE fallback", async () => {
+  const s = mk();
+  const a = s.create(base);
+  // legacy path: status flipped to archived without stamping archivedAt
+  s.update(a.id, { status: "archived" });
+  expect(s.get(a.id)?.archivedAt).toBeNull();
+  await sleep(5); // age updatedAt/createdAt past the window so the fallback rank is "old"
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 1, keepNewest: 250 });
+  expect(removed).toBe(1);
+  expect(s.get(a.id)).toBeNull();
+});

@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { config } from "./config";
+import { config, SESSION_RETENTION_MS, SESSION_RETENTION_KEEP } from "./config";
 import { SessionStore } from "./store";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver } from "./herdr";
@@ -56,6 +56,10 @@ if (savedRc !== null) config.remoteControlAtStartup = savedRc === "1";
 // seed; absent → keep the config default. Stored verbatim (empty string allowed).
 const savedSc = store.getSetting("standardCommand");
 if (savedSc !== null) config.standardCommand = savedSc;
+// a UI-chosen session-housekeeping preference (persisted) overrides the env default;
+// absent → keep the config default (on). Stored as "1"/"0".
+const savedHk = store.getSetting("sessionHousekeepingEnabled");
+if (savedHk !== null) config.sessionHousekeepingEnabled = savedHk === "1";
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
@@ -160,7 +164,14 @@ events.subscribe((event, data) => {
 // them and they pile up — and at merge time the session still holds the worktree
 // so they can't be cleaned then anyway. Orphan branches only: never a checked-out
 // or active-session branch. Disable with setting branchPruneEnabled="0".
-const branchPruner = new BranchPruner(store, resolveForge);
+// Pass the configured repo root as a durable repo source so housekeeping-pruned
+// idle repos still get their leftover shepherd/* branches swept. Boundary: a repo
+// whose archived sessions lived OUTSIDE repoRoot isn't covered here — once
+// housekeeping prunes its last row it leaves branch-pruner scope (acceptable; such
+// repos are outside the configured working area anyway).
+const branchPruner = new BranchPruner(store, resolveForge, () =>
+  listRepos(config.repoRoot).map((r) => r.path),
+);
 setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
 branchPruner.start();
 
@@ -207,13 +218,19 @@ const distiller = new DistillerService({
 });
 setInterval(() => void distiller.tick(), 30_000);
 const promoter = new Promoter({ store, worktree, resolveForge });
-// Daily: prune old signals, then consider a distill per repo with enough recent signal.
-const runDistillSweep = () => {
+// Daily: prune archived sessions, prune old signals, then consider a distill per repo
+// with enough recent signal.
+const runDailySweep = () => {
+  if (config.sessionHousekeepingEnabled)
+    store.pruneArchivedSessions({
+      maxAgeMs: SESSION_RETENTION_MS,
+      keepNewest: SESSION_RETENTION_KEEP,
+    });
   store.pruneSignals(Date.now() - 60 * 24 * 60 * 60 * 1000);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
 };
-setTimeout(runDistillSweep, 10_000); // once shortly after boot
-setInterval(runDistillSweep, 24 * 60 * 60 * 1000);
+setTimeout(runDailySweep, 10_000); // once shortly after boot
+setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 
 // recompute live limit % from local JSONL ~every 30s; push to clients
 setInterval(async () => {

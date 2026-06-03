@@ -493,6 +493,46 @@ export class SessionStore implements CapStore {
     return n;
   }
 
+  /**
+   * Delete archived sessions beyond the retention window — those older than `maxAgeMs`
+   * OR ranked past the newest `keepNewest` (global, union: whichever evicts first). Only
+   * `status = 'archived'` rows are eligible; live sessions are never touched. Each victim's
+   * `reviews` row is cascaded in the same transaction so it can't orphan. `signals` are left
+   * to their own prune. Age and rank both key off COALESCE(archivedAt, updatedAt, createdAt)
+   * so legacy archived rows predating the `archivedAt` column still sort/expire correctly.
+   * Returns the number of sessions removed.
+   */
+  pruneArchivedSessions(opts: { maxAgeMs: number; keepNewest: number }): number {
+    const cutoff = Date.now() - opts.maxAgeMs;
+    const rank = `COALESCE(archivedAt, updatedAt, createdAt)`;
+    // Victim set expressed as a predicate (re-used by the count + both deletes) rather
+    // than a bound id list — a large first sweep could otherwise exceed SQLite's 32766
+    // bound-parameter cap. Each use carries the same two params (cutoff, keepNewest).
+    const victims = `status = 'archived' AND (
+        ${rank} < ?
+        OR id NOT IN (
+          SELECT id FROM sessions WHERE status = 'archived' ORDER BY ${rank} DESC LIMIT ?
+        )
+      )`;
+    const params = [cutoff, opts.keepNewest];
+    return this.db.transaction(() => {
+      const n = (
+        this.db.query(`SELECT COUNT(*) AS c FROM sessions WHERE ${victims}`).get(...params) as {
+          c: number;
+        }
+      ).c;
+      if (n === 0) return 0;
+      // reviews first (keyed by sessionId) so the cascade can't orphan; the sessions
+      // subquery still resolves the same set afterward (deleting reviews doesn't touch it).
+      this.db.run(
+        `DELETE FROM reviews WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
+      return n;
+    })();
+  }
+
   // ── learnings ─────────────────────────────────────────────────────────────
   /** Add columns laid after the original `learnings` table for existing DBs.
    *  Idempotent: each column is only added when PRAGMA shows it absent. */

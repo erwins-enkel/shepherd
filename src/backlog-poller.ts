@@ -26,11 +26,20 @@ export class BacklogPoller {
     private resolveForge: (repoPath: string) => unknown | null,
     private warm: (repoPath: string) => Promise<RepoCounts>,
     private intervalMs = 45_000,
+    /**
+     * Fired once per tick after every repo's counts are warm. Lets the caller
+     * push the freshly-warmed overview to clients (a `backlog:update` WS frame)
+     * so a long-open dashboard stays live instead of showing a fetch-once
+     * snapshot. Best-effort: a throwing hook is swallowed so the broadcast can
+     * never sink the warm cadence.
+     */
+    private onWarmed?: () => void | Promise<void>,
   ) {}
 
   async tick(): Promise<void> {
     const forgeRepos = this.listRepos().filter((r) => this.isForgeBacked(r.path));
     await Promise.all(forgeRepos.map((r) => this.warm(r.path).catch(() => null)));
+    if (this.onWarmed) await Promise.resolve(this.onWarmed()).catch(() => null);
   }
 
   private isForgeBacked(path: string): boolean {

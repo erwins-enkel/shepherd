@@ -242,7 +242,8 @@ export type WsEvent =
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
-  | { event: "learnings:update"; data: { pending: number } };
+  | { event: "learnings:update"; data: { pending: number } }
+  | { event: "backlog:update"; data: BacklogPayload };
 
 export interface CreateInput {
   repoPath: string;

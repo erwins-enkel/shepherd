@@ -12,7 +12,7 @@ import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { reconcile } from "./reconcile";
 import { reapOrphanTabs } from "./tab-reaper";
-import { serve } from "./server";
+import { serve, buildBacklogPayload } from "./server";
 import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
@@ -239,10 +239,26 @@ const backlog = new CountsService(config.forges, ghRunnerAsync);
 // keep the backlog counts cache warm so the overview's first paint is instant
 // instead of blocking on per-repo gh/Gitea calls. Warm shortly after boot, then
 // on a cadence below the cache's 60s TTL so the request path always hits warm.
+// After each warm, push the freshly-built overview to every connected client so
+// a long-open dashboard's issue/PR counts stay live instead of frozen at the
+// fetch-once snapshot the page loaded with. `counts` reads the just-warmed cache
+// (no extra gh round-trip), so this is the same payload GET /api/backlog returns.
+const broadcastBacklog = async () =>
+  events.emit(
+    "backlog:update",
+    await buildBacklogPayload({
+      counts: (p) => backlog.counts(p),
+      resolveForge,
+      lastUsedByRepo: () => store.lastUsedByRepo(),
+      repoRoot: config.repoRoot,
+    }),
+  );
 const backlogPoller = new BacklogPoller(
   () => listRepos(config.repoRoot),
   resolveForge,
   (dir) => backlog.refresh(dir),
+  45_000,
+  broadcastBacklog,
 );
 setTimeout(() => void backlogPoller.tick(), 3_000);
 backlogPoller.start();

@@ -73,6 +73,42 @@ test("empty repo list is a no-op", async () => {
   expect(calls).toBe(0);
 });
 
+test("calls onWarmed once after warming completes each tick", async () => {
+  const order: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }, { path: "/b" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async (p) => {
+      order.push(`warm:${p}`);
+      return { openIssues: 1, openPRs: 0 };
+    },
+    60_000,
+    async () => {
+      order.push("warmed");
+    },
+  );
+
+  await poller.tick();
+
+  // both warms happen before the single broadcast hook
+  expect(order).toEqual(["warm:/a", "warm:/b", "warmed"]);
+});
+
+test("a throwing onWarmed does not sink the tick", async () => {
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async () => ({ openIssues: 1, openPRs: 0 }),
+    60_000,
+    async () => {
+      throw new Error("broadcast boom");
+    },
+  );
+
+  await poller.tick(); // must resolve, not reject
+  expect(true).toBe(true);
+});
+
 test("start/stop manage the interval timer without throwing", () => {
   const poller = new BacklogPoller(
     () => [],

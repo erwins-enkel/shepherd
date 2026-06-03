@@ -113,7 +113,8 @@ export class SessionStore implements CapStore {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
-      sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
+      sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
+      decision TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
       addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +139,11 @@ export class SessionStore implements CapStore {
     }
     if (!reviewCols.some((c) => c.name === "seenNoteIds")) {
       this.db.run(`ALTER TABLE reviews ADD COLUMN seenNoteIds TEXT NOT NULL DEFAULT '[]'`);
+    }
+    // patchId backs rebase-skip: pre-existing rows backfill to '' (unknown), so the
+    // next head change reviews once and records the fingerprint going forward.
+    if (!reviewCols.some((c) => c.name === "patchId")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN patchId TEXT NOT NULL DEFAULT ''`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
@@ -388,6 +394,7 @@ export class SessionStore implements CapStore {
   private hydrateReview(r: any): ReviewVerdict {
     return {
       ...r,
+      patchId: r.patchId ?? "",
       findings: parseFindings(r.findings),
       addressRound: r.addressRound ?? 0,
       addressCap: r.addressCap ?? 3,
@@ -400,7 +407,7 @@ export class SessionStore implements CapStore {
   getReview(sessionId: string): ReviewVerdict | null {
     const r = this.db
       .query(
-        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
                 addressCap, errorRound, seenNoteIds, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
@@ -410,10 +417,11 @@ export class SessionStore implements CapStore {
 
   putReview(v: ReviewVerdict): void {
     this.db.run(
-      `INSERT INTO reviews (sessionId, headSha, decision, summary, body, findings, addressRound,
+      `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
          addressCap, errorRound, seenNoteIds, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, decision=excluded.decision,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
+         decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          addressRound=excluded.addressRound, addressCap=excluded.addressCap,
          errorRound=excluded.errorRound, seenNoteIds=excluded.seenNoteIds,
@@ -421,6 +429,7 @@ export class SessionStore implements CapStore {
       [
         v.sessionId,
         v.headSha,
+        v.patchId ?? "",
         v.decision,
         v.summary,
         v.body,
@@ -439,10 +448,21 @@ export class SessionStore implements CapStore {
     this.db.run(`DELETE FROM reviews WHERE sessionId = ?`, [sessionId]);
   }
 
+  /** Re-point an existing verdict at a new head without re-reviewing. Used when a head
+   *  change (rebase/force-push) leaves the reviewed diff content-identical (same patchId):
+   *  the prior decision/findings/rounds still apply, so only headSha + updatedAt move. */
+  bumpReviewHead(sessionId: string, headSha: string, updatedAt: number): void {
+    this.db.run(`UPDATE reviews SET headSha = ?, updatedAt = ? WHERE sessionId = ?`, [
+      headSha,
+      updatedAt,
+      sessionId,
+    ]);
+  }
+
   snapshotReviews(): Record<string, ReviewVerdict> {
     const rows = this.db
       .query(
-        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
                 addressCap, errorRound, seenNoteIds, url, updatedAt FROM reviews`,
       )
       .all() as any[];

@@ -112,6 +112,7 @@ export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;
   headSha: string; // PR head this verdict applies to
+  patchId: string; // git patch-id of `git diff base...HEAD`; dedups re-reviews across rebases (a pure rebase keeps it stable, so the head can change without re-reviewing). '' = unknown (always reviews)
   decision: ReviewDecision;
   summary: string; // <=100 char one-liner for the badge tooltip
   body: string; // full markdown findings (seeds the steer-back)

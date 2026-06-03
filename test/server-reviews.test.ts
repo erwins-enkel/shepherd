@@ -38,6 +38,7 @@ test("GET /api/reviews returns snapshot when reviewCache is present", async () =
   const verdict: ReviewVerdict = {
     sessionId: "sess-1",
     headSha: "abc123",
+    patchId: "pid-abc123",
     decision: "commented",
     summary: "Looks good",
     body: "Full body here",

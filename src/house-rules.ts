@@ -1,9 +1,22 @@
 import type { Learning } from "./types";
 
-/** Header for the Shepherd-curated house-rules block prepended to every agent prompt.
- *  Agent-facing prompt text (not operator UI), so it is a fixed English constant —
- *  same precedent as the distiller/critic spawn prompts. */
-export const HOUSE_RULES_HEADER = "## Project house rules (curated by Shepherd)";
+/** XML tag wrapping the Shepherd-curated house-rules block. The block is injected into
+ *  every agent's *system prompt* (not the human turn — see service.ts), so the tag lets the
+ *  agent tell standing guidance apart from the task it is handed. Agent-facing prompt text
+ *  (not operator UI), so fixed English — same precedent as the distiller/critic spawn
+ *  prompts and BRANCH_RENAME_NOTICE. */
+export const HOUSE_RULES_TAG = "shepherd-house-rules";
+
+/** Intro line inside the tag, stating what the rules are and that they are not the task. */
+const HOUSE_RULES_INTRO =
+  "Project house rules curated by Shepherd — standing guidance for this repo. " +
+  "Apply throughout the session; this is not the task itself.";
+
+/** Fixed char overhead of the rendered block, independent of rule count:
+ *  `<tag>\n` + `intro\n` + (rules) + `\n</tag>`. Used as the budget base so the meter
+ *  (usedChars) stays exactly equal to renderHouseRulesBlock(...).length. */
+export const HOUSE_RULES_OVERHEAD =
+  `<${HOUSE_RULES_TAG}>`.length + HOUSE_RULES_INTRO.length + `</${HOUSE_RULES_TAG}>`.length + 2;
 
 export interface HouseRulesPlan {
   injected: Learning[]; // priority order, fit within budget
@@ -32,7 +45,7 @@ export function planHouseRulesInjection(rules: Learning[], budgetChars: number):
   const ordered = prioritize(rules);
   const injected: Learning[] = [];
   const dropped: Learning[] = [];
-  let used = HOUSE_RULES_HEADER.length;
+  let used = HOUSE_RULES_OVERHEAD;
   for (const r of ordered) {
     const cost = ("- " + r.rule + "\n").length;
     if (used + cost <= budgetChars) {
@@ -47,8 +60,9 @@ export function planHouseRulesInjection(rules: Learning[], budgetChars: number):
   return { injected, dropped, budgetChars, usedChars: injected.length === 0 ? 0 : used };
 }
 
-/** Renders the injected rules into the prompt block, or null when none. */
+/** Renders the injected rules into the XML-wrapped block, or null when none. */
 export function renderHouseRulesBlock(injected: Learning[]): string | null {
   if (injected.length === 0) return null;
-  return `${HOUSE_RULES_HEADER}\n${injected.map((r) => `- ${r.rule}`).join("\n")}`;
+  const body = injected.map((r) => `- ${r.rule}`).join("\n");
+  return `<${HOUSE_RULES_TAG}>\n${HOUSE_RULES_INTRO}\n${body}\n</${HOUSE_RULES_TAG}>`;
 }

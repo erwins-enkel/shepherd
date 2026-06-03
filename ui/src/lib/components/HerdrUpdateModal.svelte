@@ -36,8 +36,17 @@
     let alive = true;
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          renderedNotes = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        // External release-note links must open out-of-app, not navigate the
+        // SPA away; force target/rel on every anchor during sanitize.
+        DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+          if (node.tagName === "A") {
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+          }
+        });
+        const html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        DOMPurify.removeAllHooks();
+        if (alive) renderedNotes = html;
       })
       .catch((err) => {
         // Markdown render is progressive enhancement; warn so a broken
@@ -112,8 +121,14 @@
 
     {#if update.notes}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
-      <div class="notes">{@html renderedNotes}</div>
+      {#if renderedNotes}
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+        <div class="notes">{@html renderedNotes}</div>
+      {:else}
+        <!-- Fallback before the markdown imports resolve, or if they fail:
+             show the raw notes as plain text rather than an empty box. -->
+        <pre class="notes notes-raw">{update.notes}</pre>
+      {/if}
     {/if}
 
     <div class="instructions">{m.herdrupdate_instructions()}</div>
@@ -231,6 +246,13 @@
     line-height: 1.5;
     color: var(--color-ink-bright);
     overflow-wrap: anywhere;
+  }
+  /* raw plain-text fallback (pre-resolve / render failure) */
+  .notes-raw {
+    margin: 0;
+    font-family: inherit;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   /* markdown rendered via {@html} — children aren't scoped, so target globally */
   .notes :global(> *:first-child) {

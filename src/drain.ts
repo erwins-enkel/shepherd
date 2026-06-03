@@ -28,6 +28,14 @@ export interface DrainStatus {
   max: number;
 }
 
+/** One queued backlog issue behind {@link DrainStatus.queued} — the rows the
+ *  client's queue popover renders. */
+export interface QueuedItem {
+  number: number;
+  title: string;
+  url: string;
+}
+
 export interface DrainDeps {
   store: Pick<SessionStore, "get" | "list" | "getRepoConfig" | "getReview" | "archive">;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
@@ -321,5 +329,16 @@ export class DrainService {
       out.push(this.toStatus(repoPath, state, computeNext(state)));
     }
     return out;
+  }
+
+  /** The actual backlog issues behind {@link DrainStatus.queued}: the not-yet-
+   *  mapped candidates, in drain order (priority-first per selectCandidates).
+   *  No side effects. Empty for drain-disabled repos (buildState yields no
+   *  candidates there — and the forge is never hit). */
+  async queue(repoPath: string): Promise<QueuedItem[]> {
+    const state = await this.buildState(repoPath);
+    return state.candidates
+      .filter((c) => !state.mappedIssueNumbers.has(c.number))
+      .map((c) => ({ number: c.number, title: c.title, url: c.url }));
   }
 }

@@ -677,3 +677,42 @@ test("closeIssue not called when merge throws (no merged observed → onGit merg
   // merge failed → not in merging → onGit(merged) never called → no close
   expect(h.forgeRec.closedIssues).toHaveLength(0);
 });
+
+// ── queue(): the actual backlog issues behind DrainStatus.queued ──────────────
+
+test("queue: returns candidates in drain order (priority-first) as {number,title,url}", async () => {
+  const h = makeHarness({
+    maxAuto: 0, // cap 0 → nothing spawns, all candidates stay queued
+    // #3 carries the priority label → jumps the head; the rest by number asc.
+    issues: [issue(2), issue(1), issue(3, { labels: ["shepherd:auto", "shepherd:priority"] })],
+  });
+  const q = await h.drain.queue(REPO);
+  expect(q.map((i) => i.number)).toEqual([3, 1, 2]);
+  expect(q[0]).toEqual({ number: 3, title: "issue 3", url: "https://x/3" });
+});
+
+test("queue: excludes issues already mapped to a session", async () => {
+  const h = makeHarness({ maxAuto: 0, issues: [issue(1), issue(2)] });
+  h.store.create({
+    name: "manual",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/manual",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: false,
+    issueNumber: 1,
+  });
+  const q = await h.drain.queue(REPO);
+  expect(q.map((i) => i.number)).toEqual([2]);
+});
+
+test("queue: [] when drain disabled, never hits the forge", async () => {
+  const h = makeHarness({ autoDrainEnabled: false, issues: [issue(1)] });
+  const q = await h.drain.queue(REPO);
+  expect(q).toEqual([]);
+  expect(h.forgeRec.listIssuesCalls).toBe(0);
+});

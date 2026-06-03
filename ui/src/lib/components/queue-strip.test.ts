@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { enabledDrains, pausedText } from "./queue-strip";
+import { enabledDrains, pausedText, queueOpenable } from "./queue-strip";
 import type { DrainStatus } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
@@ -28,6 +28,15 @@ describe("enabledDrains", () => {
 
   it("returns an empty list when nothing is enabled", () => {
     expect(enabledDrains({ a: drain({ enabled: false }) })).toEqual([]);
+  });
+});
+
+describe("queueOpenable", () => {
+  it("is true when items are queued", () => {
+    expect(queueOpenable(drain({ queued: 3 }))).toBe(true);
+  });
+  it("is false when the queue is empty", () => {
+    expect(queueOpenable(drain({ queued: 0 }))).toBe(false);
   });
 });
 

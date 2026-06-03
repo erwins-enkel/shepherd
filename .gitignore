@@ -9,8 +9,7 @@ dist/
 *.db-wal
 .DS_Store
 
-# Planning docs / brainstorm artifacts — not part of the shipped app
-/docs/superpowers/
+# Superpowers tool state (planning docs in /docs/superpowers/ ARE tracked)
 .superpowers/
 
 # Transient agent worktrees (Claude Code isolation checkouts)

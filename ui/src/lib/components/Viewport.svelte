@@ -107,15 +107,17 @@
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
   // true when the user has scrolled up away from the latest output → show a
-  // jump-to-bottom affordance bottom-right of the terminal. Two regimes:
-  //  • normal buffer (plain shell / classic Claude): xterm owns the scrollback,
-  //    so we read its viewport offset directly.
-  //  • alternate screen (Claude's fullscreen TUI): Claude owns the scroll and
-  //    xterm's viewport never moves, so we can't read a position. We approximate
-  //    it with a wheel/gesture accumulator (scrollDepth) and jump back with the
-  //    app's own Ctrl+End shortcut instead of moving xterm.
+  // jump-to-bottom affordance bottom-right of the terminal. Two regimes
+  // (see `agentOwnsScroll`):
+  //  • xterm owns the scrollback (plain shell, mouse-tracking off): read its
+  //    viewport offset directly.
+  //  • the agent owns the scroll (alternate screen, or mouse-tracking on the
+  //    normal buffer like Claude Code): it grabs the wheel and repaints its own
+  //    scrolled view, so xterm's viewport never moves and we can't read a
+  //    position. We approximate it with a wheel/gesture accumulator (scrollDepth)
+  //    and jump back with the app's own Ctrl+End shortcut instead of moving xterm.
   let scrolledUp = $state(false);
-  // px-ish accumulator of net upward scrolling while on the alternate screen;
+  // px-ish accumulator of net upward scrolling while the agent owns the scroll;
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
   // buffer switch, and a jump-to-bottom.
   let scrollDepth = 0;
@@ -360,12 +362,22 @@
     conn?.takeover();
   }
 
+  // The agent owns the scroll whenever it drives a full-screen view and pins
+  // xterm's viewport at the bottom: either the alternate screen (classic TUI) or
+  // mouse-tracking on the normal buffer. Claude Code does the latter — it stays
+  // on the normal buffer (keeping scrollback) but grabs the wheel and repaints
+  // its own scrolled view, so xterm's viewport never moves. In both regimes we
+  // can't read a scroll position from xterm; we lean on the gesture accumulator
+  // (scrollDepth) and jump back with the app's own shortcut instead.
+  const agentOwnsScroll = (term: Terminal): boolean =>
+    term.buffer.active.type === "alternate" || term.modes.mouseTrackingMode !== "none";
+
   function scrollToBottom() {
     const term = termRef;
     if (!term) return;
-    if (term.buffer.active.type === "alternate") {
-      // Claude's fullscreen TUI owns the scroll; xterm can't move it. Ctrl+End is
-      // its documented "jump to latest + re-enable auto-follow" shortcut and is
+    if (agentOwnsScroll(term)) {
+      // The agent owns the scroll; xterm can't move it. Ctrl+End is Claude's
+      // documented "jump to latest + re-enable auto-follow" shortcut and is
       // never interpreted as prompt text.
       conn?.send("\x1b[1;5F");
     } else {
@@ -637,12 +649,13 @@
     };
     el.addEventListener("paste", onPaste, true);
 
-    // Claude Code runs as a full-screen TUI on the alternate screen (no
-    // scrollback) with mouse tracking on: scrolling means sending wheel input
-    // to the app, which is what the mouse wheel does on desktop. Touch emits no
-    // wheel events, so translate one-finger drags into wheel events on xterm's
-    // screen — xterm then forwards them per the active mode (to the app when
-    // mouse-tracking, otherwise its own scrollback). Matches desktop in both.
+    // Claude Code runs as a full-screen TUI with mouse tracking on (it stays on
+    // the normal buffer, keeping scrollback, but grabs the wheel): scrolling
+    // means sending wheel input to the app, which is what the mouse wheel does on
+    // desktop. Touch emits no wheel events, so translate one-finger drags into
+    // wheel events on xterm's screen — xterm then forwards them per the active
+    // mode (to the app when mouse-tracking, otherwise its own scrollback).
+    // Matches desktop in both.
     let lastY: number | null = null;
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
@@ -655,9 +668,10 @@
       const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
       lastY = y;
       if (Math.abs(dy) > 2) dragged = true;
-      // on the alternate screen xterm's viewport never moves (onScroll won't fire),
-      // so track the gesture directly: dy<0 = scrolling up → grow the depth.
-      if (term.buffer.active.type === "alternate") {
+      // when the agent owns the scroll xterm's viewport never moves (onScroll
+      // won't fire), so track the gesture directly: dy<0 = scrolling up → grow
+      // the depth.
+      if (agentOwnsScroll(term)) {
         scrollDepth = Math.max(0, scrollDepth - dy);
       }
       recomputeScrolled();
@@ -689,15 +703,15 @@
     });
     ro.observe(el);
 
-    // track scroll position so we can offer a jump-to-bottom button. The normal
-    // buffer carries scrollback → read xterm's viewport offset. The alternate
-    // screen (Claude's fullscreen TUI) has no xterm scrollback and forwards wheel
-    // input to the app, so xterm's viewport never moves; there we lean on the
-    // wheel accumulator instead.
+    // track scroll position so we can offer a jump-to-bottom button. When the
+    // agent owns the scroll (alternate screen, or mouse-tracking on the normal
+    // buffer like Claude Code) it forwards wheel input to the app and xterm's
+    // viewport never moves, so we lean on the gesture accumulator. Otherwise the
+    // normal buffer carries scrollback → read xterm's viewport offset directly.
     const SCROLL_UP_PX = 30; // small swipe / one wheel notch before the button shows
     const recomputeScrolled = () => {
       const b = term.buffer.active;
-      scrolledUp = b.type === "normal" ? b.baseY - b.viewportY > 0 : scrollDepth > SCROLL_UP_PX;
+      scrolledUp = agentOwnsScroll(term) ? scrollDepth > SCROLL_UP_PX : b.baseY - b.viewportY > 0;
     };
     const scrollSub = term.onScroll(recomputeScrolled);
     const bufSub = term.buffer.onBufferChange(() => {
@@ -722,12 +736,13 @@
     };
     const renderSub = term.onRender(scanNotesAffordance);
 
-    // desktop wheel observer for the alternate screen, where onScroll never fires.
-    // Touch is tracked directly in onTouchMove, so ignore the synthetic wheels it
-    // dispatches (isTrusted=false) to avoid double-counting; only real wheels here.
-    // deltaY<0 = scrolling up (reveal older) → grow depth; >0 = toward latest.
+    // desktop wheel observer for when the agent owns the scroll, where onScroll
+    // never fires. Touch is tracked directly in onTouchMove, so ignore the
+    // synthetic wheels it dispatches (isTrusted=false) to avoid double-counting;
+    // only real wheels here. deltaY<0 = scrolling up (reveal older) → grow depth;
+    // >0 = toward latest.
     const onWheelTrack = (e: WheelEvent) => {
-      if (!e.isTrusted || term.buffer.active.type !== "alternate") return;
+      if (!e.isTrusted || !agentOwnsScroll(term)) return;
       scrollDepth = Math.max(0, scrollDepth - e.deltaY);
       recomputeScrolled();
     };

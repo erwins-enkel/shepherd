@@ -14,6 +14,14 @@ function parseFindings(raw: unknown): string[] {
   }
 }
 
+/** Allowed learning status transitions (spec §3). Terminal states have no exits. */
+const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
+  proposed: ["active", "dismissed"],
+  active: ["promoted", "dismissed"],
+  promoted: [],
+  dismissed: [],
+};
+
 export interface RepoConfig {
   criticEnabled: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
@@ -518,6 +526,7 @@ export class SessionStore implements CapStore {
   setLearningStatus(id: string, status: LearningStatus, rule?: string): Learning | null {
     const cur = this.getLearning(id);
     if (!cur) return null;
+    if (!LEARNING_TRANSITIONS[cur.status].includes(status)) return null;
     this.db.run(`UPDATE learnings SET status = ?, rule = ?, updatedAt = ? WHERE id = ?`, [
       status,
       rule ?? cur.rule,

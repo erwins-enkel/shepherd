@@ -24,12 +24,17 @@ const NO_USAGE: UsageLimitsType = { session5h: null, week: null, stale: false, c
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
   listIssuesCalls: number;
+  closedIssues: number[];
 }
 
 function fakeForge(
   issues: Issue[],
   rec: ForgeRec,
-  opts: { merge?: () => Promise<void>; listIssues?: () => Promise<Issue[]> } = {},
+  opts: {
+    merge?: () => Promise<void>;
+    listIssues?: () => Promise<Issue[]>;
+    closeIssue?: (n: number) => Promise<void>;
+  } = {},
 ): GitForge {
   return {
     kind: "github",
@@ -51,6 +56,10 @@ function fakeForge(
     },
     redeploy: async () => {},
     postReview: async () => ({}),
+    closeIssue: async (issueNumber: number) => {
+      rec.closedIssues.push(issueNumber);
+      if (opts.closeIssue) await opts.closeIssue(issueNumber);
+    },
   };
 }
 
@@ -90,7 +99,7 @@ function makeHarness(
     usageCeilingPct: opts.usageCeilingPct ?? 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0 };
+  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0, closedIssues: [] };
   const forge = fakeForge(opts.issues ?? [], forgeRec, {
     merge: opts.mergeImpl,
     listIssues: opts.listIssuesImpl,
@@ -510,7 +519,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     usageCeilingPct: 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0 };
+  const forgeRec: ForgeRec = { merges: [], listIssuesCalls: 0, closedIssues: [] };
   const forge = fakeForge([issue(1)], forgeRec);
   const creates: CreateSessionInput[] = [];
   const statuses: DrainStatus[] = [];
@@ -566,4 +575,76 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   // snapshot must not trigger additional spawns (no side-effects beyond what tick did)
   const createsAfterSnapshot = creates.length;
   expect(creates.length).toBe(createsAfterSnapshot);
+});
+
+test("closeIssue called once with issueNumber after successful auto-merge", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  h.setReview(s.id, "commented", "sha-7");
+  await h.drain.pump(REPO);
+  expect(h.forgeRec.merges).toHaveLength(1);
+  expect(h.forgeRec.closedIssues).toEqual([7]);
+});
+
+test("closeIssue not called when session has issueNumber === null", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-no-issue",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: null,
+  });
+  h.prCache[s.id] = openGreen(99);
+  h.setReview(s.id, "commented", "sha-99");
+  await h.drain.pump(REPO);
+  expect(h.forgeRec.merges).toHaveLength(1);
+  expect(h.forgeRec.closedIssues).toHaveLength(0);
+});
+
+test("closeIssue not called when merge throws", async () => {
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    mergeImpl: async () => {
+      throw new Error("conflict");
+    },
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  h.setReview(s.id, "commented", "sha-7");
+  await h.drain.pump(REPO);
+  expect(h.forgeRec.merges).toHaveLength(1); // attempted
+  expect(h.forgeRec.closedIssues).toHaveLength(0); // not called; merge failed
 });

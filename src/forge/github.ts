@@ -332,6 +332,10 @@ export class GithubForge implements GitForge {
     this.run(args);
   }
 
+  async closeIssue(issueNumber: number): Promise<void> {
+    this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
   }

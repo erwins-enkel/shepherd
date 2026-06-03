@@ -172,6 +172,9 @@ export interface GitForge {
    *  responses to earlier review rounds. Optional: only hosts with a comments API
    *  implement it (GitHub); others omit it and no author notes are surfaced. */
   listPrComments?(prNumber: number): Promise<PrComment[]>;
+  /** Close an issue by number (best-effort; used by the drain to retire a backlog
+   *  issue once its auto PR merges). Optional: hosts without an issues-close API omit it. */
+  closeIssue?(issueNumber: number): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

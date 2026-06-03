@@ -205,6 +205,17 @@ export class DrainService {
       await forge.merge(decision.prNumber, { method: forge.mergeMethod, deleteBranch: true });
       // SUCCESS → leave it in `merging`; onGit clears it when the merged state lands.
       // The slot stays consumed until the pr-poller reports "merged" (frees on its signal, not self-recovering).
+      // Retire the backlog issue now that its PR landed, so it leaves listIssues()
+      // regardless of archived-session retention. Best-effort: the merge already
+      // succeeded, so a close failure must not unwind it.
+      const issueNumber = this.deps.store.get(decision.sessionId)?.issueNumber ?? null;
+      if (issueNumber != null) {
+        try {
+          await forge.closeIssue?.(issueNumber);
+        } catch (err) {
+          console.warn(`[drain] closeIssue #${issueNumber} failed for ${decision.sessionId}:`, err);
+        }
+      }
     } catch (err) {
       console.warn(`[drain] merge failed for ${decision.sessionId}:`, err);
       // A throw (race / conflict) → remove so a later poll can retry the merge.

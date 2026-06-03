@@ -1,5 +1,12 @@
 # Critic Post-Merge Steer Guard — Implementation Plan
 
+> **⚠️ Superseded scope (kept for history).** This plan implements the original
+> **surgical** (steer-only) approach, which shipped first. It was later **widened to a
+> "moot run"** (gate `postReview` + the `critic` signal on the same live-open check, all in
+> `finalize()`) per the PR #281 critic review. The spec
+> (`docs/superpowers/specs/2026-06-03-critic-postmerge-steer-guard-design.md`) reflects the
+> final moot-run design; the tasks below describe the intermediate surgical step.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop an in-flight critic from steering findings into a task agent after that agent's PR has already merged/closed.

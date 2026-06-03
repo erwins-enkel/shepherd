@@ -34,15 +34,21 @@ merge co-trigger on CI-green so they race by construction.
 
 ## Fix
 
-Re-fetch authoritative live PR state at the **last gate before the steer**
-(`runAutoAddress()`), and skip the steer when the PR is no longer `"open"`.
+Re-fetch authoritative live PR state in `finalize()` and, when the PR is no longer
+`"open"`, treat the whole verdict as **moot** — emit none of its outward effects.
 
-### Scope — surgical (steer only)
+### Scope — moot run
 
-Only the auto-address steer is suppressed. **Unchanged:** `postReview()` (a merged PR
-still gets its critic review posted), `putReview()` (verdict still persisted), and the
-`critic` learnings signal. The chaos source is the steer; that is the only behavior
-that changes.
+> **History:** originally shipped "surgical" (steer-only) per an explicit scope call;
+> widened to the moot run below in response to the PR #281 critic review, which flagged
+> that posting a `REQUEST_CHANGES` review and recording a `critic` learnings signal on an
+> already-merged PR is itself confusing/noise.
+
+When the PR is not open at finalize, **all three** outward effects are suppressed: the
+steer, `postReview()`, **and** the `critic` learnings signal. Still run regardless of
+state: `putReview()` (verdict persisted for UI/dedup), `onChange()`, and the
+worktree/terminal reap (the `finally`). A merged/closed PR's critic run leaves no trace
+on the world beyond the local verdict row.
 
 ### Mechanics
 
@@ -50,43 +56,44 @@ that changes.
    `session.branch` in `begin()`. `prStatus()` keys on the head branch, and `InFlight`
    currently stores only `prNumber`.
 
-2. **Make `runAutoAddress()` async** (`Promise<number>`); `finalize()` awaits it:
-   `verdict.addressRound = await this.runAutoAddress(f, verdict);`.
+2. **`runAutoAddress()` stays synchronous** (`: number`). `finalize()` awaits the single
+   `prStatus()` call directly and calls `runAutoAddress()` un-awaited inside the open
+   gate. (Reaching `runAutoAddress()` already implies the PR is open, so it does no
+   recheck of its own.)
 
-3. **Lazy live recheck.** Inside `runAutoAddress()`, *after* the existing guards
-   (findings non-empty → `autoAddressEnabled` → `priorRound < cap`) and **only** when
-   about to steer, call `resolveForge(f.repoPath)?.prStatus(f.branch)`. Steer only if
-   live `state === "open"`. The laziness means clean verdicts, disabled-loop repos, and
-   at-cap streaks make **zero** new forge calls.
+3. **Single live recheck in `finalize()`.** At the top of the real-verdict (`else`)
+   branch, call `resolveForge(f.repoPath)?.prStatus(f.branch)` once and compute
+   `open = state === "open"`. Gate `postReview()`, `runAutoAddress()`, and the `critic`
+   `addSignal()` together behind `if (open && forge)`. One forge call per finalized real
+   verdict — `finalize()` already does forge I/O (`postReview`, `fetchAuthorNotes`), so
+   this is consistent.
 
-4. **Not open ⇒ hold the round.** Skip the steer and return `f.priorRound` (no advance,
-   no reset) — identical to the existing "steer didn't land" semantics, so the badge is
-   coherent and a later push could retry.
+4. **Not open ⇒ inert.** The whole open-gated block is skipped; `addressRound` keeps its
+   `buildVerdict` default (`0`) and no review/steer/signal is emitted.
 
-5. **Fail-closed.** If `prStatus()` throws, or the forge can't be resolved (state can't
-   be confirmed open), skip the steer and hold the round. Rationale: the steer is
-   recoverable (next push re-triggers; a human can send manually); the chaos is not.
-   Log the skip (`console.warn`), consistent with the file's other best-effort forge
-   warnings.
+5. **Fail-closed.** If `prStatus()` throws or the forge can't be resolved (state can't be
+   confirmed open), stay fully inert. Rationale: a missed review/steer is recoverable
+   (next push re-triggers; a human can send manually); acting on a dead PR is not. Log
+   the skip (`console.warn`), consistent with the file's other best-effort forge warnings.
 
 ### Whole-class coverage
 
-The guard checks `state !== "open"`, covering **merged, closed, and `none`** (e.g. a
-branch deleted on merge) — not just the literal merged case named in the bug.
+The guard checks `state === "open"`, so every non-open state — **merged, closed, and
+`none`** (e.g. a branch deleted on merge) — is inert, not just the literal merged case
+named in the bug.
 
 ### Deliberately NOT in scope (YAGNI)
 
 - **Event-driven abort-on-merge.** A `session:git` handler that aborts an in-flight
   critic when its PR leaves `"open"` would save wasted critic compute, but **cannot
-  close the race alone**: the 15s finalize tick can fire the steer before the 120s
-  merge-detection poll runs. The finalize-time recheck is the authoritative fix; early
-  abort is a separable optimization, omitted here.
-- Suppressing `postReview` / signal on a merged PR (rejected: surgical scope).
+  close the race alone**: the 15s finalize tick can fire before the 120s merge-detection
+  poll runs. The finalize-time recheck is the authoritative fix; early abort is a
+  separable optimization, omitted here.
 
 ## Race / concurrency safety
 
-The new `await` sits inside the `f.finalizing = true` window. Overlapping ticks already
-`continue` past a `finalizing` entry (`tick()`, `review.ts:306`), so no new
+The `await prStatus()` sits inside the `f.finalizing = true` window. Overlapping ticks
+already `continue` past a `finalizing` entry (`tick()`, `review.ts:308`), so no new
 double-finalize race is introduced, and no dedupe-guard/slot-claim is straddled (the
 inflight slot is claimed for the whole of `finalize`). `finalize()` already performs
 forge I/O (`postReview`, `fetchAuthorNotes`) on this same tick, so the added
@@ -95,27 +102,32 @@ forge I/O (`postReview`, `fetchAuthorNotes`) on this same tick, so the added
 ## No UI / i18n impact
 
 Server-only. `steerText` / `reviewPrompt` remain English (agent-facing, never i18n'd).
-The verdict payload shape is unchanged; `addressRound` simply does not advance when the
-PR is no longer open. No locale-catalog or Svelte changes.
+The verdict payload shape is unchanged; on a non-open PR the verdict is still persisted
+but carries no `url` and `addressRound` stays `0`. No locale-catalog or Svelte changes.
 
-## Test plan (`test/review.test.ts`)
+## Test plan (`test/review.test.ts`, `test/signal-capture.test.ts`)
 
 Thread an optional PR state into the test forge: extend `fakeForge` / `makeDeps` so a
 test can make `prStatus` resolve a non-open state (default stays `OPEN_GREEN`, so every
-existing steer test passes unchanged).
+existing open-path test passes unchanged).
 
-New cases:
+Cases:
 
-1. **Merged at finalize ⇒ no steer (surgical).** `autoAddressEnabled`, findings
-   present, `prStatus → { ...OPEN_GREEN, state: "merged" }`. Assert: `steers` empty;
-   `addressRound` held (not advanced); `rec.event === "REQUEST_CHANGES"` (postReview
-   still fired); verdict persisted.
-2. **Still open ⇒ steers as before.** `prStatus → OPEN_GREEN`. Assert one steer,
-   `addressRound` advances (guards the default path).
-3. **`prStatus` throws ⇒ no steer, round held (fail-closed).**
-4. **Closed (not merged) ⇒ no steer.** `state: "closed"` — proves whole-class coverage.
+1. **Merged at finalize ⇒ fully inert.** `autoAddressEnabled`, findings present,
+   `prStatus → { ...OPEN_GREEN, state: "merged" }`. Assert: `steers` empty;
+   `rec.event === undefined` (postReview **not** fired); no `critic` signal; verdict still
+   persisted (`decision === "changes_requested"`); `addressRound === 0`.
+2. **`prStatus` throws ⇒ fully inert (fail-closed).** Assert `steers` empty and
+   `rec.event === undefined`; tick does not reject.
+3. **Closed (not merged) ⇒ fully inert.** `state: "closed"` — assert `steers` empty and
+   `rec.event === undefined`; proves whole-class coverage.
+4. **Open path unchanged (regression guard).** Covered by the existing default-open
+   tests: "consider → tick: posts request-changes…" (review + signal fire) and "round cap
+   reached…" (review + signal fire, no steer). `signal-capture.test.ts` swaps its
+   `resolveForge: () => null` for an open fake forge so the `critic`-signal path stays
+   genuinely exercised under the new gate.
 
-Existing suite must remain green (the default-open forge keeps steer tests intact).
+Existing suite must remain green (the default-open forge keeps open-path tests intact).
 
 ## Verification
 

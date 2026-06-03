@@ -350,6 +350,18 @@ test("auto-address on: feeds findings back to the agent and advances the round",
   expect(reviews["s1"]?.findings).toEqual(["nit: rename x to y"]);
 });
 
+test("disabling auto-address mid-streak resets the round (no stale round badge)", async () => {
+  const { deps: d, reviews } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
+    { autoAddressEnabled: false }, // user toggled the loop off while a streak was at round 2
+  );
+  reviews["s1"] = priorReview({ addressRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressRound).toBe(0); // loop off → no streak; badge clears
+});
+
 test("auto-address off: never steers even with findings", async () => {
   const { deps: d, steers } = makeDeps(
     {

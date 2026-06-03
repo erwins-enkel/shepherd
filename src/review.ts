@@ -63,7 +63,11 @@ function steerText(findings: string[], prNumber: number): string {
 }
 
 const VERDICT_FILE = ".shepherd-review.json";
-const DEFAULT_CAP = 3; // max auto-address steers per outstanding-findings streak
+// Max auto-address steers per outstanding-findings streak. The UI mirrors this as
+// CRITIC_ROUND_CAP (ui/.../critic-badge.ts) for the round/stalled badge math; if this
+// ever becomes a per-deployment `deps.cap`, surface it in the verdict/config payload and
+// drop the UI constant rather than letting the two drift.
+const DEFAULT_CAP = 3;
 
 interface InFlight {
   sessionId: string;
@@ -334,7 +338,13 @@ export class ReviewService {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
-    if (!enabled || f.priorRound >= this.cap) return f.priorRound; // off, or gave up → hold
+    // Loop off (never on, or toggled off mid-streak) → clear the streak so the badge
+    // doesn't keep showing a stale "round N/3" for a loop that's no longer running.
+    if (!enabled) return 0;
+    // Note: a fresh, unrelated finding introduced on a later push still counts toward
+    // this streak rather than resetting — the cap bounds total agent churn per PR, which
+    // is fine for the prototype. Revisit if per-issue rounds become the intended model.
+    if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
     // A dead pane makes herdr.send (execFileSync) throw rather than return false, so a
     // throw counts as not-delivered too — the round must not advance on a steer that
     // never landed, and the throw must not strand finalize().

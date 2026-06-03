@@ -1073,6 +1073,53 @@ async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Respon
   }
 }
 
+// POST /api/actions/rerun — re-run a GitHub Actions run by repo + runId. When the
+// run failed, `failedOnly` retries just the broken jobs; otherwise the whole run.
+// GitHub only; other forges lack the method → 400 (the tab hides the button anyway).
+async function handleActionsRerun({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "actions" || parts[2] !== "rerun")
+    return null;
+  const body = (await req.json().catch(() => ({}))) as {
+    repo?: string;
+    runId?: number;
+    failedOnly?: boolean;
+  };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.runId !== "number") return json({ error: "runId required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.rerunWorkflowRun) return json({ error: "no actions for repo" }, 400);
+  try {
+    await forge.rerunWorkflowRun(body.runId, { failedOnly: body.failedOnly ?? false });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "rerun failed" }, 502);
+  }
+}
+
+// POST /api/actions/cancel — cancel an in-progress GitHub Actions run by repo + runId.
+async function handleActionsCancel({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "actions" ||
+    parts[2] !== "cancel"
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string; runId?: number };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.runId !== "number") return json({ error: "runId required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.cancelWorkflowRun) return json({ error: "no actions for repo" }, 400);
+  try {
+    await forge.cancelWorkflowRun(body.runId);
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "cancel failed" }, 502);
+  }
+}
+
 // POST /api/prs/merge — merge a backlog PR by repo + number (no session involved).
 async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
@@ -1280,6 +1327,8 @@ const ROUTE_HANDLERS = [
   handleIssues,
   handlePrsList,
   handleActionsList,
+  handleActionsRerun,
+  handleActionsCancel,
   handlePrMerge,
   handleBacklog,
   handleTodo,

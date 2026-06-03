@@ -377,6 +377,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
 
   expect(runs).toEqual([
     {
+      runId: 200,
       workflowName: "CI",
       runUrl: "https://gh/run/200",
       headSha: "sha2",
@@ -388,6 +389,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
       ],
     },
     {
+      runId: 150,
       workflowName: "Deploy",
       runUrl: "https://gh/run/150",
       headSha: "sha2",
@@ -441,6 +443,24 @@ test("GithubForge.listWorkflowRuns: caps at 10 workflows", async () => {
   const runs = await new GithubForge("o/r", {}, run).listWorkflowRuns();
   expect(runs.length).toBe(10);
   expect(viewCalls).toBe(10);
+});
+
+test("GithubForge.rerunWorkflowRun: full re-run invokes gh run rerun with the id + repo", async () => {
+  const { run, calls } = fakeRunner({});
+  await new GithubForge("o/r", {}, run).rerunWorkflowRun(200, { failedOnly: false });
+  expect(calls[0]).toEqual(["run", "rerun", "200", "--repo", "o/r"]);
+});
+
+test("GithubForge.rerunWorkflowRun: failedOnly adds --failed", async () => {
+  const { run, calls } = fakeRunner({});
+  await new GithubForge("o/r", {}, run).rerunWorkflowRun(200, { failedOnly: true });
+  expect(calls[0]).toEqual(["run", "rerun", "200", "--repo", "o/r", "--failed"]);
+});
+
+test("GithubForge.cancelWorkflowRun: invokes gh run cancel with the id + repo", async () => {
+  const { run, calls } = fakeRunner({});
+  await new GithubForge("o/r", {}, run).cancelWorkflowRun(150);
+  expect(calls[0]).toEqual(["run", "cancel", "150", "--repo", "o/r"]);
 });
 
 test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {

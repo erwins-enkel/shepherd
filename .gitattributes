@@ -1,0 +1,19 @@
+# Normalize to LF and let git auto-detect true binaries.
+* text=auto eol=lf
+
+# Source/text files are always diffed as text: a stray control byte (e.g. a NUL
+# that once crept into a .svelte key separator) must never flip them to a binary
+# diff. `diff` forces textual diffing even when a blob trips git's NUL heuristic.
+*.ts    text diff
+*.tsx   text diff
+*.js    text diff
+*.mjs   text diff
+*.cjs   text diff
+*.svelte text diff
+*.json  text diff
+*.css   text diff
+*.html  text diff
+*.md    text diff
+*.yml   text diff
+*.yaml  text diff
+*.sh    text eol=lf diff

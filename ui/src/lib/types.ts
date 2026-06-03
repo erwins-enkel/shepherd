@@ -113,6 +113,8 @@ export interface WorkflowJob {
 
 /** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */
 export interface WorkflowRun {
+  /** Host run id — the handle re-run / cancel act on. */
+  runId: number;
   workflowName: string;
   runUrl: string;
   headSha: string;

@@ -5,6 +5,12 @@ import { loadForgeMap } from "./forge/load-config";
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
 const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.json");
+// persistent herdr-update audit log: one delimited block per `herdr update`,
+// written by the transient update unit itself (NOT shepherd) so the record
+// survives the shepherd restart the update triggers. Lives next to the db so a
+// post-mortem is `cat ~/.shepherd/herdr-update.log`; SHEPHERD_HERDR_UPDATE_LOG overrides.
+const herdrUpdateLogPath =
+  process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
 
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
@@ -13,6 +19,7 @@ export const config = {
   host: process.env.SHEPHERD_HOST ?? "127.0.0.1",
   dbPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
+  herdrUpdateLogPath,
   // node binary for the PTY attach helper (pty-attach.mjs). Resolved so a node
   // managed by mise/nvm/fnm still works when the launcher's PATH excludes it —
   // otherwise the helper can't spawn and every session pane stays black.

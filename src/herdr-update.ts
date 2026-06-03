@@ -36,6 +36,77 @@ export interface HerdrUpdateDeps {
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 const LATEST_URL = "https://herdr.dev/latest.json";
 
+/** Prefix every step marker the update script echoes. Stable + greppable so the
+ *  operator can `journalctl --user -u herdr-update | grep '>>> herdr-update'` and
+ *  read the exact sequence (and exit code) even after shepherd has restarted. */
+export const UPDATE_LOG_PREFIX = ">>> herdr-update:";
+
+/** Versions are regex-captured (digits + dots) before they reach here, but they
+ *  ultimately originate from herdr.dev/latest.json — an external source. Strip
+ *  anything that isn't a version char before embedding in the shell program so a
+ *  poisoned payload can never inject commands. Empty → "unknown". */
+function sanitizeVersion(v: string | null | undefined): string {
+  const clean = (v ?? "").replace(/[^0-9.]/g, "");
+  return clean || "unknown";
+}
+
+/**
+ * The shell program the transient `herdr-update` unit runs. Extracted + exported
+ * so its sequencing is unit-testable without a live herdr release (the only way
+ * to exercise the real launch otherwise).
+ *
+ * Three guarantees, all learned from a stranded-502 incident and the operator's
+ * need to audit past updates while developing against them:
+ *
+ *  1. Every run appends ONE delimited block to `logPath` (default
+ *     ~/.shepherd/herdr-update.log) via `tee -a`: a `=== herdr-update <UTC>
+ *     <from> -> <to> ===` header, each step marker, raw `herdr update` output,
+ *     the exit code, and the restart result. The script writes this file
+ *     itself, NOT shepherd — so the record is COMPLETE even though shepherd
+ *     (and its live SSE log stream) goes down mid-update. `cat <logPath>` is the
+ *     durable post-mortem; the same lines still stream to the journal + modal.
+ *
+ *  2. Each step echoes a `UPDATE_LOG_PREFIX` marker BEFORE it runs, and the
+ *     `herdr update` exit code is echoed explicitly — so the log shows precisely
+ *     which step ran last and whether the update itself succeeded.
+ *
+ *  3. shepherd is restarted UNCONDITIONALLY — `herdr update; ...; restart`, NOT
+ *     `herdr update && restart`. The old `&&` short-circuited on a failed
+ *     update, leaving herdr stopped (we stop it first, see defaultLaunch) and
+ *     shepherd never bounced → a hard 502 until the operator manually ran
+ *     `herdr`. Always restarting self-heals: worst case shepherd comes back on
+ *     the old herdr version, which re-establishes the herdr server on startup.
+ */
+export function buildUpdateScript(
+  logPath: string,
+  from?: string | null,
+  to?: string | null,
+): string {
+  const f = sanitizeVersion(from);
+  const t = sanitizeVersion(to);
+  // single-quote the path for the shell; a literal `'` inside it (vanishingly
+  // unlikely in a home path) is escaped via the classic '\'' close-reopen trick.
+  const q = `'${logPath.replace(/'/g, "'\\''")}'`;
+  // The restart lives INSIDE the tee'd block so "restart issued" + its rc are
+  // recorded too. Restarting shepherd.service does not touch this separate
+  // transient unit, so the trailing lines still get written after shepherd dies.
+  return [
+    `LOG=${q}`,
+    'mkdir -p "$(dirname "$LOG")"',
+    "{",
+    `  echo "=== herdr-update $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
+    `  echo '${UPDATE_LOG_PREFIX} stopping herdr server'`,
+    "  herdr server stop || true",
+    `  echo '${UPDATE_LOG_PREFIX} running herdr update'`,
+    "  herdr update; rc=$?",
+    `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
+    `  echo "${UPDATE_LOG_PREFIX} restarting shepherd (update rc=$rc)"`,
+    "  systemctl --user restart shepherd",
+    `  echo "${UPDATE_LOG_PREFIX} restart command returned $?"`,
+    '} 2>&1 | tee -a "$LOG"',
+  ].join("\n");
+}
+
 /**
  * Tracks whether a newer herdr (the external terminal multiplexer Shepherd
  * drives) is published upstream and, on demand, drives `herdr update` for the
@@ -122,7 +193,11 @@ export class HerdrUpdateService {
    *  which clears the targets, letting the non-interactive update proceed. The
    *  shepherd restart then brings up a fresh session on the new version. Stopping
    *  ends live agent panes, but `herdr update` is destructive by design anyway.
-   *  `|| true` so a "no server running" stop never blocks the update. */
+   *  `|| true` so a "no server running" stop never blocks the update.
+   *
+   *  The exact step sequencing (and why shepherd is always restarted) lives in
+   *  buildUpdateScript(); it echoes greppable markers into this transient unit's
+   *  journal so a post-mortem survives the shepherd restart. */
   private defaultLaunch(): void {
     // forward our PATH: a transient --user unit gets a bare environment, but the
     // command needs herdr/systemctl, which live on the service's PATH.
@@ -131,7 +206,7 @@ export class HerdrUpdateService {
     args.push(
       "bash",
       "-lc",
-      "herdr server stop || true; herdr update && systemctl --user restart shepherd",
+      buildUpdateScript(config.herdrUpdateLogPath, this.last?.current, this.last?.latest),
     );
     const child = spawn("systemd-run", args, { stdio: "ignore" });
     child.unref();
@@ -147,6 +222,15 @@ export class HerdrUpdateService {
   apply(): { started: boolean } {
     if (this.applying) return { started: false };
     this.applying = true;
+    // Breadcrumb in shepherd's OWN journal (`journalctl --user -u shepherd`): the
+    // SSE log stream and the transient-unit journal both go quiet the moment
+    // shepherd restarts, so this is the one record that ties the restart in
+    // shepherd's log back to a deliberate herdr update.
+    console.warn(
+      `[herdr-update] applying update ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
+        `shepherd will restart (audit log: ${config.herdrUpdateLogPath}, ` +
+        "or journalctl --user -u herdr-update -n 50)",
+    );
     // Start streaming the journal BEFORE launching: `herdr update` runs inside the
     // transient unit and emits its diagnostics (incl. the "update failed: …" line)
     // within milliseconds. If we launched first, the `journalctl -f` tailer would

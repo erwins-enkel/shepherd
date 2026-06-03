@@ -30,6 +30,11 @@ export class BranchPruner {
     private store: Pick<SessionStore, "list" | "getSetting">,
     private resolveForge: (repoPath: string) => GitForge | null,
     private intervalMs = 60 * 60 * 1000,
+    /** Max forge lookups per sweep. Each `forge.prStatus` is a blocking
+     *  `execFileSync("gh")` (see github.ts), so an unbounded first sweep over a
+     *  large accumulated backlog would stall the event loop; capping bounds the
+     *  blocking and lets the backlog drain across subsequent hourly ticks. */
+    private maxChecksPerTick = 20,
   ) {}
 
   /** Default ON: only an explicit "0" disables the sweep. */
@@ -72,32 +77,59 @@ export class BranchPruner {
     return out;
   }
 
-  private deleteBranch(repo: string, branch: string): void {
-    if (!BRANCH_RE.test(branch)) return;
+  /** Delete a local branch. Returns true iff the delete succeeded. */
+  private deleteBranch(repo: string, branch: string): boolean {
+    if (!BRANCH_RE.test(branch)) return false;
     try {
       execFileSync("git", ["branch", "-D", branch], { cwd: repo, stdio: "pipe" });
+      return true;
     } catch {
-      /* checked out elsewhere / already gone — best-effort */
+      return false; // checked out elsewhere / already gone — best-effort
     }
   }
 
-  /** Prune merged shepherd branches for a single repo. */
-  private async pruneRepo(repo: string, activeBranches: Set<string>): Promise<void> {
+  /** One forge lookup, never throwing: "merged", "kept" (open/closed/none), or
+   *  "error" (gh/forge failure → caller keeps the branch and logs). Kept as its
+   *  own method so the loop in pruneRepo stays shallow (cognitive-complexity gate). */
+  private async branchMergeState(
+    forge: GitForge,
+    branch: string,
+  ): Promise<"merged" | "kept" | "error"> {
+    try {
+      return (await forge.prStatus(branch)).state === "merged" ? "merged" : "kept";
+    } catch {
+      return "error";
+    }
+  }
+
+  /**
+   * Prune merged shepherd branches for a single repo, making at most `budget`
+   * forge lookups (each is a blocking `gh` call). Returns the number of lookups
+   * actually spent so tick() can keep the per-sweep total bounded.
+   */
+  private async pruneRepo(
+    repo: string,
+    activeBranches: Set<string>,
+    budget: number,
+  ): Promise<number> {
     const forge = this.resolveForge(repo);
-    if (!forge) return; // can't confirm merged → leave the repo alone
+    if (!forge) return 0; // can't confirm merged → leave the repo alone
     const checkedOut = this.checkedOut(repo);
+    let checks = 0;
+    let failures = 0;
     let pruned = false;
     for (const branch of this.shepherdBranches(repo)) {
       if (checkedOut.has(branch) || activeBranches.has(branch)) continue;
-      let merged: boolean;
-      try {
-        merged = (await forge.prStatus(branch)).state === "merged";
-      } catch {
-        continue; // gh error → unknown → keep
-      }
-      if (!merged) continue;
-      this.deleteBranch(repo, branch);
-      pruned = true;
+      if (checks >= budget) break; // out of budget → leave the rest for the next sweep
+      checks++;
+      const state = await this.branchMergeState(forge, branch);
+      if (state === "error") failures++;
+      else if (state === "merged") pruned = this.deleteBranch(repo, branch) || pruned;
+    }
+    // A persistent gh/forge failure (auth expiry, rate limit) would otherwise leave
+    // branches un-pruned with no signal — surface it once per repo per sweep.
+    if (failures > 0) {
+      console.warn(`[prune] ${failures} forge check(s) failed in ${repo}; kept for next sweep`);
     }
     if (pruned) {
       try {
@@ -106,6 +138,7 @@ export class BranchPruner {
         /* best-effort */
       }
     }
+    return checks;
   }
 
   async tick(): Promise<void> {
@@ -122,8 +155,12 @@ export class BranchPruner {
           .map((s) => s.branch)
           .filter((b): b is string => !!b),
       );
+      // Spend a bounded forge-lookup budget across repos so the first post-boot
+      // sweep over an accumulated backlog can't stall the event loop.
+      let budget = this.maxChecksPerTick;
       for (const repo of repos) {
-        await this.pruneRepo(repo, activeBranches);
+        if (budget <= 0) break;
+        budget -= await this.pruneRepo(repo, activeBranches, budget);
       }
     } finally {
       this.running = false;

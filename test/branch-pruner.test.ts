@@ -66,6 +66,28 @@ const sessionOn = (repo: string, branch: string) => ({
   herdrAgentId: "term_a",
 });
 
+test("caps forge lookups per tick and drains the backlog across ticks", async () => {
+  const repo = mkRepo();
+  git(repo, "branch", "shepherd/a");
+  git(repo, "branch", "shepherd/b");
+  const store = new SessionStore(":memory:");
+  store.archive(store.create(sessionOn(repo, "shepherd/a")).id);
+  // maxChecksPerTick = 1 → at most one branch checked (and so deleted) per tick.
+  const pruner = new BranchPruner(
+    store,
+    () => forge({ "shepherd/a": "merged", "shepherd/b": "merged" }),
+    60 * 60 * 1000,
+    1,
+  );
+
+  await pruner.tick();
+  expect(localBranches(repo).filter((b) => b.startsWith("shepherd/")).length).toBe(1);
+
+  await pruner.tick();
+  expect(localBranches(repo).filter((b) => b.startsWith("shepherd/")).length).toBe(0);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("deletes a merged orphan branch, keeps open and none", async () => {
   const repo = mkRepo();
   git(repo, "branch", "shepherd/merged");

@@ -87,6 +87,7 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
     hasOpenPr: () => opts.openPr ?? false,
+    refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
@@ -197,6 +198,15 @@ test("steer that doesn't land → no step++", async () => {
   });
   await h.svc.onBlock("s1", block());
   expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("onDone kicks a PR refresh before classifying (catch a just-opened PR)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "x" },
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ refreshPr: "s1" });
 });
 
 test("finished + dead pane → resume then steer", async () => {

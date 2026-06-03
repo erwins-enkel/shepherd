@@ -154,7 +154,11 @@ export async function classifyStop(
     model = "haiku",
     now = Date.now,
     sleep = realSleep,
-    timeoutMs = 60_000,
+    // Deliberately shorter than the critic's 10m: this is a fast tail-triage on haiku, not a
+    // full-diff review — a stuck classifier should surface to the operator (unknown→pause)
+    // promptly, not block for minutes. 2m (vs the namer's 60s) gives a cold/queued spawn
+    // enough headroom that a transient slow start doesn't manifest as a spurious pause.
+    timeoutMs = 120_000,
     pollMs = 1_000,
   } = deps;
 

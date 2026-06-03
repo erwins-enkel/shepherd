@@ -37,6 +37,10 @@ export interface AutopilotDeps {
   readTail: (id: string) => string[];
   /** Whether the session already has an open PR (critic territory → autopilot stands down). */
   hasOpenPr: (id: string) => boolean;
+  /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
+   *  so the `hasOpenPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
+   *  agent just opened before autopilot redundantly steers it to open one. */
+  refreshPr?: (id: string) => void;
   /** Fired when autopilot hands a session back for a genuine question / step-cap. */
   onPause: (id: string, question: string) => void;
   /** Fired after any autopilot-field mutation (pause / clear) so the wiring can emit a live event. */
@@ -145,6 +149,11 @@ export class AutopilotService {
   /** session:status "done" handler — agent exited / idled. Read its tail and classify;
    *  a `finished` verdict drives it to a PR (resuming the pane if needed). */
   async onDone(id: string): Promise<void> {
+    // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
+    // be in the cached PR snapshot yet. Firing it here puts the poll in flight during the
+    // (multi-second) classify spawn, so the post-classify eligible()/hasOpenPr re-check in
+    // consider() sees the fresh PR and stands down instead of redundantly steering "open a PR".
+    this.deps.refreshPr?.(id);
     let tail: string[] = [];
     try {
       tail = this.deps.readTail(id);
@@ -156,7 +165,12 @@ export class AutopilotService {
 
   /** session:status "running" handler. A paused→running transition is the operator
    *  answering: clear the pause and refresh the step budget. Non-paused running is a no-op
-   *  (autopilot's OWN gate-steers resume the agent — those must not reset the cap). */
+   *  (autopilot's OWN gate-steers resume the agent — those must not reset the cap).
+   *  Known limitation: a manual operator steer while the loop is active-but-NOT-paused also
+   *  produces "running" and is indistinguishable from autopilot's own steer here, so it does
+   *  NOT refresh the budget — a slight deviation from the design's "reset on manual intervene".
+   *  The cap still resets on PR-open (onPrOpen) and on answering a pause, which covers the
+   *  cases that matter; conflating the two would let the cap never bite. */
   onStatus(id: string, status: string): void {
     if (status !== "running") return;
     const s = this.deps.store.get(id);

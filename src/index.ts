@@ -229,6 +229,7 @@ const autopilot = new AutopilotService({
     return s ? tailLines(herdr.read(s.herdrAgentId, "visible")) : [];
   },
   hasOpenPr: (id) => prPoller.snapshot()[id]?.state === "open",
+  refreshPr: (id) => prPoller.pollSession(id),
   onPause: (id, question) => {
     const s = store.get(id);
     if (!s) return;

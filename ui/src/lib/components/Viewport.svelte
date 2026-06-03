@@ -33,6 +33,7 @@
   import GitRail from "$lib/components/GitRail.svelte";
   import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
+  import { repoConfig } from "$lib/reviews.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -285,9 +286,17 @@
   // compact; mirrors readyVisible's placement pattern in the primary header row.
   const autopilotToggleVisible = $derived(!compact);
 
+  // Effective autopilot state: the session override when set, otherwise the repo default.
+  // The button must reflect THIS (not `=== true`) — a null-override session under an
+  // autopilot-on repo is actually running, and showing it as "off" would mislead.
+  const autopilotEffective = $derived(
+    session.autopilotEnabled ?? repoConfig.isAutopilotEnabled(session.repoPath),
+  );
+
   async function toggleSessionAutopilot() {
-    const next = session.autopilotEnabled !== true;
-    await setSessionAutopilot(session.id, next).catch(() => {});
+    // Flip the effective state to an explicit override (this never restores `null`/inherit —
+    // an accepted limitation; clearing back to inherit isn't exposed in the UI).
+    await setSessionAutopilot(session.id, !autopilotEffective).catch(() => {});
   }
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
@@ -1127,21 +1136,21 @@
         <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
       {/if}
       {#if autopilotToggleVisible}
-        <!-- desktop: per-session autopilot override toggle. null = inherit repo default. -->
+        <!-- desktop: per-session autopilot override toggle. Reflects the EFFECTIVE state
+             (session override, else repo default) so a null-override session isn't shown
+             as off while the repo default has it running. -->
         <button
           class="ap-toggle"
-          class:on={session.autopilotEnabled === true}
+          class:on={autopilotEffective}
           type="button"
-          aria-pressed={session.autopilotEnabled === true}
+          aria-pressed={autopilotEffective}
           aria-label={m.session_autopilot_toggle_aria()}
-          title={session.autopilotEnabled === true
+          title={autopilotEffective
             ? m.session_autopilot_on_label()
             : m.session_autopilot_off_label()}
           onclick={toggleSessionAutopilot}
         >
-          {session.autopilotEnabled === true
-            ? m.session_autopilot_on_label()
-            : m.session_autopilot_off_label()}
+          {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
         </button>
         <AutopilotBadge {session} />
       {/if}

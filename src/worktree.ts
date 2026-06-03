@@ -65,6 +65,23 @@ export class WorktreeMgr {
     execFileSync("git", ["branch", "-m", oldBranch, newBranch], { cwd: repoPath, stdio: "pipe" });
   }
 
+  /** The branch currently checked out in `worktreePath`, or null when HEAD is
+   *  detached or the path isn't a readable git worktree. This is the source of
+   *  truth for which branch a session's PR will come from — an agent that runs
+   *  `git checkout -b` / `git branch -m` moves it out from under the stored value. */
+  currentBranch(worktreePath: string): string | null {
+    try {
+      const out = execFileSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+        cwd: worktreePath,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      return out.trim() || null;
+    } catch {
+      return null; // detached HEAD or not a worktree
+    }
+  }
+
   /** Commits on `branch` not yet on `baseBranch` (`git rev-list --count base..branch`).
    *  0 means the branch tip still equals base — the "nothing committed yet" window in
    *  which an auto-rename can safely move the branch. Returns a large number on any

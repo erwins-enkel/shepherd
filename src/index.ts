@@ -132,8 +132,15 @@ attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.
-const prPoller = new PrPoller(store, resolveForge, (id, git) =>
-  events.emit("session:git", { id, git }),
+const prPoller = new PrPoller(
+  store,
+  resolveForge,
+  (id, git) => events.emit("session:git", { id, git }),
+  undefined,
+  undefined,
+  // on a "no PR" miss, adopt the agent's renamed worktree branch so its open PR
+  // is recognized instead of staying invisible against the stale stored branch
+  (s) => service.syncWorktreeBranch(s.id),
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();

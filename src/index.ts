@@ -302,6 +302,9 @@ events.subscribe((event, data) => {
   } else if (event === "session:archived") {
     const { id } = data as { id: string };
     void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
+  } else if (event === "session:review") {
+    const { id } = data as { id: string };
+    void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
   }
 });
 // Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).

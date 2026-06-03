@@ -35,11 +35,15 @@ export interface AutoSessionView {
   git: GitState | null;
   /** Latest critic verdict decision, or null when none/critic disabled. */
   reviewDecision: ReviewDecision | null;
+  /** The head SHA the latest verdict applies to, or null when no verdict. */
+  reviewHeadSha: string | null;
 }
 
 /** Everything `computeNext` needs about ONE repo, assembled by the side-effect harness. */
 export interface DrainRepoState {
   enabled: boolean;
+  /** Per-repo critic toggle — when on, a clean verdict for the current head gates merges. */
+  criticEnabled: boolean;
   maxAuto: number;
   usageCeilingPct: number;
   /** The worse of the 5h / weekly usage windows, 0–100. */
@@ -53,13 +57,20 @@ export interface DrainRepoState {
 }
 
 /** True when this session's PR can be auto-merged: open, CI green, host-mergeable, and
- *  the critic is not blocking/uncertain (absent or "commented" verdicts are fine). */
-function mergeable(s: AutoSessionView): boolean {
+ *  the critic is not blocking/uncertain. With the critic ENABLED we additionally require
+ *  a clean verdict for the CURRENT head — so a first-time auto PR can't merge in the same
+ *  CI-green tick the critic fires on, before it's posted a verdict. */
+function mergeable(s: AutoSessionView, criticEnabled: boolean): boolean {
   const g = s.git;
   if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
     return false;
   }
-  return s.reviewDecision !== "changes_requested" && s.reviewDecision !== "error";
+  if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
+  if (criticEnabled) {
+    if (s.reviewDecision === null) return false; // critic on, no verdict yet → wait
+    if (s.reviewHeadSha !== g.headSha) return false; // verdict is for an older head → wait
+  }
+  return true; // critic off → CI-green + mergeable; critic on → clean verdict for this head
 }
 
 /**
@@ -75,7 +86,7 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   if (!state.enabled) return { kind: "hold", reason: { code: "disabled" } };
 
   // 1. Merge gate — first mergeable session wins (frees a slot before we consider trouble).
-  const toMerge = state.autoSessions.find(mergeable);
+  const toMerge = state.autoSessions.find((s) => mergeable(s, state.criticEnabled));
   if (toMerge) {
     return { kind: "merge", sessionId: toMerge.id, prNumber: toMerge.git!.number! };
   }

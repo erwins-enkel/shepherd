@@ -27,6 +27,7 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
     status: "running",
     git: null,
     reviewDecision: null,
+    reviewHeadSha: null,
     ...over,
   };
 }
@@ -34,6 +35,7 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
 function state(over: Partial<DrainRepoState> = {}): DrainRepoState {
   return {
     enabled: true,
+    criticEnabled: false,
     maxAuto: 2,
     usageCeilingPct: 80,
     usagePct: 0,
@@ -215,6 +217,60 @@ describe("computeNext", () => {
     const pending: GitState = { ...MERGEABLE, checks: "pending" };
     const d = computeNext(state({ autoSessions: [autoSession({ id: "sX", git: pending })] }));
     expect(d.kind).not.toBe("merge");
+  });
+
+  test("critic on + no verdict yet → hold (don't merge unreviewed)", () => {
+    const d = computeNext(
+      state({
+        criticEnabled: true,
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
+      }),
+    );
+    expect(d.kind).toBe("hold");
+  });
+
+  test("critic on + commented verdict for current head → merge", () => {
+    const d = computeNext(
+      state({
+        criticEnabled: true,
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: MERGEABLE,
+            reviewDecision: "commented",
+            reviewHeadSha: MERGEABLE.headSha,
+          }),
+        ],
+      }),
+    );
+    expect(d).toEqual({ kind: "merge", sessionId: "sX", prNumber: 7 });
+  });
+
+  test("critic on + verdict for an older head → hold (re-review pending)", () => {
+    const d = computeNext(
+      state({
+        criticEnabled: true,
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: MERGEABLE,
+            reviewDecision: "commented",
+            reviewHeadSha: "stale-sha",
+          }),
+        ],
+      }),
+    );
+    expect(d.kind).toBe("hold");
+  });
+
+  test("critic off + no verdict → still merge (CI-green sole gate)", () => {
+    const d = computeNext(
+      state({
+        criticEnabled: false,
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
+      }),
+    );
+    expect(d).toEqual({ kind: "merge", sessionId: "sX", prNumber: 7 });
   });
 });
 

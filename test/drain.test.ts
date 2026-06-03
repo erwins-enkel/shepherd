@@ -63,7 +63,7 @@ interface Harness {
   archived: string[];
   dropped: string[];
   prCache: Record<string, GitState>;
-  setReview: (id: string, decision: ReviewDecision) => void;
+  setReview: (id: string, decision: ReviewDecision, headSha?: string) => void;
 }
 
 function makeHarness(
@@ -97,7 +97,7 @@ function makeHarness(
   });
 
   const prCache: Record<string, GitState> = {};
-  const reviews: Record<string, ReviewDecision> = {};
+  const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
   const creates: CreateSessionInput[] = [];
   const statuses: Harness["statuses"] = [];
   const archived: string[] = [];
@@ -143,14 +143,16 @@ function makeHarness(
     archived,
     dropped,
     prCache,
-    setReview: (id, decision) => {
-      reviews[id] = decision;
+    setReview: (id, decision, headSha = "") => {
+      reviews[id] = { decision, headSha };
     },
   };
 
   // patch store.getReview to read from our local map (so we don't need a real review row)
   store.getReview = ((id: string) =>
-    reviews[id] ? { decision: reviews[id] } : null) as typeof store.getReview;
+    reviews[id]
+      ? { decision: reviews[id].decision, headSha: reviews[id].headSha }
+      : null) as typeof store.getReview;
 
   const drain = new DrainService({
     store,
@@ -242,11 +244,102 @@ test("auto-merge gate: mergeable session → merges once; immediate second pump 
     issueNumber: 7,
   });
   h.prCache[s.id] = openGreen(7);
+  // critic enabled (repo default) → seed a clean verdict for the current head so the gate opens
+  h.setReview(s.id, "commented", "sha-7");
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toEqual([{ prNumber: 7, method: "squash", deleteBranch: true }]);
   // second pump: still in `merging` (pr-poller hasn't reported merged), git → null → no re-merge
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(1);
+});
+
+test("critic enabled + no verdict yet → holds, does not merge (gate not bypassed)", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  // no verdict seeded → critic-on gate holds
+  await h.drain.pump(REPO);
+  expect(h.forgeRec.merges).toHaveLength(0);
+});
+
+test("onReview triggers a pump: a clean verdict landing causes the merge", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  // verdict lands now (matching head) → onReview pumps → merge fires
+  h.setReview(s.id, "commented", "sha-7");
+  await h.drain.onReview(s.id);
+  expect(h.forgeRec.merges).toEqual([{ prNumber: 7, method: "squash", deleteBranch: true }]);
+});
+
+test("re-spawn guard: a merged+archived auto session for #N keeps #N out of candidates", async () => {
+  const h = makeHarness({ maxAuto: 2, issues: [issue(7)] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  // simulate the merged → archived lifecycle: its issueNumber must stay mapped
+  h.store.archive(s.id);
+  await h.drain.pump(REPO);
+  // issue #7 still open+labeled, but already drained → not re-spawned
+  expect(h.creates).toHaveLength(0);
+});
+
+test("drain-disabled repo: a manual archive does not pump / emit drain:status", async () => {
+  const h = makeHarness({ autoDrainEnabled: false, issues: [issue(1)] });
+  const s = h.store.create({
+    name: "manual",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/manual",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: false,
+    issueNumber: 1,
+  });
+  h.store.archive(s.id);
+  await h.drain.onArchived(s.id);
+  expect(h.statuses).toHaveLength(0);
+  expect(h.creates).toHaveLength(0);
+  // a status change in the disabled repo is equally silent
+  await h.drain.onStatus(s.id);
+  expect(h.statuses).toHaveLength(0);
 });
 
 test("no merge when review decision is changes_requested (and status is paused)", async () => {
@@ -291,6 +384,15 @@ test("no merge when mergeable !== true", async () => {
   h.prCache[s.id] = openGreen(7, false);
   await h.drain.pump(REPO);
   expect(h.forgeRec.merges).toHaveLength(0);
+});
+
+test("usage ceiling hold → status paused (usage banner reachable)", async () => {
+  const h = makeHarness({ maxAuto: 2, usagePct: 92, usageCeilingPct: 80, issues: [issue(1)] });
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("usage");
+  expect(last.paused).toBe(true);
+  expect(last.detail).toBe("92");
 });
 
 test("merged → archive → advance chain: onGit(merged) archives, drops, emits, and onArchived spawns #2", async () => {
@@ -370,6 +472,7 @@ test("merge-throw → retry: failed merge defers to next pump (at most one attem
     issueNumber: 7,
   });
   h.prCache[s.id] = openGreen(7);
+  h.setReview(s.id, "commented", "sha-7"); // clean verdict for current head opens the gate
   // first pump: merge throws on first attempt → id removed from merging →
   // attemptedMerge guard fires → breaks without retrying in the same pump
   await h.drain.pump(REPO);

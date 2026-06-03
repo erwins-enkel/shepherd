@@ -76,12 +76,13 @@ export class DrainService {
 
   private async buildState(repoPath: string): Promise<DrainRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
-    const repoSessions = this.deps.store
-      .list({ activeOnly: true })
-      .filter((s) => s.repoPath === repoPath);
+    // ALL sessions (incl. archived) for dedup: an issue drained once stays mapped via
+    // its archived session, so a merged-but-still-open issue isn't re-pulled (bounded by
+    // session retention). autoSessions/cap use only the non-archived subset.
+    const allRepoSessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
     const snapshot = this.deps.prCache.snapshot();
-    const autoSessions: AutoSessionView[] = repoSessions
-      .filter((s) => s.auto)
+    const autoSessions: AutoSessionView[] = allRepoSessions
+      .filter((s) => s.status !== "archived" && s.auto)
       .map((s) => ({
         id: s.id,
         desig: s.desig,
@@ -91,9 +92,10 @@ export class DrainService {
         // won't re-emit the merge; the session still counts toward the cap.
         git: this.merging.has(s.id) ? null : (snapshot[s.id] ?? null),
         reviewDecision: this.deps.store.getReview(s.id)?.decision ?? null,
+        reviewHeadSha: this.deps.store.getReview(s.id)?.headSha ?? null,
       }));
     const mappedIssueNumbers = new Set(
-      repoSessions.map((s) => s.issueNumber).filter((n): n is number => n != null),
+      allRepoSessions.map((s) => s.issueNumber).filter((n): n is number => n != null),
     );
     const limits = this.deps.usage.limits(this.now());
     const usagePct = Math.max(limits.session5h?.pct ?? 0, limits.week?.pct ?? 0);
@@ -104,6 +106,7 @@ export class DrainService {
       : [];
     return {
       enabled: cfg.autoDrainEnabled,
+      criticEnabled: cfg.criticEnabled,
       maxAuto: cfg.maxAuto,
       usageCeilingPct: cfg.usageCeilingPct,
       usagePct,
@@ -132,9 +135,9 @@ export class DrainService {
 
   private toStatus(repoPath: string, state: DrainRepoState, decision: DrainDecision): DrainStatus {
     const hold = decision.kind === "hold" ? decision.reason : null;
+    // cap is conveyed by inFlight/max, empty is normal idle — neither pauses.
     const paused =
-      hold !== null &&
-      (hold.code === "blocked" || hold.code === "changes_requested" || hold.code === "error");
+      hold !== null && ["blocked", "changes_requested", "error", "usage"].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
       repoPath,
@@ -256,22 +259,36 @@ export class DrainService {
       return;
     }
     // open/green/other → the merge gate may now fire (e.g. CI just went green).
+    // Skip drain-disabled repos — no spawn/merge there, just WS noise.
+    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
     await this.pump(s.repoPath);
   }
 
   /** A session was archived (merged auto session, or a manual archive). The
-   *  single advance step: a freed slot lets the next candidate spawn. */
+   *  single advance step: a freed slot lets the next candidate spawn. Skips
+   *  drain-disabled repos so a manual archive there doesn't pump/emit. */
   async onArchived(id: string): Promise<void> {
     this.merging.delete(id); // harmless no-op if not present; clears any stale merge guard
     const s = this.deps.store.get(id); // archived rows still return → repoPath available
-    if (s) await this.pump(s.repoPath);
+    if (!s) return;
+    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
+    await this.pump(s.repoPath);
   }
 
-  /** A session's status changed. Pump its repo, but skip unrelated non-drain repos. */
+  /** A session's status changed. Pump its repo, skipping drain-disabled repos. */
   async onStatus(id: string): Promise<void> {
     const s = this.deps.store.get(id);
     if (!s) return;
-    if (!s.auto && !this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
+    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
+    await this.pump(s.repoPath);
+  }
+
+  /** A critic verdict landed for a session. A clean verdict for the current head
+   *  may now unblock the merge gate — pump promptly rather than waiting for the tick. */
+  async onReview(id: string): Promise<void> {
+    const s = this.deps.store.get(id);
+    if (!s) return;
+    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
     await this.pump(s.repoPath);
   }
 

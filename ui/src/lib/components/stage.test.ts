@@ -134,6 +134,9 @@ describe("deriveStage", () => {
     });
     expect(s.terminal).toBe("closed");
     expect(s.ci).toBe("failure");
+    // closed never enters the `open` branch → stage stays at the start.
+    expect(s.index).toBe(0);
+    expect(s.reached).toBe("coding");
   });
 
   it("STAGE_ORDER index matches reached", () => {

@@ -4,6 +4,9 @@ import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
 export const STAGE_ORDER = ["coding", "pr", "ci", "review", "ready"] as const;
 export type Stage = (typeof STAGE_ORDER)[number];
 
+/** Index of the CI stage in STAGE_ORDER — use instead of a hardcoded `2`. */
+export const CI_INDEX = STAGE_ORDER.indexOf("ci");
+
 export interface StageInfo {
   /** Highest stage reached. */
   reached: Stage;
@@ -29,7 +32,7 @@ export function deriveStage(input: {
   let index = 0; // coding (branch may exist, no PR yet)
   if (git?.state === "open") {
     index = 1; // pr
-    if (git.checks !== "none") index = 2; // ci
+    if (git.checks !== "none") index = CI_INDEX; // ci
   }
   if (reviewing || verdict || git?.latestReview) index = Math.max(index, 3); // review
   if (readyToMerge || git?.state === "merged") index = 4; // ready

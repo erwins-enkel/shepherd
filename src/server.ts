@@ -778,6 +778,24 @@ function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
   return null;
 }
 
+// HTTP status per clone-failure code; anything unlisted falls back to 422.
+const CLONE_ERROR_STATUS: Record<string, number> = {
+  clonerepo_failed_exists: 409,
+  clonerepo_failed_outside: 400,
+  clonerepo_failed_timeout: 504,
+};
+
+async function cloneRepoFromRequest(req: Request): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
+  const parsed = validateCloneUrl(body?.url);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const r = cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
+  if (!r.ok) return json({ error: r.error }, CLONE_ERROR_STATUS[r.error] ?? 422);
+  return json(r.entry, 201);
+}
+
 async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
     if (req.method === "GET") {
@@ -788,26 +806,7 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
       }));
       return json(repos);
     }
-    if (req.method === "POST") {
-      const ctErr = requireJsonContentType(req);
-      if (ctErr) return ctErr;
-      const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
-      const parsed = validateCloneUrl(body?.url);
-      if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const r = cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
-      if (!r.ok) {
-        const status =
-          r.error === "clonerepo_failed_exists"
-            ? 409
-            : r.error === "clonerepo_failed_outside"
-              ? 400
-              : r.error === "clonerepo_failed_timeout"
-                ? 504
-                : 422;
-        return json({ error: r.error }, status);
-      }
-      return json(r.entry, 201);
-    }
+    if (req.method === "POST") return cloneRepoFromRequest(req);
   }
   return null;
 }

@@ -13,9 +13,15 @@
     onclose: () => void;
   } = $props();
 
+  // Single source of truth for the grid width: drives both the arrow-key row
+  // jump and the CSS column count (via the --ep-cols custom property below).
+  const COLS = 7;
+
   let query = $state("");
   let custom = $state("");
+  let active = $state(0);
   let searchInput = $state<HTMLInputElement | null>(null);
+  let cells: HTMLButtonElement[] = [];
 
   const shown = $derived(searchEmoji(query));
   const customOk = $derived(isSingleEmoji(custom));
@@ -23,6 +29,49 @@
   $effect(() => {
     searchInput?.focus();
   });
+
+  // Keep the keyboard cursor visible as it moves through the grid.
+  $effect(() => {
+    cells[active]?.scrollIntoView({ block: "nearest" });
+  });
+
+  function move(delta: number) {
+    if (shown.length === 0) return;
+    active = Math.min(Math.max(active + delta, 0), shown.length - 1);
+  }
+
+  function onSearchKey(e: KeyboardEvent) {
+    const caret = searchInput?.selectionStart ?? 0;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        move(COLS);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        move(-COLS);
+        break;
+      // ←/→ edit the text first; only steer the grid once the caret is at an edge.
+      case "ArrowRight":
+        if (caret >= query.length) {
+          e.preventDefault();
+          move(1);
+        }
+        break;
+      case "ArrowLeft":
+        if (caret <= 0) {
+          e.preventDefault();
+          move(-1);
+        }
+        break;
+      case "Enter": {
+        e.preventDefault();
+        const pick = shown[active];
+        if (pick) onpick(pick.char);
+        break;
+      }
+    }
+  }
 
   function commitCustom() {
     if (customOk) {
@@ -39,15 +88,28 @@
     class="ep-search"
     placeholder={m.emojipicker_search()}
     type="text"
+    role="combobox"
+    aria-expanded="true"
+    aria-controls="ep-grid"
+    aria-autocomplete="list"
+    aria-activedescendant={shown.length ? `ep-cell-${active}` : undefined}
     autocomplete="off"
     spellcheck="false"
+    oninput={() => (active = 0)}
+    onkeydown={onSearchKey}
   />
-  <div class="ep-grid">
-    {#each shown as e (e.char)}
+  <div class="ep-grid" id="ep-grid" role="listbox" style="--ep-cols: {COLS}">
+    {#each shown as e, i (e.char)}
       <button
+        bind:this={cells[i]}
+        id={`ep-cell-${i}`}
         type="button"
         class="ep-cell"
         class:on={e.char === value}
+        class:active={i === active}
+        role="option"
+        aria-selected={i === active}
+        tabindex={-1}
         title={e.keywords}
         onclick={() => onpick(e.char)}
       >
@@ -99,7 +161,8 @@
   }
   .ep-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    /* Column count is set inline from the COLS constant (keeps JS row-jump in sync). */
+    grid-template-columns: repeat(var(--ep-cols, 7), 1fr);
     gap: 2px;
     margin-top: 7px;
     max-height: 180px;
@@ -123,6 +186,12 @@
   .ep-cell.on {
     outline: 1.5px solid var(--color-line-bright);
     background: var(--color-sel);
+  }
+  /* Keyboard cursor — defined after .on so it wins when a cell is both. */
+  .ep-cell.active {
+    background: var(--color-hover);
+    outline: 1.5px solid var(--color-amber);
+    outline-offset: -1.5px;
   }
   .ep-foot {
     display: flex;

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.12.0](https://github.com/erwins-enkel/shepherd/compare/v1.11.0...v1.12.0) (2026-06-03)
+
+
+### Features
+
+* **autopilot:** opt-in pre-PR steering loop ([#290](https://github.com/erwins-enkel/shepherd/issues/290)) ([0cba707](https://github.com/erwins-enkel/shepherd/commit/0cba70720736615ac29b1c743f72d7c1746be9ab))
+* **backlog:** failing-CI marker on Actions tab label ([#235](https://github.com/erwins-enkel/shepherd/issues/235)) ([#271](https://github.com/erwins-enkel/shepherd/issues/271)) ([45f6102](https://github.com/erwins-enkel/shepherd/commit/45f6102a283fe30c645bb152e77e2fc9b5a046bb))
+* **critic:** dimmed FINAL badge while agent addresses last review round ([#285](https://github.com/erwins-enkel/shepherd/issues/285)) ([bbb0d1a](https://github.com/erwins-enkel/shepherd/commit/bbb0d1ae198855b41a85ade79a416495c7862697))
+* **critic:** skip re-review on content-identical head changes (rebase-safe) ([#284](https://github.com/erwins-enkel/shepherd/issues/284)) ([46485ea](https://github.com/erwins-enkel/shepherd/commit/46485eaab4a6b14bc5d6001aa51245f4b4ea455f))
+* **herdr-update:** persistent audit log + unconditional shepherd restart ([#274](https://github.com/erwins-enkel/shepherd/issues/274)) ([a95a762](https://github.com/erwins-enkel/shepherd/commit/a95a762e1fbf37aef22580542789453b07c5afee))
+* **herdr-update:** render release notes as markdown ([#277](https://github.com/erwins-enkel/shepherd/issues/277)) ([c4e2a67](https://github.com/erwins-enkel/shepherd/commit/c4e2a670c1f49cb8eed632f4bbf8292d876d490a))
+* **housekeeping:** prune old archived sessions on a daily sweep ([#287](https://github.com/erwins-enkel/shepherd/issues/287)) ([4a9700e](https://github.com/erwins-enkel/shepherd/commit/4a9700e2ed8d1aa734f5e36870a912bc694c4e96))
+* **learnings:** close the flywheel — promote-to-CLAUDE.md PR + self-audit ([#228](https://github.com/erwins-enkel/shepherd/issues/228) PR2b) ([#273](https://github.com/erwins-enkel/shepherd/issues/273)) ([459a00d](https://github.com/erwins-enkel/shepherd/commit/459a00d383e1e7df9a8d9cfa3552711c05a5dca8))
+* **learnings:** inject house rules via system prompt, XML-wrapped ([#278](https://github.com/erwins-enkel/shepherd/issues/278)) ([329b091](https://github.com/erwins-enkel/shepherd/commit/329b0912d1878aa75af3e986c4fddd9d578e5f42))
+* **prs:** expand PR rollup dot into per-job CI breakdown ([#233](https://github.com/erwins-enkel/shepherd/issues/233)) ([#270](https://github.com/erwins-enkel/shepherd/issues/270)) ([a565b30](https://github.com/erwins-enkel/shepherd/commit/a565b301db03e3727d2e391f37577856063b0e21))
+* **statuspip:** louder "needs you" marker — filled red badge ([#279](https://github.com/erwins-enkel/shepherd/issues/279)) ([d75483f](https://github.com/erwins-enkel/shepherd/commit/d75483f7fc88e82d28f9a04e225b3fbdd899d1da))
+
+
+### Bug Fixes
+
+* **critic:** don't steer findings into an agent after its PR merged ([#281](https://github.com/erwins-enkel/shepherd/issues/281)) ([775aa54](https://github.com/erwins-enkel/shepherd/commit/775aa543bbcb160cbafe1a2179c2e7e2249682d1))
+* **gitrail:** make learning toggle show on/off state ([#282](https://github.com/erwins-enkel/shepherd/issues/282)) ([6bb60df](https://github.com/erwins-enkel/shepherd/commit/6bb60df3b792733c77e903d15fffadf9ccd15abf))
+* **pr-poller:** fast-poll open PRs so the session list shows "CI running" ([#280](https://github.com/erwins-enkel/shepherd/issues/280)) ([2f58597](https://github.com/erwins-enkel/shepherd/commit/2f5859757af8ddab4284037230f9c21fbb63c03c))
+* **steerbar:** align first steer chip under Tab key on mobile ([#289](https://github.com/erwins-enkel/shepherd/issues/289)) ([a076677](https://github.com/erwins-enkel/shepherd/commit/a07667741b6b83197388ab669e365a8c25568a7c))
+* **tab-reaper:** reap orphaned distiller tabs ([#286](https://github.com/erwins-enkel/shepherd/issues/286)) ([fec9968](https://github.com/erwins-enkel/shepherd/commit/fec9968f242ec452d86dfd8d1036807a594643de))
+* **viewport:** color PR toggle by CI+critic verdict, not mere PR existence ([#288](https://github.com/erwins-enkel/shepherd/issues/288)) ([5c96ca1](https://github.com/erwins-enkel/shepherd/commit/5c96ca15f40b261caca900a817a448d261347349))
+* **viewport:** keep phone header identity row on one line ([#272](https://github.com/erwins-enkel/shepherd/issues/272)) ([aa18844](https://github.com/erwins-enkel/shepherd/commit/aa188445f366438930a70bfad24e07e490bb74b7))
+* **viewport:** surface ready-to-merge toggle on desktop ([#283](https://github.com/erwins-enkel/shepherd/issues/283)) ([2c453b5](https://github.com/erwins-enkel/shepherd/commit/2c453b50189b32f877234b38bc9092a4ce13b546))
+
 ## [1.11.0](https://github.com/erwins-enkel/shepherd/compare/v1.10.0...v1.11.0) (2026-06-03)
 
 

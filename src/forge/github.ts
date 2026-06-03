@@ -91,6 +91,9 @@ export class GithubForge implements GitForge {
       "open",
       "--json",
       "number,title,body,url,labels,createdAt",
+      // Cap matches listPullRequests; the count source (GraphQL totalCount) is
+      // unbounded, so a repo with >200 open issues lists a truncated set under a
+      // larger count. Raise this or paginate if such repos appear.
       "--limit",
       "200",
     ]);
@@ -125,6 +128,7 @@ export class GithubForge implements GitForge {
       "open",
       "--json",
       "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews",
+      // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
       "--limit",
       "200",
     ]);

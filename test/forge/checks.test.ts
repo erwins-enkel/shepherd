@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { mapCheckState, rollupChecks } from "../../src/forge/checks";
+import {
+  jobsFromRollup,
+  mapCheckState,
+  mapStatusState,
+  rollupChecks,
+} from "../../src/forge/checks";
 
 test("mapCheckState: incomplete status → pending", () => {
   expect(mapCheckState("in_progress", null)).toBe("pending");
@@ -80,4 +85,53 @@ test("rollupChecks: only neutral/skipped → none", () => {
 test("rollupChecks: case-insensitive conclusions", () => {
   expect(rollupChecks([{ status: "COMPLETED", conclusion: "SUCCESS" }])).toBe("success");
   expect(rollupChecks([{ status: "Completed", conclusion: "Failure" }])).toBe("failure");
+});
+
+test("mapStatusState: maps the coarse StatusContext/Gitea vocab", () => {
+  expect(mapStatusState("SUCCESS")).toBe("success");
+  expect(mapStatusState("pending")).toBe("pending");
+  expect(mapStatusState("expected")).toBe("pending");
+  expect(mapStatusState("running")).toBe("pending");
+  expect(mapStatusState("failure")).toBe("failure");
+  expect(mapStatusState("error")).toBe("failure");
+  expect(mapStatusState("")).toBe("none");
+  expect(mapStatusState(null)).toBe("none");
+});
+
+test("jobsFromRollup: CheckRun entries are qualified with their workflow name", () => {
+  expect(
+    jobsFromRollup([
+      {
+        __typename: "CheckRun",
+        name: "lint",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "success",
+        detailsUrl: "https://gh/a",
+      },
+      {
+        __typename: "CheckRun",
+        name: "build",
+        status: "in_progress",
+        conclusion: null,
+      },
+    ]),
+  ).toEqual([
+    { name: "CI / lint", state: "success", url: "https://gh/a" },
+    { name: "build", state: "pending", url: undefined },
+  ]);
+});
+
+test("jobsFromRollup: legacy StatusContext entries map context + state + targetUrl", () => {
+  expect(
+    jobsFromRollup([
+      { __typename: "StatusContext", context: "netlify", state: "FAILURE", targetUrl: "https://n" },
+    ]),
+  ).toEqual([{ name: "netlify", state: "failure", url: "https://n" }]);
+});
+
+test("jobsFromRollup: entries without a usable label are dropped", () => {
+  expect(
+    jobsFromRollup([{ __typename: "CheckRun", status: "completed", conclusion: "success" }]),
+  ).toEqual([]);
 });

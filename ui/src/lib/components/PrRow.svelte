@@ -27,12 +27,18 @@
   let failed = $state(false);
   let disarmTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // The worst-of rollup dot expands into the head commit's individual CI jobs.
+  // Default collapsed so a long PR list stays scannable.
+  let expanded = $state(false);
+  const hasJobs = $derived(pr.jobs.length > 0);
+
   // A PR with conflicts can't merge. Drafts have no merge button, and some hosts
   // (Gitea) report mergeable:false for every draft — so don't read that as a real
   // conflict on a draft, or the row shows a bogus "conflicts" chip.
   const blocked = $derived(pr.mergeable === false && !pr.isDraft);
 
   const ciStatus = $derived(m.gitrail_ci_status({ status: pr.checks }));
+  const ciToggleTitle = $derived(expanded ? m.prspanel_jobs_hide() : m.prspanel_jobs_show());
   const reviewTitle = $derived(
     pr.latestReview?.state === "approved"
       ? m.prbadge_review_approved()
@@ -92,7 +98,22 @@
 
   <div class="pr-meta">
     {#if pr.checks !== "none"}
-      <span class="dot dot-{pr.checks}" title={ciStatus} aria-label={ciStatus}></span>
+      {#if hasJobs}
+        <button
+          type="button"
+          class="ci-toggle"
+          class:expanded
+          onclick={() => (expanded = !expanded)}
+          aria-expanded={expanded}
+          title={ciToggleTitle}
+          aria-label={ciToggleTitle}
+        >
+          <span class="dot dot-{pr.checks}"></span>
+          <span class="caret" aria-hidden="true">▸</span>
+        </button>
+      {:else}
+        <span class="dot dot-{pr.checks}" title={ciStatus} aria-label={ciStatus}></span>
+      {/if}
     {/if}
     {#if pr.latestReview}
       <span class="rdot rdot-{pr.latestReview.state}" title={reviewTitle} aria-label={reviewTitle}
@@ -110,6 +131,35 @@
       >
     {/if}
   </div>
+
+  {#if expanded && hasJobs}
+    <div class="pr-jobs">
+      <!-- key includes the index: a matrix build can repeat a check name on one
+           head commit, which would otherwise collide in the keyed each. -->
+      {#each pr.jobs as job, i (job.name + " " + i)}
+        <div class="job">
+          <span
+            class="dot dot-{job.state}"
+            title={m.gitrail_ci_status({ status: job.state })}
+            aria-label={m.gitrail_ci_status({ status: job.state })}
+          ></span>
+          {#if job.url}
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+            <a
+              class="job-name"
+              href={job.url}
+              target="_blank"
+              rel="noopener"
+              title={m.actionspanel_job_link()}>{job.name}</a
+            >
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          {:else}
+            <span class="job-name">{job.name}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <div class="pr-actions">
     {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
@@ -217,6 +267,62 @@
     background: var(--color-red);
   }
 
+  /* The rollup dot doubles as the expand control when the head commit has jobs:
+     a bare button so the dot keeps its exact size/hue, plus a hairline caret. */
+  .ci-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: var(--color-faint);
+  }
+  .ci-toggle:hover .caret {
+    color: var(--color-ink-bright);
+  }
+
+  .caret {
+    font-size: 8px;
+    line-height: 1;
+    color: var(--color-faint);
+    transition:
+      transform 0.12s,
+      color 0.12s;
+  }
+  .ci-toggle.expanded .caret {
+    transform: rotate(90deg);
+  }
+
+  .pr-jobs {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-left: 13px;
+  }
+
+  .job {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 12px;
+  }
+
+  .job-name {
+    font-size: 11.5px;
+    color: var(--color-ink);
+    text-decoration: none;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    transition: color 0.12s;
+  }
+  a.job-name:hover {
+    color: var(--color-ink-bright);
+  }
+
   .rdot {
     width: 6px;
     height: 6px;
@@ -317,6 +423,12 @@
     .merge-btn {
       min-height: 40px;
       padding: 2px 14px;
+    }
+    /* Enlarge the dot's hit area to a real tap target without growing the dot. */
+    .ci-toggle {
+      min-height: 32px;
+      min-width: 32px;
+      justify-content: center;
     }
   }
 </style>

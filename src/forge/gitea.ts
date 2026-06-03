@@ -1,3 +1,4 @@
+import { mapStatusState } from "./checks";
 import type {
   ChecksState,
   ForgeConfig,
@@ -10,6 +11,7 @@ import type {
   PrStatus,
   PullRequest,
   RedeployInput,
+  WorkflowJob,
 } from "./types";
 
 interface GiteaPr {
@@ -49,22 +51,6 @@ async function mapBounded<T, R>(
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
-}
-
-/** Map Gitea's server-computed combined commit status to our worst-of rollup. */
-function mapCombinedStatus(state: string | undefined): ChecksState {
-  switch ((state ?? "").toLowerCase()) {
-    case "success":
-      return "success";
-    case "pending":
-    case "running":
-      return "pending";
-    case "failure":
-    case "error":
-      return "failure";
-    default:
-      return "none";
-  }
 }
 
 /** Gitea/Forgejo forge driven through the /api/v1 REST API (API-compatible). */
@@ -130,12 +116,28 @@ export class GiteaForge implements GitForge {
     });
   }
 
-  private async checksFor(sha: string | undefined): Promise<ChecksState> {
-    if (!sha) return "none";
+  /** One combined-status call yields both the worst-of rollup (top-level `state`)
+   *  and the per-context breakdown (`statuses[]`) for the PRs-tab expand view. */
+  private async commitChecks(
+    sha: string | undefined,
+  ): Promise<{ checks: ChecksState; jobs: WorkflowJob[] }> {
+    if (!sha) return { checks: "none", jobs: [] };
     const status = (await this.req("GET", `/api/v1/repos/${this.slug}/commits/${sha}/status`)) as {
       state?: string;
+      statuses?: Array<{ status?: string; context?: string; target_url?: string }>;
     } | null;
-    return mapCombinedStatus(status?.state);
+    const jobs: WorkflowJob[] = (status?.statuses ?? [])
+      .filter((s) => s.context)
+      .map((s) => ({
+        name: s.context ?? "",
+        state: mapStatusState(s.status),
+        url: s.target_url || undefined,
+      }));
+    return { checks: mapStatusState(status?.state), jobs };
+  }
+
+  private async checksFor(sha: string | undefined): Promise<ChecksState> {
+    return (await this.commitChecks(sha)).checks;
   }
 
   private async toStatus(pr: GiteaPr): Promise<PrStatus> {
@@ -167,7 +169,10 @@ export class GiteaForge implements GitForge {
     // swallow it to "none" so one bad PR can't reject the whole list.
     return mapBounded(prs ?? [], STATUS_FETCH_CONCURRENCY, async (pr) => {
       const ts = Date.parse(pr.created_at ?? "");
-      const checks = await this.checksFor(pr.head?.sha).catch((): ChecksState => "none");
+      const { checks, jobs } = await this.commitChecks(pr.head?.sha).catch(() => ({
+        checks: "none" as ChecksState,
+        jobs: [] as WorkflowJob[],
+      }));
       return {
         number: pr.number,
         title: pr.title ?? "",
@@ -177,6 +182,7 @@ export class GiteaForge implements GitForge {
         isDraft: pr.draft ?? false,
         mergeable: pr.mergeable ?? null,
         checks,
+        jobs,
       } satisfies PullRequest;
     });
   }

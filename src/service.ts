@@ -38,6 +38,19 @@ export function spawnSettingsOverlay(): string {
   return JSON.stringify({ remoteControlAtStartup: config.remoteControlAtStartup });
 }
 
+/**
+ * Appended to every spawned session's system prompt. The async namer
+ * (`refineNameInBackground`) can `git branch -m` the session branch 10–60s after
+ * start — while the agent is already working — so an agent that inspects git state
+ * mid-task would otherwise read the changed branch name as an error (cf. TASK-177).
+ * Pre-warning it at spawn removes the surprise at the source. Not user-facing chrome
+ * (it's an instruction to the agent), so no i18n.
+ */
+export const BRANCH_RENAME_NOTICE =
+  "Shepherd may rename this session's git branch shortly after startup to a clearer, " +
+  "prompt-derived name (via `git branch -m`). This is expected: your working tree, " +
+  "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -67,6 +80,7 @@ export class SessionService {
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
       argv.push("--settings", spawnSettingsOverlay());
+      argv.push("--append-system-prompt", BRANCH_RENAME_NOTICE);
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);

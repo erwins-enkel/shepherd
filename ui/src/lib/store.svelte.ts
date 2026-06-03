@@ -12,6 +12,8 @@ import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews } from "./reviews.svelte";
 import { learnings } from "./learnings.svelte";
+import { toasts } from "./toasts.svelte";
+import { m } from "$lib/paraglide/messages";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -94,6 +96,9 @@ export class HerdStore {
         this.sessions = this.sessions.map((s) =>
           s.id === ev.data.id ? { ...s, name: ev.data.name, branch: ev.data.branch } : s,
         );
+        // Surface the rename (esp. the async namer's auto-rename, which lands while
+        // the agent is already working) so the row changing under the user is explained.
+        toasts.info(m.toast_renamed({ name: ev.data.name }));
         break;
       case "session:ready":
         this.sessions = this.sessions.map((s) =>

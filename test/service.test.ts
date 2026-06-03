@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { SessionService, spawnSettingsOverlay } from "../src/service";
+import { SessionService, spawnSettingsOverlay, BRANCH_RENAME_NOTICE } from "../src/service";
 import { config } from "../src/config";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
@@ -56,6 +56,8 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     s.claudeSessionId,
     "--settings",
     spawnSettingsOverlay(),
+    "--append-system-prompt",
+    BRANCH_RENAME_NOTICE,
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -435,6 +437,8 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     s.claudeSessionId,
     "--settings",
     spawnSettingsOverlay(),
+    "--append-system-prompt",
+    BRANCH_RENAME_NOTICE,
     "--model",
     "opus",
     "go",

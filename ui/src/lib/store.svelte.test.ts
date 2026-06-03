@@ -1,5 +1,6 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
+import { toasts } from "./toasts.svelte";
 import type { BacklogPayload, GitState, Session } from "./types";
 
 const GIT: GitState = {
@@ -99,6 +100,17 @@ test("session:renamed patches the name + branch of the matching session", () => 
   expect(a?.name).toBe("fresh");
   expect(a?.branch).toBe("shepherd/fresh");
   expect(b?.name).toBe("n"); // other sessions untouched
+});
+
+test("session:renamed surfaces a toast naming the new name", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({
+    event: "session:renamed",
+    data: { id: "s1", name: "fresh", branch: "shepherd/fresh" },
+  });
+  expect(toasts.items.some((t) => t.text.includes("fresh"))).toBe(true);
 });
 
 // ---- /events WS reconnect (mobile background-drop / wake recovery) ----

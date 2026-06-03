@@ -304,6 +304,29 @@ export async function mergeBacklogPr(
   }
 }
 
+/** Re-run a GitHub Actions run by repo + runId. `failedOnly` retries just the
+ *  failed jobs (set when the run failed); else the whole run. Resolves on success. */
+export async function rerunWorkflowRun(
+  repoPath: string,
+  runId: number,
+  failedOnly = false,
+): Promise<void> {
+  const r = await fetch("/api/actions/rerun", JSON_POST({ repo: repoPath, runId, failedOnly }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+}
+
+/** Cancel an in-progress GitHub Actions run by repo + runId. Resolves on success. */
+export async function cancelWorkflowRun(repoPath: string, runId: number): Promise<void> {
+  const r = await fetch("/api/actions/cancel", JSON_POST({ repo: repoPath, runId }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+}
+
 /** Installed slash commands (skills + command files) for the New Task picker. */
 export async function getCommands(repoPath: string): Promise<{ commands: SlashCommand[] }> {
   const r = await fetch(`/api/commands?repo=${encodeURIComponent(repoPath)}`);

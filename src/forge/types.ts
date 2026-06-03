@@ -90,6 +90,8 @@ export interface WorkflowJob {
 /** The latest run of one workflow on a repo's default branch, broken into its
  *  individual jobs. Surfaced in the backlog Actions tab (GitHub only). */
 export interface WorkflowRun {
+  /** Host run id (gh's `databaseId`) — the handle re-run / cancel act on. */
+  runId: number;
   workflowName: string;
   runUrl: string;
   headSha: string;
@@ -138,6 +140,13 @@ export interface GitForge {
    *  the backlog Actions tab. Optional: only hosts with an Actions API implement
    *  it (GitHub); others omit it and the tab shows a "GitHub only" state. */
   listWorkflowRuns?(): Promise<WorkflowRun[]>;
+  /** Re-run a workflow run by id. `failedOnly` re-runs just the failed jobs
+   *  (`gh run rerun --failed`); otherwise the whole run. Optional: only Actions
+   *  hosts (GitHub) implement it; others omit it and the tab hides the button. */
+  rerunWorkflowRun?(runId: number, o: { failedOnly: boolean }): Promise<void>;
+  /** Cancel an in-progress workflow run by id (`gh run cancel`). Optional, same
+   *  GitHub-only gating as {@link rerunWorkflowRun}. */
+  cancelWorkflowRun?(runId: number): Promise<void>;
   prStatus(headBranch: string): Promise<PrStatus>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:

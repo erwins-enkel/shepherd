@@ -224,6 +224,7 @@ export class GithubForge implements GitForge {
       }));
       const ts = Date.parse(r.createdAt ?? "");
       return {
+        runId: r.databaseId,
         workflowName: r.workflowName ?? "",
         runUrl: r.url ?? "",
         headSha: r.headSha ?? "",
@@ -236,6 +237,18 @@ export class GithubForge implements GitForge {
     // Newest workflow first.
     runs.sort((a, b) => b.createdAt - a.createdAt);
     return runs;
+  }
+
+  async rerunWorkflowRun(runId: number, o: { failedOnly: boolean }): Promise<void> {
+    const args = ["run", "rerun", String(runId), "--repo", this.slug];
+    // `--failed` retries only the failed jobs (+ their dependents) of a failed run;
+    // a fully green run has none, so the caller passes failedOnly:false there.
+    if (o.failedOnly) args.push("--failed");
+    this.run(args);
+  }
+
+  async cancelWorkflowRun(runId: number): Promise<void> {
+    this.run(["run", "cancel", String(runId), "--repo", this.slug]);
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

@@ -533,7 +533,12 @@ export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
 
 export async function putRepoConfig(
   repoPath: string,
-  patch: Partial<Pick<RepoConfig, "criticEnabled" | "autoAddressEnabled" | "learningsEnabled">>,
+  patch: Partial<
+    Pick<
+      RepoConfig,
+      "criticEnabled" | "autoAddressEnabled" | "learningsEnabled" | "autopilotEnabled"
+    >
+  >,
 ): Promise<RepoConfig> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
@@ -542,6 +547,15 @@ export async function putRepoConfig(
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();
+}
+
+export async function setSessionAutopilot(id: string, enabled: boolean | null): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/autopilot`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) throw new Error(`autopilot toggle failed: ${r.status}`);
 }
 
 export async function getPendingLearnings(): Promise<Learning[]> {

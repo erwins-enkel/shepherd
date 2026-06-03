@@ -91,6 +91,7 @@ test("repoConfig.toggle flips enabled state", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.enabled = { "/repo": true };
   await repoConfig.toggle("/repo");
@@ -102,6 +103,7 @@ test("repoConfig.toggle defaults to false when state unknown (default-on)", asyn
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   // unknown repo → isEnabled returns true → toggle should flip to false
   await repoConfig.toggle("/new-repo");
@@ -122,6 +124,7 @@ test("repoConfig.ensure fetches and caches", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   await repoConfig.ensure("/repo");
   expect(repoConfig.isEnabled("/repo")).toBe(false);
@@ -139,6 +142,7 @@ test("repoConfig.ensure caches the auto-address flag too", async () => {
     criticEnabled: true,
     autoAddressEnabled: true,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   await repoConfig.ensure("/repo");
   expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(true);
@@ -149,6 +153,7 @@ test("repoConfig.toggleAutoAddress flips the flag and sends only that field", as
     criticEnabled: true,
     autoAddressEnabled: true,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.autoAddress = { "/repo": false };
   await repoConfig.toggleAutoAddress("/repo");
@@ -161,6 +166,7 @@ test("repoConfig.toggle sends only the criticEnabled field", async () => {
     criticEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
+    autopilotEnabled: false,
   });
   repoConfig.enabled = { "/repo": true };
   await repoConfig.toggle("/repo");
@@ -181,6 +187,7 @@ test("repoConfig.toggleLearnings flips learnings state", async () => {
     criticEnabled: true,
     autoAddressEnabled: false,
     learningsEnabled: false,
+    autopilotEnabled: false,
   });
   repoConfig.learnings = { "/repo": true };
   await repoConfig.toggleLearnings("/repo");

@@ -150,6 +150,7 @@ export interface RepoConfig {
   criticEnabled: boolean;
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
+  autopilotEnabled: boolean;
 }
 
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
@@ -174,6 +175,10 @@ export interface Session {
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;
+  autopilotEnabled: boolean | null;
+  autopilotStepCount: number;
+  autopilotPaused: boolean;
+  autopilotQuestion: string | null;
   lastState: string;
   createdAt: number;
   updatedAt: number;

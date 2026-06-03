@@ -1008,6 +1008,25 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   }
 }
 
+// GET /api/actions?repo= — latest GitHub Actions run per workflow on the default
+// branch, with per-job breakdown (backlog Actions-tab detail pane). GitHub only;
+// other forges report no runs and the tab shows a "GitHub only" state.
+async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "actions" || parts[2]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.listWorkflowRuns) {
+    return json({ slug: forge?.slug ?? null, kind: forge?.kind ?? null, runs: [] });
+  }
+  try {
+    return json({ slug: forge.slug, kind: forge.kind, runs: await forge.listWorkflowRuns() });
+  } catch {
+    // missing/un-authed CLI or network error → graceful empty (matches PRs path)
+    return json({ slug: forge.slug, kind: forge.kind, runs: [] });
+  }
+}
+
 // POST /api/prs/merge — merge a backlog PR by repo + number (no session involved).
 async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
@@ -1209,6 +1228,7 @@ const ROUTE_HANDLERS = [
   handleBranches,
   handleIssues,
   handlePrsList,
+  handleActionsList,
   handlePrMerge,
   handleBacklog,
   handleTodo,

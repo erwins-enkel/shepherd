@@ -321,6 +321,128 @@ test("GithubForge.prStatus: no reviews → latestReview undefined", async () => 
   expect(calls[0]!.join(",")).toContain("reviews");
 });
 
+test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest-first", async () => {
+  // run list newest-first: CI has two runs (keep #200), Deploy one (#150).
+  const runList = JSON.stringify([
+    {
+      databaseId: 200,
+      workflowName: "CI",
+      status: "completed",
+      conclusion: "failure",
+      headSha: "sha2",
+      createdAt: "2024-05-02T00:00:00Z",
+      url: "https://gh/run/200",
+    },
+    {
+      databaseId: 150,
+      workflowName: "Deploy",
+      status: "in_progress",
+      conclusion: null,
+      headSha: "sha2",
+      createdAt: "2024-05-01T12:00:00Z",
+      url: "https://gh/run/150",
+    },
+    {
+      databaseId: 100,
+      workflowName: "CI",
+      status: "completed",
+      conclusion: "success",
+      headSha: "sha1",
+      createdAt: "2024-05-01T00:00:00Z",
+      url: "https://gh/run/100",
+    },
+  ]);
+  const jobsById: Record<string, string> = {
+    "200": JSON.stringify({
+      jobs: [
+        { name: "lint", status: "completed", conclusion: "success", url: "https://gh/job/a" },
+        { name: "test", status: "completed", conclusion: "failure", url: "https://gh/job/b" },
+      ],
+    }),
+    "150": JSON.stringify({
+      jobs: [{ name: "deploy", status: "in_progress", conclusion: null, url: "https://gh/job/c" }],
+    }),
+  };
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "repo" && args[1] === "view")
+      return JSON.stringify({ defaultBranchRef: { name: "main" } });
+    if (args[0] === "run" && args[1] === "list") return runList;
+    if (args[0] === "run" && args[1] === "view") return jobsById[args[2]!] ?? "{}";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const runs = await forge.listWorkflowRuns();
+
+  expect(runs).toEqual([
+    {
+      workflowName: "CI",
+      runUrl: "https://gh/run/200",
+      headSha: "sha2",
+      createdAt: Date.parse("2024-05-02T00:00:00Z"),
+      state: "failure",
+      jobs: [
+        { name: "lint", state: "success", url: "https://gh/job/a" },
+        { name: "test", state: "failure", url: "https://gh/job/b" },
+      ],
+    },
+    {
+      workflowName: "Deploy",
+      runUrl: "https://gh/run/150",
+      headSha: "sha2",
+      createdAt: Date.parse("2024-05-01T12:00:00Z"),
+      state: "pending",
+      jobs: [{ name: "deploy", state: "pending", url: "https://gh/job/c" }],
+    },
+  ]);
+  // queried the default branch, never the stale CI run #100
+  const listCall = calls.find((c) => c[0] === "run" && c[1] === "list")!;
+  expect(listCall).toContain("main");
+  expect(calls.some((c) => c[0] === "run" && c[1] === "view" && c[2] === "100")).toBe(false);
+});
+
+test("GithubForge.listWorkflowRuns: no default branch → []", async () => {
+  const { run } = fakeRunner({ "repo view": "{}" });
+  expect(await new GithubForge("o/r", {}, run).listWorkflowRuns()).toEqual([]);
+});
+
+test("GithubForge.listWorkflowRuns: empty run list → []", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ defaultBranchRef: { name: "main" } }),
+    "run list": "[]",
+  });
+  expect(await new GithubForge("o/r", {}, run).listWorkflowRuns()).toEqual([]);
+});
+
+test("GithubForge.listWorkflowRuns: caps at 10 workflows", async () => {
+  const runList = JSON.stringify(
+    Array.from({ length: 25 }, (_, i) => ({
+      databaseId: i,
+      workflowName: `wf-${i}`,
+      status: "completed",
+      conclusion: "success",
+      headSha: "s",
+      createdAt: `2024-05-${String((i % 27) + 1).padStart(2, "0")}T00:00:00Z`,
+      url: `u${i}`,
+    })),
+  );
+  let viewCalls = 0;
+  const run = (args: string[]): string => {
+    if (args[0] === "repo" && args[1] === "view")
+      return JSON.stringify({ defaultBranchRef: { name: "main" } });
+    if (args[0] === "run" && args[1] === "list") return runList;
+    if (args[0] === "run" && args[1] === "view") {
+      viewCalls++;
+      return JSON.stringify({ jobs: [] });
+    }
+    return "";
+  };
+  const runs = await new GithubForge("o/r", {}, run).listWorkflowRuns();
+  expect(runs.length).toBe(10);
+  expect(viewCalls).toBe(10);
+});
+
 test("GithubForge.postReview: request-changes falls back to pr comment when review is rejected", async () => {
   // GitHub 422s request-changes on a self-authored PR; emulate gh exiting non-zero
   // on the review call, then succeeding (and echoing the URL) on pr comment.

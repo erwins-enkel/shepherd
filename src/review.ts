@@ -5,7 +5,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState } from "./forge/types";
-import { CRITIC_REVIEW_MARKER } from "./forge/types";
+import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 
 /** Self-contained instructions for the critic agent. NOT UI chrome — never i18n'd. */
@@ -13,6 +13,7 @@ export function reviewPrompt(
   base: string,
   taskPrompt: string,
   priorFindings: string[] = [],
+  authorNotes: string[] = [],
 ): string {
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
@@ -29,6 +30,14 @@ export function reviewPrompt(
       "",
     );
   }
+  if (authorNotes.length) {
+    lines.push(
+      "The author left these notes on the PR responding to earlier review rounds:",
+      ...authorNotes.map((n, i) => `${i + 1}. ${n}`),
+      "Where a note gives a sound technical reason a finding no longer applies, ACCEPT it and do NOT re-raise that finding. Where the diff still has the problem and the note does not actually resolve it, re-raise it anyway.",
+      "",
+    );
+  }
   lines.push(
     "Judge ONLY whether the implementation satisfies that task and is free of bugs, security issues, and clear quality problems. Tests and lint are handled by CI — do not run them.",
     "When done, write your verdict as JSON to the file `.shepherd-review.json` in the repository root, with EXACTLY this shape:",
@@ -40,13 +49,16 @@ export function reviewPrompt(
 }
 
 /** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd. */
-function steerText(findings: string[]): string {
+function steerText(findings: string[], prNumber: number): string {
   return [
     "The PR critic reviewed your latest push. Address each point below in this PR:",
     "",
     ...findings.map((f, i) => `${i + 1}. ${f}`),
     "",
-    "Fix what's valid; if you genuinely disagree with a point, address the rest and proceed — don't silently skip it. Then commit & push so CI and the critic re-run.",
+    "Fix what's valid. If you genuinely disagree with a point, don't silently skip it —",
+    `post a brief note on the PR explaining your reasoning so the critic can weigh it, e.g.:`,
+    `  gh pr comment ${prNumber} --body "${AUTHOR_RESPONSE_MARKER} <which finding + why it shouldn't change>"`,
+    "Then commit & push so CI and the critic re-run.",
   ].join("\n");
 }
 
@@ -112,22 +124,33 @@ export class ReviewService {
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. */
-  consider(session: Session, git: GitState): void {
+  async consider(session: Session, git: GitState): Promise<void> {
     if (git.state !== "open" || git.checks !== "success" || !git.headSha || !git.number) return;
     if (!session.branch) return;
     if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return;
     if (this.inflight.has(session.id)) return; // a run is already in flight
     if (this.deps.store.getReview(session.id)?.headSha === git.headSha) return; // head already reviewed
-    this.begin(session, git);
+    await this.begin(session, git);
   }
 
-  private begin(session: Session, git: GitState): void {
+  private async begin(session: Session, git: GitState): Promise<void> {
     // The prior verdict (an earlier head — consider() never re-reviews the same head)
     // carries this streak's accountability state: its findings get fed to the critic
     // to verify they were addressed, and its addressRound bounds the auto-address loop.
     const prior = this.deps.store.getReview(session.id);
     const priorFindings = prior?.findings ?? [];
     const priorRound = prior?.addressRound ?? 0;
+    // On a re-review under auto-address, pull the author's PR notes so a justified
+    // decline isn't blindly re-raised. Gated on autoAddressEnabled (the path that
+    // creates those notes) so critic-only repos make no extra forge call. This is
+    // the one async step; a first review skips it and stays fully synchronous.
+    let authorNotes: string[] = [];
+    if (
+      priorFindings.length &&
+      this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled
+    ) {
+      authorNotes = await this.fetchAuthorNotes(session.repoPath, git.number!);
+    }
     let wt;
     try {
       wt = this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
@@ -182,7 +205,7 @@ export class ReviewService {
     // prompt — otherwise `claude` folds the prompt into the allowlist, launches
     // with no task, and hangs until timeout (every review). Don't reorder.
     argv.push("--permission-mode", "dontAsk");
-    argv.push(reviewPrompt(session.baseBranch, session.prompt, priorFindings));
+    argv.push(reviewPrompt(session.baseBranch, session.prompt, priorFindings, authorNotes));
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -206,6 +229,24 @@ export class ReviewService {
       priorRound,
     });
     this.deps.onReviewing?.(session.id, true);
+  }
+
+  /** Read the author's marked decline notes back off the PR (best-effort; [] on any
+   *  failure, on a host without a comments API, or when nothing is marked). The
+   *  marker is stripped so only the author's reasoning reaches the critic prompt. */
+  private async fetchAuthorNotes(repoPath: string, prNumber: number): Promise<string[]> {
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge?.listPrComments) return [];
+    try {
+      const comments = await forge.listPrComments(prNumber);
+      return comments
+        .filter((c) => c.body.includes(AUTHOR_RESPONSE_MARKER))
+        .map((c) => c.body.split(AUTHOR_RESPONSE_MARKER).join("").trim())
+        .filter(Boolean);
+    } catch (err) {
+      console.warn(`[review] listPrComments failed for ${repoPath}#${prNumber}:`, err);
+      return [];
+    }
   }
 
   /** Finalize any in-flight review whose verdict file is ready or that timed out. */
@@ -267,7 +308,7 @@ export class ReviewService {
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
     if (!enabled || f.priorRound >= this.cap) return f.priorRound; // off, or gave up → hold
-    const delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings));
+    const delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));
     return delivered ? f.priorRound + 1 : f.priorRound; // no progress if the pane is gone
   }
 

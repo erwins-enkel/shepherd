@@ -172,7 +172,7 @@ events.subscribe((event, data) => {
   if (event !== "session:git") return;
   const { id, git } = data as { id: string; git: import("./forge/types").GitState };
   const s = store.get(id);
-  if (s) reviewService.consider(s, git);
+  if (s) void reviewService.consider(s, git);
 });
 setInterval(() => void reviewService.tick(), 15_000);
 // archived sessions: reap any in-flight critic + drop the verdict

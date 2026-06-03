@@ -1205,6 +1205,8 @@ export interface BacklogProject {
   openPRs: number | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
   workflows: number | null;
+  /** Default-branch CI rollup state for the Actions tab marker; null = unknown / non-GitHub. */
+  ciStatus: "success" | "failure" | "pending" | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -1265,6 +1267,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       // GitHub-only: the Actions panel is github-gated, so other forges get null
       // (plain "Actions" label) rather than a count that has no panel behind it.
       workflows: r.forge.kind === "github" ? countDefinedWorkflows(r.path) : null,
+      ciStatus: counts.ciStatus,
     };
   });
 

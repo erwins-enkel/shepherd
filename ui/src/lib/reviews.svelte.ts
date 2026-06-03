@@ -1,4 +1,5 @@
 import type { ReviewVerdict, RepoConfig } from "./types";
+import type { AutomationFlags } from "./components/git-rail-automation";
 import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api";
 
 /** Client cache of critic verdicts keyed by session id. Loaded once on app start;
@@ -205,6 +206,18 @@ class RepoConfigStore {
 
   isAutoDrainEnabled(repoPath: string): boolean {
     return this.autoDrain[repoPath] ?? false;
+  }
+
+  /** All automation on/off flags for a repo, in one read — shared by the pill's
+   *  count (GitRail) and the panel's switch rows (AutomationPanel). */
+  flags(repoPath: string): AutomationFlags {
+    return {
+      critic: this.isEnabled(repoPath),
+      autoAddress: this.isAutoAddressEnabled(repoPath),
+      learnings: this.learningsOn(repoPath),
+      autopilot: this.isAutopilotEnabled(repoPath),
+      autoDrain: this.isAutoDrainEnabled(repoPath),
+    };
   }
 
   maxAutoFor(repoPath: string): number {

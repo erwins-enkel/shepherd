@@ -5,8 +5,9 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
-  import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import ReadyToggle from "./ReadyToggle.svelte";
+  import AutomationPanel from "./AutomationPanel.svelte";
+  import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { featureAnnouncements } from "$lib/feature-announcements";
@@ -47,11 +48,8 @@
   let showReview = $state(false);
   let wrapEl = $state<HTMLElement | null>(null);
 
-  // Auto-drain config popover (per-repo cap / label / usage ceiling)
-  let showDrain = $state(false);
-  let drainCap = $state(1);
-  let drainLabel = $state("");
-  let drainCeiling = $state(80);
+  // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
+  let showAutomation = $state(false);
 
   // two-step confirm for destructive actions (mirrors decommission UX)
   let armed = $state<"merge" | "redeploy" | null>(null);
@@ -85,7 +83,7 @@
     armed = null;
     showPr = false;
     showReview = false;
-    showDrain = false;
+    showAutomation = false;
     load(id);
     // light poll only while a PR is open (CI/merge state can change)
     const t = setInterval(() => {
@@ -99,7 +97,7 @@
     prBody = prompt;
     showPr = true;
     showReview = false; // one popover at a time
-    showDrain = false;
+    showAutomation = false; // one popover at a time
     err = null;
     retry = null;
   }
@@ -108,57 +106,32 @@
     showReview = !showReview;
     if (showReview) {
       showPr = false; // one popover at a time
-      showDrain = false;
+      showAutomation = false;
     }
   }
 
-  // open the drain config popover, seeding the inputs from current config
-  function toggleDrain() {
-    showDrain = !showDrain;
-    if (showDrain) {
+  function toggleAutomation() {
+    showAutomation = !showAutomation;
+    if (showAutomation) {
       showPr = false;
       showReview = false; // one popover at a time
-      drainCap = repoConfig.maxAutoFor(repoPath);
-      drainLabel = repoConfig.autoLabelFor(repoPath);
-      drainCeiling = repoConfig.usageCeilingFor(repoPath);
+      // The critic/auto-address/learnings toggles now live behind this pill, so their
+      // discovery coachmarks re-home onto it: arm the first still-unseen one on open.
+      armFirstUnseenAutomation();
     }
   }
 
-  async function commitDrainCap() {
-    const n = clampCap(drainCap);
-    drainCap = n;
-    await repoConfig.setMaxAuto(repoPath, n);
-    drainCap = repoConfig.maxAutoFor(repoPath);
-  }
-  async function commitDrainLabel() {
-    const t = sanitizeLabel(drainLabel);
-    if (t === null) {
-      // ignore empty → revert to stored value
-      drainLabel = repoConfig.autoLabelFor(repoPath);
-      return;
-    }
-    drainLabel = t;
-    await repoConfig.setAutoLabel(repoPath, t);
-    drainLabel = repoConfig.autoLabelFor(repoPath);
-  }
-  async function commitDrainCeiling() {
-    const n = clampCeiling(drainCeiling);
-    drainCeiling = n;
-    await repoConfig.setUsageCeiling(repoPath, n);
-    drainCeiling = repoConfig.usageCeilingFor(repoPath);
-  }
-
-  // Escape / click-outside dismiss the findings + drain popovers
+  // Escape / click-outside dismiss the findings + automation popovers
   function onWindowKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       if (showReview) showReview = false;
-      if (showDrain) showDrain = false;
+      if (showAutomation) showAutomation = false;
     }
   }
   function onWindowPointerdown(e: PointerEvent) {
     if (wrapEl && !wrapEl.contains(e.target as Node)) {
       if (showReview) showReview = false;
-      if (showDrain) showDrain = false;
+      if (showAutomation) showAutomation = false;
     }
   }
 
@@ -256,19 +229,30 @@
       alive = false;
     };
   });
-  const criticOn = $derived(repoConfig.isEnabled(repoPath));
-  const autoAddressOn = $derived(repoConfig.isAutoAddressEnabled(repoPath));
-  const learningsOn = $derived(repoConfig.learningsOn(repoPath));
-  const autopilotOn = $derived(repoConfig.isAutopilotEnabled(repoPath));
-  const autoDrainOn = $derived(repoConfig.isAutoDrainEnabled(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
+  const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
 
-  // Coachmark: which feature is currently "armed" (popover open on first tap).
-  // armedId is set when a toggle is tapped for the first time (unseen); cleared on
-  // onseen (markSeen) or onclose (dismiss without marking seen).
+  // Coachmark: which feature is currently "armed" (popover open on first reveal).
+  // armedId is set when the automation pill is first opened while a feature is unseen;
+  // cleared on onseen (markSeen) or onclose (dismiss without marking seen).
   let armedId = $state<string | null>(null);
+
+  // Feature ids whose controls moved behind the automation pill; their discovery
+  // coachmarks now anchor on the pill instead of their (deleted) individual toggles.
+  const PILL_FEATURE_IDS = ["critic", "auto-address", "learnings"] as const;
+
+  // A passive "new" dot rides the pill while any relocated feature is still unseen.
+  const automationHasUnseen = $derived(PILL_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)));
+
+  // Arm the first relocated feature that is unseen AND has a pill target registered.
+  function armFirstUnseenAutomation() {
+    const next = PILL_FEATURE_IDS.find(
+      (id) => !featureDiscovery.isSeen(id) && coachTargets.has(id),
+    );
+    if (next) armedId = next;
+  }
 
   // The first catalog entry whose targetId is registered in coachTargets AND not yet seen
   // AND is currently armed. Reading coachTargets (SvelteMap) here makes this reactive to
@@ -351,106 +335,25 @@
 
       {#if repoPath}
         <button
-          class={["gbtn", "crit-toggle", { reviewing }]}
+          class={["gbtn", "auto-pill", { reviewing, armed: showAutomation }]}
           type="button"
-          aria-label={reviewing
-            ? m.gitrail_critic_reviewing_aria()
-            : m.gitrail_critic_toggle_aria()}
+          aria-haspopup="dialog"
+          aria-expanded={showAutomation}
           aria-busy={reviewing}
-          aria-pressed={criticOn}
-          title={reviewing
-            ? m.gitrail_critic_reviewing_aria()
-            : criticOn
-              ? m.gitrail_critic_on_title()
-              : m.gitrail_critic_off_title()}
+          aria-label={reviewing
+            ? m.automation_pill_reviewing_aria()
+            : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
           use:coachTarget={"critic"}
-          onclick={() => {
-            repoConfig.toggle(repoPath);
-            if (!featureDiscovery.isSeen("critic")) armedId = "critic";
-          }}
-        >
-          🔍<span class="crit-dot" class:reviewing class:on={criticOn} aria-hidden="true"
-          ></span>{#if !featureDiscovery.isSeen("critic")}<span class="new-dot" aria-hidden="true"
-            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
-        </button>
-        <!-- auto-address: feed critic findings back to the agent. Depends on the critic,
-             so it's disabled (not hidden) when the critic is off. -->
-        <button
-          class={["gbtn", "crit-toggle"]}
-          type="button"
-          disabled={!criticOn}
-          aria-label={m.gitrail_autoaddress_toggle_aria()}
-          aria-pressed={autoAddressOn && criticOn}
-          title={!criticOn
-            ? m.gitrail_autoaddress_needs_critic_title()
-            : autoAddressOn
-              ? m.gitrail_autoaddress_on_title()
-              : m.gitrail_autoaddress_off_title()}
           use:coachTarget={"auto-address"}
-          onclick={() => {
-            repoConfig.toggleAutoAddress(repoPath);
-            if (!featureDiscovery.isSeen("auto-address")) armedId = "auto-address";
-          }}
-        >
-          🤖<span class="crit-dot" class:on={autoAddressOn && criticOn} aria-hidden="true"
-          ></span>{#if !featureDiscovery.isSeen("auto-address")}<span
-              class="new-dot"
-              aria-hidden="true"
-            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
-        </button>
-      {/if}
-      {#if repoPath}
-        <button
-          class={["gbtn", "crit-toggle"]}
-          type="button"
-          aria-label={m.gitrail_learnings_toggle_aria()}
-          aria-pressed={learningsOn}
-          title={learningsOn ? m.gitrail_learnings_on_title() : m.gitrail_learnings_off_title()}
           use:coachTarget={"learnings"}
-          onclick={() => {
-            repoConfig.toggleLearnings(repoPath);
-            if (!featureDiscovery.isSeen("learnings")) armedId = "learnings";
-          }}
+          onclick={toggleAutomation}
         >
-          🎓<span class="crit-dot" class:on={learningsOn} aria-hidden="true"
-          ></span>{#if !featureDiscovery.isSeen("learnings")}<span
-              class="new-dot"
-              aria-hidden="true"
-            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
+          ⚙ {m.automation_pill_label()}
+          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
+          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
+              class="sr-only">{m.newdot_aria()}</span
+            >{/if}
         </button>
-        <button
-          class={["gbtn", "crit-toggle"]}
-          type="button"
-          aria-label={m.gitrail_autopilot_toggle_aria()}
-          aria-pressed={autopilotOn}
-          title={autopilotOn ? m.gitrail_autopilot_on_title() : m.gitrail_autopilot_off_title()}
-          onclick={() => repoConfig.toggleAutopilot(repoPath)}
-        >
-          🛫<span class="crit-dot" class:on={autopilotOn} aria-hidden="true"></span>
-        </button>
-        <button
-          class={["gbtn", "crit-toggle"]}
-          type="button"
-          aria-label={m.gitrail_autodrain_toggle_aria()}
-          aria-pressed={autoDrainOn}
-          title={autoDrainOn ? m.gitrail_autodrain_on_title() : m.gitrail_autodrain_off_title()}
-          onclick={() => repoConfig.toggleAutoDrain(repoPath)}
-        >
-          🚰<span class="crit-dot" class:on={autoDrainOn} aria-hidden="true"></span>
-        </button>
-        {#if autoDrainOn}
-          <!-- config affordance: a gear shown only while drain is on -->
-          <button
-            class={["gbtn", { armed: showDrain }]}
-            type="button"
-            aria-label={m.drain_config_open_aria()}
-            aria-expanded={showDrain}
-            title={m.drain_config_open_aria()}
-            onclick={toggleDrain}
-          >
-            ⚙
-          </button>
-        {/if}
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
         <ReadyToggle {sessionId} {ready} variant="rail" />
@@ -508,45 +411,8 @@
       </div>
     {/if}
 
-    {#if showDrain}
-      <div class="pr-pop drain-pop" role="dialog" aria-label={m.drain_panel_title()}>
-        <div class="drain-head">{m.drain_panel_title()}</div>
-        <label class="drain-field">
-          <span class="drain-label">{m.drain_cap_label()}</span>
-          <input
-            class="pr-title"
-            type="number"
-            min="1"
-            max="20"
-            bind:value={drainCap}
-            aria-label={m.drain_cap_label()}
-            onchange={commitDrainCap}
-          />
-        </label>
-        <label class="drain-field">
-          <span class="drain-label">{m.drain_label_label()}</span>
-          <input
-            class="pr-title"
-            type="text"
-            bind:value={drainLabel}
-            aria-label={m.drain_label_label()}
-            onchange={commitDrainLabel}
-            onblur={commitDrainLabel}
-          />
-        </label>
-        <label class="drain-field">
-          <span class="drain-label">{m.drain_ceiling_label()}</span>
-          <input
-            class="pr-title"
-            type="number"
-            min="0"
-            max="100"
-            bind:value={drainCeiling}
-            aria-label={m.drain_ceiling_label()}
-            onchange={commitDrainCeiling}
-          />
-        </label>
-      </div>
+    {#if showAutomation}
+      <AutomationPanel {repoPath} {sessionId} />
     {/if}
 
     {#if armedEntry}
@@ -646,40 +512,22 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  /* critic actively reviewing: amber outline (layout via .crit-toggle) */
+  /* critic actively reviewing: amber outline (reused by automation pill) */
   .gbtn.reviewing {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  /* icon-only critic toggle: glyph + single status dot, always inline-flex so
-     the dot renders as a flex item (an empty inline span ignores width/height) */
-  .crit-toggle {
+  /* automation summary pill: worded label + active-count, replaces the toggle horde */
+  .auto-pill {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
   }
-  .crit-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-faint);
+  .auto-count {
+    color: var(--color-faint);
   }
-  .crit-dot.on {
-    background: var(--color-green);
-  }
-  .crit-dot.reviewing {
-    background: var(--color-amber);
-    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
-    animation: rev-pulse 1.1s ease-in-out infinite !important;
-  }
-  @keyframes rev-pulse {
-    0%,
-    100% {
-      opacity: 0.3;
-    }
-    50% {
-      opacity: 1;
-    }
+  .auto-count.on {
+    color: var(--color-green);
   }
 
   /* "new" discovery pip — separate element, distinct hue (accent blue ring).
@@ -860,32 +708,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 6px;
-  }
-
-  /* drain config popover: same chrome as .pr-pop, narrower, label+input rows */
-  .drain-pop {
-    width: 240px;
-  }
-  .drain-head {
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .drain-field {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .drain-label {
-    font-size: 11px;
-    color: var(--color-ink);
-    white-space: nowrap;
-  }
-  .drain-field .pr-title {
-    flex: 0 0 auto;
-    width: 110px;
   }
 
   /* full-page dim behind the findings popover, matching the compose-bar sheet */

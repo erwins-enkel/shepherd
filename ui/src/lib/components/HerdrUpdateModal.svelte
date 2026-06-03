@@ -44,8 +44,14 @@
             node.setAttribute("rel", "noopener noreferrer");
           }
         });
-        const html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
-        DOMPurify.removeAllHooks();
+        let html: string;
+        try {
+          html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        } finally {
+          // Always drop the hook, even if parse/sanitize throws, so it can't
+          // leak onto the next render.
+          DOMPurify.removeAllHooks();
+        }
         if (alive) renderedNotes = html;
       })
       .catch((err) => {

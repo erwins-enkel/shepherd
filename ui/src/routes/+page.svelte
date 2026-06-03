@@ -686,7 +686,7 @@
             toasts.info(m.learnings_promote_started());
             return learnings.load();
           })
-          .catch(() => {})}
+          .catch(() => toasts.info(m.learnings_promote_failed()))}
       onclose={() => (showLearnings = false)}
     />
   {/if}

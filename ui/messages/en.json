@@ -275,6 +275,7 @@
   "learnings_promote": "Promote",
   "learnings_promote_aria": "Promote this rule into CLAUDE.md via a pull request",
   "learnings_promote_started": "Opened a CLAUDE.md PR for the rule",
+  "learnings_promote_failed": "Could not promote the rule — see the server log",
   "learnings_promoted_pr": "View PR",
   "viewport_back_aria": "Back to herd",
   "viewport_back_button": "‹ Herd",

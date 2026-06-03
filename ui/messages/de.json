@@ -275,6 +275,7 @@
   "learnings_promote": "Übernehmen",
   "learnings_promote_aria": "Diese Regel per Pull Request in CLAUDE.md übernehmen",
   "learnings_promote_started": "CLAUDE.md-PR für die Regel geöffnet",
+  "learnings_promote_failed": "Regel konnte nicht übernommen werden — siehe Server-Log",
   "learnings_promoted_pr": "PR ansehen",
   "viewport_back_aria": "Zurück zum Herd",
   "viewport_back_button": "‹ Herd",

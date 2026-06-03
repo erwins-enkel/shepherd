@@ -85,7 +85,7 @@
     border-bottom: 1px solid var(--color-line);
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -97,7 +97,7 @@
     color: var(--color-muted);
     cursor: pointer;
     font: inherit;
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 2px 6px;
   }

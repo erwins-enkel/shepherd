@@ -120,7 +120,7 @@
     border: 0;
     cursor: pointer;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     text-align: left;
   }
@@ -172,11 +172,11 @@
     margin: 0;
     padding: 6px 10px;
     color: var(--color-muted);
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
   .hunks {
     overflow-x: auto;
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.5;
   }
   .hunk-head {

@@ -80,7 +80,7 @@
 
   .prs-header {
     padding: 6px 12px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -109,7 +109,7 @@
   }
 
   .muted {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 4px 0;
   }

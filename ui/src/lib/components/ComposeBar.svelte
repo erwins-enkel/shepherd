@@ -455,7 +455,7 @@
     border: none;
     border-radius: 2px;
     color: var(--color-faint);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -488,7 +488,7 @@
     font-family: var(--font-mono);
     /* a touch smaller for density; under the 16px iOS no-zoom threshold, an
        accepted tradeoff since the overlay is centered and not edge-pinned */
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1.4;
     overflow-y: auto;
   }
@@ -526,7 +526,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     cursor: pointer;
     touch-action: pan-x;
     user-select: none;
@@ -554,7 +554,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -572,7 +572,7 @@
     border-color: var(--color-ink);
   }
   .btn.mic {
-    font-size: 16px;
+    font-size: var(--fs-lg);
     line-height: 1;
   }
   /* while listening: highlighted + a soft pulse so it reads as "recording" */

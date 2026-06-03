@@ -201,7 +201,7 @@
   }
   /* designation is metadata: demoted to the end of the header, quietest tone */
   .desig {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -209,7 +209,7 @@
   }
   .name {
     color: var(--color-ink-bright);
-    font-size: 12px;
+    font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.04em;
     min-width: 0;
@@ -223,13 +223,13 @@
     color: var(--color-ink);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.08em;
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
   }
   /* Quiet muted text, not a colored pill — the stripe (left) already encodes
      status by hue, so an outlined `--rule`-tinted badge here triple-stacked the
      same color. Matches UnitRow's demoted badge. */
   .badge {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);

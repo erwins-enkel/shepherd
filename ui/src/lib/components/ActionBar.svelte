@@ -133,7 +133,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
     background: transparent;
     white-space: nowrap;
@@ -157,7 +157,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
   }
@@ -194,7 +194,7 @@
     border: 0;
     border-left: 1px solid var(--color-line-bright);
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1;
     padding: 4px 8px;
     cursor: pointer;
@@ -216,7 +216,7 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1;
     padding: 4px 8px;
     cursor: pointer;
@@ -236,11 +236,11 @@
     flex: 1;
     text-align: center;
     padding: 12px;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .actions.mobile .btn.backlog {
     padding: 12px 16px;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
 
   /* Desktop-only hover tooltip surfacing the keyboard shortcut. Mirrors the
@@ -261,7 +261,7 @@
       border: 1px solid var(--color-line-bright);
       box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
       color: var(--color-ink-bright);
-      font-size: 10.5px;
+      font-size: var(--fs-meta);
       letter-spacing: 0.06em;
       text-transform: none;
       padding: 5px 9px;

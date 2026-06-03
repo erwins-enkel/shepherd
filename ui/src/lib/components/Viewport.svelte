@@ -1134,6 +1134,7 @@
           ? m.viewport_git_actions_aria_state({ state: gitToggleState })
           : m.viewport_git_actions_aria()}
       >
+        <span class="gt-dot" aria-hidden="true"></span>
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
@@ -1438,7 +1439,7 @@
     padding: 6px 12px;
     background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     flex-shrink: 0;
     white-space: nowrap;
     /* not overflow:hidden — the Open-PR popover drops below the header and must
@@ -1477,7 +1478,7 @@
   }
 
   .desig {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -1521,7 +1522,7 @@
     display: flex;
     gap: 10px;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
   .dp-k {
     color: var(--color-muted);
@@ -1535,7 +1536,7 @@
      hidden, so the desig number alone can't identify the session */
   .vp-name {
     color: var(--color-ink);
-    font-size: 12px;
+    font-size: var(--fs-base);
     /* flex-basis 0 (not auto) so the name's content width doesn't drive the
        wrap calc on mobile — otherwise a long name reserves the whole row and
        pushes the decommission button onto the next line. It absorbs the slack
@@ -1549,7 +1550,7 @@
 
   .branch {
     color: var(--color-ink);
-    font-size: 12px;
+    font-size: var(--fs-base);
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 22ch;
@@ -1571,7 +1572,7 @@
   }
 
   .status-badge {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -1594,7 +1595,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -1621,9 +1622,22 @@
     border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
     box-shadow: inset 0 0 18px -10px var(--color-green);
   }
+  .gt-dot {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-faint);
+  }
+  .git-toggle.attention .gt-dot {
+    background: var(--color-amber);
+  }
+  .git-toggle.clear .gt-dot {
+    background: var(--color-green);
+  }
   .gt-caret {
     color: var(--color-faint);
-    font-size: 9px;
+    font-size: var(--fs-micro);
     line-height: 1;
   }
   .git-toggle.open .gt-caret,
@@ -1642,7 +1656,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -1673,16 +1687,16 @@
   }
   .ctx-glyph {
     color: var(--color-amber);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     flex-shrink: 0;
   }
   .ctx-glyph.emoji {
-    font-size: 14px;
+    font-size: var(--fs-lg);
   }
   .ctx-repo {
     color: var(--color-ink-bright);
     font-weight: 600;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     letter-spacing: 0.02em;
     white-space: nowrap;
     flex-shrink: 0;
@@ -1696,7 +1710,7 @@
   }
   .ctx-name {
     color: var(--color-ink);
-    font-size: 12px;
+    font-size: var(--fs-base);
     min-width: 0;
     /* ellipsize well before the row fills, ceding width to the close button */
     max-width: 34vw;
@@ -1728,7 +1742,7 @@
   /* phone: connection lost — a lone red dot (alert by exception) */
   .vp-offline {
     color: var(--color-red);
-    font-size: 9px;
+    font-size: var(--fs-micro);
     flex-shrink: 0;
   }
 
@@ -1737,7 +1751,7 @@
   .vp-status-glyph {
     flex-shrink: 0;
     font-weight: 700;
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1;
     margin-right: 1px;
   }
@@ -1763,7 +1777,7 @@
     border-radius: 2px;
     color: var(--color-faint);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -1826,7 +1840,7 @@
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-faint);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     line-height: 1;
     padding: 2px 6px;
     cursor: pointer;
@@ -1851,7 +1865,7 @@
     border-radius: 2px;
     color: var(--color-ink-bright);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     padding: 2px 6px;
     width: 14ch;
     max-width: 40vw;
@@ -1865,7 +1879,7 @@
   }
   .rename-err {
     color: var(--color-red);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1873,7 +1887,7 @@
   }
   .rename-note {
     color: var(--color-faint);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1936,17 +1950,17 @@
   }
   .parked-icon {
     color: var(--color-amber);
-    font-size: 22px;
+    font-size: var(--fs-2xl);
     line-height: 1;
   }
   .parked-title {
     color: var(--color-ink-bright);
     letter-spacing: 0.08em;
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .parked-sub {
     color: var(--color-muted);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
@@ -1972,7 +1986,7 @@
     background: color-mix(in srgb, var(--color-head) 90%, transparent);
     backdrop-filter: blur(2px);
     color: var(--color-ink);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     line-height: 1;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
@@ -2030,7 +2044,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 4px 9px;
     cursor: pointer;
@@ -2049,7 +2063,7 @@
     border: 1px solid var(--color-red);
     color: var(--color-red);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     padding: 4px 9px;
     cursor: pointer;
@@ -2060,7 +2074,7 @@
     background: color-mix(in srgb, var(--color-red) 28%, transparent);
   }
   .nyu-arrow {
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1;
     letter-spacing: 0;
   }
@@ -2094,7 +2108,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
-    font-size: 15px;
+    font-size: var(--fs-lg);
     line-height: 1;
     min-width: 40px;
     min-height: 40px;
@@ -2106,7 +2120,7 @@
   .queue-pos {
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     min-width: 28px;
     text-align: center;
   }
@@ -2178,7 +2192,7 @@
     flex: 1;
     text-align: center;
     padding: 10px 6px;
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
   /* finger-sized header controls on touch layouts (≥40px) */
   .vp-head.mobile .back,
@@ -2186,11 +2200,11 @@
   .vp-head.mobile .decom {
     min-height: 40px;
     padding: 8px 12px;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   /* phone: the back control is a bare chevron — size it up to read as an icon */
   .vp-head.phone .back {
-    font-size: 20px;
+    font-size: var(--fs-xl);
     line-height: 1;
     padding: 6px 12px;
   }
@@ -2201,7 +2215,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.1em;
     padding: 2px 8px;
     cursor: pointer;
@@ -2233,7 +2247,7 @@
     padding: 5px 12px;
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     flex-shrink: 0;
   }
@@ -2261,7 +2275,7 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-size: 16px;
+    font-size: var(--fs-lg);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -2283,7 +2297,7 @@
      row so it reads as the primary action */
   .ctrl-row .enter {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     color: var(--color-green);
     border-color: color-mix(in srgb, var(--color-green) 60%, var(--color-line-bright));
     background: color-mix(in srgb, var(--color-green) 18%, var(--color-inset));
@@ -2303,7 +2317,7 @@
     padding: 0 10px;
     border-radius: 2px;
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     letter-spacing: 0.04em;
     white-space: nowrap;
     cursor: pointer;

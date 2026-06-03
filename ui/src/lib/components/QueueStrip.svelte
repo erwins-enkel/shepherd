@@ -126,7 +126,7 @@
     font-family: var(--font-mono);
   }
   .qs-label {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -149,7 +149,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -219,13 +219,13 @@
     letter-spacing: normal;
   }
   .qs-pop-head {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
   }
   .qs-pop-state {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
   }
   .qs-pop-fail {
@@ -248,7 +248,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     text-decoration: none;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .qs-pop-item:hover,
   .qs-pop-item:focus-visible {

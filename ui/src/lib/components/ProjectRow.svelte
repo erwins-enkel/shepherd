@@ -89,7 +89,7 @@
 
   .row-name {
     color: var(--color-ink-bright);
-    font-size: 13px;
+    font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.03em;
     overflow: hidden;
@@ -98,7 +98,7 @@
   }
 
   .pinned-badge {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-amber);
@@ -113,7 +113,7 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     letter-spacing: 0.04em;
     font-variant-numeric: tabular-nums;

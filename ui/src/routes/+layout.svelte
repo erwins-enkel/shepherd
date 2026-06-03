@@ -28,7 +28,7 @@
     background: var(--color-panel);
     border: 1px solid var(--color-amber);
     color: var(--color-amber);
-    font-size: 12px;
+    font-size: var(--fs-base);
     letter-spacing: 0.08em;
     text-decoration: none;
     transition: transform 0.12s ease-out;

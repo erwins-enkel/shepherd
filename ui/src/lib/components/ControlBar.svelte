@@ -141,7 +141,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     letter-spacing: 0.04em;
     cursor: pointer;
     touch-action: manipulation;

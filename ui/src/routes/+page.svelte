@@ -893,7 +893,7 @@
     align-items: center;
     justify-content: center;
     color: var(--color-faint);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
   }

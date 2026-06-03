@@ -509,7 +509,7 @@
     font: inherit;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -525,7 +525,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 8px 10px;
     border-radius: 2px;
     width: 100%;
@@ -551,7 +551,7 @@
   }
   .err {
     color: var(--color-red);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin-top: 6px;
     display: flex;
     align-items: center;
@@ -564,7 +564,7 @@
     border-radius: 2px;
     color: var(--color-amber);
     font: inherit;
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 8px;
     cursor: pointer;
@@ -585,7 +585,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
@@ -595,7 +595,7 @@
   }
   .kbd {
     font: inherit;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     text-transform: none;
     color: var(--color-amber);
@@ -621,7 +621,7 @@
     textarea,
     input,
     select {
-      font-size: 16px; /* prevents iOS zoom-on-focus */
+      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
     }
     input,
     select,
@@ -647,7 +647,7 @@
       width: 44px;
       height: 44px;
       margin-right: -10px; /* nudge the glyph toward the sheet edge */
-      font-size: 16px;
+      font-size: var(--fs-lg);
     }
     label[for="nt-prompt"] {
       display: none;
@@ -690,7 +690,7 @@
     border: 1px solid var(--color-line-bright);
     color: var(--color-ink);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 6px 10px;
     border-radius: 2px;
@@ -701,7 +701,7 @@
     cursor: default;
   }
   .hint {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
   .chips {
@@ -719,7 +719,7 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 3px 7px;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
   }
   .chip-name {
@@ -745,11 +745,11 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-inset);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
   }
   .issue-ref-label {
     flex-shrink: 0;
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-faint);

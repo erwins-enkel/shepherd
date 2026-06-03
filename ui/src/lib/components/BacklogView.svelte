@@ -256,7 +256,7 @@
   }
 
   .skeleton-pulse {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -274,7 +274,7 @@
   }
 
   .empty-label {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -296,7 +296,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.1em;
     padding: 2px 8px;
     cursor: pointer;
@@ -366,7 +366,7 @@
   }
 
   .detail-empty-label {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -420,7 +420,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 6px 12px;
     cursor: pointer;

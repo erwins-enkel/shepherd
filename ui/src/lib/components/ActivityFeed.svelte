@@ -57,7 +57,7 @@
     height: 100%;
     overflow-y: auto;
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1.5;
   }
   ul {

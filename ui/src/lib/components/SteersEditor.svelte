@@ -122,7 +122,7 @@
     padding-top: 10px;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -159,7 +159,7 @@
     border-radius: 2px;
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     padding: 6px 8px;
   }
   .srow .label {
@@ -182,12 +182,12 @@
   }
   .placeholder {
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     padding: 6px 2px;
   }
   .err {
     color: var(--color-red);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
   }
   .actions {
     display: flex;
@@ -200,7 +200,7 @@
     background: transparent;
     color: var(--color-ink);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 8px 12px;

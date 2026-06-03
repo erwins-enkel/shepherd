@@ -158,6 +158,17 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 - **Label** (500, 11px, uppercase, +0.12em): Buttons, tab and status labels, toolbar chrome. The wide tracking and small caps read as machine labeling, not prose.
 - **Numeric** (400, 11px, +0.06em, tabular): Token counts, usage percentages, gauge readouts, SHAs. Tabular figures so digits never reflow as values tick.
 
+### Scale (implemented rung ladder)
+
+The hierarchy above is realized as a 6-rung type scale, the single source of truth for every font size. The rungs are CSS custom properties on `:root` in `app.css`; components read them as `var(--fs-*)` and never hardcode a px size. The ladder is anchored on the 11px (label / numeric) and 13px (title / body) defined above, with 10px as a deliberate floor so dense chrome never drops into sub-10px territory.
+
+- **micro** (`--fs-micro`, 10px): The floor. Dense chrome: pip captions, micro-badges, the tightest metadata.
+- **meta** (`--fs-meta`, 11px): Label and Numeric. Buttons, tab and status labels, counts, readouts.
+- **base** (`--fs-base`, 13px): Title and Body. The global base size and default running text.
+- **lg** (`--fs-lg`, 16px): Step-up emphasis: modal section heads, mobile inputs (also avoids iOS zoom-on-focus).
+- **xl** (`--fs-xl`, 20px): Prominent modal and empty-state headings.
+- **2xl** (`--fs-2xl`, 22px): The largest display step: update-modal hero and the like.
+
 ### Named Rules
 
 **The One Typeface Rule.** Everything is Berkeley Mono. A second family is forbidden; hierarchy is built from size, weight, case, and color only. The monospace grid is non-negotiable, it is what makes this an instrument.

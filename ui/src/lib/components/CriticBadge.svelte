@@ -43,7 +43,7 @@
 
 <style>
   .critic-badge {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 1px 6px;

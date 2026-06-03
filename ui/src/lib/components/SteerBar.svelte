@@ -1,11 +1,10 @@
 <script lang="ts">
   import { steers } from "$lib/steers.svelte";
   import { replySession } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { focusedId, onbroadcast }: { focusedId: string; onbroadcast: () => void } = $props();
-
-  let flash = $state<string | null>(null);
 
   // One-time coachmark: the steer chips are tap-to-send and the leading 📡 chip
   // broadcasts to many sessions — neither affordance is obvious on first sight.
@@ -63,10 +62,15 @@
     action();
   }
 
+  // Steering is the product's core risky action: a failed send must not vanish.
+  // Route the failure through the persistent toast store with an inline Retry
+  // (retry re-runs send(), so a repeated failure re-toasts) instead of a
+  // self-clearing flash the operator can easily miss.
   function send(text: string) {
     replySession(focusedId, text).catch(() => {
-      flash = m.steerbar_send_failed();
-      setTimeout(() => (flash = null), 1500);
+      toasts.info(m.steerbar_send_failed(), {
+        action: { label: m.common_retry(), run: () => send(text) },
+      });
     });
   }
 </script>
@@ -105,7 +109,6 @@
       onpointerup={(e) => tap(e, () => send(s.text))}>{s.label}</button
     >
   {/each}
-  {#if flash}<span class="flash" role="alert">{flash}</span>{/if}
 </div>
 
 <style>
@@ -136,7 +139,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -177,13 +180,6 @@
       display: none;
     }
   }
-  .flash {
-    align-self: center;
-    color: var(--color-red);
-    font-size: 11px;
-    padding-left: 6px;
-  }
-
   /* one-time steer hint: flat, square, hairline-bordered, muted ink — sits
      directly above the steer row, no shadow or glow at rest */
   .coach {
@@ -195,7 +191,7 @@
     border-top: 1px solid var(--color-line);
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.35;
   }
   .coach-text {
@@ -210,7 +206,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
     touch-action: manipulation;
     transition:

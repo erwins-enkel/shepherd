@@ -345,7 +345,7 @@
     font-weight: 700;
     letter-spacing: 0.34em;
     color: var(--color-ink-bright);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     flex-shrink: 0;
   }
   .logo b {
@@ -357,7 +357,7 @@
     background: var(--color-line-bright);
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -381,7 +381,7 @@
     border: 1px solid var(--color-red);
     color: var(--color-red);
     letter-spacing: 0.14em;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     padding: 5px 10px;
     cursor: pointer;
     white-space: nowrap;
@@ -392,7 +392,7 @@
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
     letter-spacing: 0.14em;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     padding: 5px 10px;
     cursor: pointer;
     white-space: nowrap;
@@ -418,7 +418,7 @@
     background: transparent;
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 5px 8px;
     border-radius: 2px;
@@ -454,7 +454,7 @@
     color: var(--color-blue, #4a9eff);
     cursor: pointer;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     border-radius: 2px;
@@ -463,7 +463,7 @@
     background: color-mix(in srgb, var(--color-blue, #4a9eff) 22%, transparent);
   }
   .whatsnew-badge .wn-dot {
-    font-size: 8px;
+    font-size: var(--fs-micro);
   }
   /* Phone-only: bare pip button, no label — mirrors .gear-dot folded pattern. */
   .whatsnew-dot-btn {
@@ -471,7 +471,7 @@
     background: transparent;
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 5px 8px;
     border-radius: 2px;
@@ -522,7 +522,7 @@
     transition: transform 0.6s ease;
   }
   .g-pct {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     min-width: 30px;
     text-align: right;
   }
@@ -602,14 +602,14 @@
     color: var(--color-amber);
     cursor: pointer;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     border-radius: 2px;
     animation: update-pulse 2.4s ease-in-out infinite;
   }
   .update-badge .up-dot {
-    font-size: 8px;
+    font-size: var(--fs-micro);
   }
   .update-badge .up-n {
     font-variant-numeric: tabular-nums;
@@ -669,7 +669,7 @@
     padding: 10px 12px;
   }
   .hud.mobile .logo {
-    font-size: 13px;
+    font-size: var(--fs-base);
     letter-spacing: 0.12em;
   }
   .tallies.compact {
@@ -680,7 +680,7 @@
     flex-shrink: 0;
   }
   .tallies.compact .cdot {
-    font-size: 9px;
+    font-size: var(--fs-micro);
   }
   .tallies.compact .csep {
     color: var(--color-faint);
@@ -709,7 +709,7 @@
     min-height: 44px;
     min-width: 44px;
     padding: 5px 11px;
-    font-size: 16px;
+    font-size: var(--fs-lg);
   }
   .hud.mobile .gauge-btn {
     padding: 0 6px;
@@ -806,7 +806,7 @@
       border: 1px solid var(--color-line-bright);
       box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
       color: var(--color-ink-bright);
-      font-size: 10.5px;
+      font-size: var(--fs-meta);
       letter-spacing: 0.06em;
       text-transform: none;
       padding: 5px 9px;

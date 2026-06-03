@@ -23,6 +23,48 @@
   let error = $state<string | null>(null);
   let logEl = $state<HTMLPreElement | null>(null);
 
+  // Render the (GitHub release) notes as markdown, sanitized before @html.
+  // marked + DOMPurify are dynamically imported on first render so they stay
+  // off the critical path; the (browser-only) sanitizer never runs during SSR.
+  let renderedNotes = $state("");
+  $effect(() => {
+    const body = update.notes;
+    if (!body) {
+      renderedNotes = "";
+      return;
+    }
+    let alive = true;
+    Promise.all([import("marked"), import("dompurify")])
+      .then(([{ marked }, { default: DOMPurify }]) => {
+        // External release-note links must open out-of-app, not navigate the
+        // SPA away; force target/rel on every anchor during sanitize.
+        DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+          if (node.tagName === "A") {
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+          }
+        });
+        let html: string;
+        try {
+          html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        } finally {
+          // Always drop our hook, even if parse/sanitize throws, so it can't
+          // leak onto the next render. Scoped to this event so we don't wipe
+          // any persistent hooks registered elsewhere on the shared singleton.
+          DOMPurify.removeHook("afterSanitizeAttributes");
+        }
+        if (alive) renderedNotes = html;
+      })
+      .catch((err) => {
+        // Markdown render is progressive enhancement; warn so a broken
+        // marked/dompurify load isn't swallowed silently.
+        console.warn("herdr release notes markdown render failed", err);
+      });
+    return () => {
+      alive = false;
+    };
+  });
+
   // herdr update restarts herdr (ending live panes) then restarts shepherd; the
   // store auto-reconnects once the new build is live, so we just hold the busy state.
   const busy = $derived(submitting);
@@ -86,7 +128,14 @@
 
     {#if update.notes}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
-      <pre class="notes">{update.notes}</pre>
+      {#if renderedNotes}
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+        <div class="notes">{@html renderedNotes}</div>
+      {:else}
+        <!-- Fallback before the markdown imports resolve, or if they fail:
+             show the raw notes as plain text rather than an empty box. -->
+        <pre class="notes notes-raw">{update.notes}</pre>
+      {/if}
     {/if}
 
     <div class="instructions">{m.herdrupdate_instructions()}</div>
@@ -196,17 +245,82 @@
     margin-bottom: -8px;
   }
   .notes {
-    margin: 0;
     overflow-y: auto;
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     padding: 10px 12px;
-    font-family: inherit;
     font-size: 12.5px;
     line-height: 1.5;
     color: var(--color-ink-bright);
+    overflow-wrap: anywhere;
+  }
+  /* raw plain-text fallback (pre-resolve / render failure) */
+  .notes-raw {
+    margin: 0;
+    font-family: inherit;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  /* markdown rendered via {@html} — children aren't scoped, so target globally */
+  .notes :global(> *:first-child) {
+    margin-top: 0;
+  }
+  .notes :global(> *:last-child) {
+    margin-bottom: 0;
+  }
+  .notes :global(p),
+  .notes :global(ul),
+  .notes :global(ol) {
+    margin: 0 0 8px;
+  }
+  .notes :global(ul),
+  .notes :global(ol) {
+    padding-left: 18px;
+  }
+  .notes :global(li) {
+    margin: 2px 0;
+  }
+  .notes :global(h1),
+  .notes :global(h2),
+  .notes :global(h3),
+  .notes :global(h4) {
+    margin: 12px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-ink-bright);
+  }
+  .notes :global(a) {
+    color: var(--color-blue);
+    text-decoration: underline;
+  }
+  .notes :global(code) {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--color-line);
+    border-radius: 2px;
+    padding: 0 3px;
+    overflow-wrap: anywhere;
+  }
+  .notes :global(pre) {
+    margin: 0 0 8px;
+    padding: 6px 8px;
+    background: var(--color-bg, var(--color-line));
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .notes :global(pre code) {
+    background: none;
+    padding: 0;
+    overflow-wrap: anywhere;
+  }
+  .notes :global(blockquote) {
+    margin: 0 0 8px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-line);
+    color: var(--color-muted);
   }
   .instructions {
     border: 1px solid var(--color-line-bright);

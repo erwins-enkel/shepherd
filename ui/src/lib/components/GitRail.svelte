@@ -7,6 +7,10 @@
   import { criticBadgeLabel } from "./critic-badge";
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import ReadyToggle from "./ReadyToggle.svelte";
+  import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
+  import { featureDiscovery } from "$lib/featureDiscovery.svelte";
+  import { featureAnnouncements } from "$lib/feature-announcements";
+  import Coachmark from "$lib/components/Coachmark.svelte";
 
   let {
     sessionId,
@@ -261,6 +265,20 @@
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
 
+  // Coachmark: which feature is currently "armed" (popover open on first tap).
+  // armedId is set when a toggle is tapped for the first time (unseen); cleared on
+  // onseen (markSeen) or onclose (dismiss without marking seen).
+  let armedId = $state<string | null>(null);
+
+  // The first catalog entry whose targetId is registered in coachTargets AND not yet seen
+  // AND is currently armed. Reading coachTargets (SvelteMap) here makes this reactive to
+  // session-switch registry changes (action destroy deletes, remount re-registers).
+  const armedEntry = $derived(
+    armedId && !featureDiscovery.isSeen(armedId) && coachTargets.has(armedId)
+      ? (featureAnnouncements.find((e) => e.targetId === armedId) ?? null)
+      : null,
+  );
+
   $effect(() => {
     if (repoPath) repoConfig.ensure(repoPath);
   });
@@ -345,9 +363,15 @@
             : criticOn
               ? m.gitrail_critic_on_title()
               : m.gitrail_critic_off_title()}
-          onclick={() => repoConfig.toggle(repoPath)}
+          use:coachTarget={"critic"}
+          onclick={() => {
+            repoConfig.toggle(repoPath);
+            if (!featureDiscovery.isSeen("critic")) armedId = "critic";
+          }}
         >
-          🔍<span class="crit-dot" class:reviewing class:on={criticOn} aria-hidden="true"></span>
+          🔍<span class="crit-dot" class:reviewing class:on={criticOn} aria-hidden="true"
+          ></span>{#if !featureDiscovery.isSeen("critic")}<span class="new-dot" aria-hidden="true"
+            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
         </button>
         <!-- auto-address: feed critic findings back to the agent. Depends on the critic,
              so it's disabled (not hidden) when the critic is off. -->
@@ -362,9 +386,17 @@
             : autoAddressOn
               ? m.gitrail_autoaddress_on_title()
               : m.gitrail_autoaddress_off_title()}
-          onclick={() => repoConfig.toggleAutoAddress(repoPath)}
+          use:coachTarget={"auto-address"}
+          onclick={() => {
+            repoConfig.toggleAutoAddress(repoPath);
+            if (!featureDiscovery.isSeen("auto-address")) armedId = "auto-address";
+          }}
         >
-          🤖<span class="crit-dot" class:on={autoAddressOn && criticOn} aria-hidden="true"></span>
+          🤖<span class="crit-dot" class:on={autoAddressOn && criticOn} aria-hidden="true"
+          ></span>{#if !featureDiscovery.isSeen("auto-address")}<span
+              class="new-dot"
+              aria-hidden="true"
+            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
         </button>
       {/if}
       {#if repoPath}
@@ -374,9 +406,17 @@
           aria-label={m.gitrail_learnings_toggle_aria()}
           aria-pressed={learningsOn}
           title={learningsOn ? m.gitrail_learnings_on_title() : m.gitrail_learnings_off_title()}
-          onclick={() => repoConfig.toggleLearnings(repoPath)}
+          use:coachTarget={"learnings"}
+          onclick={() => {
+            repoConfig.toggleLearnings(repoPath);
+            if (!featureDiscovery.isSeen("learnings")) armedId = "learnings";
+          }}
         >
-          🎓<span class="crit-dot" class:on={learningsOn} aria-hidden="true"></span>
+          🎓<span class="crit-dot" class:on={learningsOn} aria-hidden="true"
+          ></span>{#if !featureDiscovery.isSeen("learnings")}<span
+              class="new-dot"
+              aria-hidden="true"
+            ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
         </button>
         <button
           class={["gbtn", "crit-toggle"]}
@@ -509,6 +549,21 @@
       </div>
     {/if}
 
+    {#if armedEntry}
+      <Coachmark
+        targetId={armedEntry.targetId ?? null}
+        titleKey={armedEntry.titleKey}
+        bodyKey={armedEntry.bodyKey}
+        onseen={() => {
+          if (armedId) featureDiscovery.markSeen(armedId);
+          armedId = null;
+        }}
+        onclose={() => {
+          armedId = null;
+        }}
+      />
+    {/if}
+
     {#if showReview && verdict}
       <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
         <div class="review-head">
@@ -625,6 +680,45 @@
     50% {
       opacity: 1;
     }
+  }
+
+  /* "new" discovery pip — separate element, distinct hue (accent blue ring).
+     Sits next to .crit-dot inside the flex row; does NOT overload .crit-dot's
+     grey/green/amber vocabulary.
+     Visual priority: lower than .reviewing (reviewing uses !important pulse + amber,
+     new-dot is a soft accent and loses visually by design).
+     Reduced-motion: animation intentionally lacks !important so the global blanket
+     in app.css (@media prefers-reduced-motion: reduce { animation: none !important })
+     suppresses it — unlike .reviewing which is exempt. */
+  .new-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--color-accent, #5f6ad2);
+    flex-shrink: 0;
+    animation: new-pip-pulse 2s ease-in-out infinite;
+  }
+  @keyframes new-pip-pulse {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  /* Visually hidden but available to screen readers */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .gbtn.primary {
     border-color: var(--color-amber);

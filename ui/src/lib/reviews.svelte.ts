@@ -1,4 +1,4 @@
-import type { ReviewVerdict } from "./types";
+import type { ReviewVerdict, RepoConfig } from "./types";
 import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api";
 
 /** Client cache of critic verdicts keyed by session id. Loaded once on app start;
@@ -57,10 +57,11 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic + auto-address on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address + learnings on/off, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
+  learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
 
   async ensure(repoPath: string) {
     if (repoPath in this.enabled) return;
@@ -68,31 +69,53 @@ class RepoConfigStore {
       const c = await getRepoConfig(repoPath);
       this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
       this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
+      this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
     } catch {
-      /* leave unset; UI shows defaults (critic on, auto-address off) optimistically */
+      /* leave unset; UI shows defaults (critic on, auto-address off, learnings on) optimistically */
+    }
+  }
+
+  /** Optimistically apply a patch, then reconcile from the server (or revert on error). */
+  private async apply(
+    repoPath: string,
+    patch: Partial<Pick<RepoConfig, "criticEnabled" | "autoAddressEnabled" | "learningsEnabled">>,
+    revert: () => void,
+  ) {
+    try {
+      const c = await putRepoConfig(repoPath, patch);
+      this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
+      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
+      this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
+    } catch {
+      revert();
     }
   }
 
   async toggle(repoPath: string) {
-    const next = !(this.enabled[repoPath] ?? true);
+    const prev = this.enabled[repoPath];
+    const next = !this.isEnabled(repoPath);
     this.enabled = { ...this.enabled, [repoPath]: next }; // optimistic
-    try {
-      const c = await putRepoConfig(repoPath, { criticEnabled: next });
-      this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
-    } catch {
-      this.enabled = { ...this.enabled, [repoPath]: !next }; // revert
-    }
+    await this.apply(repoPath, { criticEnabled: next }, () => {
+      this.enabled = { ...this.enabled, [repoPath]: prev };
+    });
   }
 
   async toggleAutoAddress(repoPath: string) {
-    const next = !(this.autoAddress[repoPath] ?? false);
+    const prev = this.autoAddress[repoPath];
+    const next = !this.isAutoAddressEnabled(repoPath);
     this.autoAddress = { ...this.autoAddress, [repoPath]: next }; // optimistic
-    try {
-      const c = await putRepoConfig(repoPath, { autoAddressEnabled: next });
-      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
-    } catch {
-      this.autoAddress = { ...this.autoAddress, [repoPath]: !next }; // revert
-    }
+    await this.apply(repoPath, { autoAddressEnabled: next }, () => {
+      this.autoAddress = { ...this.autoAddress, [repoPath]: prev };
+    });
+  }
+
+  async toggleLearnings(repoPath: string) {
+    const prev = this.learnings[repoPath];
+    const next = !this.learningsOn(repoPath);
+    this.learnings = { ...this.learnings, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { learningsEnabled: next }, () => {
+      this.learnings = { ...this.learnings, [repoPath]: prev };
+    });
   }
 
   isEnabled(repoPath: string): boolean {
@@ -101,6 +124,10 @@ class RepoConfigStore {
 
   isAutoAddressEnabled(repoPath: string): boolean {
     return this.autoAddress[repoPath] ?? false;
+  }
+
+  learningsOn(repoPath: string): boolean {
+    return this.learnings[repoPath] ?? true;
   }
 }
 export const repoConfig = new RepoConfigStore();

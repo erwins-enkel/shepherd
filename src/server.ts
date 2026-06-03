@@ -159,24 +159,43 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
 }
 
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
-// Both fields optional but each present one must be boolean, and at least one present.
+// All fields optional but each present one must be boolean, and at least one present.
 async function parseRepoConfigPatch(
   req: Request,
-): Promise<{ criticEnabled?: boolean; autoAddressEnabled?: boolean } | Response> {
+): Promise<
+  { criticEnabled?: boolean; autoAddressEnabled?: boolean; learningsEnabled?: boolean } | Response
+> {
   const body = (await req.json().catch(() => null)) as {
     criticEnabled?: unknown;
     autoAddressEnabled?: unknown;
+    learningsEnabled?: unknown;
   } | null;
   const bad = (v: unknown) => v !== undefined && typeof v !== "boolean";
-  if (!body || bad(body.criticEnabled) || bad(body.autoAddressEnabled)) {
-    return json({ error: "fields criticEnabled/autoAddressEnabled must be booleans" }, 400);
+  if (
+    !body ||
+    bad(body.criticEnabled) ||
+    bad(body.autoAddressEnabled) ||
+    bad(body.learningsEnabled)
+  ) {
+    return json(
+      { error: "fields criticEnabled/autoAddressEnabled/learningsEnabled must be booleans" },
+      400,
+    );
   }
-  if (body.criticEnabled === undefined && body.autoAddressEnabled === undefined) {
-    return json({ error: "body must set criticEnabled and/or autoAddressEnabled" }, 400);
+  if (
+    body.criticEnabled === undefined &&
+    body.autoAddressEnabled === undefined &&
+    body.learningsEnabled === undefined
+  ) {
+    return json(
+      { error: "body must set criticEnabled, autoAddressEnabled, and/or learningsEnabled" },
+      400,
+    );
   }
   return {
     criticEnabled: body.criticEnabled as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
+    learningsEnabled: body.learningsEnabled as boolean | undefined,
   };
 }
 
@@ -193,6 +212,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   deps.store.setRepoConfig(dir, {
     criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
+    learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
   });
   return json(deps.store.getRepoConfig(dir));
 }

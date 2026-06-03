@@ -1247,6 +1247,88 @@ test("archiveMany clears each session, reaping all its leftovers", () => {
   expect(store.get(b.id)?.status).toBe("archived");
 });
 
+function injectDeps(store: SessionStore, captured: { argv?: string[] }) {
+  return {
+    store,
+    namer: async () => "repo-task",
+    worktree: {
+      create: () => ({
+        worktreePath: "/wt/repo-task",
+        branch: "shepherd/repo-task",
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        captured.argv = argv;
+        return { terminalId: "t1" };
+      },
+      list: () => [],
+    } as any,
+  };
+}
+
+test("create prepends active+promoted house rules to the prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({
+    repoPath: "/repo",
+    rule: "Use bun, not npm",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(a.id, "active");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  const promptArg = captured.argv!.at(-1)!;
+  expect(promptArg).toContain("Project house rules");
+  expect(promptArg).toContain("- Use bun, not npm");
+  expect(promptArg.endsWith("do the thing")).toBe(true); // user text stays last
+});
+
+test("create omits the house-rules block when no active rules exist", async () => {
+  const store = new SessionStore(":memory:");
+  store.addLearning({ repoPath: "/repo", rule: "still proposed", rationale: "", evidence: [] }); // proposed, not injected
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  expect(captured.argv!.at(-1)).toBe("do the thing");
+});
+
+test("create omits house rules when learnings disabled for the repo", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
+  store.setLearningStatus(a.id, "active");
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+  });
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  expect(captured.argv!.at(-1)).toBe("do the thing");
+});
+
 test("archiveMany isolates a failing session: others still clear, the failed id is excluded", () => {
   const store = new SessionStore(":memory:");
   const detect = (): any[] => [];

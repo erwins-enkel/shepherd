@@ -75,3 +75,59 @@ test("listPendingLearnings returns proposed across all repos, newest first", () 
   expect(pending.map((l) => l.rule).sort()).toEqual(["a1", "b2"]);
   expect(pending.every((l) => l.status === "proposed")).toBe(true);
 });
+
+test("setLearningStatus enforces the state machine", () => {
+  const s = new SessionStore(":memory:");
+
+  // proposed → promoted is illegal (must go via active); returns null, row unchanged
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  expect(s.setLearningStatus(a.id, "promoted")).toBeNull();
+  expect(s.getLearning(a.id)?.status).toBe("proposed");
+
+  // active → proposed is illegal
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  expect(s.setLearningStatus(b.id, "proposed")).toBeNull();
+  expect(s.getLearning(b.id)?.status).toBe("active");
+
+  // active → promoted and active → dismissed are legal
+  const c = s.addLearning({ repoPath: "/r", rule: "c", rationale: "", evidence: [] });
+  s.setLearningStatus(c.id, "active");
+  expect(s.setLearningStatus(c.id, "promoted")?.status).toBe("promoted");
+
+  const d = s.addLearning({ repoPath: "/r", rule: "d", rationale: "", evidence: [] });
+  s.setLearningStatus(d.id, "active");
+  expect(s.setLearningStatus(d.id, "dismissed")?.status).toBe("dismissed");
+
+  // terminal states are sticky: dismissed → active is illegal
+  expect(s.setLearningStatus(d.id, "active")).toBeNull();
+  expect(s.getLearning(d.id)?.status).toBe("dismissed");
+});
+
+test("listActiveLearnings returns active + promoted only, oldest-updated first", () => {
+  const s = new SessionStore(":memory:");
+  const act = s.addLearning({ repoPath: "/r", rule: "active rule", rationale: "", evidence: [] });
+  s.setLearningStatus(act.id, "active");
+  const prom = s.addLearning({
+    repoPath: "/r",
+    rule: "promoted rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(prom.id, "active");
+  s.setLearningStatus(prom.id, "promoted");
+  s.addLearning({ repoPath: "/r", rule: "still proposed", rationale: "", evidence: [] });
+  const dis = s.addLearning({
+    repoPath: "/r",
+    rule: "dismissed rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(dis.id, "dismissed");
+  // other repo's active rule must not leak in
+  const other = s.addLearning({ repoPath: "/other", rule: "other", rationale: "", evidence: [] });
+  s.setLearningStatus(other.id, "active");
+
+  const rules = s.listActiveLearnings("/r").map((l) => l.rule);
+  expect(rules.sort()).toEqual(["active rule", "promoted rule"]);
+});

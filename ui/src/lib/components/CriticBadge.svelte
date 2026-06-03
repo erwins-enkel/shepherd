@@ -1,12 +1,13 @@
 <script lang="ts">
   import { reviews } from "$lib/reviews.svelte";
-  import { criticBadgeLabel } from "./critic-badge";
+  import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
   import { m } from "$lib/paraglide/messages";
 
   let { sessionId }: { sessionId: string } = $props();
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
   const label = $derived(criticBadgeLabel(verdict));
+  const round = $derived(addressRoundInfo(verdict));
 </script>
 
 {#if reviewing}
@@ -18,6 +19,21 @@
     class="critic-badge critic-{verdict!.decision}"
     title={verdict!.summary || m.criticbadge_title()}>{label}</span
   >
+{/if}
+{#if round}
+  {#if round.stalled}
+    <span
+      class="critic-badge critic-stalled"
+      title={m.criticbadge_stalled_title({ cap: round.cap })}
+      >{m.criticbadge_stalled({ round: round.round, cap: round.cap })}</span
+    >
+  {:else}
+    <span
+      class="critic-badge critic-round"
+      title={m.criticbadge_round_title({ round: round.round, cap: round.cap })}
+      >{m.criticbadge_round({ round: round.round, cap: round.cap })}</span
+    >
+  {/if}
 {/if}
 
 <style>
@@ -37,6 +53,17 @@
   }
   .critic-commented {
     color: var(--color-blue);
+  }
+  /* auto-address streak in progress: agent is fixing the findings */
+  .critic-round {
+    border-color: var(--color-blue);
+    color: var(--color-blue);
+  }
+  /* auto-address gave up at the cap — needs a human */
+  .critic-stalled {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    font-weight: 600;
   }
   .critic-error {
     color: var(--color-faint);

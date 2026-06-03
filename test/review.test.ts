@@ -57,15 +57,23 @@ function fakeForge(rec: { event?: string; body?: string }): GitForge {
   };
 }
 
-function makeDeps(over: any) {
+function makeDeps(
+  over: any,
+  opts: { autoAddressEnabled?: boolean; autoAddressReturns?: boolean } = {},
+) {
   const reviews: Record<string, ReviewVerdict> = {};
   const started: { name: string; cwd: string; argv: string[] }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
+  const steers: { id: string; text: string }[] = [];
+  const signals: { kind: string; payload: string }[] = [];
   const rec: { event?: string; body?: string } = {};
   const base = {
     store: {
-      getRepoConfig: () => ({ criticEnabled: true }),
+      getRepoConfig: () => ({
+        criticEnabled: true,
+        autoAddressEnabled: opts.autoAddressEnabled ?? false,
+      }),
       getReview: (id: string) => reviews[id] ?? null,
       putReview: (v: ReviewVerdict) => {
         reviews[v.sessionId] = v;
@@ -74,7 +82,7 @@ function makeDeps(over: any) {
         delete reviews[id];
       },
       snapshotReviews: () => reviews,
-      addSignal: () => {},
+      addSignal: (s: { kind: string; payload: string }) => signals.push(s),
     },
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
@@ -89,11 +97,15 @@ function makeDeps(over: any) {
     },
     resolveForge: () => fakeForge(rec),
     onChange: () => {},
+    autoAddress: (id: string, text: string) => {
+      steers.push({ id, text });
+      return opts.autoAddressReturns ?? true;
+    },
     now: () => 1000,
     readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
     ...over,
   };
-  return { deps: base, reviews, started, stopped, removed, rec };
+  return { deps: base, reviews, started, stopped, removed, steers, signals, rec };
 }
 
 test("reviewPrompt embeds base + task and asks for the verdict file", () => {
@@ -265,10 +277,164 @@ test("forget reaps an in-flight critic and drops the stored review", () => {
     decision: "commented",
     summary: "",
     body: "",
+    findings: [],
+    addressRound: 0,
     updatedAt: 1,
   };
   svc.forget("s1");
   expect(stopped).toEqual(["rt"]); // critic terminal reaped
   expect(removed).toEqual(["/review-wt"]); // worktree removed
   expect(reviews["s1"]).toBeUndefined(); // stored verdict dropped
+});
+
+// ── auto-address loop ─────────────────────────────────────────────────────────
+
+test("reviewPrompt asks for structured findings", () => {
+  const p = reviewPrompt("main", "do the thing");
+  expect(p).toContain('"findings"');
+});
+
+test("reviewPrompt injects prior findings for verification (accountability)", () => {
+  const p = reviewPrompt("main", "do the thing", ["fix the race", "rename foo"]);
+  expect(p).toContain("fix the race");
+  expect(p).toContain("rename foo");
+  expect(p.toLowerCase()).toContain("previous"); // tells the critic these were raised before
+});
+
+test("auto-address on: feeds findings back to the agent and advances the round", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "one nit",
+        body: "b",
+        findings: ["nit: rename x to y"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  // even a NON-blocking comment is steered back — "shouldn't get off easily"
+  expect(steers).toHaveLength(1);
+  expect(steers[0]!.id).toBe("s1");
+  expect(steers[0]!.text).toContain("nit: rename x to y");
+  expect(reviews["s1"]?.addressRound).toBe(1);
+  expect(reviews["s1"]?.findings).toEqual(["nit: rename x to y"]);
+});
+
+test("auto-address off: never steers even with findings", async () => {
+  const { deps: d, steers } = makeDeps(
+    {
+      readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }),
+    },
+    { autoAddressEnabled: false },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers).toHaveLength(0);
+});
+
+test("clean verdict (no findings) stops the loop and resets the round", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "lgtm", body: "b", findings: [] }) },
+    { autoAddressEnabled: true },
+  );
+  // a streak is already in progress (2 rounds spent on an older head)
+  reviews["s1"] = {
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    summary: "",
+    body: "",
+    findings: ["was broken"],
+    addressRound: 2,
+    updatedAt: 1,
+  };
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN); // new head "abc"
+  await svc.tick();
+  expect(steers).toHaveLength(0); // nothing to address
+  expect(reviews["s1"]?.addressRound).toBe(0); // streak reset
+});
+
+test("round cap reached: holds the round, posts the review + signal, does not steer", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    signals,
+    rec,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "still broken",
+        body: "b",
+        findings: ["still broken"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = {
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    summary: "",
+    body: "",
+    findings: ["still broken"],
+    addressRound: 3, // == cap: the agent has had its 3 tries
+    updatedAt: 1,
+  };
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers).toHaveLength(0); // gave up — escalates to the human
+  expect(reviews["s1"]?.addressRound).toBe(3); // round preserved (not reset, not advanced)
+  expect(rec.event).toBe("REQUEST_CHANGES"); // still posts to the PR
+  expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human/learnings
+});
+
+test("dead agent pane: steer attempted but the round does not advance", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    {
+      readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }),
+    },
+    { autoAddressEnabled: true, autoAddressReturns: false }, // reply() → false (pane gone)
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers).toHaveLength(1); // attempted
+  expect(reviews["s1"]?.addressRound).toBe(0); // but no progress was made
+});
+
+test("re-review injects the prior round's findings into the critic prompt", () => {
+  const { deps: d, reviews, started } = makeDeps({}, { autoAddressEnabled: true });
+  reviews["s1"] = {
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    summary: "",
+    body: "",
+    findings: ["fix the race in worker.ts"],
+    addressRound: 1,
+    updatedAt: 1,
+  };
+  new ReviewService(d as any).consider(session(), OPEN_GREEN); // new head → fresh critic run
+  expect(started[0]!.argv.at(-1)).toContain("fix the race in worker.ts");
 });

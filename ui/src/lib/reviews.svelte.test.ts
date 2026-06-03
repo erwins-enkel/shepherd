@@ -17,6 +17,8 @@ const verdict = (id: string): ReviewVerdict => ({
   decision: "changes_requested",
   summary: "test summary",
   body: "test body",
+  findings: [],
+  addressRound: 0,
   updatedAt: 0,
 });
 
@@ -24,6 +26,7 @@ beforeEach(() => {
   reviews.map = {};
   reviews.reviewing = {};
   repoConfig.enabled = {};
+  repoConfig.autoAddress = {};
   vi.clearAllMocks();
 });
 
@@ -80,14 +83,14 @@ test("repoConfig.isEnabled reflects set value", () => {
 });
 
 test("repoConfig.toggle flips enabled state", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: false });
+  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: false, autoAddressEnabled: false });
   repoConfig.enabled = { "/repo": true };
   await repoConfig.toggle("/repo");
   expect(repoConfig.isEnabled("/repo")).toBe(false);
 });
 
 test("repoConfig.toggle defaults to false when state unknown (default-on)", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: false });
+  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: false, autoAddressEnabled: false });
   // unknown repo → isEnabled returns true → toggle should flip to false
   await repoConfig.toggle("/new-repo");
   expect(repoConfig.isEnabled("/new-repo")).toBe(false);
@@ -103,10 +106,35 @@ test("reviews.load populates map and in-flight ids from api", async () => {
 });
 
 test("repoConfig.ensure fetches and caches", async () => {
-  vi.mocked(getRepoConfig).mockResolvedValue({ criticEnabled: false });
+  vi.mocked(getRepoConfig).mockResolvedValue({ criticEnabled: false, autoAddressEnabled: false });
   await repoConfig.ensure("/repo");
   expect(repoConfig.isEnabled("/repo")).toBe(false);
   // second call should NOT fetch again
   await repoConfig.ensure("/repo");
   expect(getRepoConfig).toHaveBeenCalledTimes(1);
+});
+
+test("repoConfig.isAutoAddressEnabled defaults to false for unknown repo", () => {
+  expect(repoConfig.isAutoAddressEnabled("/unknown")).toBe(false);
+});
+
+test("repoConfig.ensure caches the auto-address flag too", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue({ criticEnabled: true, autoAddressEnabled: true });
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutoAddress flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: true, autoAddressEnabled: true });
+  repoConfig.autoAddress = { "/repo": false };
+  await repoConfig.toggleAutoAddress("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoAddressEnabled: true });
+  expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggle sends only the criticEnabled field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({ criticEnabled: false, autoAddressEnabled: false });
+  repoConfig.enabled = { "/repo": true };
+  await repoConfig.toggle("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { criticEnabled: false });
 });

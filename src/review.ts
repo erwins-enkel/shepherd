@@ -9,22 +9,49 @@ import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 
 /** Self-contained instructions for the critic agent. NOT UI chrome — never i18n'd. */
-export function reviewPrompt(base: string, taskPrompt: string): string {
-  return [
+export function reviewPrompt(
+  base: string,
+  taskPrompt: string,
+  priorFindings: string[] = [],
+): string {
+  const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
     `The PR branch is checked out here at its head commit. Review the changes with: git diff ${base}...HEAD`,
     "",
     "The task this PR is meant to accomplish:",
     taskPrompt,
     "",
+  ];
+  if (priorFindings.length) {
+    lines.push(
+      "This is a RE-REVIEW. The previous revision raised the points below. For EACH, confirm the new diff actually addresses it; if it does not, re-raise it verbatim in your findings — do not let it slide:",
+      ...priorFindings.map((f, i) => `${i + 1}. ${f}`),
+      "",
+    );
+  }
+  lines.push(
     "Judge ONLY whether the implementation satisfies that task and is free of bugs, security issues, and clear quality problems. Tests and lint are handled by CI — do not run them.",
     "When done, write your verdict as JSON to the file `.shepherd-review.json` in the repository root, with EXACTLY this shape:",
-    '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "body": "<full markdown review>"}',
+    '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "body": "<full markdown review>", "findings": ["<discrete actionable item>", ...]}',
+    'The "findings" array lists every discrete change the author must make — one entry per point, blocking or not. A non-blocking nit STILL goes in "findings" (under a "comment" decision). Use [] ONLY when there is genuinely nothing to address; "request-changes" requires at least one finding.',
     'Use "request-changes" ONLY for blocking problems (does not satisfy the task, logic bug, security hole). Otherwise use "comment". Never approve. Write the file as your final action, then stop.',
+  );
+  return lines.join("\n");
+}
+
+/** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd. */
+function steerText(findings: string[]): string {
+  return [
+    "The PR critic reviewed your latest push. Address each point below in this PR:",
+    "",
+    ...findings.map((f, i) => `${i + 1}. ${f}`),
+    "",
+    "Fix what's valid; if you genuinely disagree with a point, address the rest and proceed — don't silently skip it. Then commit & push so CI and the critic re-run.",
   ].join("\n");
 }
 
 const VERDICT_FILE = ".shepherd-review.json";
+const DEFAULT_CAP = 3; // max auto-address steers per outstanding-findings streak
 
 interface InFlight {
   sessionId: string;
@@ -34,6 +61,7 @@ interface InFlight {
   worktreePath: string;
   terminalId: string;
   startedAt: number;
+  priorRound: number; // auto-address steers already spent on this findings streak
   finalizing?: boolean;
 }
 
@@ -48,6 +76,13 @@ export interface ReviewServiceDeps {
   onChange: (id: string, verdict: ReviewVerdict) => void;
   /** Fired when a critic run starts (true) and when it ends (false) for a session. */
   onReviewing?: (id: string, reviewing: boolean) => void;
+  /**
+   * Steer critic findings into a session's live PTY (typically SessionService.reply).
+   * Returns false when the agent pane is gone (the steer never landed). Absent → the
+   * auto-address loop is disabled regardless of per-repo config.
+   */
+  autoAddress?: (sessionId: string, text: string) => boolean;
+  cap?: number; // max auto-address rounds before escalating to the human (default 3)
   model?: string | null; // optional --model for the critic
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
@@ -59,17 +94,20 @@ interface RawVerdict {
   decision?: unknown;
   summary?: unknown;
   body?: unknown;
+  findings?: unknown;
 }
 
 export class ReviewService {
   private inflight = new Map<string, InFlight>();
   private now: () => number;
   private timeoutMs: number;
+  private cap: number;
   private readVerdict: (worktreePath: string) => RawVerdict | null;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
+    this.cap = deps.cap ?? DEFAULT_CAP;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
   }
 
@@ -84,6 +122,12 @@ export class ReviewService {
   }
 
   private begin(session: Session, git: GitState): void {
+    // The prior verdict (an earlier head — consider() never re-reviews the same head)
+    // carries this streak's accountability state: its findings get fed to the critic
+    // to verify they were addressed, and its addressRound bounds the auto-address loop.
+    const prior = this.deps.store.getReview(session.id);
+    const priorFindings = prior?.findings ?? [];
+    const priorRound = prior?.addressRound ?? 0;
     let wt;
     try {
       wt = this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
@@ -138,7 +182,7 @@ export class ReviewService {
     // prompt — otherwise `claude` folds the prompt into the allowlist, launches
     // with no task, and hangs until timeout (every review). Don't reorder.
     argv.push("--permission-mode", "dontAsk");
-    argv.push(reviewPrompt(session.baseBranch, session.prompt));
+    argv.push(reviewPrompt(session.baseBranch, session.prompt, priorFindings));
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -159,6 +203,7 @@ export class ReviewService {
       worktreePath: wt.worktreePath,
       terminalId,
       startedAt: this.now(),
+      priorRound,
     });
     this.deps.onReviewing?.(session.id, true);
   }
@@ -193,6 +238,7 @@ export class ReviewService {
         }
       }
     }
+    verdict.addressRound = this.runAutoAddress(f, verdict);
     this.deps.store.putReview(verdict);
     if (verdict.decision === "changes_requested") {
       this.deps.store.addSignal({
@@ -208,17 +254,43 @@ export class ReviewService {
     this.deps.worktree.remove(f.worktreePath);
   }
 
+  /**
+   * Close the loop: feed the verdict's findings back to the task agent and return the
+   * new streak round. Empty findings = clean → reset to 0. Otherwise, if auto-address
+   * is enabled and the prior round is under the cap, steer once and advance — but only
+   * if the steer actually reached the agent (a dead pane holds the round). At/over the
+   * cap we stop steering and leave the round in place; the posted review + critic signal
+   * escalate it to the human.
+   */
+  private runAutoAddress(f: InFlight, verdict: ReviewVerdict): number {
+    if (verdict.findings.length === 0) return 0; // clean → streak resets
+    const enabled =
+      !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
+    if (!enabled || f.priorRound >= this.cap) return f.priorRound; // off, or gave up → hold
+    const delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings));
+    return delivered ? f.priorRound + 1 : f.priorRound; // no progress if the pane is gone
+  }
+
   private buildVerdict(f: InFlight, raw: RawVerdict | null): ReviewVerdict {
     const decision = normalizeDecision(raw?.decision);
+    const resolved: ReviewDecision = raw && decision ? decision : "error";
+    const summary =
+      raw && typeof raw.summary === "string"
+        ? raw.summary.slice(0, 100)
+        : "critic did not produce a verdict";
+    const parsed = normalizeFindings(raw?.findings);
+    // a blocking verdict with no usable findings list still has something to address;
+    // fall back to its summary so the loop doesn't mistake it for "clean".
+    const findings =
+      parsed.length || resolved !== "changes_requested" ? parsed : summary ? [summary] : [];
     return {
       sessionId: f.sessionId,
       headSha: f.headSha,
-      decision: raw && decision ? decision : "error",
-      summary:
-        raw && typeof raw.summary === "string"
-          ? raw.summary.slice(0, 100)
-          : "critic did not produce a verdict",
+      decision: resolved,
+      summary,
       body: raw && typeof raw.body === "string" ? raw.body : "",
+      findings,
+      addressRound: 0, // finalize() overwrites with the streak round
       updatedAt: this.now(),
     };
   }
@@ -258,4 +330,13 @@ function normalizeDecision(d: unknown): ReviewDecision | null {
   if (d === "request-changes") return "changes_requested";
   if (d === "comment") return "commented";
   return null;
+}
+
+/** Coerce the critic's `findings` field to a clean string[] (drops junk, never throws). */
+function normalizeFindings(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((f): f is string => typeof f === "string")
+    .map((f) => f.trim())
+    .filter(Boolean);
 }

@@ -3,8 +3,21 @@ import { randomUUID } from "node:crypto";
 import type { Session, ReviewVerdict, Signal, SignalKind, Learning, LearningStatus } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
+/** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
+function parseFindings(raw: unknown): string[] {
+  if (typeof raw !== "string") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((f): f is string => typeof f === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface RepoConfig {
   criticEnabled: boolean;
+  /** Auto-feed critic findings back to the task agent until clean or the round cap. */
+  autoAddressEnabled: boolean;
 }
 
 export interface PushSubInput {
@@ -78,10 +91,27 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       updatedAt INTEGER NOT NULL)`);
+    // migrate repo_config that predates the auto-address opt-in (default OFF: it's
+    // the spendier loop, so existing repos must opt in explicitly).
+    const repoCfgCols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
+    if (!repoCfgCols.some((c) => c.name === "autoAddressEnabled")) {
+      this.db.run(
+        `ALTER TABLE repo_config ADD COLUMN autoAddressEnabled INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
       url TEXT, updatedAt INTEGER NOT NULL)`);
+    // migrate reviews that predate the auto-address loop columns
+    const reviewCols = this.db.query(`PRAGMA table_info(reviews)`).all() as { name: string }[];
+    if (!reviewCols.some((c) => c.name === "findings")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN findings TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!reviewCols.some((c) => c.name === "addressRound")) {
+      this.db.run(`ALTER TABLE reviews ADD COLUMN addressRound INTEGER NOT NULL DEFAULT 0`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
@@ -134,17 +164,21 @@ export class SessionStore implements CapStore {
   // ── per-repo config (critic on/off) ───────────────────────────────────────
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
-      .query(`SELECT criticEnabled FROM repo_config WHERE repoPath = ?`)
-      .get(repoPath) as { criticEnabled: number } | null;
-    return { criticEnabled: r ? !!r.criticEnabled : true }; // absent → enabled
+      .query(`SELECT criticEnabled, autoAddressEnabled FROM repo_config WHERE repoPath = ?`)
+      .get(repoPath) as { criticEnabled: number; autoAddressEnabled: number } | null;
+    // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
+    return {
+      criticEnabled: r ? !!r.criticEnabled : true,
+      autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
+    };
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
-      `INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES (?,?,?)
+      `INSERT INTO repo_config (repoPath, criticEnabled, autoAddressEnabled, updatedAt) VALUES (?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
-         updatedAt = excluded.updatedAt`,
-      [repoPath, cfg.criticEnabled ? 1 : 0, Date.now()],
+         autoAddressEnabled = excluded.autoAddressEnabled, updatedAt = excluded.updatedAt`,
+      [repoPath, cfg.criticEnabled ? 1 : 0, cfg.autoAddressEnabled ? 1 : 0, Date.now()],
     );
   }
 
@@ -309,13 +343,18 @@ export class SessionStore implements CapStore {
 
   // ── critic reviews ─────────────────────────────────────────────────────────
   private hydrateReview(r: any): ReviewVerdict {
-    return { ...r, url: r.url ?? undefined } as ReviewVerdict;
+    return {
+      ...r,
+      findings: parseFindings(r.findings),
+      addressRound: r.addressRound ?? 0,
+      url: r.url ?? undefined,
+    } as ReviewVerdict;
   }
 
   getReview(sessionId: string): ReviewVerdict | null {
     const r = this.db
       .query(
-        `SELECT sessionId, headSha, decision, summary, body, url, updatedAt
+        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as any;
@@ -324,11 +363,22 @@ export class SessionStore implements CapStore {
 
   putReview(v: ReviewVerdict): void {
     this.db.run(
-      `INSERT INTO reviews (sessionId, headSha, decision, summary, body, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO reviews (sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, decision=excluded.decision,
-         summary=excluded.summary, body=excluded.body, url=excluded.url, updatedAt=excluded.updatedAt`,
-      [v.sessionId, v.headSha, v.decision, v.summary, v.body, v.url ?? null, v.updatedAt],
+         summary=excluded.summary, body=excluded.body, findings=excluded.findings,
+         addressRound=excluded.addressRound, url=excluded.url, updatedAt=excluded.updatedAt`,
+      [
+        v.sessionId,
+        v.headSha,
+        v.decision,
+        v.summary,
+        v.body,
+        JSON.stringify(v.findings ?? []),
+        v.addressRound ?? 0,
+        v.url ?? null,
+        v.updatedAt,
+      ],
     );
   }
 
@@ -338,7 +388,9 @@ export class SessionStore implements CapStore {
 
   snapshotReviews(): Record<string, ReviewVerdict> {
     const rows = this.db
-      .query(`SELECT sessionId, headSha, decision, summary, body, url, updatedAt FROM reviews`)
+      .query(
+        `SELECT sessionId, headSha, decision, summary, body, findings, addressRound, url, updatedAt FROM reviews`,
+      )
       .all() as any[];
     const out: Record<string, ReviewVerdict> = {};
     for (const r of rows) out[r.sessionId] = this.hydrateReview(r);

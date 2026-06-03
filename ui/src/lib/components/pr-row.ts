@@ -1,7 +1,10 @@
-/** True when a PR was opened by Dependabot. `gh` reports the login as
- *  `app/dependabot`; the substring match also covers `dependabot[bot]`. */
+/** True when a PR was opened by Dependabot. `gh` reports the bot's login as
+ *  `app/dependabot` (the `--json author` form) or `dependabot[bot]`. Match those
+ *  exact forms rather than a substring — `includes("dependabot")` would also
+ *  catch human/vanity logins like `dependabot-fan`, offering a no-op action. */
 export function isDependabotAuthor(author: string): boolean {
-  return author.toLowerCase().includes("dependabot");
+  const login = author.toLowerCase().replace(/^app\//, "");
+  return login === "dependabot" || login === "dependabot[bot]";
 }
 
 /** Whether to offer the one-click "@dependabot rebase" action on a backlog PR

@@ -172,6 +172,26 @@ test("POST /api/prs/dependabot-rebase posts @dependabot rebase by number", async
   expect(commented!.body).toBe(DEPENDABOT_REBASE_COMMAND);
 });
 
+// Security invariant: the comment body is authored server-side. A client cannot
+// smuggle arbitrary text (or another bot command) through the request body.
+test("POST /api/prs/dependabot-rebase ignores a client-supplied body, posting the fixed command", async () => {
+  let posted: string | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async (_number, body) => {
+          posted = body;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(
+    rebaseReq({ repo: repoDir, number: 12, body: "@dependabot recreate" }),
+  );
+  expect(res.status).toBe(200);
+  expect(posted!).toBe(DEPENDABOT_REBASE_COMMAND);
+});
+
 test("POST /api/prs/dependabot-rebase without a number → 400", async () => {
   const app = makeApp(makeDeps(() => fakeForge({ comment: async () => {} })));
   const res = await app.fetch(rebaseReq({ repo: repoDir }));

@@ -80,6 +80,7 @@
   async function onmerge() {
     if (merging || blocked) return;
     failed = false;
+    rebaseFailed = false; // a fresh merge attempt clears any stale rebase-error text
     if (!armed) {
       armed = true;
       disarmTimer = setTimeout(disarm, 4000);
@@ -99,6 +100,7 @@
   async function onrebase() {
     if (requesting || requested) return;
     rebaseFailed = false;
+    failed = false; // requesting a rebase supersedes a prior merge-failure message
     requesting = true;
     try {
       await requestDependabotRebase(repoPath, pr.number);

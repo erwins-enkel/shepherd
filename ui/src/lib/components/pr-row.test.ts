@@ -14,6 +14,11 @@ describe("isDependabotAuthor", () => {
   it("rejects a human author", () => {
     expect(isDependabotAuthor("alice")).toBe(false);
   });
+  it("rejects a vanity login that merely contains 'dependabot'", () => {
+    expect(isDependabotAuthor("dependabot-fan")).toBe(false);
+    expect(isDependabotAuthor("not-dependabot")).toBe(false);
+    expect(isDependabotAuthor("app/dependabot-mirror")).toBe(false);
+  });
 });
 
 describe("showRebaseOffer", () => {

@@ -14,6 +14,7 @@
     onnew,
     git,
     ondecommission,
+    onclearmerged = undefined,
     standardCommandUnset = false,
     onsettings = undefined,
   }: {
@@ -25,6 +26,8 @@
     git: Record<string, GitState>;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
+    // when provided, the merged group header gains a "clear all" action
+    onclearmerged?: () => void;
     // first-run empty state: quick-launch is invisible until the standard command
     // is set → surface a quiet nudge pointing at Settings.
     standardCommandUnset?: boolean;
@@ -128,6 +131,14 @@
       {#if partition.merged.length > 0}
         <div class="merged-head micro">
           {m.herd_merged_group({ count: partition.merged.length })}
+          {#if onclearmerged}
+            <button
+              type="button"
+              class="clear-merged micro"
+              title={m.herd_clear_merged_title()}
+              onclick={onclearmerged}>{m.herd_clear_merged_action()}</button
+            >
+          {/if}
         </div>
         {#each partition.merged as session (session.id)}
           <UnitRow
@@ -243,6 +254,20 @@
     margin-top: 6px;
     color: var(--color-blue);
     border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
+  }
+  /* right-aligned bulk action in the merged group header */
+  .clear-merged {
+    margin-left: auto;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+    color: color-mix(in srgb, var(--color-blue) 70%, var(--color-faint));
+    transition: color 0.12s ease;
+  }
+  .clear-merged:hover {
+    color: var(--color-blue);
   }
 
   .units {

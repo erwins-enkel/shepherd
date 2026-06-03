@@ -972,3 +972,129 @@ test("GET /api/learnings/pending returns all proposed learnings across repos", a
   expect(body.length).toBe(1);
   expect(body[0].rule).toBe("p1");
 });
+
+// ── clear-all-merged endpoint ────────────────────────────────────────────────
+// Build an app with a mutable stub prCache (the merged source of truth) + reaper.
+// Rows get random ids, so we create them first, then seed each session's PR state.
+function clearMergedHarness() {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const emitted: string[] = [];
+  events.subscribe((event, data: any) => {
+    if (event === "session:archived") emitted.push(data.id);
+  });
+  const detect = (sess: any): any[] => [
+    { kind: "process", name: "vite", port: null, key: `process:${sess.name}` },
+  ];
+  const reaped: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    reaper: { detect, reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)) },
+    events,
+  });
+  const cache = new Map<string, any>();
+  const dropped: string[] = [];
+  const prCache = {
+    snapshot: () => Object.fromEntries(cache),
+    set: (id: string, g: any) => cache.set(id, g),
+    drop: (id: string) => {
+      dropped.push(id);
+      cache.delete(id);
+    },
+  };
+  const usageLimits = {
+    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+  };
+  const app = makeApp({ store, service, events, usageLimits, prCache } as any);
+  const mk = (name: string, state: string) => {
+    const s = store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: `term_${name}`,
+    });
+    cache.set(s.id, { state });
+    return s;
+  };
+  return { app, store, mk, emitted, reaped, dropped };
+}
+
+const clearMergedPost = (app: any, body: unknown) =>
+  app.fetch(
+    new Request("http://x/api/sessions/clear-merged", {
+      method: "POST",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify(body),
+    }),
+  );
+
+test("GET /api/sessions/clear-merged lists only merged ids and totals their leftovers", async () => {
+  const h = clearMergedHarness();
+  const a = h.mk("a", "merged");
+  const b = h.mk("b", "merged");
+  h.mk("c", "open"); // not merged → excluded
+  const res = await h.app.fetch(new Request("http://x/api/sessions/clear-merged"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(new Set(body.ids)).toEqual(new Set([a.id, b.id]));
+  expect(body.leftovers).toBe(2); // one detected leftover per merged session
+});
+
+test("POST /api/sessions/clear-merged archives only merged sessions, ignoring others", async () => {
+  const h = clearMergedHarness();
+  const a = h.mk("a", "merged");
+  const b = h.mk("b", "merged");
+  const c = h.mk("c", "open");
+  // client over-sends: an open session + a bogus id. The server re-validates against
+  // its own merged set, so only the truly-merged rows are cleared.
+  const res = await clearMergedPost(h.app, { ids: [a.id, b.id, c.id, "bogus"] });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(new Set(body.cleared)).toEqual(new Set([a.id, b.id]));
+  expect(body.leftovers).toBe(2);
+  expect(h.store.get(a.id)?.status).toBe("archived");
+  expect(h.store.get(b.id)?.status).toBe("archived");
+  expect(h.store.get(c.id)?.status).not.toBe("archived"); // open PR left alone
+  expect(new Set(h.emitted)).toEqual(new Set([a.id, b.id])); // session:archived per cleared
+  expect(new Set(h.reaped)).toEqual(new Set(["process:a", "process:b"])); // leftovers killed
+  expect(new Set(h.dropped)).toEqual(new Set([a.id, b.id])); // prCache dropped
+});
+
+test("POST /api/sessions/clear-merged with no ids falls back to the full merged set", async () => {
+  const h = clearMergedHarness();
+  const a = h.mk("a", "merged");
+  h.mk("b", "open");
+  const res = await clearMergedPost(h.app, {});
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ cleared: [a.id] });
+});
+
+test("POST /api/sessions/clear-merged with an explicit empty array clears nothing", async () => {
+  const h = clearMergedHarness();
+  h.mk("a", "merged");
+  const res = await clearMergedPost(h.app, { ids: [] });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ cleared: [] }); // [] ≠ absent → no fallback
+  expect(h.emitted).toEqual([]);
+});
+
+test("DELETE /api/sessions/clear-merged → 405, never archives the literal segment", async () => {
+  const h = clearMergedHarness();
+  h.mk("a", "merged");
+  const res = await h.app.fetch(
+    new Request("http://x/api/sessions/clear-merged", {
+      method: "DELETE",
+      headers: { Origin: "http://localhost:7330" },
+    }),
+  );
+  expect(res.status).toBe(405); // doesn't fall through to handleSessionDelete
+  expect(h.emitted).toEqual([]); // no spurious session:archived for "clear-merged"
+});

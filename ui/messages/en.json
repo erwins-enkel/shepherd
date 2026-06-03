@@ -119,7 +119,7 @@
   "herd_ci_running_group": "CI running ({count})",
   "herd_ci_failed_group": "CI failed ({count})",
   "herd_reviewer_running_group": "Reviewing ({count})",
-  "herd_awaiting_merge_group": "Waiting for merge ({count})",
+  "herd_awaiting_merge_group": "Your turn ({count})",
   "herd_ready_group": "Ready to merge ({count})",
   "herd_merged_group": "Merged ({count})",
   "herd_clear_merged_action": "Clear all",

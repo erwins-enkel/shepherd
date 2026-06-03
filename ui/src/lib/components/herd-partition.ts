@@ -14,7 +14,7 @@ import type { Session, GitState } from "$lib/types";
  *  as the later in-flight stage):
  *    merged > ready > reviewerRunning > ciRunning > ciFailed > awaitingMerge > active.
  *  An open PR with `none` checks (no CI reported yet) stays in `active` to avoid
- *  flicker into "waiting for merge" before CI registers as pending.
+ *  flicker into the "Your turn" group before CI registers as pending.
  *  The groups render top→bottom as active → ciRunning → ciFailed → reviewerRunning →
  *  awaitingMerge → ready → merged, mirroring the session lifecycle. `isReviewing` is
  *  injected so this stays a pure function (the caller wires it to the reviews store). */

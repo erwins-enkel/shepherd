@@ -118,6 +118,24 @@ test("incrementLearningIneffective bumps active rules, no-ops others", () => {
   expect(s.incrementLearningIneffective("nope")).toBeNull();
 });
 
+test("promoteLearning records PR url and enforces active→promoted", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "rebase onto main",
+    rationale: "",
+    evidence: [],
+  });
+  // proposed cannot promote
+  expect(s.promoteLearning(l.id, "https://pr/1")).toBeNull();
+  s.setLearningStatus(l.id, "active");
+  const promoted = s.promoteLearning(l.id, "https://pr/1");
+  expect(promoted!.status).toBe("promoted");
+  expect(promoted!.promotedPrUrl).toBe("https://pr/1");
+  // already promoted → no further transition
+  expect(s.promoteLearning(l.id, "https://pr/2")).toBeNull();
+});
+
 test("listActiveLearnings returns active + promoted only, oldest-updated first", () => {
   const s = new SessionStore(":memory:");
   const act = s.addLearning({ repoPath: "/r", rule: "active rule", rationale: "", evidence: [] });

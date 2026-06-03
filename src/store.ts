@@ -148,8 +148,12 @@ export class SessionStore implements CapStore {
   rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL, evidenceCount INTEGER NOT NULL DEFAULT 0,
   ineffectiveCount INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER)`);
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
+    const learnCols = this.db.query(`PRAGMA table_info(learnings)`).all() as { name: string }[];
+    if (!learnCols.some((c) => c.name === "promotedPrUrl")) {
+      this.db.run(`ALTER TABLE learnings ADD COLUMN promotedPrUrl TEXT`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -505,6 +509,7 @@ export class SessionStore implements CapStore {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       lastEvidenceAt: r.lastEvidenceAt,
+      promotedPrUrl: r.promotedPrUrl ?? null,
     };
   }
 
@@ -527,6 +532,7 @@ export class SessionStore implements CapStore {
       createdAt: now,
       updatedAt: now,
       lastEvidenceAt: input.evidence.length ? now : null,
+      promotedPrUrl: null,
     };
     this.db.run(
       `INSERT INTO learnings
@@ -609,6 +615,18 @@ export class SessionStore implements CapStore {
     this.db.run(
       `UPDATE learnings SET ineffectiveCount = ineffectiveCount + 1, updatedAt = ? WHERE id = ?`,
       [Date.now(), id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** active → promoted, recording the CLAUDE.md PR url (spec §4b). Returns null
+   *  when the rule is missing or not in a state that allows promotion. */
+  promoteLearning(id: string, prUrl: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || !LEARNING_TRANSITIONS[cur.status].includes("promoted")) return null;
+    this.db.run(
+      `UPDATE learnings SET status = 'promoted', promotedPrUrl = ?, updatedAt = ? WHERE id = ?`,
+      [prUrl, Date.now(), id],
     );
     return this.getLearning(id);
   }

@@ -19,6 +19,7 @@ function rule(p: Partial<Learning>): Learning {
     createdAt: 0,
     updatedAt: p.updatedAt ?? 0,
     lastEvidenceAt: p.lastEvidenceAt ?? null,
+    promotedPrUrl: p.promotedPrUrl ?? null,
   };
 }
 

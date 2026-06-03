@@ -108,7 +108,7 @@
           class:expanded
           onclick={() => (expanded = !expanded)}
           aria-expanded={expanded}
-          title={ciToggleTitle}
+          title={ciToggleLabel}
           aria-label={ciToggleLabel}
         >
           <span class="dot dot-{pr.checks}"></span>

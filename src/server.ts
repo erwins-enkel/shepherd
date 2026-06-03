@@ -163,35 +163,48 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
 
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
 // All fields optional but each present one must be boolean, and at least one present.
-async function parseRepoConfigPatch(
-  req: Request,
-): Promise<
-  { criticEnabled?: boolean; autoAddressEnabled?: boolean; learningsEnabled?: boolean } | Response
+async function parseRepoConfigPatch(req: Request): Promise<
+  | {
+      criticEnabled?: boolean;
+      autoAddressEnabled?: boolean;
+      learningsEnabled?: boolean;
+      autopilotEnabled?: boolean;
+    }
+  | Response
 > {
   const body = (await req.json().catch(() => null)) as {
     criticEnabled?: unknown;
     autoAddressEnabled?: unknown;
     learningsEnabled?: unknown;
+    autopilotEnabled?: unknown;
   } | null;
   const bad = (v: unknown) => v !== undefined && typeof v !== "boolean";
   if (
     !body ||
     bad(body.criticEnabled) ||
     bad(body.autoAddressEnabled) ||
-    bad(body.learningsEnabled)
+    bad(body.learningsEnabled) ||
+    bad(body.autopilotEnabled)
   ) {
     return json(
-      { error: "fields criticEnabled/autoAddressEnabled/learningsEnabled must be booleans" },
+      {
+        error:
+          "fields criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled must be booleans",
+      },
       400,
     );
   }
   if (
     body.criticEnabled === undefined &&
     body.autoAddressEnabled === undefined &&
-    body.learningsEnabled === undefined
+    body.learningsEnabled === undefined &&
+    body.autopilotEnabled === undefined
   ) {
     return json(
-      { error: "body must set criticEnabled, autoAddressEnabled, and/or learningsEnabled" },
+      {
+        error:
+          "body must set criticEnabled, autoAddressEnabled, learningsEnabled, and/or autopilotEnabled",
+      },
       400,
     );
   }
@@ -199,6 +212,7 @@ async function parseRepoConfigPatch(
     criticEnabled: body.criticEnabled as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
+    autopilotEnabled: body.autopilotEnabled as boolean | undefined,
   };
 }
 
@@ -216,7 +230,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
-    autopilotEnabled: cur.autopilotEnabled,
+    autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
   });
   return json(deps.store.getRepoConfig(dir));
 }
@@ -680,6 +694,22 @@ function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);
 }
 
+// PUT /api/sessions/:id/autopilot — set the per-session opt-in override.
+// Body: { enabled: boolean | null }  (null = inherit the repo default)
+async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "PUT" && parts[2] && parts[3] === "autopilot")) return null;
+  const body = (await req.json().catch(() => ({}))) as { enabled?: unknown };
+  const e = body.enabled;
+  if (!(e === true || e === false || e === null)) {
+    return json({ error: "enabled must be true, false, or null" }, 400);
+  }
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "no session" }, 404);
+  deps.store.setAutopilotState(parts[2], { enabled: e });
+  deps.events.emit("session:status", { id: parts[2], status: s.status });
+  return json(deps.store.get(parts[2]));
+}
+
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
 // preserving the original inner guard order. Returns null for anything those
 // don't claim (e.g. `…/git` sub-routes), so handleSessionGit can pick it up.
@@ -696,6 +726,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionResume,
     handleSessionReady,
     handleSessionDismissStall,
+    handleSessionAutopilot,
   ]) {
     const res = await sub(ctx);
     if (res) return res;

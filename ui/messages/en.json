@@ -91,7 +91,7 @@
   "drain_label_label": "Label",
   "drain_ceiling_label": "Ceiling %",
   "automation_pill_label": "automation",
-  "automation_pill_aria": "Repo automation: {count} of 5 on. Open settings.",
+  "automation_pill_aria": "Repo automation: {count} of {total} on. Open settings.",
   "automation_pill_reviewing_aria": "Critic is reviewing. Open repo automation settings.",
   "automation_panel_title": "Repo automation",
   "automation_group_review": "Code review",

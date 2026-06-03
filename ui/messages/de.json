@@ -91,7 +91,7 @@
   "drain_label_label": "Label",
   "drain_ceiling_label": "Grenze %",
   "automation_pill_label": "Automatisierung",
-  "automation_pill_aria": "Repo-Automatisierung: {count} von 5 aktiv. Einstellungen öffnen.",
+  "automation_pill_aria": "Repo-Automatisierung: {count} von {total} aktiv. Einstellungen öffnen.",
   "automation_pill_reviewing_aria": "Critic prüft gerade. Repo-Automatisierungseinstellungen öffnen.",
   "automation_panel_title": "Repo-Automatisierung",
   "automation_group_review": "Code-Review",

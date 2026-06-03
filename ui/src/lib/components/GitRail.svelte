@@ -7,7 +7,7 @@
   import { criticBadgeLabel } from "./critic-badge";
   import ReadyToggle from "./ReadyToggle.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
-  import { automationCount } from "./git-rail-automation";
+  import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { featureAnnouncements } from "$lib/feature-announcements";
@@ -357,14 +357,14 @@
           aria-busy={reviewing}
           aria-label={reviewing
             ? m.automation_pill_reviewing_aria()
-            : m.automation_pill_aria({ count: autoCount })}
+            : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
           use:coachTarget={"critic"}
           use:coachTarget={"auto-address"}
           use:coachTarget={"learnings"}
           onclick={toggleAutomation}
         >
           ⚙ {m.automation_pill_label()}
-          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/5</span>
+          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
           {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"
             ></span><span class="sr-only">{m.newdot_aria()}</span>{/if}
         </button>

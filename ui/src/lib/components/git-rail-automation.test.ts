@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { automationCount, AUTOMATION_GROUPS, type AutomationFlags } from "./git-rail-automation";
+import {
+  automationCount,
+  AUTOMATION_GROUPS,
+  AUTOMATION_TOTAL,
+  type AutomationFlags,
+} from "./git-rail-automation";
 
 const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   critic: false,
@@ -58,5 +63,12 @@ describe("AUTOMATION_GROUPS", () => {
     expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress"]);
     expect(AUTOMATION_GROUPS[1].items).toEqual(["learnings", "autopilot"]);
     expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain"]);
+  });
+});
+
+describe("AUTOMATION_TOTAL", () => {
+  it("is the item count across all groups (the pill denominator)", () => {
+    expect(AUTOMATION_TOTAL).toBe(5);
+    expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

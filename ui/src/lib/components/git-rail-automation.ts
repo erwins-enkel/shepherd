@@ -20,13 +20,16 @@ export interface AutomationGroup {
   items: AutomationKey[];
 }
 
-/** Panel layout: theme groups in display order. The pill denominator (5) is the
- *  total item count across all groups. */
+/** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
   { id: "review", items: ["critic", "autoAddress"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
   { id: "queue", items: ["autoDrain"] },
 ];
+
+/** The pill denominator: total automations, derived from the group layout so it
+ *  stays in sync with the count when an automation is added or removed. */
+export const AUTOMATION_TOTAL = AUTOMATION_GROUPS.flatMap((g) => g.items).length;
 
 /** Number of automations currently ON. Auto-address only counts while the critic
  *  is on (it's a no-op otherwise), matching the panel's disabled-row behavior. */

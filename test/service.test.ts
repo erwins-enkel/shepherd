@@ -991,10 +991,11 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
   ]);
   expect(svc.reply("nope", "1")).toBe(false);
 
-  // A stray paste-end marker in the payload would close the paste early — strip it.
+  // Stray paste markers in the payload are stripped: a leaked end-marker would close
+  // the paste early; the start-marker is dropped for symmetry.
   sent.length = 0;
-  expect(svc.reply(s.id, "a\x1b[201~b")).toBe(true);
-  expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~ab\x1b[201~" });
+  expect(svc.reply(s.id, "a\x1b[201~b\x1b[200~c")).toBe(true);
+  expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~abc\x1b[201~" });
 });
 
 test("broadcast fans the text out to known sessions, skips unknown ids", () => {

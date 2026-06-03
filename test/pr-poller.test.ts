@@ -371,6 +371,36 @@ test("fast tick caps open-PR polling per tick and rotates to cover all", async (
   expect(new Set(polled).size).toBe(5); // every open PR covered across ticks
 });
 
+test("serializes a targeted poll behind a sweep — one gh at a time", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  let active = 0;
+  let maxActive = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    0, // fire the targeted poll immediately so it races the sweep
+  );
+
+  const sweep = poller.tick();
+  poller.pollSession(store.list({ activeOnly: true })[0]!.id); // races the in-flight sweep
+  await sweep;
+  await new Promise((r) => setTimeout(r, 30)); // let the debounced targeted poll drain
+  expect(maxActive).toBe(1); // never two `gh` calls in flight at once
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

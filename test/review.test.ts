@@ -451,11 +451,12 @@ test("round cap reached: holds the round, posts the review + signal, does not st
   expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human/learnings
 });
 
-test("PR merged before finalize: holds the round, posts the review, does NOT steer", async () => {
+test("PR merged before finalize: verdict is moot — no review posted, no steer, no signal", async () => {
   const {
     deps: d,
     reviews,
     steers,
+    signals,
     rec,
   } = makeDeps(
     {
@@ -471,18 +472,20 @@ test("PR merged before finalize: holds the round, posts the review, does NOT ste
   );
   const svc = new ReviewService(d as any);
   svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
-  await svc.tick(); // finalize: live recheck sees "merged"
+  await svc.tick(); // finalize: live recheck sees "merged" → fully inert
   expect(steers).toHaveLength(0); // no churn steered onto a merged branch
-  expect(reviews["s1"]?.addressRound).toBe(0); // round held (priorRound 0), not advanced
-  expect(rec.event).toBe("REQUEST_CHANGES"); // surgical: review still posted
-  expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted
+  expect(rec.event).toBeUndefined(); // moot: no review posted on a merged PR
+  expect(signals.some((s) => s.kind === "critic")).toBe(false); // and no learnings signal
+  expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted (UI/dedup)
+  expect(reviews["s1"]?.addressRound).toBe(0); // no steer round
 });
 
-test("PR-state recheck throws: fail-closed — no steer, round held", async () => {
+test("PR-state recheck throws: fail-closed — fully inert", async () => {
   const {
     deps: d,
     reviews,
     steers,
+    rec,
   } = makeDeps(
     { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
     {
@@ -496,11 +499,16 @@ test("PR-state recheck throws: fail-closed — no steer, round held", async () =
   svc.consider(session(), OPEN_GREEN);
   await svc.tick(); // must NOT reject
   expect(steers).toHaveLength(0); // can't confirm open → don't steer
-  expect(reviews["s1"]?.addressRound).toBe(0); // round held
+  expect(rec.event).toBeUndefined(); // …and don't post the review
+  expect(reviews["s1"]?.addressRound).toBe(0);
 });
 
-test("PR closed (not merged) before finalize: also skips the steer", async () => {
-  const { deps: d, steers } = makeDeps(
+test("PR closed (not merged) before finalize: also fully inert", async () => {
+  const {
+    deps: d,
+    steers,
+    rec,
+  } = makeDeps(
     { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
     { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "closed" }) },
   );
@@ -508,6 +516,7 @@ test("PR closed (not merged) before finalize: also skips the steer", async () =>
   svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(steers).toHaveLength(0); // guard is state !== "open", not just merged
+  expect(rec.event).toBeUndefined(); // closed PR → review not posted
 });
 
 test("dead agent pane: steer attempted but the round does not advance", async () => {

@@ -55,11 +55,17 @@ test("critic changes_requested records a 'critic' signal", async () => {
     herdrSession: "default",
     herdrAgentId: "t1",
   });
+  // The signal now fires only when the PR is confirmed open (moot-run guard).
+  // Supply a minimal forge that confirms open and accepts the review post.
+  const fakeForge = {
+    prStatus: async () => ({ state: "open" }),
+    postReview: async () => ({ url: "u" }),
+  } as any;
   const svc = new ReviewService({
     store,
     herdr: { start: () => ({ terminalId: "rev1" }), stop: () => {} } as any,
     worktree: { createDetached: () => ({ worktreePath: "/rev-wt" }), remove: () => {} } as any,
-    resolveForge: () => null,
+    resolveForge: () => fakeForge,
     onChange: () => {},
     now: () => 1,
     readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),

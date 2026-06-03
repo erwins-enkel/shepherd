@@ -350,8 +350,21 @@ export class ReviewService {
           });
         }
       } else {
+        // Critic spawn and PR merge both fire on CI-green, so they race by construction:
+        // the critic can finish AFTER the PR merged/closed. A merged/closed PR's verdict is
+        // moot — re-confirm the PR is still open before acting on it: don't post the review,
+        // don't steer the agent (churn on a dead branch), and don't record a learnings signal
+        // for a PR that's already gone. Live fetch, not the cached snapshot: the 120s poll can
+        // lag the merge, and staleness reintroduces the race. Fail-closed — if we can't confirm
+        // "open" (no forge / forge throws), stay fully inert.
         const forge = this.deps.resolveForge(f.repoPath);
-        if (forge) {
+        let open = false;
+        try {
+          open = (await forge?.prStatus(f.branch))?.state === "open";
+        } catch (err) {
+          console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
+        }
+        if (open && forge) {
           try {
             const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
             const { url } = await forge.postReview(f.prNumber, {
@@ -362,18 +375,19 @@ export class ReviewService {
           } catch (err) {
             console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
           }
+          // reached only when the PR is confirmed open (errorRound stays 0 on a real verdict)
+          verdict.addressRound = this.runAutoAddress(f, verdict);
+          if (verdict.decision === "changes_requested") {
+            this.deps.store.addSignal({
+              repoPath: f.repoPath,
+              sessionId: f.sessionId,
+              kind: "critic",
+              payload: `${verdict.summary}\n\n${verdict.body}`,
+            });
+          }
         }
-        verdict.addressRound = await this.runAutoAddress(f, verdict); // errorRound stays 0 on a real verdict
       }
       this.deps.store.putReview(verdict);
-      if (verdict.decision === "changes_requested") {
-        this.deps.store.addSignal({
-          repoPath: f.repoPath,
-          sessionId: f.sessionId,
-          kind: "critic",
-          payload: `${verdict.summary}\n\n${verdict.body}`,
-        });
-      }
       this.deps.onChange(f.sessionId, verdict);
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
@@ -392,7 +406,7 @@ export class ReviewService {
    * At/over the cap we stop steering and leave the round in place; the posted review,
    * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
    */
-  private async runAutoAddress(f: InFlight, verdict: ReviewVerdict): Promise<number> {
+  private runAutoAddress(f: InFlight, verdict: ReviewVerdict): number {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
@@ -403,23 +417,8 @@ export class ReviewService {
     // this streak rather than resetting — the cap bounds total agent churn per PR, which
     // is fine for the prototype. Revisit if per-issue rounds become the intended model.
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
-    // Critic spawn and PR merge both fire on CI-green, so they race by construction: the
-    // critic can finish AFTER the PR merged. Re-confirm the PR is still open at this last
-    // gate before steering — otherwise we'd tell the agent to "commit & push so CI and the
-    // critic re-run" on a branch whose PR is already merged/closed. Live fetch, not the
-    // cached snapshot: the 120s poll can lag the merge, and staleness reintroduces the race.
-    // Fail-closed — if we can't confirm "open" (forge throws / unresolved), don't steer: a
-    // missed steer is recoverable (next push re-triggers; a human can send), churn on a dead
-    // branch is not. Lazy (only here, past the findings/enabled/cap guards) so clean
-    // verdicts and disabled-loop repos make no extra forge call.
-    let open = false;
-    try {
-      const forge = this.deps.resolveForge(f.repoPath);
-      open = (await forge?.prStatus(f.branch))?.state === "open";
-    } catch (err) {
-      console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
-    }
-    if (!open) return f.priorRound; // PR no longer open (or unconfirmable) → hold, don't steer
+    // The PR's still-open check lives in finalize() (it also gates postReview + the critic
+    // signal), so reaching here already means the PR is open — just steer.
     // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
     // dead one, so a steer that can't land normally reports false. A throw is now only a
     // narrow race — the pane dies between the liveness check and herdr.send — and still

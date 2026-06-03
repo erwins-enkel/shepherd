@@ -423,6 +423,7 @@ const server = serve(
     herdr,
     resolveForge,
     prCache: prPoller,
+    activity: { snapshot: () => poller.activitySnapshot() },
     push,
     presence,
     poller,

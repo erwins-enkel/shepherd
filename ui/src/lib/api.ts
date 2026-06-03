@@ -30,6 +30,7 @@ import type {
   ForgeKind,
   WorkflowRun,
   WorkflowJob,
+  SessionActivity,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -424,6 +425,14 @@ export async function gitState(id: string): Promise<GitState | null> {
 export async function gitStates(): Promise<Record<string, GitState>> {
   const r = await fetch("/api/git");
   if (!r.ok) throw await failed(r, "git states");
+  return r.json();
+}
+
+/** Snapshot of the last-emitted activity signal per running session, keyed by
+ *  session id (for client bootstrap). Empty object when nothing is running. */
+export async function activityStates(): Promise<Record<string, SessionActivity>> {
+  const r = await fetch("/api/activity");
+  if (!r.ok) throw await failed(r, "activity states");
   return r.json();
 }
 

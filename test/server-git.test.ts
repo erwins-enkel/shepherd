@@ -195,6 +195,22 @@ test("GET /api/git returns the prCache snapshot", async () => {
   expect(await res.json()).toEqual({});
 });
 
+test("GET /api/activity returns the activity snapshot", async () => {
+  const snap = { s1: { lastActivityTs: 123, summary: "edited poller.ts" } };
+  const deps = Object.assign(makeDeps(fakeForge()), { activity: { snapshot: () => snap } });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/activity"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(snap);
+});
+
+test("GET /api/activity → {} when no activity dep is wired", async () => {
+  const app = makeApp(makeDeps(fakeForge()));
+  const res = await app.fetch(new Request("http://localhost/api/activity"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
+});
+
 test("POST git/pr writes cache + emits session:git", async () => {
   const deps = makeDeps(fakeForge());
   const app = makeApp(deps);

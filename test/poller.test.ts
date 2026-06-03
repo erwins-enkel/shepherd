@@ -733,3 +733,50 @@ test("pruneInactive clears activity tracking for a running-only session that goe
   poller.tick(); // must re-emit — activity sig map was cleared by prune
   expect(activities).toHaveLength(2);
 });
+
+test("activitySnapshot returns last emitted signal, pruned when the session goes away", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+
+  let clock = 100_000;
+  let agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    () => {},
+  );
+
+  poller.tick(); // probe emits → caches the signal
+  expect(poller.activitySnapshot()).toEqual({
+    [s.id]: { lastActivityTs: 100_000, summary: "edited x.ts" },
+  });
+
+  // session archived → next tick prunes it out of the snapshot too
+  store.update(s.id, { status: "archived" });
+  agents = [];
+  clock += 8000;
+  poller.tick();
+  expect(poller.activitySnapshot()).toEqual({});
+});

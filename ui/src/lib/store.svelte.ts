@@ -48,6 +48,9 @@ export class HerdStore {
   setGit(map: Record<string, GitState>) {
     this.git = map;
   }
+  setActivity(map: Record<string, SessionActivity>) {
+    this.activity = map;
+  }
   setDrain(list: DrainStatus[]) {
     this.drain = Object.fromEntries(list.map((d) => [d.repoPath, d]));
   }

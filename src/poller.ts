@@ -17,6 +17,7 @@ export class StatusPoller {
   private lastSig = new Map<string, string>();
   private lastProbeAt = new Map<string, number>();
   private lastActivitySig = new Map<string, string>();
+  private lastActivity = new Map<string, SessionActivity>();
 
   constructor(
     private store: SessionStore,
@@ -96,6 +97,7 @@ export class StatusPoller {
       ...this.lastReadAt.keys(),
       ...this.lastProbeAt.keys(),
       ...this.lastActivitySig.keys(),
+      ...this.lastActivity.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -103,8 +105,14 @@ export class StatusPoller {
         this.lastSig.delete(id);
         this.lastProbeAt.delete(id);
         this.lastActivitySig.delete(id);
+        this.lastActivity.delete(id);
       }
     }
+  }
+
+  /** Last-emitted activity signal per running session, for client bootstrap. */
+  activitySnapshot(): Record<string, SessionActivity> {
+    return Object.fromEntries(this.lastActivity);
   }
 
   /**
@@ -144,6 +152,7 @@ export class StatusPoller {
       const sig = JSON.stringify(signals.activity);
       if (sig !== this.lastActivitySig.get(s.id)) {
         this.lastActivitySig.set(s.id, sig);
+        this.lastActivity.set(s.id, signals.activity);
         this.onActivity(s.id, signals.activity);
       }
     }

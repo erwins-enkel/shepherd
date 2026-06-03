@@ -35,7 +35,7 @@
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
   function issueTemplate(issue: Issue): string {
-    return m.newtask_issue_prompt_template({ number: issue.number });
+    return m.newtask_issue_prompt_template({ number: issue.number, title: issue.title });
   }
 
   // intentional one-time seed; NewTask remounts per open

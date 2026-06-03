@@ -138,7 +138,7 @@
   "newtask_attach_image": "📎 Attach image",
   "newtask_drop_hint": "or drop screenshots here",
   "newtask_remove_image_aria": "remove",
-  "newtask_issue_prompt_template": "Work on issue #{number} as described.",
+  "newtask_issue_prompt_template": "Work on issue #{number}: {title}",
   "newtask_issue_attached_label": "Attached issue",
   "newtask_issue_remove_aria": "Remove attached issue",
   "newtask_repo_label": "Repo",

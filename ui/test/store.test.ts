@@ -22,6 +22,8 @@ const s = (id: string, status: any = "running"): Session => ({
   autopilotStepCount: 0,
   autopilotPaused: false,
   autopilotQuestion: null,
+  auto: false,
+  issueNumber: null,
   lastState: "working",
   createdAt: 0,
   updatedAt: 0,

@@ -20,6 +20,7 @@ import type {
   ProjectIcons,
   ReviewVerdict,
   RepoConfig,
+  DrainStatus,
   BacklogPayload,
   SlashCommand,
   Leftover,
@@ -536,7 +537,14 @@ export async function putRepoConfig(
   patch: Partial<
     Pick<
       RepoConfig,
-      "criticEnabled" | "autoAddressEnabled" | "learningsEnabled" | "autopilotEnabled"
+      | "criticEnabled"
+      | "autoAddressEnabled"
+      | "learningsEnabled"
+      | "autopilotEnabled"
+      | "autoDrainEnabled"
+      | "maxAuto"
+      | "autoLabel"
+      | "usageCeilingPct"
     >
   >,
 ): Promise<RepoConfig> {
@@ -546,6 +554,12 @@ export async function putRepoConfig(
     body: JSON.stringify(patch),
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getDrain(): Promise<DrainStatus[]> {
+  const r = await fetch("/api/drain");
+  if (!r.ok) throw new Error(`drain failed: ${r.status}`);
   return r.json();
 }
 

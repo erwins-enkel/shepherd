@@ -7,6 +7,7 @@ import type {
   GitState,
   BacklogPayload,
   BlockReason,
+  DrainStatus,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -30,6 +31,9 @@ export class HerdStore {
    *  /api/backlog into page-local state, not from here; each push thereafter
    *  keeps the open dashboard live. */
   backlog = $state<BacklogPayload | null>(null);
+  /** Live drain status keyed by repoPath; bootstrapped via GET /api/drain,
+   *  updated in real-time by the `drain:status` WS event. */
+  drain = $state<Record<string, DrainStatus>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -40,6 +44,9 @@ export class HerdStore {
   }
   setGit(map: Record<string, GitState>) {
     this.git = map;
+  }
+  setDrain(list: DrainStatus[]) {
+    this.drain = Object.fromEntries(list.map((d) => [d.repoPath, d]));
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -163,6 +170,9 @@ export class HerdStore {
         break;
       case "backlog:update":
         this.backlog = ev.data;
+        break;
+      case "drain:status":
+        this.drain = { ...this.drain, [ev.data.repoPath]: ev.data };
         break;
     }
   }

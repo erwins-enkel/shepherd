@@ -242,8 +242,9 @@
   // folds BOTH CI failure and critic changes_requested into one attention hue. That
   // diverges from PrBadge on purpose: PrBadge has room for granular per-check dots, so it
   // keeps red for CI failure and amber for pending/changes_requested — red stays exclusive
-  // to those dots, never the rolled-up toggle. Green = CI green & critic clear (ready to
-  // merge); pending / merged / closed / none stay neutral muted.
+  // to those dots, never the rolled-up toggle. Green = CI green & critic clear, i.e. ready
+  // to merge — where "clear" means only changes_requested blocks green; approved,
+  // commented, and no-review-yet all pass. Pending / merged / closed / none stay neutral.
   // Known limitation: there is no critic-pending field, so prClear goes green on CI
   // success even before the critic posts (latestReview undefined) — "ready to merge" can
   // show a beat early, and stays green when the critic is disabled (no gate to wait on).

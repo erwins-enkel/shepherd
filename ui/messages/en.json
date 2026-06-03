@@ -270,6 +270,8 @@
   "learnings_status_active": "active",
   "learnings_status_promoted": "promoted",
   "learnings_overbudget_title": "Over the injection budget, so not prepended to new agents. Dismiss an active rule to free up room.",
+  "learnings_ineffective_badge": "Not working ({count})",
+  "learnings_ineffective_title": "A new mistake matched this rule — the distiller flagged it as not working. Reword, strengthen, or dismiss it.",
   "viewport_back_aria": "Back to herd",
   "viewport_back_button": "‹ Herd",
   "viewport_next_needs_you": "Needs you · {count}",

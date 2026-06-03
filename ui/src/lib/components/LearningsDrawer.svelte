@@ -3,7 +3,13 @@
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import type { Learning, RepoInjectable } from "$lib/types";
-  import { basename, mergeRepoGroups, injectionBadge, injectedCount } from "./learnings-drawer";
+  import {
+    basename,
+    mergeRepoGroups,
+    injectionBadge,
+    injectedCount,
+    showIneffective,
+  } from "./learnings-drawer";
 
   let {
     items,
@@ -120,6 +126,11 @@
                     </span>
                   {:else}
                     <span class="badge off">⊘ {m.learnings_injection_disabled_badge()}</span>
+                  {/if}
+                  {#if showIneffective(r)}
+                    <span class="badge bad" title={m.learnings_ineffective_title()}>
+                      ⚠ {m.learnings_ineffective_badge({ count: r.ineffectiveCount })}
+                    </span>
                   {/if}
                   <span class="spacer"></span>
                   {#if r.status === "active"}
@@ -319,6 +330,11 @@
   .badge.warn {
     border-color: var(--color-amber);
     color: var(--color-amber);
+    cursor: help;
+  }
+  .badge.bad {
+    border-color: var(--color-red, var(--color-amber));
+    color: var(--color-red, var(--color-amber));
     cursor: help;
   }
   .badge.off {

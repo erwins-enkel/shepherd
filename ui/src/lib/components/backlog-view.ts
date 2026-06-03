@@ -50,10 +50,41 @@ export function prsTabLabel(sel: BacklogProject | null): string {
 }
 
 /**
- * Build the Actions tab label for the selected project. The count is the number
- * of workflows defined (github-only; null on other forges → bare label).
- * Mirrors: count → m.backlog_tab_actions_count, else m.backlog_tab_actions.
+ * The Actions tab's display state for the selected project — the single source
+ * of truth for the failure > workflows-count > bare-label precedence.
+ *
+ * Both {@link actionsTabLabel} (plain-string, for tests) and BacklogView.svelte
+ * (which maps each kind to a Paraglide message) derive from this, so the
+ * ordering lives in exactly one place and the two renderings cannot drift.
+ * - failure: failing default-branch CI → the red marker.
+ * - count: number of workflows defined (github-only).
+ * - bare: no selection / unknown count (null workflows on non-github forges).
+ */
+export type ActionsTabState =
+  | { kind: "failing" }
+  | { kind: "count"; count: number }
+  | { kind: "bare" };
+
+export function actionsTabState(sel: BacklogProject | null): ActionsTabState {
+  if (sel && sel.ciStatus === "failure") return { kind: "failing" };
+  if (sel && sel.workflows !== null) return { kind: "count", count: sel.workflows };
+  return { kind: "bare" };
+}
+
+/**
+ * Build the Actions tab label for the selected project.
+ * Mirrors the message mapping in BacklogView.svelte: failure →
+ * m.backlog_tab_actions_failing, count → m.backlog_tab_actions_count, else
+ * m.backlog_tab_actions. Shares {@link actionsTabState} so the two stay in sync.
  */
 export function actionsTabLabel(sel: BacklogProject | null): string {
-  return sel && sel.workflows !== null ? `Actions · ${sel.workflows}` : "Actions";
+  const state = actionsTabState(sel);
+  switch (state.kind) {
+    case "failing":
+      return "Actions · failing";
+    case "count":
+      return `Actions · ${state.count}`;
+    case "bare":
+      return "Actions";
+  }
 }

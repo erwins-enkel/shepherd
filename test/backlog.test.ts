@@ -346,3 +346,91 @@ test("CountsService: repo with no origin → null counts (not a throw)", async (
   expect(result.openIssues).toBeNull();
   expect(result.openPRs).toBeNull();
 });
+
+// 10. CI rollup: graphql FAILURE state → ciStatus "failure"
+test("CountsService: maps default-branch statusCheckRollup FAILURE → ciStatus failure", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-ci-fail"), "https://github.com/o/ci-fail");
+  const { run } = fakeRunner(
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 1 },
+          pullRequests: { totalCount: 0 },
+          defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } },
+        },
+      },
+    }),
+  );
+  const svc = new CountsService({}, run);
+  const result = await svc.counts(repoDir);
+  expect(result.ciStatus).toBe("failure");
+});
+
+// 11. CI rollup: ERROR also maps to "failure" (errored CI is not healthy)
+test("CountsService: maps statusCheckRollup ERROR → ciStatus failure", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-ci-error"), "https://github.com/o/ci-error");
+  const { run } = fakeRunner(
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 0 },
+          pullRequests: { totalCount: 0 },
+          defaultBranchRef: { target: { statusCheckRollup: { state: "ERROR" } } },
+        },
+      },
+    }),
+  );
+  const svc = new CountsService({}, run);
+  expect((await svc.counts(repoDir)).ciStatus).toBe("failure");
+});
+
+// 12. CI rollup: SUCCESS → "success", PENDING → "pending"
+test("CountsService: maps SUCCESS → success and PENDING → pending", async () => {
+  const okDir = gitInit(join(tmpBase, "gh-ci-ok"), "https://github.com/o/ci-ok");
+  const pendDir = gitInit(join(tmpBase, "gh-ci-pend"), "https://github.com/o/ci-pend");
+  const mk = (state: string) =>
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 0 },
+          pullRequests: { totalCount: 0 },
+          defaultBranchRef: { target: { statusCheckRollup: { state } } },
+        },
+      },
+    });
+  const okSvc = new CountsService({}, () => mk("SUCCESS"));
+  const pendSvc = new CountsService({}, () => mk("PENDING"));
+  expect((await okSvc.counts(okDir)).ciStatus).toBe("success");
+  expect((await pendSvc.counts(pendDir)).ciStatus).toBe("pending");
+});
+
+// 13. CI rollup: absent (no rollup / no default branch) → ciStatus null
+test("CountsService: missing statusCheckRollup → ciStatus null", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-ci-none"), "https://github.com/o/ci-none");
+  const { run } = fakeRunner(
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 2 },
+          pullRequests: { totalCount: 1 },
+          defaultBranchRef: { target: { statusCheckRollup: null } },
+        },
+      },
+    }),
+  );
+  const svc = new CountsService({}, run);
+  const result = await svc.counts(repoDir);
+  expect(result.ciStatus).toBeNull();
+  expect(result.openIssues).toBe(2); // counts still parsed
+});
+
+// 14. Gitea repos have no Actions rollup → ciStatus null
+test("CountsService: Gitea repo → ciStatus null", async () => {
+  const repoDir = gitInit(join(tmpBase, "gitea-ci"), "https://git.example.com/team/proj");
+  const forges: ForgeMap = {
+    "git.example.com": { type: "gitea", baseUrl: "https://git.example.com", token: "tok" },
+  };
+  const { fn } = fakeFetch({ open_issues_count: 5, open_pr_counter: 1 });
+  const svc = new CountsService(forges, () => "", fn);
+  expect((await svc.counts(repoDir)).ciStatus).toBeNull();
+});

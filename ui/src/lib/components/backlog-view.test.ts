@@ -19,6 +19,7 @@ import {
   issuesTabLabel,
   prsTabLabel,
   actionsTabLabel,
+  actionsTabState,
 } from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
@@ -27,8 +28,18 @@ function project(
   openIssues: number | null,
   openPRs: number | null,
   workflows: number | null = null,
+  ciStatus: BacklogProject["ciStatus"] = null,
 ): BacklogProject {
-  return { path, display: path, slug: "org/repo", kind: "github", openIssues, openPRs, workflows };
+  return {
+    path,
+    display: path,
+    slug: "org/repo",
+    kind: "github",
+    openIssues,
+    openPRs,
+    workflows,
+    ciStatus,
+  };
 }
 
 function payload(
@@ -142,6 +153,40 @@ describe("actionsTabLabel", () => {
 
   it("drops the count for non-github forges (workflows null)", () => {
     expect(actionsTabLabel(project("/repos/a", 0, 0, null))).toBe("Actions");
+  });
+
+  it("shows the failing marker when the selected repo's CI is failing", () => {
+    // ciStatus "failure" wins over the workflows-defined count.
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, "failure"))).toMatch(/failing/i);
+  });
+
+  it("shows the workflows count (not failing) when CI is healthy", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, "success"))).toMatch(/Actions\s*·\s*3/);
+  });
+
+  it("shows the workflows count when CI status is unknown (null)", () => {
+    expect(actionsTabLabel(project("/repos/a", 0, 0, 3, null))).toMatch(/Actions\s*·\s*3/);
+  });
+});
+
+describe("actionsTabState (shared source of truth for tab + label)", () => {
+  it("returns failing when CI is failing, even with a workflow count", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, 3, "failure"))).toEqual({ kind: "failing" });
+  });
+
+  it("returns the count (carrying the value) when CI is healthy", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, 3, "success"))).toEqual({
+      kind: "count",
+      count: 3,
+    });
+  });
+
+  it("returns bare when nothing is selected", () => {
+    expect(actionsTabState(null)).toEqual({ kind: "bare" });
+  });
+
+  it("returns bare when workflows is null (non-github) and CI not failing", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, null, null))).toEqual({ kind: "bare" });
   });
 });
 

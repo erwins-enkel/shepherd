@@ -414,6 +414,7 @@
   "backlog_tab_prs_count": "PRs · {count}",
   "backlog_tab_actions": "Actions",
   "backlog_tab_actions_count": "Actions · {count}",
+  "backlog_tab_actions_failing": "Actions · fehlerhaft",
   "actionspanel_title": "ACTIONS",
   "actionspanel_title_with_slug": "ACTIONS · {slug}",
   "actionspanel_github_only": "Actions sind nur für GitHub-Repos verfügbar",

@@ -69,7 +69,10 @@ function fakeForge(slug: string, kind: "github" | "gitea" = "github"): GitForge 
  * `backlogCounts` maps repoPath → RepoCounts; `lastUsed` maps repoPath → ms.
  */
 function makeDeps(
-  backlogCounts: Record<string, RepoCounts>,
+  backlogCounts: Record<
+    string,
+    Pick<RepoCounts, "openIssues" | "openPRs"> & Partial<Pick<RepoCounts, "ciStatus">>
+  >,
   lastUsed: Record<string, number> = {},
   overrideForge?: AppDeps["resolveForge"],
 ): AppDeps {
@@ -88,8 +91,10 @@ function makeDeps(
         return null;
       }),
     backlog: {
-      counts: async (path: string): Promise<RepoCounts> =>
-        backlogCounts[path] ?? { openIssues: null, openPRs: null },
+      counts: async (path: string): Promise<RepoCounts> => {
+        const c = backlogCounts[path] ?? { openIssues: null, openPRs: null };
+        return { openIssues: c.openIssues, openPRs: c.openPRs, ciStatus: c.ciStatus ?? null };
+      },
     },
   };
 }
@@ -208,6 +213,20 @@ test("GET /api/backlog totals sum non-null from both repos", async () => {
   const body = await app.fetch(req()).then((r) => r.json());
   expect(body.totals.openIssues).toBe(10);
   expect(body.totals.openPRs).toBe(4);
+});
+
+test("buildBacklogPayload: surfaces per-repo ciStatus onto each project", async () => {
+  const app = makeApp(
+    makeDeps({
+      [repoA]: { openIssues: 1, openPRs: 0, ciStatus: "failure" },
+      [repoB]: { openIssues: 2, openPRs: 0, ciStatus: "success" },
+    }),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as { projects: { path: string; ciStatus: string | null }[] };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.ciStatus]));
+  expect(byPath[repoA]).toBe("failure");
+  expect(byPath[repoB]).toBe("success");
 });
 
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {

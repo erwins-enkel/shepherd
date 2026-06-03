@@ -5,9 +5,14 @@ import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
 import type { ForgeMap } from "./forge/types";
 
+/** Default-branch CI rollup state, or null when unknown / no CI / non-GitHub. */
+export type CiStatus = "success" | "failure" | "pending" | null;
+
 export interface RepoCounts {
   openIssues: number | null;
   openPRs: number | null;
+  /** Default-branch CI health for the Actions tab marker. GitHub-only; null otherwise. */
+  ciStatus: CiStatus;
 }
 
 /**
@@ -33,7 +38,7 @@ const TTL_MS = 60_000;
  */
 const DEFAULT_MAX_CONCURRENCY = 6;
 
-const NULL_COUNTS: RepoCounts = { openIssues: null, openPRs: null };
+const NULL_COUNTS: RepoCounts = { openIssues: null, openPRs: null, ciStatus: null };
 
 /**
  * Minimal FIFO semaphore — bounds how many gated thunks run concurrently.
@@ -92,6 +97,22 @@ function originUrl(repoDir: string): string | null {
     }).trim();
   } catch {
     return null;
+  }
+}
+
+/** GitHub StatusState rollup → our CiStatus. Unknown/absent → null. */
+function mapRollupState(state: string | undefined | null): CiStatus {
+  switch (state) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return null;
   }
 }
 
@@ -187,13 +208,16 @@ export class CountsService {
       "-F",
       `name=${name}`,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount}}}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount} defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
     ]);
     const json = JSON.parse(out) as {
       data?: {
         repository?: {
           issues?: { totalCount?: number };
           pullRequests?: { totalCount?: number };
+          defaultBranchRef?: {
+            target?: { statusCheckRollup?: { state?: string } | null } | null;
+          } | null;
         };
       };
     };
@@ -203,6 +227,7 @@ export class CountsService {
     return {
       openIssues: typeof issues === "number" ? issues : null,
       openPRs: typeof prs === "number" ? prs : null,
+      ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
     };
   }
 
@@ -229,6 +254,7 @@ export class CountsService {
     return {
       openIssues: typeof data.open_issues_count === "number" ? data.open_issues_count : null,
       openPRs: typeof data.open_pr_counter === "number" ? data.open_pr_counter : null,
+      ciStatus: null,
     };
   }
 }

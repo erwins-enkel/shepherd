@@ -153,7 +153,7 @@
             class:active={r.path === value}
             class:kbd-active={i === activeIdx}
             role="option"
-            aria-selected={r.path === value}
+            aria-selected={i === activeIdx}
             tabindex="-1"
             onclick={() => pick(r.path)}
             onkeydown={(e) => {

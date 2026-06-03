@@ -547,3 +547,10 @@ test("GithubForge.closeIssue: invokes gh issue close with the issue number and r
   await forge.closeIssue(42);
   expect(calls[0]).toEqual(["issue", "close", "42", "--repo", "o/r"]);
 });
+
+test("GithubForge.comment: posts a PR comment via gh pr comment", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.comment(7, "@dependabot rebase");
+  expect(calls).toEqual([["pr", "comment", "7", "--repo", "o/r", "--body", "@dependabot rebase"]]);
+});

@@ -337,6 +337,16 @@ export async function mergeBacklogPr(
   }
 }
 
+/** Post the opt-in "@dependabot rebase" command on a stuck Dependabot backlog PR
+ *  by repo + number. Resolves on success. */
+export async function requestDependabotRebase(repoPath: string, number: number): Promise<void> {
+  const r = await fetch("/api/prs/dependabot-rebase", JSON_POST({ repo: repoPath, number }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+}
+
 /** Re-run a GitHub Actions run by repo + runId. `failedOnly` retries just the
  *  failed jobs (set when the run failed); else the whole run. Resolves on success. */
 export async function rerunWorkflowRun(

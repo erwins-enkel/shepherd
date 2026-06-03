@@ -2,7 +2,8 @@
   import { onDestroy } from "svelte";
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { mergeBacklogPr } from "$lib/api";
+  import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import { showRebaseOffer } from "./pr-row";
 
   let {
     repoPath,
@@ -25,6 +26,11 @@
   let armed = $state(false);
   let merging = $state(false);
   let failed = $state(false);
+  // Stuck Dependabot PRs get a one-click "@dependabot rebase" opt-in. `requested`
+  // is sticky for the row's lifetime so Dependabot is never asked twice.
+  let requesting = $state(false);
+  let requested = $state(false);
+  let rebaseFailed = $state(false);
   let disarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The worst-of rollup dot expands into the head commit's individual CI jobs.
@@ -36,6 +42,8 @@
   // (Gitea) report mergeable:false for every draft — so don't read that as a real
   // conflict on a draft, or the row shows a bogus "conflicts" chip.
   const blocked = $derived(pr.mergeable === false && !pr.isDraft);
+
+  const offerRebase = $derived(showRebaseOffer({ author: pr.author, blocked, failed, requested }));
 
   const ciStatus = $derived(m.gitrail_ci_status({ status: pr.checks }));
   const ciToggleTitle = $derived(expanded ? m.prspanel_jobs_hide() : m.prspanel_jobs_show());
@@ -72,6 +80,7 @@
   async function onmerge() {
     if (merging || blocked) return;
     failed = false;
+    rebaseFailed = false; // a fresh merge attempt clears any stale rebase-error text
     if (!armed) {
       armed = true;
       disarmTimer = setTimeout(disarm, 4000);
@@ -85,6 +94,21 @@
     } catch {
       failed = true;
       merging = false;
+    }
+  }
+
+  async function onrebase() {
+    if (requesting || requested) return;
+    rebaseFailed = false;
+    failed = false; // requesting a rebase supersedes a prior merge-failure message
+    requesting = true;
+    try {
+      await requestDependabotRebase(repoPath, pr.number);
+      requested = true;
+    } catch {
+      rebaseFailed = true;
+    } finally {
+      requesting = false;
     }
   }
 </script>
@@ -169,7 +193,28 @@
   {/if}
 
   <div class="pr-actions">
-    {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
+    <!-- Left-aligned status text. One container carries the margin-right:auto push
+         so co-occurring messages (e.g. a failed merge *and* a later rebase request)
+         stay flush-left as a group instead of fighting over the free space. -->
+    {#if failed || rebaseFailed || requested}
+      <div class="pr-status">
+        {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
+        {#if rebaseFailed}<span class="merge-err">{m.prspanel_rebase_failed()}</span>{/if}
+        {#if requested}
+          <span class="rebase-note" role="status">{m.prspanel_rebase_requested()}</span>
+        {/if}
+      </div>
+    {/if}
+    {#if offerRebase}
+      <button
+        class="rebase-btn"
+        disabled={requesting}
+        onclick={onrebase}
+        title={m.prspanel_rebase_button_title()}
+      >
+        {requesting ? m.prspanel_requesting() : m.prspanel_rebase_button()}
+      </button>
+    {/if}
     <button class="review-btn" onclick={() => onreview(pr)} title={m.prspanel_review_button_title()}
       >{m.prspanel_review_button()}</button
     >
@@ -380,8 +425,17 @@
     margin-top: 2px;
   }
 
-  .merge-err {
+  /* Left-aligned status group: a single auto margin pushes the action buttons to
+     the right, so multiple status messages never fight over the free space. */
+  .pr-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin-right: auto;
+    min-width: 0;
+  }
+
+  .merge-err {
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -389,7 +443,8 @@
   }
 
   .review-btn,
-  .merge-btn {
+  .merge-btn,
+  .rebase-btn {
     background: transparent;
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -406,6 +461,7 @@
   }
 
   .review-btn:hover,
+  .rebase-btn:hover:not(:disabled),
   .merge-btn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
@@ -425,9 +481,24 @@
     cursor: not-allowed;
   }
 
+  .rebase-btn:disabled {
+    color: var(--color-faint);
+    border-color: var(--color-line);
+    cursor: not-allowed;
+  }
+
+  /* "rebase requested" — a settled, non-alarming confirmation (muted, not red). */
+  .rebase-note {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
   @media (max-width: 768px) {
     .review-btn,
-    .merge-btn {
+    .merge-btn,
+    .rebase-btn {
       min-height: 40px;
       padding: 2px 14px;
     }

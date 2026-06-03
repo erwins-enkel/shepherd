@@ -6,6 +6,7 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, MergeInput, PullRequest } from "../src/forge/types";
+import { DEPENDABOT_REBASE_COMMAND } from "../src/forge/types";
 import { config } from "../src/config";
 
 let tmpRoot: string;
@@ -65,6 +66,14 @@ function getReq(repo: string): Request {
 
 function mergeReq(body: unknown): Request {
   return new Request("http://localhost/api/prs/merge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function rebaseReq(body: unknown): Request {
+  return new Request("http://localhost/api/prs/dependabot-rebase", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -143,4 +152,70 @@ test("POST /api/prs/merge surfaces forge failure → 502", async () => {
   const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
   expect(res.status).toBe(502);
   expect((await res.json()).error).toContain("not mergeable");
+});
+
+test("POST /api/prs/dependabot-rebase posts @dependabot rebase by number", async () => {
+  let commented: { number: number; body: string } | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async (number, body) => {
+          commented = { number, body };
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(rebaseReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(commented!.number).toBe(12);
+  expect(commented!.body).toBe(DEPENDABOT_REBASE_COMMAND);
+});
+
+// Security invariant: the comment body is authored server-side. A client cannot
+// smuggle arbitrary text (or another bot command) through the request body.
+test("POST /api/prs/dependabot-rebase ignores a client-supplied body, posting the fixed command", async () => {
+  let posted: string | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async (_number, body) => {
+          posted = body;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(
+    rebaseReq({ repo: repoDir, number: 12, body: "@dependabot recreate" }),
+  );
+  expect(res.status).toBe(200);
+  expect(posted!).toBe(DEPENDABOT_REBASE_COMMAND);
+});
+
+test("POST /api/prs/dependabot-rebase without a number → 400", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ comment: async () => {} })));
+  const res = await app.fetch(rebaseReq({ repo: repoDir }));
+  expect(res.status).toBe(400);
+});
+
+test("POST /api/prs/dependabot-rebase on a forge without comment support → 400", async () => {
+  const app = makeApp(makeDeps(() => fakeForge()));
+  const res = await app.fetch(rebaseReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("comment");
+});
+
+test("POST /api/prs/dependabot-rebase surfaces forge failure → 502", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async () => {
+          throw new Error("gh exploded");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(rebaseReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(502);
+  expect((await res.json()).error).toContain("gh exploded");
 });

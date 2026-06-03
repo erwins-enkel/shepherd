@@ -21,6 +21,10 @@ export const CRITIC_REVIEW_MARKER = "<!-- shepherd-critic -->";
  *  free-form human chatter. HTML comments don't render in GitHub's UI. */
 export const AUTHOR_RESPONSE_MARKER = "<!-- shepherd-author-note -->";
 
+/** The opt-in command a maintainer posts on a Dependabot PR to make Dependabot
+ *  rebase it onto the base branch. Posted by the dependabot-rebase endpoint. */
+export const DEPENDABOT_REBASE_COMMAND = "@dependabot rebase";
+
 /** One issue comment on a PR (author responses to review rounds). */
 export interface PrComment {
   /** Host-stable comment id, used to inject each author note into the critic exactly
@@ -164,6 +168,10 @@ export interface GitForge {
    *  display-only rename so an open PR is never orphaned. */
   renameBranch?(oldBranch: string, newBranch: string): Promise<void>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
+  /** Post a plain issue comment on a PR (`gh pr comment`). Optional: only hosts
+   *  with a comment API (GitHub) implement it; others omit it and the
+   *  dependabot-rebase endpoint 400s. */
+  comment?(prNumber: number, body: string): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
   /** Post a critic review (request-changes / comment) on a PR. Returns the
    *  review's URL when the host provides one. */

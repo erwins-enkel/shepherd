@@ -22,7 +22,7 @@ export interface HouseRulesPlan {
   injected: Learning[]; // priority order, fit within budget
   dropped: Learning[]; // over budget, priority order
   budgetChars: number;
-  usedChars: number; // exact rendered length of the block (header + bullets)
+  usedChars: number; // exact rendered length of the block (XML tag + intro + bullets)
 }
 
 /** Priority sort: lastEvidenceAt desc (nulls last), tie-break updatedAt desc.
@@ -56,7 +56,7 @@ export function planHouseRulesInjection(rules: Learning[], budgetChars: number):
     }
   }
   // No rule made the cut → the block renders to null, so report 0 chars used
-  // (not the bare header length) to keep the drawer's budget meter truthful.
+  // (not the bare overhead) to keep the drawer's budget meter truthful.
   return { injected, dropped, budgetChars, usedChars: injected.length === 0 ? 0 : used };
 }
 

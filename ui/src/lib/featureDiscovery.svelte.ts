@@ -7,7 +7,7 @@ const KEY_SEEN = "shepherd:features-seen";
 
 class FeatureDiscoveryStore {
   #lastSeenVersion = $state<string | null>(null);
-  seen = $state<Record<string, true>>({});
+  #seen = $state<Record<string, true>>({});
 
   /** Populate both state fields from localStorage.
    *  Each key is read in its own try/catch so a corrupt `seen` blob
@@ -22,11 +22,13 @@ class FeatureDiscoveryStore {
     try {
       const raw = localStorage.getItem(KEY_SEEN);
       if (raw) {
-        this.seen = JSON.parse(raw) as Record<string, true>;
+        this.#seen = JSON.parse(raw) as Record<string, true>;
+      } else {
+        this.#seen = {};
       }
     } catch {
       /* corrupt blob — fall back to empty; lastSeenVersion already set above */
-      this.seen = {};
+      this.#seen = {};
     }
   }
 
@@ -48,16 +50,21 @@ class FeatureDiscoveryStore {
     }
   }
 
+  /** Read-only view of the seen set. Use markSeen() to mutate. */
+  get seen(): Record<string, true> {
+    return this.#seen;
+  }
+
   /** Returns true when the feature id has been marked seen. */
   isSeen(id: string): boolean {
-    return id in this.seen;
+    return id in this.#seen;
   }
 
   /** Mark a feature as seen and persist the seen blob. */
   markSeen(id: string): void {
-    this.seen = { ...this.seen, [id]: true };
+    this.#seen = { ...this.#seen, [id]: true };
     try {
-      localStorage.setItem(KEY_SEEN, JSON.stringify(this.seen));
+      localStorage.setItem(KEY_SEEN, JSON.stringify(this.#seen));
     } catch {
       /* private mode — state updated in memory */
     }

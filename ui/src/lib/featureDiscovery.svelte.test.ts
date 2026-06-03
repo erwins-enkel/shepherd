@@ -24,12 +24,13 @@ const KEY_SEEN = "shepherd:features-seen";
 
 beforeEach(() => {
   // Reset storage and in-memory state between tests.
+  // We use hydrate() on a clean storage so the reset goes through the proper
+  // read path rather than bypassing it via direct field assignment.
   localStorageMock.clear();
-  // Reset state by re-assigning directly (mirrors reviews.svelte.test.ts pattern).
-  featureDiscovery.seen = {};
+  featureDiscovery.hydrate(); // reads empty storage → resets both fields to defaults
+  // Also reset lastSeenVersion via its setter (clears any in-memory value from previous test).
   featureDiscovery.lastSeenVersion = null;
-  // Clear any side-effect writes from the setter above.
-  localStorageMock.clear();
+  localStorageMock.clear(); // clear side-effect writes from the setter above
 });
 
 test("no localStorage read happens at module import (SSR-safe)", () => {

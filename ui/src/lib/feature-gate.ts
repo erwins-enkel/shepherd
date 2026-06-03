@@ -45,6 +45,6 @@ export function computeNewEntries(
   return catalog.filter((entry) => {
     const since = parse(entry.sinceVersion);
     if (!since) return false;
-    return cmp(since, lastSeen) > 0;
+    return cmp(since, lastSeen) > 0 && cmp(since, current) <= 0;
   });
 }

@@ -38,15 +38,20 @@ describe("computeNewEntries", () => {
     expect(computeNewEntries("not-valid", "1.10.0", catalog)).toEqual([]);
   });
 
-  it("higher current returns entries with sinceVersion > lastSeen", () => {
+  it("higher current returns entries with sinceVersion > lastSeen and <= current", () => {
     // lastSeen = 1.9.0, current = 1.10.0
-    // entry 'a' sinceVersion 1.10.0 → 1.10.0 > 1.9.0 → included
+    // entry 'a' sinceVersion 1.10.0 → 1.10.0 > 1.9.0 AND 1.10.0 <= 1.10.0 → included
     // entry 'b' sinceVersion 1.9.0 → 1.9.0 > 1.9.0 is false → excluded
-    // entry 'c' sinceVersion 1.11.0 → 1.11.0 > current (1.10.0) but we only compare to lastSeen
-    //   → 1.11.0 > 1.9.0 → included
+    // entry 'c' sinceVersion 1.11.0 → 1.11.0 > 1.10.0 (current) → excluded (future-dated)
     // entry 'bad' sinceVersion unparseable → excluded
     const result = computeNewEntries("1.9.0", "1.10.0", catalog);
-    expect(result.map((e) => e.id)).toEqual(["a", "c"]);
+    expect(result.map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("sinceVersion > currentVersion → excluded", () => {
+    // entry 'c' has sinceVersion 1.11.0, current is 1.10.0 — must not surface prematurely
+    const result = computeNewEntries("1.9.0", "1.10.0", catalog);
+    expect(result.find((e) => e.id === "c")).toBeUndefined();
   });
 
   it("sinceVersion === lastSeen → excluded", () => {
@@ -74,6 +79,15 @@ describe("computeNewEntries", () => {
 
   it("empty catalog → []", () => {
     expect(computeNewEntries("1.9.0", "1.10.0", [])).toEqual([]);
+  });
+
+  it("real catalog: upgrade from 1.9.0 → 1.10.0 shows all three seed entries", () => {
+    // sinceVersion "1.10.0" <= current "1.10.0" → included (upper-bound is inclusive)
+    const result = computeNewEntries("1.9.0", "1.10.0", featureAnnouncements);
+    expect(result.map((e) => e.id)).toEqual(
+      expect.arrayContaining(["critic", "auto-address", "learnings"]),
+    );
+    expect(result).toHaveLength(featureAnnouncements.length);
   });
 });
 

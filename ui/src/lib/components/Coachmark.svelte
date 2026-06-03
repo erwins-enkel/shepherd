@@ -83,9 +83,14 @@
   }
 
   $effect(() => {
-    window.addEventListener("keydown", onWindowKeydown);
-    window.addEventListener("pointerdown", onWindowPointerdown);
+    // Defer listener attachment by one tick so the same tap that opened the
+    // coachmark doesn't immediately close it (pointerdown timing race).
+    const tid = setTimeout(() => {
+      window.addEventListener("keydown", onWindowKeydown);
+      window.addEventListener("pointerdown", onWindowPointerdown);
+    }, 0);
     return () => {
+      clearTimeout(tid);
       window.removeEventListener("keydown", onWindowKeydown);
       window.removeEventListener("pointerdown", onWindowPointerdown);
     };
@@ -94,7 +99,13 @@
 
 <!-- popover="manual": native top-layer, escapes Viewport's swipe transform.
      position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement. -->
-<div popover="manual" bind:this={popEl} class="coachmark" role="dialog">
+<div
+  popover="manual"
+  bind:this={popEl}
+  class="coachmark"
+  role="dialog"
+  aria-label={(m as unknown as Record<string, () => string>)[titleKey]()}
+>
   <p class="coachmark-title">{(m as unknown as Record<string, () => string>)[titleKey]()}</p>
   <p class="coachmark-body">{(m as unknown as Record<string, () => string>)[bodyKey]()}</p>
   <button class="coachmark-btn" onclick={onseen}>{m.coachmark_dismiss()}</button>

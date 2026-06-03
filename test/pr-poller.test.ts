@@ -305,6 +305,72 @@ test("leaves state none when reconcile finds no other branch", async () => {
   expect(poller.snapshot()[s.id]?.state).toBe("none");
 });
 
+const OPEN_PENDING: PrStatus = {
+  state: "open",
+  number: 1,
+  checks: "pending",
+  deployConfigured: false,
+};
+
+test("fast tick re-polls only open PRs — accelerating in-flight CI", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" }); // open PR (CI running)
+  store.create({ ...baseSession, branch: "shepherd/b" }); // merged → settled
+  const polled: string[] = [];
+  const byBranch: Record<string, PrStatus> = {
+    "shepherd/a": OPEN_PENDING,
+    "shepherd/b": { state: "merged", number: 2, checks: "success", deployConfigured: false },
+  };
+  const forge: GitForge = {
+    ...forgeByBranch(byBranch),
+    prStatus: async (head: string) => {
+      polled.push(head);
+      return byBranch[head] ?? NONE;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick(); // warm the cache (both branches polled)
+  polled.length = 0;
+  await poller.fastTick(); // only the open PR is re-polled on the fast cadence
+  expect(polled).toEqual(["shepherd/a"]);
+});
+
+test("fast tick caps open-PR polling per tick and rotates to cover all", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 5; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  const polled: string[] = [];
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async (head: string) => {
+      polled.push(head);
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    2, // fastBatch cap
+  );
+
+  await poller.tick();
+  polled.length = 0;
+  await poller.fastTick(); // 2 polled
+  await poller.fastTick(); // next 2
+  await poller.fastTick(); // wraps; 2 more
+  expect(polled.length).toBe(6); // capped at 2 per tick
+  expect(new Set(polled).size).toBe(5); // every open PR covered across ticks
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

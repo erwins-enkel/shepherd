@@ -172,7 +172,12 @@ events.subscribe((event, data) => {
   if (event !== "session:git") return;
   const { id, git } = data as { id: string; git: import("./forge/types").GitState };
   const s = store.get(id);
-  if (s) void reviewService.consider(s, git);
+  // consider() is async (it may fetch PR notes); swallow rejections so a throw in the
+  // review path can't become an unhandled rejection that takes down the process.
+  if (s)
+    void reviewService
+      .consider(s, git)
+      .catch((err) => console.warn("[review] consider failed:", err));
 });
 setInterval(() => void reviewService.tick(), 15_000);
 // archived sessions: reap any in-flight critic + drop the verdict

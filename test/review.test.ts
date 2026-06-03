@@ -318,6 +318,9 @@ test("reviewPrompt injects author notes with accept-if-justified guidance", () =
   const p = reviewPrompt("main", "do the thing", ["fix X"], ["X is intentional per the spec"]);
   expect(p).toContain("X is intentional per the spec");
   expect(p.toLowerCase()).toContain("accept"); // honor a sound justification
+  // notes are an injection surface (anyone can comment on a PR) → frame them as
+  // unverified claims the critic must judge against the diff, not take on faith.
+  expect(p.toLowerCase()).toContain("unverified");
 });
 
 test("auto-address on: feeds findings back to the agent and advances the round", async () => {
@@ -555,4 +558,15 @@ test("concurrent re-review considers spawn the critic only once (no TOCTOU doubl
   // two session:git events for the same head land while the first is mid-await
   await Promise.all([svc.consider(session(), OPEN_GREEN), svc.consider(session(), OPEN_GREEN)]);
   expect(started).toHaveLength(1); // the slot is claimed before the await
+});
+
+test("forget() during the re-review await aborts the spawn (no critic for an archived session)", async () => {
+  const { deps: d, reviews, started } = makeDeps({}, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview(); // re-review path → begin suspends at fetchAuthorNotes
+  const svc = new ReviewService(d as any);
+  const p = svc.consider(session(), OPEN_GREEN); // suspends mid-fetch
+  svc.forget("s1"); // session archived while the gh fetch is in flight
+  await p;
+  expect(started).toHaveLength(0); // begin saw the forget and aborted before spawning
+  expect(svc.reviewingIds()).toEqual([]); // nothing left in flight
 });

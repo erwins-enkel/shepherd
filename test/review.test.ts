@@ -478,6 +478,38 @@ test("PR merged before finalize: holds the round, posts the review, does NOT ste
   expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted
 });
 
+test("PR-state recheck throws: fail-closed — no steer, round held", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
+    {
+      autoAddressEnabled: true,
+      prStatus: async () => {
+        throw new Error("gh unavailable");
+      },
+    },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick(); // must NOT reject
+  expect(steers).toHaveLength(0); // can't confirm open → don't steer
+  expect(reviews["s1"]?.addressRound).toBe(0); // round held
+});
+
+test("PR closed (not merged) before finalize: also skips the steer", async () => {
+  const { deps: d, steers } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
+    { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "closed" }) },
+  );
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers).toHaveLength(0); // guard is state !== "open", not just merged
+});
+
 test("dead agent pane: steer attempted but the round does not advance", async () => {
   const {
     deps: d,

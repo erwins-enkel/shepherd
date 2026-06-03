@@ -19,6 +19,7 @@
     approveLearning,
     dismissLearning,
     distillRepo,
+    promoteLearning,
     getMergedClearable,
     clearMerged,
   } from "$lib/api";
@@ -678,6 +679,13 @@
       ondistill={(repoPath) =>
         distillRepo(repoPath)
           .then(() => toasts.info(m.learnings_distill_started({ repo: basename(repoPath) })))
+          .catch(() => {})}
+      onpromote={(id) =>
+        promoteLearning(id)
+          .then(() => {
+            toasts.info(m.learnings_promote_started());
+            return learnings.load();
+          })
           .catch(() => {})}
       onclose={() => (showLearnings = false)}
     />

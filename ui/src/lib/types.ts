@@ -339,6 +339,7 @@ export interface Learning {
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
+  promotedPrUrl: string | null;
 }
 
 /** GET /api/learnings/injectable: one entry per repo with ≥1 active/promoted rule.

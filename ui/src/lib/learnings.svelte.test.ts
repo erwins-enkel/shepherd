@@ -15,6 +15,7 @@ function L(id: string): Learning {
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
+    promotedPrUrl: null,
   };
 }
 

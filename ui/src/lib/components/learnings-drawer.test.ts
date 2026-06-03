@@ -22,6 +22,7 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
+    promotedPrUrl: null,
   };
 }
 

@@ -17,6 +17,7 @@
     onapprove,
     ondismiss,
     ondistill,
+    onpromote,
     onclose,
   }: {
     items: Learning[];
@@ -24,6 +25,7 @@
     onapprove: (id: string, rule: string) => void;
     ondismiss: (id: string) => void;
     ondistill: (repoPath: string) => void;
+    onpromote: (id: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -137,6 +139,22 @@
                     <button class="dismiss" onclick={() => ondismiss(r.id)}>
                       {m.learnings_dismiss()}
                     </button>
+                    <button
+                      class="promote"
+                      onclick={() => onpromote(r.id)}
+                      aria-label={m.learnings_promote_aria()}
+                    >
+                      {m.learnings_promote()}
+                    </button>
+                  {:else if r.status === "promoted" && r.promotedPrUrl}
+                    <a
+                      class="prlink"
+                      href={r.promotedPrUrl}
+                      target="_blank"
+                      rel="noopener external"
+                    >
+                      {m.learnings_promoted_pr()}
+                    </a>
                   {/if}
                 </div>
               </article>
@@ -263,6 +281,19 @@
   .approve {
     border-color: var(--color-green);
     color: var(--color-green);
+  }
+  .promote {
+    font-size: 12px;
+    padding: 5px 12px;
+    cursor: pointer;
+    border: 1px solid var(--color-green);
+    background: none;
+    color: var(--color-green);
+  }
+  .prlink {
+    font-size: 12px;
+    color: var(--color-green);
+    text-decoration: none;
   }
 
   /* ── injected house rules ────────────────────────────────────────────── */

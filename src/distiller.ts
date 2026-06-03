@@ -8,6 +8,14 @@ import type { Signal } from "./types";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
+/**
+ * Reserved herdr label for the ephemeral distiller agent. The underscores are load-bearing:
+ * prompt-derived session slugs are `[a-z0-9-]` only (see namer.ts), so no real session can
+ * collide. The orphan-tab reaper keys off this exact label — a bare "distill" would NOT be
+ * safe, since a user prompt slugs to exactly that and would get reaped (cf. {@link PROBE_NAME}).
+ */
+export const DISTILL_LABEL = "__distill__";
+
 interface RawRule {
   rule?: unknown;
   rationale?: unknown;
@@ -136,7 +144,7 @@ export class DistillerService {
     argv.push(distillPrompt());
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start("distill", dir, argv).terminalId;
+      terminalId = this.deps.herdr.start(DISTILL_LABEL, dir, argv).terminalId;
     } catch (err) {
       console.warn(`[distill] spawn failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);

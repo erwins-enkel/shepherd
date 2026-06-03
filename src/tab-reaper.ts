@@ -1,5 +1,6 @@
 import type { HerdrDriver } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
+import { DISTILL_LABEL } from "./distiller";
 
 export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
 
@@ -8,12 +9,17 @@ export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
  *  being closed — e.g. a shepherd restart cleared the in-memory tracking).
  *
  *  All markers are collision-proof against user sessions, whose labels are prompt-derived
- *  `[a-z0-9-]` slugs: {@link PROBE_NAME} contains underscores, and the "review " / "name "
- *  prefixes contain a space — none is producible by a slug. (Reaping by a bare slug like
- *  "usage-probe" would be unsafe — a user prompt can slug to exactly that.) The "name "
- *  prefix is the background LLM namer's transient tab (`name TASK-NN`). */
+ *  `[a-z0-9-]` slugs: {@link PROBE_NAME} and {@link DISTILL_LABEL} contain underscores, and the
+ *  "review " / "name " prefixes contain a space — none is producible by a slug. (Reaping by a
+ *  bare slug like "usage-probe" or "distill" would be unsafe — a user prompt can slug to exactly
+ *  that.) The "name " prefix is the background LLM namer's transient tab (`name TASK-NN`). */
 function isShepherdHelperLabel(label: string): boolean {
-  return label === PROBE_NAME || label.startsWith("review ") || label.startsWith("name ");
+  return (
+    label === PROBE_NAME ||
+    label === DISTILL_LABEL ||
+    label.startsWith("review ") ||
+    label.startsWith("name ")
+  );
 }
 
 /** herdr tab ids are "workspace:N" with N a positional index. */
@@ -23,8 +29,8 @@ function tabNumber(tabId: string): number {
 }
 
 /**
- * Reconciliation sweep: close any usage-probe / review helper tab that no live agent
- * backs. The teardown paths (herdr.stop / start rollback) stop most leaks at the source;
+ * Reconciliation sweep: close any usage-probe / review / namer / distill helper tab that no
+ * live agent backs. The teardown paths (herdr.stop / start rollback) stop most leaks at the source;
  * this is the durable safety net for husks they can't reach — agents that crashed out of
  * `agent list`, or anything orphaned across a shepherd restart (which clears in-memory
  * review tracking). Returns the ids it closed.

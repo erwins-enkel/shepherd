@@ -7,6 +7,7 @@ import { controlKeys, enterKey } from "./controlKeys";
 const EXPECTED: Record<string, string> = {
   Esc: "\x1b",
   Tab: "\x09",
+  "␣": " ",
   "←": "\x1b[D",
   "→": "\x1b[C",
   "↑": "\x1b[A",

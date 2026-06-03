@@ -43,6 +43,7 @@
   "theme_system": "System",
   "controlkey_escape": "Escape",
   "controlkey_tab": "Tab",
+  "controlkey_space": "Space",
   "controlkey_enter": "Enter, submit",
   "controlkey_arrow_left": "Arrow left",
   "controlkey_arrow_right": "Arrow right",

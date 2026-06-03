@@ -28,6 +28,7 @@ export function controlKeys(): ControlKey[] {
   return [
     { label: "Esc", aria: m.controlkey_escape(), seq: "\x1b", group: "edit", tone: "escape" },
     { label: "Tab", aria: m.controlkey_tab(), seq: "\x09", group: "edit" },
+    { label: "␣", aria: m.controlkey_space(), seq: " ", group: "edit" },
     { label: "←", aria: m.controlkey_arrow_left(), seq: "\x1b[D", group: "nav" },
     { label: "→", aria: m.controlkey_arrow_right(), seq: "\x1b[C", group: "nav" },
     { label: "↑", aria: m.controlkey_arrow_up(), seq: "\x1b[A", group: "nav" },

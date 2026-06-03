@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { SessionService, spawnSettingsOverlay, BRANCH_RENAME_NOTICE } from "../src/service";
+import { SessionService, spawnSettingsOverlay, composeSystemPrompt } from "../src/service";
+import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config } from "../src/config";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
@@ -57,7 +58,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    BRANCH_RENAME_NOTICE,
+    composeSystemPrompt(null), // no learnings → branch-rename notice only
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -438,7 +439,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    BRANCH_RENAME_NOTICE,
+    composeSystemPrompt(null), // no learnings → branch-rename notice only
     "--model",
     "opus",
     "go",
@@ -1312,7 +1313,22 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }) {
   };
 }
 
-test("create prepends active+promoted house rules to the prompt", async () => {
+/** The value passed to --append-system-prompt (the flag's following argv element). */
+function sysPrompt(argv: string[]): string {
+  const i = argv.indexOf("--append-system-prompt");
+  return argv[i + 1]!;
+}
+
+/** Just the <shepherd-house-rules>…</shepherd-house-rules> slice of the system prompt. */
+function houseRulesBlock(argv: string[]): string {
+  const sp = sysPrompt(argv);
+  const open = `<${HOUSE_RULES_TAG}>`;
+  const close = `</${HOUSE_RULES_TAG}>`;
+  const start = sp.indexOf(open);
+  return sp.slice(start, sp.indexOf(close) + close.length);
+}
+
+test("create injects active+promoted house rules into the system prompt, task stays clean", async () => {
   const store = new SessionStore(":memory:");
   const a = store.addLearning({
     repoPath: "/repo",
@@ -1330,10 +1346,12 @@ test("create prepends active+promoted house rules to the prompt", async () => {
     model: null,
     images: [],
   });
-  const promptArg = captured.argv!.at(-1)!;
-  expect(promptArg).toContain("Project house rules");
-  expect(promptArg).toContain("- Use bun, not npm");
-  expect(promptArg.endsWith("do the thing")).toBe(true); // user text stays last
+  // Rules ride the system prompt, XML-wrapped — not the human turn.
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain(`<${HOUSE_RULES_TAG}>`);
+  expect(sp).toContain("- Use bun, not npm");
+  // The human prompt (last argv) is exactly the user's task — no rules bleed in.
+  expect(captured.argv!.at(-1)).toBe("do the thing");
 });
 
 test("create omits the house-rules block when no active rules exist", async () => {
@@ -1349,6 +1367,8 @@ test("create omits the house-rules block when no active rules exist", async () =
     images: [],
   });
   expect(captured.argv!.at(-1)).toBe("do the thing");
+  // System prompt carries only the branch-rename notice, no house-rules tag.
+  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
 });
 
 test("create omits house rules when learnings disabled for the repo", async () => {
@@ -1370,6 +1390,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     images: [],
   });
   expect(captured.argv!.at(-1)).toBe("do the thing");
+  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
 });
 
 test("create injects only the planned house rules and drops the over-budget ones", async () => {
@@ -1394,11 +1415,10 @@ test("create injects only the planned house rules and drops the over-budget ones
     model: null,
     images: [],
   });
-  const promptArg = captured.argv!.at(-1)!;
-  expect(promptArg).toContain("Project house rules");
-  expect(promptArg.endsWith("do the thing")).toBe(true);
-  // Block (everything before the user text) must stay within the 4000-char budget.
-  const block = promptArg.slice(0, promptArg.indexOf("\n\ndo the thing"));
+  // Human prompt stays clean; rules live in the system prompt.
+  expect(captured.argv!.at(-1)).toBe("do the thing");
+  const block = houseRulesBlock(captured.argv!);
+  // Block (XML-wrapped) must stay within the 4000-char budget.
   expect(block.length).toBeLessThanOrEqual(4000);
   // Some rules injected, some dropped (not all 40 fit).
   const injectedCount = (block.match(/^- /gm) ?? []).length;

@@ -47,16 +47,32 @@ export function spawnSettingsOverlay(): string {
  * Pre-warning it at spawn removes the surprise at the source. Not user-facing chrome
  * (it's an instruction to the agent), so no i18n.
  */
-export const BRANCH_RENAME_NOTICE =
+const BRANCH_RENAME_NOTICE =
   "Shepherd may rename this session's git branch shortly after startup to a clearer, " +
   "prompt-derived name (via `git branch -m`). This is expected: your working tree, " +
   "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
 
+/**
+ * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
+ * (the flag is last-wins, not repeatable, so both notices must share one value).
+ *
+ * House rules used to be prepended to the human prompt, which let standing guidance bleed
+ * into the task on every spawn. They now live in the system prompt, each notice XML-wrapped
+ * so the agent can cleanly separate persistent repo guidance from the task in its human turn.
+ * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
+ * none / learnings are disabled.
+ */
+export function composeSystemPrompt(houseRules: string | null): string {
+  const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
+  return houseRules ? `${houseRules}\n\n${branchNotice}` : branchNotice;
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
-  /** Active+promoted rules for the repo as a delimited prompt block, or null when
-   *  none / learnings disabled. Prepended to every new agent's prompt (spec §4a). */
+  /** Active+promoted rules for the repo as an XML-wrapped block, or null when
+   *  none / learnings disabled. Injected into every new agent's system prompt
+   *  (via composeSystemPrompt), not the human turn. */
   private houseRules(repoPath: string): string | null {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
     const { injected } = planHouseRulesInjection(
@@ -90,14 +106,14 @@ export class SessionService {
         promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
       }
 
-      // Prepend Shepherd-curated house rules so every spawn (manual AND auto-spawned,
-      // e.g. the work-queue drain #222) inherits the repo's learned corrections.
+      // Shepherd-curated house rules go into the system prompt (not the human turn) so every
+      // spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the repo's
+      // learned corrections without the rules bleeding into the task text.
       const houseRules = this.houseRules(input.repoPath);
-      if (houseRules) promptArg = `${houseRules}\n\n${promptArg}`;
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
       argv.push("--settings", spawnSettingsOverlay());
-      argv.push("--append-system-prompt", BRANCH_RENAME_NOTICE);
+      argv.push("--append-system-prompt", composeSystemPrompt(houseRules));
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);

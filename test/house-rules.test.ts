@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
-  HOUSE_RULES_HEADER,
+  HOUSE_RULES_OVERHEAD,
+  HOUSE_RULES_TAG,
   planHouseRulesInjection,
   renderHouseRulesBlock,
 } from "../src/house-rules";
@@ -35,7 +36,7 @@ test("priority: lastEvidenceAt desc with nulls last, tie-break updatedAt desc", 
 test("greedy fill picks rules that fit within budget", () => {
   const a = rule({ id: "a", rule: "x".repeat(20), lastEvidenceAt: 300 });
   const b = rule({ id: "b", rule: "y".repeat(20), lastEvidenceAt: 200 });
-  const budget = HOUSE_RULES_HEADER.length + "- ".length + 20 + "\n".length; // header + exactly one rule
+  const budget = HOUSE_RULES_OVERHEAD + "- ".length + 20 + "\n".length; // overhead + exactly one rule
   const plan = planHouseRulesInjection([a, b], budget);
   expect(plan.injected.map((r) => r.id)).toEqual(["a"]);
   expect(plan.dropped.map((r) => r.id)).toEqual(["b"]);
@@ -45,7 +46,7 @@ test("greedy continues past overflow: a later shorter rule still fits (non-prefi
   // priority order: big (highest), small (lowest). big overflows, small fits.
   const big = rule({ id: "big", rule: "x".repeat(500), lastEvidenceAt: 300 });
   const small = rule({ id: "small", rule: "ok", lastEvidenceAt: 100 });
-  const budget = HOUSE_RULES_HEADER.length + ("- " + "ok" + "\n").length + 10; // room for small only
+  const budget = HOUSE_RULES_OVERHEAD + ("- " + "ok" + "\n").length + 10; // room for small only
   const plan = planHouseRulesInjection([big, small], budget);
   expect(plan.injected.map((r) => r.id)).toEqual(["small"]);
   expect(plan.dropped.map((r) => r.id)).toEqual(["big"]);
@@ -53,17 +54,17 @@ test("greedy continues past overflow: a later shorter rule still fits (non-prefi
 
 test("exact-fit boundary is included", () => {
   const a = rule({ id: "a", rule: "abcde", lastEvidenceAt: 1 });
-  const budget = HOUSE_RULES_HEADER.length + ("- " + "abcde" + "\n").length;
+  const budget = HOUSE_RULES_OVERHEAD + ("- " + "abcde" + "\n").length;
   const plan = planHouseRulesInjection([a], budget);
   expect(plan.injected.map((r) => r.id)).toEqual(["a"]);
 });
 
-test("header alone exceeds budget → empty / null, usedChars 0", () => {
+test("block overhead alone exceeds budget → empty / null, usedChars 0", () => {
   const a = rule({ id: "a", rule: "anything" });
-  const plan = planHouseRulesInjection([a], HOUSE_RULES_HEADER.length - 1);
+  const plan = planHouseRulesInjection([a], HOUSE_RULES_OVERHEAD - 1);
   expect(plan.injected).toEqual([]);
-  // usedChars must report 0 (not the bare header length) so the meter matches the
-  // null block — nothing is actually prepended.
+  // usedChars must report 0 (not the bare overhead) so the meter matches the
+  // null block — nothing is actually injected.
   expect(plan.usedChars).toBe(0);
   expect(renderHouseRulesBlock(plan.injected)).toBeNull();
 });
@@ -85,4 +86,14 @@ test("usedChars equals rendered block length for a multi-rule plan", () => {
   const block = renderHouseRulesBlock(plan.injected)!;
   expect(block).not.toBeNull();
   expect(plan.usedChars).toBe(block.length);
+});
+
+test("rendered block is wrapped in the XML tag, one bullet per rule", () => {
+  const a = rule({ id: "a", rule: "use bun" });
+  const b = rule({ id: "b", rule: "rebase, do not merge" });
+  const block = renderHouseRulesBlock([a, b])!;
+  expect(block.startsWith(`<${HOUSE_RULES_TAG}>\n`)).toBe(true);
+  expect(block.endsWith(`\n</${HOUSE_RULES_TAG}>`)).toBe(true);
+  expect(block).toContain("- use bun");
+  expect(block).toContain("- rebase, do not merge");
 });

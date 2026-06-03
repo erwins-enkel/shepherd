@@ -237,10 +237,16 @@
   const prReady = $derived(git?.state === "open" || git?.state === "merged");
 
   // The PR disclosure toggle's hue tracks merge-readiness — NOT mere PR existence
-  // (that's prReady above, which still drives the decommission nudge). Amber = needs
-  // you: CI failed or the critic requested changes. Green = CI green & critic clear,
-  // i.e. ready to merge. Pending / merged / closed / none stay neutral muted — nothing
-  // to act on yet. Mirrors PrBadge's rule that amber is reserved for the actionable state.
+  // (that's prReady above, which still drives the decommission nudge). This toggle is a
+  // single rolled-up verdict for the collapsed rail, so amber = "needs you" deliberately
+  // folds BOTH CI failure and critic changes_requested into one attention hue. That
+  // diverges from PrBadge on purpose: PrBadge has room for granular per-check dots, so it
+  // keeps red for CI failure and amber for pending/changes_requested — red stays exclusive
+  // to those dots, never the rolled-up toggle. Green = CI green & critic clear (ready to
+  // merge); pending / merged / closed / none stay neutral muted.
+  // Known limitation: there is no critic-pending field, so prClear goes green on CI
+  // success even before the critic posts (latestReview undefined) — "ready to merge" can
+  // show a beat early, and stays green when the critic is disabled (no gate to wait on).
   const prAttention = $derived(
     git?.state === "open" &&
       (git.checks === "failure" || git.latestReview?.state === "changes_requested"),

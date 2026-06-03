@@ -113,6 +113,20 @@ test("session:renamed surfaces a toast naming the new name", () => {
   expect(toasts.items.some((t) => t.text.includes("fresh"))).toBe(true);
 });
 
+test("session:renamed adopts a new branch silently when the display name is unchanged", () => {
+  // contingency path (syncWorktreeBranch) re-emits with the same name when only the
+  // branch moved — no visible change, so no "Renamed to <same name>" toast noise.
+  toasts.items = [];
+  const s = new HerdStore();
+  s.setAll([session("s1")]); // name "n"
+  s.apply({
+    event: "session:renamed",
+    data: { id: "s1", name: "n", branch: "shepherd/adopted" },
+  });
+  expect(s.sessions.find((x) => x.id === "s1")?.branch).toBe("shepherd/adopted"); // still adopted
+  expect(toasts.items).toHaveLength(0); // but no toast
+});
+
 // ---- /events WS reconnect (mobile background-drop / wake recovery) ----
 // The live stream is delta-only; a frozen mobile tab drops the socket and the
 // onclose backoff timer is frozen with it. connect() must resume the stream on

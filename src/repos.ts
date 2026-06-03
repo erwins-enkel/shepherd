@@ -110,8 +110,32 @@ export function cloneRepo(
   return { ok: true, entry };
 }
 
-// TODO(Task 3): replace this stub with the real classification logic
 export function classifyCloneError(e: unknown): string {
-  void e;
-  return "clonerepo_failed_generic";
+  if ((e as any).killed && (e as any).signal === "SIGTERM") return "clonerepo_failed_timeout";
+  const stderr = String((e as any).stderr ?? "").toLowerCase();
+  if (
+    stderr.includes("authentication failed") ||
+    stderr.includes("could not read username") ||
+    stderr.includes("terminal prompts disabled") ||
+    stderr.includes("permission denied") ||
+    stderr.includes("403") ||
+    stderr.includes("could not read password")
+  ) {
+    return "clonerepo_failed_auth";
+  }
+  if (
+    stderr.includes("already exists and is not an empty directory") ||
+    stderr.includes("destination path")
+  ) {
+    return "clonerepo_failed_exists";
+  }
+  if (
+    stderr.includes("repository not found") ||
+    stderr.includes("does not appear to be a git repository") ||
+    stderr.includes("could not resolve host") ||
+    stderr.includes("unable to access")
+  ) {
+    return "clonerepo_failed_url";
+  }
+  return "clonerepo_failed_url";
 }

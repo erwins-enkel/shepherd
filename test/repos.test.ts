@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { listRepos, readTodo, writeTodo, cloneRepo } from "../src/repos";
+import { listRepos, readTodo, writeTodo, cloneRepo, classifyCloneError } from "../src/repos";
 
 let root: string;
 
@@ -131,4 +131,36 @@ test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", (
   } finally {
     rmSync(cloneRoot, { recursive: true, force: true });
   }
+});
+
+// ── classifyCloneError ────────────────────────────────────────────────────────
+
+test("classifyCloneError: killed+SIGTERM → clonerepo_failed_timeout", () => {
+  expect(classifyCloneError({ killed: true, signal: "SIGTERM" })).toBe("clonerepo_failed_timeout");
+});
+
+test("classifyCloneError: stderr 'Authentication failed' → clonerepo_failed_auth", () => {
+  expect(classifyCloneError({ stderr: Buffer.from("fatal: Authentication failed") })).toBe(
+    "clonerepo_failed_auth",
+  );
+});
+
+test("classifyCloneError: stderr 'destination path … already exists' → clonerepo_failed_exists", () => {
+  expect(
+    classifyCloneError({
+      stderr: Buffer.from(
+        "fatal: destination path 'x' already exists and is not an empty directory",
+      ),
+    }),
+  ).toBe("clonerepo_failed_exists");
+});
+
+test("classifyCloneError: stderr 'repository not found' → clonerepo_failed_url", () => {
+  expect(classifyCloneError({ stderr: Buffer.from("ERROR: Repository not found.") })).toBe(
+    "clonerepo_failed_url",
+  );
+});
+
+test("classifyCloneError: empty error object → clonerepo_failed_url (fallback)", () => {
+  expect(classifyCloneError({})).toBe("clonerepo_failed_url");
 });

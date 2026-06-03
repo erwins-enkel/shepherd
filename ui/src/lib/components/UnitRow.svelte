@@ -14,6 +14,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
+  import AutopilotBadge from "./AutopilotBadge.svelte";
   import { onDestroy } from "svelte";
   import {
     REVEAL_PX,
@@ -136,6 +137,7 @@
     <div class="u-right">
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
+      <AutopilotBadge {session} />
       {#if session.readyToMerge}
         <span class="badge">{m.status_ready_to_merge()}</span>
       {:else if !hideStatus}

@@ -16,6 +16,7 @@
     resumeSession as apiResumeSession,
     renameSession,
     getLeftovers,
+    setSessionAutopilot,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -31,6 +32,7 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import ReadyToggle from "$lib/components/ReadyToggle.svelte";
+  import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -278,6 +280,15 @@
       session.status !== "running" &&
       session.status !== "blocked",
   );
+
+  // desktop: per-session autopilot toggle — always visible on desktop when not
+  // compact; mirrors readyVisible's placement pattern in the primary header row.
+  const autopilotToggleVisible = $derived(!compact);
+
+  async function toggleSessionAutopilot() {
+    const next = session.autopilotEnabled !== true;
+    await setSessionAutopilot(session.id, next).catch(() => {});
+  }
 
   // two-step decommission: first click arms, second (within 3s) fires; disarms on unit change
   let armed = $state(false);
@@ -1115,6 +1126,25 @@
              rail unconditionally via GitRail). Shared component → no drift. -->
         <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
       {/if}
+      {#if autopilotToggleVisible}
+        <!-- desktop: per-session autopilot override toggle. null = inherit repo default. -->
+        <button
+          class="ap-toggle"
+          class:on={session.autopilotEnabled === true}
+          type="button"
+          aria-pressed={session.autopilotEnabled === true}
+          aria-label={m.session_autopilot_toggle_aria()}
+          title={session.autopilotEnabled === true
+            ? m.session_autopilot_on_label()
+            : m.session_autopilot_off_label()}
+          onclick={toggleSessionAutopilot}
+        >
+          {session.autopilotEnabled === true
+            ? m.session_autopilot_on_label()
+            : m.session_autopilot_off_label()}
+        </button>
+        <AutopilotBadge {session} />
+      {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
@@ -1583,6 +1613,33 @@
   .git-toggle.attention .gt-caret,
   .git-toggle.clear .gt-caret {
     color: currentColor;
+  }
+
+  /* per-session autopilot toggle: matches .git-toggle sizing + .ready-toggle.bar style */
+  .ap-toggle {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .ap-toggle:hover {
+    color: var(--color-ink);
+  }
+  .ap-toggle.on {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

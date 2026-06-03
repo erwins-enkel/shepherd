@@ -10,6 +10,7 @@
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
+  import AutopilotBadge from "./AutopilotBadge.svelte";
 
   let {
     session,
@@ -135,6 +136,7 @@
     {/if}
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
+    <AutopilotBadge {session} />
     {#if session.readyToMerge}
       <span class="badge">{m.status_ready_to_merge()}</span>
     {:else if !hideStatus}

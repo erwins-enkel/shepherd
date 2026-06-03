@@ -31,6 +31,7 @@ beforeEach(() => {
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
   repoConfig.learnings = {};
+  repoConfig.autopilot = {};
   vi.clearAllMocks();
 });
 
@@ -199,4 +200,44 @@ test("repoConfig.toggleLearnings reverts on error", async () => {
   repoConfig.learnings = { "/repo": true };
   await repoConfig.toggleLearnings("/repo");
   expect(repoConfig.learningsOn("/repo")).toBe(true); // reverted to prev
+});
+
+test("repoConfig.isAutopilotEnabled defaults to false for unknown repo", () => {
+  expect(repoConfig.isAutopilotEnabled("/unknown")).toBe(false);
+});
+
+test("repoConfig.isAutopilotEnabled reflects set value", () => {
+  repoConfig.autopilot = { "/repo": true };
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.ensure caches the autopilot flag too", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: true,
+  });
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutopilot flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: true,
+  });
+  repoConfig.autopilot = { "/repo": false };
+  await repoConfig.toggleAutopilot("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autopilotEnabled: true });
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutopilot reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.autopilot = { "/repo": true };
+  await repoConfig.toggleAutopilot("/repo");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true); // reverted to prev
 });

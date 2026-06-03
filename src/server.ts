@@ -32,6 +32,7 @@ import type { HerdrUpdateService } from "./herdr-update";
 import type { Session, LearningStatus } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
+import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
@@ -1332,6 +1333,31 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
   }
 }
 
+// POST /api/prs/dependabot-rebase — post the opt-in "@dependabot rebase" command on
+// a stuck Dependabot PR by repo + number. The body is fixed server-side. GitHub
+// only (forge must expose `comment`); other forges 400 and the UI never offers it.
+async function handleDependabotRebase({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "prs" ||
+    parts[2] !== "dependabot-rebase"
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string; number?: number };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.number !== "number") return json({ error: "number required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.comment) return json({ error: "no comment support" }, 400);
+  try {
+    await forge.comment(body.number, DEPENDABOT_REBASE_COMMAND);
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "comment failed" }, 502);
+  }
+}
+
 /** Per-repo row in the backlog overview. */
 export interface BacklogProject {
   path: string;
@@ -1520,6 +1546,7 @@ const ROUTE_HANDLERS = [
   handleActionsRerun,
   handleActionsCancel,
   handlePrMerge,
+  handleDependabotRebase,
   handleBacklog,
   handleTodo,
   handleCommands,

@@ -35,6 +35,9 @@
 
   // Accessible name: progress + (once CI reached) the CI verdict, so pass/fail
   // is conveyed by text — not by segment color alone (WCAG 1.4.1).
+  // When the PR has no checks (`info.ci === "none"`) the CI clause is intentionally
+  // omitted: there's no verdict to announce, and "CI: none" would be noise. `none`
+  // therefore has no CI_STATE_LABEL entry, so `ciWord` is undefined and we fall through.
   const ariaLabel = $derived.by(() => {
     const progress = m.activity_progress({ stage: STAGE_LABEL[info.reached]() });
     const ciWord = CI_STATE_LABEL[info.ci]?.();

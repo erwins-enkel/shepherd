@@ -128,6 +128,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
   };
   return Object.assign(base, over, { log });
 }

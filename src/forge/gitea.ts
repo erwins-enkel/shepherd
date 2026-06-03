@@ -192,6 +192,14 @@ export class GiteaForge implements GitForge {
     return this.toStatus(pr);
   }
 
+  async defaultBranch(): Promise<string> {
+    const repo = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
+      default_branch?: string;
+    };
+    if (!repo.default_branch) throw new Error("could not resolve default branch");
+    return repo.default_branch;
+  }
+
   async openPr(o: OpenPrInput): Promise<PrStatus> {
     const pr = (await this.req("POST", `/api/v1/repos/${this.slug}/pulls`, {
       head: o.head,

@@ -45,6 +45,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
     ...over,
   };
 }

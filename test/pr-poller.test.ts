@@ -28,6 +28,7 @@ function forgeReturning(status: () => PrStatus): GitForge {
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
   };
 }
 
@@ -239,6 +240,7 @@ function forgeByBranch(byBranch: Record<string, PrStatus>): GitForge {
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
+    defaultBranch: async () => "main",
   };
 }
 

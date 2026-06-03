@@ -1,5 +1,63 @@
 import { test, expect } from "bun:test";
-import { HerdrUpdateService, compareSemver } from "../src/herdr-update";
+import {
+  HerdrUpdateService,
+  buildUpdateScript,
+  compareSemver,
+  UPDATE_LOG_PREFIX,
+} from "../src/herdr-update";
+
+// ── buildUpdateScript: sequencing + logging (testable without a live release) ─
+const LOG = "/home/op/.shepherd/herdr-update.log";
+
+test("buildUpdateScript: stops herdr, updates, then ALWAYS restarts shepherd", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  // ordering: stop must precede update, update must precede restart
+  const stop = s.indexOf("herdr server stop");
+  const update = s.indexOf("herdr update;");
+  const restart = s.indexOf("systemctl --user restart shepherd");
+  expect(stop).toBeGreaterThanOrEqual(0);
+  expect(update).toBeGreaterThan(stop);
+  expect(restart).toBeGreaterThan(update);
+});
+
+test("buildUpdateScript: restart is unconditional, NOT gated on update success", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  // the stranded-502 regression: `herdr update && restart` skipped the restart on
+  // a failed update. Guard that the `&&` short-circuit never comes back.
+  expect(s).not.toContain("herdr update && systemctl");
+  expect(s).toContain("herdr update; rc=$?");
+});
+
+test("buildUpdateScript: echoes a greppable marker for every step + the exit code", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
+  // stopping / running / exited rc / restarting / restart-returned = 5 markers
+  expect(markers.length).toBe(5);
+  expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
+});
+
+test("buildUpdateScript: appends a delimited, timestamped, versioned block to the audit log", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  // single writer, append-only (tee -a) so prior updates are never clobbered
+  expect(s).toContain(`LOG='${LOG}'`);
+  expect(s).toContain('| tee -a "$LOG"');
+  // header carries a UTC timestamp + the from->to versions for at-a-glance scan
+  expect(s).toContain("=== herdr-update $(date -u +%Y-%m-%dT%H:%M:%SZ) 0.6.5 -> 0.6.6 ===");
+  // dir is created so a fresh ~/.shepherd never makes the first update silently drop its log
+  expect(s).toContain('mkdir -p "$(dirname "$LOG")"');
+});
+
+test("buildUpdateScript: sanitizes versions so an external payload can't inject shell", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", '0.6.6"; rm -rf ~ #');
+  expect(s).not.toContain("rm -rf");
+  // stripped down to version chars
+  expect(s).toContain("0.6.5 -> 0.6.6 ===");
+});
+
+test("buildUpdateScript: missing versions degrade to 'unknown', never empty", () => {
+  const s = buildUpdateScript(LOG, null, undefined);
+  expect(s).toContain("unknown -> unknown ===");
+});
 
 // ── compareSemver ───────────────────────────────────────────────────────────
 test("compareSemver: orders major/minor/patch numerically", () => {

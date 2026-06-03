@@ -103,9 +103,12 @@ export class GiteaForge implements GitForge {
   }
 
   async listIssues(): Promise<Issue[]> {
+    // 200 cap vs the unbounded count source (open_issues_count). A repo with
+    // >200 open issues lists a truncated set under a larger count; raise this or
+    // paginate if such repos appear.
     const raw = (await this.req(
       "GET",
-      `/api/v1/repos/${this.slug}/issues?state=open&type=issues&limit=50`,
+      `/api/v1/repos/${this.slug}/issues?state=open&type=issues&limit=200`,
     )) as Array<{
       number: number;
       title: string;
@@ -151,9 +154,10 @@ export class GiteaForge implements GitForge {
   }
 
   async listPullRequests(): Promise<PullRequest[]> {
+    // See listIssues: 200 cap vs the unbounded PR count (open_pr_counter).
     const prs = (await this.req(
       "GET",
-      `/api/v1/repos/${this.slug}/pulls?state=open&limit=50`,
+      `/api/v1/repos/${this.slug}/pulls?state=open&limit=200`,
     )) as GiteaPr[];
     // Checks ride a per-PR commit-status call (same shape as prStatus); fan out
     // (bounded — see STATUS_FETCH_CONCURRENCY) so the list isn't serialized on a

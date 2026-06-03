@@ -9,7 +9,6 @@
     onquick = undefined,
     bodyPreview = false,
     age = false,
-    filterLabels = undefined,
   }: {
     repoPath: string;
     onnewtask: (issue: Issue) => void;
@@ -18,7 +17,6 @@
     onquick?: (issue: Issue) => void;
     bodyPreview?: boolean;
     age?: boolean;
-    filterLabels?: string[];
   } = $props();
 
   let issues = $state<Issue[]>([]);
@@ -39,12 +37,6 @@
         loading = false;
       });
   });
-
-  const visibleIssues = $derived(
-    filterLabels && filterLabels.length > 0
-      ? issues.filter((issue) => issue.labels.some((l) => filterLabels!.includes(l)))
-      : issues,
-  );
 </script>
 
 <div class="issues-panel">
@@ -57,10 +49,10 @@
       <div class="muted">{m.common_loading()}</div>
     {:else if slug === null}
       <div class="muted">{m.issuespanel_no_host()}</div>
-    {:else if visibleIssues.length === 0}
+    {:else if issues.length === 0}
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
-      {#each visibleIssues as issue (issue.number)}
+      {#each issues as issue (issue.number)}
         <div class="issue-row">
           <div class="issue-top">
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->

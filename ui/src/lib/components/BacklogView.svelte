@@ -23,8 +23,6 @@
     onpr: (repoPath: string, pr: PullRequest) => void;
   } = $props();
 
-  const BACKLOG_FILTER: string[] = ["bug", "enhancement"];
-
   type Tab = "issues" | "prs";
   let activeTab = $state<Tab>("issues");
 
@@ -121,7 +119,6 @@
               onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
               bodyPreview
               age
-              filterLabels={BACKLOG_FILTER}
             />
           {:else}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
@@ -171,7 +168,6 @@
               onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
               bodyPreview
               age
-              filterLabels={BACKLOG_FILTER}
             />
           {:else}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />

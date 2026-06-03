@@ -33,7 +33,7 @@ function fakeFetch(routes: Record<string, { status?: number; json?: unknown }>) 
 
 test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", async () => {
   const { fn, calls } = fakeFetch({
-    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
       json: [
         {
           number: 9,
@@ -70,7 +70,7 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
 
 test("GiteaForge.listPullRequests: a failing per-PR status call degrades to checks:none, not a rejected list", async () => {
   const { fn } = fakeFetch({
-    "GET /api/v1/repos/team/proj/pulls?state=open&limit=50": {
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
       json: [
         {
           number: 9,
@@ -167,7 +167,7 @@ const GITEA_ISSUE_CREATED_AT = "2024-02-01T12:00:00Z";
 
 test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues", async () => {
   const { fn, calls } = fakeFetch({
-    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
       json: [
         {
           number: 3,
@@ -325,7 +325,7 @@ test("GiteaForge.listIssues: createdAt is parsed to a finite ms number from ISO 
   const isoDate = "2024-06-01T08:00:00Z";
   const expectedMs = Date.parse(isoDate);
   const { fn } = fakeFetch({
-    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
       json: [
         {
           number: 5,
@@ -347,7 +347,7 @@ test("GiteaForge.listIssues: createdAt is parsed to a finite ms number from ISO 
 test("GiteaForge.listIssues: missing created_at falls back to Date.now() (finite number)", async () => {
   const before = Date.now();
   const { fn } = fakeFetch({
-    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
       json: [
         {
           number: 6,
@@ -371,7 +371,7 @@ test("GiteaForge.listIssues: missing created_at falls back to Date.now() (finite
 test("GiteaForge.listIssues: invalid created_at string falls back to Date.now()", async () => {
   const before = Date.now();
   const { fn } = fakeFetch({
-    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=50": {
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
       json: [
         {
           number: 7,

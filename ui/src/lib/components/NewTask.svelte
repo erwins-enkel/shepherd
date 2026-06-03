@@ -13,6 +13,7 @@
   let {
     onsubmit,
     onclose,
+    onclone,
     initialPrompt,
     initialRepoPath,
     initialIssue,
@@ -26,6 +27,7 @@
       issueRef?: IssueRef;
     }) => Promise<void> | void;
     onclose?: () => void;
+    onclone?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
     initialIssue?: Issue;
@@ -409,7 +411,7 @@
     {/if}
 
     <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
-    <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} />
+    <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} {onclone} />
 
     <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
     {#if branches.length > 0}

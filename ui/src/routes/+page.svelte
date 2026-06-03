@@ -44,6 +44,7 @@
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import CloneRepo from "$lib/components/CloneRepo.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
@@ -61,6 +62,7 @@
   let selectedId = $state<string | null>(null);
   let showNew = $state(false);
   let showSettings = $state(false);
+  let showClone = $state(false);
   let showBroadcast = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
@@ -669,6 +671,10 @@
       composeIssue = null;
       composePrompt = null;
     }}
+    onclone={() => {
+      showNew = false;
+      showClone = true;
+    }}
   />
 {/if}
 
@@ -682,6 +688,23 @@
     onherdrupdate={() => {
       showSettings = false;
       showHerdrUpdate = true;
+    }}
+    onclone={() => {
+      showSettings = false;
+      showClone = true;
+    }}
+  />
+{/if}
+
+{#if showClone}
+  <!-- Close whichever dialog launched Clone (NewTask or Settings) is already done
+       before we get here; ondone reopens NewTask preselected on the fresh repo. -->
+  <CloneRepo
+    onclose={() => (showClone = false)}
+    ondone={(entry) => {
+      showClone = false;
+      composeRepoPath = entry.path;
+      showNew = true;
     }}
   />
 {/if}

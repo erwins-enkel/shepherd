@@ -19,6 +19,7 @@ import {
   issuesTabLabel,
   prsTabLabel,
   actionsTabLabel,
+  actionsTabState,
 } from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
@@ -165,6 +166,27 @@ describe("actionsTabLabel", () => {
 
   it("shows the workflows count when CI status is unknown (null)", () => {
     expect(actionsTabLabel(project("/repos/a", 0, 0, 3, null))).toMatch(/Actions\s*·\s*3/);
+  });
+});
+
+describe("actionsTabState (shared source of truth for tab + label)", () => {
+  it("returns failing when CI is failing, even with a workflow count", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, 3, "failure"))).toEqual({ kind: "failing" });
+  });
+
+  it("returns the count (carrying the value) when CI is healthy", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, 3, "success"))).toEqual({
+      kind: "count",
+      count: 3,
+    });
+  });
+
+  it("returns bare when nothing is selected", () => {
+    expect(actionsTabState(null)).toEqual({ kind: "bare" });
+  });
+
+  it("returns bare when workflows is null (non-github) and CI not failing", () => {
+    expect(actionsTabState(project("/repos/a", 0, 0, null, null))).toEqual({ kind: "bare" });
   });
 });
 

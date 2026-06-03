@@ -6,6 +6,7 @@
   import IssuesPanel from "./IssuesPanel.svelte";
   import PrsPanel from "./PrsPanel.svelte";
   import ActionsPanel from "./ActionsPanel.svelte";
+  import { actionsTabState } from "./backlog-view";
 
   let {
     payload,
@@ -38,6 +39,10 @@
   let selected = $derived(
     selectedPath === null ? null : (payload?.projects.find((p) => p.path === selectedPath) ?? null),
   );
+
+  // Actions tab display state — shared failure > count > bare precedence with the
+  // actionsTabLabel helper (its single source of truth), so markup + tests agree.
+  let actionsState = $derived(actionsTabState(selected));
 
   // Use untrack to read selectedPath without subscribing to it, so that
   // dismissDetail() (which sets selectedPath = null) does not re-fire this
@@ -122,14 +127,14 @@
             <button
               class="tab-btn"
               class:active={activeTab === "actions"}
-              class:failing={selected?.ciStatus === "failure"}
+              class:failing={actionsState.kind === "failing"}
               type="button"
               onclick={() => (activeTab = "actions")}
             >
-              {#if selected?.ciStatus === "failure"}
+              {#if actionsState.kind === "failing"}
                 {m.backlog_tab_actions_failing()}
-              {:else if selected && selected.workflows !== null}
-                {m.backlog_tab_actions_count({ count: selected.workflows })}
+              {:else if actionsState.kind === "count"}
+                {m.backlog_tab_actions_count({ count: actionsState.count })}
               {:else}
                 {m.backlog_tab_actions()}
               {/if}
@@ -182,14 +187,14 @@
       <button
         class="tab-btn"
         class:active={activeTab === "actions"}
-        class:failing={selected?.ciStatus === "failure"}
+        class:failing={actionsState.kind === "failing"}
         type="button"
         onclick={() => (activeTab = "actions")}
       >
-        {#if selected?.ciStatus === "failure"}
+        {#if actionsState.kind === "failing"}
           {m.backlog_tab_actions_failing()}
-        {:else if selected && selected.workflows !== null}
-          {m.backlog_tab_actions_count({ count: selected.workflows })}
+        {:else if actionsState.kind === "count"}
+          {m.backlog_tab_actions_count({ count: actionsState.count })}
         {:else}
           {m.backlog_tab_actions()}
         {/if}

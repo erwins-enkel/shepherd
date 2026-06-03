@@ -651,3 +651,96 @@ test("GithubForge.listWorkflowRunHistory: no default branch → []", async () =>
     [],
   );
 });
+
+test("GithubForge.ensureIssueLink: appends Closes #N when body has no link", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return "Some PR description";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 3);
+  const editCall = calls.find((c) => c[0] === "pr" && c[1] === "edit")!;
+  expect(editCall).toBeDefined();
+  expect(editCall).toContain("--body");
+  const bodyIdx = editCall.indexOf("--body");
+  expect(editCall[bodyIdx + 1]).toBe("Some PR description\n\nCloses #3");
+});
+
+test("GithubForge.ensureIssueLink: appends to empty body without leading newlines", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return "";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 3);
+  const editCall = calls.find((c) => c[0] === "pr" && c[1] === "edit")!;
+  const bodyIdx = editCall.indexOf("--body");
+  expect(editCall[bodyIdx + 1]).toBe("Closes #3");
+});
+
+test("GithubForge.ensureIssueLink: no-op when body already contains Closes #N", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return "Description\n\nCloses #3";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 3);
+  expect(calls.find((c) => c[0] === "pr" && c[1] === "edit")).toBeUndefined();
+});
+
+test("GithubForge.ensureIssueLink: no-op when body contains a different closing keyword (Fixes #N)", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return "Description\n\nFixes #3";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 3);
+  expect(calls.find((c) => c[0] === "pr" && c[1] === "edit")).toBeUndefined();
+});
+
+test("GithubForge.ensureIssueLink: does not treat Closes #15 as a link for issue #1", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return "Description\n\nCloses #15";
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 1);
+  // #15 should NOT match issue #1 — edit must be called
+  expect(calls.find((c) => c[0] === "pr" && c[1] === "edit")).toBeDefined();
+});
+
+test("GithubForge.ensureIssueLink: null body (gh serializes body-less PR as literal 'null') → Closes #N only", async () => {
+  // `gh pr view --json body -q '.body // empty'` returns empty string for a null body.
+  // The old query `.body` returned the literal string "null", which corrupted the body.
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    // Simulate the fixed jq query: `.body // empty` returns "" for a null body.
+    // The -q arg is at index args.indexOf("-q") + 1; verify the query is correct.
+    if (args[0] === "pr" && args[1] === "view") {
+      const qIdx = args.indexOf("-q");
+      const query = qIdx >= 0 ? args[qIdx + 1] : "";
+      // With the old broken query `.body`, gh would emit "null" (jq serializes JSON null).
+      // With the fixed query `.body // empty`, gh emits "" (empty output → trims to "").
+      // We simulate what the fixed gh+jq produces: empty string.
+      return query === ".body // empty" ? "" : "null";
+    }
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.ensureIssueLink!(7, 3);
+  const editCall = calls.find((c) => c[0] === "pr" && c[1] === "edit")!;
+  expect(editCall).toBeDefined();
+  const bodyIdx = editCall.indexOf("--body");
+  expect(editCall[bodyIdx + 1]).toBe("Closes #3");
+});

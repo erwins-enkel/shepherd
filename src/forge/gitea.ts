@@ -285,6 +285,20 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
+    const pr = (await this.req("GET", `/api/v1/repos/${this.slug}/pulls/${prNumber}`)) as {
+      body?: string | null;
+    } | null;
+    const body = pr?.body ?? "";
+    const pattern = new RegExp(
+      `\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#${issueNumber}\\b`,
+      "i",
+    );
+    if (pattern.test(body)) return;
+    const newBody = body ? `${body}\n\nCloses #${issueNumber}` : `Closes #${issueNumber}`;
+    await this.req("PATCH", `/api/v1/repos/${this.slug}/pulls/${prNumber}`, { body: newBody });
+  }
+
   async redeploy(o: RedeployInput): Promise<void> {
     await this.req(
       "POST",

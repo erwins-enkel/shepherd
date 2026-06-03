@@ -6,7 +6,7 @@ import type { SessionStatus, ReviewDecision } from "./types";
  *  sibling so operators don't have to wire up two labels). */
 export const PRIORITY_LABEL = "shepherd:priority";
 
-/** Why the drain is holding rather than spawning/merging — surfaced on `drain:status`. */
+/** Why the drain is holding rather than spawning/retiring — surfaced on `drain:status`. */
 export interface HoldReason {
   code:
     | "disabled" // per-repo toggle off
@@ -22,7 +22,7 @@ export interface HoldReason {
 
 export type DrainDecision =
   | { kind: "spawn"; issue: Issue }
-  | { kind: "merge"; sessionId: string; prNumber: number }
+  | { kind: "retire"; sessionId: string; prNumber: number }
   | { kind: "hold"; reason: HoldReason };
 
 /** The slice of an auto session the decision core reasons over. */
@@ -56,11 +56,12 @@ export interface DrainRepoState {
   candidates: Issue[];
 }
 
-/** True when this session's PR can be auto-merged: open, CI green, host-mergeable, and
- *  the critic is not blocking/uncertain. With the critic ENABLED we additionally require
- *  a clean verdict for the CURRENT head — so a first-time auto PR can't merge in the same
- *  CI-green tick the critic fires on, before it's posted a verdict. */
-function mergeable(s: AutoSessionView, criticEnabled: boolean): boolean {
+/** True when this session's PR is ready to be retired / handed off for a human to merge:
+ *  open, CI green, host-mergeable, and the critic is not blocking/uncertain. With the critic
+ *  ENABLED we additionally require a clean verdict for the CURRENT head — so a first-time
+ *  auto PR can't be retired in the same CI-green tick the critic fires on, before it's posted
+ *  a verdict. */
+function readyToRetire(s: AutoSessionView, criticEnabled: boolean): boolean {
   const g = s.git;
   if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
     return false;
@@ -78,20 +79,20 @@ function mergeable(s: AutoSessionView, criticEnabled: boolean): boolean {
  * highest-priority next action. The harness applies it, re-reads state, and calls
  * again — so spawns fill up to maxAuto and the loop ends on a `hold`.
  *
- * Priority: completing in-flight work (merge) beats starting new work (spawn), and
- * a green PR still merges even while a sibling agent is in trouble (trouble only
+ * Priority: completing in-flight work (retire/hand-off) beats starting new work (spawn), and
+ * a ready PR is still retired even while a sibling agent is in trouble (trouble only
  * halts NEW spawns).
  */
 export function computeNext(state: DrainRepoState): DrainDecision {
   if (!state.enabled) return { kind: "hold", reason: { code: "disabled" } };
 
-  // 1. Merge gate — first mergeable session wins (frees a slot before we consider trouble).
-  const toMerge = state.autoSessions.find((s) => mergeable(s, state.criticEnabled));
-  if (toMerge) {
-    return { kind: "merge", sessionId: toMerge.id, prNumber: toMerge.git!.number! };
+  // 1. Retire gate — first retire-ready session wins (hand-off before we consider trouble).
+  const toRetire = state.autoSessions.find((s) => readyToRetire(s, state.criticEnabled));
+  if (toRetire) {
+    return { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! };
   }
 
-  // 2. Trouble → halt new spawns (in-flight agents keep running; merges above still pass).
+  // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
   const blocked = state.autoSessions.find((s) => s.status === "blocked");
   if (blocked) return { kind: "hold", reason: { code: "blocked", detail: blocked.desig } };
   const cr = state.autoSessions.find((s) => s.reviewDecision === "changes_requested");

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { gitState, openPr, mergePr, redeploy, replySession, setReadyToMerge } from "$lib/api";
+  import { gitState, openPr, mergePr, redeploy, replySession } from "$lib/api";
   import type { GitState, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { criticBadgeLabel } from "./critic-badge";
+  import ReadyToggle from "./ReadyToggle.svelte";
 
   let {
     sessionId,
@@ -323,16 +324,7 @@
         </button>
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
-        <button
-          class={["gbtn", { "ready-on": ready }]}
-          type="button"
-          aria-pressed={ready}
-          aria-label={m.gitrail_ready_aria()}
-          title={ready ? m.gitrail_ready_on_title() : m.gitrail_ready_off_title()}
-          onclick={() => setReadyToMerge(sessionId, !ready)}
-        >
-          {ready ? "✓ " : ""}{m.gitrail_ready()}
-        </button>
+        <ReadyToggle {sessionId} {ready} variant="rail" />
       {/if}
       {#if verdict}
         <button
@@ -468,15 +460,6 @@
   .gbtn.armed {
     border-color: var(--color-amber);
     color: var(--color-amber);
-  }
-  /* ready toggle when active: green "on" look (parked / done) */
-  .gbtn.ready-on {
-    border-color: var(--color-green);
-    color: var(--color-green);
-  }
-  .gbtn.ready-on:hover:not(:disabled) {
-    border-color: var(--color-green);
-    color: var(--color-green);
   }
   /* critic actively reviewing: amber outline (layout via .crit-toggle) */
   .gbtn.reviewing {

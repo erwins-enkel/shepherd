@@ -16,7 +16,6 @@
     resumeSession as apiResumeSession,
     renameSession,
     getLeftovers,
-    setReadyToMerge,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -31,6 +30,7 @@
   import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
+  import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -1076,18 +1076,8 @@
       {#if readyVisible}
         <!-- desktop: the ready-to-merge toggle graduates out of the git-actions
              disclosure into the always-visible primary row (mobile shows it in the
-             rail unconditionally). Gate + action mirror GitRail's ready toggle. -->
-        <button
-          class="ready-toggle"
-          class:on={session.readyToMerge}
-          type="button"
-          aria-pressed={session.readyToMerge}
-          aria-label={m.gitrail_ready_aria()}
-          title={session.readyToMerge ? m.gitrail_ready_on_title() : m.gitrail_ready_off_title()}
-          onclick={() => setReadyToMerge(session.id, !session.readyToMerge)}
-        >
-          {session.readyToMerge ? "✓ " : ""}{m.gitrail_ready()}
-        </button>
+             rail unconditionally via GitRail). Shared component → no drift. -->
+        <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
       {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
@@ -1550,32 +1540,6 @@
   .git-toggle.open .gt-caret,
   .git-toggle.ready .gt-caret {
     color: currentColor;
-  }
-  .ready-toggle {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s,
-      background 0.12s;
-  }
-  .ready-toggle:hover {
-    color: var(--color-ink);
-  }
-  .ready-toggle.on {
-    color: var(--color-green);
-    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

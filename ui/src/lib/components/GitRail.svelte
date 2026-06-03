@@ -629,6 +629,10 @@
     padding: 8px;
     width: min(480px, 90vw);
     max-height: 60vh;
+    /* clip to the box so the scrollable body — not the popover — absorbs
+       overflow; without this the action footer escapes below max-height and,
+       on short (unfolded-fold) viewports, lands off-screen + unreachable */
+    overflow: hidden;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -639,6 +643,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    /* head + footer stay pinned; only .rv-body scrolls */
+    flex-shrink: 0;
   }
   .rv-label {
     font-size: 10px;
@@ -677,9 +683,15 @@
     margin: 0;
     font-size: 11px;
     color: var(--color-ink);
+    /* pinned alongside head/footer; only .rv-body scrolls */
+    flex-shrink: 0;
   }
   .rv-body {
     margin: 0;
+    /* the lone scroller: min-height:0 lets it shrink within the flex column
+       (default min-height:auto would refuse, pushing the footer out of view) */
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
     background: var(--color-panel);
     border: 1px solid var(--color-line);
@@ -774,5 +786,7 @@
     margin-top: 4px;
     padding-top: 6px;
     border-top: 1px solid var(--color-line);
+    /* pinned footer: never compressed away by a tall body */
+    flex-shrink: 0;
   }
 </style>

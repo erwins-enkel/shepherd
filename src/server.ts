@@ -34,7 +34,7 @@ import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
-import type { CountsService } from "./backlog";
+import type { CountsService, RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
@@ -1014,18 +1014,52 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
   }
 }
 
-async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
-  if (!deps.backlog) {
-    return json({ pinnedPath: null, projects: [], totals: { openIssues: 0, openPRs: 0 } });
-  }
-  const repos = listRepos(config.repoRoot);
-  const lastUsed = deps.store.lastUsedByRepo();
+/** Per-repo row in the backlog overview. */
+export interface BacklogProject {
+  path: string;
+  display: string;
+  slug: string | null;
+  kind: string;
+  lastUsedAt: number | null;
+  openIssues: number | null;
+  openPRs: number | null;
+}
+export interface BacklogPayload {
+  pinnedPath: string | null;
+  projects: BacklogProject[];
+  totals: { openIssues: number; openPRs: number };
+}
+
+/** What an empty/unconfigured backlog looks like — also the no-forge fast path. */
+const EMPTY_BACKLOG: BacklogPayload = {
+  pinnedPath: null,
+  projects: [],
+  totals: { openIssues: 0, openPRs: 0 },
+};
+
+/** Inputs for {@link buildBacklogPayload} — kept narrow so both the request path
+ *  (AppDeps) and the background poller (index.ts locals) can supply them. */
+export interface BacklogPayloadInputs {
+  counts: (repoDir: string) => Promise<RepoCounts>;
+  resolveForge: (repoDir: string) => GitForge | null;
+  lastUsedByRepo: () => Record<string, number>;
+  repoRoot: string;
+}
+
+/**
+ * Build the backlog overview payload: forge-backed repos under `repoRoot`,
+ * deduped by forge slug, with open issue/PR counts, a pinned project, and
+ * totals. Shared by GET /api/backlog and the poller's `backlog:update`
+ * broadcast so both emit byte-identical snapshots.
+ */
+export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise<BacklogPayload> {
+  const repos = listRepos(inputs.repoRoot);
+  const lastUsed = inputs.lastUsedByRepo();
 
   // Keep only forge-backed repos
   const forgeRepos = repos
     .map((r) => {
-      const forge = deps.resolveForge?.(r.path) ?? null;
+      const forge = inputs.resolveForge(r.path);
       return forge ? { ...r, forge } : null;
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
@@ -1034,9 +1068,9 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
   const uniqueRepos = dedupeReposByForge(forgeRepos, lastUsed);
 
   // Fetch counts for the deduped repos in parallel
-  const countsArr = await Promise.all(uniqueRepos.map((r) => deps.backlog!.counts(r.path)));
+  const countsArr = await Promise.all(uniqueRepos.map((r) => inputs.counts(r.path)));
 
-  const projects = uniqueRepos.map((r, i) => {
+  const projects: BacklogProject[] = uniqueRepos.map((r, i) => {
     const counts = countsArr[i]!;
     return {
       path: r.path,
@@ -1081,7 +1115,21 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
     if (p.openPRs !== null) totalPRs += p.openPRs;
   }
 
-  return json({ pinnedPath, projects, totals: { openIssues: totalIssues, openPRs: totalPRs } });
+  return { pinnedPath, projects, totals: { openIssues: totalIssues, openPRs: totalPRs } };
+}
+
+async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
+  if (!deps.backlog) return json(EMPTY_BACKLOG);
+  const backlog = deps.backlog;
+  return json(
+    await buildBacklogPayload({
+      counts: (p) => backlog.counts(p),
+      resolveForge: (p) => deps.resolveForge?.(p) ?? null,
+      lastUsedByRepo: () => deps.store.lastUsedByRepo(),
+      repoRoot: config.repoRoot,
+    }),
+  );
 }
 
 function todoRead(repoParam: string): Response {

@@ -119,6 +119,12 @@
         });
     }
   });
+  // The fetch above is a one-shot for fast first paint; the server's warm poller
+  // then pushes a backlog:update over the WS every ~45s. Mirror each push so a
+  // long-open dashboard's counts stay live instead of frozen at load time.
+  $effect(() => {
+    if (store.backlog) backlog = store.backlog;
+  });
 
   function onissue(repoPath: string, issue: Issue) {
     composeRepoPath = repoPath;

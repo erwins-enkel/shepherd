@@ -5,6 +5,8 @@ import type {
   UpdateStatus,
   HerdrUpdateStatus,
   GitState,
+  BacklogPayload,
+  BlockReason,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -20,6 +22,12 @@ export class HerdStore {
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   herdrUpdateLog = $state<string[]>([]);
   git = $state<Record<string, GitState>>({});
+  /** Live backlog overview, pushed over the WS by the server's warm poller
+   *  (`backlog:update`, ~every 45s). Stays null until the first push arrives —
+   *  the page's instant first paint comes from a separate one-shot GET
+   *  /api/backlog into page-local state, not from here; each push thereafter
+   *  keeps the open dashboard live. */
+  backlog = $state<BacklogPayload | null>(null);
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -61,6 +69,17 @@ export class HerdStore {
     this.update = u;
   }
 
+  /** Set or clear a session's block (null reason clears). Extracted from apply()
+   *  to keep that dispatch switch under the complexity gate. */
+  private setBlock(id: string, reason: BlockReason | null) {
+    if (!reason) {
+      this.blocks = dropKey(this.blocks, id);
+      return;
+    }
+    const prev = this.blocks[id];
+    this.blocks = { ...this.blocks, [id]: { reason, since: prev?.since ?? Date.now() } };
+  }
+
   apply(ev: WsEvent) {
     switch (ev.event) {
       case "session:new":
@@ -90,18 +109,9 @@ export class HerdStore {
       case "session:git":
         this.git = { ...this.git, [ev.data.id]: ev.data.git };
         break;
-      case "session:block": {
-        if (!ev.data.block) {
-          this.blocks = dropKey(this.blocks, ev.data.id);
-          break;
-        }
-        const prev = this.blocks[ev.data.id];
-        this.blocks = {
-          ...this.blocks,
-          [ev.data.id]: { reason: ev.data.block, since: prev?.since ?? Date.now() },
-        };
+      case "session:block":
+        this.setBlock(ev.data.id, ev.data.block);
         break;
-      }
       case "usage:limits":
         this.usageLimits = ev.data;
         break;
@@ -125,6 +135,9 @@ export class HerdStore {
         break;
       case "learnings:update":
         learnings.apply(ev.data);
+        break;
+      case "backlog:update":
+        this.backlog = ev.data;
         break;
     }
   }

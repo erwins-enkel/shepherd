@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { HerdStore } from "./store.svelte";
-import type { GitState, Session } from "./types";
+import type { BacklogPayload, GitState, Session } from "./types";
 
 const GIT: GitState = {
   kind: "github",
@@ -54,6 +54,29 @@ test("session:ready patches the target session's readyToMerge", () => {
   expect(s.byId("s2")?.readyToMerge).toBe(false);
   s.apply({ event: "session:ready", data: { id: "s1", ready: false } });
   expect(s.byId("s1")?.readyToMerge).toBe(false);
+});
+
+test("backlog:update replaces the backlog snapshot so the overview stays live", () => {
+  const s = new HerdStore();
+  expect(s.backlog).toBeNull();
+
+  const stale: BacklogPayload = {
+    pinnedPath: "/r",
+    projects: [],
+    totals: { openIssues: 2, openPRs: 0 },
+  };
+  s.apply({ event: "backlog:update", data: stale });
+  expect(s.backlog?.totals.openIssues).toBe(2);
+
+  // a later push (server poller warmed fresher counts) overwrites the snapshot
+  const fresh: BacklogPayload = {
+    pinnedPath: "/r",
+    projects: [],
+    totals: { openIssues: 4, openPRs: 1 },
+  };
+  s.apply({ event: "backlog:update", data: fresh });
+  expect(s.backlog?.totals.openIssues).toBe(4);
+  expect(s.backlog?.totals.openPRs).toBe(1);
 });
 
 test("session:archived drops the git entry", () => {

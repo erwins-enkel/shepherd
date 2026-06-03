@@ -5,8 +5,13 @@ import type { Session, GitState } from "$lib/types";
  *  - ciRunning: open PR with CI checks in flight (`open` + `pending`)
  *  - ciFailed: open PR whose CI checks failed (`open` + `failure`) — done, needs a look
  *  - reviewerRunning: a critic run is in flight for the session
- *  - awaitingMerge: open PR, CI green (`open` + `success`) — handed off, waiting on a
- *    human (repo owner) to merge. Distinct from `ready`, which is operator-flagged.
+ *  - awaitingMerge: open PR, CI green (`open` + `success`) AND the agent is not actively
+ *    in the loop (status not `running` and not `blocked`) — handed off, waiting on a
+ *    human (repo owner) to merge. Distinct from `ready`, which is operator-flagged. An
+ *    agent still in the loop is NOT handed off — e.g. mid auto-correct after a critic
+ *    steered findings back (with the PR's green CI now stale), or blocked awaiting
+ *    operator input — so it stays in `active` rather than flicker into "waiting for
+ *    merge" / get buried when it actually needs attention.
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
  *
@@ -45,7 +50,13 @@ export function partitionSessions(
     else if (isReviewing(s.id)) reviewerRunning.push(s);
     else if (g?.state === "open" && g.checks === "pending") ciRunning.push(s);
     else if (g?.state === "open" && g.checks === "failure") ciFailed.push(s);
-    else if (g?.state === "open" && g.checks === "success") awaitingMerge.push(s);
+    else if (
+      g?.state === "open" &&
+      g.checks === "success" &&
+      s.status !== "running" &&
+      s.status !== "blocked"
+    )
+      awaitingMerge.push(s);
     else active.push(s);
   }
   return { active, ciRunning, ciFailed, reviewerRunning, awaitingMerge, ready, merged };

@@ -1,4 +1,4 @@
-import type { Learning, RepoInjectable } from "../types";
+import type { Learning, RepoInjectable, SignalKind } from "../types";
 
 /** Last non-empty path segment (repo display name). */
 export function basename(p: string): string {
@@ -66,4 +66,21 @@ export function injectedCount(repo: RepoInjectable): number {
 /** Whether to show the "not working" badge on an active rule (self-audit, §5). */
 export function showIneffective(rule: { ineffectiveCount: number }): boolean {
   return rule.ineffectiveCount > 0;
+}
+
+/** Stable display order for the evidence breakdown: most operator-meaningful
+ *  source first (a correction you gave) down to passive ones (a stall). */
+const KIND_ORDER: SignalKind[] = ["reply", "critic", "block", "stall"];
+
+/** Break a learning's evidence into its source kinds, e.g.
+ *  `[{ kind: "reply", count: 2 }, { kind: "critic", count: 1 }]`. Drops kinds
+ *  with no signals and returns `[]` when the server sent no breakdown (so the
+ *  drawer falls back to the bare count). The component maps kind → label. */
+export function evidenceSources(l: Learning): { kind: SignalKind; count: number }[] {
+  const k = l.evidenceKinds;
+  if (!k) return [];
+  return KIND_ORDER.filter((kind) => (k[kind] ?? 0) > 0).map((kind) => ({
+    kind,
+    count: k[kind] as number,
+  }));
 }

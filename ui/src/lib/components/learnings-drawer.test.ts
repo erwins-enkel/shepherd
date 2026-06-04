@@ -6,6 +6,7 @@ import {
   injectionBadge,
   injectedCount,
   showIneffective,
+  evidenceSources,
 } from "./learnings-drawer";
 import type { Learning, LearningStatus, RepoInjectable } from "../types";
 
@@ -115,4 +116,18 @@ describe("injectedCount", () => {
 test("showIneffective true only when ineffectiveCount > 0", () => {
   expect(showIneffective({ ineffectiveCount: 0 } as never)).toBe(false);
   expect(showIneffective({ ineffectiveCount: 3 } as never)).toBe(true);
+});
+
+describe("evidenceSources", () => {
+  it("orders kinds reply→critic→block→stall and drops empties", () => {
+    const l = { ...L("1", "/a"), evidenceKinds: { stall: 1, reply: 2, critic: 1 } };
+    expect(evidenceSources(l)).toEqual([
+      { kind: "reply", count: 2 },
+      { kind: "critic", count: 1 },
+      { kind: "stall", count: 1 },
+    ]);
+  });
+  it("returns [] when the server sent no breakdown (older payload)", () => {
+    expect(evidenceSources(L("1", "/a"))).toEqual([]);
+  });
 });

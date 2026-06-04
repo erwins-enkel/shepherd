@@ -160,9 +160,10 @@
           : m.learnings_open_curate_aria({ count: overBudget })}
       >
         {#if mobile}
-          <span class="lr-icon" aria-hidden="true">✦</span>
+          <span class="lr-icon" aria-hidden="true">💡</span>
           {#if learnings > 0}<span class="lr-n">{learnings}</span>{/if}
         {:else}
+          <span class="lr-icon" aria-hidden="true">💡</span>
           {m.learnings_title()}
           {#if learnings > 0}{learnings}{/if}
         {/if}
@@ -406,6 +407,12 @@
      a softer dashed border so it reads as informational rather than action-required. */
   .learnings-badge.curate {
     border-style: dashed;
+  }
+  /* Desktop: the 💡 leads the label; drop the badge's wide tracking on the glyph
+     so it sits snug against the word rather than floating off to its left. */
+  .learnings-badge:not(.compact) .lr-icon {
+    margin-right: 5px;
+    letter-spacing: 0;
   }
   .rightside {
     margin-left: auto;

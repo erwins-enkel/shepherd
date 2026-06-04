@@ -2,14 +2,48 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-  import type { Learning, RepoInjectable } from "$lib/types";
+  import type { Learning, RepoInjectable, SignalKind } from "$lib/types";
   import {
     basename,
     mergeRepoGroups,
     injectionBadge,
     injectedCount,
     showIneffective,
+    evidenceSources,
   } from "./learnings-drawer";
+
+  // Human label for an evidence source kind. Mirrors the server SignalKind set;
+  // keeps the i18n call in the component (the helper stays locale-agnostic).
+  const kindLabel = (k: SignalKind): string =>
+    k === "reply"
+      ? m.learnings_kind_reply()
+      : k === "critic"
+        ? m.learnings_kind_critic()
+        : k === "block"
+          ? m.learnings_kind_block()
+          : m.learnings_kind_stall();
+
+  // Grow a rule textarea to fit its content so the full rule is always readable —
+  // no inner scroll, no clipping. Re-measures on every input.
+  function autosize(el: HTMLTextAreaElement) {
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    fit();
+    // scrollHeight is unreliable mid fly-in; settle one frame later.
+    const raf = requestAnimationFrame(fit);
+    el.addEventListener("input", fit);
+    return {
+      destroy() {
+        cancelAnimationFrame(raf);
+        el.removeEventListener("input", fit);
+      },
+    };
+  }
+
+  // Which rules have their evidence-source list expanded, keyed by learning id.
+  let expanded = $state<Record<string, boolean>>({});
 
   let {
     items,
@@ -35,7 +69,8 @@
   const reduceMotion =
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  const slide = { x: 440, duration: reduceMotion ? 0 : 220, opacity: 1 };
+  // Matches the drawer width so the fly-in starts fully off-screen.
+  const slide = { x: 520, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
   const groups = $derived(mergeRepoGroups(items, injectable));
   // Empty only when there's nothing to curate in either view.
@@ -76,6 +111,7 @@
             <textarea
               class="text"
               rows="2"
+              use:autosize
               value={draft(l)}
               oninput={(e) => (drafts = { ...drafts, [l.id]: e.currentTarget.value })}
               aria-label={m.learnings_rule_aria()}
@@ -83,8 +119,36 @@
             {#if l.rationale}
               <p class="why"><span>{m.learnings_rationale_label()}:</span> {l.rationale}</p>
             {/if}
-            <div class="foot">
+            <div class="evidence" title={m.learnings_evidence_help()}>
               <span class="evi">{m.learnings_evidence({ count: l.evidenceCount })}</span>
+              {#each evidenceSources(l) as src (src.kind)}
+                <span class="src">{src.count}× {kindLabel(src.kind)}</span>
+              {/each}
+              {#if l.evidenceDetail && l.evidenceDetail.length > 0}
+                <button
+                  class="sources-toggle"
+                  type="button"
+                  aria-expanded={!!expanded[l.id]}
+                  aria-label={m.learnings_sources_toggle_aria()}
+                  onclick={() => (expanded = { ...expanded, [l.id]: !expanded[l.id] })}
+                >
+                  {m.learnings_sources_toggle()}
+                  <span class="caret" class:open={expanded[l.id]} aria-hidden="true">▸</span>
+                </button>
+              {/if}
+            </div>
+            {#if expanded[l.id] && l.evidenceDetail}
+              <ul class="sources">
+                {#each l.evidenceDetail as ev (ev.ts + ev.excerpt)}
+                  <li class="source">
+                    <span class="src">{kindLabel(ev.kind)}</span>
+                    <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
+                    <span class="excerpt">{ev.excerpt}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <div class="foot">
               <span class="spacer"></span>
               <button class="dismiss" onclick={() => ondismiss(l.id)}
                 >{m.learnings_dismiss()}</button
@@ -171,7 +235,7 @@
     position: fixed;
     top: 0;
     right: 0;
-    width: min(440px, 100vw);
+    width: min(520px, 100vw);
     height: 100dvh;
     background: var(--color-panel);
     border-left: 1px solid var(--color-line-bright);
@@ -239,23 +303,35 @@
   }
   .text {
     width: 100%;
-    resize: vertical;
+    /* height is driven by the autosize action so the full rule always shows */
+    resize: none;
+    overflow: hidden;
     background: var(--color-inset);
     color: var(--color-ink-bright);
     border: 1px solid var(--color-line);
-    padding: 6px;
+    padding: 8px 10px;
     font: inherit;
     font-size: var(--fs-base);
+    line-height: 1.5;
   }
   .why {
     font-size: var(--fs-base);
     color: var(--color-muted);
-    line-height: 1.4;
+    line-height: 1.5;
   }
   .why span {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: var(--fs-micro);
+  }
+  /* Evidence provenance — its own row so the source breakdown has room to wrap.
+     Hover the row for the help tooltip explaining what a signal is. */
+  .evidence {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    cursor: help;
   }
   .foot {
     display: flex;
@@ -265,6 +341,65 @@
   .evi {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  .src {
+    font-size: var(--fs-meta);
+    color: var(--color-ink-bright);
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .sources-toggle {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .sources-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .caret {
+    display: inline-block;
+    transition: transform 0.12s ease;
+  }
+  .caret.open {
+    transform: rotate(90deg);
+  }
+  /* Evidence provenance: the actual signals this rule was distilled from. */
+  .sources {
+    list-style: none;
+    margin: 0;
+    padding: 6px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .source {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: baseline;
+    gap: 6px;
+    font-size: var(--fs-base);
+    line-height: 1.4;
+  }
+  .desig {
+    color: var(--color-ink-bright);
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .excerpt {
+    color: var(--color-muted);
+    min-width: 0;
   }
   .spacer {
     flex: 1;
@@ -330,7 +465,7 @@
   .itext {
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
-    line-height: 1.4;
+    line-height: 1.5;
   }
   .ifoot {
     display: flex;

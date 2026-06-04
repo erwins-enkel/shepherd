@@ -4,8 +4,8 @@
 const RECORDER_ID = "shepherd-recorder";
 const ALL_URLS = "<all_urls>";
 
-/** True if the recorder content script is currently registered. */
-export async function recorderRegistered(): Promise<boolean> {
+/** True if the recorder content script is currently registered. Internal helper. */
+async function recorderRegistered(): Promise<boolean> {
   const scripts = await chrome.scripting.getRegisteredContentScripts({ ids: [RECORDER_ID] });
   return scripts.length > 0;
 }

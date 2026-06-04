@@ -17,3 +17,9 @@
 *.yml   text diff
 *.yaml  text diff
 *.sh    text eol=lf diff
+
+# Vendored, minified inlang/Paraglide plugins (copied verbatim into ui/ and
+# extension/). Not our source — mark generated + vendored so linguist and code
+# analysis skip them and diffs collapse. Hand-editing them would diverge from the
+# upstream copy and risk breaking the Paraglide compiler.
+**/project.inlang/plugins/** linguist-generated=true linguist-vendored=true

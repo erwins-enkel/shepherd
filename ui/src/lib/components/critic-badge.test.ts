@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
+import { criticBadgeLabel, addressRoundInfo, criticChip } from "./critic-badge";
 import type { ReviewVerdict } from "$lib/types";
 
 const base: ReviewVerdict = {
@@ -71,5 +71,40 @@ describe("addressRoundInfo", () => {
     expect(
       addressRoundInfo(v({ addressRound: 3, findings: [], finalRoundPending: false }), 2_000_000),
     ).toEqual({ round: 3, cap: 3, status: "round" });
+  });
+});
+
+describe("criticChip", () => {
+  it("reviewing wins over a verdict; body present → findings readable", () => {
+    expect(criticChip(v({ decision: "changes_requested", body: "## findings" }), true)).toEqual({
+      kind: "reviewing",
+      hasFindings: true,
+    });
+  });
+  it("reviewing with a verdict but no body → no findings to read", () => {
+    expect(criticChip(v({ decision: "changes_requested", body: "" }), true)).toEqual({
+      kind: "reviewing",
+      hasFindings: false,
+    });
+  });
+  it("reviewing with no verdict at all → reviewing, no findings", () => {
+    expect(criticChip(undefined, true)).toEqual({ kind: "reviewing", hasFindings: false });
+  });
+  it("not reviewing with a verdict → the verdict chip", () => {
+    expect(criticChip(v({ decision: "changes_requested", body: "x" }), false)).toEqual({
+      kind: "verdict",
+      decision: "changes_requested",
+      label: criticBadgeLabel(v({ decision: "changes_requested" })),
+    });
+  });
+  it("not reviewing with no verdict → none", () => {
+    expect(criticChip(undefined, false)).toEqual({ kind: "none" });
+  });
+  it("not reviewing with an error verdict → the verdict chip", () => {
+    expect(criticChip(v({ decision: "error", body: "x" }), false)).toEqual({
+      kind: "verdict",
+      decision: "error",
+      label: criticBadgeLabel(v({ decision: "error" })),
+    });
   });
 });

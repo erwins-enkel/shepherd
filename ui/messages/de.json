@@ -131,6 +131,7 @@
   "feat_learnings_body": "Destillierte Hausregeln aus früherer Agentenaktivität werden in jede neue Agent-Session injiziert, damit die Konventionen deines Teams automatisch weitergegeben werden.",
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",
+  "gitrail_send_review_reviewing_title": "Critic prüft erneut — diese Anmerkungen werden gerade neu validiert",
   "gitrail_review_title": "Kritiker-Befunde",
   "gitrail_ready": "Bereit",
   "gitrail_ready_on_title": "Als bereit zum Mergen markiert; zum Aufheben klicken",

@@ -1,4 +1,4 @@
-import type { ReviewVerdict } from "../types";
+import type { ReviewVerdict, ReviewDecision } from "../types";
 import { m } from "$lib/paraglide/messages";
 
 /** Badge text for a critic verdict, or null when there is none to show. */
@@ -12,6 +12,27 @@ export function criticBadgeLabel(v: ReviewVerdict | undefined): string | null {
     default:
       return m.criticbadge_error();
   }
+}
+
+/**
+ * What the single critic chip should show, given the verdict and whether the critic is
+ * re-reviewing right now. `reviewing` always wins over a stale verdict so the UI stops
+ * screaming "CHANGES" while the fix is being re-validated.
+ *  - "reviewing": critic running now. `hasFindings` = a prior verdict body is still readable,
+ *                 so a consumer can keep the findings popover reachable during re-review.
+ *  - "verdict":   not reviewing; show the verdict badge/label.
+ *  - "none":      nothing to show.
+ * The auto-address streak badges (addressRoundInfo) are independent and render alongside.
+ */
+export type CriticChip =
+  | { kind: "reviewing"; hasFindings: boolean }
+  | { kind: "verdict"; decision: ReviewDecision; label: string }
+  | { kind: "none" };
+
+export function criticChip(v: ReviewVerdict | undefined, reviewing: boolean): CriticChip {
+  if (reviewing) return { kind: "reviewing", hasFindings: Boolean(v?.body) };
+  const label = criticBadgeLabel(v);
+  return label && v ? { kind: "verdict", decision: v.decision, label } : { kind: "none" };
 }
 
 export type AddressStatus = "round" | "final" | "stalled";

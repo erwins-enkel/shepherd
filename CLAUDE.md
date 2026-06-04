@@ -46,3 +46,9 @@ New user-facing capabilities surface to users through the What's-New drawer + fi
 Server-only, internal-plumbing, or mislabeled-`feat` changes that ship **no** user-facing UX are exempt — opt out by putting `[no-feature-entry]` in a commit subject or the PR body.
 
 **Gate:** `scripts/check-feature-catalog.sh` is a pragmatic heuristic — if a `feat(...)` commit in the branch's range touches user-facing UI (`ui/src/lib/components/**`, `ui/src/routes/**`) it asserts that `feature-announcements.ts` was modified in the same range, else fails with a fix hint. The `[no-feature-entry]` opt-out skips the check **loudly** (it echoes what it skipped). It runs in the **PR hygiene** CI workflow and the pre-push hook, alongside branch-hygiene + `check:i18n`. Like those, it asserts presence, not content quality — an accurate, well-written entry is on you and review.
+
+It's a heuristic with deliberate holes — review still has to catch what it can't:
+
+- **Conventional-commit dependency.** Only `feat(...)` (incl. `feat!:`) subjects arm the gate. A user-facing feature mislabeled `fix:`/`chore:` slips by entirely. Label features correctly.
+- **UI-glob scope.** Only `ui/src/lib/components/**` + `ui/src/routes/**` count as user-facing. A feature surfacing UX purely through other `ui/src/lib/` code (`api.ts`, stores, actions) without touching those paths is **not** detected.
+- **Opt-out is branch-global.** A single `[no-feature-entry]` anywhere in the range (any commit subject or body) disables the gate for the **whole PR range**, not just the commit carrying it — so don't use it on a branch that also ships a real surfacing feature.

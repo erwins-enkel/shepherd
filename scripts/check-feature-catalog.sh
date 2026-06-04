@@ -13,6 +13,17 @@
 # feats (server-only, internal plumbing, mislabeled refactors) opt out LOUDLY via
 # a documented token — never a silent bypass.
 #
+# KNOWN HOLES (a heuristic, not a proof — review still matters):
+#   • feat-label dependency: a user-facing feature mislabeled `fix:`/`chore:`/etc.
+#     carries no `feat(...)` subject, so the gate never fires for it. Conventional-
+#     commit discipline is the only thing closing this hole.
+#   • UI_GLOBS scope: only ui/src/lib/components/** and ui/src/routes/** count as
+#     "user-facing". A feat surfacing UX purely via other ui/src/lib/ code (api.ts,
+#     stores, actions, etc.) without touching components/routes is NOT detected.
+#   • opt-out is branch-global: ONE `[no-feature-entry]` anywhere in the range's
+#     commit subjects/bodies disables the gate for the WHOLE PR range, not just the
+#     commit that carries it. (Range-level, like the rest of the heuristic.)
+#
 # Base defaults to origin/main; CI can override via $BASE_REF for non-main bases.
 # See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
 set -euo pipefail
@@ -39,9 +50,10 @@ fi
 optout="$(git log --format='%s%n%b' "${BASE}..HEAD" 2>/dev/null | grep -F "$OPT_OUT" || true)"
 if [ -n "$optout" ]; then
   echo "⚠ feature catalog: SKIPPED via ${OPT_OUT} opt-out token."
-  echo "  These feat commit(s) were treated as non-surfacing (no catalog entry expected):"
+  echo "  One opt-out token in the range disables this gate for the WHOLE PR range —"
+  echo "  ALL feat commit(s) below are treated as non-surfacing (no catalog entry expected):"
   echo "$feat_commits" | sed 's/^/    • /' >&2
-  echo "  If any of these actually ships user-facing UX, add a catalog entry instead." >&2
+  echo "  If ANY of these actually ships user-facing UX, drop the token and add a catalog entry." >&2
   exit 0
 fi
 

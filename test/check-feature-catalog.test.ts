@@ -85,6 +85,18 @@ test("[no-feature-entry] opt-out skips the check loudly", () => {
   expect(out).toContain("[no-feature-entry]");
 });
 
+test("opt-out is branch-global: token on one commit disables the gate for the whole range", () => {
+  // A real surfacing feat with no catalog entry...
+  writeRepoFile("ui/src/lib/components/Widget.svelte", "<div>hi</div>\n");
+  commit("feat(ui): add widget");
+  // ...is still skipped because a LATER commit in the range carries the token.
+  writeRepoFile("src/server.ts", "export const x = 1;\n");
+  commit("feat(server): unrelated [no-feature-entry]");
+  const { code, out } = runGate();
+  expect(code).toBe(0);
+  expect(out).toContain("SKIPPED");
+});
+
 test("opt-out token in commit body also works", () => {
   writeRepoFile("ui/src/lib/components/Widget.svelte", "<div>hi</div>\n");
   git("add", "-A");

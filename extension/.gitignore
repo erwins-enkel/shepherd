@@ -1,3 +1,5 @@
 node_modules/
 dist/
 src/lib/paraglide/
+public/recorder.js
+public/axe.min.js

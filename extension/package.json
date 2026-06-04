@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && vite build",
+    "build:recorder": "esbuild src/recorder.ts --bundle --format=iife --target=chrome111 --outfile=public/recorder.js",
+    "build:axe": "cp node_modules/axe-core/axe.min.js public/axe.min.js",
+    "build": "bun run build:axe && bun run build:recorder && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && vite build",
     "preview": "vite preview",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "prepare": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
@@ -30,6 +32,8 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.60.0",
     "vite": "^8.0.7",
+    "axe-core": "^4.10.2",
+    "esbuild": "^0.25.0",
     "vitest": "^4.1.7"
   }
 }

@@ -28,4 +28,8 @@ export default defineManifest({
   },
   permissions: ["activeTab", "scripting", "tabs", "storage"],
   host_permissions: ["http://localhost:7330/*"],
+  // Requested on demand (chrome.permissions.request) only when the user enables
+  // console/network capture, so the recorder content script can be registered on
+  // all sites. Default install does NOT include it.
+  optional_host_permissions: ["<all_urls>"],
 });

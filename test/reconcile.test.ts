@@ -37,6 +37,24 @@ test("reconcile marks sessions whose herdr agent is gone as done", () => {
   expect(store.get(dead.id)?.status).toBe("done");
 });
 
+test("reconcile degrades gracefully when herdr is down: no throw, session state untouched", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...base, herdrAgentId: "term_live" });
+
+  // herdr server/socket down → `agent list` throws (the cold-boot crash-loop of #315).
+  expect(() =>
+    reconcile(store, {
+      list: () => {
+        throw new Error("Os { code: 2, kind: NotFound }");
+      },
+    } as any),
+  ).not.toThrow();
+
+  // must NOT reap a live session to "done" on a transient herdr hiccup — the
+  // 1s poller reconciles once herdr is reachable again.
+  expect(store.get(s.id)?.status).toBe("running");
+});
+
 test("reconcile re-pairs a session whose terminalId went stale but agent is live at the same cwd", () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...base, worktreePath: "/wt/z", herdrAgentId: "term_stale" });

@@ -544,7 +544,7 @@
   "steerseditor_label_aria": "Steer label",
   "steerseditor_text_aria": "Steer prompt text",
   "broadcast_textarea_aria": "Steer message",
-  "halt_menu_item": "Halt {count} agents",
+  "halt_menu_item": "Halt herd · {count}",
   "halt_all_aria": "Halt the herd — interrupt all {count} running agents",
   "halt_arm": "Halt {count}?",
   "halt_arm_aria": "Confirm halt — activate again to interrupt all {count} running agents",

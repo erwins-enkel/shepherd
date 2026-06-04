@@ -544,7 +544,7 @@
   "steerseditor_label_aria": "Steer-Bezeichnung",
   "steerseditor_text_aria": "Steer-Prompttext",
   "broadcast_textarea_aria": "Steer-Nachricht",
-  "halt_menu_item": "{count} Agenten stoppen",
+  "halt_menu_item": "Herde stoppen · {count}",
   "halt_all_aria": "Herde stoppen — alle {count} laufenden Agenten unterbrechen",
   "halt_arm": "{count} stoppen?",
   "halt_arm_aria": "Stopp bestätigen — erneut aktivieren, um alle {count} laufenden Agenten zu unterbrechen",

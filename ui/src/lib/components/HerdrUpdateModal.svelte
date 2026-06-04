@@ -9,12 +9,14 @@
     update,
     sessions = 0,
     log = [],
+    done = null,
     onconfirm,
     onclose,
   }: {
     update: HerdrUpdateStatus;
     sessions?: number;
     log?: string[];
+    done?: { ok: boolean; from: string | null; to: string | null; error?: string } | null;
     onconfirm?: () => void;
     onclose?: () => void;
   } = $props();
@@ -65,9 +67,12 @@
     };
   });
 
-  // herdr update restarts herdr (ending live panes) then restarts shepherd; the
-  // store auto-reconnects once the new build is live, so we just hold the busy state.
-  const busy = $derived(submitting);
+  // herdr update restarts the herdr server (ending live panes) but shepherd
+  // stays up — no reload. The modal resolves itself via the `done` result.
+  // Busy only while the update is in flight; a terminal `done` result ends it so
+  // the operator can read the ✓/✗ outcome and close. (No page reload anymore —
+  // shepherd stays up, so the modal must resolve itself.)
+  const busy = $derived(submitting && !done);
 
   async function confirm() {
     submitting = true;
@@ -108,11 +113,15 @@
   >
     <div class="chead">
       <span class="micro">{m.herdrupdate_title()}</span>
-      {#if !busy}
-        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-          >✕</button
-        >
-      {/if}
+      <!-- The ✕ is ALWAYS available as a deliberate escape hatch: the update runs
+           server-side in a managed child independent of this modal, so dismissing
+           never cancels it. Without this, a missed `done` event (e.g. the WS drops
+           mid-update and reconnects after it fired) would trap the operator in the
+           busy state — shepherd no longer restarts, so there's no forced reload to
+           rescue them. Backdrop/Esc stay gated on !busy to avoid accidental close. -->
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+        >✕</button
+      >
     </div>
 
     {#if update.current && update.latest}
@@ -144,26 +153,40 @@
       <div class="warning">{m.herdrupdate_warning({ count: sessions })}</div>
     {/if}
 
-    {#if busy}
-      <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
+    {#if submitting}
+      {#if done}
+        <div class="status" class:ok={done.ok} class:fail={!done.ok} aria-live="polite">
+          {#if done.ok}
+            {m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })}
+          {:else}
+            {m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" })}
+          {/if}
+        </div>
+      {:else}
+        <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
+      {/if}
       {#if log.length > 0}
         <div class="log-label micro">{m.herdrupdate_log_label()}</div>
-        <!-- The concise .status line above is the polite announcement; the raw log
-             stays silent so a fast-appending stream doesn't re-announce every line. -->
         <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
       {/if}
     {/if}
     {#if error}<div class="err">{error}</div>{/if}
 
     <div class="actions">
-      {#if !busy}
+      {#if done}
+        <button type="button" class="later" onclick={() => onclose?.()}>{m.common_close()}</button>
+      {:else if !busy}
         <button type="button" class="later" onclick={() => onclose?.()}
           >{m.herdrupdate_later()}</button
         >
       {/if}
-      <button type="button" class="run" onclick={confirm} disabled={busy}>
-        {sessions > 0 ? m.herdrupdate_confirm({ count: sessions }) : m.herdrupdate_confirm_plain()}
-      </button>
+      {#if !done}
+        <button type="button" class="run" onclick={confirm} disabled={busy}>
+          {sessions > 0
+            ? m.herdrupdate_confirm({ count: sessions })
+            : m.herdrupdate_confirm_plain()}
+        </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -342,6 +365,12 @@
   .status {
     color: var(--color-amber);
     font-size: var(--fs-base);
+  }
+  .status.ok {
+    color: var(--color-green, var(--color-amber));
+  }
+  .status.fail {
+    color: var(--color-red);
   }
   .log-label {
     margin-bottom: -8px;

@@ -754,10 +754,16 @@
     update={store.herdrUpdate}
     sessions={store.sessions.filter((s) => s.status === "running").length}
     log={store.herdrUpdateLog}
-    onconfirm={() => (herdrUpdating = true)}
+    done={store.herdrUpdateDone}
+    onconfirm={() => {
+      herdrUpdating = true;
+      store.herdrUpdateDone = null; // fresh run: clear any prior result
+      store.herdrUpdateLog = [];
+    }}
     onclose={() => {
       showHerdrUpdate = false;
       herdrUpdating = false;
+      store.herdrUpdateDone = null;
     }}
   />
 {/if}

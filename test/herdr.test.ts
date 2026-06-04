@@ -294,3 +294,26 @@ test("matchAgents: a sole session at its cwd re-pairs even when its name drifted
   const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/uniq", name: "old-name" })]);
   expect(m.get("S")?.terminalId).toBe("fresh");
 });
+
+import { maintenance } from "../src/maintenance";
+import { HerdrUnavailableError, makeHerdrRunner } from "../src/herdr";
+
+test("runner throws fast (no spawn) while maintenance is active", () => {
+  let spawned = 0;
+  const runner = makeHerdrRunner(() => {
+    spawned++;
+    return "{}";
+  });
+  maintenance.begin();
+  try {
+    expect(() => runner(["agent", "list"])).toThrow(HerdrUnavailableError);
+    expect(spawned).toBe(0); // never reached the exec
+  } finally {
+    maintenance.end();
+  }
+});
+
+test("runner delegates to exec when maintenance is inactive", () => {
+  const runner = makeHerdrRunner(() => "ok");
+  expect(runner(["agent", "list"])).toBe("ok");
+});

@@ -4,6 +4,7 @@ import { StatusPoller } from "../src/poller";
 import type { HerdrAgent } from "../src/herdr";
 import { classifyBlocked } from "../src/blocked";
 import { DEFAULT_STALL } from "../src/stall";
+import { maintenance } from "../src/maintenance";
 
 const baseSession = {
   name: "x",
@@ -853,4 +854,63 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
   clock += 8000;
   poller.tick();
   expect(poller.activitySnapshot()).toEqual({});
+});
+
+test("tick() is a no-op while maintenance is active (no herdr call, no reap)", () => {
+  let listCalls = 0;
+  const store = {
+    list: () => {
+      throw new Error("store.list must not be reached during maintenance");
+    },
+  } as unknown as import("../src/store").SessionStore;
+  const herdr = {
+    list: () => {
+      listCalls++;
+      return [];
+    },
+    read: () => "",
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr,
+    () => {},
+    () => {},
+  );
+  maintenance.begin();
+  try {
+    poller.tick();
+    expect(listCalls).toBe(0);
+  } finally {
+    maintenance.end();
+  }
+});
+
+test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
+  let reaped = false;
+  const store = {
+    list: () => {
+      // would only be reached if tick() didn't bail on the list() throw; a reap
+      // here would flip the session to done
+      reaped = true;
+      return [{ id: "s1", herdrAgentId: "t1", status: "running" }];
+    },
+    update: () => {
+      reaped = true;
+    },
+  } as unknown as import("../src/store").SessionStore;
+  const herdr = {
+    list: () => {
+      throw new Error("herdr list timed out"); // simulate HERDR_TIMEOUT_MS firing
+    },
+    read: () => "",
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr,
+    () => {},
+    () => {},
+  );
+  // must NOT throw (an unhandled throw on the 1s interval would crash shepherd)
+  expect(() => poller.tick()).not.toThrow();
+  expect(reaped).toBe(false); // tick bailed before touching the store
 });

@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { config } from "./config";
+import { maintenance as sharedMaintenance } from "./maintenance";
 import type { HerdrUpdateStatus } from "./types";
 
 export type { HerdrUpdateStatus };
@@ -16,28 +17,11 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-export interface HerdrUpdateDeps {
-  /** inject point for tests; defaults to running the herdr binary's --version */
-  versionRunner?: () => string;
-  /** inject point for tests; defaults to fetching herdr.dev/latest.json */
-  fetchLatest?: () => Promise<{ version: string; notes?: string }>;
-  /** inject point for tests; defaults to launching `herdr update` detached */
-  launch?: () => void;
-  /** called for each log line streamed from the running update; default: no-op */
-  onLog?: (line: string) => void;
-  /**
-   * inject point for tests: start following the update log and call onLine for
-   * each line. Defaults to tailing `journalctl --user -u herdr-update`.
-   * Wrapped in try/catch so a missing journalctl never breaks apply().
-   */
-  follow?: (onLine: (line: string) => void) => void;
-}
-
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 const LATEST_URL = "https://herdr.dev/latest.json";
 
 /** Prefix every step marker the update script echoes. Stable + greppable so the
- *  operator can `journalctl --user -u herdr-update | grep '>>> herdr-update'` and
+ *  operator can `cat ~/.shepherd/herdr-update.log | grep '>>> herdr-update'` and
  *  read the exact sequence (and exit code) even after shepherd has restarted. */
 export const UPDATE_LOG_PREFIX = ">>> herdr-update:";
 
@@ -51,31 +35,22 @@ function sanitizeVersion(v: string | null | undefined): string {
 }
 
 /**
- * The shell program the transient `herdr-update` unit runs. Extracted + exported
- * so its sequencing is unit-testable without a live herdr release (the only way
- * to exercise the real launch otherwise).
+ * The shell program shepherd spawns as a managed child. Extracted + exported
+ * so its sequencing is unit-testable without a live herdr release.
  *
- * Three guarantees, all learned from a stranded-502 incident and the operator's
- * need to audit past updates while developing against them:
+ * Two guarantees:
  *
  *  1. Every run appends ONE delimited block to `logPath` (default
  *     ~/.shepherd/herdr-update.log) via `tee -a`: a `=== herdr-update <UTC>
  *     <from> -> <to> ===` header, each step marker, raw `herdr update` output,
- *     the exit code, and the restart result. The script writes this file
- *     itself, NOT shepherd — so the record is COMPLETE even though shepherd
- *     (and its live SSE log stream) goes down mid-update. `cat <logPath>` is the
- *     durable post-mortem; the same lines still stream to the journal + modal.
+ *     and the exit code. The script writes this file itself so the record is
+ *     COMPLETE even if shepherd crashes mid-update.
  *
  *  2. Each step echoes a `UPDATE_LOG_PREFIX` marker BEFORE it runs, and the
- *     `herdr update` exit code is echoed explicitly — so the log shows precisely
- *     which step ran last and whether the update itself succeeded.
+ *     `herdr update` exit code is echoed explicitly.
  *
- *  3. shepherd is restarted UNCONDITIONALLY — `herdr update; ...; restart`, NOT
- *     `herdr update && restart`. The old `&&` short-circuited on a failed
- *     update, leaving herdr stopped (we stop it first, see defaultLaunch) and
- *     shepherd never bounced → a hard 502 until the operator manually ran
- *     `herdr`. Always restarting self-heals: worst case shepherd comes back on
- *     the old herdr version, which re-establishes the herdr server on startup.
+ * Shepherd stays up during the update (no restart), so it captures this
+ * script's stdout live for the modal. The `tee -a` keeps a durable post-mortem.
  */
 export function buildUpdateScript(
   logPath: string,
@@ -87,9 +62,9 @@ export function buildUpdateScript(
   // single-quote the path for the shell; a literal `'` inside it (vanishingly
   // unlikely in a home path) is escaped via the classic '\'' close-reopen trick.
   const q = `'${logPath.replace(/'/g, "'\\''")}'`;
-  // The restart lives INSIDE the tee'd block so "restart issued" + its rc are
-  // recorded too. Restarting shepherd.service does not touch this separate
-  // transient unit, so the trailing lines still get written after shepherd dies.
+  // Shepherd stays up during the update (no restart), so it captures this
+  // script's stdout live for the modal. The `tee -a` is kept anyway: it makes
+  // `cat <logPath>` a durable post-mortem that survives even a shepherd crash.
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
@@ -100,11 +75,41 @@ export function buildUpdateScript(
     `  echo '${UPDATE_LOG_PREFIX} running herdr update'`,
     "  herdr update; rc=$?",
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
-    `  echo "${UPDATE_LOG_PREFIX} restarting shepherd (update rc=$rc)"`,
-    "  systemctl --user restart shepherd",
-    `  echo "${UPDATE_LOG_PREFIX} restart command returned $?"`,
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
+}
+
+/** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
+ *  ✓/✗ state. Success is decided by a re-read `herdr --version`, NOT the child's
+ *  exit code (`herdr update` exits 0 even when it prints "Herdr was not updated"). */
+export interface HerdrUpdateResult {
+  ok: boolean;
+  from: string | null;
+  to: string | null;
+  error?: string;
+}
+
+export interface HerdrUpdateDeps {
+  /** inject point for tests; defaults to running the herdr binary's --version */
+  versionRunner?: () => string;
+  /** inject point for tests; defaults to fetching herdr.dev/latest.json */
+  fetchLatest?: () => Promise<{ version: string; notes?: string }>;
+  /**
+   * Run the update child, streaming each output line to onLine, resolving when
+   * it exits. The AbortSignal fires on watchdog timeout — the default kills the
+   * child. Default: spawn `bash -lc <buildUpdateScript>`.
+   */
+  runUpdate?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  /** each log line streamed from the running update; default: no-op */
+  onLog?: (line: string) => void;
+  /** the recomputed status after the update settles; default: no-op */
+  onStatus?: (status: HerdrUpdateStatus) => void;
+  /** the terminal result, emitted exactly once per apply(); default: no-op */
+  onDone?: (result: HerdrUpdateResult) => void;
+  /** maintenance gate; defaults to the shared process singleton */
+  maintenance?: { begin(): void; end(): void };
+  /** watchdog ceiling before a hung `herdr update` is force-killed (default 5min) */
+  watchdogMs?: number;
 }
 
 /**
@@ -117,17 +122,21 @@ export function buildUpdateScript(
  * network down, malformed payload) yields updateAvailable:false, so a broken
  * check can never raise a false badge.
  *
- * `apply()` is destructive: `herdr update` restarts the herdr server, ending
- * every live agent pane. Shepherd itself runs as the `shepherd.service` --user
- * unit (NOT inside herdr), so it can launch the update exactly like the git
- * self-update launches the deploy script.
+ * `apply()` spawns `herdr server stop; herdr update` as a managed child of
+ * shepherd (no systemd-run, no shepherd restart). Shepherd stays up — no 502.
+ * Success is determined by re-reading `herdr --version` after the child exits,
+ * not by exit code (`herdr update` exits 0 even when it prints "Herdr was not
+ * updated"). The terminal result is emitted via onDone.
  */
 export class HerdrUpdateService {
   private versionRunner: () => string;
   private fetchLatest: () => Promise<{ version: string; notes?: string }>;
-  private launch: () => void;
+  private runUpdate: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
   private onLog: (line: string) => void;
-  private follow: (onLine: (line: string) => void) => void;
+  private onStatus: (status: HerdrUpdateStatus) => void;
+  private onDone: (result: HerdrUpdateResult) => void;
+  private maintenance: { begin(): void; end(): void };
+  private watchdogMs: number;
   private last: HerdrUpdateStatus | null = null;
   private applying = false;
 
@@ -139,23 +148,29 @@ export class HerdrUpdateService {
       deps.fetchLatest ??
       (() =>
         fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string; notes?: string }>));
-    this.launch = deps.launch ?? (() => this.defaultLaunch());
+    this.runUpdate = deps.runUpdate ?? ((onLine, signal) => this.defaultRunUpdate(onLine, signal));
     this.onLog = deps.onLog ?? (() => {});
-    this.follow = deps.follow ?? ((onLine) => this.defaultFollow(onLine));
+    this.onStatus = deps.onStatus ?? (() => {});
+    this.onDone = deps.onDone ?? (() => {});
+    this.maintenance = deps.maintenance ?? sharedMaintenance;
+    this.watchdogMs = deps.watchdogMs ?? 5 * 60 * 1000;
   }
 
-  /**
-   * Tail the systemd journal for the herdr-update transient unit and call
-   * onLine for each non-empty output line. Runs entirely in the background;
-   * errors (e.g. journalctl not found) are swallowed so they never affect apply().
-   */
-  private defaultFollow(onLine: (line: string) => void): void {
-    try {
-      const child = spawn(
-        "journalctl",
-        ["--user", "-u", "herdr-update", "-f", "-o", "cat", "-n", "0"],
-        { stdio: ["ignore", "pipe", "pipe"] },
+  /** Spawn `bash -lc <script>` in shepherd's own process tree (NOT detached —
+   *  there is no longer a shepherd restart to outlive), stream stdout+stderr to
+   *  onLine, resolve on exit. The signal (watchdog) force-kills a hung child. */
+  private defaultRunUpdate(onLine: (line: string) => void, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const script = buildUpdateScript(
+        config.herdrUpdateLogPath,
+        this.last?.current,
+        this.last?.latest,
       );
+      const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
+      const kill = () => child.kill("SIGKILL");
+      if (signal.aborted) kill();
+      else signal.addEventListener("abort", kill, { once: true });
+
       let buf = "";
       const handleChunk = (chunk: Buffer | string) => {
         buf += chunk.toString();
@@ -168,48 +183,35 @@ export class HerdrUpdateService {
       };
       child.stdout?.on("data", handleChunk);
       child.stderr?.on("data", handleChunk);
-      // keep a ref so GC doesn't collect the child before shepherd restarts
-      child.unref();
-    } catch {
-      // journalctl not available — fall back silently to the static busy text
-    }
+      const finish = () => {
+        signal.removeEventListener("abort", kill);
+        if (buf.trim()) onLine(buf.trim());
+        resolve();
+      };
+      child.on("exit", finish);
+      child.on("error", (err) => {
+        onLine(`herdr update spawn failed: ${err.message}`);
+        finish();
+      });
+    });
   }
 
-  /** Launch `herdr update` in its own transient systemd scope so it survives the
-   *  shepherd restart it triggers (a child in the service cgroup would be killed
-   *  mid-update). `herdr update` must run outside a herdr session — the transient
-   *  unit gets a clean environment, so it qualifies. It restarts the herdr server
-   *  (ending live agent panes), after which we restart shepherd so it re-establishes
-   *  its herdr session and clients reconnect to a fresh build.
-   *
-   *  We `herdr server stop` FIRST. A protocol-bumping update (e.g. 0.6.5 proto 11
-   *  → 0.6.6 proto 12) refuses to proceed while herdr targets are running: it
-   *  exits 1 with "one or more herdr targets … requires live server handoff; run
-   *  `herdr update` from an interactive terminal, or stop those targets and run
-   *  `herdr update` again". Live handoff needs a TTY, which a detached transient
-   *  unit can't provide (and `--handoff` alone doesn't satisfy — the already-
-   *  running server still can't be handed off without an interactive terminal).
-   *  So we take herdr's other documented escape hatch: stop the running server,
-   *  which clears the targets, letting the non-interactive update proceed. The
-   *  shepherd restart then brings up a fresh session on the new version. Stopping
-   *  ends live agent panes, but `herdr update` is destructive by design anyway.
-   *  `|| true` so a "no server running" stop never blocks the update.
-   *
-   *  The exact step sequencing (and why shepherd is always restarted) lives in
-   *  buildUpdateScript(); it echoes greppable markers into this transient unit's
-   *  journal so a post-mortem survives the shepherd restart. */
-  private defaultLaunch(): void {
-    // forward our PATH: a transient --user unit gets a bare environment, but the
-    // command needs herdr/systemctl, which live on the service's PATH.
-    const args = ["--user", "--collect", "--unit=herdr-update"];
-    if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
-    args.push(
-      "bash",
-      "-lc",
-      buildUpdateScript(config.herdrUpdateLogPath, this.last?.current, this.last?.latest),
-    );
-    const child = spawn("systemd-run", args, { stdio: "ignore" });
-    child.unref();
+  /** Parse the installed version from `herdr --version`; null if unreadable. */
+  private installedVersion(): string | null {
+    const m = SEMVER_RE.exec(this.versionRunner());
+    return m ? m[1]! : null;
+  }
+
+  /** Best-effort installed version for the "what are we ACTUALLY on?" report.
+   *  Never throws (a missing/exploding `herdr --version` falls back to `fallback`,
+   *  the last-known-good). Used by every failure branch so we never tell the
+   *  operator they're on the target version we know they did NOT reach. */
+  private actualVersion(fallback: string | null): string | null {
+    try {
+      return this.installedVersion() ?? fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   /** Last computed status, or null before the first check. */
@@ -217,32 +219,73 @@ export class HerdrUpdateService {
     return this.last;
   }
 
-  /** Kick off the detached `herdr update`. Guards against double-launch within a
-   *  single process lifetime; returns whether it actually started. */
+  /** Kick off the update in the background. Returns immediately so the HTTP
+   *  endpoint can answer 202; progress streams via onLog and the terminal
+   *  outcome via onDone. Guards against a double-launch while one is in flight. */
   apply(): { started: boolean } {
     if (this.applying) return { started: false };
     this.applying = true;
-    // Breadcrumb in shepherd's OWN journal (`journalctl --user -u shepherd`): the
-    // SSE log stream and the transient-unit journal both go quiet the moment
-    // shepherd restarts, so this is the one record that ties the restart in
-    // shepherd's log back to a deliberate herdr update.
     console.warn(
-      `[herdr-update] applying update ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
-        `shepherd will restart (audit log: ${config.herdrUpdateLogPath}, ` +
-        "or journalctl --user -u herdr-update -n 50)",
+      `[herdr-update] applying ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
+        `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
     );
-    // Start streaming the journal BEFORE launching: `herdr update` runs inside the
-    // transient unit and emits its diagnostics (incl. the "update failed: …" line)
-    // within milliseconds. If we launched first, the `journalctl -f` tailer would
-    // attach too late and catch only systemd's trailing "Failed with result" lines,
-    // hiding the actual cause from the modal. Wrapped so a failure never surfaces.
-    try {
-      this.follow((line) => this.onLog(line));
-    } catch {
-      // follow implementation threw synchronously — ignore
-    }
-    this.launch();
+    void this.runOnce();
     return { started: true };
+  }
+
+  /** Background body of apply(): run the update under a watchdog, decide success
+   *  from a re-read version, emit status + a terminal result, and ALWAYS clear
+   *  maintenance + the applying guard in finally. begin() lives INSIDE the try so
+   *  its matching end() is guaranteed by the finally even if a prologue step throws
+   *  — a stranded maintenance flag would otherwise freeze every herdr loop for the
+   *  life of the process. It runs synchronously (before the first await), so the
+   *  gate is active the instant apply() returns. */
+  private async runOnce(): Promise<void> {
+    const from = this.last?.current ?? null;
+    const to = this.last?.latest ?? null;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let result: HerdrUpdateResult;
+    try {
+      this.maintenance.begin();
+      const ctrl = new AbortController();
+      watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
+      await this.runUpdate((line) => this.onLog(line), ctrl.signal);
+      // Re-read the installed version once: it decides success AND is the version
+      // every failure branch reports as "what we're actually on" (never the
+      // target, which we know we did not reach).
+      const after = this.actualVersion(from);
+      if (ctrl.signal.aborted) {
+        result = { ok: false, from, to: after, error: "herdr update timed out" };
+      } else {
+        const ok = !!after && !!to && after === to;
+        this.last = {
+          current: after,
+          latest: to,
+          updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
+          notes: null,
+          checkedAt: Date.now(),
+          error: ok ? undefined : "herdr was not updated",
+        };
+        this.onStatus(this.last);
+        result = ok
+          ? { ok: true, from, to }
+          : { ok: false, from, to: after, error: "herdr was not updated" };
+      }
+    } catch (err) {
+      // runUpdate itself threw (e.g. spawn failed) — re-read the actual version
+      // so we don't claim the target either.
+      result = {
+        ok: false,
+        from,
+        to: this.actualVersion(from),
+        error: err instanceof Error ? err.message : "herdr update failed",
+      };
+    } finally {
+      clearTimeout(watchdog);
+      this.maintenance.end();
+      this.applying = false;
+    }
+    this.onDone(result);
   }
 
   /** Re-read the installed herdr version and the latest published one, then

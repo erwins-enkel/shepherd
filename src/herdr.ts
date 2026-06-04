@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { config } from "./config";
+import { maintenance } from "./maintenance";
 import type { HerdrState, SessionStatus } from "./types";
 
 export interface HerdrAgent {
@@ -25,7 +26,33 @@ export interface HerdrTab {
 
 export type Runner = (args: string[]) => string;
 
-const defaultRunner: Runner = (args) => execFileSync(config.herdrBin, args, { encoding: "utf8" });
+/** A herdr CLI call attempted while an update is in flight. Thrown WITHOUT
+ *  spawning, so nothing resurrects the herdr server mid-update. */
+export class HerdrUnavailableError extends Error {
+  constructor() {
+    super("herdr is unavailable (update in progress)");
+    this.name = "HerdrUnavailableError";
+  }
+}
+
+/** Hard ceiling on any synchronous herdr CLI call. `execFileSync` blocks Bun's
+ *  single JS thread, so an unbounded call against a half-down server would freeze
+ *  every HTTP response (the persistent-502 we are fixing). 10s is far above a
+ *  healthy call yet bounds the worst case. */
+const HERDR_TIMEOUT_MS = 10_000;
+
+/** Build a Runner around a raw exec fn. Refuses (throws) while maintenance is
+ *  active; otherwise delegates. Exported so tests can inject a fake exec. */
+export function makeHerdrRunner(exec: (args: string[]) => string): Runner {
+  return (args) => {
+    if (maintenance.active) throw new HerdrUnavailableError();
+    return exec(args);
+  };
+}
+
+const defaultRunner: Runner = makeHerdrRunner((args) =>
+  execFileSync(config.herdrBin, args, { encoding: "utf8", timeout: HERDR_TIMEOUT_MS }),
+);
 
 export function mapState(s: HerdrState): SessionStatus {
   switch (s) {

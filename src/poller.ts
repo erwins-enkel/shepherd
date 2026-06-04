@@ -5,6 +5,7 @@ import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, type SessionActivity } from "./activity-signal";
+import { maintenance } from "./maintenance";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
@@ -47,8 +48,25 @@ export class StatusPoller {
   ) {}
 
   tick(): void {
+    // herdr is mid-update: don't poll — a list() here would resurrect the herdr
+    // server and (seeing no agents) wrongly reap every live session.
+    if (maintenance.active) return;
+    // `herdr list` now carries a hard timeout (HERDR_TIMEOUT_MS), so an
+    // unresponsive herdr THROWS rather than blocking. This runs on a 1s interval
+    // with no surrounding try/catch, so an unhandled throw would crash shepherd
+    // (→ a restart-502, the very thing this design removes). Skip the tick on any
+    // herdr failure and retry next cadence — same best-effort stance as the
+    // read-based maybeStall/maybeClassify paths below. Probe herdr before the
+    // store so a failure bails without touching session state.
+    let agents: HerdrAgent[];
+    try {
+      agents = this.herdr.list();
+    } catch (err) {
+      console.warn("[poller] herdr list failed; skipping tick:", err);
+      return;
+    }
     const sessions = this.store.list({ activeOnly: true });
-    const matched = matchAgents(sessions, this.herdr.list());
+    const matched = matchAgents(sessions, agents);
     const activeIds = new Set<string>();
     for (const s of sessions) {
       activeIds.add(s.id);

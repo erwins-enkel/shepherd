@@ -36,6 +36,7 @@ import { listRepos } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
 import { attachSignalCapture } from "./signals";
+import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -92,6 +93,7 @@ reconcile(store, herdr);
 // they miss — agents that crashed out of `agent list`, or anything left over after a
 // shepherd restart cleared the in-memory review tracking. Run once on boot, then hourly.
 const sweepOrphanTabs = () => {
+  if (maintenance.active) return;
   try {
     const closed = reapOrphanTabs(herdr);
     if (closed.length) console.warn(`[tabs] reaped ${closed.length} orphan helper tab(s)`);
@@ -206,7 +208,10 @@ events.subscribe((event, data) => {
       .consider(s, git)
       .catch((err) => console.warn("[review] consider failed:", err));
 });
-setInterval(() => void reviewService.tick(), 15_000);
+setInterval(() => {
+  if (maintenance.active) return;
+  void reviewService.tick();
+}, 15_000);
 // archived sessions: reap any in-flight critic + drop the verdict
 events.subscribe((event, data) => {
   if (event === "session:archived") reviewService.forget((data as { id: string }).id);
@@ -311,7 +316,10 @@ events.subscribe((event, data) => {
   }
 });
 // Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).
-setInterval(() => void drain.tick().catch((err) => console.warn("[drain] tick:", err)), 30_000);
+setInterval(() => {
+  if (maintenance.active) return;
+  void drain.tick().catch((err) => console.warn("[drain] tick:", err));
+}, 30_000);
 
 // Learnings flywheel: capture block/stall signals, run the distiller on a slow
 // cadence, and surface the proposed-rule count to clients.
@@ -322,7 +330,10 @@ const distiller = new DistillerService({
   scratch: defaultScratch,
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });
-setInterval(() => void distiller.tick(), 30_000);
+setInterval(() => {
+  if (maintenance.active) return;
+  void distiller.tick();
+}, 30_000);
 const promoter = new Promoter({ store, worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
@@ -346,6 +357,7 @@ setInterval(async () => {
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`
 const calibrate = async () => {
+  if (maintenance.active) return;
   try {
     await accountIndex.refresh(Date.now());
     const ok = await usageLimits.calibrate(Date.now());
@@ -365,11 +377,15 @@ setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
 
 // watch herdr.dev for a newer herdr release and surface an informational badge;
-// unlike the self-update above this never auto-applies (running `herdr update`
-// restarts the herdr server and bounces every live session). releases are rare,
-// so a 6h cadence is plenty.
+// unlike the git self-update this never auto-applies. Applying ends live agent
+// panes (herdr update is destructive) but shepherd stays up — no restart, no 502.
+// releases are rare, so a 6h cadence is plenty.
 const herdrUpdates = new HerdrUpdateService({
   onLog: (line) => events.emit("herdr-update:log", { line }),
+  // shepherd stays up now — push the recomputed status (clears the badge) and a
+  // terminal ✓/✗ result the modal renders instead of waiting for a page reload.
+  onStatus: (status) => events.emit("herdr-update:status", status),
+  onDone: (result) => events.emit("herdr-update:done", result),
 });
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));

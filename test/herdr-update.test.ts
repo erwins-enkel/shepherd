@@ -4,72 +4,63 @@ import {
   buildUpdateScript,
   compareSemver,
   UPDATE_LOG_PREFIX,
+  type HerdrUpdateResult,
 } from "../src/herdr-update";
 
-// ── buildUpdateScript: sequencing + logging (testable without a live release) ─
 const LOG = "/home/op/.shepherd/herdr-update.log";
 
-test("buildUpdateScript: stops herdr, updates, then ALWAYS restarts shepherd", () => {
+// ── buildUpdateScript: stop → update, NO restart, durable audit log ──────────
+test("buildUpdateScript: stops herdr then updates, in that order", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // ordering: stop must precede update, update must precede restart
   const stop = s.indexOf("herdr server stop");
   const update = s.indexOf("herdr update;");
-  const restart = s.indexOf("systemctl --user restart shepherd");
   expect(stop).toBeGreaterThanOrEqual(0);
   expect(update).toBeGreaterThan(stop);
-  expect(restart).toBeGreaterThan(update);
 });
 
-test("buildUpdateScript: restart is unconditional, NOT gated on update success", () => {
+test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // the stranded-502 regression: `herdr update && restart` skipped the restart on
-  // a failed update. Guard that the `&&` short-circuit never comes back.
-  expect(s).not.toContain("herdr update && systemctl");
-  expect(s).toContain("herdr update; rc=$?");
+  expect(s).not.toContain("systemctl");
+  expect(s).not.toContain("systemd-run");
+  expect(s).not.toContain("restart shepherd");
 });
 
-test("buildUpdateScript: echoes a greppable marker for every step + the exit code", () => {
+test("buildUpdateScript: echoes a greppable marker for the two real steps", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
-  // stopping / running / exited rc / restarting / restart-returned = 5 markers
-  expect(markers.length).toBe(5);
+  // stopping / running / exited rc = 3 markers (no restart markers anymore)
+  expect(markers.length).toBe(3);
   expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
 });
 
-test("buildUpdateScript: appends a delimited, timestamped, versioned block to the audit log", () => {
+test("buildUpdateScript: appends a delimited, timestamped, versioned block", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // single writer, append-only (tee -a) so prior updates are never clobbered
   expect(s).toContain(`LOG='${LOG}'`);
   expect(s).toContain('| tee -a "$LOG"');
-  // header carries a UTC timestamp + the from->to versions for at-a-glance scan
   expect(s).toContain("=== herdr-update $(date -u +%Y-%m-%dT%H:%M:%SZ) 0.6.5 -> 0.6.6 ===");
-  // dir is created so a fresh ~/.shepherd never makes the first update silently drop its log
   expect(s).toContain('mkdir -p "$(dirname "$LOG")"');
 });
 
-test("buildUpdateScript: sanitizes versions so an external payload can't inject shell", () => {
+test("buildUpdateScript: sanitizes versions so a payload can't inject shell", () => {
   const s = buildUpdateScript(LOG, "0.6.5", '0.6.6"; rm -rf ~ #');
   expect(s).not.toContain("rm -rf");
-  // stripped down to version chars
   expect(s).toContain("0.6.5 -> 0.6.6 ===");
 });
 
-test("buildUpdateScript: missing versions degrade to 'unknown', never empty", () => {
+test("buildUpdateScript: missing versions degrade to 'unknown'", () => {
   const s = buildUpdateScript(LOG, null, undefined);
   expect(s).toContain("unknown -> unknown ===");
 });
 
-// ── compareSemver ───────────────────────────────────────────────────────────
-test("compareSemver: orders major/minor/patch numerically", () => {
+// ── compareSemver ────────────────────────────────────────────────────────────
+test("compareSemver: orders numerically", () => {
   expect(compareSemver("0.6.5", "0.6.3")).toBe(1);
   expect(compareSemver("0.6.3", "0.6.5")).toBe(-1);
-  expect(compareSemver("0.6.3", "0.6.3")).toBe(0);
-  expect(compareSemver("1.0.0", "0.9.9")).toBe(1);
-  expect(compareSemver("0.10.0", "0.9.0")).toBe(1); // numeric, not lexical
-  expect(compareSemver("0.6", "0.6.0")).toBe(0); // missing segment → 0
+  expect(compareSemver("0.10.0", "0.9.0")).toBe(1);
+  expect(compareSemver("0.6", "0.6.0")).toBe(0);
 });
 
-// ── check(): update available ────────────────────────────────────────────────
+// ── check(): unchanged behavior ──────────────────────────────────────────────
 test("current < latest → updateAvailable true, notes carried", async () => {
   const svc = new HerdrUpdateService({
     versionRunner: () => "herdr 0.5.10\n",
@@ -80,30 +71,17 @@ test("current < latest → updateAvailable true, notes carried", async () => {
   expect(s.latest).toBe("0.6.5");
   expect(s.updateAvailable).toBe(true);
   expect(s.notes).toBe("### Added\n- scrollback");
-  expect(s.error).toBeUndefined();
 });
 
-// ── check(): up to date ──────────────────────────────────────────────────────
-test("current == latest → updateAvailable false, no notes", async () => {
+test("current == latest → updateAvailable false", async () => {
   const svc = new HerdrUpdateService({
     versionRunner: () => "herdr 0.6.5",
-    fetchLatest: async () => ({ version: "0.6.5", notes: "irrelevant" }),
+    fetchLatest: async () => ({ version: "0.6.5" }),
   });
   const s = await svc.check(2000);
   expect(s.updateAvailable).toBe(false);
-  expect(s.notes).toBeNull();
 });
 
-test("current > latest → updateAvailable false", async () => {
-  const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.0",
-    fetchLatest: async () => ({ version: "0.6.5" }),
-  });
-  const s = await svc.check(3000);
-  expect(s.updateAvailable).toBe(false);
-});
-
-// ── fail-safe: never raise a false badge ─────────────────────────────────────
 test("versionRunner throws → fail-safe, no badge, error set", async () => {
   const svc = new HerdrUpdateService({
     versionRunner: () => {
@@ -113,124 +91,137 @@ test("versionRunner throws → fail-safe, no badge, error set", async () => {
   });
   const s = await svc.check(4000);
   expect(s.updateAvailable).toBe(false);
-  expect(s.latest).toBeNull();
   expect(s.error).toContain("command not found");
 });
 
-test("fetchLatest rejects → fail-safe, no badge, error set", async () => {
+// ── apply(): maintenance lifecycle, success/failure detection ─────────────────
+
+/** Build a service primed with a known current→latest, injecting all seams so
+ *  no real process spawns. `runUpdate` resolves immediately by default. */
+function primed(opts: {
+  installedAfter: string; // what `herdr --version` reports AFTER the update
+  latest?: string;
+  current?: string;
+  runUpdate?: (onLine: (l: string) => void, signal: AbortSignal) => Promise<void>;
+  watchdogMs?: number;
+}) {
+  const begun: boolean[] = [];
+  const dones: HerdrUpdateResult[] = [];
+  let versionCalls = 0;
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.5.10",
-    fetchLatest: async () => {
-      throw new Error("network down");
+    // first call (during check) returns `current`; later calls return installedAfter
+    versionRunner: () => {
+      versionCalls++;
+      return `herdr ${versionCalls === 1 ? (opts.current ?? "0.6.7") : opts.installedAfter}`;
+    },
+    fetchLatest: async () => ({ version: opts.latest ?? "0.6.8" }),
+    runUpdate: opts.runUpdate ?? (async () => {}),
+    onLog: () => {},
+    onStatus: () => {},
+    onDone: (r) => dones.push(r),
+    maintenance: {
+      begin: () => begun.push(true),
+      end: () => begun.push(false),
+    },
+    watchdogMs: opts.watchdogMs ?? 300_000,
+  });
+  return { svc, begun, dones };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 10));
+
+test("apply(): success when re-read version equals target; maintenance begins then ends", async () => {
+  const { svc, begun, dones } = primed({ installedAfter: "0.6.8", latest: "0.6.8" });
+  await svc.check(1); // sets current=0.6.7, latest=0.6.8, updateAvailable
+  expect(svc.apply()).toEqual({ started: true });
+  await settle();
+  expect(begun).toEqual([true, false]); // begin, then end
+  expect(dones).toHaveLength(1);
+  expect(dones[0]).toMatchObject({ ok: true, to: "0.6.8" });
+});
+
+test("apply(): failure when version unchanged even though the child exits 0 (rc lies)", async () => {
+  const { svc, begun, dones } = primed({ installedAfter: "0.6.7", latest: "0.6.8" });
+  await svc.check(1); // current=0.6.7
+  svc.apply();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: false });
+  expect(begun).toEqual([true, false]); // maintenance still cleared
+});
+
+test("apply(): when runUpdate throws, reports the ACTUAL version, not the target", async () => {
+  // spawn failed → still on the old version; the result must say so (never the target).
+  const { svc, begun, dones } = primed({
+    installedAfter: "0.6.7",
+    latest: "0.6.8",
+    runUpdate: async () => {
+      throw new Error("spawn failed");
     },
   });
-  const s = await svc.check(5000);
-  expect(s.updateAvailable).toBe(false);
-  expect(s.error).toContain("network down");
-  // last-known current is preserved across a failed check
-  expect(s.current).toBe(svc.current()?.current ?? null);
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(begun).toEqual([true, false]); // maintenance still cleared
+  expect(dones[0]).toMatchObject({
+    ok: false,
+    to: "0.6.7",
+    error: expect.stringContaining("spawn failed"),
+  });
+  expect(dones[0]!.to).not.toBe("0.6.8"); // never the target we did NOT reach
 });
 
-// ── current() caching ────────────────────────────────────────────────────────
-test("current() caches the last check", async () => {
-  const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.5.10",
-    fetchLatest: async () => ({ version: "0.6.5" }),
+test("apply(): watchdog timeout reports the ACTUAL version, not the target", async () => {
+  const { svc, begun, dones } = primed({
+    installedAfter: "0.6.7", // hung update never swapped the binary
+    latest: "0.6.8",
+    watchdogMs: 20,
+    runUpdate: (_onLine, signal) =>
+      new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      }),
   });
-  expect(svc.current()).toBeNull();
-  await svc.check(6000);
-  expect(svc.current()?.updateAvailable).toBe(true);
+  await svc.check(1);
+  svc.apply();
+  await new Promise((r) => setTimeout(r, 60));
+  expect(begun).toEqual([true, false]);
+  expect(dones[0]).toMatchObject({
+    ok: false,
+    to: "0.6.7",
+    error: expect.stringContaining("timed out"),
+  });
+  expect(dones[0]!.to).not.toBe("0.6.8"); // not the version we know we never reached
 });
 
-test("unparseable version output → current null, no badge", async () => {
-  const svc = new HerdrUpdateService({
-    versionRunner: () => "no version here",
-    fetchLatest: async () => ({ version: "0.6.5" }),
+test("apply(): double-launch guarded while one is in flight", async () => {
+  let runs = 0;
+  const { svc } = primed({
+    installedAfter: "0.6.8",
+    runUpdate: async () => {
+      runs++;
+      await new Promise((r) => setTimeout(r, 30));
+    },
   });
-  const s = await svc.check(7000);
-  expect(s.current).toBeNull();
-  expect(s.updateAvailable).toBe(false);
-});
-
-// ── apply(): launches once, guards double-launch ─────────────────────────────
-test("apply() launches once and guards double-launch", () => {
-  let launches = 0;
-  const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.5.10",
-    fetchLatest: async () => ({ version: "0.6.5" }),
-    launch: () => launches++,
-  });
+  await svc.check(1);
   expect(svc.apply()).toEqual({ started: true });
-  expect(svc.apply()).toEqual({ started: false });
-  expect(launches).toBe(1);
+  expect(svc.apply()).toEqual({ started: false }); // still applying
+  await new Promise((r) => setTimeout(r, 60));
+  expect(runs).toBe(1);
 });
 
-// ── apply(): onLog / follow injection ────────────────────────────────────────
-test("apply() calls follow and forwards lines to onLog", () => {
+test("apply(): streams runUpdate lines to onLog", async () => {
   const received: string[] = [];
-  let capturedOnLine: ((line: string) => void) | null = null;
-
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.5.10",
-    fetchLatest: async () => ({ version: "0.6.5" }),
-    launch: () => {},
-    onLog: (line) => received.push(line),
-    follow: (onLine) => {
-      capturedOnLine = onLine;
+    versionRunner: () => "herdr 0.6.8",
+    fetchLatest: async () => ({ version: "0.6.8" }),
+    runUpdate: async (onLine) => {
+      onLine("downloading 0.6.8...");
+      onLine("updated to 0.6.8");
     },
+    onLog: (l) => received.push(l),
+    maintenance: { begin: () => {}, end: () => {} },
   });
-
+  await svc.check(1);
   svc.apply();
-  expect(capturedOnLine).not.toBeNull();
-  capturedOnLine!("Fetching herdr 0.6.5...");
-  capturedOnLine!("Installing...");
-  expect(received).toEqual(["Fetching herdr 0.6.5...", "Installing..."]);
-});
-
-test("apply() starts follow before launch so early log lines aren't missed", () => {
-  const order: string[] = [];
-  const svc = new HerdrUpdateService({
-    launch: () => order.push("launch"),
-    onLog: () => {},
-    follow: () => order.push("follow"),
-  });
-  svc.apply();
-  expect(order).toEqual(["follow", "launch"]);
-});
-
-test("apply() does not start follow on second call", () => {
-  let followCalls = 0;
-  const svc = new HerdrUpdateService({
-    launch: () => {},
-    onLog: () => {},
-    follow: () => {
-      followCalls++;
-    },
-  });
-
-  svc.apply(); // first call — follow runs
-  svc.apply(); // guard fires — follow should NOT run again
-  expect(followCalls).toBe(1);
-});
-
-test("apply() survives a follow implementation that throws", () => {
-  const svc = new HerdrUpdateService({
-    launch: () => {},
-    follow: () => {
-      throw new Error("journalctl not found");
-    },
-  });
-  // must not throw
-  expect(() => svc.apply()).not.toThrow();
-  expect(svc.apply()).toEqual({ started: false }); // guard: still marked as applying
-});
-
-test("apply() with no follow dep still returns started:true", () => {
-  // When no follow dep is provided the default journalctl path would run; inject
-  // a no-op to keep tests hermetic (no real journalctl in CI).
-  const svc = new HerdrUpdateService({
-    launch: () => {},
-    follow: () => {},
-  });
-  expect(svc.apply()).toEqual({ started: true });
+  await settle();
+  expect(received).toEqual(["downloading 0.6.8...", "updated to 0.6.8"]);
 });

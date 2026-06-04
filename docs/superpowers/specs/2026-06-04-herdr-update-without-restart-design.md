@@ -114,9 +114,11 @@ apply():
   return { started: true }
 ```
 
-- Child output is captured by shepherd directly (no `tee`/systemd needed) and both
-  streamed to the modal and appended to `~/.shepherd/herdr-update.log` (kept as the
-  durable post-mortem; shepherd writes it now).
+- Child output is captured by shepherd live and streamed to the modal. The durable
+  audit log `~/.shepherd/herdr-update.log` is kept and **written by the script itself**
+  via `tee -a` (a delimited, timestamped, versioned block) — this survives even a
+  shepherd crash, so it stays the durable post-mortem rather than something shepherd
+  has to write.
 - **Success is keyed off a re-read `herdr --version` matching the target**, not the
   exit code.
 - `maintenance.end()` runs in `finally` so a throw or watchdog timeout can never
@@ -126,12 +128,12 @@ apply():
   and `ensureWorkspace()` recreates the workspace.
 
 Deleted from this file: `defaultLaunch()` (systemd-run) and `defaultFollow()`
-(journalctl). `buildUpdateScript()` is **kept and shrunk** to the minimal
-`herdr server stop || true; herdr update` (no restart, no markers, no `tee`) — it
-stays exported and unit-tested so the command sequence is verifiable without a live
-herdr release. The audit-log header/footer (`=== herdr-update <UTC> <from> -> <to>
-===`, the streamed output, and the final verified result) are written by shepherd
-around the captured child output, not by the script.
+(journalctl). `buildUpdateScript()` is **kept and shrunk** to `herdr server stop ||
+true; herdr update` wrapped in the delimited, `tee -a`'d audit-log block with its
+three `>>> herdr-update:` step markers (only the `systemctl restart shepherd` line
+and its markers are dropped). It stays exported and unit-tested so the command
+sequence is verifiable without a live herdr release. The final verified ✓/✗ result
+is determined by shepherd (re-read version), separate from the script.
 
 **End-state parity:** live agents still end (inherent to `herdr update` —
 destructive by design). The resumed poller reconciles those sessions as ended —

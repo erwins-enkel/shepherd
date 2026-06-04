@@ -327,6 +327,10 @@ export type WsEvent =
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "herdr-update:log"; data: { line: string } }
+  | {
+      event: "herdr-update:done";
+      data: { ok: boolean; from: string | null; to: string | null; error?: string };
+    }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }

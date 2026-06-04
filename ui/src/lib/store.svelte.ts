@@ -25,6 +25,12 @@ export class HerdStore {
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   herdrUpdateLog = $state<string[]>([]);
+  herdrUpdateDone = $state<{
+    ok: boolean;
+    from: string | null;
+    to: string | null;
+    error?: string;
+  } | null>(null);
   git = $state<Record<string, GitState>>({});
   /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
   activity = $state<Record<string, SessionActivity>>({});
@@ -184,6 +190,14 @@ export class HerdStore {
         break;
       case "herdr-update:log":
         this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
+        break;
+      case "herdr-update:done":
+        this.herdrUpdateDone = ev.data as {
+          ok: boolean;
+          from: string | null;
+          to: string | null;
+          error?: string;
+        };
         break;
       case "project-icons:update":
         projectIcons.apply(ev.data);

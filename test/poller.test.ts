@@ -239,9 +239,13 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ lastTs: stalled ? clock - 600_000 : clock, pending: false }),
+    // combined probe: one read → both signals. activity null here (stall-only test).
+    () => ({
+      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      activity: null,
+    }),
     { stallMs: 1, pendingStallMs: 1 }, // 10m-old activity counts as stalled; fresh does not
-    30_000,
+    7000, // probeCheckMs
   );
 
   poller.tick();
@@ -249,25 +253,25 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
   expect((blocks[0]!.block as any).shape).toBe("stall");
   expect((blocks[0]!.block as any).tail).toEqual(["still chewing on it"]);
 
-  // throttled within stallCheckMs → no re-probe
+  // throttled within probeCheckMs → no re-probe
   clock += 1000;
   poller.tick();
   expect(blocks).toHaveLength(1);
 
   // past the throttle, still stalled → fires only once per episode
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(1);
 
   // activity resumes → one clear, then re-arms for the next episode
   stalled = false;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
   stalled = true;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(3);
   expect((blocks[2]!.block as any).shape).toBe("stall");
@@ -305,9 +309,12 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ lastTs: stalled ? clock - 600_000 : clock, pending: false }),
+    () => ({
+      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      activity: null,
+    }),
     { stallMs: 1, pendingStallMs: 1 },
-    30_000,
+    7000, // probeCheckMs
   );
 
   poller.tick(); // stall fires
@@ -320,19 +327,19 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
   // still stalled on the next probe → does NOT re-announce (episode acknowledged)
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
 
   // activity resumes → episode re-arms; acknowledgeStall now no-ops (no live stall)
   stalled = false;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect(poller.acknowledgeStall(s.id)).toBe(false);
 
   // a later stall fires again
   stalled = true;
-  clock += 30_000;
+  clock += 7000;
   poller.tick();
   expect((blocks[blocks.length - 1]!.block as any).shape).toBe("stall");
 });
@@ -457,4 +464,319 @@ test("does not emit onBlock when reading the terminal throws", () => {
   );
   poller.tick();
   expect(blocks).toHaveLength(0);
+});
+
+// ── maybeActivity ─────────────────────────────────────────────────────────────
+
+const runningHerdr = {
+  list: (): HerdrAgent[] => [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ],
+  read: () => "",
+};
+
+test("maybeActivity emits via onActivity when the probe returns a signal", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: { id: string; activity: unknown }[] = [];
+
+  const clock = 100_000;
+  const signal = { lastActivityTs: 999, summary: "edited poller.ts" };
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: signal }), // combined probe — same signal
+    DEFAULT_STALL,
+    7000, // probeCheckMs
+    () => {}, // onReady
+    (id, activity) => activities.push({ id, activity }),
+  );
+
+  poller.tick();
+  expect(activities).toHaveLength(1);
+  expect(activities[0]!.activity).toEqual(signal);
+});
+
+test("maybeActivity dedups identical signals — does not re-emit unchanged activity", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  const signalA = { lastActivityTs: 1234, summary: "$ bun test" };
+  const signalB = { lastActivityTs: 5678, summary: "wrote config.ts" };
+  let currentSignal: typeof signalA | typeof signalB = signalA;
+
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: currentSignal }), // probe tracks currentSignal
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  poller.tick(); // first emit — signalA
+  expect(activities).toHaveLength(1);
+
+  // advance past throttle, same signal → dedup must suppress re-emit
+  clock += 8000;
+  poller.tick();
+  expect(activities).toHaveLength(1);
+
+  // swap signal in place → same poller must detect the change and re-emit
+  clock += 8000;
+  currentSignal = signalB;
+  poller.tick();
+  expect(activities).toHaveLength(2);
+  expect(activities[1]).toEqual(signalB);
+});
+
+test("maybeActivity respects activityCheckMs throttle", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  let callCount = 0;
+  const probe = () => {
+    callCount++;
+    return { snapshot: null, activity: { lastActivityTs: clock, summary: `tick ${callCount}` } };
+  };
+
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    probe,
+    DEFAULT_STALL,
+    7000, // probeCheckMs
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  poller.tick(); // probe called, signal emitted
+  expect(callCount).toBe(1);
+  expect(activities).toHaveLength(1);
+
+  clock += 3000; // within probeCheckMs (7000) → throttled
+  poller.tick();
+  expect(callCount).toBe(1); // probe NOT called again yet
+
+  clock += 5000; // now past the 7000ms throttle
+  poller.tick();
+  expect(callCount).toBe(2); // probe called again
+});
+
+test("maybeActivity skips emit when probe returns null", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+
+  const poller = new StatusPoller(
+    store,
+    runningHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 100_000,
+    () => ({ snapshot: null, activity: null }), // no signal yet
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  poller.tick();
+  expect(activities).toHaveLength(0);
+});
+
+test("maybeActivity does not run for non-running (idle/blocked) sessions", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: unknown[] = [];
+  let probeCallCount = 0;
+
+  // herdr reports "done" → maps to idle
+  const idleHerdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "done" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "",
+  };
+
+  const poller = new StatusPoller(
+    store,
+    idleHerdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 100_000,
+    () => {
+      probeCallCount++;
+      return { snapshot: null, activity: { lastActivityTs: 1, summary: "edited x.ts" } };
+    },
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  poller.tick();
+  expect(probeCallCount).toBe(0);
+  expect(activities).toHaveLength(0);
+});
+
+test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
+  // A session that was only ever running (never blocked) populates lastProbeAt
+  // and lastActivitySig but never lastSig — the old pruneInactive iterated only
+  // lastSig.keys() and so those entries leaked. After prune, re-adding the same
+  // session must re-emit on the first tick (sig map was cleared).
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: unknown[] = [];
+
+  let clock = 100_000;
+  let agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  poller.tick(); // populates lastProbeAt + lastActivitySig
+  expect(activities).toHaveLength(1);
+
+  // session is archived — poller sees empty store list → pruneInactive fires
+  store.update(s.id, { status: "archived" });
+  agents = [];
+  clock += 8000;
+  poller.tick(); // pruneInactive must clear lastProbeAt + lastActivitySig
+
+  // session comes back (status reset to pending then running via herdr)
+  store.update(s.id, { status: "running" });
+  agents = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+  clock += 8000;
+  poller.tick(); // must re-emit — activity sig map was cleared by prune
+  expect(activities).toHaveLength(2);
+});
+
+test("activitySnapshot returns last emitted signal, pruned when the session goes away", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+
+  let clock = 100_000;
+  let agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working" as const,
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "",
+      terminalId: "term_a",
+      workspaceId: "w",
+    },
+  ];
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
+    DEFAULT_STALL,
+    7000,
+    () => {},
+    () => {},
+  );
+
+  poller.tick(); // probe emits → caches the signal
+  expect(poller.activitySnapshot()).toEqual({
+    [s.id]: { lastActivityTs: 100_000, summary: "edited x.ts" },
+  });
+
+  // session archived → next tick prunes it out of the snapshot too
+  store.update(s.id, { status: "archived" });
+  agents = [];
+  clock += 8000;
+  poller.tick();
+  expect(poller.activitySnapshot()).toEqual({});
 });

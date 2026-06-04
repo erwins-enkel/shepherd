@@ -37,6 +37,7 @@ import type { PrCache } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
+import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
@@ -83,6 +84,8 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
+  activity?: { snapshot(): Record<string, SessionActivity> };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
@@ -155,6 +158,13 @@ type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps };
 function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
     return json(deps.prCache?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "activity" && !parts[2]) {
+    return json(deps.activity?.snapshot() ?? {});
   }
   return null;
 }
@@ -1595,6 +1605,7 @@ async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handleGitSnapshot,
+  handleActivitySnapshot,
   handleReviews,
   handleDrain,
   handleRepoConfig,

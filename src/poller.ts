@@ -2,16 +2,22 @@ import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import { mapState, type HerdrDriver, type HerdrAgent } from "./herdr";
 import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
-import { isStalled, readSnapshot, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
+import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
+import { readTranscriptSignals, type SessionActivity } from "./activity-signal";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
+
+/** Both transcript-derived signals from a single read; the unified probe's result. */
+type TranscriptSignals = { snapshot: ActivitySnapshot | null; activity: SessionActivity | null };
 
 export class StatusPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastReadAt = new Map<string, number>();
   private lastSig = new Map<string, string>();
-  private lastStallAt = new Map<string, number>();
+  private lastProbeAt = new Map<string, number>();
+  private lastActivitySig = new Map<string, string>();
+  private lastActivity = new Map<string, SessionActivity>();
 
   constructor(
     private store: SessionStore,
@@ -22,13 +28,22 @@ export class StatusPoller {
     private reclassifyMs = 3000,
     private classify: (text: string) => BlockReason = classifyBlocked,
     private now: () => number = Date.now,
-    /** Latest tool-activity snapshot for a session; defaults to reading its JSONL. */
-    private stallProbe: (s: Session) => ActivitySnapshot | null = (s) =>
-      s.claudeSessionId ? readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId)) : null,
+    /**
+     * Both transcript-derived signals (stall snapshot + activity) for a running
+     * session, from a SINGLE read+parse of its JSONL. Defaults to reading the file;
+     * injectable in tests. One read feeds both the stall decision and the activity
+     * emit, so the transcript is no longer parsed twice per running agent per tick.
+     */
+    private probe: (s: Session) => TranscriptSignals = (s) =>
+      s.claudeSessionId
+        ? readTranscriptSignals(jsonlPathFor(s.worktreePath, s.claudeSessionId))
+        : { snapshot: null, activity: null },
     private stallCfg = DEFAULT_STALL,
-    private stallCheckMs = 30_000,
+    private probeCheckMs = 7000,
     /** Pushed when a session's manual readyToMerge flag is auto-cleared on resume. */
     private onReady: (id: string, ready: boolean) => void = () => {},
+    /** Pushed when a running session's heartbeat or current activity changes. */
+    private onActivity: (id: string, activity: SessionActivity) => void = () => {},
   ) {}
 
   tick(): void {
@@ -71,38 +86,79 @@ export class StatusPoller {
       this.onReady(s.id, false);
     }
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
-    else if (status === "running") this.maybeStall(s);
+    else if (status === "running") this.maybeProbe(s);
     else this.clearBlock(s.id);
   }
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
   private pruneInactive(activeIds: Set<string>): void {
-    for (const id of this.lastSig.keys()) {
+    const tracked = new Set([
+      ...this.lastSig.keys(),
+      ...this.lastReadAt.keys(),
+      ...this.lastProbeAt.keys(),
+      ...this.lastActivitySig.keys(),
+      ...this.lastActivity.keys(),
+    ]);
+    for (const id of tracked) {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
-        this.lastStallAt.delete(id);
+        this.lastProbeAt.delete(id);
+        this.lastActivitySig.delete(id);
+        this.lastActivity.delete(id);
       }
     }
   }
 
+  /** Last-emitted activity signal per running session, for client bootstrap. */
+  activitySnapshot(): Record<string, SessionActivity> {
+    return Object.fromEntries(this.lastActivity);
+  }
+
   /**
-   * Flag a *working* agent that has gone silent — no new tool-use within the
-   * stall window (a tool still running is excluded until the hung-command
-   * ceiling). Surfaces as a "needs you" reason; fires once until activity
-   * resumes, then re-arms. Throttled to `stallCheckMs` per session.
+   * Unified per-tick probe for a *running* agent: a SINGLE read+parse of its
+   * transcript feeds BOTH the activity signal and the stall decision, replacing
+   * the two redundant whole-file reads we used to do per poll. Throttled to
+   * `probeCheckMs` per session via one `lastProbeAt` map; best-effort (a throwing
+   * probe is logged and skipped until the next cadence).
+   *
+   * Activity: emit the heartbeat/summary signal, deduped by content so clients
+   * only receive genuine changes; a null signal (no transcript yet) is skipped.
+   *
+   * Stall: flag a working agent gone silent — no new tool-use within the stall
+   * window (a tool still running is excluded until the hung-command ceiling).
+   * Surfaces as a "needs you" reason; fires once per episode (guarded by
+   * `lastSig === STALL_SIG`) until activity resumes, then re-arms.
+   *
+   * Note: stall detection now runs at the (faster) `probeCheckMs` cadence rather
+   * than the old 30s stall cadence. This only improves detection latency — the
+   * once-per-episode `lastSig` guard means no extra block emissions, and the
+   * stall *windows* (`stallMs`/`pendingStallMs`) are unchanged.
    */
-  private maybeStall(s: Session): void {
+  private maybeProbe(s: Session): void {
     const t = this.now();
-    if (t - (this.lastStallAt.get(s.id) ?? 0) < this.stallCheckMs) return;
-    this.lastStallAt.set(s.id, t);
-    let snap: ActivitySnapshot | null;
+    if (t - (this.lastProbeAt.get(s.id) ?? 0) < this.probeCheckMs) return;
+    this.lastProbeAt.set(s.id, t);
+    let signals: TranscriptSignals;
     try {
-      snap = this.stallProbe(s);
+      signals = this.probe(s);
     } catch (err) {
-      console.warn(`[poller] stall probe failed for ${s.id}:`, err);
+      console.warn(`[poller] transcript probe failed for ${s.id}:`, err);
       return; // best-effort; retry next cadence
     }
+
+    // ── activity emit (deduped by signal content) ──
+    if (signals.activity) {
+      const sig = JSON.stringify(signals.activity);
+      if (sig !== this.lastActivitySig.get(s.id)) {
+        this.lastActivitySig.set(s.id, sig);
+        this.lastActivity.set(s.id, signals.activity);
+        this.onActivity(s.id, signals.activity);
+      }
+    }
+
+    // ── stall decision (identical to the former maybeStall) ──
+    const snap = signals.snapshot;
     if (!snap || !isStalled(snap, t, this.stallCfg)) {
       this.clearBlock(s.id); // activity resumed (or never stalled) → re-arm
       return;
@@ -138,9 +194,9 @@ export class StatusPoller {
 
   /**
    * Manually clear a *stall* flag without re-arming it: broadcasts the clear but
-   * keeps `lastSig` so `maybeStall`'s once-per-episode guard suppresses an
+   * keeps `lastSig` so `maybeProbe`'s once-per-episode guard suppresses an
    * immediate re-fire. The episode re-arms on its own when activity resumes
-   * (the `!isStalled` path in `maybeStall` calls `clearBlock`), so a later
+   * (the `!isStalled` path in `maybeProbe` calls `clearBlock`), so a later
    * genuine stall still surfaces. No-op (returns false) unless a stall is live.
    */
   acknowledgeStall(id: string): boolean {

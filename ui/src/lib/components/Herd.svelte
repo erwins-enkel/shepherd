@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, GitState } from "$lib/types";
+  import type { Session, GitState, SessionActivity } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions } from "./herd-partition";
@@ -13,6 +13,7 @@
     onselect,
     onnew,
     git,
+    activity,
     ondecommission,
     onclearmerged = undefined,
     standardCommandUnset = false,
@@ -24,6 +25,7 @@
     onselect: (id: string) => void;
     onnew: () => void;
     git: Record<string, GitState>;
+    activity: Record<string, SessionActivity>;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, the merged group header gains a "clear all" action
@@ -82,6 +84,7 @@
           {nowMs}
           {onselect}
           git={git[session.id]}
+          activity={activity[session.id]}
           {ondecommission}
         />
       {/each}
@@ -96,6 +99,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -111,6 +115,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -126,6 +131,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -141,6 +147,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -154,6 +161,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -177,6 +185,7 @@
             {nowMs}
             {onselect}
             git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}

@@ -13,6 +13,7 @@
     getUpdateLog,
     getHerdrUpdate,
     gitStates,
+    activityStates,
     getBacklog,
     getSettings,
     listBranches,
@@ -148,6 +149,9 @@
       .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
+      .catch(() => {});
+    activityStates()
+      .then((m) => store.setActivity(m))
       .catch(() => {});
     getBacklog()
       .then((p) => (backlog = p))
@@ -334,6 +338,9 @@
       .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
+      .catch(() => {});
+    activityStates()
+      .then((m) => store.setActivity(m))
       .catch(() => {});
     getDrain()
       .then((l) => store.setDrain(l))
@@ -585,6 +592,7 @@
             onselect={(id) => selectUnit(id)}
             onnew={() => (showNew = true)}
             git={store.git}
+            activity={store.activity}
             ondecommission={onarchive}
             {onclearmerged}
             {standardCommandUnset}
@@ -649,6 +657,7 @@
           onselect={(id) => selectUnit(id)}
           onnew={() => (showNew = true)}
           git={store.git}
+          activity={store.activity}
           {onclearmerged}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}

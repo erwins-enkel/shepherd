@@ -126,10 +126,11 @@ const poller = new StatusPoller(
   undefined, // reclassifyMs
   undefined, // classify
   undefined, // now
-  undefined, // stallProbe
+  undefined, // probe
   undefined, // stallCfg
-  undefined, // stallCheckMs
+  undefined, // probeCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
+  (id, activity) => events.emit("session:activity", { id, activity }),
 );
 poller.start();
 
@@ -422,6 +423,7 @@ const server = serve(
     herdr,
     resolveForge,
     prCache: prPoller,
+    activity: { snapshot: () => poller.activitySnapshot() },
     push,
     presence,
     poller,

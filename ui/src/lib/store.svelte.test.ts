@@ -1,7 +1,7 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
-import type { BacklogPayload, DrainStatus, GitState, Session } from "./types";
+import type { BacklogPayload, DrainStatus, GitState, Session, SessionActivity } from "./types";
 
 const GIT: GitState = {
   kind: "github",
@@ -335,4 +335,33 @@ test("drain:status overwrites a previous entry for the same repoPath", () => {
   s.setDrain([DRAIN]);
   s.apply({ event: "drain:status", data: { ...DRAIN, queued: 0, inFlight: 0 } });
   expect(s.drain["/r"]?.queued).toBe(0);
+});
+
+// ── session:activity ───────────────────────────────────────────────────────
+
+const ACTIVITY: SessionActivity = { lastActivityTs: 1000, summary: "edited poller.ts" };
+
+test("session:activity populates the activity map for that session", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:activity", data: { id: "s1", activity: ACTIVITY } });
+  expect(s.activity["s1"]?.lastActivityTs).toBe(1000);
+  expect(s.activity["s1"]?.summary).toBe("edited poller.ts");
+});
+
+test("session:activity replaces an existing entry (latest wins)", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:activity", data: { id: "s1", activity: ACTIVITY } });
+  const updated: SessionActivity = { lastActivityTs: 2000, summary: "$ bun test" };
+  s.apply({ event: "session:activity", data: { id: "s1", activity: updated } });
+  expect(s.activity["s1"]?.lastActivityTs).toBe(2000);
+  expect(s.activity["s1"]?.summary).toBe("$ bun test");
+});
+
+test("session:archived drops the activity entry for that session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({ event: "session:activity", data: { id: "s1", activity: ACTIVITY } });
+  expect(s.activity["s1"]).toBeDefined();
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.activity["s1"]).toBeUndefined();
 });

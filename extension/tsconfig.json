@@ -12,6 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "sourceMap": true,
+    "noEmit": true,
     "strict": true,
     "types": ["chrome", "vite/client"],
     "verbatimModuleSyntax": true

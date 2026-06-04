@@ -217,21 +217,26 @@ export class HerdrUpdateService {
       `[herdr-update] applying ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
         `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
     );
-    this.maintenance.begin();
     void this.runOnce();
     return { started: true };
   }
 
   /** Background body of apply(): run the update under a watchdog, decide success
    *  from a re-read version, emit status + a terminal result, and ALWAYS clear
-   *  maintenance + the applying guard in finally. */
+   *  maintenance + the applying guard in finally. begin() lives INSIDE the try so
+   *  its matching end() is guaranteed by the finally even if a prologue step throws
+   *  — a stranded maintenance flag would otherwise freeze every herdr loop for the
+   *  life of the process. It runs synchronously (before the first await), so the
+   *  gate is active the instant apply() returns. */
   private async runOnce(): Promise<void> {
     const from = this.last?.current ?? null;
     const to = this.last?.latest ?? null;
-    const ctrl = new AbortController();
-    const watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
     let result: HerdrUpdateResult;
     try {
+      this.maintenance.begin();
+      const ctrl = new AbortController();
+      watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
       await this.runUpdate((line) => this.onLog(line), ctrl.signal);
       if (ctrl.signal.aborted) {
         result = { ok: false, from, to, error: "herdr update timed out" };
@@ -247,9 +252,12 @@ export class HerdrUpdateService {
           error: ok ? undefined : "herdr was not updated",
         };
         this.onStatus(this.last);
+        // On failure, report the version we're ACTUALLY on: `after` (the re-read
+        // installed version), or `from` (last-known-good) if that read failed —
+        // never the target `to`, which we know we are NOT on.
         result = ok
           ? { ok: true, from, to }
-          : { ok: false, from, to: after ?? to, error: "herdr was not updated" };
+          : { ok: false, from, to: after ?? from, error: "herdr was not updated" };
       }
     } catch (err) {
       result = {

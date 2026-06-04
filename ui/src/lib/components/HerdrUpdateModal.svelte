@@ -113,11 +113,15 @@
   >
     <div class="chead">
       <span class="micro">{m.herdrupdate_title()}</span>
-      {#if !busy}
-        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-          >✕</button
-        >
-      {/if}
+      <!-- The ✕ is ALWAYS available as a deliberate escape hatch: the update runs
+           server-side in a managed child independent of this modal, so dismissing
+           never cancels it. Without this, a missed `done` event (e.g. the WS drops
+           mid-update and reconnects after it fired) would trap the operator in the
+           busy state — shepherd no longer restarts, so there's no forced reload to
+           rescue them. Backdrop/Esc stay gated on !busy to avoid accidental close. -->
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+        >✕</button
+      >
     </div>
 
     {#if update.current && update.latest}

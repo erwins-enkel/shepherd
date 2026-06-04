@@ -549,6 +549,14 @@ export async function broadcast(
   return r.json();
 }
 
+/** Fleet-wide emergency stop: interrupt every live working agent at once. No body —
+ *  the server computes the target set. Returns how many panes were halted. */
+export async function halt(): Promise<{ halted: number }> {
+  const r = await fetch("/api/halt", { method: "POST" });
+  if (!r.ok) throw await failed(r, "halt");
+  return r.json();
+}
+
 export async function getProjectIcons(): Promise<ProjectIcons> {
   const r = await fetch("/api/project-icons");
   if (!r.ok) throw await failed(r, "project-icons");

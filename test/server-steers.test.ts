@@ -3,12 +3,15 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
 
-function harness(broadcast?: (ids: string[], text: string) => { sent: number; total: number }) {
+function harness(
+  broadcast?: (ids: string[], text: string) => { sent: number; total: number },
+  haltAll?: () => { halted: number },
+) {
   const store = new SessionStore(":memory:");
   const deps: AppDeps = {
     store,
     events: new EventHub(),
-    service: { broadcast } as any,
+    service: { broadcast, haltAll } as any,
     usageLimits: { limits: () => ({}) } as any,
   };
   return { app: makeApp(deps), store };
@@ -71,4 +74,32 @@ test("POST /api/broadcast rejects a bad body with 400", async () => {
   const { app } = harness(() => ({ sent: 0, total: 0 }));
   const res = await app.fetch(jsonReq("/api/broadcast", "POST", { text: "", ids: [] }));
   expect(res.status).toBe(400);
+});
+
+test("POST /api/halt fires the fleet-wide stop and returns the halted count", async () => {
+  let calls = 0;
+  const { app } = harness(undefined, () => {
+    calls++;
+    return { halted: 3 };
+  });
+  const res = await app.fetch(new Request("http://x/api/halt", { method: "POST" }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ halted: 3 });
+  expect(calls).toBe(1);
+});
+
+test("GET /api/halt returns an explicit 405 (POST-only)", async () => {
+  const { app } = harness(undefined, () => ({ halted: 0 }));
+  const res = await app.fetch(new Request("http://x/api/halt"));
+  expect(res.status).toBe(405);
+  expect((await res.json()).error).toBe("method not allowed");
+});
+
+test("POST /api/halt surfaces a herdr-unreachable failure as a 500 (not a fake success)", async () => {
+  const { app } = harness(undefined, () => {
+    throw new Error("herdr down");
+  });
+  const res = await app.fetch(new Request("http://x/api/halt", { method: "POST" }));
+  expect(res.status).toBe(500);
+  expect((await res.json()).error).toBe("herdr down");
 });

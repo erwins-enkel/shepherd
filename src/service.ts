@@ -388,6 +388,45 @@ export class SessionService {
     return { sent, total: ids.length };
   }
 
+  /**
+   * Fleet-wide emergency stop: interrupt every live, actively-working agent at once.
+   * Sends a single ESC — the Claude Code interrupt key — to each pane whose herdr
+   * agent reports `working`, halting the current turn WITHOUT clearing its input or
+   * quitting it (a lone ESC, no bracketed paste, no trailing CR — the opposite of a
+   * steer). Idle / blocked / done agents, dead panes, archived sessions and the
+   * ephemeral usage probe are all left untouched: only ACTIVE sessions are matched
+   * against the live agent set (so the probe — never a stored session — and archived
+   * rows fall out), and of those only the ones reporting `working` are hit. Auto-spawned
+   * (drain) sessions are included BY DESIGN — a misfiring autopilot is exactly what this
+   * stops. Lists herdr's agents ONCE up front (like broadcast) so a wide fan-out makes a
+   * single `agent list` call, not one per target. Emits `halt:done {halted}` so every
+   * connected operator sees the reach.
+   *
+   * Throws (→ HTTP 500 → the UI surfaces halt_failed + Retry) when herdr can't even be
+   * listed: a swallowed failure would emit a success-looking `halt:done {halted:0}`,
+   * indistinguishable from "nothing was working" — a silent no-op at the worst moment.
+   */
+  haltAll(): { halted: number } {
+    const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
+    const sessions = this.deps.store.list({ activeOnly: true });
+    let halted = 0;
+    for (const agent of matchAgents(sessions, agents).values()) {
+      if (agent?.agentStatus !== "working") continue;
+      // Best-effort: a pane that died between `list` and `send` (or any single send
+      // throwing) must NOT abort the sweep — keep interrupting the rest. Count only the
+      // interrupts that actually landed; best-effort reach is the point of an e-stop.
+      try {
+        this.deps.herdr.send(agent.terminalId, "\x1b");
+        halted++;
+      } catch {
+        /* dead / raced pane — skip it, the herd-wide stop carries on */
+      }
+    }
+    const result = { halted };
+    this.deps.events?.emit("halt:done", result);
+    return result;
+  }
+
   /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so
    *  callers treat an unlisted agent as a dead pane (the steer won't land). */
   private liveTerminalIds(): Set<string> {

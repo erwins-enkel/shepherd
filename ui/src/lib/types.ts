@@ -336,7 +336,8 @@ export type WsEvent =
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "learnings:update"; data: { pending: number } }
   | { event: "backlog:update"; data: BacklogPayload }
-  | { event: "drain:status"; data: DrainStatus };
+  | { event: "drain:status"; data: DrainStatus }
+  | { event: "halt:done"; data: { halted: number } };
 
 export interface CreateInput {
   repoPath: string;

@@ -211,6 +211,14 @@ export class HerdStore {
       case "drain:status":
         this.drain = { ...this.drain, [ev.data.repoPath]: ev.data };
         break;
+      case "halt:done":
+        // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the
+        // event fans out to all clients, not just the one who fired it). The undo toast
+        // that armed the halt is a different tone+key ('halt-herd'), so this is the only
+        // "Halted N" toast; the 'halt-done' key just dedupes back-to-back halts (and the
+        // echo to the firing client) into one row instead of stacking.
+        toasts.info(m.halt_done({ count: ev.data.halted }), { key: "halt-done" });
+        break;
     }
   }
 

@@ -31,8 +31,9 @@
 
 <style>
   /* 24 equal cells; intensity via opacity on currentColor, so it follows the
-     theme's running-green. No motion — StatusPip already pulses (matches the
-     prior Heartbeat.svelte decision). */
+     theme's running-status hue (--status-running, amber in Shepherd) — same
+     colour the StatusPip and the prior Heartbeat dot used. No motion — the
+     StatusPip already pulses (matches the prior Heartbeat.svelte decision). */
   .strip {
     display: inline-flex;
     align-items: stretch;

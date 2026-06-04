@@ -131,6 +131,8 @@
   "feat_auto_address_body": "Kritiker-Befunde gehen direkt zurück an den Agenten, der sie behebt und pusht, bis der Kritiker zufrieden ist oder das Runden-Limit erreicht wird.",
   "feat_learnings_title": "Hausregeln für Agenten",
   "feat_learnings_body": "Destillierte Hausregeln aus früherer Agentenaktivität werden in jede neue Agent-Session injiziert, damit die Konventionen deines Teams automatisch weitergegeben werden.",
+  "feat_halt_title": "Herde stoppen",
+  "feat_halt_body": "Ein einzelner roter Not-Stopp in der oberen Leiste bringt die ganze Herde zum Stehen — bestätige ihn, und der aktuelle Zug jedes laufenden Agenten wird auf einmal unterbrochen. Deine jederzeit erreichbare Notbremse, wenn die Herde anhalten muss.",
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",
   "gitrail_send_review_reviewing_title": "Critic prüft erneut — diese Anmerkungen werden gerade neu validiert",

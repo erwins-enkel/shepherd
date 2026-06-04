@@ -37,4 +37,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_learnings_body",
     targetId: "learnings",
   },
+  {
+    id: "halt-the-herd",
+    sinceVersion: "1.15.0",
+    titleKey: "feat_halt_title",
+    bodyKey: "feat_halt_body",
+  },
 ];

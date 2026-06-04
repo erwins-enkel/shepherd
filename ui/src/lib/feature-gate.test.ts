@@ -81,13 +81,18 @@ describe("computeNewEntries", () => {
     expect(computeNewEntries("1.9.0", "1.10.0", [])).toEqual([]);
   });
 
-  it("real catalog: upgrade from 1.9.0 → 1.10.0 shows all three seed entries", () => {
-    // sinceVersion "1.10.0" <= current "1.10.0" → included (upper-bound is inclusive)
+  it("real catalog: upgrade from 1.9.0 → 1.10.0 shows the three 1.10.0 seed entries", () => {
+    // sinceVersion "1.10.0" <= current "1.10.0" → included (upper-bound is inclusive);
+    // later entries (e.g. the 1.15.0 halt-the-herd e-stop) are future-dated → excluded.
     const result = computeNewEntries("1.9.0", "1.10.0", featureAnnouncements);
     expect(result.map((e) => e.id)).toEqual(
       expect.arrayContaining(["critic", "auto-address", "learnings"]),
     );
-    expect(result).toHaveLength(featureAnnouncements.length);
+    // exactly the entries whose sinceVersion falls in (1.9.0, 1.10.0]
+    expect(result).toHaveLength(
+      featureAnnouncements.filter((e) => e.sinceVersion === "1.10.0").length,
+    );
+    expect(result.find((e) => e.id === "halt-the-herd")).toBeUndefined();
   });
 });
 

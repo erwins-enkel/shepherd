@@ -271,28 +271,31 @@
           : m.updatemodal_commits_other()}"
       >
         <span class="up-dot">▲</span>
-        {#if !mobile}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
+        {#if !mobile && !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
         <span class="up-n">{update!.behind}</span>
       </button>
     {/if}
     <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         (green dot below) to free a slot in the single-row control cluster. -->
+         (green dot below) to free a slot in the single-row control cluster. The
+         touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
+         it named) so two stacked update badges still fit. -->
     {#if herdrUpdateAvailable && !mobile}
       <button
         class="update-badge herdr"
         onclick={() => onherdrupdate?.()}
+        aria-label={m.topbar_herdr_update_badge()}
         title={m.topbar_herdr_update_title({
           current: herdrUpdate!.current ?? "?",
           latest: herdrUpdate!.latest ?? "?",
         })}
       >
         <span class="up-dot">▲</span>
-        <span class="up-label">{m.topbar_herdr_update_badge()}</span>
+        {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
       </button>
     {/if}
     {#if whatsNew}
       <!-- Desktop: labelled button with hover-tip; Mobile (and the touch-desktop
-           update-badge crunch) collapse to dot-only to avoid crowding the
+           multi-badge crunch) collapse to dot-only to avoid crowding the
            single-row control cluster (mirrors .gear-dot pattern). -->
       {#if !mobile && !compactBadges}
         <button

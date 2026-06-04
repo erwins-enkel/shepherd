@@ -34,10 +34,10 @@ function commit(subject: string) {
 }
 
 /** Run the gate with BASE_REF=main (no remote needed). Returns {code, out}. */
-function runGate(): { code: number; out: string } {
+function runGate(base = "main"): { code: number; out: string } {
   const r = spawnSync("bash", [SCRIPT], {
     cwd: repo,
-    env: { ...GIT_ENV, BASE_REF: "main" },
+    env: { ...GIT_ENV, BASE_REF: base },
     encoding: "utf8",
   });
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
@@ -131,4 +131,13 @@ test("feat! breaking-change syntax is recognized", () => {
   writeRepoFile("ui/src/routes/+page.svelte", "<div>x</div>\n");
   commit("feat!: breaking ui change");
   expect(runGate().code).toBe(1);
+});
+
+test("unresolvable base ref → fails closed (no silent vacuous pass)", () => {
+  // A feat that would otherwise sail through if the base couldn't be resolved.
+  writeRepoFile("ui/src/lib/components/Widget.svelte", "<div>hi</div>\n");
+  commit("feat(ui): add widget");
+  const { code, out } = runGate("definitely-not-a-ref");
+  expect(code).toBe(1);
+  expect(out).toContain("could not be resolved");
 });

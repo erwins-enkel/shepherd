@@ -42,6 +42,17 @@ UI_GLOBS=("ui/src/lib/components/" "ui/src/routes/")
 # Make sure we actually have the base ref to diff against (CI shallow clones).
 git fetch --quiet origin main 2>/dev/null || true
 
+# Fail CLOSED if the base can't be resolved. Every git call below swallows errors
+# (|| true), so an unresolvable ${BASE} would otherwise yield zero feat commits and
+# wave the WHOLE PR through on a silent vacuous pass — defeating the gate. Demand
+# the ref instead. (rev-parse reads local refs, so this still passes offline once
+# origin/main has ever been fetched; it only bites a genuinely base-less checkout.)
+if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null 2>&1; then
+  echo "✗ feature catalog: base ref '${BASE}' could not be resolved — refusing a vacuous pass." >&2
+  echo "  Fetch it first (e.g. \`git fetch origin main\`), or set \$BASE_REF to a local base." >&2
+  exit 1
+fi
+
 # `base..HEAD` = commits introduced by this branch; `base...HEAD` (diff) =
 # changes vs the merge-base, so unrelated main churn never counts.
 feat_commits="$(git log --format='%s' "${BASE}..HEAD" 2>/dev/null | grep -E '^feat(\(.*\))?!?:' || true)"

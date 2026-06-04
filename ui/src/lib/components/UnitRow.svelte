@@ -10,7 +10,7 @@
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
-  import Heartbeat from "./Heartbeat.svelte";
+  import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
   import { reviews } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
@@ -148,7 +148,7 @@
       </div>
       {#if live}
         <div class="u-activity">
-          <Heartbeat {activity} {nowMs} />
+          <HeartbeatStrip {activity} {nowMs} />
           {#if summary}
             <span class="act-sep" aria-hidden="true">·</span>
             <span class="act-sum" title={summary}>{summary}</span>
@@ -523,6 +523,10 @@
     .act-sep,
     .meta-stepper {
       display: none;
+    }
+    /* the strip IS the heartbeat here — keep it, just narrower */
+    :global(.strip) {
+      width: 64px;
     }
   }
 </style>

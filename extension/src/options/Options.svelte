@@ -1,6 +1,6 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
-  import { DEFAULT_CONFIG, loadConfig, saveConfig } from "../lib/config";
+  import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
   import type { CaptureConfig } from "../lib/types";
 
@@ -14,7 +14,10 @@
 
   const models: CaptureConfig["model"][] = ["default", "opus", "sonnet", "haiku"];
 
-  // Console + network share one recorder behind one <all_urls> permission.
+  // Signal toggles persist immediately (only the signals sub-object, via
+  // saveSignals — so they don't flush unsaved edits to the text fields, which
+  // persist on Save). Console + network share one recorder behind one <all_urls>
+  // permission.
   async function toggleRecorder(e: Event) {
     const wanted = (e.target as HTMLInputElement).checked;
     recorderDenied = false;
@@ -36,7 +39,12 @@
       config.signals.console = false;
       config.signals.network = false;
     }
-    await saveConfig(config);
+    await saveSignals(config.signals);
+  }
+
+  async function toggleA11y(e: Event) {
+    config.signals.a11y = (e.target as HTMLInputElement).checked;
+    await saveSignals(config.signals);
   }
 
   async function onSave(e: Event) {
@@ -112,7 +120,7 @@
       {/if}
 
       <label class="flex items-center gap-2">
-        <input type="checkbox" bind:checked={config.signals.a11y} />
+        <input type="checkbox" checked={config.signals.a11y} onchange={toggleA11y} />
         <span>{m.options_signals_a11y_label()}</span>
       </label>
     </fieldset>

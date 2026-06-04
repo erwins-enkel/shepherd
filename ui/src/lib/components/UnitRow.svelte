@@ -430,6 +430,44 @@
     text-overflow: ellipsis;
   }
 
+  /* Pointer-capable devices: the heartbeat is the priority glance signal, so it
+     claims the whole activity line by default; the verbatim current-tool summary
+     is demoted to a hover/focus reveal — it expands inline and the strip yields
+     width to it (flex), so the line never grows taller. Touch has no hover, so
+     the base rules above keep the summary always visible there. Kept before the
+     narrow-sidebar @container block so that block's overrides still win. */
+  @media (hover: hover) {
+    .u-activity {
+      max-width: none;
+      gap: 0;
+    }
+    .u-activity :global(.strip) {
+      flex: 1 1 auto;
+      width: auto;
+      max-width: none;
+    }
+    .act-sep {
+      display: none;
+    }
+    .act-sum {
+      max-width: 0;
+      opacity: 0;
+      transition:
+        max-width 0.18s ease,
+        opacity 0.14s ease;
+    }
+    .unit:hover .act-sep,
+    .unit:focus-visible .act-sep {
+      display: inline;
+      margin: 0 5px;
+    }
+    .unit:hover .act-sum,
+    .unit:focus-visible .act-sum {
+      max-width: 34ch;
+      opacity: 1;
+    }
+  }
+
   .car {
     color: var(--color-amber);
     /* functional in-progress motion — exempt from the reduced-motion blanket (app.css) */
@@ -524,9 +562,19 @@
     .meta-stepper {
       display: none;
     }
+    /* the hover-reveal block above un-hides the separator on :hover/:focus with
+       higher specificity (0,3,0 > 0,1,0); re-suppress it here (same specificity,
+       later in source → wins) so a hovered narrow row doesn't show a dangling
+       "·" with no summary after it. */
+    .unit:hover .act-sep,
+    .unit:focus-visible .act-sep {
+      display: none;
+    }
     /* the strip IS the heartbeat here — keep it, just narrower. Scoped under
-       .u-activity so the override can't leak to a future global .strip. */
+       .u-activity so the override can't leak to a future global .strip. flex:none
+       overrides the hover-device grow above so the narrow strip stays at 64px. */
     .u-activity :global(.strip) {
+      flex: none;
       width: 64px;
     }
   }

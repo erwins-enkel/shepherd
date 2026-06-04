@@ -106,6 +106,13 @@
       alt={m.popup_screenshot_alt()}
     />
 
+    <div class="flex flex-col gap-0.5 text-xs text-gray-500">
+      <span class="text-gray-600">{m.popup_metadata_label()}</span>
+      <span class="truncate font-mono" title={capture.metadata.url}>{capture.metadata.url}</span>
+      <span class="truncate">{capture.metadata.title}</span>
+      <span>{capture.metadata.viewportW}×{capture.metadata.viewportH}</span>
+    </div>
+
     <label class="flex flex-col gap-1">
       <span class="text-gray-600">{m.popup_prompt_label()}</span>
       <textarea

@@ -27,7 +27,7 @@
         class="rounded border border-gray-300 px-2 py-1"
         type="url"
         bind:value={config.baseUrl}
-        placeholder="http://localhost:7330"
+        placeholder={m.options_baseurl_placeholder()}
       />
     </label>
 
@@ -47,7 +47,7 @@
         class="rounded border border-gray-300 px-2 py-1"
         type="text"
         bind:value={config.repoPath}
-        placeholder="~/Work/my-repo"
+        placeholder={m.options_repopath_placeholder()}
       />
     </label>
 

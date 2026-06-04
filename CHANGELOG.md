@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.16.0](https://github.com/erwins-enkel/shepherd/compare/v1.15.0...v1.16.0) (2026-06-04)
+
+
+### Features
+
+* **announce:** catalog entry for halt-the-herd e-stop ([#327](https://github.com/erwins-enkel/shepherd/issues/327)) ([#328](https://github.com/erwins-enkel/shepherd/issues/328)) ([157a32e](https://github.com/erwins-enkel/shepherd/commit/157a32e6790fbfc6458d588cea5ff2f64044eac2))
+* **extension:** Shepherd Capture browser extension — Phase 1 MVP ([#308](https://github.com/erwins-enkel/shepherd/issues/308)) ([#336](https://github.com/erwins-enkel/shepherd/issues/336)) ([193e0eb](https://github.com/erwins-enkel/shepherd/commit/193e0ebbd773f52029d6fd506bd05cce08ccf06a))
+
+
+### Bug Fixes
+
+* **gitrail:** make critic verdict chip a real touch target on compact rail ([#329](https://github.com/erwins-enkel/shepherd/issues/329)) ([c305330](https://github.com/erwins-enkel/shepherd/commit/c3053300c935a6d71c9ed3b964eb93433590cec7))
+* **gitrail:** match Ready toggle height to Reviewed chip on touch rail ([#333](https://github.com/erwins-enkel/shepherd/issues/333)) ([79b20d2](https://github.com/erwins-enkel/shepherd/commit/79b20d2f688759297026fd18a8738bba5f606ecb))
+* **ui:** full-width heartbeat on touch too; command stays hover-only ([#335](https://github.com/erwins-enkel/shepherd/issues/335)) ([b4e8360](https://github.com/erwins-enkel/shepherd/commit/b4e83604e50d149817da61e837dd008a92adeedd))
+* **ui:** full-width heartbeat strip; cmd snippet on hover ([#332](https://github.com/erwins-enkel/shepherd/issues/332)) ([87846ff](https://github.com/erwins-enkel/shepherd/commit/87846ffc85e7284da156ca65c84cc504f031782e))
+* **ui:** move halt e-stop into the gear menu ([#337](https://github.com/erwins-enkel/shepherd/issues/337)) ([c057aa1](https://github.com/erwins-enkel/shepherd/commit/c057aa191d45f53d60e48f96187f4a7b5dda5524))
+* **ui:** quiet halt button + two-step arm→confirm ([#330](https://github.com/erwins-enkel/shepherd/issues/330)) ([dd4452b](https://github.com/erwins-enkel/shepherd/commit/dd4452bd223508ecb073745e85cbb835961bd5fe))
+
 ## [1.15.0](https://github.com/erwins-enkel/shepherd/compare/v1.14.0...v1.15.0) (2026-06-04)
 
 

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { HerdrDriver, mapState } from "../src/herdr";
+import { HerdrDriver, mapState, matchAgent, type HerdrAgent } from "../src/herdr";
 
 const FIXTURE = JSON.stringify({
   result: {
@@ -208,4 +208,45 @@ test("mapState maps herdr states to shepherd status", () => {
   expect(mapState("done")).toBe("done");
   expect(mapState("idle")).toBe("idle");
   expect(mapState("unknown")).toBe("idle");
+});
+
+const mkAgent = (over: Partial<HerdrAgent>) =>
+  ({
+    agent: "claude",
+    agentStatus: "working",
+    cwd: "/wt/a",
+    name: "",
+    paneId: "p",
+    tabId: "t",
+    terminalId: "term_x",
+    workspaceId: "w",
+    ...over,
+  }) as HerdrAgent;
+
+const sess = { herdrAgentId: "term_old", worktreePath: "/wt/a", name: "alpha" };
+
+test("matchAgent: terminalId fast path wins even if cwd differs", () => {
+  const a = mkAgent({ terminalId: "term_old", cwd: "/elsewhere" });
+  expect(matchAgent(sess, [a, mkAgent({ terminalId: "term_x" })])).toBe(a);
+});
+
+test("matchAgent: falls back to a single cwd match and ignores the stale id", () => {
+  const a = mkAgent({ terminalId: "term_new", cwd: "/wt/a" });
+  expect(matchAgent(sess, [a])).toBe(a);
+});
+
+test("matchAgent: cwd shared by 2+ agents → disambiguate by name", () => {
+  const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
+  const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "beta" });
+  expect(matchAgent(sess, [a, b])).toBe(a);
+});
+
+test("matchAgent: cwd ambiguous AND name ambiguous → null", () => {
+  const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
+  const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "alpha" });
+  expect(matchAgent(sess, [a, b])).toBeNull();
+});
+
+test("matchAgent: no terminalId and no cwd match → null", () => {
+  expect(matchAgent(sess, [mkAgent({ terminalId: "t9", cwd: "/other" })])).toBeNull();
 });

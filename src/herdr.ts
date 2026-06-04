@@ -40,6 +40,27 @@ export function mapState(s: HerdrState): SessionStatus {
   }
 }
 
+/**
+ * Resolve a session to its live herdr agent by a STABLE key. terminalId is the fast
+ * path but is volatile across a herdr daemon restart, so on a miss we fall back to the
+ * immutable worktree cwd. A cwd shared by 2+ agents (non-isolated same-repo sessions)
+ * is disambiguated by agent name; still ambiguous → no match (never risk mis-pairing).
+ */
+export function matchAgent(
+  s: { herdrAgentId: string; worktreePath: string; name: string },
+  agents: HerdrAgent[],
+): HerdrAgent | null {
+  const byId = agents.find((a) => a.terminalId === s.herdrAgentId);
+  if (byId) return byId;
+  const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
+  if (byCwd.length === 1) return byCwd[0]!;
+  if (byCwd.length > 1) {
+    const byName = byCwd.filter((a) => a.name === s.name);
+    if (byName.length === 1) return byName[0]!;
+  }
+  return null;
+}
+
 export class HerdrDriver {
   constructor(private runner: Runner = defaultRunner) {}
 

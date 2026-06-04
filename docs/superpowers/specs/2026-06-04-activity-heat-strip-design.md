@@ -139,9 +139,8 @@ locale catalogs. Tool summaries pass through verbatim (not translated), as today
 - Tests: `test/activity-signal.test.ts` (recentTs derivation, error tagging,
   window edges); UI component test for bucketing + edge states.
 
-## Open questions
+## Resolved decisions
 
-- Keep `formatAgo`/`heartbeatTone` for the aria-label, or derive label state
-  fresh? (lean: reuse `formatAgo` for the "Ns/Nm ago" part.)
-- 24 cells fixed, or scale cell count to available width? (lean: fixed 24, let
-  CSS scale cell width.)
+- **aria-label** reuses `formatAgo` for the "Ns/Nm ago" portion of the label.
+- **Cell count is fixed at 24**; CSS scales each cell's width to the available
+  space (no dynamic cell count).

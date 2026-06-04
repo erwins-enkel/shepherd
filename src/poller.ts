@@ -5,6 +5,7 @@ import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, type SessionActivity } from "./activity-signal";
+import { maintenance } from "./maintenance";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
@@ -47,6 +48,9 @@ export class StatusPoller {
   ) {}
 
   tick(): void {
+    // herdr is mid-update: don't poll — a list() here would resurrect the herdr
+    // server and (seeing no agents) wrongly reap every live session.
+    if (maintenance.active) return;
     const sessions = this.store.list({ activeOnly: true });
     const matched = matchAgents(sessions, this.herdr.list());
     const activeIds = new Set<string>();

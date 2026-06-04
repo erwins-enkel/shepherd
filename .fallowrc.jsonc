@@ -10,6 +10,9 @@
   //           every test/** file shows up as an "unused file".
   //   UI    = SvelteKit. The svelte plugin auto-detects routes/app shell, but we
   //           list them defensively so the report is stable if discovery changes.
+  //   Ext   = MV3 browser extension (extension/). The background service worker
+  //           + popup/options page mains are loaded by the browser/crxjs via the
+  //           manifest, not statically imported — so they're genuine roots.
   "entry": [
     "src/index.ts",
     "src/pty-attach.mjs",
@@ -26,6 +29,16 @@
     "ui/svelte.config.js",
     "ui/vite.config.ts",
     "ui/scripts/**/*.mjs",
+    "extension/manifest.config.ts",
+    "extension/vite.config.ts",
+    "extension/svelte.config.js",
+    "extension/src/background.ts",
+    "extension/src/popup/main.ts",
+    "extension/src/options/main.ts",
+    "extension/src/app.css",
+    "extension/test/**/*.ts",
+    "extension/scripts/**/*.mjs",
+    "extension/eslint.config.js",
     "eslint.config.js",
     "commitlint.config.js"
   ],

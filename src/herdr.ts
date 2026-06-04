@@ -63,33 +63,52 @@ export function matchAgent(
 
 /**
  * Resolve EVERY active session to its live herdr agent at once, arbitrating
- * cross-session collisions: an agent held by one session via an exact terminalId match
- * is off-limits to another session's cwd fallback, and each agent is adopted by at most
- * one session. Without this, two active sessions sharing a cwd (non-isolated same-repo)
- * would have a dead one steal a live one's agent. Returns sessionId → matched agent
- * (or null). Per-session resolution still goes through `matchAgent`.
+ * cross-session collisions so a dead session can't steal a live sibling's agent.
+ *
+ * Pass 1 — exact terminalId (the stable-within-a-daemon fast path).
+ * Pass 2 — cwd fallback for stale ids (e.g. after a herdr daemon restart). When 2+
+ *   still-unmatched sessions share a cwd (non-isolated same-repo), only an exact
+ *   agent-NAME match is safe. A session that is the SOLE one at its cwd adopts its lone
+ *   agent via `matchAgent` regardless of name, so an isolated session whose name drifted
+ *   from its herdr agent still re-pairs. Each agent is adopted by at most one session.
  */
 export function matchAgents(
   sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
   agents: HerdrAgent[],
 ): Map<string, HerdrAgent | null> {
-  const exactOwner = new Map<string, string>(); // terminalId → owning session id
+  const out = new Map<string, HerdrAgent | null>();
+  const taken = new Set<string>(); // claimed terminalIds
+  const matched = new Set<string>(); // resolved session ids
+
   for (const s of sessions) {
     const a = agents.find((x) => x.terminalId === s.herdrAgentId);
-    if (a) exactOwner.set(a.terminalId, s.id);
+    if (a && !taken.has(a.terminalId)) {
+      out.set(s.id, a);
+      taken.add(a.terminalId);
+      matched.add(s.id);
+    }
   }
-  const taken = new Set<string>();
-  const out = new Map<string, HerdrAgent | null>();
-  for (const s of sessions) {
-    const candidates = agents.filter((a) => {
-      if (taken.has(a.terminalId)) return false;
-      const owner = exactOwner.get(a.terminalId);
-      return owner === undefined || owner === s.id;
-    });
-    const a = matchAgent(s, candidates);
+
+  // Frozen before pass 2 so claim order can't shift contention.
+  const remaining = sessions.filter((s) => !matched.has(s.id));
+  const sessionsPerCwd = new Map<string, number>();
+  for (const s of remaining) {
+    sessionsPerCwd.set(s.worktreePath, (sessionsPerCwd.get(s.worktreePath) ?? 0) + 1);
+  }
+
+  for (const s of remaining) {
+    const candidates = agents.filter((a) => !taken.has(a.terminalId));
+    let a: HerdrAgent | null;
+    if ((sessionsPerCwd.get(s.worktreePath) ?? 0) > 1) {
+      const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+      a = byName.length === 1 ? byName[0]! : null;
+    } else {
+      a = matchAgent(s, candidates);
+    }
     out.set(s.id, a);
     if (a) taken.add(a.terminalId);
   }
+
   return out;
 }
 

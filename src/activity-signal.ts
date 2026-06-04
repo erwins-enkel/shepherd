@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseActivity, latestRecordTs, type ActivityEntry } from "./activity";
-import { snapshotFrom, type ActivitySnapshot } from "./stall";
+import { snapshotFrom, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 
 /** Per-agent liveness + current-activity signal pushed to UI clients. */
 export interface SessionActivity {
@@ -9,6 +9,11 @@ export interface SessionActivity {
   /** Latest *meaningful* tool-use summary, verbatim (e.g. "edited poller.ts",
    *  "$ bun test"); null when the agent has produced no tool-use yet. */
   summary: string | null;
+  /** ms-epoch timestamps of in-window tool-use events (oldest→newest) for the
+   *  row heat-strip. Empty when no recent activity. */
+  recentTs: number[];
+  /** Subset of `recentTs` whose tool-use errored; the client tints those slices red. */
+  recentErrTs: number[];
 }
 
 /**
@@ -36,6 +41,10 @@ export function latestMeaningfulSummary(entries: ActivityEntry[]): string | null
   return entries[entries.length - 1]!.summary;
 }
 
+/** Rolling span the row heat-strip covers. Equals the stall threshold so a
+ *  fully-drained strip coincides with the stall alarm. */
+export const STRIP_WINDOW_MS = DEFAULT_STALL.stallMs;
+
 /**
  * Pure: derive an activity signal from already-parsed tool-use entries plus the
  * newest record ts. Returns null when there's no parseable activity at all
@@ -48,7 +57,15 @@ export function signalFrom(
   const summary = latestMeaningfulSummary(entries);
   // no signal yet — transcript exists but contains no parseable activity
   if (lastActivityTs === 0 && summary === null) return null;
-  return { lastActivityTs, summary };
+  const cutoff = lastActivityTs - STRIP_WINDOW_MS;
+  const recentTs: number[] = [];
+  const recentErrTs: number[] = [];
+  for (const e of entries) {
+    if (e.ts <= 0 || e.ts < cutoff || e.ts > lastActivityTs) continue;
+    recentTs.push(e.ts);
+    if (e.status === "error") recentErrTs.push(e.ts);
+  }
+  return { lastActivityTs, summary, recentTs, recentErrTs };
 }
 
 /** Pure: derive an activity signal from already-read transcript text. */

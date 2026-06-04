@@ -490,7 +490,12 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
   const activities: { id: string; activity: unknown }[] = [];
 
   const clock = 100_000;
-  const signal = { lastActivityTs: 999, summary: "edited poller.ts" };
+  const signal = {
+    lastActivityTs: 999,
+    summary: "edited poller.ts",
+    recentTs: [],
+    recentErrTs: [],
+  };
   const poller = new StatusPoller(
     store,
     runningHerdr as any,
@@ -518,8 +523,13 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
   const activities: unknown[] = [];
 
   let clock = 100_000;
-  const signalA = { lastActivityTs: 1234, summary: "$ bun test" };
-  const signalB = { lastActivityTs: 5678, summary: "wrote config.ts" };
+  const signalA = { lastActivityTs: 1234, summary: "$ bun test", recentTs: [], recentErrTs: [] };
+  const signalB = {
+    lastActivityTs: 5678,
+    summary: "wrote config.ts",
+    recentTs: [],
+    recentErrTs: [],
+  };
   let currentSignal: typeof signalA | typeof signalB = signalA;
 
   const poller = new StatusPoller(
@@ -563,7 +573,15 @@ test("maybeActivity respects activityCheckMs throttle", () => {
   let callCount = 0;
   const probe = () => {
     callCount++;
-    return { snapshot: null, activity: { lastActivityTs: clock, summary: `tick ${callCount}` } };
+    return {
+      snapshot: null,
+      activity: {
+        lastActivityTs: clock,
+        summary: `tick ${callCount}`,
+        recentTs: [],
+        recentErrTs: [],
+      },
+    };
   };
 
   const poller = new StatusPoller(
@@ -654,7 +672,10 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
     () => 100_000,
     () => {
       probeCallCount++;
-      return { snapshot: null, activity: { lastActivityTs: 1, summary: "edited x.ts" } };
+      return {
+        snapshot: null,
+        activity: { lastActivityTs: 1, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
+      };
     },
     DEFAULT_STALL,
     7000,
@@ -699,7 +720,10 @@ test("pruneInactive clears activity tracking for a running-only session that goe
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
+    () => ({
+      snapshot: null,
+      activity: { lastActivityTs: clock, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
+    }),
     DEFAULT_STALL,
     7000,
     () => {},
@@ -761,7 +785,10 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ snapshot: null, activity: { lastActivityTs: clock, summary: "edited x.ts" } }),
+    () => ({
+      snapshot: null,
+      activity: { lastActivityTs: clock, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
+    }),
     DEFAULT_STALL,
     7000,
     () => {},
@@ -770,7 +797,7 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
 
   poller.tick(); // probe emits → caches the signal
   expect(poller.activitySnapshot()).toEqual({
-    [s.id]: { lastActivityTs: 100_000, summary: "edited x.ts" },
+    [s.id]: { lastActivityTs: 100_000, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
   });
 
   // session archived → next tick prunes it out of the snapshot too

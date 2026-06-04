@@ -8,6 +8,7 @@ import {
   signalFrom,
   signalFromText,
   readTranscriptSignals,
+  STRIP_WINDOW_MS,
 } from "../src/activity-signal";
 import type { ActivityEntry } from "../src/activity";
 
@@ -163,7 +164,12 @@ test("signalFrom: null when no activity at all", () => {
 test("signalFrom: heartbeat ts + meaningful summary from parsed entries", () => {
   const entries = [entry("Read", "read a.ts", 1_000), entry("Edit", "edited b.ts", 2_000)];
   const signal = signalFrom(entries, 5_000);
-  expect(signal).toEqual({ lastActivityTs: 5_000, summary: "edited b.ts" });
+  expect(signal).toEqual({
+    lastActivityTs: 5_000,
+    summary: "edited b.ts",
+    recentTs: [1_000, 2_000],
+    recentErrTs: [],
+  });
 });
 
 // ── signalFromText / readTranscriptSignals ────────────────────────────────────
@@ -211,4 +217,48 @@ test("readTranscriptSignals: missing file → both null", () => {
   );
   expect(snapshot).toBeNull();
   expect(activity).toBeNull();
+});
+
+// ── signalFrom: recentTs / recentErrTs windowing ──────────────────────────────
+
+test("signalFrom: recentTs keeps only events within 8min of lastActivityTs", () => {
+  const last = 10_000_000;
+  const entries = [
+    entry("Read", "old", last - 9 * 60_000), // outside 8min window → dropped
+    entry("Read", "in", last - 60_000), // inside
+    entry("Edit", "newer", last - 1_000), // inside
+  ];
+  const signal = signalFrom(entries, last);
+  expect(signal!.recentTs).toEqual([last - 60_000, last - 1_000]);
+  expect(signal!.recentErrTs).toEqual([]);
+});
+
+test("signalFrom: recentErrTs is the subset of recentTs whose tool errored", () => {
+  const last = 10_000_000;
+  const entries = [
+    entry("Bash", "$ ok", last - 30_000, "ok"),
+    entry("Bash", "$ boom", last - 10_000, "error"),
+  ];
+  const signal = signalFrom(entries, last);
+  expect(signal!.recentTs).toEqual([last - 30_000, last - 10_000]);
+  expect(signal!.recentErrTs).toEqual([last - 10_000]);
+});
+
+test("signalFrom: zero-ts entries are excluded from recentTs", () => {
+  const signal = signalFrom([entry("Read", "no ts", 0)], 5_000);
+  expect(signal!.recentTs).toEqual([]);
+});
+
+test("signalFrom: an event exactly STRIP_WINDOW_MS old is kept (half-open window edge)", () => {
+  const last = 10_000_000;
+  const onEdge = last - STRIP_WINDOW_MS; // exactly at the cutoff → included
+  const signal = signalFrom([entry("Read", "edge", onEdge)], last);
+  expect(signal!.recentTs).toEqual([onEdge]);
+});
+
+test("signalFrom: pending entries count in recentTs but never in recentErrTs", () => {
+  const last = 10_000_000;
+  const signal = signalFrom([entry("Bash", "$ in flight", last - 5_000, "pending")], last);
+  expect(signal!.recentTs).toEqual([last - 5_000]);
+  expect(signal!.recentErrTs).toEqual([]);
 });

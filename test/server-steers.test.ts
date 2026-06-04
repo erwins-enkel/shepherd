@@ -88,10 +88,11 @@ test("POST /api/halt fires the fleet-wide stop and returns the halted count", as
   expect(calls).toBe(1);
 });
 
-test("GET /api/halt is not allowed (POST-only)", async () => {
+test("GET /api/halt returns an explicit 405 (POST-only)", async () => {
   const { app } = harness(undefined, () => ({ halted: 0 }));
   const res = await app.fetch(new Request("http://x/api/halt"));
-  expect(res.status).toBe(404);
+  expect(res.status).toBe(405);
+  expect((await res.json()).error).toBe("method not allowed");
 });
 
 test("POST /api/halt surfaces a herdr-unreachable failure as a 500 (not a fake success)", async () => {

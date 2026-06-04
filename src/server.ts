@@ -1208,12 +1208,13 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
 
 // ── halt the herd: interrupt every live working agent at once ──
 function handleHalt({ req, parts, deps }: Ctx): Response | null {
-  if (req.method === "POST" && parts[0] === "api" && parts[1] === "halt" && !parts[2]) {
-    // No body: the server computes the target set (every live `working` pane) itself,
-    // so there is nothing to validate. The shared auth/origin guards still apply.
-    return json(deps.service.haltAll());
-  }
-  return null;
+  if (parts[0] !== "api" || parts[1] !== "halt" || parts[2]) return null;
+  // Explicit 405 (matching handleSessionsClearMerged) rather than falling through to a
+  // generic 404 — the path exists, only the verb is wrong.
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  // No body: the server computes the target set (every live `working` pane) itself,
+  // so there is nothing to validate. The shared auth/origin guards still apply.
+  return json(deps.service.haltAll());
 }
 
 // ── filesystem browser: list sub-directories for the root picker ──

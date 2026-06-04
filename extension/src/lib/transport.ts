@@ -18,6 +18,12 @@ function kindForStatus(status: number): TransportErrorKind {
   if (status === 403) return "origin";
   if (status === 401) return "auth";
   if (status === 413) return "too_large";
+  // 415 is overloaded server-side: uploads → unsupported image type, sessions →
+  // wrong Content-Type. `err_unsupported` ("screenshot format…") only fits the
+  // uploads case, which is the only one reachable here because createSession()
+  // always sends `application/json` (see its header below). If that ever stops
+  // being true, a sessions-415 would surface a misleading message — keep the
+  // Content-Type fixed, or split this kind by request.
   if (status === 415) return "unsupported";
   // 400 is any validation rejection (bad branch, oversized prompt, repo-path
   // confinement, missing upload field, …) — too varied for a fixed message, so
@@ -85,6 +91,9 @@ async function createSession(
   try {
     res = await fetchFn(`${config.baseUrl}/api/sessions`, {
       method: "POST",
+      // Must stay application/json: the server returns 415 for a wrong
+      // Content-Type, which kindForStatus() maps to the uploads-flavored
+      // `err_unsupported` message. See the 415 note there.
       headers: { "Content-Type": "application/json", ...authHeaders(config.token) },
       body: JSON.stringify(payload),
     });

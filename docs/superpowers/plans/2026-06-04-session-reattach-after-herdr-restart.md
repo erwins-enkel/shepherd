@@ -177,26 +177,54 @@ export function matchAgents(
   sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
   agents: HerdrAgent[],
 ): Map<string, HerdrAgent | null> {
-  const exactOwner = new Map<string, string>(); // terminalId → owning session id
+  const out = new Map<string, HerdrAgent | null>();
+  const taken = new Set<string>(); // claimed terminalIds
+  const matched = new Set<string>(); // resolved session ids
+
+  // Pass 1 — exact terminalId (stable-within-a-daemon fast path).
   for (const s of sessions) {
     const a = agents.find((x) => x.terminalId === s.herdrAgentId);
-    if (a) exactOwner.set(a.terminalId, s.id);
+    if (a && !taken.has(a.terminalId)) {
+      out.set(s.id, a);
+      taken.add(a.terminalId);
+      matched.add(s.id);
+    }
   }
-  const taken = new Set<string>();
-  const out = new Map<string, HerdrAgent | null>();
-  for (const s of sessions) {
-    const candidates = agents.filter((a) => {
-      if (taken.has(a.terminalId)) return false;
-      const owner = exactOwner.get(a.terminalId);
-      return owner === undefined || owner === s.id;
-    });
-    const a = matchAgent(s, candidates);
+
+  // Frozen before pass 2 so claim order can't shift contention.
+  const remaining = sessions.filter((s) => !matched.has(s.id));
+  const sessionsPerCwd = new Map<string, number>();
+  for (const s of remaining) {
+    sessionsPerCwd.set(s.worktreePath, (sessionsPerCwd.get(s.worktreePath) ?? 0) + 1);
+  }
+
+  // Pass 2 — cwd fallback for stale ids. When 2+ still-unmatched sessions share a cwd,
+  // only an exact agent-NAME match is safe (else a dead session steals a live sibling's
+  // agent). A SOLE session at its cwd adopts its lone agent via matchAgent regardless of
+  // name, so an isolated session whose name drifted from its agent still re-pairs.
+  for (const s of remaining) {
+    const candidates = agents.filter((a) => !taken.has(a.terminalId));
+    let a: HerdrAgent | null;
+    if ((sessionsPerCwd.get(s.worktreePath) ?? 0) > 1) {
+      const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+      a = byName.length === 1 ? byName[0]! : null;
+    } else {
+      a = matchAgent(s, candidates);
+    }
     out.set(s.id, a);
     if (a) taken.add(a.terminalId);
   }
+
   return out;
 }
 ```
+
+> **Review fix:** the originally-planned `exactOwner`-only version still let a dead
+> session steal a live sibling's agent when **all** terminalIds are stale (the herdr
+> restart case): with no exact owners, a lone same-cwd agent went to whichever session
+> iterated first, ignoring the name. The version above name-disambiguates whenever
+> sessions contend for a cwd, while a sole session still adopts its lone agent regardless
+> of name (so a renamed isolated session re-pairs).
 
 - [ ] **Step 4:** Run `bun test ./test/herdr.test.ts` — expect PASS (matchAgent + matchAgents + pre-existing all green).
 

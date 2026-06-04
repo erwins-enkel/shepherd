@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.14.0](https://github.com/erwins-enkel/shepherd/compare/v1.13.0...v1.14.0) (2026-06-04)
+
+
+### Features
+
+* **herdr-update:** update herdr without restarting shepherd (no more 502) ([#314](https://github.com/erwins-enkel/shepherd/issues/314)) ([9218f5a](https://github.com/erwins-enkel/shepherd/commit/9218f5a7213006ded08c71160bcfa4ebf3fa2f1d))
+* **learnings:** evidence provenance + drawer readability + 💡 badge ([#319](https://github.com/erwins-enkel/shepherd/issues/319)) ([799b9d2](https://github.com/erwins-enkel/shepherd/commit/799b9d25b95603a9f9c9cc62d1b70255b76188a1))
+* **ui:** per-agent activity heat-strip on session rows ([#316](https://github.com/erwins-enkel/shepherd/issues/316)) ([d8dbd14](https://github.com/erwins-enkel/shepherd/commit/d8dbd148c7f7de4a8c635fe1efd3aadcf04be267))
+
+
+### Bug Fixes
+
+* reattach sessions to herdr agents after a daemon restart ([#317](https://github.com/erwins-enkel/shepherd/issues/317)) ([b30d06a](https://github.com/erwins-enkel/shepherd/commit/b30d06ac3c62db983546f01da054e8d2fd90dd48))
+* **ui:** show REVIEWING (not stale CHANGES) while the critic re-reviews ([#320](https://github.com/erwins-enkel/shepherd/issues/320)) ([b7b226f](https://github.com/erwins-enkel/shepherd/commit/b7b226f29bd209528fb68a501dd6c2cbcf822f23))
+* **ui:** update modals — no row overlap on expand, full-height mobile sheet ([#318](https://github.com/erwins-enkel/shepherd/issues/318)) ([7686d14](https://github.com/erwins-enkel/shepherd/commit/7686d14c60a48ea156ddaea35e28d02bde7a195e))
+
 ## [1.13.0](https://github.com/erwins-enkel/shepherd/compare/v1.12.0...v1.13.0) (2026-06-04)
 
 

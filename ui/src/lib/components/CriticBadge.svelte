@@ -1,24 +1,24 @@
 <script lang="ts">
   import { reviews } from "$lib/reviews.svelte";
-  import { criticBadgeLabel, addressRoundInfo } from "./critic-badge";
+  import { criticChip, addressRoundInfo } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { sessionId }: { sessionId: string } = $props();
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
-  const label = $derived(criticBadgeLabel(verdict));
+  const chip = $derived(criticChip(verdict, reviewing));
   const round = $derived(addressRoundInfo(verdict, clock.current));
 </script>
 
-{#if reviewing}
+{#if chip.kind === "reviewing"}
   <span class="critic-badge critic-reviewing" title={m.criticbadge_reviewing_title()}>
     <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
   </span>
-{:else if label}
+{:else if chip.kind === "verdict"}
   <span
-    class="critic-badge critic-{verdict!.decision}"
-    title={verdict!.summary || m.criticbadge_title()}>{label}</span
+    class="critic-badge critic-{chip.decision}"
+    title={verdict!.summary || m.criticbadge_title()}>{chip.label}</span
   >
 {/if}
 {#if round}

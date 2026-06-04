@@ -6,7 +6,7 @@
 {#if toasts.items.length}
   <div class="toasts" aria-live="polite" aria-atomic="false">
     {#each toasts.items as t (t.id)}
-      <div class="toast" class:is-undo={t.tone === "undo"} role="status">
+      <div class="toast" class:is-undo={t.tone === "undo"} role={t.alert ? "alert" : "status"}>
         <span class="msg">{t.text}</span>
         {#if t.tone === "undo"}
           <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>
@@ -66,7 +66,7 @@
   }
   .msg {
     color: var(--color-ink-bright);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     letter-spacing: 0.02em;
   }
   .undo {
@@ -78,7 +78,7 @@
     border-radius: 2px;
     color: var(--color-amber);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 5px 10px;
@@ -107,7 +107,7 @@
     border: 0;
     color: var(--color-muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--fs-base);
     cursor: pointer;
     padding: 2px 4px;
   }

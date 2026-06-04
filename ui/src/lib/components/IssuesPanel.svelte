@@ -119,7 +119,7 @@
 
   .issues-header {
     padding: 6px 12px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -164,7 +164,7 @@
   }
 
   .issue-num {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     flex-shrink: 0;
     text-decoration: none;
@@ -177,7 +177,7 @@
 
   .issue-title {
     flex: 1;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-ink);
     line-height: 1.4;
     word-break: break-word;
@@ -196,7 +196,7 @@
   }
 
   .label-chip {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -206,7 +206,7 @@
   }
 
   .body-preview {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     line-height: 1.4;
     display: -webkit-box;
@@ -218,7 +218,7 @@
   }
 
   .age-chip {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     color: var(--color-faint);
     padding: 1px 0;
@@ -238,7 +238,7 @@
     border-radius: 2px;
     color: var(--color-amber);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;
@@ -258,7 +258,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;
@@ -273,7 +273,7 @@
   }
 
   .muted {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 4px 0;
   }

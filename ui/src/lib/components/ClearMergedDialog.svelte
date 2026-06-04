@@ -93,7 +93,7 @@
     font: inherit;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -101,7 +101,7 @@
   .desc {
     margin: 0;
     color: var(--color-ink);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.4;
   }
   .rows {
@@ -120,14 +120,14 @@
     padding: 8px 10px;
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .row:last-child {
     border-bottom: 0;
   }
   .desig {
     font-family: var(--font-mono, monospace);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     color: var(--color-blue);
   }
@@ -140,7 +140,7 @@
   .warn {
     margin: 0;
     color: var(--color-amber);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.4;
   }
   .actions {
@@ -158,7 +158,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
   }
   .run {

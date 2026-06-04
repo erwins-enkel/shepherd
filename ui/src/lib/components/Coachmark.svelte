@@ -137,7 +137,7 @@
 
   .coachmark-title {
     margin: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -146,7 +146,7 @@
 
   .coachmark-body {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-muted);
   }
@@ -155,7 +155,7 @@
     align-self: flex-end;
     margin-top: 2px;
     padding: 3px 10px;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     font-weight: 500;
     background: var(--color-accent, #5f6ad2);
     color: #fff;

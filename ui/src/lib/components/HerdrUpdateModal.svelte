@@ -217,7 +217,7 @@
     justify-content: space-between;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -227,7 +227,7 @@
     border: 0;
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .summary {
     display: flex;
@@ -236,7 +236,7 @@
   }
   .summary .versions {
     color: var(--color-amber);
-    font-size: 20px;
+    font-size: var(--fs-xl);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.04em;
@@ -249,7 +249,7 @@
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     padding: 10px 12px;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-ink-bright);
     overflow-wrap: anywhere;
@@ -285,7 +285,7 @@
   .notes :global(h3),
   .notes :global(h4) {
     margin: 12px 0 6px;
-    font-size: 13px;
+    font-size: var(--fs-base);
     font-weight: 600;
     color: var(--color-ink-bright);
   }
@@ -295,7 +295,7 @@
   }
   .notes :global(code) {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     background: var(--color-line);
     border-radius: 2px;
     padding: 0 3px;
@@ -326,7 +326,7 @@
     border: 1px solid var(--color-line-bright);
     background: color-mix(in srgb, var(--color-amber) 8%, transparent);
     padding: 10px 12px;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-ink-bright);
   }
@@ -335,13 +335,13 @@
     border: 1px solid var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
     padding: 10px 12px;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-red);
   }
   .status {
     color: var(--color-amber);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .log-label {
     margin-bottom: -8px;
@@ -354,7 +354,7 @@
     background: var(--color-inset);
     padding: 10px 12px;
     font-family: monospace;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-ink-bright);
     white-space: pre-wrap;
@@ -362,7 +362,7 @@
   }
   .err {
     color: var(--color-red);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .actions {
     display: flex;

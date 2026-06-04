@@ -151,7 +151,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 6px 8px;
     border-radius: 2px;
   }
@@ -173,7 +173,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: var(--fs-lg);
     background: transparent;
     border: 0;
     border-radius: 2px;
@@ -205,7 +205,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 16px; /* prevents iOS zoom-on-focus; also fits emoji */
+    font-size: var(--fs-lg); /* prevents iOS zoom-on-focus; also fits emoji */
     padding: 4px 7px;
     border-radius: 2px;
   }
@@ -218,7 +218,7 @@
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     padding: 0 8px;
     border-radius: 2px;
     cursor: pointer;

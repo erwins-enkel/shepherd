@@ -220,7 +220,7 @@
   }
 
   .seed-label {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -242,7 +242,7 @@
     border: 1px solid transparent;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     padding: 2px 8px;
@@ -283,7 +283,7 @@
 
   .muted {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 6px 10px;
   }
@@ -296,7 +296,7 @@
     border: none;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--fs-base);
     text-align: left;
     padding: 4px 10px;
     cursor: pointer;
@@ -315,13 +315,13 @@
   .row-marker {
     color: var(--color-faint);
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: var(--fs-micro);
   }
 
   .issue-num {
     color: var(--color-muted);
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
 
   /* Sticky so it stays put while the (potentially long) command list scrolls. */
@@ -334,7 +334,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     padding: 4px 8px;
     border-radius: 2px;
   }
@@ -367,7 +367,7 @@
   }
 
   .chip {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-slate);

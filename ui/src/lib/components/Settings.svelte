@@ -559,7 +559,7 @@
     margin-bottom: -1px;
     color: var(--color-muted);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -607,7 +607,7 @@
     font: inherit;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -628,7 +628,7 @@
   }
   .herdr-cta .hc-dot {
     color: var(--color-green);
-    font-size: 9px;
+    font-size: var(--fs-micro);
   }
   .herdr-cta .hc-text {
     display: flex;
@@ -639,17 +639,17 @@
   }
   .herdr-cta .hc-label {
     color: var(--color-green);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
   .herdr-cta .hc-ver {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .herdr-cta .hc-chev {
     color: var(--color-green);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     line-height: 1;
   }
   .cur {
@@ -663,7 +663,7 @@
   }
   .cur code {
     color: var(--color-amber);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     word-break: break-all;
   }
   .path-label {
@@ -679,7 +679,7 @@
     border: 1px solid var(--color-line-bright);
     color: var(--color-ink);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 5px 9px;
     border-radius: 2px;
@@ -691,7 +691,7 @@
   }
   .here {
     color: var(--color-ink-bright);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     word-break: break-all;
   }
   .list {
@@ -706,7 +706,7 @@
   .placeholder {
     padding: 14px 12px;
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
   }
   .row {
@@ -718,7 +718,7 @@
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     text-align: left;
     padding: 9px 11px;
     cursor: pointer;
@@ -743,7 +743,7 @@
   }
   .err {
     color: var(--color-red);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin-top: 2px;
   }
   .run {
@@ -754,7 +754,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
@@ -773,7 +773,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
   }
   .clone-trigger:hover {
@@ -792,7 +792,7 @@
   }
   .push .hint {
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin: 0;
   }
   .cats {
@@ -811,7 +811,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     cursor: pointer;
   }
   .cat input {
@@ -824,7 +824,7 @@
   }
   .rc .hint {
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin: 0;
   }
   .sc {
@@ -834,7 +834,7 @@
   }
   .sc .hint {
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin: 0;
   }
   .sc-input {
@@ -846,7 +846,7 @@
     background: var(--color-inset);
     color: var(--color-ink-bright);
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     padding: 8px 10px;
     border-radius: 2px;
@@ -904,7 +904,7 @@
     background: var(--color-ink-bright);
   }
   .toggle .state {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-ink-bright);
@@ -926,7 +926,7 @@
     border: 0;
     border-left: 1px solid var(--color-line-bright);
     color: var(--color-muted);
-    font-size: 16px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 0 16px;
     min-height: 44px;
@@ -957,12 +957,12 @@
   }
   .about-grid dt {
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
   }
   .about-grid dd {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     word-break: break-all;
   }

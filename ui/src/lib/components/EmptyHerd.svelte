@@ -72,7 +72,7 @@
   }
 
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
   }
@@ -85,7 +85,7 @@
   .lede {
     margin: 0;
     color: var(--color-faint);
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1.55;
   }
 
@@ -102,7 +102,7 @@
     background: transparent;
     color: var(--color-amber);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     cursor: pointer;
@@ -113,7 +113,7 @@
     box-shadow: inset 0 0 24px -10px var(--color-amber);
   }
   .spawn span {
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
 
   .verbs {
@@ -136,14 +136,14 @@
   .verb dd {
     margin: 0;
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.5;
   }
 
   .nudge {
     margin: 0;
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.5;
   }
   .nudge-link {
@@ -151,7 +151,7 @@
     background: none;
     padding: 0;
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-amber);
     cursor: pointer;
     text-decoration: underline;

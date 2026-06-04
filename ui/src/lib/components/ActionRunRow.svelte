@@ -243,7 +243,7 @@
 
   .wf-name {
     flex: 1;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     overflow: hidden;
     white-space: nowrap;
@@ -252,7 +252,7 @@
 
   .wf-link {
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     text-decoration: none;
     transition: color 0.12s;
@@ -263,7 +263,7 @@
 
   .wf-err {
     flex-shrink: 0;
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-red);
@@ -277,7 +277,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;
@@ -318,7 +318,7 @@
   }
 
   .job-name {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     text-decoration: none;
     overflow: hidden;
@@ -376,7 +376,7 @@
     padding: 0;
     cursor: pointer;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -387,7 +387,7 @@
   }
 
   .hist-caret {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     color: var(--color-faint);
     transition: transform 0.12s;
   }
@@ -403,7 +403,7 @@
   }
 
   .hist-muted {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 2px 0 2px 13px;
     text-align: left;
@@ -426,7 +426,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;

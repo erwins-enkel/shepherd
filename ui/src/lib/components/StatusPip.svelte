@@ -60,7 +60,7 @@
     background: none;
     box-shadow: none;
     color: var(--c);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     line-height: 1;
     font-weight: 700;
   }
@@ -87,7 +87,7 @@
        token inverts to dark there and would tank the contrast. White maximizes
        it (~5:1 on the darkened red above). */
     color: #fff;
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1;
     font-weight: 800;
   }

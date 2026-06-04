@@ -132,12 +132,12 @@
   }
 
   .hist-num {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
   }
   .hist-age,
   .hist-sha {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
   }
   .hist-sha {
@@ -146,7 +146,7 @@
 
   .hist-caret {
     margin-left: auto;
-    font-size: 9px;
+    font-size: var(--fs-micro);
     color: var(--color-faint);
     transition: transform 0.12s;
   }
@@ -156,7 +156,7 @@
 
   .hist-link {
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     text-decoration: none;
     transition: color 0.12s;
@@ -178,7 +178,7 @@
     min-height: 12px;
   }
   .job-name {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     text-decoration: none;
     overflow: hidden;
@@ -191,7 +191,7 @@
   }
 
   .muted {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 2px 0 2px 13px;
   }

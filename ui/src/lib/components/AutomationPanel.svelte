@@ -209,14 +209,14 @@
     overflow: hidden;
   }
   .auto-head {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
     padding: 10px 12px 4px;
   }
   .auto-group {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-amber);
@@ -238,11 +238,11 @@
   }
   .auto-name {
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
   .auto-desc {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     margin-top: 2px;
   }
@@ -311,7 +311,7 @@
     gap: 8px;
   }
   .drain-label {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     white-space: nowrap;
   }
@@ -323,7 +323,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 3px 6px;
     text-align: right;
   }

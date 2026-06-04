@@ -46,7 +46,7 @@
   }
   /* rail variant: matches the sibling .gbtn buttons in the GitRail rail */
   .ready-toggle.rail {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
   }
@@ -60,7 +60,7 @@
     align-items: center;
     flex-shrink: 0;
     border-color: var(--color-line-bright);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;

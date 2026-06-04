@@ -129,7 +129,7 @@
     justify-content: space-between;
     gap: 8px;
     padding: 6px 12px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -143,7 +143,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -224,7 +224,7 @@
   }
 
   .item-label {
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-ink);
     line-height: 1.5;
     word-break: break-word;
@@ -241,21 +241,21 @@
   }
 
   .line-heading {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink-bright);
     font-weight: bold;
     padding: 4px 0 2px;
   }
 
   .line-plain {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
     padding: 1px 0;
   }
 
   .muted,
   .empty-hint {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 4px 0;
   }
@@ -275,7 +275,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 5px 8px;
     outline: none;
     transition: border-color 0.15s;
@@ -295,7 +295,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 5px 10px;
     cursor: pointer;
@@ -329,7 +329,7 @@
       height: 10px;
     }
     .add-input {
-      font-size: 16px; /* prevents iOS zoom-on-focus */
+      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
     }
     .add-btn {
       min-height: 40px;

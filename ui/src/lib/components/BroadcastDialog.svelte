@@ -182,7 +182,7 @@
     font: inherit;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -198,7 +198,7 @@
     color: var(--color-amber);
     cursor: pointer;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
   .targets {
     border: 1px solid var(--color-line);
@@ -216,7 +216,7 @@
     padding: 8px 10px;
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-size: 13px;
+    font-size: var(--fs-base);
     cursor: pointer;
   }
   .target:last-child {
@@ -225,7 +225,7 @@
   .placeholder {
     padding: 14px 12px;
     color: var(--color-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
   }
   .picks {
     display: flex;
@@ -238,7 +238,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 5px 10px;
     cursor: pointer;
   }
@@ -252,13 +252,13 @@
     border-radius: 2px;
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 8px;
     resize: vertical;
   }
   .result {
     color: var(--color-amber);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -273,7 +273,7 @@
     border-radius: 2px;
     color: var(--color-amber);
     font: inherit;
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 8px;
     cursor: pointer;
@@ -294,7 +294,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
   }
   .run:disabled {

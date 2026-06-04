@@ -98,7 +98,7 @@
   }
   .title {
     letter-spacing: 0.14em;
-    font-size: 12px;
+    font-size: var(--fs-base);
     text-transform: uppercase;
     color: var(--color-muted);
   }
@@ -107,11 +107,11 @@
     border: none;
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-lg);
   }
   .empty {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     flex: 1;
   }
@@ -134,14 +134,14 @@
   }
   .entry-title {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-base);
     font-weight: 600;
     color: var(--color-ink-bright);
     letter-spacing: 0.04em;
   }
   .entry-body {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
     line-height: 1.5;
   }
@@ -161,7 +161,7 @@
     cursor: pointer;
     letter-spacing: 0.06em;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .dismiss:focus-visible {
     outline: 1px solid var(--color-amber);

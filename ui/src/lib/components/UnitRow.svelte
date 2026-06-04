@@ -242,7 +242,7 @@
     background: transparent;
     color: var(--color-red);
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     line-height: 1.3;
     text-transform: uppercase;
@@ -341,7 +341,7 @@
     gap: 5px;
     margin-top: 3px;
     color: var(--color-ink);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     overflow: hidden;
     white-space: nowrap;
@@ -353,17 +353,17 @@
        remaining contributor to the "orange wall". Muted: it's a repo marker,
        not a state signal. (Only tints the `▣` fallback; emoji icons self-color.) */
     color: var(--color-muted);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     flex-shrink: 0;
   }
   .repo-glyph.emoji {
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
 
   .u-sub {
     color: var(--color-muted);
     margin-top: 3px;
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1.35;
     /* wrap to a 2nd line — fills the vertical space the right column
        (badge / elapsed / meta) already occupies, then ellipsis */
@@ -395,7 +395,7 @@
      status by color + pulse, so an outlined `--rule`-tinted badge here just
      duplicated that hue (amber for running) and added to the orange wall. */
   .badge {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -412,7 +412,7 @@
     grid-area: meta;
     min-width: 0;
     color: var(--color-muted);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;

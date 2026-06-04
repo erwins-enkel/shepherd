@@ -102,13 +102,13 @@
   .sc-name {
     font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: var(--color-amber);
     white-space: nowrap;
   }
   .sc-hint {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -118,7 +118,7 @@
   .sc-scope {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 9px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-slate);
@@ -127,7 +127,7 @@
     padding: 0 4px;
   }
   .sc-desc {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -138,7 +138,7 @@
     font-family: var(--font-mono);
     padding: 10px;
     color: var(--color-faint);
-    font-size: 12px;
+    font-size: var(--fs-base);
     font-style: italic;
     text-align: center;
   }
@@ -148,7 +148,7 @@
     }
     .sc-name,
     .sc-hint {
-      font-size: 14px;
+      font-size: var(--fs-lg);
     }
   }
 </style>

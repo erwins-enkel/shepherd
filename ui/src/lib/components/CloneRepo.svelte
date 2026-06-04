@@ -171,7 +171,7 @@
     font: inherit;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -182,7 +182,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 8px 10px;
     border-radius: 2px;
     width: 100%;
@@ -193,14 +193,14 @@
     border-color: var(--color-line-bright);
   }
   .preview {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     margin: 0;
     padding: 2px 0;
   }
   .err {
     color: var(--color-red);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     margin-top: 6px;
     display: flex;
     align-items: center;
@@ -213,7 +213,7 @@
     border-radius: 2px;
     color: var(--color-amber);
     font: inherit;
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 8px;
     cursor: pointer;
@@ -234,7 +234,7 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     cursor: pointer;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
@@ -257,7 +257,7 @@
       animation: sheet-up 0.18s ease-out;
     }
     input {
-      font-size: 16px; /* prevents iOS zoom-on-focus */
+      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
       min-height: 44px;
     }
     .run {
@@ -277,7 +277,7 @@
       width: 44px;
       height: 44px;
       margin-right: -10px;
-      font-size: 16px;
+      font-size: var(--fs-lg);
     }
   }
 

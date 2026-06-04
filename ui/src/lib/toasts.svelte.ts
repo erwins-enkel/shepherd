@@ -18,16 +18,26 @@ interface Toast {
   undoLabel?: string;
   /** Window length, fed to the depleting-bar animation (undo toasts only). */
   durationMs?: number;
-  /** Dedupe key (undo toasts only); also lets the UI find the deferred target. */
+  /** Dedupe key; on undo toasts it also lets the UI find the deferred target. */
   key?: string;
   /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
   actionLabel?: string;
+  /** Assertive announcement (role="alert") for failures; default polite. */
+  alert?: boolean;
 }
 
 interface InfoOpts {
-  duration?: number;
+  /** Auto-dismiss delay in ms (default 4000). Pass `null` to stay until the
+   *  operator retries or closes it (use for failures that must not vanish). */
+  duration?: number | null;
   /** An inline action button (e.g. Retry on a failed operation). */
   action?: { label: string; run: () => void };
+  /** Announce assertively (role="alert") rather than politely. For failures
+   *  that must reach a screen-reader operator promptly. */
+  alert?: boolean;
+  /** Dedupe key: a repeated info with the same key refreshes the existing toast
+   *  instead of stacking another (e.g. repeated failures to one target). */
+  key?: string;
 }
 
 interface UndoOpts {
@@ -49,18 +59,54 @@ class ToastStore {
   #commits = new Map<number, () => void | Promise<void>>();
   #undos = new Map<number, () => void>();
   #actions = new Map<number, () => void>();
+  // Caller key -> toast id. Namespaced by tone (#kk) so an info and an undo
+  // toast may safely reuse the same caller key without cross-mutating state.
   #keyed = new Map<string, number>();
 
-  /** Transient confirmation; auto-dismisses after `duration` ms. */
+  /** Internal dedupe key: tone-prefixed so info/undo keys never collide. The
+   *  distinct "info"/"undo" prefix makes any cross-tone match impossible
+   *  whatever the caller key contains. */
+  #kk(tone: ToastTone, key: string): string {
+    return `${tone}:${key}`;
+  }
+
+  /** Confirmation toast. Auto-dismisses after `duration` ms (default 4000);
+   *  pass `duration: null` for a persistent toast that stays until retried or
+   *  closed. `alert: true` announces it assertively (role="alert"). */
   info(text: string, opts: InfoOpts = {}): number {
+    // Keyed dedupe: a repeated info with the same key refreshes the existing
+    // toast (text / action / announcement / timer) instead of stacking another,
+    // so e.g. repeated steer failures to one agent collapse to a single toast.
+    if (opts.key !== undefined && this.#keyed.has(this.#kk("info", opts.key))) {
+      const prev = this.#keyed.get(this.#kk("info", opts.key))!;
+      this.#clearTimer(prev);
+      if (opts.action) this.#actions.set(prev, opts.action.run);
+      else this.#actions.delete(prev);
+      this.items = this.items.map((t) =>
+        t.id === prev ? { ...t, text, actionLabel: opts.action?.label, alert: opts.alert } : t,
+      );
+      this.#armInfo(prev, opts.duration);
+      return prev;
+    }
     const id = ++this.#seq;
-    this.items = [...this.items, { id, tone: "info", text, actionLabel: opts.action?.label }];
+    this.items = [
+      ...this.items,
+      { id, tone: "info", text, actionLabel: opts.action?.label, alert: opts.alert, key: opts.key },
+    ];
     if (opts.action) this.#actions.set(id, opts.action.run);
+    if (opts.key !== undefined) this.#keyed.set(this.#kk("info", opts.key), id);
+    this.#armInfo(id, opts.duration);
+    return id;
+  }
+
+  /** Arm an info toast's auto-dismiss timer. `null` duration = persistent (stays
+   *  until the operator retries or closes it). */
+  #armInfo(id: number, duration: number | null | undefined) {
+    if (duration === null) return;
     this.#timers.set(
       id,
-      setTimeout(() => this.#drop(id), opts.duration ?? 4000),
+      setTimeout(() => this.#drop(id), duration ?? 4000),
     );
-    return id;
   }
 
   /** Inline action (e.g. Retry) pressed on an info toast: run it and dismiss. */
@@ -76,8 +122,8 @@ class ToastStore {
 
     // Same target re-armed within its window: reset the timer + callbacks rather
     // than stacking two commits for one entity.
-    if (opts.key && this.#keyed.has(opts.key)) {
-      const prev = this.#keyed.get(opts.key)!;
+    if (opts.key && this.#keyed.has(this.#kk("undo", opts.key))) {
+      const prev = this.#keyed.get(this.#kk("undo", opts.key))!;
       this.#clearTimer(prev);
       this.#commits.set(prev, opts.onCommit);
       if (opts.onUndo) this.#undos.set(prev, opts.onUndo);
@@ -92,7 +138,7 @@ class ToastStore {
     ];
     this.#commits.set(id, opts.onCommit);
     if (opts.onUndo) this.#undos.set(id, opts.onUndo);
-    if (opts.key) this.#keyed.set(opts.key, id);
+    if (opts.key) this.#keyed.set(this.#kk("undo", opts.key), id);
     this.#arm(id, duration);
     return id;
   }

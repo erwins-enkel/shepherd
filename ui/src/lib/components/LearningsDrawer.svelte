@@ -189,7 +189,7 @@
   }
   .title {
     letter-spacing: 0.14em;
-    font-size: 12px;
+    font-size: var(--fs-base);
     text-transform: uppercase;
     color: var(--color-muted);
   }
@@ -198,11 +198,11 @@
     border: none;
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-lg);
   }
   .empty {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1.5;
   }
   .group {
@@ -218,12 +218,12 @@
     padding-bottom: 4px;
   }
   .repo {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     font-weight: 600;
   }
   .distill {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     background: none;
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
@@ -245,17 +245,17 @@
     border: 1px solid var(--color-line);
     padding: 6px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .why {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
     line-height: 1.4;
   }
   .why span {
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 10px;
+    font-size: var(--fs-micro);
   }
   .foot {
     display: flex;
@@ -263,7 +263,7 @@
     gap: 8px;
   }
   .evi {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
   .spacer {
@@ -271,7 +271,7 @@
   }
   .dismiss,
   .approve {
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 5px 12px;
     cursor: pointer;
     border: 1px solid var(--color-line-bright);
@@ -283,7 +283,7 @@
     color: var(--color-green);
   }
   .promote {
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 5px 12px;
     cursor: pointer;
     border: 1px solid var(--color-green);
@@ -291,7 +291,7 @@
     color: var(--color-green);
   }
   .prlink {
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-green);
     text-decoration: none;
   }
@@ -310,13 +310,13 @@
     gap: 8px;
   }
   .ititle {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--color-muted);
   }
   .meter {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
   }
@@ -328,7 +328,7 @@
     gap: 6px;
   }
   .itext {
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     line-height: 1.4;
   }
@@ -338,7 +338,7 @@
     gap: 6px;
   }
   .chip {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     padding: 2px 6px;
@@ -350,7 +350,7 @@
     color: var(--color-green);
   }
   .badge {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     padding: 2px 6px;
     border: 1px solid var(--color-line);
   }

@@ -491,7 +491,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     white-space: nowrap;
@@ -580,7 +580,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 2px 8px;
@@ -614,10 +614,10 @@
   .rail.mobile .gbtn {
     min-height: 40px;
     padding: 6px 14px;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .rail.mobile .prlink {
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 4px 2px;
   }
   .rail.mobile .dot {
@@ -626,7 +626,7 @@
   }
 
   .prlink {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     text-decoration: none;
   }
@@ -635,7 +635,7 @@
   }
 
   .merged {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-slate);
   }
 
@@ -661,7 +661,7 @@
 
   .err,
   .ok {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -699,7 +699,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 4px 6px;
     resize: vertical;
   }
@@ -752,7 +752,7 @@
     flex-shrink: 0;
   }
   .rv-label {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -771,7 +771,7 @@
     color: var(--color-faint);
   }
   .rv-prlink {
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     text-decoration: none;
   }
@@ -786,7 +786,7 @@
 
   .rv-summary {
     margin: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     /* pinned alongside head/footer; only .rv-body scrolls */
     flex-shrink: 0;
@@ -802,7 +802,7 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-size: 12px;
+    font-size: var(--fs-base);
     line-height: 1.5;
     padding: 6px 8px;
     overflow-wrap: anywhere;
@@ -831,7 +831,7 @@
   .rv-body :global(h3),
   .rv-body :global(h4) {
     margin: 12px 0 6px;
-    font-size: 12px;
+    font-size: var(--fs-base);
     font-weight: 600;
     color: var(--color-ink-bright);
   }
@@ -841,7 +841,7 @@
   }
   .rv-body :global(code) {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     background: var(--color-line);
     border-radius: 2px;
     padding: 0 3px;

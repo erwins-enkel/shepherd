@@ -92,7 +92,7 @@
     padding: 5px 10px;
     border-bottom: 1px solid var(--color-line);
     background: var(--color-head);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     flex-shrink: 0;
   }
   .summary {
@@ -107,7 +107,7 @@
   }
   .stale {
     color: var(--color-amber);
-    font-size: 11px;
+    font-size: var(--fs-meta);
   }
   .spacer {
     flex: 1;
@@ -118,7 +118,7 @@
     border-radius: 2px;
     color: var(--color-ink);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 1px 8px;
     cursor: pointer;
   }
@@ -134,6 +134,6 @@
     color: var(--color-muted);
     margin: 0;
     padding: 4px 0;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
 </style>

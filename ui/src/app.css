@@ -59,6 +59,16 @@
   --scrim: rgba(3, 6, 5, 0.66);
   --term-fg: #c4d0cb;
 
+  /* Type scale — single source of truth. 6 deliberate rungs anchored on
+     DESIGN.md's 11px (label/numeric) + 13px (title/body); 10px is the floor for
+     dense chrome. Replaces ~16 drifted ad-hoc sizes. */
+  --fs-micro: 10px;
+  --fs-meta: 11px;
+  --fs-base: 13px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 22px;
+
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is
      NOT actionable-complete, so it must not read green/"ignore me" — it reads as
@@ -163,7 +173,7 @@ body {
   font-family: var(--font-mono);
   margin: 0;
   height: 100%;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;
 }

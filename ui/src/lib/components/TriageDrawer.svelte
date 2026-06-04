@@ -176,7 +176,7 @@
   .title {
     color: var(--color-red);
     letter-spacing: 0.18em;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .x {
     background: none;
@@ -185,11 +185,11 @@
     cursor: pointer;
     min-width: 40px;
     min-height: 40px;
-    font-size: 15px;
+    font-size: var(--fs-lg);
   }
   .empty {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .row {
     border: 1px solid var(--color-line);
@@ -217,7 +217,7 @@
   .waited {
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .stall-head {
     display: flex;
@@ -227,13 +227,13 @@
   .stall-note {
     margin: 0;
     color: var(--color-amber);
-    font-size: 12px;
+    font-size: var(--fs-base);
     flex: 1;
   }
   .dismiss {
     min-height: 32px;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
   }
   .tail {
@@ -242,7 +242,7 @@
     background: var(--color-inset);
     color: var(--color-term-fg);
     border: 1px solid var(--color-line);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.4;
     white-space: pre-wrap;
     word-break: break-word;
@@ -297,7 +297,7 @@
   .batch {
     border-top: 1px solid var(--color-line);
     padding-top: 10px;
-    font-size: 12px;
+    font-size: var(--fs-base);
     color: var(--color-muted);
   }
 </style>

@@ -177,7 +177,7 @@
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 8px 10px;
     border-radius: 2px;
     cursor: pointer;
@@ -206,7 +206,7 @@
 
   .rs-trigger .dim {
     color: var(--color-muted);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -221,7 +221,7 @@
   .chevron {
     margin-left: auto;
     color: var(--color-muted);
-    font-size: 10px;
+    font-size: var(--fs-micro);
   }
 
   .rs-panel {
@@ -244,7 +244,7 @@
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--fs-base);
     padding: 7px 10px;
     border-radius: 0;
     flex-shrink: 0;
@@ -271,7 +271,7 @@
     padding: 7px 10px;
     cursor: pointer;
     border-bottom: 1px solid var(--color-line);
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     overflow: hidden;
   }
@@ -298,7 +298,7 @@
 
   .rs-row .dim {
     color: var(--color-muted);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -308,7 +308,7 @@
   .rs-empty {
     padding: 10px;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--fs-base);
     font-style: italic;
     text-align: center;
   }
@@ -323,7 +323,7 @@
     border-top: 1px solid var(--color-line);
     background: transparent;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: var(--color-amber);
     text-align: left;
   }
@@ -334,7 +334,7 @@
 
   .rs-emoji {
     flex-shrink: 0;
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1;
   }
   .rs-emoji-btn {
@@ -342,7 +342,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
-    font-size: 14px;
+    font-size: var(--fs-lg);
     line-height: 1;
     padding: 1px 3px;
     cursor: pointer;
@@ -364,7 +364,7 @@
       min-height: 44px;
     }
     .rs-filter {
-      font-size: 16px; /* prevents iOS zoom-on-focus */
+      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
     }
     .rs-row {
       min-height: 44px;

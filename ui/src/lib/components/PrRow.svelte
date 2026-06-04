@@ -254,7 +254,7 @@
   }
 
   .pr-num {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     color: var(--color-faint);
     flex-shrink: 0;
     text-decoration: none;
@@ -267,7 +267,7 @@
 
   .pr-title {
     flex: 1;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: var(--color-ink);
     line-height: 1.4;
     word-break: break-word;
@@ -281,7 +281,7 @@
   /* DRAFT is metadata, not state — a neutral hairline chip, never a status hue. */
   .draft-chip {
     flex-shrink: 0;
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-faint);
@@ -337,7 +337,7 @@
   }
 
   .caret {
-    font-size: 8px;
+    font-size: var(--fs-micro);
     line-height: 1;
     color: var(--color-faint);
     transition:
@@ -363,7 +363,7 @@
   }
 
   .job-name {
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     text-decoration: none;
     overflow: hidden;
@@ -394,14 +394,14 @@
   }
 
   .conflict {
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-red);
   }
 
   .author {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     overflow: hidden;
     white-space: nowrap;
@@ -410,7 +410,7 @@
 
   .age-chip {
     margin-left: auto;
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
@@ -436,7 +436,7 @@
   }
 
   .merge-err {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-red);
@@ -450,7 +450,7 @@
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
     cursor: pointer;
@@ -489,7 +489,7 @@
 
   /* "rebase requested" — a settled, non-alarming confirmation (muted, not red). */
   .rebase-note {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-muted);

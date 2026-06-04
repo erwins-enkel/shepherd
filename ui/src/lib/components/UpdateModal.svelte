@@ -188,7 +188,7 @@
     justify-content: space-between;
   }
   .micro {
-    font-size: 10.5px;
+    font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -198,7 +198,7 @@
     border: 0;
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--fs-base);
   }
   .summary {
     display: flex;
@@ -207,7 +207,7 @@
   }
   .summary .count {
     color: var(--color-amber);
-    font-size: 22px;
+    font-size: var(--fs-2xl);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
@@ -236,7 +236,7 @@
     border: 0;
     text-align: left;
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: var(--fs-base);
     color: inherit;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
@@ -281,11 +281,11 @@
   }
   .status {
     color: var(--color-amber);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .err {
     color: var(--color-red);
-    font-size: 12px;
+    font-size: var(--fs-base);
   }
   .failure {
     display: flex;
@@ -308,7 +308,7 @@
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     color: var(--color-ink-bright);
-    font-size: 11.5px;
+    font-size: var(--fs-meta);
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;

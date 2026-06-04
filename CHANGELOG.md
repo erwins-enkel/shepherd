@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.13.0](https://github.com/erwins-enkel/shepherd/compare/v1.12.0...v1.13.0) (2026-06-04)
+
+
+### Features
+
+* **actions:** per-workflow run history in backlog Actions tab ([#236](https://github.com/erwins-enkel/shepherd/issues/236)) ([#310](https://github.com/erwins-enkel/shepherd/issues/310)) ([af6a2c1](https://github.com/erwins-enkel/shepherd/commit/af6a2c17856265c0d61eecc7795f486a4c1f4d9e))
+* **drain:** autopilot never merges — retire ready PRs for human merge ([#309](https://github.com/erwins-enkel/shepherd/issues/309)) ([4915aca](https://github.com/erwins-enkel/shepherd/commit/4915aca085bc98fd2cd2b7f54d16d4956619e90b))
+* **drain:** claim issues with a label to coordinate across instances ([#306](https://github.com/erwins-enkel/shepherd/issues/306)) ([2f6eb95](https://github.com/erwins-enkel/shepherd/commit/2f6eb95ad69469994998b867abcee128baa7f4ec))
+* **drain:** list-view popover for queued backlog items ([#304](https://github.com/erwins-enkel/shepherd/issues/304)) ([e517f0e](https://github.com/erwins-enkel/shepherd/commit/e517f0ec89e12a26a72e7150a4f8123ccbb7f995))
+* **emoji:** expand repo icon set + ranked search + keyboard nav ([#296](https://github.com/erwins-enkel/shepherd/issues/296)) ([1a3da2b](https://github.com/erwins-enkel/shepherd/commit/1a3da2bf670ceff53da662bcf5dbd167e28dd1c3))
+* **forge:** list Gitea/Forgejo Actions runs in backlog tab ([#234](https://github.com/erwins-enkel/shepherd/issues/234)) ([#305](https://github.com/erwins-enkel/shepherd/issues/305)) ([7954922](https://github.com/erwins-enkel/shepherd/commit/79549225c40a9efc3e0802eb1666ab78b27626cb))
+* opt-in [@dependabot](https://github.com/dependabot) rebase for stuck backlog PRs ([#303](https://github.com/erwins-enkel/shepherd/issues/303)) ([92da6b5](https://github.com/erwins-enkel/shepherd/commit/92da6b5dc416f191a67628d503331d56fc6b6d67))
+* self-draining work queue (autonomous backlog drain) ([#300](https://github.com/erwins-enkel/shepherd/issues/300)) ([8b9a3bc](https://github.com/erwins-enkel/shepherd/commit/8b9a3bc47aae07451840c8a7fe83479ac64cf997))
+* **ui:** feature discovery — What's-New panel + first-view coachmarks ([#292](https://github.com/erwins-enkel/shepherd/issues/292)) ([f4b95d1](https://github.com/erwins-enkel/shepherd/commit/f4b95d15f94a9b385d5caa21008492f04fdd3bd9))
+* **ui:** per-agent heartbeat, current activity + pipeline-stage stepper on rows ([#311](https://github.com/erwins-enkel/shepherd/issues/311)) ([b9a6788](https://github.com/erwins-enkel/shepherd/commit/b9a67885a0774248b9a9f578436bec8ea9c0f5d2))
+* **ui:** replace detail-panel toggle horde with AUTOMATION pill + panel ([#307](https://github.com/erwins-enkel/shepherd/issues/307)) ([e584db1](https://github.com/erwins-enkel/shepherd/commit/e584db1c2959d0ee2a61c254958a03755c2549e8))
+* **ui:** type-scale tokens, git-toggle status dot, persistent steer-fail toast ([#313](https://github.com/erwins-enkel/shepherd/issues/313)) ([05b29c0](https://github.com/erwins-enkel/shepherd/commit/05b29c0bb5313e5dc41ba06821ed76de8f84b009))
+
+
+### Bug Fixes
+
+* **i18n:** shorten autopilot-paused badge label ([#302](https://github.com/erwins-enkel/shepherd/issues/302)) ([aaf69ba](https://github.com/erwins-enkel/shepherd/commit/aaf69ba2aa18bc90e2edda1f427462db4ac4970f))
+* **ui:** resolve P1 & P2 findings from $impeccable audit (a11y, theming, responsive) ([#312](https://github.com/erwins-enkel/shepherd/issues/312)) ([8d6ae9c](https://github.com/erwins-enkel/shepherd/commit/8d6ae9ca5e31d340392b553f7667cb788e6de72a))
+
 ## [1.12.0](https://github.com/erwins-enkel/shepherd/compare/v1.11.0...v1.12.0) (2026-06-03)
 
 

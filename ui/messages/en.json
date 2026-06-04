@@ -131,6 +131,8 @@
   "feat_auto_address_body": "Critic findings are fed straight back to the agent, which fixes them and pushes until the critic is clear or the round cap is hit.",
   "feat_learnings_title": "House rules for agents",
   "feat_learnings_body": "Distilled house rules from prior agent activity are injected into every new agent session, so your team's conventions propagate automatically.",
+  "feat_halt_title": "Halt the herd",
+  "feat_halt_body": "A single red e-stop in the top bar interrupts the current turn on every running agent at once — your always-reachable emergency brake when the herd needs to stand down.",
   "gitrail_send_review": "↩ Send review to agent",
   "gitrail_send_review_failed": "send failed",
   "gitrail_send_review_reviewing_title": "Critic is re-reviewing — these findings are being re-validated",

@@ -562,6 +562,14 @@
     .meta-stepper {
       display: none;
     }
+    /* the hover-reveal block above un-hides the separator on :hover/:focus with
+       higher specificity (0,3,0 > 0,1,0); re-suppress it here (same specificity,
+       later in source → wins) so a hovered narrow row doesn't show a dangling
+       "·" with no summary after it. */
+    .unit:hover .act-sep,
+    .unit:focus-visible .act-sep {
+      display: none;
+    }
     /* the strip IS the heartbeat here — keep it, just narrower. Scoped under
        .u-activity so the override can't leak to a future global .strip. flex:none
        overrides the hover-device grow above so the narrow strip stays at 64px. */

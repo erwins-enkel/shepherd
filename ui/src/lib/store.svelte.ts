@@ -211,6 +211,12 @@ export class HerdStore {
       case "drain:status":
         this.drain = { ...this.drain, [ev.data.repoPath]: ev.data };
         break;
+      case "halt:done":
+        // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the
+        // event fans out to all clients, not just the one who fired it). Keyed so the
+        // originator's own optimistic toast and this WS echo collapse into one row.
+        toasts.info(m.halt_done({ count: ev.data.halted }), { key: "halt-done" });
+        break;
     }
   }
 

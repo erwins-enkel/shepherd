@@ -24,6 +24,7 @@
     getMergedClearable,
     clearMerged,
     getDrain,
+    halt as apiHalt,
   } from "$lib/api";
   import type {
     DeployState,
@@ -448,6 +449,32 @@
     });
   }
 
+  // Fleet-wide emergency stop. Interrupting every working agent is consequential and
+  // not server-side reversible, so — like decommission — we DEFER it behind an undo
+  // window rather than firing on the first tap: one tap arms a 5s undo toast, and the
+  // POST only goes out when that window expires un-cancelled. The "Halted N" confirm
+  // rides in on the `halt:done` WS event (keyed so this optimistic echo and the WS
+  // echo collapse to one toast). A failed POST re-toasts with a Retry that re-defers.
+  function haltHerd() {
+    const count = store.sessions.filter((s) => s.status === "running").length;
+    if (count === 0) return; // nothing to halt; the control is hidden in this state anyway
+    toasts.undo(m.halt_confirm({ count }), {
+      undoLabel: m.common_undo(),
+      key: "halt-herd",
+      onCommit: async () => {
+        try {
+          await apiHalt();
+          // success confirm arrives via the halt:done WS event (all connected clients)
+        } catch {
+          toasts.info(m.halt_failed(), {
+            alert: true,
+            action: { label: m.common_retry(), run: () => haltHerd() },
+          });
+        }
+      },
+    });
+  }
+
   // Open the "clear all merged" confirm modal. The server is the source of truth
   // for which sessions are merged (same prCache the list partitions on) and for the
   // leftover count, so we ask it rather than trust the local snapshot.
@@ -566,6 +593,7 @@
       touch={touch.current}
       limits={store.usageLimits}
       onsettings={() => (showSettings = true)}
+      onhalt={haltHerd}
       needsYou={blockedEntries.length}
       ontriage={() => (showTriage = true)}
       learnings={learnings.items.length}

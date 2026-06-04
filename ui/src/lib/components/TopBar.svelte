@@ -12,6 +12,7 @@
     touch = false,
     limits = null,
     onsettings,
+    onhalt,
     needsYou = 0,
     ontriage,
     learnings = 0,
@@ -31,6 +32,7 @@
     touch?: boolean;
     limits?: UsageLimits | null;
     onsettings?: () => void;
+    onhalt?: () => void;
     needsYou?: number;
     ontriage?: () => void;
     learnings?: number;
@@ -46,9 +48,12 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
-  // How many right-side badges are vying for space (each renders one button).
+  const working = $derived(sessions.filter((s) => s.status === "running").length);
+  // How many right-side badges are vying for space (each renders one button) —
+  // includes the halt button, which only renders while something is working.
   const badgeCount = $derived(
-    (updateAvailable ? 1 : 0) +
+    (working > 0 ? 1 : 0) +
+      (updateAvailable ? 1 : 0) +
       (herdrUpdateAvailable ? 1 : 0) +
       (learnings > 0 || overBudget > 0 ? 1 : 0) +
       (needsYou > 0 ? 1 : 0) +
@@ -66,7 +71,6 @@
   // so it keeps its full label.
   const compactBadges = $derived(touch && !mobile && badgeCount >= 2);
 
-  const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
   const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
@@ -150,6 +154,28 @@
     </div>
   {/if}
   <div class="rightside">
+    {#if working > 0}
+      <!-- The big red button: a single always-reachable control that interrupts the
+           current turn on every live working agent at once. Only shown when something
+           is actually running, so it never reads as an idle decoration. Desktop carries
+           the label; phones collapse to the 🛑 glyph + working count (full text stays
+           as the aria-label). -->
+      <button
+        class="halt"
+        class:compact={mobile || compactBadges}
+        type="button"
+        onclick={() => onhalt?.()}
+        aria-label={m.halt_all_aria({ count: working })}
+        title={m.halt_all_aria({ count: working })}
+      >
+        <span class="halt-icon" aria-hidden="true">🛑</span>
+        {#if mobile || compactBadges}
+          <span class="halt-n">{working}</span>
+        {:else}
+          <span class="halt-label">{m.halt_all()}</span>
+        {/if}
+      </button>
+    {/if}
     {#if needsYou > 0}
       <button
         class="needsyou"
@@ -406,6 +432,45 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+  /* Emergency stop: the most consequential control in the bar, so it carries the
+     strongest red and a filled body (not just an outline) to read as a real button,
+     not a passive badge. The 🛑 glyph anchors it apart from the red NEEDS-YOU chip. */
+  .halt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: color-mix(in srgb, var(--color-red) 22%, transparent);
+    border: 1px solid var(--color-red);
+    color: var(--color-red);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 5px 11px;
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .halt:hover {
+    background: color-mix(in srgb, var(--color-red) 32%, transparent);
+  }
+  .halt-icon {
+    font-size: var(--fs-base);
+    line-height: 1;
+  }
+  .halt-n {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Phone: collapse to a 🛑 + count chip so it holds line 1 with the other controls. */
+  .halt.compact {
+    justify-content: center;
+    min-width: 44px;
+    gap: 4px;
+    padding: 8px 10px;
+    letter-spacing: 0;
   }
   .learnings-badge {
     background: transparent;
@@ -757,6 +822,9 @@
     min-height: 44px;
     padding: 8px 12px;
   }
+  .hud.mobile .halt {
+    min-height: 44px;
+  }
   /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
      fits on line 1 next to the gauge/gear instead of forcing the right-side
      controls to wrap to a second row. Full label stays as the aria-label. */
@@ -807,6 +875,8 @@
      also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
   @media (pointer: coarse) {
     .gear,
+    .halt,
+    .halt.compact,
     .needsyou,
     .needsyou.compact,
     .learnings-badge,

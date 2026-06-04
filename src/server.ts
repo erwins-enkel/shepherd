@@ -1206,6 +1206,16 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
   return null;
 }
 
+// ── halt the herd: interrupt every live working agent at once ──
+function handleHalt({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "POST" && parts[0] === "api" && parts[1] === "halt" && !parts[2]) {
+    // No body: the server computes the target set (every live `working` pane) itself,
+    // so there is nothing to validate. The shared auth/origin guards still apply.
+    return json(deps.service.haltAll());
+  }
+  return null;
+}
+
 // ── filesystem browser: list sub-directories for the root picker ──
 function handleFsDirs({ req, parts, url }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "fs" && parts[2] === "dirs") {
@@ -1650,6 +1660,7 @@ const ROUTE_HANDLERS = [
   handleSteers,
   handleProjectIcons,
   handleBroadcast,
+  handleHalt,
   handleFsDirs,
   handleBranches,
   handleIssues,

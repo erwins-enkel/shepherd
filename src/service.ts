@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, Session } from "./types";
@@ -386,6 +386,44 @@ export class SessionService {
     let sent = 0;
     for (const id of ids) if (this.replyToLive(id, text, live)) sent++;
     return { sent, total: ids.length };
+  }
+
+  /**
+   * Fleet-wide emergency stop: interrupt every live, actively-working agent at once.
+   * Sends a single ESC — the Claude Code interrupt key — to each pane whose herdr
+   * agent reports `working`, halting the current turn WITHOUT clearing its input or
+   * quitting it (a lone ESC, no bracketed paste, no trailing CR — the opposite of a
+   * steer). Idle / blocked / done agents, dead panes, archived sessions and the
+   * ephemeral usage probe are all left untouched: only ACTIVE sessions are matched
+   * against the live agent set (so the probe — never a stored session — and archived
+   * rows fall out), and of those only the ones reporting `working` are hit. Auto-spawned
+   * (drain) sessions are included BY DESIGN — a misfiring autopilot is exactly what this
+   * stops. Lists herdr's agents ONCE up front (like broadcast) so a wide fan-out makes a
+   * single `agent list` call, not one per target; if herdr can't be reached, halts none.
+   * Emits `halt:done {halted}` so every connected operator sees the reach.
+   */
+  haltAll(): { halted: number } {
+    let agents: HerdrAgent[];
+    try {
+      agents = this.deps.herdr.list();
+    } catch {
+      return this.emitHalt(0);
+    }
+    const sessions = this.deps.store.list({ activeOnly: true });
+    let halted = 0;
+    for (const agent of matchAgents(sessions, agents).values()) {
+      if (agent?.agentStatus === "working") {
+        this.deps.herdr.send(agent.terminalId, "\x1b");
+        halted++;
+      }
+    }
+    return this.emitHalt(halted);
+  }
+
+  private emitHalt(halted: number): { halted: number } {
+    const result = { halted };
+    this.deps.events?.emit("halt:done", result);
+    return result;
   }
 
   /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so

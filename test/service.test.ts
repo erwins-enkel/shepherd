@@ -1134,6 +1134,91 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   ]);
 });
 
+test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouched; emits count", () => {
+  const sent: { target: string; text: string }[] = [];
+  const emitted: { e: string; d: unknown }[] = [];
+  const store = new SessionStore(":memory:");
+  const mk = (name: string, agent: string) =>
+    store.create({
+      name,
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: agent,
+    });
+  mk("a", "term_a"); // working → halted
+  mk("b", "term_b"); // idle → skipped
+  mk("c", "term_c"); // blocked → skipped
+  mk("d", "term_d"); // working → halted
+  mk("e", "term_dead"); // not in live list (dead pane) → skipped
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [
+        { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
+        { terminalId: "term_b", agentStatus: "idle", cwd: "/wt/b", name: "" },
+        { terminalId: "term_c", agentStatus: "blocked", cwd: "/wt/c", name: "" },
+        { terminalId: "term_d", agentStatus: "working", cwd: "/wt/d", name: "" },
+      ],
+      stop: () => {},
+      send: (target: string, text: string) => sent.push({ target, text }),
+    } as any,
+  });
+
+  // Only the two `working` panes are interrupted, each with a single ESC (the Claude
+  // Code interrupt key) — no bracketed paste, no trailing CR. A lone ESC halts the
+  // current turn without clearing input or quitting.
+  expect(svc.haltAll()).toEqual({ halted: 2 });
+  expect(sent).toEqual([
+    { target: "term_a", text: "\x1b" },
+    { target: "term_d", text: "\x1b" },
+  ]);
+  expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
+});
+
+test("haltAll reports 0 (and still emits) when herdr can't be reached", () => {
+  const emitted: { e: string; d: unknown }[] = [];
+  const sent: unknown[] = [];
+  const store = new SessionStore(":memory:");
+  store.create({
+    name: "a",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/a",
+    worktreePath: "/wt/a",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => {
+        throw new Error("herdr down");
+      },
+      stop: () => {},
+      send: () => sent.push("sent"),
+    } as any,
+  });
+
+  expect(svc.haltAll()).toEqual({ halted: 0 });
+  expect(sent).toEqual([]);
+  expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 0 } });
+});
+
 function svcDeps(over: any = {}) {
   const store = new SessionStore(":memory:");
   const events: any = {

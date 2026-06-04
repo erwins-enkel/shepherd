@@ -453,7 +453,13 @@
     {#if showReview && verdict}
       <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
         <div class="review-head">
-          <span class="rv-label critic-{verdict.decision}">{criticBadgeLabel(verdict)}</span>
+          {#if chip.kind === "reviewing"}
+            <span class="rv-label critic-reviewing" title={m.criticbadge_reviewing_title()}>
+              <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+            </span>
+          {:else}
+            <span class="rv-label critic-{verdict.decision}">{criticBadgeLabel(verdict)}</span>
+          {/if}
           {#if git.url}
             <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
             <a class="rv-prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a
@@ -801,6 +807,20 @@
     50% {
       opacity: 1;
     }
+  }
+  .rv-label.critic-reviewing {
+    color: var(--color-amber);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .rv-label.critic-reviewing .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: rev-pulse 1.1s ease-in-out infinite !important;
   }
   .rv-label.critic-changes_requested,
   .verdict-chip.critic-changes_requested {

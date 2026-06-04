@@ -650,6 +650,21 @@
     padding: 6px 14px;
     font-size: var(--fs-base);
   }
+  /* The critic chip is the gateway to the findings popover, but it's a
+     .verdict-chip — not a .gbtn — so it missed the touch enlargement above and
+     rendered at ~half height (23px) in muted text, indistinguishable from the
+     passive list badge. On touch (no hover affordance) the happy "✓ REVIEWED"
+     chip then read as a status label, not a button, so findings were effectively
+     unreachable on mobile/fold. Match it to the sibling controls: a real ≥40px
+     tap target that obviously invites a tap. */
+  .rail.mobile .verdict-chip {
+    min-height: 40px;
+    padding: 6px 14px;
+    font-size: var(--fs-base);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
   .rail.mobile .prlink {
     font-size: var(--fs-base);
     padding: 4px 2px;

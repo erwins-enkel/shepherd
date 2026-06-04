@@ -4,7 +4,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
-  import { criticBadgeLabel } from "./critic-badge";
+  import { criticChip, criticBadgeLabel } from "./critic-badge";
   import ReadyToggle from "./ReadyToggle.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
@@ -202,7 +202,8 @@
   );
 
   const verdict = $derived(reviews.map[sessionId]);
-  const verdictLabel = $derived(criticBadgeLabel(verdict));
+  const reviewing = $derived(reviews.isReviewing(sessionId));
+  const chip = $derived(criticChip(verdict, reviewing));
   // Render the (AI-authored) findings as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay off
   // the first-paint critical path; gated on showReview so the (browser-only)
@@ -229,7 +230,6 @@
       alive = false;
     };
   });
-  const reviewing = $derived(reviews.isReviewing(sessionId));
   const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
   let reviewFlash = $state<string | null>(null);
   let reviewFlashErr = $state(false);
@@ -358,15 +358,35 @@
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
         <ReadyToggle {sessionId} {ready} variant="rail" />
       {/if}
-      {#if verdict}
+      <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body exists,
+           so the showReview popover below still has content); otherwise a plain status chip. -->
+      {#if chip.kind === "reviewing"}
+        {#if chip.hasFindings}
+          <button
+            class={["verdict-chip", "critic-reviewing", { armed: showReview }]}
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={showReview}
+            title={m.criticbadge_reviewing_title()}
+            onclick={toggleReview}
+          >
+            <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+          </button>
+        {:else}
+          <span class="verdict-chip critic-reviewing" title={m.criticbadge_reviewing_title()}>
+            <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+          </span>
+        {/if}
+      {:else if chip.kind === "verdict"}
         <button
-          class={["verdict-chip", `critic-${verdict.decision}`, { armed: showReview }]}
+          class={["verdict-chip", `critic-${chip.decision}`, { armed: showReview }]}
           type="button"
+          aria-haspopup="dialog"
           aria-expanded={showReview}
           title={m.gitrail_review_title()}
           onclick={toggleReview}
         >
-          {verdictLabel}
+          {chip.label}
         </button>
       {/if}
 
@@ -433,7 +453,7 @@
     {#if showReview && verdict}
       <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
         <div class="review-head">
-          <span class="rv-label critic-{verdict.decision}">{verdictLabel}</span>
+          <span class="rv-label critic-{verdict.decision}">{criticBadgeLabel(verdict)}</span>
           {#if git.url}
             <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
             <a class="rv-prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a
@@ -757,6 +777,30 @@
     text-transform: uppercase;
     white-space: nowrap;
     color: var(--color-muted);
+  }
+  .verdict-chip.critic-reviewing {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .verdict-chip.critic-reviewing .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: rev-pulse 1.1s ease-in-out infinite !important;
+  }
+  @keyframes rev-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   .rv-label.critic-changes_requested,
   .verdict-chip.critic-changes_requested {

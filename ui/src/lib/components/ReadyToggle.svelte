@@ -13,15 +13,19 @@
     sessionId,
     ready = false,
     variant = "rail",
+    mobile = false,
   }: {
     sessionId: string;
     ready?: boolean;
     variant?: "rail" | "bar";
+    // touch layout: rail-only enlargement so the toggle matches the ≥40px
+    // .gbtn / .verdict-chip siblings instead of rendering half-height next to them.
+    mobile?: boolean;
   } = $props();
 </script>
 
 <button
-  class={["ready-toggle", variant, { on: ready }]}
+  class={["ready-toggle", variant, { on: ready, mobile: mobile && variant === "rail" }]}
   type="button"
   aria-pressed={ready}
   aria-label={m.gitrail_ready_aria()}
@@ -53,6 +57,15 @@
   .ready-toggle.rail:hover {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  /* touch rail: match the ≥40px .gbtn / button.verdict-chip siblings so the
+     toggle isn't a half-height odd-one-out beside the Reviewed chip */
+  .ready-toggle.rail.mobile {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 6px 14px;
+    font-size: var(--fs-base);
   }
   /* bar variant: matches the .git-toggle disclosure in Viewport's primary row */
   .ready-toggle.bar {

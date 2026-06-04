@@ -90,8 +90,13 @@
           title={c.subject}
           onclick={() => toggle(c.sha)}
         >
-          <span class="sha">{c.sha}</span>
-          <span class="subject">{c.subject}</span>
+          <!-- inner wrapper carries the flex layout: WebKit doesn't reliably
+               grow a <button> that is itself a flex container when a child
+               wraps, which painted the expanded subject over the next row -->
+          <span class="row">
+            <span class="sha">{c.sha}</span>
+            <span class="subject">{c.subject}</span>
+          </span>
         </button>
       {/each}
     </div>
@@ -217,6 +222,10 @@
     font-variant-numeric: tabular-nums;
   }
   .commits {
+    /* shrinkable flex child: without min-height the list refuses to shrink
+       below its content and 16 commits push the actions off-screen */
+    flex: 0 1 auto;
+    min-height: 0;
     overflow-y: auto;
     border: 1px solid var(--color-line);
     background: var(--color-inset);
@@ -226,9 +235,7 @@
     gap: 5px;
   }
   .commit {
-    display: flex;
-    gap: 9px;
-    align-items: flex-start;
+    display: block;
     width: 100%;
     margin: 0;
     padding: 2px 0;
@@ -241,6 +248,11 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
+  .commit .row {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+  }
   .commit:focus-visible {
     outline: 1px solid var(--color-line-bright);
     outline-offset: 2px;
@@ -252,6 +264,7 @@
   }
   .commit .subject {
     color: var(--color-ink-bright);
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -259,17 +272,18 @@
   /* tapped open → wrap the full subject across the available width */
   .commit.expanded .subject {
     white-space: normal;
-    overflow: visible;
     word-break: break-word;
   }
   /* touch devices: roomier rows so a single commit is easy to hit and read */
   @media (pointer: coarse) {
     .commit {
       padding: 8px 0;
-      min-height: 34px;
+    }
+    .commit .row {
+      min-height: 28px;
       align-items: center;
     }
-    .commit.expanded {
+    .commit.expanded .row {
       align-items: flex-start;
     }
     .commits {
@@ -342,5 +356,57 @@
     color: var(--color-faint);
     border-color: var(--color-line);
     box-shadow: none;
+  }
+  /* phones: rise as a full-height sheet (same pattern as NewTask) so the
+     commit list gets the whole screen and scrolls internally while the
+     actions stay pinned and thumb-reachable above the home indicator */
+  @media (max-width: 768px) {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+    }
+    .card {
+      width: 100%;
+      max-height: none;
+      height: 100dvh;
+      border: 0;
+      /* safe-area top: standalone-PWA status bar / Dynamic Island */
+      padding: calc(16px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+      /* fallback when even fully-shrunk content exceeds the viewport
+         (landscape phones): scroll the card rather than clip the actions */
+      overflow-y: auto;
+      animation: sheet-up 0.18s ease-out;
+    }
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
+    .x {
+      min-width: 44px;
+      min-height: 44px;
+      margin: -14px -14px -10px 0; /* keep the glyph optically in the corner */
+    }
+    .commits {
+      flex-grow: 1; /* fill the sheet so the list, not a void, owns the space */
+    }
+    .later,
+    .run {
+      min-height: 44px;
+      flex: 1; /* two thumb-width targets instead of two slivers at the edge */
+    }
+    .actions {
+      margin-top: auto; /* pin to the bottom even when few commits */
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(12px);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
 </style>

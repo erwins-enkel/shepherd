@@ -33,7 +33,7 @@
   import GitRail from "$lib/components/GitRail.svelte";
   import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
-  import { repoConfig } from "$lib/reviews.svelte";
+  import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
@@ -254,7 +254,8 @@
   // show a beat early, and stays green when the critic is disabled (no gate to wait on).
   const prAttention = $derived(
     git?.state === "open" &&
-      (git.checks === "failure" || git.latestReview?.state === "changes_requested"),
+      (git.checks === "failure" || git.latestReview?.state === "changes_requested") &&
+      !reviews.isReviewing(session.id),
   );
   const prClear = $derived(
     git?.state === "open" &&

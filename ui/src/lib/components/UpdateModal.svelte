@@ -371,7 +371,11 @@
       max-height: none;
       height: 100dvh;
       border: 0;
-      padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
+      /* safe-area top: standalone-PWA status bar / Dynamic Island */
+      padding: calc(16px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+      /* fallback when even fully-shrunk content exceeds the viewport
+         (landscape phones): scroll the card rather than clip the actions */
+      overflow-y: auto;
       animation: sheet-up 0.18s ease-out;
     }
     .bracket::before,

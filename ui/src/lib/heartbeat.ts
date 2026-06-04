@@ -45,7 +45,7 @@ export function bucketStrip(recentTs: number[], recentErrTs: number[], nowMs: nu
     if (age < 0 || age >= STRIP_WINDOW_MS) continue;
     const idx = STRIP_CELLS - 1 - Math.floor(age / CELL_MS);
     if (idx < 0 || idx >= STRIP_CELLS) continue;
-    counts[idx]++;
+    counts[idx] = (counts[idx] ?? 0) + 1;
     if (errSet.has(ts)) errs[idx] = true;
     if (ts > newestTs) {
       newestTs = ts;
@@ -53,5 +53,9 @@ export function bucketStrip(recentTs: number[], recentErrTs: number[], nowMs: nu
     }
   }
 
-  return counts.map((c, i) => ({ level: levelFor(c), error: errs[i], now: i === newestIdx }));
+  return counts.map((c, i) => ({
+    level: levelFor(c),
+    error: errs[i] ?? false,
+    now: i === newestIdx,
+  }));
 }

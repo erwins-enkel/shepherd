@@ -524,8 +524,9 @@
     .meta-stepper {
       display: none;
     }
-    /* the strip IS the heartbeat here — keep it, just narrower */
-    :global(.strip) {
+    /* the strip IS the heartbeat here — keep it, just narrower. Scoped under
+       .u-activity so the override can't leak to a future global .strip. */
+    .u-activity :global(.strip) {
       width: 64px;
     }
   }

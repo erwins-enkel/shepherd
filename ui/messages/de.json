@@ -542,6 +542,8 @@
   "broadcast_textarea_aria": "Steer-Nachricht",
   "halt_all": "Herde stoppen",
   "halt_all_aria": "Herde stoppen — alle {count} laufenden Agenten unterbrechen",
+  "halt_arm": "{count} stoppen?",
+  "halt_arm_aria": "Stopp bestätigen — erneut aktivieren, um alle {count} laufenden Agenten zu unterbrechen",
   "halt_confirm": "{count} laufende Agenten werden gestoppt…",
   "halt_done": "{count} Agenten gestoppt",
   "halt_failed": "Stopp fehlgeschlagen — keine Agenten unterbrochen. Erneut versuchen.",

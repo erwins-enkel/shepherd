@@ -107,11 +107,43 @@
     if (!touch || !hotter) popoverOpen = false;
   });
 
+  // Two-step arm→confirm for the emergency stop: the first activation arms the red
+  // "Halt N?" pill, a second commits (onhalt). It auto-disarms after a few seconds,
+  // on Escape, on an outside tap, or once nothing is left running — so a stray tap on
+  // a rarely-used control can never halt the fleet on its own.
+  let armed = $state(false);
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+  let haltBtn = $state<HTMLButtonElement | null>(null);
+  function disarmHalt() {
+    armed = false;
+    clearTimeout(armTimer);
+  }
+  function clickHalt() {
+    if (!armed) {
+      armed = true;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => (armed = false), 4000);
+    } else {
+      disarmHalt();
+      onhalt?.();
+    }
+  }
+  // Drop the armed state if the herd goes quiet underneath it (agents finished), so a
+  // later run doesn't surface a pre-armed button.
+  $effect(() => {
+    if (working === 0) disarmHalt();
+  });
+  // Destroy-only cleanup (no tracked reads → runs once): never leak the disarm timer.
+  $effect(() => () => clearTimeout(armTimer));
+
   function dismissOnEscape(e: KeyboardEvent) {
-    if (popoverOpen && e.key === "Escape") popoverOpen = false;
+    if (e.key !== "Escape") return;
+    if (popoverOpen) popoverOpen = false;
+    if (armed) disarmHalt();
   }
   function dismissOnOutside(e: MouseEvent) {
     if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
+    if (armed && haltBtn && !haltBtn.contains(e.target as Node)) disarmHalt();
   }
 </script>
 
@@ -155,25 +187,26 @@
   {/if}
   <div class="rightside">
     {#if working > 0}
-      <!-- The big red button: a single always-reachable control that interrupts the
-           current turn on every live working agent at once. Only shown when something
-           is actually running, so it never reads as an idle decoration. Desktop carries
-           the label; phones collapse to the 🛑 glyph + working count (full text stays
-           as the aria-label). -->
+      <!-- Emergency stop: interrupts every live working agent at once. Only shown while
+           something is running. Quiet by default (gear-weight: neutral outline, muted
+           octagon) so a near-never-pressed control doesn't dominate the bar — it reveals
+           its red only on intent (hover/focus) and once armed. One activation arms the
+           "Halt N?" confirm pill, a second commits (full intent stays in the aria-label). -->
       <button
+        bind:this={haltBtn}
         class="halt"
-        class:compact={mobile || compactBadges}
+        class:armed
         type="button"
-        onclick={() => onhalt?.()}
-        aria-label={m.halt_all_aria({ count: working })}
-        title={m.halt_all_aria({ count: working })}
+        onclick={clickHalt}
+        aria-label={armed
+          ? m.halt_arm_aria({ count: working })
+          : m.halt_all_aria({ count: working })}
+        title={armed ? undefined : m.halt_all()}
       >
-        <span class="halt-icon" aria-hidden="true">🛑</span>
-        {#if mobile || compactBadges}
-          <span class="halt-n">{working}</span>
-        {:else}
-          <span class="halt-label">{m.halt_all()}</span>
-        {/if}
+        <svg class="halt-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
+        </svg>
+        {#if armed}<span class="halt-label">{m.halt_arm({ count: working })}</span>{/if}
       </button>
     {/if}
     {#if needsYou > 0}
@@ -433,44 +466,54 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-  /* Emergency stop: the most consequential control in the bar, so it carries the
-     strongest red and a filled body (not just an outline) to read as a real button,
-     not a passive badge. The 🛑 glyph anchors it apart from the red NEEDS-YOU chip. */
+  /* Emergency stop: consequential but almost never pressed, so it stays quiet by
+     default — gear-weight (neutral outline, muted octagon glyph), not a filled red
+     block — and only reveals its red on intent (hover/focus) or once armed. That keeps
+     it from dominating the bar or bulging the row's height next to the text tallies. */
   .halt {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border: 1px solid var(--color-red);
-    color: var(--color-red);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
     font: inherit;
-    font-size: var(--fs-meta);
-    padding: 5px 11px;
+    font-size: var(--fs-lg);
+    line-height: 1;
+    padding: 5px 8px;
     border-radius: 2px;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .halt:hover {
-    background: color-mix(in srgb, var(--color-red) 32%, transparent);
+  .halt:hover,
+  .halt:focus-visible {
+    color: var(--color-red);
+    border-color: var(--color-red);
   }
+  /* Pinned to --fs-lg (not 1em) so the glyph stays the same size when arming drops
+     the button font-size to --fs-meta — keeps the icon visually stable on the morph. */
   .halt-icon {
-    font-size: var(--fs-base);
-    line-height: 1;
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+    display: block;
   }
-  .halt-n {
-    font-weight: 600;
+  /* Armed (first activation): the single moment it goes loud — a filled red "Halt N?"
+     confirm pill. A second activation commits; Escape / outside-tap / timeout disarm.
+     Vertical padding stays 5px (matching rest) so arming only grows width for the
+     label rather than nudging the row height. */
+  .halt.armed {
+    padding: 5px 11px;
+    background: color-mix(in srgb, var(--color-red) 22%, transparent);
+    border-color: var(--color-red);
+    color: var(--color-red);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .halt-label {
     font-variant-numeric: tabular-nums;
-  }
-  /* Phone: collapse to a 🛑 + count chip so it holds line 1 with the other controls. */
-  .halt.compact {
-    justify-content: center;
-    min-width: 44px;
-    gap: 4px;
-    padding: 8px 10px;
-    letter-spacing: 0;
   }
   .learnings-badge {
     background: transparent;
@@ -876,7 +919,6 @@
   @media (pointer: coarse) {
     .gear,
     .halt,
-    .halt.compact,
     .needsyou,
     .needsyou.compact,
     .learnings-badge,

@@ -1492,6 +1492,41 @@ test("create injects only the planned house rules and drops the over-budget ones
   expect(injectedCount).toBeLessThan(40);
 });
 
+test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", () => {
+  const store = new SessionStore(":memory:");
+  let startCalls = 0;
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: {
+      start: () => {
+        startCalls++;
+        return { terminalId: "term_should_not_happen" } as any;
+      },
+      list: () => [
+        {
+          agent: "claude",
+          agentStatus: "working",
+          cwd: "/wt/x",
+          name: "x",
+          paneId: "p",
+          tabId: "t",
+          terminalId: "term_fresh",
+          workspaceId: "w",
+        },
+      ],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, { model: "opus" }); // worktreePath "/wt/x", herdrAgentId "term_old"
+
+  const out = svc.resume(s.id);
+  expect(startCalls).toBe(0); // agent already live → must NOT respawn
+  expect(out?.herdrAgentId).toBe("term_fresh"); // adopted the new id
+});
+
 test("archiveMany isolates a failing session: others still clear, the failed id is excluded", () => {
   const store = new SessionStore(":memory:");
   const detect = (): any[] => [];

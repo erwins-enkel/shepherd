@@ -3,6 +3,7 @@ import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
+import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, Session } from "./types";
 import { moveStagedIntoWorktree } from "./uploads";
@@ -266,14 +267,24 @@ export class SessionService {
   resume(id: string): Session | null {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived" || !s.claudeSessionId) return null;
-    const live = this.deps.herdr.list().some((a) => a.terminalId === s.herdrAgentId);
-    if (live) return s;
+    const agent =
+      matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
+      null;
+    if (agent) {
+      // Already live (idle at the prompt, or restored by a herdr restart under a new
+      // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.
+      if (agent.terminalId !== s.herdrAgentId) {
+        this.deps.store.update(id, { herdrAgentId: agent.terminalId });
+        return this.deps.store.get(id);
+      }
+      return s;
+    }
     const argv = ["claude", "--dangerously-skip-permissions", "--resume", s.claudeSessionId];
     argv.push("--settings", spawnSettingsOverlay());
     if (s.model) argv.push("--model", s.model);
-    const agent = this.deps.herdr.start(s.name, s.worktreePath, argv);
+    const spawned = this.deps.herdr.start(s.name, s.worktreePath, argv);
     this.deps.store.update(id, {
-      herdrAgentId: agent.terminalId,
+      herdrAgentId: spawned.terminalId,
       status: "running",
       lastState: "idle",
     });

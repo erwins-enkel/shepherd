@@ -198,6 +198,14 @@ export interface GitForge {
    *  keyword for that issue is already present. Best-effort; optional (hosts
    *  without a PR-body edit API omit it). */
   ensureIssueLink?(prNumber: number, issueNumber: number): Promise<void>;
+  /** Stamp a label on an issue, creating it on the host if absent (best-effort; the
+   *  drain claims a backlog issue with `ACTIVE_LABEL` when it spawns, so a second
+   *  shepherd instance skips it). Optional: hosts without a label API omit it and
+   *  claims degrade to single-instance local dedup. */
+  addIssueLabel?(issueNumber: number, label: string): Promise<void>;
+  /** Remove a label from an issue (best-effort; releases the drain's claim when an
+   *  auto session is abandoned, returning the issue to the pool). Optional. */
+  removeIssueLabel?(issueNumber: number, label: string): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

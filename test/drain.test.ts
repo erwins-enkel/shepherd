@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { DrainService, type DrainStatus } from "../src/drain";
+import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, MergeMethod, PrStatus } from "../src/forge/types";
 import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
@@ -26,6 +27,8 @@ interface ForgeRec {
   links: { prNumber: number; issueNumber: number }[];
   listIssuesCalls: number;
   closedIssues: number[];
+  added: { number: number; label: string }[];
+  removed: { number: number; label: string }[];
 }
 
 function fakeForge(
@@ -36,6 +39,8 @@ function fakeForge(
     listIssues?: () => Promise<Issue[]>;
     closeIssue?: (n: number) => Promise<void>;
     ensureIssueLink?: (prNumber: number, issueNumber: number) => Promise<void>;
+    addIssueLabel?: (n: number, label: string) => Promise<void>;
+    omitCloseIssue?: boolean;
   } = {},
 ): GitForge {
   return {
@@ -58,13 +63,23 @@ function fakeForge(
     },
     redeploy: async () => {},
     postReview: async () => ({}),
-    closeIssue: async (issueNumber: number) => {
-      rec.closedIssues.push(issueNumber);
-      if (opts.closeIssue) await opts.closeIssue(issueNumber);
-    },
+    // omitCloseIssue models a forge that doesn't implement the optional method.
+    closeIssue: opts.omitCloseIssue
+      ? undefined
+      : async (issueNumber: number) => {
+          rec.closedIssues.push(issueNumber);
+          if (opts.closeIssue) await opts.closeIssue(issueNumber);
+        },
     ensureIssueLink: async (prNumber: number, issueNumber: number) => {
       rec.links.push({ prNumber, issueNumber });
       if (opts.ensureIssueLink) await opts.ensureIssueLink(prNumber, issueNumber);
+    },
+    addIssueLabel: async (number: number, label: string) => {
+      if (opts.addIssueLabel) await opts.addIssueLabel(number, label);
+      rec.added.push({ number, label });
+    },
+    removeIssueLabel: async (number: number, label: string) => {
+      rec.removed.push({ number, label });
     },
   };
 }
@@ -92,6 +107,10 @@ function makeHarness(
     listIssuesImpl?: () => Promise<Issue[]>;
     archiveImpl?: (id: string) => number;
     onArchived?: (h: Harness, id: string) => void;
+    addIssueLabelImpl?: (n: number, label: string) => Promise<void>;
+    closeIssueImpl?: (n: number) => Promise<void>;
+    omitCloseIssue?: boolean;
+    createImpl?: () => Promise<void>;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -106,10 +125,20 @@ function makeHarness(
     usageCeilingPct: opts.usageCeilingPct ?? 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], links: [], listIssuesCalls: 0, closedIssues: [] };
+  const forgeRec: ForgeRec = {
+    merges: [],
+    links: [],
+    listIssuesCalls: 0,
+    closedIssues: [],
+    added: [],
+    removed: [],
+  };
   const forge = fakeForge(opts.issues ?? [], forgeRec, {
     merge: opts.mergeImpl,
     listIssues: opts.listIssuesImpl,
+    addIssueLabel: opts.addIssueLabelImpl,
+    closeIssue: opts.closeIssueImpl,
+    omitCloseIssue: opts.omitCloseIssue,
   });
 
   const prCache: Record<string, GitState> = {};
@@ -123,6 +152,7 @@ function makeHarness(
   const service = {
     create: async (input: CreateSessionInput): Promise<Session> => {
       creates.push(input);
+      if (opts.createImpl) await opts.createImpl();
       return store.create({
         name: "auto",
         prompt: input.prompt,
@@ -603,7 +633,14 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     usageCeilingPct: 80,
   });
 
-  const forgeRec: ForgeRec = { merges: [], links: [], listIssuesCalls: 0, closedIssues: [] };
+  const forgeRec: ForgeRec = {
+    merges: [],
+    links: [],
+    listIssuesCalls: 0,
+    closedIssues: [],
+    added: [],
+    removed: [],
+  };
   const forge = fakeForge([issue(1)], forgeRec);
   const creates: CreateSessionInput[] = [];
   const statuses: DrainStatus[] = [];
@@ -765,4 +802,180 @@ test("queue: [] when drain disabled, never hits the forge", async () => {
   const q = await h.drain.queue(REPO);
   expect(q).toEqual([]);
   expect(h.forgeRec.listIssuesCalls).toBe(0);
+});
+
+// ── claim-label coordination (multi-instance) ───────────────────────────────────
+
+test("spawn claims the issue: stamps ACTIVE_LABEL on the host", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [issue(1)] });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1);
+  expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+});
+
+test("spawn failure releases the claim so the issue returns to the pool", async () => {
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [issue(1)],
+    createImpl: async () => {
+      throw new Error("create boom");
+    },
+  });
+  await h.drain.pump(REPO);
+  // claimed, then released on the create throw; no session persisted
+  expect(h.forgeRec.added.some((a) => a.number === 1 && a.label === ACTIVE_LABEL)).toBe(true);
+  expect(h.forgeRec.removed.some((r) => r.number === 1 && r.label === ACTIVE_LABEL)).toBe(true);
+  expect(h.store.list().filter((s) => s.status !== "archived")).toHaveLength(0);
+});
+
+test("retire KEEPS the claim: a ready PR is left open, so the issue stays claimed until a human merges", async () => {
+  const advances: Promise<void>[] = [];
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    onArchived: (hh, id) => advances.push(hh.drain.onArchived(id)),
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  h.prCache[s.id] = openGreen(7);
+  h.setReview(s.id, "commented", "sha-7");
+  await h.drain.pump(REPO);
+  await Promise.all(advances);
+  // retired (archived + link ensured), but the claim is NOT released — the open PR's
+  // issue must stay claimed so no instance re-spawns it before the human merges.
+  expect(h.store.get(s.id)?.status).toBe("archived");
+  expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7 }]);
+  expect(h.forgeRec.removed).toHaveLength(0);
+});
+
+test("abandon (manual archive of an auto session) releases the claim → re-queue", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-5",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 5,
+  });
+  h.store.archive(s.id);
+  await h.drain.onArchived(s.id);
+  expect(h.forgeRec.removed).toEqual([{ number: 5, label: ACTIVE_LABEL }]);
+});
+
+test("out-of-band clean merge: closes the issue and drops the now-moot claim (so a reopen isn't skipped)", async () => {
+  const advances: Promise<void>[] = [];
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    onArchived: (hh, id) => advances.push(hh.drain.onArchived(id)),
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  await h.drain.onGit(s.id, { ...openGreen(7), state: "merged" });
+  await Promise.all(advances);
+  expect(h.forgeRec.closedIssues).toEqual([7]); // merged → closed
+  expect(h.forgeRec.removed).toEqual([{ number: 7, label: ACTIVE_LABEL }]); // claim cleaned up
+});
+
+test("merge with a FAILED close retains the claim — a still-open merged issue can't be re-spawned", async () => {
+  const advances: Promise<void>[] = [];
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    closeIssueImpl: async () => {
+      throw new Error("close boom");
+    },
+    onArchived: (hh, id) => advances.push(hh.drain.onArchived(id)),
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  await h.drain.onGit(s.id, { ...openGreen(7), state: "merged" });
+  await Promise.all(advances);
+  expect(h.forgeRec.removed).toHaveLength(0); // claim kept: close failed, issue still open
+});
+
+test("merge on a forge WITHOUT closeIssue retains the claim — the issue stays open", async () => {
+  const advances: Promise<void>[] = [];
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [],
+    omitCloseIssue: true, // forge omits the optional closeIssue method
+    onArchived: (hh, id) => advances.push(hh.drain.onArchived(id)),
+  });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-7",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 7,
+  });
+  await h.drain.onGit(s.id, { ...openGreen(7), state: "merged" });
+  await Promise.all(advances);
+  expect(h.forgeRec.closedIssues).toHaveLength(0); // never closed (no method)
+  expect(h.forgeRec.removed).toHaveLength(0); // claim kept: issue is still open
+});
+
+test("archiving a NON-auto session never touches labels", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "manual",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "feature/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: false,
+    issueNumber: 5,
+  });
+  h.store.archive(s.id);
+  await h.drain.onArchived(s.id);
+  expect(h.forgeRec.removed).toHaveLength(0);
 });

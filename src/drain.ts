@@ -3,6 +3,7 @@ import type { GitForge, GitState, Issue } from "./forge/types";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 import {
+  ACTIVE_LABEL,
   computeNext,
   selectCandidates,
   type AutoSessionView,
@@ -72,6 +73,13 @@ export class DrainService {
   // repoPath lock held across the whole async pump — a concurrent pump for the
   // same repo bails immediately so we never double-spawn/double-retire.
   private pumping = new Set<string>();
+  // sessionIds whose claim label onArchived must NOT release. Populated in doRetire
+  // (a ready PR stays open → keep the claim so no instance re-spawns it; the human
+  // merge auto-closes the issue, retiring the claim) and in onGit ONLY for a merge
+  // whose closeIssue FAILED (issue still open → keep the claim). A plain abandon
+  // (manual archive, never retired) is absent here, so onArchived drops the label
+  // and re-queues the issue. Consumed (deleted) in onArchived.
+  private retainClaimOnArchive = new Set<string>();
   private issuesCache = new Map<string, { issues: Issue[]; ts: number }>();
   private now: () => number;
   private issuesTtlMs: number;
@@ -171,6 +179,11 @@ export class DrainService {
       // sees the session as archived and won't re-select it — but if computeNext
       // somehow re-selects the same session anyway, we break rather than loop.
       const attemptedRetire = new Set<string>();
+      // Same guard for spawns: a successful spawn maps the issue (so it won't be
+      // re-selected), but a FAILED spawn leaves it unmapped — without this the loop
+      // would re-pick the same failing issue every iteration up to the cap, churning
+      // its claim label on each try. Break instead and let the next tick retry.
+      const attemptedSpawn = new Set<number>();
       // Hard iteration cap as a runaway backstop; each spawn/retire changes state,
       // so a well-behaved drain ends on a hold well before this.
       for (let i = 0; i < 100; i++) {
@@ -190,6 +203,8 @@ export class DrainService {
           continue;
         }
         if (decision.kind === "spawn") {
+          if (attemptedSpawn.has(decision.issue.number)) break; // already tried this pump; defer to next tick
+          attemptedSpawn.add(decision.issue.number);
           await this.doSpawn(repoPath, decision);
           continue;
         }
@@ -236,6 +251,12 @@ export class DrainService {
       console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
       return;
     }
+    // The PR is left OPEN for a human to merge, so the issue stays open and claimed.
+    // Mark the archive as a retire so onArchived KEEPS the claim — releasing it here
+    // would let another instance re-spawn an issue that already has a ready PR. The
+    // human merge auto-closes the issue (`Closes #N`), retiring the claim with it.
+    // Set before emitArchived so a synchronous onArchived sees it.
+    this.retainClaimOnArchive.add(decision.sessionId);
     this.deps.dropPrCache(decision.sessionId);
     this.deps.emitArchived(decision.sessionId);
   }
@@ -246,27 +267,39 @@ export class DrainService {
   ): Promise<void> {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
+    const { number, url, title, body } = decision.issue;
+    // Claim the issue on the host BEFORE spawning. The active label is the only
+    // cross-instance signal, so stamp it first to shrink the window in which a
+    // second shepherd grabs the same issue. Best-effort: a claim failure (label
+    // API hiccup) must not stall the drain — we still spawn and lean on local
+    // dedup. (Re-)claiming is idempotent.
+    try {
+      await forge.addIssueLabel?.(number, ACTIVE_LABEL);
+    } catch (err) {
+      console.warn(`[drain] claim label for issue #${number} failed:`, err);
+    }
     try {
       const base = await forge.defaultBranch();
       await this.deps.service.create({
         repoPath,
         baseBranch: base,
-        prompt: decision.issue.title,
+        prompt: title,
         model: null,
         images: [],
         auto: true,
-        issueRef: {
-          number: decision.issue.number,
-          url: decision.issue.url,
-          title: decision.issue.title,
-          body: decision.issue.body,
-        },
+        issueRef: { number, url, title, body },
       });
       // The new auto session appears in the next buildState → counts toward the
       // cap AND mappedIssueNumbers, so the loop won't re-spawn this issue and
       // naturally stops at cap.
     } catch (err) {
-      console.warn(`[drain] spawn failed for issue #${decision.issue.number}:`, err);
+      console.warn(`[drain] spawn failed for issue #${number}:`, err);
+      // Release the claim so the unspawned issue returns to the pool (best-effort).
+      try {
+        await forge.removeIssueLabel?.(number, ACTIVE_LABEL);
+      } catch (rerr) {
+        console.warn(`[drain] release label for issue #${number} failed:`, rerr);
+      }
     }
   }
 
@@ -277,56 +310,99 @@ export class DrainService {
     const s = this.deps.store.get(id);
     if (!s || !s.auto) return; // drain only manages auto sessions
     if (git.state === "merged") {
-      // Reap on any observed merge — drain-initiated retire, manual, or GitHub
-      // auto-merge all land here via the pr-poller. Do NOT pump here: the
-      // emitted session:archived routes to onArchived, the single advance path.
-      // Best-effort: the merge is done, so a close failure must not block teardown.
-      // closeIssue is idempotent, so this path (human merges a still-tracked session)
-      // and the doRetire path (drain retires first, then human merges — poller no longer
-      // tracks it) are independent and safe.
-      if (s.issueNumber != null) {
-        try {
-          await this.deps.resolveForge(s.repoPath)?.closeIssue?.(s.issueNumber);
-        } catch (err) {
-          console.warn(`[drain] closeIssue #${s.issueNumber} failed for ${id}:`, err);
-        }
-      }
-      this.deps.service.archive(id);
-      this.deps.dropPrCache(id);
-      this.deps.emitArchived(id);
+      await this.reapMerged(s, id);
       return;
     }
     // open/green/other → the retire gate may now fire (e.g. CI just went green).
     // Skip drain-disabled repos — no spawn/retire there, just WS noise.
-    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
-    await this.pump(s.repoPath);
+    await this.pumpIfEnabled(s.repoPath);
+  }
+
+  /** Reap a session whose PR was observed merged out-of-band — a human or GitHub
+   *  auto-merge the poller STILL tracked (the retire path drops the pr-cache first,
+   *  so this fires only for a merge that beat the retire). Closes the backlog issue
+   *  and settles its claim, then archives. Does NOT pump — the emitted
+   *  session:archived routes to onArchived, the single advance path. Best-effort:
+   *  the merge is done, so a close failure must not block teardown. */
+  private async reapMerged(s: Session, id: string): Promise<void> {
+    let closed = false; // true ONLY after a closeIssue actually lands
+    if (s.issueNumber != null) {
+      const forge = this.deps.resolveForge(s.repoPath);
+      // Gate on the method existing: a forge without closeIssue leaves the issue
+      // OPEN, so we must not treat it as closed (see the claim-retain note below).
+      if (forge?.closeIssue) {
+        try {
+          await forge.closeIssue(s.issueNumber);
+          closed = true;
+        } catch (err) {
+          console.warn(`[drain] closeIssue #${s.issueNumber} failed for ${id}:`, err);
+        }
+      }
+      // The issue closed → its claim is moot, so let onArchived drop the now-stale
+      // label. If it did NOT close (close failed, or no closeIssue method), retain
+      // the claim: the issue is still open and merged, so the label is what stops
+      // any instance re-spawning already-merged work.
+      if (!closed) this.retainClaimOnArchive.add(id);
+    }
+    this.deps.service.archive(id);
+    this.deps.dropPrCache(id);
+    this.deps.emitArchived(id);
   }
 
   /** A session was archived (retired auto session, or a manual archive). The
    *  single advance step: a freed slot lets the next candidate spawn. Skips
    *  drain-disabled repos so a manual archive there doesn't pump/emit. */
   async onArchived(id: string): Promise<void> {
+    const retainClaim = this.retainClaimOnArchive.delete(id); // true → retire, or merged-but-close-failed
     const s = this.deps.store.get(id); // archived rows still return → repoPath available
     if (!s) return;
-    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
-    await this.pump(s.repoPath);
+    // Drop the host claim label for an auto session UNLESS it was retired (ready PR
+    // still open) or merged-but-close-failed (issue still open) — those keep the
+    // claim. The remaining case is an ABANDON (manual archive of a session that never
+    // retired), which re-queues the issue. NOTE: the abandoning instance still maps
+    // this issue via its own archived session, so the release re-queues it for OTHER
+    // instances — and for this one only after its archived session is pruned.
+    // CAVEAT: an abandon does not inspect PR state, so manually archiving a session
+    // that already opened a PR (without going through the retire path) releases the
+    // claim and lets another instance spawn a DUPLICATE against that still-open PR.
+    // Accepted: a manual archive is a deliberate "drop this" signal, and the retire
+    // path (not manual archive) is how a ready PR is normally handed off with its
+    // claim kept. Unconditional of the drain toggle (mirrors onGit's closeIssue) so a
+    // disabled-mid-flight session still frees its claim. Non-auto sessions never set
+    // a claim, so they're skipped.
+    if (!retainClaim && s.auto && s.issueNumber != null) {
+      try {
+        await this.deps.resolveForge(s.repoPath)?.removeIssueLabel?.(s.issueNumber, ACTIVE_LABEL);
+      } catch (err) {
+        console.warn(`[drain] release label #${s.issueNumber} for ${id} failed:`, err);
+      }
+    }
+    await this.pumpIfEnabled(s.repoPath);
   }
 
   /** A session's status changed. Pump its repo, skipping drain-disabled repos. */
   async onStatus(id: string): Promise<void> {
-    const s = this.deps.store.get(id);
-    if (!s) return;
-    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
-    await this.pump(s.repoPath);
+    await this.pumpForSession(id);
   }
 
   /** A critic verdict landed for a session. A clean verdict for the current head
    *  may now unblock the retire gate — pump promptly rather than waiting for the tick. */
   async onReview(id: string): Promise<void> {
+    await this.pumpForSession(id);
+  }
+
+  /** Pump a session's repo, skipping when the session is gone. The shared body of
+   *  the status/review event handlers. */
+  private async pumpForSession(id: string): Promise<void> {
     const s = this.deps.store.get(id);
     if (!s) return;
-    if (!this.deps.store.getRepoConfig(s.repoPath).autoDrainEnabled) return;
-    await this.pump(s.repoPath);
+    await this.pumpIfEnabled(s.repoPath);
+  }
+
+  /** Pump a repo unless its drain toggle is off — the shared tail of every handler. */
+  private async pumpIfEnabled(repoPath: string): Promise<void> {
+    if (!this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) return;
+    await this.pump(repoPath);
   }
 
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */

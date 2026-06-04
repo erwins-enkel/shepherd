@@ -6,6 +6,19 @@ import type { SessionStatus, ReviewDecision } from "./types";
  *  sibling so operators don't have to wire up two labels). */
 export const PRIORITY_LABEL = "shepherd:priority";
 
+/** The drain stamps this label on an issue when it claims it (spawns an auto
+ *  session) and keeps it through retire — a ready PR awaiting human merge is still
+ *  "taken". It is the ONLY cross-instance coordination point: a second shepherd
+ *  draining the same forge filters claimed issues out (see {@link selectCandidates}),
+ *  so two instances don't take the same issue, and a retired-but-unmerged issue is
+ *  not re-spawned. A constant (not the per-repo `autoLabel`) so every instance agrees
+ *  on it without sharing config. The window is narrowed, not eliminated — two
+ *  instances listing within the claim's set-up latency can still race; local dedup
+ *  then prevents a single instance double-spawning. Released only when the work is
+ *  abandoned (manual archive, no merge); a human merge auto-closes the issue, retiring
+ *  the claim with it. */
+export const ACTIVE_LABEL = "shepherd:active";
+
 /** Why the drain is holding rather than spawning/retiring — surfaced on `drain:status`. */
 export interface HoldReason {
   code:
@@ -117,12 +130,17 @@ export function computeNext(state: DrainRepoState): DrainDecision {
 }
 
 /**
- * Filter issues to those carrying `autoLabel`, then order: priority-labeled first
- * (each group by issue number ascending = oldest first). A priority label without
- * the auto label is ignored — the auto label is the opt-in.
+ * Filter issues to those carrying `autoLabel` and NOT already claimed
+ * ({@link ACTIVE_LABEL}), then order: priority-labeled first (each group by issue
+ * number ascending = oldest first). A priority label without the auto label is
+ * ignored — the auto label is the opt-in. Excluding claimed issues is what keeps a
+ * second shepherd instance from re-taking an issue this (or another) instance is
+ * already working or has a ready PR open for.
  */
 export function selectCandidates(issues: Issue[], autoLabel: string): Issue[] {
-  const eligible = issues.filter((i) => i.labels.includes(autoLabel));
+  const eligible = issues.filter(
+    (i) => i.labels.includes(autoLabel) && !i.labels.includes(ACTIVE_LABEL),
+  );
   const prio = (i: Issue) => (i.labels.includes(PRIORITY_LABEL) ? 0 : 1);
   return eligible.sort((a, b) => prio(a) - prio(b) || a.number - b.number);
 }

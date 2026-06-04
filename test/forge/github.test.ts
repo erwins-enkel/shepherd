@@ -177,6 +177,49 @@ test("GithubForge.redeploy: invokes gh workflow run with ref", async () => {
   expect(args).toContain("main");
 });
 
+test("GithubForge.addIssueLabel: ensures the label exists, then adds it", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.addIssueLabel(7, "shepherd:active");
+  expect(calls[0]!.slice(0, 3)).toEqual(["label", "create", "shepherd:active"]);
+  expect(calls[1]).toEqual([
+    "issue",
+    "edit",
+    "7",
+    "--repo",
+    "o/r",
+    "--add-label",
+    "shepherd:active",
+  ]);
+});
+
+test("GithubForge.addIssueLabel: a pre-existing label (label create throws) still adds", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "label" && args[1] === "create") throw new Error("label already exists");
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.addIssueLabel(7, "shepherd:active"); // must not throw
+  expect(calls.some((c) => c[0] === "issue" && c.includes("--add-label"))).toBe(true);
+});
+
+test("GithubForge.removeIssueLabel: gh issue edit --remove-label", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.removeIssueLabel(7, "shepherd:active");
+  expect(calls[0]).toEqual([
+    "issue",
+    "edit",
+    "7",
+    "--repo",
+    "o/r",
+    "--remove-label",
+    "shepherd:active",
+  ]);
+});
+
 test("GithubForge.kind + slug", () => {
   const forge = new GithubForge("o/r", {}, () => "");
   expect(forge.kind).toBe("github");

@@ -416,6 +416,115 @@ test("GiteaForge.closeIssue: PATCHes the issue state to closed", async () => {
   expect(patch.body).toEqual({ state: "closed" });
 });
 
+test("GiteaForge.addIssueLabel: resolves the label id by name, then POSTs it", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": {
+      json: [
+        { id: 11, name: "bug" },
+        { id: 42, name: "shepherd:active" },
+      ],
+    },
+    "POST /api/v1/repos/team/proj/issues/7/labels": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.addIssueLabel(7, "shepherd:active");
+  const post = calls.find((c) => c.method === "POST")!;
+  expect(post.url).toContain("/issues/7/labels");
+  expect(post.body).toEqual({ labels: [42] });
+});
+
+test("GiteaForge.addIssueLabel: creates the label when the repo lacks it", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": { json: [] },
+    "POST /api/v1/repos/team/proj/labels": {
+      status: 201,
+      json: { id: 99, name: "shepherd:active" },
+    },
+    "POST /api/v1/repos/team/proj/issues/7/labels": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.addIssueLabel(7, "shepherd:active");
+  const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/labels"))!;
+  expect(create.body).toEqual({ name: "shepherd:active", color: "#5319e7" });
+  const apply = calls.find((c) => c.method === "POST" && c.url.includes("/issues/7/labels"))!;
+  expect(apply.body).toEqual({ labels: [99] });
+});
+
+test("GiteaForge.addIssueLabel: a concurrent create (409) re-resolves the id instead of throwing", async () => {
+  // First lookup misses; a sibling instance creates the label; our create 409s; we
+  // re-resolve and apply the id another instance just minted.
+  const calls: { method: string; url: string; body: unknown }[] = [];
+  let labelLookups = 0;
+  const fn = (async (input: string | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = init?.body ? JSON.parse(init.body as string) : undefined;
+    calls.push({ method, url, body });
+    const json = (v: unknown, status = 200) =>
+      new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
+    if (method === "GET" && url.includes("/labels?limit=")) {
+      // miss on the first lookup, hit on the post-conflict re-resolve
+      return json(labelLookups++ === 0 ? [] : [{ id: 55, name: "shepherd:active" }]);
+    }
+    if (method === "POST" && url.endsWith("/proj/labels")) return json({ message: "exists" }, 409);
+    if (method === "POST" && url.includes("/issues/7/labels")) return json({});
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
+
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.addIssueLabel(7, "shepherd:active"); // must not throw
+  const apply = calls.find((c) => c.method === "POST" && c.url.includes("/issues/7/labels"))!;
+  expect(apply.body).toEqual({ labels: [55] }); // re-resolved id applied
+});
+
+test("GiteaForge.addIssueLabel: a create failure with the label still absent propagates", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": { json: [] },
+    "POST /api/v1/repos/team/proj/labels": { status: 500, json: { message: "boom" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await expect(forge.addIssueLabel(7, "shepherd:active")).rejects.toThrow();
+});
+
+test("GiteaForge.addIssueLabel: paginates past a full first page to find the label (no spurious create)", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: `label-${i}` }));
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": { json: firstPage },
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=2": {
+      json: [{ id: 777, name: "shepherd:active" }],
+    },
+    "POST /api/v1/repos/team/proj/issues/7/labels": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.addIssueLabel(7, "shepherd:active");
+  // resolved on page 2 → no label-create POST (the repo /labels collection), apply uses the found id
+  expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/proj/labels"))).toBe(false);
+  const apply = calls.find((c) => c.method === "POST" && c.url.includes("/issues/7/labels"))!;
+  expect(apply.body).toEqual({ labels: [777] });
+});
+
+test("GiteaForge.removeIssueLabel: DELETEs the resolved label id off the issue", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": {
+      json: [{ id: 42, name: "shepherd:active" }],
+    },
+    "DELETE /api/v1/repos/team/proj/issues/7/labels/42": { status: 204 },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.removeIssueLabel(7, "shepherd:active");
+  const del = calls.find((c) => c.method === "DELETE")!;
+  expect(del.url).toContain("/issues/7/labels/42");
+});
+
+test("GiteaForge.removeIssueLabel: no-op when the repo never defined the label", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/labels?limit=100&page=1": { json: [] },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.removeIssueLabel(7, "shepherd:active");
+  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+});
+
 test("GiteaForge.ensureIssueLink: appends Closes #N when body has no link", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls/7": { json: { body: "Some PR description" } },

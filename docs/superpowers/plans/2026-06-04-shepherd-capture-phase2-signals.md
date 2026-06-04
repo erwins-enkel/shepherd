@@ -1654,12 +1654,14 @@ Implements the **Signals bundle** slice of #338 (follow-up to #308/#336).
   inside the existing `text` fence with caps + `… +N more` markers.
 
 ## Scope / deferred
-This is the first of several #338 sub-phases. The remaining items are tracked as
-follow-up issues (linked below): GitHub-issue delivery, URL→repo rules, element
-picker, full-page stitch, keyboard shortcut, standalone remote-host support,
-toolbar icons.
+This is the first of several #338 sub-phases. The remaining deferred items are
+tracked as follow-up issues:
+- #341 — delivery & routing (GitHub-issue path + URL→repo rules)
+- #342 — capture fidelity (element picker + full-page stitch)
+- #343 — polish (keyboard shortcut + remote-host support + toolbar icons)
 
-<!-- LINK the follow-up issues created for the deferred items here. -->
+Closes the Signals-bundle slice of #338 (the umbrella issue stays open until its
+sub-phases land).
 
 ## Feature catalog
 No new `feature-announcements.ts` entry: ships no `ui/src` UX, and Phase 1 already

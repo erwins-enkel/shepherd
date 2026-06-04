@@ -134,7 +134,10 @@
               {#each evidenceSources(l) as src (src.kind)}
                 <span class="src">{src.count}× {kindLabel(src.kind)}</span>
               {/each}
-              {#if l.evidenceDetail && l.evidenceDetail.length > 0}
+              <!-- render whenever the payload carries provenance (even an empty,
+                   fully-pruned list): the toggle is the focusable route to the
+                   help text for keyboard/touch users -->
+              {#if l.evidenceDetail}
                 <button
                   class="sources-toggle"
                   type="button"
@@ -152,15 +155,17 @@
               <!-- visible copy of the provenance explanation: reachable for
                    keyboard/touch users, who can't hover the title tooltip -->
               <p class="shelp">{m.learnings_evidence_help()}</p>
-              <ul class="sources">
-                {#each l.evidenceDetail as ev (ev.id)}
-                  <li class="source">
-                    <span class="src">{kindLabel(ev.kind)}</span>
-                    <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
-                    <span class="excerpt">{ev.excerpt}</span>
-                  </li>
-                {/each}
-              </ul>
+              {#if l.evidenceDetail.length > 0}
+                <ul class="sources">
+                  {#each l.evidenceDetail as ev (ev.id)}
+                    <li class="source">
+                      <span class="src">{kindLabel(ev.kind)}</span>
+                      <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
+                      <span class="excerpt">{ev.excerpt}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
             {/if}
             <div class="foot">
               <span class="spacer"></span>

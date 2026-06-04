@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.15.0](https://github.com/erwins-enkel/shepherd/compare/v1.14.0...v1.15.0) (2026-06-04)
+
+
+### Features
+
+* enforce + document feature-announcements catalog upkeep ([#325](https://github.com/erwins-enkel/shepherd/issues/325)) ([b48df0e](https://github.com/erwins-enkel/shepherd/commit/b48df0e3121762d5323b150d49bfc3cd479d4796))
+* **halt:** global "halt the herd" emergency stop ([#326](https://github.com/erwins-enkel/shepherd/issues/326)) ([d80a38a](https://github.com/erwins-enkel/shepherd/commit/d80a38a8278fde965f8895201ad75af9431d6b33))
+
+
+### Bug Fixes
+
+* **reconcile:** guard startup reconcile when herdr is down ([#315](https://github.com/erwins-enkel/shepherd/issues/315)) ([#324](https://github.com/erwins-enkel/shepherd/issues/324)) ([fd929ea](https://github.com/erwins-enkel/shepherd/commit/fd929ea539174301fae40564718e03e3567bf247))
+* **ui:** keep top bar from overflowing on touch-desktop ([#322](https://github.com/erwins-enkel/shepherd/issues/322)) ([31decc9](https://github.com/erwins-enkel/shepherd/commit/31decc971c035f84a6550e74fe92a42d0822e06c))
+
 ## [1.14.0](https://github.com/erwins-enkel/shepherd/compare/v1.13.0...v1.14.0) (2026-06-04)
 
 

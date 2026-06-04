@@ -411,45 +411,44 @@
   .u-activity {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 0;
     margin-top: 3px;
     min-width: 0;
     font-size: 11px;
     line-height: 1.3;
     color: var(--color-muted);
-    max-width: 34ch;
+  }
+  /* The heartbeat is the priority glance signal, so on EVERY device it claims
+     the whole activity line by default and the verbatim current-tool summary is
+     hidden. Touch ends here: full-width strip, no command (there's no hover to
+     tuck a snippet behind). Hover devices get the command back as an inline
+     reveal (see @media below). Scoped under .u-activity so the strip override
+     can't leak to a future global .strip; kept before the narrow @container
+     block so that block's 64px override still wins. */
+  .u-activity :global(.strip) {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
   }
   .act-sep {
     color: var(--color-faint);
     flex: none;
+    display: none;
   }
   .act-sum {
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    display: none;
   }
 
-  /* Pointer-capable devices: the heartbeat is the priority glance signal, so it
-     claims the whole activity line by default; the verbatim current-tool summary
-     is demoted to a hover/focus reveal — it expands inline and the strip yields
-     width to it (flex), so the line never grows taller. Touch has no hover, so
-     the base rules above keep the summary always visible there. Kept before the
-     narrow-sidebar @container block so that block's overrides still win. */
+  /* Hover/pointer devices: bring the demoted command back as a hover/focus
+     reveal — it expands inline while the strip yields width to it (flex), so the
+     line never grows taller. */
   @media (hover: hover) {
-    .u-activity {
-      max-width: none;
-      gap: 0;
-    }
-    .u-activity :global(.strip) {
-      flex: 1 1 auto;
-      width: auto;
-      max-width: none;
-    }
-    .act-sep {
-      display: none;
-    }
     .act-sum {
+      display: inline;
       max-width: 0;
       opacity: 0;
       transition:
@@ -572,7 +571,7 @@
     }
     /* the strip IS the heartbeat here — keep it, just narrower. Scoped under
        .u-activity so the override can't leak to a future global .strip. flex:none
-       overrides the hover-device grow above so the narrow strip stays at 64px. */
+       overrides the full-width grow above so the narrow strip stays at 64px. */
     .u-activity :global(.strip) {
       flex: none;
       width: 64px;

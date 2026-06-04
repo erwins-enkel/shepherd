@@ -43,6 +43,9 @@ echo "→ root tests"
 # point it at a temp dir so we never touch the operator's real repo root.
 SHEPHERD_REPO_ROOT="$(mktemp -d)" bun test ./test
 
+echo "→ ensure Playwright Chromium (ui browser tests)"
+(cd ui && bunx playwright install chromium)
+
 echo "→ ui tests"
 (cd ui && bun run test)
 

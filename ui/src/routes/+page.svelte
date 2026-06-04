@@ -449,29 +449,23 @@
     });
   }
 
-  // Fleet-wide emergency stop. Interrupting every working agent is consequential and
-  // not server-side reversible, so — like decommission — we DEFER it behind an undo
-  // window rather than firing on the first tap: one tap arms a 5s undo toast, and the
-  // POST only goes out when that window expires un-cancelled. The "Halted N" confirm
-  // rides in solely on the `halt:done` WS event (its 'halt-done' key dedupes WS echoes /
-  // back-to-back halts into one row). A failed POST re-toasts with a Retry that re-defers.
+  // Fleet-wide emergency stop. Interrupting every working agent is consequential, so
+  // the guard against an accidental tap is the TopBar's two-step arm→confirm gesture
+  // (first activation arms the red "Halt N?" pill, a second commits) — by the time
+  // onhalt fires here the operator has already confirmed, so we POST straight away.
+  // An interim "Halting N…" toast gives immediate feedback; the "Halted N" confirm
+  // rides in on the `halt:done` WS event (all connected clients). A failed POST
+  // replaces the interim toast with a Retry (keyed 'halt-herd' so it supersedes it).
   function haltHerd() {
     const count = store.sessions.filter((s) => s.status === "running").length;
     if (count === 0) return; // nothing to halt; the control is hidden in this state anyway
-    toasts.undo(m.halt_confirm({ count }), {
-      undoLabel: m.common_undo(),
-      key: "halt-herd",
-      onCommit: async () => {
-        try {
-          await apiHalt();
-          // success confirm arrives via the halt:done WS event (all connected clients)
-        } catch {
-          toasts.info(m.halt_failed(), {
-            alert: true,
-            action: { label: m.common_retry(), run: () => haltHerd() },
-          });
-        }
-      },
+    toasts.info(m.halt_confirm({ count }), { key: "halt-herd" });
+    apiHalt().catch(() => {
+      toasts.info(m.halt_failed(), {
+        alert: true,
+        key: "halt-herd",
+        action: { label: m.common_retry(), run: () => haltHerd() },
+      });
     });
   }
 

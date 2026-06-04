@@ -542,6 +542,8 @@
   "broadcast_textarea_aria": "Steer message",
   "halt_all": "Halt herd",
   "halt_all_aria": "Halt the herd — interrupt all {count} running agents",
+  "halt_arm": "Halt {count}?",
+  "halt_arm_aria": "Confirm halt — activate again to interrupt all {count} running agents",
   "halt_confirm": "Halting {count} running agents…",
   "halt_done": "Halted {count} agents",
   "halt_failed": "Halt failed — no agents interrupted. Retry.",

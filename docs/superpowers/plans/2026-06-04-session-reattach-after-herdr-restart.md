@@ -111,7 +111,108 @@ git commit -m "feat(herdr): stable matchAgent (cwd fallback, name tiebreak)"
 
 ---
 
-### Task 2: `reconcile()` adopts the live agent on boot
+> **Plan revision (during execution):** Per-session `matchAgent` is insufficient when
+> two **active** sessions share a cwd (non-isolated same-repo, or the existing reconcile
+> test's two-sessions-at-`/wt` fixture): a *dead* session's cwd fallback would steal a
+> *live* sibling's agent, flipping the dead one to "running" on every tick. So all three
+> call sites must arbitrate across sessions: an agent held by one session via an exact
+> terminalId match is off-limits to another session's cwd fallback, and each live agent
+> is adopted by at most one session. To keep this DRY it lives in ONE helper,
+> `matchAgents(sessions, agents)` (Task 1b), used by reconcile, poller, and resume.
+> `matchAgent` stays as the per-session resolver over a candidate list.
+
+### Task 1b: `matchAgents` cross-session arbitration helper
+
+**Files:**
+- Modify: `src/herdr.ts` (add below `matchAgent`)
+- Test: `test/herdr.test.ts`
+
+- [ ] **Step 1: Write the failing tests** — append to `test/herdr.test.ts` (reuse the `mkAgent` helper from the matchAgent tests):
+
+```ts
+import { matchAgents } from "../src/herdr";
+
+test("matchAgents: a dead session cannot steal a live sibling's exact-id agent at the same cwd", () => {
+  const live = { id: "L", herdrAgentId: "term_live", worktreePath: "/wt", name: "x" };
+  const dead = { id: "D", herdrAgentId: "term_dead", worktreePath: "/wt", name: "x" };
+  const agents = [mkAgent({ terminalId: "term_live", cwd: "/wt", name: "x" })];
+  const m = matchAgents([live, dead], agents);
+  expect(m.get("L")?.terminalId).toBe("term_live");
+  expect(m.get("D")).toBeNull();
+});
+
+test("matchAgents: each live agent is adopted by at most one session", () => {
+  const a = { id: "A", herdrAgentId: "stale_a", worktreePath: "/wt", name: "alpha" };
+  const b = { id: "B", herdrAgentId: "stale_b", worktreePath: "/wt", name: "beta" };
+  const agents = [
+    mkAgent({ terminalId: "fresh_a", cwd: "/wt", name: "alpha" }),
+    mkAgent({ terminalId: "fresh_b", cwd: "/wt", name: "beta" }),
+  ];
+  const m = matchAgents([a, b], agents);
+  expect(m.get("A")?.terminalId).toBe("fresh_a");
+  expect(m.get("B")?.terminalId).toBe("fresh_b");
+});
+
+test("matchAgents: stale terminalId adopts the fresh agent at the same cwd", () => {
+  const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/z", name: "x" };
+  const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/z", name: "x" })]);
+  expect(m.get("S")?.terminalId).toBe("fresh");
+});
+```
+
+- [ ] **Step 2:** Run `bun test ./test/herdr.test.ts` — expect FAIL (`matchAgents` not exported).
+
+- [ ] **Step 3: Implement** — in `src/herdr.ts`, add directly below `matchAgent`:
+
+```ts
+/**
+ * Resolve EVERY active session to its live herdr agent at once, arbitrating
+ * cross-session collisions: an agent held by one session via an exact terminalId match
+ * is off-limits to another session's cwd fallback, and each agent is adopted by at most
+ * one session. Without this, two active sessions sharing a cwd (non-isolated same-repo)
+ * would have a dead one steal a live one's agent. Returns sessionId → matched agent
+ * (or null). Per-session resolution still goes through `matchAgent`.
+ */
+export function matchAgents(
+  sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
+  agents: HerdrAgent[],
+): Map<string, HerdrAgent | null> {
+  const exactOwner = new Map<string, string>(); // terminalId → owning session id
+  for (const s of sessions) {
+    const a = agents.find((x) => x.terminalId === s.herdrAgentId);
+    if (a) exactOwner.set(a.terminalId, s.id);
+  }
+  const taken = new Set<string>();
+  const out = new Map<string, HerdrAgent | null>();
+  for (const s of sessions) {
+    const candidates = agents.filter((a) => {
+      if (taken.has(a.terminalId)) return false;
+      const owner = exactOwner.get(a.terminalId);
+      return owner === undefined || owner === s.id;
+    });
+    const a = matchAgent(s, candidates);
+    out.set(s.id, a);
+    if (a) taken.add(a.terminalId);
+  }
+  return out;
+}
+```
+
+- [ ] **Step 4:** Run `bun test ./test/herdr.test.ts` — expect PASS (matchAgent + matchAgents + pre-existing all green).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/herdr.ts test/herdr.test.ts
+git commit -m "feat(herdr): matchAgents cross-session arbitration helper"
+```
+
+---
+
+### Task 2: `reconcile()` adopts the live agent on boot (via `matchAgents`)
+
+> Already partially implemented inline; this task refactors it to use the shared
+> `matchAgents` helper so the arbitration logic isn't duplicated.
 
 **Files:**
 - Modify: `src/reconcile.ts`
@@ -152,18 +253,19 @@ test("reconcile re-pairs a session whose terminalId went stale but agent is live
 Run: `bun test ./test/reconcile.test.ts`
 Expected: FAIL — session marked `done` and `herdrAgentId` still `term_stale` (current terminalId-only lookup misses).
 
-- [ ] **Step 3: Rewrite `reconcile()` to use `matchAgent` + adopt**
+- [ ] **Step 3: Rewrite `reconcile()` to use `matchAgents` + adopt**
 
 Replace the entire body of `src/reconcile.ts` with:
 
 ```ts
 import type { SessionStore } from "./store";
-import { mapState, matchAgent, type HerdrDriver } from "./herdr";
+import { mapState, matchAgents, type HerdrDriver } from "./herdr";
 
 export function reconcile(store: SessionStore, herdr: Pick<HerdrDriver, "list">): void {
-  const agents = herdr.list();
-  for (const s of store.list({ activeOnly: true })) {
-    const agent = matchAgent(s, agents);
+  const sessions = store.list({ activeOnly: true });
+  const matched = matchAgents(sessions, herdr.list());
+  for (const s of sessions) {
+    const agent = matched.get(s.id) ?? null;
     if (!agent) store.update(s.id, { status: "done", lastState: "done" });
     else
       store.update(s.id, {
@@ -255,21 +357,22 @@ Expected: FIRST test FAILS — current `byTerm.get(s.herdrAgentId)` misses `term
 
 - [ ] **Step 3a: Switch `tick()` to the matcher**
 
-In `src/poller.ts`, update the import line (add `matchAgent`):
+In `src/poller.ts`, update the import line (add `matchAgents`):
 
 ```ts
-import { mapState, matchAgent, type HerdrDriver, type HerdrAgent } from "./herdr";
+import { mapState, matchAgents, type HerdrDriver, type HerdrAgent } from "./herdr";
 ```
 
-Replace the `tick()` body:
+Replace the `tick()` body (note `matchAgents` arbitrates across all active sessions in one pass, so a dead session can't steal a live sibling's agent):
 
 ```ts
   tick(): void {
-    const agents = this.herdr.list();
+    const sessions = this.store.list({ activeOnly: true });
+    const matched = matchAgents(sessions, this.herdr.list());
     const activeIds = new Set<string>();
-    for (const s of this.store.list({ activeOnly: true })) {
+    for (const s of sessions) {
       activeIds.add(s.id);
-      const agent = matchAgent(s, agents);
+      const agent = matched.get(s.id) ?? null;
       if (!agent) this.reapGone(s);
       else this.reconcileAgent(s, agent);
     }
@@ -373,14 +476,16 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
 Run: `bun test ./test/service.test.ts`
 Expected: FAIL — current liveness check is terminalId-only, so it misses `term_fresh`, calls `herdr.start` (startCalls === 1) and re-points to `term_should_not_happen`.
 
-- [ ] **Step 3: Use `matchAgent` in `resume()`**
+- [ ] **Step 3: Use `matchAgents` in `resume()`**
 
-In `src/service.ts`, add `matchAgent` to the herdr import (find the existing `from "./herdr"` import and include it). Then replace the liveness lines in `resume()`:
+In `src/service.ts`, add `matchAgents` to the herdr import (find the existing `from "./herdr"` import and include it). Then replace the liveness lines in `resume()`. Resolve across ALL active sessions (not just `s`) so resume can't adopt an agent that belongs to a live sibling sharing `s`'s cwd:
 
 ```ts
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived" || !s.claudeSessionId) return null;
-    const agent = matchAgent(s, this.deps.herdr.list());
+    const agent =
+      matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
+      null;
     if (agent) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new
       // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.

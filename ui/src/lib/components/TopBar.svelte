@@ -61,9 +61,9 @@
   );
   const hideClockTime = $derived(touch && !mobile && anyBadge);
   // Tighter still: when the wide pulsing update badge rides alongside the
-  // LEARNINGS / NEEDS YOU labels on touch-desktop, hiding the clock isn't enough
-  // and the update badge still overflows. Collapse those labels to their compact
-  // icon+count form (the phone treatment) to reclaim the row.
+  // LEARNINGS / NEEDS YOU / WHAT'S-NEW labels on touch-desktop, hiding the clock
+  // isn't enough and the update badge still overflows. Collapse those to their
+  // compact icon/dot-only form (the phone treatment) to reclaim the row.
   const compactBadges = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
@@ -291,9 +291,10 @@
       </button>
     {/if}
     {#if whatsNew}
-      <!-- Desktop: labelled button with hover-tip; Mobile: dot-only to avoid
-           crowding the single-row control cluster (mirrors .gear-dot pattern). -->
-      {#if !mobile}
+      <!-- Desktop: labelled button with hover-tip; Mobile (and the touch-desktop
+           update-badge crunch) collapse to dot-only to avoid crowding the
+           single-row control cluster (mirrors .gear-dot pattern). -->
+      {#if !mobile && !compactBadges}
         <button
           class="whatsnew-badge tip"
           type="button"
@@ -668,8 +669,8 @@
     align-items: center;
     font-variant-numeric: tabular-nums;
   }
-  /* Touch desktop-layout with an update badge: hide the numeric time, keep the
-     dot inline so the badge no longer overflows the bar. */
+  /* Touch desktop-layout crowded by any right-side badge: hide the numeric
+     time, keep the dot inline so the cluster no longer overflows the bar. */
   .clock.no-time {
     gap: 0;
   }

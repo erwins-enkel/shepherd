@@ -43,4 +43,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_halt_title",
     bodyKey: "feat_halt_body",
   },
+  {
+    id: "chrome-capture-extension",
+    sinceVersion: "1.16.0",
+    titleKey: "feature_capture_extension_title",
+    bodyKey: "feature_capture_extension_body",
+  },
 ];

@@ -23,6 +23,11 @@
 #   • opt-out is branch-global: ONE `[no-feature-entry]` anywhere in the range's
 #     commit subjects/bodies disables the gate for the WHOLE PR range, not just the
 #     commit that carries it. (Range-level, like the rest of the heuristic.)
+#   • over-fires (false positive): the check is range-level — it does not bind the
+#     UI diff to the specific feat commit. A branch mixing a server-only `feat:`
+#     with an unrelated UI-touching `fix:` trips the gate even though the feat ships
+#     no UX. Fail-safe (errs toward demanding an entry) and recoverable: add the
+#     entry, or `[no-feature-entry]` if neither change truly surfaces UX.
 #
 # Base defaults to origin/main; CI can override via $BASE_REF for non-main bases.
 # See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".

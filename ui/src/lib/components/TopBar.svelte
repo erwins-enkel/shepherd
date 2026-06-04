@@ -46,10 +46,25 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
-  // Touch desktop-layout (unfolded foldable): narrower than a real desktop, so the
-  // update badge shoves the clock past the edge. Drop the numeric time (keep the
-  // connection dot) when a badge is present, mirroring the phone layout.
-  const hideClockTime = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
+  // Any right-side badge crowds the bar on touch desktop-layout (unfolded
+  // foldable: narrower than a real desktop). Whichever badge it is — update,
+  // learnings, needs-you, what's-new — the numeric clock is the first thing to
+  // sacrifice (system status bar already shows the time; the connection dot
+  // stays inline), mirroring the phone layout.
+  const anyBadge = $derived(
+    updateAvailable ||
+      herdrUpdateAvailable ||
+      learnings > 0 ||
+      overBudget > 0 ||
+      needsYou > 0 ||
+      whatsNew,
+  );
+  const hideClockTime = $derived(touch && !mobile && anyBadge);
+  // Tighter still: when the wide pulsing update badge rides alongside the
+  // LEARNINGS / NEEDS YOU labels on touch-desktop, hiding the clock isn't enough
+  // and the update badge still overflows. Collapse those labels to their compact
+  // icon+count form (the phone treatment) to reclaim the row.
+  const compactBadges = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
@@ -138,11 +153,11 @@
     {#if needsYou > 0}
       <button
         class="needsyou"
-        class:compact={mobile}
+        class:compact={mobile || compactBadges}
         onclick={() => ontriage?.()}
         aria-label={m.common_needs_you({ count: needsYou })}
       >
-        {#if mobile}
+        {#if mobile || compactBadges}
           <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{needsYou}</span>
         {:else}
           {m.common_needs_you({ count: needsYou })}
@@ -152,14 +167,14 @@
     {#if learnings > 0 || overBudget > 0}
       <button
         class="learnings-badge"
-        class:compact={mobile}
+        class:compact={mobile || compactBadges}
         class:curate={learnings === 0}
         onclick={() => onlearnings?.()}
         aria-label={learnings > 0
           ? m.learnings_open_aria({ count: learnings })
           : m.learnings_open_curate_aria({ count: overBudget })}
       >
-        {#if mobile}
+        {#if mobile || compactBadges}
           <span class="lr-icon" aria-hidden="true">💡</span>
           {#if learnings > 0}<span class="lr-n">{learnings}</span>{/if}
         {:else}

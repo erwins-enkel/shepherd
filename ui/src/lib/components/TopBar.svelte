@@ -49,11 +49,11 @@
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
   const working = $derived(sessions.filter((s) => s.status === "running").length);
-  // How many right-side badges are vying for space (each renders one button) —
-  // includes the halt button, which only renders while something is working.
+  // How many right-side badges are vying for space (each renders one button).
+  // The halt e-stop is no longer one of them — it folds into the always-present
+  // gear menu (see below), so it never competes for a slot in this cluster.
   const badgeCount = $derived(
-    (working > 0 ? 1 : 0) +
-      (updateAvailable ? 1 : 0) +
+    (updateAvailable ? 1 : 0) +
       (herdrUpdateAvailable ? 1 : 0) +
       (learnings > 0 || overBudget > 0 ? 1 : 0) +
       (needsYou > 0 ? 1 : 0) +
@@ -107,16 +107,33 @@
     if (!touch || !hotter) popoverOpen = false;
   });
 
-  // Two-step arm→confirm for the emergency stop: the first activation arms the red
-  // "Halt N?" pill, a second commits (onhalt). It auto-disarms after a few seconds,
-  // on Escape, on an outside tap, or once nothing is left running — so a stray tap on
-  // a rarely-used control can never halt the fleet on its own.
+  // The gear is a menu button: one click opens a small popup with the e-stop (when
+  // something is working) above a "Settings…" row. The menu always opens — when the
+  // herd is idle it just holds the lone Settings row — so the gear's behaviour stays
+  // predictable regardless of state.
+  let menuOpen = $state(false);
+  let gearBtn = $state<HTMLButtonElement | null>(null);
+  let gearWrap = $state<HTMLElement | null>(null);
+  let menuEl = $state<HTMLElement | null>(null);
+
+  // Two-step arm→confirm for the emergency stop, now living inside the menu: the first
+  // activation arms the red "Halt N?" row, a second commits (onhalt). It auto-disarms
+  // after a few seconds, on Escape, on close, or once nothing is left running — so a
+  // stray tap on a rarely-used control can never halt the fleet on its own.
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
-  let haltBtn = $state<HTMLButtonElement | null>(null);
   function disarmHalt() {
     armed = false;
     clearTimeout(armTimer);
+  }
+  function closeMenu(returnFocus = false) {
+    menuOpen = false;
+    disarmHalt();
+    if (returnFocus) gearBtn?.focus();
+  }
+  function toggleMenu() {
+    if (menuOpen) closeMenu();
+    else menuOpen = true;
   }
   function clickHalt() {
     if (!armed) {
@@ -125,11 +142,37 @@
       armTimer = setTimeout(() => (armed = false), 4000);
     } else {
       disarmHalt();
+      menuOpen = false;
       onhalt?.();
     }
   }
+  function chooseSettings() {
+    menuOpen = false;
+    disarmHalt();
+    onsettings?.();
+  }
+  // On open, move focus to the first menu item (proper menu-button keyboard flow).
+  $effect(() => {
+    if (menuOpen) menuEl?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+  });
+  // ArrowUp/Down cycle between the menu items; Escape closes and returns focus to the gear.
+  function onMenuKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      closeMenu(true);
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = Array.from(menuEl?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? []);
+    if (!items.length) return;
+    const here = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === "ArrowDown" ? (here + 1) % items.length : (here - 1 + items.length) % items.length;
+    items[next]?.focus();
+  }
   // Drop the armed state if the herd goes quiet underneath it (agents finished), so a
-  // later run doesn't surface a pre-armed button.
+  // later run doesn't surface a pre-armed row.
   $effect(() => {
     if (working === 0) disarmHalt();
   });
@@ -139,11 +182,11 @@
   function dismissOnEscape(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
     if (popoverOpen) popoverOpen = false;
-    if (armed) disarmHalt();
+    if (menuOpen) closeMenu(true);
   }
   function dismissOnOutside(e: MouseEvent) {
     if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
-    if (armed && haltBtn && !haltBtn.contains(e.target as Node)) disarmHalt();
+    if (menuOpen && gearWrap && !gearWrap.contains(e.target as Node)) closeMenu();
   }
 </script>
 
@@ -186,29 +229,6 @@
     </div>
   {/if}
   <div class="rightside">
-    {#if working > 0}
-      <!-- Emergency stop: interrupts every live working agent at once. Only shown while
-           something is running. Quiet by default (gear-weight: neutral outline, muted
-           octagon) so a near-never-pressed control doesn't dominate the bar — it reveals
-           its red only on intent (hover/focus) and once armed. One activation arms the
-           "Halt N?" confirm pill, a second commits (full intent stays in the aria-label). -->
-      <button
-        bind:this={haltBtn}
-        class="halt"
-        class:armed
-        type="button"
-        onclick={clickHalt}
-        aria-label={armed
-          ? m.halt_arm_aria({ count: working })
-          : m.halt_all_aria({ count: working })}
-        title={armed ? undefined : m.halt_all()}
-      >
-        <svg class="halt-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-        </svg>
-        {#if armed}<span class="halt-label">{m.halt_arm({ count: working })}</span>{/if}
-      </button>
-    {/if}
     {#if needsYou > 0}
       <button
         class="needsyou"
@@ -377,16 +397,68 @@
         >
       {/if}
     {/if}
-    <button
-      class="gear tip"
-      class:has-update={herdrUpdateAvailable && mobile}
-      type="button"
-      onclick={() => onsettings?.()}
-      data-tip={m.settings_title()}
-      aria-label={m.topbar_settings_aria()}
-      >⚙{#if herdrUpdateAvailable && mobile}<span class="gear-dot" aria-hidden="true"
-        ></span>{/if}</button
-    >
+    <!-- The gear is now a menu button: it opens the e-stop (when something is
+         working) plus the Settings entry. A red pip on the gear is the only at-rest
+         cue that there's a herd to halt; the green herdr-update dot (mobile) shifts
+         to the opposite corner when both want the gear. -->
+    <div class="gear-wrap" bind:this={gearWrap}>
+      <button
+        bind:this={gearBtn}
+        class="gear tip"
+        class:has-update={herdrUpdateAvailable && mobile}
+        type="button"
+        onclick={toggleMenu}
+        data-tip={working > 0 ? m.topbar_menu_aria() : m.settings_title()}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label={working > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
+        >⚙{#if working > 0}<span class="halt-pip" aria-hidden="true"
+          ></span>{/if}{#if herdrUpdateAvailable && mobile}<span
+            class="gear-dot"
+            class:shift={working > 0}
+            aria-hidden="true"
+          ></span>{/if}</button
+      >
+      {#if menuOpen}
+        <div
+          class="gear-menu"
+          role="menu"
+          tabindex="-1"
+          aria-label={m.topbar_menu_label()}
+          bind:this={menuEl}
+          onkeydown={onMenuKey}
+        >
+          {#if working > 0}
+            <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
+                 Full intent stays in the aria-label. -->
+            <button
+              class="menu-item halt-item"
+              class:armed
+              type="button"
+              role="menuitem"
+              onclick={clickHalt}
+              aria-label={armed
+                ? m.halt_arm_aria({ count: working })
+                : m.halt_all_aria({ count: working })}
+            >
+              <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
+              </svg>
+              <span class="menu-label"
+                >{armed
+                  ? m.halt_arm({ count: working })
+                  : m.halt_menu_item({ count: working })}</span
+              >
+            </button>
+            <div class="menu-sep" role="separator"></div>
+          {/if}
+          <button class="menu-item" type="button" role="menuitem" onclick={chooseSettings}>
+            <span class="menu-glyph" aria-hidden="true">⚙</span>
+            <span class="menu-label">{m.settings_title()}</span>
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -466,54 +538,100 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-  /* Emergency stop: consequential but almost never pressed, so it stays quiet by
-     default — gear-weight (neutral outline, muted octagon glyph), not a filled red
-     block — and only reveals its red on intent (hover/focus) or once armed. That keeps
-     it from dominating the bar or bulging the row's height next to the text tallies. */
-  .halt {
+  /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
+     working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
+  .gear-wrap {
+    position: relative;
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    background: transparent;
+  }
+  .gear-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    min-width: 184px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px;
+    background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font: inherit;
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 5px 8px;
+    border-radius: 3px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-base);
+    text-align: left;
+    padding: 8px 10px;
     cursor: pointer;
     white-space: nowrap;
-    flex-shrink: 0;
   }
-  .halt:hover,
-  .halt:focus-visible {
-    color: var(--color-red);
-    border-color: var(--color-red);
+  .menu-item:hover,
+  .menu-item:focus-visible {
+    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
+    outline: none;
   }
-  /* Pinned to --fs-lg (not 1em) so the glyph stays the same size when arming drops
-     the button font-size to --fs-meta — keeps the icon visually stable on the morph. */
-  .halt-icon {
+  .menu-icon {
     width: var(--fs-lg);
     height: var(--fs-lg);
     display: block;
+    flex-shrink: 0;
   }
-  /* Armed (first activation): the single moment it goes loud — a filled red "Halt N?"
-     confirm pill. A second activation commits; Escape / outside-tap / timeout disarm.
-     Vertical padding stays 5px (matching rest) so arming only grows width for the
-     label rather than nudging the row height. */
-  .halt.armed {
-    padding: 5px 11px;
+  .menu-glyph {
+    width: var(--fs-lg);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .menu-label {
+    font-variant-numeric: tabular-nums;
+  }
+  /* e-stop row: muted by default, goes loud (red) only on hover/focus and once armed —
+     so a rarely-pressed control never dominates the menu. */
+  .halt-item {
+    color: var(--color-muted);
+  }
+  .halt-item:hover,
+  .halt-item:focus-visible {
+    background: color-mix(in srgb, var(--color-red) 14%, transparent);
+    color: var(--color-red);
+  }
+  .halt-item.armed {
     background: color-mix(in srgb, var(--color-red) 22%, transparent);
     border-color: var(--color-red);
     color: var(--color-red);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
     text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: var(--fs-meta);
   }
-  .halt-label {
-    font-variant-numeric: tabular-nums;
+  /* Keep the octagon glyph at full size even when arming drops the row font-size. */
+  .halt-item.armed .menu-icon {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+  }
+  .menu-sep {
+    height: 1px;
+    margin: 3px 2px;
+    background: var(--color-line);
+  }
+  /* Red pip on the gear: the only at-rest cue that there's a herd to halt. */
+  .halt-pip {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-red);
+    box-shadow: 0 0 0 2px var(--color-panel);
   }
   .learnings-badge {
     background: transparent;
@@ -573,6 +691,12 @@
     border-radius: 50%;
     background: var(--color-green);
     box-shadow: 0 0 0 2px var(--color-panel);
+  }
+  /* When the red halt pip owns the top-right corner, the green herdr dot drops to the
+     bottom-right so the two cues never overlap. */
+  .gear-dot.shift {
+    top: auto;
+    bottom: 3px;
   }
   .gear.has-update {
     border-color: var(--color-green);
@@ -865,9 +989,6 @@
     min-height: 44px;
     padding: 8px 12px;
   }
-  .hud.mobile .halt {
-    min-height: 44px;
-  }
   /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
      fits on line 1 next to the gauge/gear instead of forcing the right-side
      controls to wrap to a second row. Full label stays as the aria-label. */
@@ -918,7 +1039,6 @@
      also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
   @media (pointer: coarse) {
     .gear,
-    .halt,
     .needsyou,
     .needsyou.compact,
     .learnings-badge,
@@ -927,6 +1047,10 @@
     .update-badge {
       min-height: 44px;
       min-width: 44px;
+    }
+    /* Menu rows get the same ≥44px touch floor without enlarging the desktop layout. */
+    .menu-item {
+      min-height: 44px;
     }
   }
 

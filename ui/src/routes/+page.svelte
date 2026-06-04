@@ -453,8 +453,8 @@
   // not server-side reversible, so — like decommission — we DEFER it behind an undo
   // window rather than firing on the first tap: one tap arms a 5s undo toast, and the
   // POST only goes out when that window expires un-cancelled. The "Halted N" confirm
-  // rides in on the `halt:done` WS event (keyed so this optimistic echo and the WS
-  // echo collapse to one toast). A failed POST re-toasts with a Retry that re-defers.
+  // rides in solely on the `halt:done` WS event (its 'halt-done' key dedupes WS echoes /
+  // back-to-back halts into one row). A failed POST re-toasts with a Retry that re-defers.
   function haltHerd() {
     const count = store.sessions.filter((s) => s.status === "running").length;
     if (count === 0) return; // nothing to halt; the control is hidden in this state anyway

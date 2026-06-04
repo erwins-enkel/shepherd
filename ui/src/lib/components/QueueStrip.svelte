@@ -194,7 +194,7 @@
     letter-spacing: 0.04em;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 320px;
+    max-width: min(320px, 50vw);
   }
 
   /* queue popover — chrome mirrors GitRail's .pr-pop, anchored under the row */

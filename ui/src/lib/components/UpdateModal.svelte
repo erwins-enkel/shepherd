@@ -338,6 +338,9 @@
   }
   .run:disabled {
     opacity: 0.6;
-    cursor: default;
+    cursor: not-allowed;
+    color: var(--color-faint);
+    border-color: var(--color-line);
+    box-shadow: none;
   }
 </style>

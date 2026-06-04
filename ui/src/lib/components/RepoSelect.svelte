@@ -16,6 +16,11 @@
   let filter = $state("");
   let root = $state<HTMLElement | null>(null);
   let filterInput = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLUListElement | null>(null);
+
+  // Roving keyboard cursor: the filter input keeps DOM focus while open, so it
+  // drives a virtual active row (aria-activedescendant) the way EmojiPicker does.
+  let activeIdx = $state(0);
 
   // repo path whose emoji picker is currently open (null = none)
   let pickerFor = $state<string | null>(null);
@@ -49,6 +54,41 @@
       filterInput.focus();
     }
   });
+
+  // Reset the cursor to the top whenever the filtered list changes (open/typing).
+  $effect(() => {
+    void shown;
+    activeIdx = 0;
+  });
+
+  // Keyboard-driven row navigation from the focused filter input.
+  function onFilterKey(e: KeyboardEvent) {
+    if (shown.length === 0) return;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, shown.length - 1);
+        scrollActiveIntoView();
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        scrollActiveIntoView();
+        break;
+      case "Enter": {
+        e.preventDefault();
+        const r = shown[activeIdx];
+        if (r) pick(r.path);
+        break;
+      }
+      // Escape falls through to the window handler that closes the panel.
+    }
+  }
+
+  function scrollActiveIntoView() {
+    const row = listEl?.children[activeIdx] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest" });
+  }
 
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
@@ -93,23 +133,32 @@
   </button>
 
   {#if open}
-    <div class="rs-panel" role="listbox">
+    <div class="rs-panel">
       <input
         bind:this={filterInput}
         bind:value={filter}
         class="rs-filter"
         placeholder={m.reposelect_filter_placeholder()}
+        aria-label={m.reposelect_filter_placeholder()}
         type="text"
         autocomplete="off"
         spellcheck="false"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="rs-listbox"
+        aria-autocomplete="list"
+        aria-activedescendant={shown.length ? `rs-opt-${activeIdx}` : undefined}
+        onkeydown={onFilterKey}
       />
-      <ul class="rs-list">
-        {#each shown as r (r.path)}
+      <ul class="rs-list" id="rs-listbox" role="listbox" bind:this={listEl}>
+        {#each shown as r, i (r.path)}
           <li
+            id={`rs-opt-${i}`}
             class="rs-row"
             class:active={r.path === value}
+            class:kbd-active={i === activeIdx}
             role="option"
-            aria-selected={r.path === value}
+            aria-selected={i === activeIdx}
             tabindex="-1"
             onclick={() => pick(r.path)}
             onkeydown={(e) => {
@@ -132,10 +181,15 @@
             <span class="dim">{r.display}</span>
           </li>
         {/each}
-        {#if shown.length === 0}
-          <li class="rs-empty">{m.reposelect_no_matches()}</li>
-        {/if}
       </ul>
+      <!-- Live region (always mounted + in the a11y tree while open) so screen
+           readers hear when a filter yields zero results. Lives outside the
+           listbox so that owns only role=option rows; only the text toggles
+           (reliable announce), and the .filled padding keeps the empty state at
+           zero visual footprint. -->
+      <div class="rs-empty" class:filled={shown.length === 0} role="status" aria-live="polite">
+        {shown.length === 0 ? m.reposelect_no_matches() : ""}
+      </div>
       {#if onclone}
         <button
           type="button"
@@ -288,7 +342,8 @@
     border-bottom: 0;
   }
 
-  .rs-row:hover {
+  .rs-row:hover,
+  .rs-row.kbd-active {
     background: var(--color-hover);
   }
 
@@ -306,11 +361,13 @@
   }
 
   .rs-empty {
-    padding: 10px;
     color: var(--color-muted);
     font-size: var(--fs-base);
     font-style: italic;
     text-align: center;
+  }
+  .rs-empty.filled {
+    padding: 10px;
   }
 
   .rs-clone-row {

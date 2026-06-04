@@ -590,8 +590,11 @@
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .run:disabled {
-    opacity: 0.5;
-    cursor: default;
+    opacity: 0.6;
+    cursor: not-allowed;
+    color: var(--color-faint);
+    border-color: var(--color-line);
+    box-shadow: none;
   }
   .kbd {
     font: inherit;

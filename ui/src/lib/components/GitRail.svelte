@@ -542,7 +542,7 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: var(--color-accent, #5f6ad2);
+    background: var(--color-blue);
     flex-shrink: 0;
     animation: new-pip-pulse 2s ease-in-out infinite;
   }

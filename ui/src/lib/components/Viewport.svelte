@@ -568,6 +568,10 @@
       theme: xtermTheme(initialTheme),
       minimumContrastRatio: xtermMinContrast(initialTheme),
       cursorBlink: true,
+      // Mirror terminal output into xterm's hidden ARIA live region so screen
+      // readers can follow the live agent session (the .term-mount region label
+      // alone names the area but exposes none of its scrolling content).
+      screenReaderMode: true,
       // Claude Code runs as a TUI with mouse tracking on, which hands mouse drags
       // to the app instead of selecting text. xterm lets a modifier force local
       // selection anyway — Shift on Linux/Windows, Option (⌥) on macOS — but the

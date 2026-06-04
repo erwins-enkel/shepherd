@@ -282,8 +282,9 @@
     border-color: var(--color-amber);
   }
   .retry:disabled {
-    opacity: 0.5;
-    cursor: default;
+    opacity: 0.6;
+    cursor: not-allowed;
+    color: var(--color-faint);
   }
   .run {
     margin-top: 4px;
@@ -298,11 +299,14 @@
     cursor: pointer;
   }
   .run:disabled {
-    opacity: 0.5;
-    cursor: default;
+    opacity: 0.6;
+    cursor: not-allowed;
+    color: var(--color-faint);
+    border-color: var(--color-line);
+    box-shadow: none;
   }
   /* armed: the same inset-glow confirm state used for decommission/merge */
-  .run.armed {
+  .run.armed:not(:disabled) {
     box-shadow: inset 0 0 22px -10px var(--color-amber);
     background: var(--color-hover);
   }

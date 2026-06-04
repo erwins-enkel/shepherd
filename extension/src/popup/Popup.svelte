@@ -85,10 +85,22 @@
     await runCapture();
   }
 
-  /** True once at least one signal was actually gathered (vs. requested-but-failed). */
-  function hasAnySignal(s: CaptureResult["signals"]): boolean {
-    return !!s && (s.console !== undefined || s.network !== undefined || s.a11y !== undefined);
+  /**
+   * A " · "-joined count line listing only the signals that were actually
+   * gathered (a present array — empty included). Signals that weren't gathered
+   * (toggle off, or a gather failure) are omitted, so a clean-page a11y capture
+   * shows "0 a11y" rather than "0 console · 0 failed · 0 a11y". "" when none.
+   */
+  function signalSummary(s: CaptureResult["signals"]): string {
+    if (!s) return "";
+    const parts: string[] = [];
+    if (s.console !== undefined) parts.push(m.popup_count_console({ count: s.console.length }));
+    if (s.network !== undefined) parts.push(m.popup_count_network({ count: s.network.length }));
+    if (s.a11y !== undefined) parts.push(m.popup_count_a11y({ count: s.a11y.length }));
+    return parts.join(" · ");
   }
+
+  let summary = $derived(signalSummary(capture?.signals));
 
   async function submit() {
     if (!capture) return;
@@ -190,14 +202,8 @@
           {m.popup_signals_locked()}
         </button>
       {/if}
-      {#if hasAnySignal(capture?.signals)}
-        <span class="text-gray-500">
-          {m.popup_signal_summary({
-            console: capture?.signals?.console?.length ?? 0,
-            network: capture?.signals?.network?.length ?? 0,
-            a11y: capture?.signals?.a11y?.length ?? 0,
-          })}
-        </span>
+      {#if summary}
+        <span class="text-gray-500">{summary}</span>
       {/if}
       {#if capture?.signalErrors?.some((s) => s === "console" || s === "network")}
         <span class="text-amber-600">{m.popup_recorder_reload()}</span>

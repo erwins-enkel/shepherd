@@ -1,4 +1,4 @@
-import type { CapturedSignals, SignalToggles } from "./signals";
+import type { CapturedSignals, GatherSignal, SignalToggles } from "./signals";
 
 /** Auto-captured page metadata (Phase 1 signals). */
 export interface PageMetadata {
@@ -18,8 +18,14 @@ export interface CaptureResult {
   /** PNG data URL from chrome.tabs.captureVisibleTab. */
   screenshotDataUrl: string;
   metadata: PageMetadata;
-  /** Gathered signals (only the toggles that were on). */
+  /** Gathered signals (only the toggles that were on, that succeeded). */
   signals?: CapturedSignals;
+  /**
+   * Signals the user asked for that failed to gather (axe threw, recorder buffer
+   * absent). Surfaced explicitly so a gather failure isn't mistaken for an empty
+   * result — present only when non-empty.
+   */
+  signalErrors?: GatherSignal[];
 }
 
 /** Persisted extension config (chrome.storage.local; never synced). */

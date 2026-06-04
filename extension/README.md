@@ -47,7 +47,11 @@ popup; set defaults in **Options**:
 - **Console errors** / **Failed requests** — require enabling **recording** in
   Options, which asks for access to **all sites** so a background recorder can
   buffer `console.error`/`warn`, uncaught errors, and failed `fetch`/XHR/resource
-  loads as they happen. Turn recording off to revoke that permission.
+  loads as they happen. Failed requests include the **full request URL** (query
+  strings may contain tokens), which is forwarded to Shepherd in the task. Turn
+  recording off to revoke that permission. Because the recorder injects at
+  document load, a tab opened before you enabled recording won't have a buffer —
+  reload it (the popup shows a hint when this happens).
 
 All page-derived strings are sanitized (newline/backtick-neutralized) before they
 enter the fenced context block, so a crafted page can't break out of the fence.

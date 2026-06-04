@@ -8,7 +8,14 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from "./lib/types";
-import type { CapturedSignals, ConsoleEntry, NetworkEntry, SignalToggles } from "./lib/signals";
+import type {
+  A11yFinding,
+  CapturedSignals,
+  ConsoleEntry,
+  GatherSignal,
+  NetworkEntry,
+  SignalToggles,
+} from "./lib/signals";
 
 /** Injected into the page to read viewport/UA/locale at capture time. */
 function readPageInfo(): PageInfo {
@@ -21,8 +28,12 @@ function readPageInfo(): PageInfo {
   };
 }
 
-/** Inject axe-core and run a violations-only audit. Best-effort: [] on failure. */
-async function gatherA11y(tabId: number) {
+/**
+ * Inject axe-core and run a violations-only audit. Best-effort: returns null on
+ * failure (e.g. a restricted page where injection is blocked) so the caller can
+ * surface the failure distinctly rather than report it as "0 findings".
+ */
+async function gatherA11y(tabId: number): Promise<A11yFinding[] | null> {
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["axe.min.js"] });
     const [{ result }] = await chrome.scripting.executeScript({
@@ -34,7 +45,7 @@ async function gatherA11y(tabId: number) {
     });
     return summarizeAxeResults(result as AxeResults);
   } catch {
-    return []; // best-effort: omit on failure
+    return null; // best-effort: failure surfaces as a signalError, capture proceeds
   }
 }
 
@@ -56,6 +67,53 @@ async function readRecorderBuffer(
   }
 }
 
+/**
+ * Read the recorder buffer for the enabled console/network toggles into the
+ * `signals`/`errors` accumulators. A null buffer (recorder not active on this
+ * tab — opened before the permission was granted, or a restricted page) records
+ * an error rather than an empty result, so the popup can say "couldn't gather".
+ */
+async function gatherRecorderSignals(
+  tabId: number,
+  toggles: SignalToggles,
+  signals: CapturedSignals,
+  errors: GatherSignal[],
+): Promise<void> {
+  if (!toggles.console && !toggles.network) return;
+  const buffer = await readRecorderBuffer(tabId);
+  if (toggles.console) {
+    if (buffer) signals.console = buffer.console ?? [];
+    else errors.push("console");
+  }
+  if (toggles.network) {
+    if (buffer) signals.network = buffer.network ?? [];
+    else errors.push("network");
+  }
+}
+
+/**
+ * Gather the requested signals. Each gather is best-effort: a failure is recorded
+ * in `errors` (so the popup can surface it distinctly from "found nothing") and
+ * never throws, so the capture itself always succeeds.
+ */
+async function gatherSignals(
+  tabId: number,
+  toggles: SignalToggles,
+): Promise<{ signals: CapturedSignals; errors: GatherSignal[] }> {
+  const signals: CapturedSignals = {};
+  const errors: GatherSignal[] = [];
+
+  await gatherRecorderSignals(tabId, toggles, signals, errors);
+
+  if (toggles.a11y) {
+    const findings = await gatherA11y(tabId);
+    if (findings === null) errors.push("a11y");
+    else signals.a11y = findings;
+  }
+
+  return { signals, errors };
+}
+
 async function captureActiveTab(toggles: SignalToggles): Promise<CaptureResult> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.windowId) throw new Error("no-active-tab");
@@ -74,15 +132,13 @@ async function captureActiveTab(toggles: SignalToggles): Promise<CaptureResult> 
     new Date().toISOString(),
   );
 
-  const signals: CapturedSignals = {};
-  if (toggles.console || toggles.network) {
-    const buffer = await readRecorderBuffer(tabId);
-    if (toggles.console) signals.console = buffer?.console ?? [];
-    if (toggles.network) signals.network = buffer?.network ?? [];
-  }
-  if (toggles.a11y) signals.a11y = await gatherA11y(tabId);
-
-  return { screenshotDataUrl, metadata, signals };
+  const { signals, errors } = await gatherSignals(tabId, toggles);
+  return {
+    screenshotDataUrl,
+    metadata,
+    signals,
+    signalErrors: errors.length ? errors : undefined,
+  };
 }
 
 chrome.runtime.onMessage.addListener(

@@ -42,3 +42,6 @@ export interface SignalToggles {
   network: boolean;
   a11y: boolean;
 }
+
+/** A signal gathered at capture time that can fail independently of the capture. */
+export type GatherSignal = "console" | "network" | "a11y";

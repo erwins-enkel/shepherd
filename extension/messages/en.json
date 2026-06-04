@@ -40,9 +40,11 @@
   "signal_a11y": "Accessibility (axe)",
   "popup_signals_locked": "Enable console & network capture in settings.",
   "popup_signal_summary": "{console} console · {network} failed · {a11y} a11y",
+  "popup_recorder_reload": "Recording is on, but this tab was open before it started — reload the tab to capture console & network here.",
+  "popup_a11y_failed": "Couldn't run the accessibility audit on this page.",
   "options_signals_title": "Signals",
   "options_signals_a11y_label": "Run an accessibility (axe-core) audit on capture",
   "options_recorder_label": "Record console errors & failed network requests",
-  "options_recorder_allsites_note": "Recording reads console output and network failures on every site you visit. Enable only while you need it; turn it off to revoke the all-sites permission.",
+  "options_recorder_allsites_note": "Recording reads console output and network failures on every site you visit, including full request URLs (query strings may contain tokens), and forwards them to Shepherd in the task. Enable only while you need it; turn it off to revoke the all-sites permission.",
   "options_recorder_denied": "Permission denied — recording stays off."
 }

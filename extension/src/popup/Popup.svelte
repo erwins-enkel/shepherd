@@ -9,7 +9,7 @@
     WorkerRequest,
     WorkerResponse,
   } from "../lib/types";
-  import type { SignalToggles } from "../lib/signals";
+  import type { GatherSignal, SignalToggles } from "../lib/signals";
 
   type View = "loading" | "needs-config" | "ready" | "submitting" | "done" | "error";
 
@@ -80,9 +80,14 @@
     }
   }
 
-  async function setGather(key: "console" | "network" | "a11y", on: boolean) {
+  async function setGather(key: GatherSignal, on: boolean) {
     toggles[key] = on;
     await runCapture();
+  }
+
+  /** True once at least one signal was actually gathered (vs. requested-but-failed). */
+  function hasAnySignal(s: CaptureResult["signals"]): boolean {
+    return !!s && (s.console !== undefined || s.network !== undefined || s.a11y !== undefined);
   }
 
   async function submit() {
@@ -185,14 +190,20 @@
           {m.popup_signals_locked()}
         </button>
       {/if}
-      {#if capture?.signals}
+      {#if hasAnySignal(capture?.signals)}
         <span class="text-gray-500">
           {m.popup_signal_summary({
-            console: capture.signals.console?.length ?? 0,
-            network: capture.signals.network?.length ?? 0,
-            a11y: capture.signals.a11y?.length ?? 0,
+            console: capture?.signals?.console?.length ?? 0,
+            network: capture?.signals?.network?.length ?? 0,
+            a11y: capture?.signals?.a11y?.length ?? 0,
           })}
         </span>
+      {/if}
+      {#if capture?.signalErrors?.some((s) => s === "console" || s === "network")}
+        <span class="text-amber-600">{m.popup_recorder_reload()}</span>
+      {/if}
+      {#if capture?.signalErrors?.includes("a11y")}
+        <span class="text-amber-600">{m.popup_a11y_failed()}</span>
       {/if}
     </fieldset>
 

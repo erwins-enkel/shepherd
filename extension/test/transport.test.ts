@@ -9,6 +9,7 @@ const CONFIG: CaptureConfig = {
   repoPath: "~/Work/foo",
   baseBranch: "main",
   model: "opus",
+  signals: { screenshot: true, console: false, network: false, a11y: false },
 };
 
 const META: PageMetadata = {

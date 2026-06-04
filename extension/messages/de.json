@@ -40,9 +40,11 @@
   "signal_a11y": "Barrierefreiheit (axe)",
   "popup_signals_locked": "Konsolen- und Netzwerkerfassung in den Einstellungen aktivieren.",
   "popup_signal_summary": "{console} Konsole · {network} fehlgeschlagen · {a11y} a11y",
+  "popup_recorder_reload": "Aufzeichnung ist aktiv, aber dieser Tab war schon offen — lade den Tab neu, um Konsole & Netzwerk hier zu erfassen.",
+  "popup_a11y_failed": "Der Barrierefreiheits-Audit konnte auf dieser Seite nicht ausgeführt werden.",
   "options_signals_title": "Signale",
   "options_signals_a11y_label": "Bei der Erfassung einen Barrierefreiheits-Audit (axe-core) ausführen",
   "options_recorder_label": "Konsolenfehler & fehlgeschlagene Netzwerkanfragen aufzeichnen",
-  "options_recorder_allsites_note": "Die Aufzeichnung liest Konsolenausgaben und Netzwerkfehler auf jeder besuchten Seite. Aktiviere sie nur bei Bedarf; beim Ausschalten wird die Alle-Seiten-Berechtigung entzogen.",
+  "options_recorder_allsites_note": "Die Aufzeichnung liest Konsolenausgaben und Netzwerkfehler auf jeder besuchten Seite – einschließlich vollständiger Anfrage-URLs (Query-Strings können Tokens enthalten) – und übermittelt sie mit der Aufgabe an Shepherd. Aktiviere sie nur bei Bedarf; beim Ausschalten wird die Alle-Seiten-Berechtigung entzogen.",
   "options_recorder_denied": "Berechtigung verweigert – Aufzeichnung bleibt aus."
 }

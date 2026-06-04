@@ -5,13 +5,18 @@ import {
   type PageMetadata,
   type TransportErrorKind,
 } from "./types";
+import type { CapturedSignals } from "./signals";
 
 export type FetchFn = (input: string, init: any) => Promise<Response>;
 
 interface SpawnInput {
   prompt: string;
   metadata: PageMetadata;
-  screenshot: Blob;
+  /** Present only when a screenshot was captured. */
+  screenshot?: Blob;
+  /** When false (or no screenshot), skip /api/uploads and send images:[]. */
+  attachScreenshot: boolean;
+  signals?: CapturedSignals;
 }
 
 function kindForStatus(status: number): TransportErrorKind {
@@ -77,13 +82,13 @@ async function createSession(
   fetchFn: FetchFn,
   config: CaptureConfig,
   prompt: string,
-  imagePath: string,
+  images: string[],
 ): Promise<string> {
   const payload: Record<string, unknown> = {
     repoPath: config.repoPath,
     baseBranch: config.baseBranch,
     prompt,
-    images: [imagePath],
+    images,
   };
   if (config.model !== "default") payload.model = config.model;
 
@@ -107,15 +112,19 @@ async function createSession(
 }
 
 /**
- * Spawn-now: stage the screenshot, then create a session whose prompt is the
- * user text plus the fenced metadata context block. Returns the desig.
+ * Spawn-now: optionally stage the screenshot, then create a session whose prompt
+ * is the user text plus the fenced metadata + signals context block. When the
+ * screenshot is not attached, no upload happens and `images` is empty.
  */
 export async function spawnNow(
   fetchFn: FetchFn,
   config: CaptureConfig,
   input: SpawnInput,
 ): Promise<string> {
-  const path = await uploadScreenshot(fetchFn, config, input.screenshot);
-  const prompt = `${input.prompt}\n\n${formatContextBlock(input.metadata)}`;
-  return createSession(fetchFn, config, prompt, path);
+  const images: string[] = [];
+  if (input.attachScreenshot && input.screenshot) {
+    images.push(await uploadScreenshot(fetchFn, config, input.screenshot));
+  }
+  const prompt = `${input.prompt}\n\n${formatContextBlock(input.metadata, input.signals)}`;
+  return createSession(fetchFn, config, prompt, images);
 }

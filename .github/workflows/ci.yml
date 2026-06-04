@@ -30,17 +30,21 @@ jobs:
         with:
           bun-version: latest
 
-      # Two packages, each with its own lockfile (root server + ui/).
+      # Three packages, each with its own lockfile (root server + ui/ + extension/).
       - name: Install (root)
         run: bun install --frozen-lockfile
 
       - name: Install (ui)
         run: cd ui && bun install --frozen-lockfile
 
+      - name: Install (extension)
+        run: cd extension && bun install --frozen-lockfile
+
       - name: Lint (prettier + eslint)
         run: |
           bunx prettier --check .
           bun run lint
+          (cd extension && bun run lint)
 
       - name: Typecheck (root tsc)
         run: bun run typecheck
@@ -48,8 +52,13 @@ jobs:
       - name: Typecheck (ui svelte-check)
         run: cd ui && bun run check
 
+      - name: Typecheck (extension svelte-check)
+        run: cd extension && bun run check
+
       - name: i18n catalog parity (en ↔ de)
-        run: cd ui && bun run check:i18n
+        run: |
+          (cd ui && bun run check:i18n)
+          (cd extension && bun run check:i18n)
 
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
@@ -63,8 +72,14 @@ jobs:
       - name: Test (ui)
         run: cd ui && bun run test
 
+      - name: Test (extension)
+        run: cd extension && bun run test
+
       - name: Build (ui)
         run: cd ui && bun run build
+
+      - name: Build (extension)
+        run: cd extension && bun run build
 
       - name: Fallow audit (PR delta)
         # Only new findings introduced by the PR block — inherited issues don't.

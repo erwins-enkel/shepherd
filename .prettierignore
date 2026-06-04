@@ -21,3 +21,7 @@ ui/src/lib/paraglide
 ui/project.inlang/.meta.json
 ui/project.inlang/README.md
 ui/project.inlang/plugins
+extension/src/lib/paraglide
+extension/project.inlang/.meta.json
+extension/project.inlang/README.md
+extension/project.inlang/plugins

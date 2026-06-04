@@ -133,6 +133,8 @@
   "feat_learnings_body": "Distilled house rules from prior agent activity are injected into every new agent session, so your team's conventions propagate automatically.",
   "feat_halt_title": "Halt the herd",
   "feat_halt_body": "A single red emergency stop in the gear menu brings the whole herd to a halt — confirm it and every running agent's current turn is interrupted at once. Your always-reachable brake for when the herd needs to stand down.",
+  "feature_capture_extension_title": "Capture a page into a task",
+  "feature_capture_extension_body": "Install the Shepherd Capture browser extension to turn the tab you're looking at into a task — screenshot and page context attached — in one click.",
   "gitrail_send_review": "↩ Send review to agent",
   "gitrail_send_review_failed": "send failed",
   "gitrail_send_review_reviewing_title": "Critic is re-reviewing — these findings are being re-validated",

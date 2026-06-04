@@ -6,10 +6,11 @@ Two packages, each with own deps: root (herdr/server, `bun`) + `ui/` (SvelteKit)
 
 Shepherd worktrees start without `node_modules`. Install per package before linting/checking/testing:
 
-| Package | Install                | Lint/check      | Test       |
-| ------- | ---------------------- | --------------- | ---------- |
-| Root    | `bun install`          | `bun run lint`  | `bun test` |
-| UI      | `cd ui && bun install` | `bun run check` | `bun test` |
+| Package   | Install                       | Lint/check      | Test       |
+| --------- | ----------------------------- | --------------- | ---------- |
+| Root      | `bun install`                 | `bun run lint`  | `bun test` |
+| UI        | `cd ui && bun install`        | `bun run check` | `bun test` |
+| Extension | `cd extension && bun install` | `bun run check` | `bun test` |
 
 Run both halves when a change spans server + UI.
 

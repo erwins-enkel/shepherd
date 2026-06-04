@@ -268,6 +268,10 @@
     margin-bottom: -8px;
   }
   .notes {
+    /* shrinkable flex child: without min-height long release notes refuse to
+       shrink below their content and push the actions off-screen */
+    flex: 0 1 auto;
+    min-height: 0;
     overflow-y: auto;
     border: 1px solid var(--color-line);
     background: var(--color-inset);
@@ -426,5 +430,50 @@
     color: var(--color-faint);
     border-color: var(--color-line);
     box-shadow: none;
+  }
+  /* phones: rise as a full-height sheet (same pattern as NewTask/UpdateModal)
+     so the release notes scroll internally and the actions stay pinned and
+     thumb-reachable above the home indicator */
+  @media (max-width: 768px) {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+    }
+    .card {
+      width: 100%;
+      max-height: none;
+      height: 100dvh;
+      border: 0;
+      padding: 16px 16px calc(14px + env(safe-area-inset-bottom));
+      animation: sheet-up 0.18s ease-out;
+    }
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
+    .x {
+      min-width: 44px;
+      min-height: 44px;
+      margin: -14px -14px -10px 0; /* keep the glyph optically in the corner */
+    }
+    .later,
+    .run {
+      min-height: 44px;
+      flex: 1; /* two thumb-width targets instead of two slivers at the edge */
+    }
+    .actions {
+      margin-top: auto; /* pin to the bottom even when the notes are short */
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(12px);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
 </style>

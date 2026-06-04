@@ -386,6 +386,23 @@ export interface DiffResult {
 }
 
 export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
+
+/** What an evidence signal was captured from (mirrors server `SignalKind`):
+ *  reply = an operator correction, critic = a code-review finding,
+ *  block/stall = a session that got blocked or stalled. */
+export type SignalKind = "reply" | "critic" | "block" | "stall";
+
+/** One resolved evidence signal behind a proposed rule (provenance for the
+ *  drawer). `id` is the signal id (stable render key); `desig` is the source
+ *  session, null when no longer tracked. */
+export interface EvidenceItem {
+  id: string;
+  kind: SignalKind;
+  desig: string | null;
+  excerpt: string;
+  ts: number;
+}
+
 export interface Learning {
   id: string;
   repoPath: string;
@@ -394,6 +411,10 @@ export interface Learning {
   evidence: string[];
   status: LearningStatus;
   evidenceCount: number;
+  // Per-kind breakdown of the cited signals; only present on the pending payload.
+  evidenceKinds?: Partial<Record<SignalKind, number>>;
+  // The resolved evidence signals (kind + source session + excerpt), newest first.
+  evidenceDetail?: EvidenceItem[];
   ineffectiveCount: number;
   createdAt: number;
   updatedAt: number;

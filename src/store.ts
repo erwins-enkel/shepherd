@@ -851,6 +851,22 @@ export class SessionStore implements CapStore {
     return (rows as any[]).map((r) => this.hydrateLearning(r));
   }
 
+  /** Resolve cited evidence signal ids to their full rows (newest first), for the
+   *  drawer's "where did this come from" view. Ids that no longer resolve (pruned
+   *  signals) are silently dropped, so the result can be shorter than `ids`. Empty
+   *  in, empty out. */
+  getSignalsByIds(ids: string[]): Signal[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    return this.db
+      .query(
+        // rowid tiebreak keeps newest-inserted first when two signals share a ms.
+        `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
+         WHERE id IN (${placeholders}) ORDER BY ts DESC, rowid DESC`,
+      )
+      .all(...ids) as Signal[];
+  }
+
   private hydrate(r: any): Session {
     return {
       ...r,

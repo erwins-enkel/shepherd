@@ -29,7 +29,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type { Session, LearningStatus } from "./types";
+import type { Session, LearningStatus, SignalKind } from "./types";
 import type { HerdrDriver } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
@@ -343,10 +343,37 @@ async function handleLearnings(ctx: Ctx): Promise<Response | null> {
   return null;
 }
 
+/** Flatten a captured signal payload to a short single-line preview for the
+ *  drawer's evidence list (terminal tails / corrections can be multi-line).
+ *  Truncates on code points so an emoji at the cut never leaves a lone
+ *  surrogate (�) before the ellipsis. */
+function evidenceExcerpt(payload: string, max = 140): string {
+  const flat = payload.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  return [...flat].slice(0, max - 1).join("") + "…";
+}
+
 function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
-  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge)
+  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge).
+  // Resolve each rule's cited signal ids into provenance: a per-kind breakdown
+  // plus the source session + excerpt for each signal, so the drawer shows where
+  // the rule came from rather than a bare count.
   if (parts[2] === "pending") {
-    return json(deps.store.listPendingLearnings());
+    const pending = deps.store.listPendingLearnings().map((l) => {
+      const evidenceKinds: Partial<Record<SignalKind, number>> = {};
+      const evidenceDetail = deps.store.getSignalsByIds(l.evidence).map((s) => {
+        evidenceKinds[s.kind] = (evidenceKinds[s.kind] ?? 0) + 1;
+        return {
+          id: s.id,
+          kind: s.kind,
+          desig: s.sessionId ? (deps.store.get(s.sessionId)?.desig ?? null) : null,
+          excerpt: evidenceExcerpt(s.payload),
+          ts: s.ts,
+        };
+      });
+      return { ...l, evidenceKinds, evidenceDetail };
+    });
+    return json(pending);
   }
 
   // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).

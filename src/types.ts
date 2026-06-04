@@ -166,6 +166,19 @@ export interface Signal {
 
 export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
 
+/** One resolved evidence signal behind a proposed rule, for the drawer's
+ *  "where did this come from" view. `id` is the signal id (stable render key);
+ *  `desig` is the source session's designation (e.g. "TASK-07"), or null when
+ *  the session row is gone; `excerpt` is a short single-line preview of the
+ *  captured payload. */
+export interface EvidenceItem {
+  id: string;
+  kind: SignalKind;
+  desig: string | null;
+  excerpt: string;
+  ts: number;
+}
+
 export interface Learning {
   id: string;
   repoPath: string;
@@ -174,6 +187,17 @@ export interface Learning {
   evidence: string[]; // signal ids the distiller cited
   status: LearningStatus;
   evidenceCount: number;
+  // Per-kind breakdown of the cited signals (so the drawer can show *where* the
+  // evidence came from — corrections, review findings, blocks, stalls — not just
+  // a bare count). Resolved from `evidence` against the signals table; only
+  // attached to the pending-learnings payload, absent (undefined) elsewhere.
+  // Pruned/unknown signal ids are simply omitted, so counts may sum below
+  // evidenceCount.
+  evidenceKinds?: Partial<Record<SignalKind, number>>;
+  // The resolved evidence signals themselves (kind + source session + excerpt),
+  // newest first. Same provenance, expandable in the drawer. Only on the pending
+  // payload; pruned signals drop out.
+  evidenceDetail?: EvidenceItem[];
   ineffectiveCount: number;
   createdAt: number;
   updatedAt: number;

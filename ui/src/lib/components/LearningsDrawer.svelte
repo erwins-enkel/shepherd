@@ -143,6 +143,7 @@
                   type="button"
                   title={m.learnings_evidence_help()}
                   aria-expanded={!!expanded[l.id]}
+                  aria-controls="sources-{l.id}"
                   aria-label={m.learnings_sources_toggle_aria()}
                   onclick={() => (expanded = { ...expanded, [l.id]: !expanded[l.id] })}
                 >
@@ -152,20 +153,23 @@
               {/if}
             </div>
             {#if expanded[l.id] && l.evidenceDetail}
-              <!-- visible copy of the provenance explanation: reachable for
-                   keyboard/touch users, who can't hover the title tooltip -->
-              <p class="shelp">{m.learnings_evidence_help()}</p>
-              {#if l.evidenceDetail.length > 0}
-                <ul class="sources">
-                  {#each l.evidenceDetail as ev (ev.id)}
-                    <li class="source">
-                      <span class="src">{kindLabel(ev.kind)}</span>
-                      <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
-                      <span class="excerpt">{ev.excerpt}</span>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+              <!-- disclosed region the toggle's aria-controls points at; carries a
+                   visible copy of the provenance explanation, reachable for
+                   keyboard/touch users who can't hover the title tooltip -->
+              <div class="sources-region" id="sources-{l.id}">
+                <p class="shelp">{m.learnings_evidence_help()}</p>
+                {#if l.evidenceDetail.length > 0}
+                  <ul class="sources">
+                    {#each l.evidenceDetail as ev (ev.id)}
+                      <li class="source">
+                        <span class="src">{kindLabel(ev.kind)}</span>
+                        <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
+                        <span class="excerpt">{ev.excerpt}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
             {/if}
             <div class="foot">
               <span class="spacer"></span>
@@ -394,16 +398,20 @@
     transform: rotate(90deg);
   }
   /* Evidence provenance: the actual signals this rule was distilled from. */
+  .sources-region {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
   .shelp {
     font-size: var(--fs-meta);
     color: var(--color-muted);
     line-height: 1.5;
-    padding-top: 4px;
   }
   .sources {
     list-style: none;
     margin: 0;
-    padding: 6px 0 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;

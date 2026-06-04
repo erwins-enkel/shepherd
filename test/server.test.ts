@@ -1020,6 +1020,19 @@ test("GET /api/learnings/pending resolves cited evidence into kinds + source det
   ]);
 });
 
+test("GET /api/learnings/pending excerpt truncates on code points (no split surrogate)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // emoji straddles the 140-unit cut: a naive slice would keep a lone surrogate
+  const payload = "x".repeat(138) + "😀yy";
+  const s = deps.store.addSignal({ repoPath: "/x", sessionId: null, kind: "reply", payload });
+  deps.store.addLearning({ repoPath: "/x", rule: "p", rationale: "", evidence: [s.id] });
+
+  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
+  const body = await res.json();
+  expect(body[0].evidenceDetail[0].excerpt).toBe("x".repeat(138) + "😀…");
+});
+
 test("GET /api/learnings/injectable returns per-repo injected flags + budget numbers", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

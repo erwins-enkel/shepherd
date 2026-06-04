@@ -344,10 +344,13 @@ async function handleLearnings(ctx: Ctx): Promise<Response | null> {
 }
 
 /** Flatten a captured signal payload to a short single-line preview for the
- *  drawer's evidence list (terminal tails / corrections can be multi-line). */
+ *  drawer's evidence list (terminal tails / corrections can be multi-line).
+ *  Truncates on code points so an emoji at the cut never leaves a lone
+ *  surrogate (�) before the ellipsis. */
 function evidenceExcerpt(payload: string, max = 140): string {
   const flat = payload.replace(/\s+/g, " ").trim();
-  return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
+  if (flat.length <= max) return flat;
+  return [...flat].slice(0, max - 1).join("") + "…";
 }
 
 function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {

@@ -8,12 +8,18 @@ export const DEFAULT_CONFIG: CaptureConfig = {
   repoPath: "",
   baseBranch: "main",
   model: "default",
+  signals: { screenshot: true, console: false, network: false, a11y: false },
 };
 
-/** Load config from chrome.storage.local, merged over defaults. */
+/** Load config from chrome.storage.local, merged over defaults (signals deep-merged). */
 export async function loadConfig(): Promise<CaptureConfig> {
   const got = await chrome.storage.local.get(KEY);
-  return { ...DEFAULT_CONFIG, ...((got[KEY] as Partial<CaptureConfig>) ?? {}) };
+  const stored = (got[KEY] as Partial<CaptureConfig>) ?? {};
+  return {
+    ...DEFAULT_CONFIG,
+    ...stored,
+    signals: { ...DEFAULT_CONFIG.signals, ...(stored.signals ?? {}) },
+  };
 }
 
 /** Persist config (local only — never synced; holds the token). */

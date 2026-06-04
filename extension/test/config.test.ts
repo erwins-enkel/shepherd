@@ -37,6 +37,7 @@ describe("config", () => {
       repoPath: "~/Work/x",
       baseBranch: "main",
       model: "sonnet",
+      signals: { screenshot: true, console: true, network: false, a11y: true },
     });
     const cfg = await loadConfig();
     expect(cfg.repoPath).toBe("~/Work/x");
@@ -48,5 +49,30 @@ describe("config", () => {
     expect(
       isConfigured({ ...DEFAULT_CONFIG, baseUrl: "http://localhost:7330", repoPath: "~/Work/x" }),
     ).toBe(true);
+  });
+
+  it("defaults all four signal toggles (screenshot on, rest off)", async () => {
+    const cfg = await loadConfig();
+    expect(cfg.signals).toEqual({
+      screenshot: true,
+      console: false,
+      network: false,
+      a11y: false,
+    });
+  });
+
+  it("deep-merges a legacy stored config that has no signals field", async () => {
+    installChromeStub({
+      captureConfig: { baseUrl: "http://localhost:7330", repoPath: "~/Work/x" },
+    });
+    const cfg = await loadConfig();
+    expect(cfg.signals).toEqual(DEFAULT_CONFIG.signals);
+    expect(cfg.repoPath).toBe("~/Work/x");
+  });
+
+  it("merges a partial stored signals object over the defaults", async () => {
+    installChromeStub({ captureConfig: { signals: { a11y: true } } });
+    const cfg = await loadConfig();
+    expect(cfg.signals).toEqual({ screenshot: true, console: false, network: false, a11y: true });
   });
 });

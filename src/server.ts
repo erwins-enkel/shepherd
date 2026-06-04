@@ -1696,6 +1696,25 @@ const PTY_SUPERSEDED_CODE = 4000;
 // Keep in sync with PTY_GONE_CODE in ui/src/lib/pty.ts.
 export const PTY_GONE_CODE = 4001;
 
+/**
+ * The terminalId to attach a PTY to, or null when the session's herdr agent is truly
+ * gone (caller should close the socket). Resolves by STABLE key (cwd) so a herdr restart
+ * that reassigned terminalIds doesn't strand the attach on the stored-at-upgrade id. A
+ * herdr CLI hiccup (list throws) or no herdr at all falls back to the stored id rather
+ * than closing a live session.
+ */
+function livePtyTerminalId(
+  cur: Session,
+  herdr: Pick<HerdrDriver, "list"> | undefined,
+): string | null {
+  if (!herdr) return cur.herdrAgentId;
+  try {
+    return matchAgent(cur, herdr.list())?.terminalId ?? null;
+  } catch {
+    return cur.herdrAgentId; // herdr hiccup — attach optimistically with the stored id
+  }
+}
+
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   // current owning socket per terminal — a single owner avoids the takeover war
@@ -1763,21 +1782,11 @@ export function serve(deps: AppDeps, port: number) {
             return;
           }
           // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
-          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale
-          // until the poller adopts the fresh id. A herdr CLI hiccup (list throws) or no
-          // herdr at all must not strand a live session, so fall back to the stored id.
-          let tid = cur.herdrAgentId;
-          if (deps.herdr) {
-            try {
-              const live = matchAgent(cur, deps.herdr.list());
-              if (!live) {
-                ws.close(PTY_GONE_CODE, "ended");
-                return;
-              }
-              tid = live.terminalId;
-            } catch {
-              /* herdr CLI hiccup — attach optimistically with the stored id */
-            }
+          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
+          const tid = livePtyTerminalId(cur, deps.herdr);
+          if (tid === null) {
+            ws.close(PTY_GONE_CODE, "ended");
+            return;
           }
           ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
           // single owner per terminal: claim it, then bump the previous owner

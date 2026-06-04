@@ -34,3 +34,22 @@ The UI is fully internationalized with Paraglide JS (EN + DE). **Never hardcode 
 Data passed through verbatim (tool-use summaries, PR titles, designations like `TASK-07`) is **not** translated — only chrome the app itself authors.
 
 **Gate:** `cd ui && bun run check:i18n` enforces that all locale catalogs share an identical, non-empty key set (Paraglide silently falls back to EN for a missing key, so an incomplete `de.json` would otherwise ship looking fine). It runs in CI `verify` and the pre-push hook — a PR that adds an EN key without its DE counterpart fails. It does not detect hardcoded strings that skip the catalog entirely; that's on you and review.
+
+## Feature discovery (REQUIRED for user-facing features)
+
+New user-facing capabilities surface to users through the What's-New drawer + first-view coachmarks, both driven by the catalog `ui/src/lib/feature-announcements.ts`. **A `feat` that ships UX but skips the catalog rots it silently** — it builds, passes CI, and deploys while the discovery system stops reflecting reality. So every shipped user-facing feature adds **one** catalog entry **in the same PR as the feature**:
+
+1. Append a `FeatureAnnouncement` to `featureAnnouncements` in `ui/src/lib/feature-announcements.ts` with: `id` (stable kebab slug), `sinceVersion` (the release it ships in), `titleKey` + `bodyKey`.
+2. Add `titleKey`/`bodyKey` to **both** `ui/messages/en.json` and `de.json` (see Internationalization above — `check:i18n` enforces parity).
+3. Optionally set `targetId` and put `use:coachTarget={"<id>"}` on the anchor element so the coachmark can point at it.
+
+Server-only, internal-plumbing, or mislabeled-`feat` changes that ship **no** user-facing UX are exempt — opt out by putting `[no-feature-entry]` in a commit subject or the PR body.
+
+**Gate:** `scripts/check-feature-catalog.sh` is a pragmatic heuristic — if a `feat(...)` commit in the branch's range touches user-facing UI (`ui/src/lib/components/**`, `ui/src/routes/**`) it asserts that `feature-announcements.ts` was modified in the same range, else fails with a fix hint. The `[no-feature-entry]` opt-out skips the check **loudly** (it echoes what it skipped). It runs in the **PR hygiene** CI workflow and the pre-push hook, alongside branch-hygiene + `check:i18n`. Like those, it asserts presence, not content quality — an accurate, well-written entry is on you and review.
+
+It's a heuristic with deliberate holes — review still has to catch what it can't:
+
+- **Conventional-commit dependency.** Only `feat(...)` (incl. `feat!:`) subjects arm the gate. A user-facing feature mislabeled `fix:`/`chore:` slips by entirely. Label features correctly.
+- **UI-glob scope.** Only `ui/src/lib/components/**` + `ui/src/routes/**` count as user-facing. A feature surfacing UX purely through other `ui/src/lib/` code (`api.ts`, stores, actions) without touching those paths is **not** detected.
+- **Opt-out is branch-global.** A single `[no-feature-entry]` anywhere in the range (any commit subject or body) disables the gate for the **whole PR range**, not just the commit carrying it — so don't use it on a branch that also ships a real surfacing feature.
+- **Range-level, so it can over-fire.** The check doesn't bind the UI diff to the specific `feat` commit. A branch mixing a server-only `feat:` with an unrelated UI-touching `fix:` trips the gate even though the feature ships no UX. This is fail-safe (it errs toward demanding an entry) and recoverable — add the entry, or use `[no-feature-entry]` if neither change truly surfaces UX.

@@ -19,3 +19,5 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: No merge commits / linear off main
         run: bash scripts/check-branch-hygiene.sh
+      - name: Feature catalog upkeep (feat + UI ⇒ catalog entry)
+        run: bash scripts/check-feature-catalog.sh

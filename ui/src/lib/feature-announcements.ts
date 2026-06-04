@@ -1,3 +1,12 @@
+// Catalog driving the What's-New drawer + first-view coachmarks.
+//
+// CONTRACT: every shipped user-facing feature adds ONE entry here, in the SAME
+// PR as the feature — id, sinceVersion (the release it ships in), titleKey/bodyKey
+// (added to BOTH ui/messages/en.json and de.json), and an optional targetId paired
+// with `use:coachTarget` on the anchor element. Enforced by the
+// `scripts/check-feature-catalog.sh` gate (PR-hygiene CI + pre-push).
+// See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
+
 export type FeatureAnnouncement = {
   id: string;
   sinceVersion: string;

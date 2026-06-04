@@ -454,16 +454,17 @@
   // (first activation arms the red "Halt N?" pill, a second commits) — by the time
   // onhalt fires here the operator has already confirmed, so we POST straight away.
   // An interim "Halting N…" toast gives immediate feedback; the "Halted N" confirm
-  // rides in on the `halt:done` WS event (all connected clients). A failed POST
-  // replaces the interim toast with a Retry (keyed 'halt-herd' so it supersedes it).
+  // rides in on the `halt:done` WS event (all connected clients). All three toasts
+  // share the 'halt-done' key so each supersedes the last in place (interim →
+  // Halted N on success, or interim → Retry on failure) rather than stacking.
   function haltHerd() {
     const count = store.sessions.filter((s) => s.status === "running").length;
     if (count === 0) return; // nothing to halt; the control is hidden in this state anyway
-    toasts.info(m.halt_confirm({ count }), { key: "halt-herd" });
+    toasts.info(m.halt_confirm({ count }), { key: "halt-done" });
     apiHalt().catch(() => {
       toasts.info(m.halt_failed(), {
         alert: true,
-        key: "halt-herd",
+        key: "halt-done",
         action: { label: m.common_retry(), run: () => haltHerd() },
       });
     });

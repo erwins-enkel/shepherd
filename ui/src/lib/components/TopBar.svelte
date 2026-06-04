@@ -492,13 +492,17 @@
     color: var(--color-red);
     border-color: var(--color-red);
   }
+  /* Pinned to --fs-lg (not 1em) so the glyph stays the same size when arming drops
+     the button font-size to --fs-meta — keeps the icon visually stable on the morph. */
   .halt-icon {
-    width: 1em;
-    height: 1em;
+    width: var(--fs-lg);
+    height: var(--fs-lg);
     display: block;
   }
   /* Armed (first activation): the single moment it goes loud — a filled red "Halt N?"
-     confirm pill. A second activation commits; Escape / outside-tap / timeout disarm. */
+     confirm pill. A second activation commits; Escape / outside-tap / timeout disarm.
+     Vertical padding stays 5px (matching rest) so arming only grows width for the
+     label rather than nudging the row height. */
   .halt.armed {
     padding: 5px 11px;
     background: color-mix(in srgb, var(--color-red) 22%, transparent);

@@ -71,7 +71,8 @@ House rule requires complete ARIA for new interactive widgets.
 
 New keys (snake_case, component-prefixed):
 
-- `halt_menu_item` — `Halt {count} agents` (resting label of the halt row).
+- `halt_menu_item` — `Halt herd · {count}` (resting label of the halt row;
+  count-agnostic `· {count}` phrasing so it stays plural-safe at count = 1).
 - `topbar_menu_aria` — `Open menu` (gear aria-label when haltable).
 - `topbar_menu_label` — menu `role="menu"` label.
 

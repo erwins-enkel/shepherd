@@ -31,6 +31,7 @@ import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { Session, LearningStatus } from "./types";
 import type { HerdrDriver } from "./herdr";
+import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import type { PrCache } from "./pr-poller";
@@ -1761,19 +1762,26 @@ export function serve(deps: AppDeps, port: number) {
             ws.close(PTY_GONE_CODE, "ended");
             return;
           }
-          let agentLive: boolean;
-          try {
-            agentLive = deps.herdr?.list().some((a) => a.terminalId === cur.herdrAgentId) ?? true;
-          } catch {
-            agentLive = true; // a herdr CLI hiccup shouldn't strand a live session
+          // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
+          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale
+          // until the poller adopts the fresh id. A herdr CLI hiccup (list throws) or no
+          // herdr at all must not strand a live session, so fall back to the stored id.
+          let tid = cur.herdrAgentId;
+          if (deps.herdr) {
+            try {
+              const live = matchAgent(cur, deps.herdr.list());
+              if (!live) {
+                ws.close(PTY_GONE_CODE, "ended");
+                return;
+              }
+              tid = live.terminalId;
+            } catch {
+              /* herdr CLI hiccup — attach optimistically with the stored id */
+            }
           }
-          if (!agentLive) {
-            ws.close(PTY_GONE_CODE, "ended");
-            return;
-          }
+          ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
           // single owner per terminal: claim it, then bump the previous owner
           // with a "superseded" close so it parks instead of fighting back.
-          const tid = ws.data.terminalId;
           const prev = ptyOwners.get(tid);
           ptyOwners.set(tid, ws);
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");

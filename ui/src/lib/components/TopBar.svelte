@@ -46,25 +46,25 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
-  // Any right-side badge crowds the bar on touch desktop-layout (unfolded
-  // foldable: narrower than a real desktop). Whichever badge it is — update,
-  // learnings, needs-you, what's-new — the numeric clock is the first thing to
+  // How many right-side badges are vying for space (each renders one button).
+  const badgeCount = $derived(
+    (updateAvailable ? 1 : 0) +
+      (herdrUpdateAvailable ? 1 : 0) +
+      (learnings > 0 || overBudget > 0 ? 1 : 0) +
+      (needsYou > 0 ? 1 : 0) +
+      (whatsNew ? 1 : 0),
+  );
+  // Any badge crowds the bar on touch desktop-layout (unfolded foldable:
+  // narrower than a real desktop), so the numeric clock is the first thing to
   // sacrifice (system status bar already shows the time; the connection dot
   // stays inline), mirroring the phone layout.
-  const anyBadge = $derived(
-    updateAvailable ||
-      herdrUpdateAvailable ||
-      learnings > 0 ||
-      overBudget > 0 ||
-      needsYou > 0 ||
-      whatsNew,
-  );
-  const hideClockTime = $derived(touch && !mobile && anyBadge);
-  // Tighter still: when the wide pulsing update badge rides alongside the
-  // LEARNINGS / NEEDS YOU / WHAT'S-NEW labels on touch-desktop, hiding the clock
-  // isn't enough and the update badge still overflows. Collapse those to their
-  // compact icon/dot-only form (the phone treatment) to reclaim the row.
-  const compactBadges = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
+  const hideClockTime = $derived(touch && !mobile && badgeCount > 0);
+  // Tighter still: two or more badges won't fit at full width on touch-desktop
+  // even after dropping the clock. Collapse the labelled ones (LEARNINGS /
+  // NEEDS YOU / WHAT'S-NEW) to their compact icon/dot-only form (the phone
+  // treatment) to reclaim the row. A lone badge fits with just the clock gone,
+  // so it keeps its full label.
+  const compactBadges = $derived(touch && !mobile && badgeCount >= 2);
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);

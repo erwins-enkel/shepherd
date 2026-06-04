@@ -46,10 +46,25 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
-  // Touch desktop-layout (unfolded foldable): narrower than a real desktop, so the
-  // update badge shoves the clock past the edge. Drop the numeric time (keep the
-  // connection dot) when a badge is present, mirroring the phone layout.
-  const hideClockTime = $derived(touch && !mobile && (updateAvailable || herdrUpdateAvailable));
+  // How many right-side badges are vying for space (each renders one button).
+  const badgeCount = $derived(
+    (updateAvailable ? 1 : 0) +
+      (herdrUpdateAvailable ? 1 : 0) +
+      (learnings > 0 || overBudget > 0 ? 1 : 0) +
+      (needsYou > 0 ? 1 : 0) +
+      (whatsNew ? 1 : 0),
+  );
+  // Any badge crowds the bar on touch desktop-layout (unfolded foldable:
+  // narrower than a real desktop), so the numeric clock is the first thing to
+  // sacrifice (system status bar already shows the time; the connection dot
+  // stays inline), mirroring the phone layout.
+  const hideClockTime = $derived(touch && !mobile && badgeCount > 0);
+  // Tighter still: two or more badges won't fit at full width on touch-desktop
+  // even after dropping the clock. Collapse the labelled ones (LEARNINGS /
+  // NEEDS YOU / WHAT'S-NEW) to their compact icon/dot-only form (the phone
+  // treatment) to reclaim the row. A lone badge fits with just the clock gone,
+  // so it keeps its full label.
+  const compactBadges = $derived(touch && !mobile && badgeCount >= 2);
 
   const working = $derived(sessions.filter((s) => s.status === "running").length);
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
@@ -138,11 +153,11 @@
     {#if needsYou > 0}
       <button
         class="needsyou"
-        class:compact={mobile}
+        class:compact={mobile || compactBadges}
         onclick={() => ontriage?.()}
         aria-label={m.common_needs_you({ count: needsYou })}
       >
-        {#if mobile}
+        {#if mobile || compactBadges}
           <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{needsYou}</span>
         {:else}
           {m.common_needs_you({ count: needsYou })}
@@ -152,14 +167,14 @@
     {#if learnings > 0 || overBudget > 0}
       <button
         class="learnings-badge"
-        class:compact={mobile}
+        class:compact={mobile || compactBadges}
         class:curate={learnings === 0}
         onclick={() => onlearnings?.()}
         aria-label={learnings > 0
           ? m.learnings_open_aria({ count: learnings })
           : m.learnings_open_curate_aria({ count: overBudget })}
       >
-        {#if mobile}
+        {#if mobile || compactBadges}
           <span class="lr-icon" aria-hidden="true">💡</span>
           {#if learnings > 0}<span class="lr-n">{learnings}</span>{/if}
         {:else}
@@ -256,29 +271,33 @@
           : m.updatemodal_commits_other()}"
       >
         <span class="up-dot">▲</span>
-        {#if !mobile}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
+        {#if !mobile && !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
         <span class="up-n">{update!.behind}</span>
       </button>
     {/if}
     <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         (green dot below) to free a slot in the single-row control cluster. -->
+         (green dot below) to free a slot in the single-row control cluster. The
+         touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
+         it named) so two stacked update badges still fit. -->
     {#if herdrUpdateAvailable && !mobile}
       <button
         class="update-badge herdr"
         onclick={() => onherdrupdate?.()}
+        aria-label={m.topbar_herdr_update_badge()}
         title={m.topbar_herdr_update_title({
           current: herdrUpdate!.current ?? "?",
           latest: herdrUpdate!.latest ?? "?",
         })}
       >
         <span class="up-dot">▲</span>
-        <span class="up-label">{m.topbar_herdr_update_badge()}</span>
+        {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
       </button>
     {/if}
     {#if whatsNew}
-      <!-- Desktop: labelled button with hover-tip; Mobile: dot-only to avoid
-           crowding the single-row control cluster (mirrors .gear-dot pattern). -->
-      {#if !mobile}
+      <!-- Desktop: labelled button with hover-tip; Mobile (and the touch-desktop
+           multi-badge crunch) collapse to dot-only to avoid crowding the
+           single-row control cluster (mirrors .gear-dot pattern). -->
+      {#if !mobile && !compactBadges}
         <button
           class="whatsnew-badge tip"
           type="button"
@@ -653,8 +672,8 @@
     align-items: center;
     font-variant-numeric: tabular-nums;
   }
-  /* Touch desktop-layout with an update badge: hide the numeric time, keep the
-     dot inline so the badge no longer overflows the bar. */
+  /* Touch desktop-layout crowded by any right-side badge: hide the numeric
+     time, keep the dot inline so the cluster no longer overflows the bar. */
   .clock.no-time {
     gap: 0;
   }

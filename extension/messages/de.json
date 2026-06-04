@@ -28,6 +28,7 @@
   "options_basebranch_label": "Basis-Branch",
   "options_model_label": "Modell",
   "options_model_default": "Claudes Standard",
+  "options_baseurl_hint": "Phase 1 unterstützt nur http://localhost:7330; andere Hosts werden vom Browser blockiert.",
   "options_baseurl_placeholder": "http://localhost:7330",
   "options_repopath_placeholder": "~/Work/my-repo",
   "options_save": "Speichern",

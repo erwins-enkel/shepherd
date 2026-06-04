@@ -29,6 +29,7 @@
         bind:value={config.baseUrl}
         placeholder={m.options_baseurl_placeholder()}
       />
+      <span class="text-xs text-gray-500">{m.options_baseurl_hint()}</span>
     </label>
 
     <label class="flex flex-col gap-1">

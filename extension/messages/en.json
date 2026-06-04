@@ -28,6 +28,7 @@
   "options_basebranch_label": "Base branch",
   "options_model_label": "Model",
   "options_model_default": "Claude's default",
+  "options_baseurl_hint": "Phase 1 supports http://localhost:7330 only; other hosts are blocked by the browser.",
   "options_baseurl_placeholder": "http://localhost:7330",
   "options_repopath_placeholder": "~/Work/my-repo",
   "options_save": "Save",

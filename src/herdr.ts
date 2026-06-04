@@ -61,6 +61,38 @@ export function matchAgent(
   return null;
 }
 
+/**
+ * Resolve EVERY active session to its live herdr agent at once, arbitrating
+ * cross-session collisions: an agent held by one session via an exact terminalId match
+ * is off-limits to another session's cwd fallback, and each agent is adopted by at most
+ * one session. Without this, two active sessions sharing a cwd (non-isolated same-repo)
+ * would have a dead one steal a live one's agent. Returns sessionId → matched agent
+ * (or null). Per-session resolution still goes through `matchAgent`.
+ */
+export function matchAgents(
+  sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
+  agents: HerdrAgent[],
+): Map<string, HerdrAgent | null> {
+  const exactOwner = new Map<string, string>(); // terminalId → owning session id
+  for (const s of sessions) {
+    const a = agents.find((x) => x.terminalId === s.herdrAgentId);
+    if (a) exactOwner.set(a.terminalId, s.id);
+  }
+  const taken = new Set<string>();
+  const out = new Map<string, HerdrAgent | null>();
+  for (const s of sessions) {
+    const candidates = agents.filter((a) => {
+      if (taken.has(a.terminalId)) return false;
+      const owner = exactOwner.get(a.terminalId);
+      return owner === undefined || owner === s.id;
+    });
+    const a = matchAgent(s, candidates);
+    out.set(s.id, a);
+    if (a) taken.add(a.terminalId);
+  }
+  return out;
+}
+
 export class HerdrDriver {
   constructor(private runner: Runner = defaultRunner) {}
 

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { HerdrDriver, mapState, matchAgent, type HerdrAgent } from "../src/herdr";
+import { HerdrDriver, mapState, matchAgent, matchAgents, type HerdrAgent } from "../src/herdr";
 
 const FIXTURE = JSON.stringify({
   result: {
@@ -249,4 +249,31 @@ test("matchAgent: cwd ambiguous AND name ambiguous → null", () => {
 
 test("matchAgent: no terminalId and no cwd match → null", () => {
   expect(matchAgent(sess, [mkAgent({ terminalId: "t9", cwd: "/other" })])).toBeNull();
+});
+
+test("matchAgents: a dead session cannot steal a live sibling's exact-id agent at the same cwd", () => {
+  const live = { id: "L", herdrAgentId: "term_live", worktreePath: "/wt", name: "x" };
+  const dead = { id: "D", herdrAgentId: "term_dead", worktreePath: "/wt", name: "x" };
+  const agents = [mkAgent({ terminalId: "term_live", cwd: "/wt", name: "x" })];
+  const m = matchAgents([live, dead], agents);
+  expect(m.get("L")?.terminalId).toBe("term_live");
+  expect(m.get("D")).toBeNull();
+});
+
+test("matchAgents: each live agent is adopted by at most one session", () => {
+  const a = { id: "A", herdrAgentId: "stale_a", worktreePath: "/wt", name: "alpha" };
+  const b = { id: "B", herdrAgentId: "stale_b", worktreePath: "/wt", name: "beta" };
+  const agents = [
+    mkAgent({ terminalId: "fresh_a", cwd: "/wt", name: "alpha" }),
+    mkAgent({ terminalId: "fresh_b", cwd: "/wt", name: "beta" }),
+  ];
+  const m = matchAgents([a, b], agents);
+  expect(m.get("A")?.terminalId).toBe("fresh_a");
+  expect(m.get("B")?.terminalId).toBe("fresh_b");
+});
+
+test("matchAgents: stale terminalId adopts the fresh agent at the same cwd", () => {
+  const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/z", name: "x" };
+  const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/z", name: "x" })]);
+  expect(m.get("S")?.terminalId).toBe("fresh");
 });

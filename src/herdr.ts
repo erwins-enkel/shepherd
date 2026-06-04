@@ -62,6 +62,22 @@ export function matchAgent(
 }
 
 /**
+ * Pick the cwd-fallback agent for one still-unmatched session from the untaken
+ * candidates. When the session contends for its cwd with another active session, only
+ * an unambiguous agent-NAME match is safe; a sole session adopts its lone cwd agent via
+ * `matchAgent` regardless of name (so a renamed isolated session still re-pairs).
+ */
+function pickByCwd(
+  s: { herdrAgentId: string; worktreePath: string; name: string },
+  candidates: HerdrAgent[],
+  contended: boolean,
+): HerdrAgent | null {
+  if (!contended) return matchAgent(s, candidates);
+  const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+  return byName.length === 1 ? byName[0]! : null;
+}
+
+/**
  * Resolve EVERY active session to its live herdr agent at once, arbitrating
  * cross-session collisions so a dead session can't steal a live sibling's agent.
  *
@@ -98,13 +114,7 @@ export function matchAgents(
 
   for (const s of remaining) {
     const candidates = agents.filter((a) => !taken.has(a.terminalId));
-    let a: HerdrAgent | null;
-    if ((sessionsPerCwd.get(s.worktreePath) ?? 0) > 1) {
-      const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
-      a = byName.length === 1 ? byName[0]! : null;
-    } else {
-      a = matchAgent(s, candidates);
-    }
+    const a = pickByCwd(s, candidates, (sessionsPerCwd.get(s.worktreePath) ?? 0) > 1);
     out.set(s.id, a);
     if (a) taken.add(a.terminalId);
   }

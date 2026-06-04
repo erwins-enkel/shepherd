@@ -32,5 +32,17 @@
   "options_baseurl_placeholder": "http://localhost:7330",
   "options_repopath_placeholder": "~/Work/my-repo",
   "options_save": "Save",
-  "options_saved": "Saved"
+  "options_saved": "Saved",
+  "popup_attach_label": "Attach",
+  "signal_screenshot": "Screenshot",
+  "signal_console": "Console errors",
+  "signal_network": "Failed requests",
+  "signal_a11y": "Accessibility (axe)",
+  "popup_signals_locked": "Enable console & network capture in settings.",
+  "popup_signal_summary": "{console} console · {network} failed · {a11y} a11y",
+  "options_signals_title": "Signals",
+  "options_signals_a11y_label": "Run an accessibility (axe-core) audit on capture",
+  "options_recorder_label": "Record console errors & failed network requests",
+  "options_recorder_allsites_note": "Recording reads console output and network failures on every site you visit. Enable only while you need it; turn it off to revoke the all-sites permission.",
+  "options_recorder_denied": "Permission denied — recording stays off."
 }

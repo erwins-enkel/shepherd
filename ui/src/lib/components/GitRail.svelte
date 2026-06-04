@@ -630,6 +630,12 @@
   .verdict-chip.armed {
     box-shadow: 0 0 0 1px currentColor inset;
   }
+  /* The reviewing-with-no-prior-findings variant renders as a <span>, not a
+     <button> — nothing to open. Drop the base cursor:pointer so it doesn't
+     advertise a tap that does nothing. */
+  span.verdict-chip {
+    cursor: default;
+  }
 
   /* touch layouts: bigger tap targets + readable PR link/dot. fill the strip and
      wrap whole buttons onto a new right-aligned row, rather than letting a single
@@ -656,8 +662,10 @@
      passive list badge. On touch (no hover affordance) the happy "✓ REVIEWED"
      chip then read as a status label, not a button, so findings were effectively
      unreachable on mobile/fold. Match it to the sibling controls: a real ≥40px
-     tap target that obviously invites a tap. */
-  .rail.mobile .verdict-chip {
+     tap target that obviously invites a tap. Scoped to button.verdict-chip so the
+     non-interactive reviewing <span> (no prior findings) isn't blown up into a
+     40px button-looking element that does nothing on tap. */
+  .rail.mobile button.verdict-chip {
     min-height: 40px;
     padding: 6px 14px;
     font-size: var(--fs-base);

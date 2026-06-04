@@ -361,6 +361,7 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
       const evidenceDetail = deps.store.getSignalsByIds(l.evidence).map((s) => {
         evidenceKinds[s.kind] = (evidenceKinds[s.kind] ?? 0) + 1;
         return {
+          id: s.id,
           kind: s.kind,
           desig: s.sessionId ? (deps.store.get(s.sessionId)?.desig ?? null) : null,
           excerpt: evidenceExcerpt(s.payload),

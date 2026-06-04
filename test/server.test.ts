@@ -1009,8 +1009,14 @@ test("GET /api/learnings/pending resolves cited evidence into kinds + source det
   // newest first; pruned id dropped; multi-line payload flattened to one line;
   // reply resolves to its source session designation, the orphan critic to null.
   expect(body[0].evidenceDetail).toEqual([
-    { kind: "critic", desig: null, excerpt: "b", ts: expect.any(Number) },
-    { kind: "reply", desig: sess.desig, excerpt: "use bun, not npm", ts: expect.any(Number) },
+    { id: b.id, kind: "critic", desig: null, excerpt: "b", ts: expect.any(Number) },
+    {
+      id: a.id,
+      kind: "reply",
+      desig: sess.desig,
+      excerpt: "use bun, not npm",
+      ts: expect.any(Number),
+    },
   ]);
 });
 

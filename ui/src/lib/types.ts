@@ -393,8 +393,10 @@ export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
 export type SignalKind = "reply" | "critic" | "block" | "stall";
 
 /** One resolved evidence signal behind a proposed rule (provenance for the
- *  drawer). `desig` is the source session, null when no longer tracked. */
+ *  drawer). `id` is the signal id (stable render key); `desig` is the source
+ *  session, null when no longer tracked. */
 export interface EvidenceItem {
+  id: string;
   kind: SignalKind;
   desig: string | null;
   excerpt: string;

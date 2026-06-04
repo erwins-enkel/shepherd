@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
+  import type { Action } from "svelte/action";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import type { Learning, RepoInjectable, SignalKind } from "$lib/types";
@@ -24,23 +25,32 @@
           : m.learnings_kind_stall();
 
   // Grow a rule textarea to fit its content so the full rule is always readable —
-  // no inner scroll, no clipping. Re-measures on every input.
-  function autosize(el: HTMLTextAreaElement) {
+  // no inner scroll, no clipping. Re-measures on every input and, via `update`,
+  // whenever the bound value changes programmatically (e.g. a poll refresh
+  // replacing the rule text while no local draft exists).
+  const autosize: Action<HTMLTextAreaElement, string> = (el) => {
+    let raf = 0;
     const fit = () => {
       el.style.height = "auto";
       el.style.height = `${el.scrollHeight}px`;
     };
+    // scrollHeight is unreliable mid fly-in / before the new value is flushed
+    // to the DOM; settle one frame later.
+    const fitNextFrame = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(fit);
+    };
     fit();
-    // scrollHeight is unreliable mid fly-in; settle one frame later.
-    const raf = requestAnimationFrame(fit);
+    fitNextFrame();
     el.addEventListener("input", fit);
     return {
+      update: fitNextFrame,
       destroy() {
         cancelAnimationFrame(raf);
         el.removeEventListener("input", fit);
       },
     };
-  }
+  };
 
   // Which rules have their evidence-source list expanded, keyed by learning id.
   let expanded = $state<Record<string, boolean>>({});
@@ -111,7 +121,7 @@
             <textarea
               class="text"
               rows="2"
-              use:autosize
+              use:autosize={draft(l)}
               value={draft(l)}
               oninput={(e) => (drafts = { ...drafts, [l.id]: e.currentTarget.value })}
               aria-label={m.learnings_rule_aria()}
@@ -128,6 +138,7 @@
                 <button
                   class="sources-toggle"
                   type="button"
+                  title={m.learnings_evidence_help()}
                   aria-expanded={!!expanded[l.id]}
                   aria-label={m.learnings_sources_toggle_aria()}
                   onclick={() => (expanded = { ...expanded, [l.id]: !expanded[l.id] })}
@@ -138,8 +149,11 @@
               {/if}
             </div>
             {#if expanded[l.id] && l.evidenceDetail}
+              <!-- visible copy of the provenance explanation: reachable for
+                   keyboard/touch users, who can't hover the title tooltip -->
+              <p class="shelp">{m.learnings_evidence_help()}</p>
               <ul class="sources">
-                {#each l.evidenceDetail as ev (ev.ts + ev.excerpt)}
+                {#each l.evidenceDetail as ev (ev.id)}
                   <li class="source">
                     <span class="src">{kindLabel(ev.kind)}</span>
                     <span class="desig">{ev.desig ?? m.learnings_source_unknown()}</span>
@@ -375,6 +389,12 @@
     transform: rotate(90deg);
   }
   /* Evidence provenance: the actual signals this rule was distilled from. */
+  .shelp {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.5;
+    padding-top: 4px;
+  }
   .sources {
     list-style: none;
     margin: 0;

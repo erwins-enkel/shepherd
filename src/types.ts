@@ -167,10 +167,12 @@ export interface Signal {
 export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
 
 /** One resolved evidence signal behind a proposed rule, for the drawer's
- *  "where did this come from" view. `desig` is the source session's designation
- *  (e.g. "TASK-07"), or null when the session row is gone; `excerpt` is a short
- *  single-line preview of the captured payload. */
+ *  "where did this come from" view. `id` is the signal id (stable render key);
+ *  `desig` is the source session's designation (e.g. "TASK-07"), or null when
+ *  the session row is gone; `excerpt` is a short single-line preview of the
+ *  captured payload. */
 export interface EvidenceItem {
+  id: string;
   kind: SignalKind;
   desig: string | null;
   excerpt: string;

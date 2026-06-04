@@ -406,7 +406,6 @@
         bind:this={gearBtn}
         class="gear tip"
         class:has-update={herdrUpdateAvailable && mobile}
-        class:haltable={working > 0}
         type="button"
         onclick={toggleMenu}
         data-tip={working > 0 ? m.topbar_menu_aria() : m.settings_title()}

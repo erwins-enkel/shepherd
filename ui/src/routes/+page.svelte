@@ -464,6 +464,7 @@
     apiHalt().catch(() => {
       toasts.info(m.halt_failed(), {
         alert: true,
+        duration: null, // stay until the operator retries/closes — a failed fleet-halt must not vanish
         key: "halt-done",
         action: { label: m.common_retry(), run: () => haltHerd() },
       });

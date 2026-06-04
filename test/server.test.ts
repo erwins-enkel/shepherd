@@ -975,6 +975,45 @@ test("GET /api/learnings/pending returns all proposed learnings across repos", a
   expect(body[0].rule).toBe("p1");
 });
 
+test("GET /api/learnings/pending resolves cited evidence into kinds + source detail", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const sess = deps.store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/x",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const a = deps.store.addSignal({
+    repoPath: "/x",
+    sessionId: sess.id,
+    kind: "reply",
+    payload: "use bun,\n  not npm",
+  });
+  const b = deps.store.addSignal({ repoPath: "/x", sessionId: null, kind: "critic", payload: "b" });
+  deps.store.addLearning({
+    repoPath: "/x",
+    rule: "p1",
+    rationale: "",
+    evidence: [a.id, b.id, "pruned"],
+  });
+
+  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
+  const body = await res.json();
+  expect(body[0].evidenceKinds).toEqual({ reply: 1, critic: 1 });
+  // newest first; pruned id dropped; multi-line payload flattened to one line;
+  // reply resolves to its source session designation, the orphan critic to null.
+  expect(body[0].evidenceDetail).toEqual([
+    { kind: "critic", desig: null, excerpt: "b", ts: expect.any(Number) },
+    { kind: "reply", desig: sess.desig, excerpt: "use bun, not npm", ts: expect.any(Number) },
+  ]);
+});
+
 test("GET /api/learnings/injectable returns per-repo injected flags + budget numbers", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

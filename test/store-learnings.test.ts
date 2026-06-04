@@ -32,6 +32,16 @@ test("pruneSignals drops rows older than cutoff and returns count", () => {
   expect(s.listSignals("/r").length).toBe(0);
 });
 
+test("getSignalsByIds resolves cited evidence (newest first), ignoring unknown ids", () => {
+  const s = new SessionStore(":memory:");
+  const r1 = s.addSignal({ repoPath: "/r", sessionId: null, kind: "reply", payload: "a" });
+  const c1 = s.addSignal({ repoPath: "/r", sessionId: null, kind: "critic", payload: "c" });
+  const got = s.getSignalsByIds([r1.id, c1.id, "pruned-id"]);
+  expect(got.map((g) => g.kind)).toEqual(["critic", "reply"]); // newest first
+  expect(got.map((g) => g.id)).toEqual([c1.id, r1.id]);
+  expect(s.getSignalsByIds([])).toEqual([]);
+});
+
 test("addLearning defaults to proposed; listLearnings filters by status", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({

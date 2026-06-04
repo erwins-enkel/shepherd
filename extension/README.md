@@ -26,8 +26,10 @@ bun run check:i18n # EN+DE catalog parity
 
 Open the extension's **options** (right-click the icon → Options) and set:
 
-- **Base URL** — your Shepherd core, e.g. `http://localhost:7330` (or your
-  Tailscale `https://<host>.ts.net` URL when remote).
+- **Base URL** — your Shepherd core. **Phase 1 supports `http://localhost:7330`
+  only** (the manifest grants that host). A remote/Tailscale `*.ts.net` URL needs
+  an optional-host-permission request flow that's deferred to a later phase — see
+  issue #308; until then a non-localhost base URL is blocked by the browser.
 - **Token** — required only if the server runs with `SHEPHERD_TOKEN` set.
 - **Repo path** — must resolve inside the server's `SHEPHERD_REPO_ROOT`
   (e.g. `~/Work/my-repo`).
@@ -46,12 +48,14 @@ SHEPHERD_ALLOWED_HOSTS="<your-extension-id>" bun run start
 If you skip this, spawn-now returns `403` and the popup shows the
 "add this extension's ID to SHEPHERD_ALLOWED_HOSTS" error.
 
-| Failure | Popup message    | Fix                                              |
-| ------- | ---------------- | ------------------------------------------------ |
-| `403`   | origin rejected  | add the extension ID to `SHEPHERD_ALLOWED_HOSTS` |
-| `401`   | auth failed      | set the correct token in options                 |
-| `400`   | repo not allowed | point repo path inside `SHEPHERD_REPO_ROOT`      |
-| network | unreachable      | check base URL / that the core is running        |
+| Failure | Popup message                 | Fix                                                                                                       |
+| ------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `403`   | origin rejected               | add the extension ID to `SHEPHERD_ALLOWED_HOSTS`                                                          |
+| `401`   | auth failed                   | set the correct token in options                                                                          |
+| `400`   | "Shepherd rejected: <detail>" | request invalid — the server's detail says what (e.g. repo path outside `SHEPHERD_REPO_ROOT`, bad branch) |
+| `413`   | screenshot too large          | viewport screenshot exceeded the upload size limit                                                        |
+| `415`   | screenshot format unsupported | unexpected capture format (should not happen for PNG)                                                     |
+| network | unreachable                   | check base URL / that the core is running                                                                 |
 
 ## Manual verification checklist (Phase 1 acceptance)
 

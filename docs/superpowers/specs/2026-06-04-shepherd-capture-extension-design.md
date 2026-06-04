@@ -41,8 +41,10 @@ how `ui/` is a separate package.
   `default_title: "Shepherd Capture"` (product name — untranslated) and
   `default_popup`.
 - **Permissions:** `activeTab`, `scripting`, `tabs`, `storage`.
-- **`host_permissions`:** the configured Shepherd base URL (default
-  `http://localhost:7330/*`; user-overridable for a Tailscale `ts.net` URL).
+- **`host_permissions`:** `http://localhost:7330/*` only. **Phase 1 is
+  localhost-only.** Remote/Tailscale (`*.ts.net`) requires an
+  `optional_host_permissions` + `chrome.permissions.request` flow, deferred to a
+  later phase (the options UI + README are scoped to localhost to match).
 - **No** `debugger`, **no** `api.github.com`, **no** `commands` shortcut yet
   (Phases 2–4).
 
@@ -104,10 +106,13 @@ Phase 3; the formatter is structured to take optional sections.)
 - Port `ui/`'s `check:i18n` parity gate into `extension/` (script +
   `bun run check:i18n`), wired into the package's lint/CI and — like `ui/` —
   asserting an identical, non-empty key set across both locales.
-- Manifest `action.default_title` = `"Shepherd Capture"` (product name, not
-  translated). No translatable manifest strings exist in Phase 1 (the keyboard
-  `commands` description that _would_ need `_locales` arrives in Phase 4; revisit
-  the `_locales` question then).
+- Manifest `name`/`action.default_title` = `"Shepherd Capture"` (product name,
+  not translated). The manifest **`description`** _is_ authored chrome, so it's
+  localized MV3-native via `default_locale: "en"` + `description:
+  "__MSG_ext_description__"` resolved from `public/_locales/{en,de}/messages.json`
+  (these ship in `dist/_locales/`). That `_locales` catalog is tiny (one key) and
+  kept in EN+DE parity by hand; the keyboard `commands` description (Phase 4) will
+  add to it.
 - Captured/passthrough data (page URL, title, UA, the user's prompt) is **not**
   translated — only chrome the extension authors.
 
@@ -122,12 +127,15 @@ Phase 3; the formatter is structured to take optional sections.)
 - **Auth token:** if configured, send `Authorization: Bearer <token>`. Stored in
   `chrome.storage.local` (never synced). A `401` surfaces a "check token"
   message.
-- **Base URL:** configurable (default `http://localhost:7330`; a `ts.net` URL
-  when remote). Never hardcoded; drives `host_permissions` guidance in the
+- **Base URL:** configurable, **Phase 1 localhost-only** (`http://localhost:7330`;
+  the manifest grants only that host). Remote `ts.net` is deferred (needs the
+  optional-host-permission flow above). Never hardcoded; drives `host_permissions`
+  guidance in the
   README.
 - **Repo confinement:** `repoPath` must resolve inside `SHEPHERD_REPO_ROOT` or
-  the API rejects `400`. A `400` surfaces a "repo path not allowed / check
-  config" message.
+  the API rejects `400`. Since `400` covers any validation failure (not just
+  confinement), the popup surfaces the server's own `detail` rather than a fixed
+  message.
 
 ## Errors & edge cases
 
@@ -137,7 +145,8 @@ Phase 3; the formatter is structured to take optional sections.)
 | `chrome://` / web-store / PDF tab  | Capture/inject fails → readable "can't capture this page" message.       |
 | `403` (origin not allowlisted)     | Localized error naming `SHEPHERD_ALLOWED_HOSTS` + the extension ID.       |
 | `401` (auth)                       | Localized "check your Shepherd token".                                    |
-| `400` (confinement/validation)     | Localized "repo path not allowed under SHEPHERD_REPO_ROOT".               |
+| `400` (any validation failure)     | Localized "Shepherd rejected the request: <server detail>".               |
+| `413` / `415` (upload too large / unsupported) | Localized "screenshot too large" / "format not supported".   |
 | Network/base-URL unreachable       | Localized "couldn't reach Shepherd at <baseUrl>".                         |
 
 All error strings route through Paraglide (EN+DE).

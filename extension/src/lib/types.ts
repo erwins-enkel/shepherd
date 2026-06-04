@@ -34,8 +34,20 @@ export interface SpawnPayload {
   screenshotDataUrl: string;
 }
 
-/** Typed transport failure the popup maps to a localized message. */
-export type TransportErrorKind = "origin" | "auth" | "confinement" | "unreachable" | "unknown";
+/**
+ * Typed transport failure the popup maps to a localized message. `invalid`
+ * (HTTP 400) covers any request the server rejected as malformed — repo-path
+ * confinement is only one such case — so the popup surfaces the server's own
+ * `detail`. `too_large`/`unsupported` are the upload-specific 413/415.
+ */
+export type TransportErrorKind =
+  | "origin"
+  | "auth"
+  | "invalid"
+  | "too_large"
+  | "unsupported"
+  | "unreachable"
+  | "unknown";
 
 export class TransportError extends Error {
   kind: TransportErrorKind;

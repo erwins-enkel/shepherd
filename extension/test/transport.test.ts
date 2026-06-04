@@ -88,7 +88,9 @@ describe("spawnNow", () => {
   it.each([
     [403, "origin"],
     [401, "auth"],
-    [400, "confinement"],
+    [400, "invalid"],
+    [413, "too_large"],
+    [415, "unsupported"],
     [500, "unknown"],
   ])("maps upload status %i to TransportError kind %s", async (status, kind) => {
     const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "no" }, status));

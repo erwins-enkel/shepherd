@@ -1,14 +1,22 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 
-// Phase 1 MVP manifest. Title is the untranslated product name (see spec i18n
-// section). host_permissions defaults to the local Shepherd core; users widen
-// it to a ts.net URL via the browser's optional-host prompt in a later phase —
-// for MVP the localhost default plus activeTab capture suffices.
+// Phase 1 MVP manifest.
+//
+// i18n: `name`/`default_title` are the untranslated product name (brand). The
+// `description` IS translatable chrome, so it's localized MV3-native via
+// `default_locale` + `__MSG_*__` resolved from `public/_locales/{en,de}/`. (The
+// popup/options chrome is localized separately through Paraglide.)
+//
+// host_permissions: Phase 1 talks to the LOCAL core only (`http://localhost:7330`).
+// Remote/Tailscale (`*.ts.net`) needs an optional-host-permission request flow
+// (`optional_host_permissions` + `chrome.permissions.request`) — deferred to a
+// later phase; the options UI + README are scoped to localhost accordingly.
 export default defineManifest({
   manifest_version: 3,
   name: "Shepherd Capture",
   version: "0.0.1",
-  description: "Capture the current tab into a Shepherd task.",
+  default_locale: "en",
+  description: "__MSG_ext_description__",
   action: {
     default_title: "Shepherd Capture",
     default_popup: "index.html",

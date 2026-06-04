@@ -17,7 +17,12 @@ interface SpawnInput {
 function kindForStatus(status: number): TransportErrorKind {
   if (status === 403) return "origin";
   if (status === 401) return "auth";
-  if (status === 400) return "confinement";
+  if (status === 413) return "too_large";
+  if (status === 415) return "unsupported";
+  // 400 is any validation rejection (bad branch, oversized prompt, repo-path
+  // confinement, missing upload field, …) — too varied for a fixed message, so
+  // the popup shows the server's `detail` for this kind.
+  if (status === 400) return "invalid";
   return "unknown";
 }
 

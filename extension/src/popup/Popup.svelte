@@ -28,8 +28,12 @@
         return m.err_origin();
       case "auth":
         return m.err_auth();
-      case "confinement":
-        return m.err_confinement();
+      case "invalid":
+        return m.err_invalid({ message });
+      case "too_large":
+        return m.err_too_large();
+      case "unsupported":
+        return m.err_unsupported();
       case "unreachable":
         return m.err_unreachable({ baseUrl: config?.baseUrl ?? "" });
       case "capture":

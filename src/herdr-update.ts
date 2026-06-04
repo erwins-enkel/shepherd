@@ -202,6 +202,18 @@ export class HerdrUpdateService {
     return m ? m[1]! : null;
   }
 
+  /** Best-effort installed version for the "what are we ACTUALLY on?" report.
+   *  Never throws (a missing/exploding `herdr --version` falls back to `fallback`,
+   *  the last-known-good). Used by every failure branch so we never tell the
+   *  operator they're on the target version we know they did NOT reach. */
+  private actualVersion(fallback: string | null): string | null {
+    try {
+      return this.installedVersion() ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   /** Last computed status, or null before the first check. */
   current(): HerdrUpdateStatus | null {
     return this.last;
@@ -238,13 +250,16 @@ export class HerdrUpdateService {
       const ctrl = new AbortController();
       watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
       await this.runUpdate((line) => this.onLog(line), ctrl.signal);
+      // Re-read the installed version once: it decides success AND is the version
+      // every failure branch reports as "what we're actually on" (never the
+      // target, which we know we did not reach).
+      const after = this.actualVersion(from);
       if (ctrl.signal.aborted) {
-        result = { ok: false, from, to, error: "herdr update timed out" };
+        result = { ok: false, from, to: after, error: "herdr update timed out" };
       } else {
-        const after = this.installedVersion();
         const ok = !!after && !!to && after === to;
         this.last = {
-          current: after ?? from,
+          current: after,
           latest: to,
           updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
           notes: null,
@@ -252,18 +267,17 @@ export class HerdrUpdateService {
           error: ok ? undefined : "herdr was not updated",
         };
         this.onStatus(this.last);
-        // On failure, report the version we're ACTUALLY on: `after` (the re-read
-        // installed version), or `from` (last-known-good) if that read failed —
-        // never the target `to`, which we know we are NOT on.
         result = ok
           ? { ok: true, from, to }
-          : { ok: false, from, to: after ?? from, error: "herdr was not updated" };
+          : { ok: false, from, to: after, error: "herdr was not updated" };
       }
     } catch (err) {
+      // runUpdate itself threw (e.g. spawn failed) — re-read the actual version
+      // so we don't claim the target either.
       result = {
         ok: false,
         from,
-        to,
+        to: this.actualVersion(from),
         error: err instanceof Error ? err.message : "herdr update failed",
       };
     } finally {

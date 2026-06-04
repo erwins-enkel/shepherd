@@ -149,9 +149,11 @@ test("apply(): failure when version unchanged even though the child exits 0 (rc 
   expect(begun).toEqual([true, false]); // maintenance still cleared
 });
 
-test("apply(): maintenance is cleared even when runUpdate throws", async () => {
+test("apply(): when runUpdate throws, reports the ACTUAL version, not the target", async () => {
+  // spawn failed → still on the old version; the result must say so (never the target).
   const { svc, begun, dones } = primed({
-    installedAfter: "0.6.8",
+    installedAfter: "0.6.7",
+    latest: "0.6.8",
     runUpdate: async () => {
       throw new Error("spawn failed");
     },
@@ -159,13 +161,19 @@ test("apply(): maintenance is cleared even when runUpdate throws", async () => {
   await svc.check(1);
   svc.apply();
   await settle();
-  expect(begun).toEqual([true, false]);
-  expect(dones[0]).toMatchObject({ ok: false, error: expect.stringContaining("spawn failed") });
+  expect(begun).toEqual([true, false]); // maintenance still cleared
+  expect(dones[0]).toMatchObject({
+    ok: false,
+    to: "0.6.7",
+    error: expect.stringContaining("spawn failed"),
+  });
+  expect(dones[0]!.to).not.toBe("0.6.8"); // never the target we did NOT reach
 });
 
-test("apply(): watchdog aborts a hung update and clears maintenance", async () => {
+test("apply(): watchdog timeout reports the ACTUAL version, not the target", async () => {
   const { svc, begun, dones } = primed({
-    installedAfter: "0.6.7",
+    installedAfter: "0.6.7", // hung update never swapped the binary
+    latest: "0.6.8",
     watchdogMs: 20,
     runUpdate: (_onLine, signal) =>
       new Promise<void>((resolve) => {
@@ -176,7 +184,12 @@ test("apply(): watchdog aborts a hung update and clears maintenance", async () =
   svc.apply();
   await new Promise((r) => setTimeout(r, 60));
   expect(begun).toEqual([true, false]);
-  expect(dones[0]).toMatchObject({ ok: false });
+  expect(dones[0]).toMatchObject({
+    ok: false,
+    to: "0.6.7",
+    error: expect.stringContaining("timed out"),
+  });
+  expect(dones[0]!.to).not.toBe("0.6.8"); // not the version we know we never reached
 });
 
 test("apply(): double-launch guarded while one is in flight", async () => {

@@ -884,3 +884,33 @@ test("tick() is a no-op while maintenance is active (no herdr call, no reap)", (
     maintenance.end();
   }
 });
+
+test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
+  let reaped = false;
+  const store = {
+    list: () => {
+      // would only be reached if tick() didn't bail on the list() throw; a reap
+      // here would flip the session to done
+      reaped = true;
+      return [{ id: "s1", herdrAgentId: "t1", status: "running" }];
+    },
+    update: () => {
+      reaped = true;
+    },
+  } as unknown as import("../src/store").SessionStore;
+  const herdr = {
+    list: () => {
+      throw new Error("herdr list timed out"); // simulate HERDR_TIMEOUT_MS firing
+    },
+    read: () => "",
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr,
+    () => {},
+    () => {},
+  );
+  // must NOT throw (an unhandled throw on the 1s interval would crash shepherd)
+  expect(() => poller.tick()).not.toThrow();
+  expect(reaped).toBe(false); // tick bailed before touching the store
+});

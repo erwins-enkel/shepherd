@@ -377,11 +377,15 @@ setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
 
 // watch herdr.dev for a newer herdr release and surface an informational badge;
-// unlike the self-update above this never auto-applies (running `herdr update`
-// restarts the herdr server and bounces every live session). releases are rare,
-// so a 6h cadence is plenty.
+// unlike the git self-update this never auto-applies. Applying ends live agent
+// panes (herdr update is destructive) but shepherd stays up — no restart, no 502.
+// releases are rare, so a 6h cadence is plenty.
 const herdrUpdates = new HerdrUpdateService({
   onLog: (line) => events.emit("herdr-update:log", { line }),
+  // shepherd stays up now — push the recomputed status (clears the badge) and a
+  // terminal ✓/✗ result the modal renders instead of waiting for a page reload.
+  onStatus: (status) => events.emit("herdr-update:status", status),
+  onDone: (result) => events.emit("herdr-update:done", result),
 });
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));

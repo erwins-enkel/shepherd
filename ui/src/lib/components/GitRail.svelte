@@ -486,7 +486,15 @@
                 class:ok={!reviewFlashErr}
                 title={reviewFlash}>{reviewFlash}</span
               >{/if}
-            <button class="gbtn" type="button" disabled={busy} onclick={sendReviewToAgent}>
+            <button
+              class="gbtn"
+              type="button"
+              disabled={busy || chip.kind === "reviewing"}
+              title={chip.kind === "reviewing"
+                ? m.gitrail_send_review_reviewing_title()
+                : undefined}
+              onclick={sendReviewToAgent}
+            >
               {m.gitrail_send_review()}
             </button>
           </div>
@@ -791,7 +799,9 @@
     align-items: center;
     gap: 5px;
   }
-  .verdict-chip.critic-reviewing .rev-dot {
+  /* shared pulsing status dot for both the rail chip and the popover-head label */
+  .verdict-chip.critic-reviewing .rev-dot,
+  .rv-label.critic-reviewing .rev-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
@@ -813,14 +823,6 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-  }
-  .rv-label.critic-reviewing .rev-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
-    animation: rev-pulse 1.1s ease-in-out infinite !important;
   }
   .rv-label.critic-changes_requested,
   .verdict-chip.critic-changes_requested {

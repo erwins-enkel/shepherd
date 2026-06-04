@@ -339,7 +339,12 @@ test("drain:status overwrites a previous entry for the same repoPath", () => {
 
 // ── session:activity ───────────────────────────────────────────────────────
 
-const ACTIVITY: SessionActivity = { lastActivityTs: 1000, summary: "edited poller.ts" };
+const ACTIVITY: SessionActivity = {
+  lastActivityTs: 1000,
+  summary: "edited poller.ts",
+  recentTs: [1000],
+  recentErrTs: [],
+};
 
 test("session:activity populates the activity map for that session", () => {
   const s = new HerdStore();
@@ -351,7 +356,12 @@ test("session:activity populates the activity map for that session", () => {
 test("session:activity replaces an existing entry (latest wins)", () => {
   const s = new HerdStore();
   s.apply({ event: "session:activity", data: { id: "s1", activity: ACTIVITY } });
-  const updated: SessionActivity = { lastActivityTs: 2000, summary: "$ bun test" };
+  const updated: SessionActivity = {
+    lastActivityTs: 2000,
+    summary: "$ bun test",
+    recentTs: [2000],
+    recentErrTs: [],
+  };
   s.apply({ event: "session:activity", data: { id: "s1", activity: updated } });
   expect(s.activity["s1"]?.lastActivityTs).toBe(2000);
   expect(s.activity["s1"]?.summary).toBe("$ bun test");

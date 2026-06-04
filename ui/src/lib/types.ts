@@ -188,6 +188,10 @@ export interface SessionActivity {
   lastActivityTs: number;
   /** Latest meaningful tool-use summary, verbatim (e.g. "edited poller.ts", "$ bun test"); null if no tool-use yet. */
   summary: string | null;
+  /** ms-epoch timestamps of in-window tool-use events (oldest→newest) for the row heat-strip. */
+  recentTs: number[];
+  /** Subset of recentTs whose tool-use errored; the client tints those slices red. */
+  recentErrTs: number[];
 }
 
 export interface Session {

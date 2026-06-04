@@ -1184,7 +1184,51 @@ test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouche
   expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
 });
 
-test("haltAll reports 0 (and still emits) when herdr can't be reached", () => {
+test("haltAll keeps interrupting after one pane's send throws; counts only the landed ones", () => {
+  const sent: string[] = [];
+  const emitted: { e: string; d: unknown }[] = [];
+  const store = new SessionStore(":memory:");
+  const mk = (name: string, agent: string) =>
+    store.create({
+      name,
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: agent,
+    });
+  mk("a", "term_a"); // working → lands
+  mk("b", "term_b"); // working → send throws (died between list and send)
+  mk("c", "term_c"); // working → lands (must NOT be skipped by b's failure)
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [
+        { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
+        { terminalId: "term_b", agentStatus: "working", cwd: "/wt/b", name: "" },
+        { terminalId: "term_c", agentStatus: "working", cwd: "/wt/c", name: "" },
+      ],
+      stop: () => {},
+      send: (target: string) => {
+        if (target === "term_b") throw new Error("agent_not_found");
+        sent.push(target);
+      },
+    } as any,
+  });
+
+  expect(svc.haltAll()).toEqual({ halted: 2 }); // only the two that landed
+  expect(sent).toEqual(["term_a", "term_c"]); // b's failure didn't abort the sweep
+  expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
+});
+
+test("haltAll throws (no emit) when herdr can't be reached — never a silent no-op", () => {
   const emitted: { e: string; d: unknown }[] = [];
   const sent: unknown[] = [];
   const store = new SessionStore(":memory:");
@@ -1214,9 +1258,11 @@ test("haltAll reports 0 (and still emits) when herdr can't be reached", () => {
     } as any,
   });
 
-  expect(svc.haltAll()).toEqual({ halted: 0 });
+  // Propagates instead of returning {halted:0}: the route turns it into a 500 so the
+  // UI surfaces halt_failed + Retry rather than a success-looking "Halted 0 agents".
+  expect(() => svc.haltAll()).toThrow("herdr down");
   expect(sent).toEqual([]);
-  expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 0 } });
+  expect(emitted).toEqual([]); // no halt:done on a stop that never ran
 });
 
 function svcDeps(over: any = {}) {

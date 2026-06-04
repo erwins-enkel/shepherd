@@ -93,3 +93,12 @@ test("GET /api/halt is not allowed (POST-only)", async () => {
   const res = await app.fetch(new Request("http://x/api/halt"));
   expect(res.status).toBe(404);
 });
+
+test("POST /api/halt surfaces a herdr-unreachable failure as a 500 (not a fake success)", async () => {
+  const { app } = harness(undefined, () => {
+    throw new Error("herdr down");
+  });
+  const res = await app.fetch(new Request("http://x/api/halt", { method: "POST" }));
+  expect(res.status).toBe(500);
+  expect((await res.json()).error).toBe("herdr down");
+});

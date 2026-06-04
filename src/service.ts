@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
-import type { HerdrAgent, HerdrDriver } from "./herdr";
+import type { HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, Session } from "./types";
@@ -399,28 +399,29 @@ export class SessionService {
    * rows fall out), and of those only the ones reporting `working` are hit. Auto-spawned
    * (drain) sessions are included BY DESIGN — a misfiring autopilot is exactly what this
    * stops. Lists herdr's agents ONCE up front (like broadcast) so a wide fan-out makes a
-   * single `agent list` call, not one per target; if herdr can't be reached, halts none.
-   * Emits `halt:done {halted}` so every connected operator sees the reach.
+   * single `agent list` call, not one per target. Emits `halt:done {halted}` so every
+   * connected operator sees the reach.
+   *
+   * Throws (→ HTTP 500 → the UI surfaces halt_failed + Retry) when herdr can't even be
+   * listed: a swallowed failure would emit a success-looking `halt:done {halted:0}`,
+   * indistinguishable from "nothing was working" — a silent no-op at the worst moment.
    */
   haltAll(): { halted: number } {
-    let agents: HerdrAgent[];
-    try {
-      agents = this.deps.herdr.list();
-    } catch {
-      return this.emitHalt(0);
-    }
+    const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
     const sessions = this.deps.store.list({ activeOnly: true });
     let halted = 0;
     for (const agent of matchAgents(sessions, agents).values()) {
-      if (agent?.agentStatus === "working") {
+      if (agent?.agentStatus !== "working") continue;
+      // Best-effort: a pane that died between `list` and `send` (or any single send
+      // throwing) must NOT abort the sweep — keep interrupting the rest. Count only the
+      // interrupts that actually landed; best-effort reach is the point of an e-stop.
+      try {
         this.deps.herdr.send(agent.terminalId, "\x1b");
         halted++;
+      } catch {
+        /* dead / raced pane — skip it, the herd-wide stop carries on */
       }
     }
-    return this.emitHalt(halted);
-  }
-
-  private emitHalt(halted: number): { halted: number } {
     const result = { halted };
     this.deps.events?.emit("halt:done", result);
     return result;

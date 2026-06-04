@@ -484,9 +484,11 @@
       {/if}
     {/if}
     <!-- The gear is now a menu button: it opens the e-stop (when something is
-         working) plus the Settings entry. A red pip on the gear is the only at-rest
-         cue that there's a herd to halt; the green herdr-update dot (mobile) shifts
-         to the opposite corner when both want the gear. -->
+         working) plus the Settings entry. A pip on the gear is the only at-rest
+         cue that there's a herd to halt: amber while agents simply work (matches the
+         working colour), escalating to red only when something is blocked — so red
+         keeps meaning "needs you", consistent with the rest of the bar. The green
+         herdr-update dot (mobile) shifts to the opposite corner when both want the gear. -->
     <div class="gear-wrap" bind:this={gearWrap}>
       <button
         bind:this={gearBtn}
@@ -498,7 +500,7 @@
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         aria-label={working > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-        >⚙{#if working > 0}<span class="halt-pip" aria-hidden="true"
+        >⚙{#if working > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
           ></span>{/if}{#if herdrUpdateAvailable && mobile}<span
             class="gear-dot"
             class:shift={working > 0}
@@ -708,7 +710,9 @@
     margin: 3px 2px;
     background: var(--color-line);
   }
-  /* Red pip on the gear: the only at-rest cue that there's a herd to halt. */
+  /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
+     agents merely work; red (.alert) only when something is blocked, so red stays
+     reserved for "needs you" rather than the normal running state. */
   .halt-pip {
     position: absolute;
     top: 2px;
@@ -716,8 +720,11 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--color-red);
+    background: var(--color-amber);
     box-shadow: 0 0 0 2px var(--color-panel);
+  }
+  .halt-pip.alert {
+    background: var(--color-red);
   }
   .learnings-badge {
     background: transparent;

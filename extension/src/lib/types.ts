@@ -1,3 +1,5 @@
+import type { CapturedSignals, SignalToggles } from "./signals";
+
 /** Auto-captured page metadata (Phase 1 signals). */
 export interface PageMetadata {
   url: string;
@@ -16,6 +18,8 @@ export interface CaptureResult {
   /** PNG data URL from chrome.tabs.captureVisibleTab. */
   screenshotDataUrl: string;
   metadata: PageMetadata;
+  /** Gathered signals (only the toggles that were on). */
+  signals?: CapturedSignals;
 }
 
 /** Persisted extension config (chrome.storage.local; never synced). */
@@ -25,6 +29,8 @@ export interface CaptureConfig {
   repoPath: string;
   baseBranch: string;
   model: "opus" | "sonnet" | "haiku" | "default";
+  /** Per-signal toggles; persisted defaults, overridable per-capture in the popup. */
+  signals: SignalToggles;
 }
 
 /** What the popup sends the background worker to spawn a session. */
@@ -32,6 +38,9 @@ export interface SpawnPayload {
   prompt: string;
   metadata: PageMetadata;
   screenshotDataUrl: string;
+  /** Whether to upload + attach the screenshot. */
+  attachScreenshot: boolean;
+  signals?: CapturedSignals;
 }
 
 /**
@@ -61,7 +70,9 @@ export class TransportError extends Error {
 }
 
 /** Discriminated message envelope: popup/options <-> background worker. */
-export type WorkerRequest = { type: "capture" } | { type: "spawn"; payload: SpawnPayload };
+export type WorkerRequest =
+  | { type: "capture"; toggles: SignalToggles }
+  | { type: "spawn"; payload: SpawnPayload };
 
 export type WorkerResponse =
   | { ok: true; type: "capture"; result: CaptureResult }

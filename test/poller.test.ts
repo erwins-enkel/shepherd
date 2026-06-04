@@ -734,6 +734,53 @@ test("pruneInactive clears activity tracking for a running-only session that goe
   expect(activities).toHaveLength(2);
 });
 
+test("tick adopts a resurrected agent by cwd, re-points the id, emits, and does NOT reap", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, worktreePath: "/wt", herdrAgentId: "term_stale" });
+  const emitted: { id: string; status: string }[] = [];
+
+  const agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working",
+      cwd: "/wt",
+      paneId: "p",
+      tabId: "t",
+      name: "x",
+      terminalId: "term_fresh",
+      workspaceId: "w",
+    },
+  ];
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => agents, read: () => "" } as any,
+    (id, status) => emitted.push({ id, status }),
+    () => {},
+  );
+
+  poller.tick();
+  const out = store.get(s.id);
+  expect(out?.herdrAgentId).toBe("term_fresh"); // adopted, not reaped
+  expect(out?.status).toBe("running");
+  expect(emitted).toContainEqual({ id: s.id, status: "running" });
+});
+
+test("tick reaps when neither terminalId nor cwd matches a live agent", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, worktreePath: "/wt", herdrAgentId: "term_stale" });
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [], read: () => "" } as any,
+    () => {},
+    () => {},
+  );
+
+  poller.tick();
+  expect(store.get(s.id)?.status).toBe("done");
+});
+
 test("activitySnapshot returns last emitted signal, pruned when the session goes away", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

@@ -31,6 +31,7 @@ import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { Session, LearningStatus, SignalKind } from "./types";
 import type { HerdrDriver } from "./herdr";
+import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import type { PrCache } from "./pr-poller";
@@ -1722,6 +1723,25 @@ const PTY_SUPERSEDED_CODE = 4000;
 // Keep in sync with PTY_GONE_CODE in ui/src/lib/pty.ts.
 export const PTY_GONE_CODE = 4001;
 
+/**
+ * The terminalId to attach a PTY to, or null when the session's herdr agent is truly
+ * gone (caller should close the socket). Resolves by STABLE key (cwd) so a herdr restart
+ * that reassigned terminalIds doesn't strand the attach on the stored-at-upgrade id. A
+ * herdr CLI hiccup (list throws) or no herdr at all falls back to the stored id rather
+ * than closing a live session.
+ */
+function livePtyTerminalId(
+  cur: Session,
+  herdr: Pick<HerdrDriver, "list"> | undefined,
+): string | null {
+  if (!herdr) return cur.herdrAgentId;
+  try {
+    return matchAgent(cur, herdr.list())?.terminalId ?? null;
+  } catch {
+    return cur.herdrAgentId; // herdr hiccup — attach optimistically with the stored id
+  }
+}
+
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   // current owning socket per terminal — a single owner avoids the takeover war
@@ -1788,19 +1808,16 @@ export function serve(deps: AppDeps, port: number) {
             ws.close(PTY_GONE_CODE, "ended");
             return;
           }
-          let agentLive: boolean;
-          try {
-            agentLive = deps.herdr?.list().some((a) => a.terminalId === cur.herdrAgentId) ?? true;
-          } catch {
-            agentLive = true; // a herdr CLI hiccup shouldn't strand a live session
-          }
-          if (!agentLive) {
+          // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
+          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
+          const tid = livePtyTerminalId(cur, deps.herdr);
+          if (tid === null) {
             ws.close(PTY_GONE_CODE, "ended");
             return;
           }
+          ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
           // single owner per terminal: claim it, then bump the previous owner
           // with a "superseded" close so it parks instead of fighting back.
-          const tid = ws.data.terminalId;
           const prev = ptyOwners.get(tid);
           ptyOwners.set(tid, ws);
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");

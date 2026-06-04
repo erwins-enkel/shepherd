@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { config, SESSION_RETENTION_MS, SESSION_RETENTION_KEEP } from "./config";
 import { SessionStore } from "./store";
 import { WorktreeMgr } from "./worktree";
-import { HerdrDriver } from "./herdr";
+import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
 import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
@@ -224,11 +224,13 @@ const autopilot = new AutopilotService({
   resume: (id) => service.resume(id),
   paneAlive: (id) => {
     const s = store.get(id);
-    return !!s && herdr.list().some((a) => a.terminalId === s.herdrAgentId);
+    return !!s && matchAgent(s, herdr.list()) !== null;
   },
   readTail: (id) => {
     const s = store.get(id);
-    return s ? tailLines(herdr.read(s.herdrAgentId, "visible")) : [];
+    if (!s) return [];
+    const live = matchAgent(s, herdr.list());
+    return live ? tailLines(herdr.read(live.terminalId, "visible")) : [];
   },
   // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
   // territory. `state` is "none" when no PR exists; anything else means one does.

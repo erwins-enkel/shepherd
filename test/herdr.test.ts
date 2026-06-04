@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { HerdrDriver, mapState } from "../src/herdr";
+import { HerdrDriver, mapState, matchAgent, matchAgents, type HerdrAgent } from "../src/herdr";
 
 const FIXTURE = JSON.stringify({
   result: {
@@ -208,4 +208,89 @@ test("mapState maps herdr states to shepherd status", () => {
   expect(mapState("done")).toBe("done");
   expect(mapState("idle")).toBe("idle");
   expect(mapState("unknown")).toBe("idle");
+});
+
+const mkAgent = (over: Partial<HerdrAgent>) =>
+  ({
+    agent: "claude",
+    agentStatus: "working",
+    cwd: "/wt/a",
+    name: "",
+    paneId: "p",
+    tabId: "t",
+    terminalId: "term_x",
+    workspaceId: "w",
+    ...over,
+  }) as HerdrAgent;
+
+const sess = { herdrAgentId: "term_old", worktreePath: "/wt/a", name: "alpha" };
+
+test("matchAgent: terminalId fast path wins even if cwd differs", () => {
+  const a = mkAgent({ terminalId: "term_old", cwd: "/elsewhere" });
+  expect(matchAgent(sess, [a, mkAgent({ terminalId: "term_x" })])).toBe(a);
+});
+
+test("matchAgent: falls back to a single cwd match and ignores the stale id", () => {
+  const a = mkAgent({ terminalId: "term_new", cwd: "/wt/a" });
+  expect(matchAgent(sess, [a])).toBe(a);
+});
+
+test("matchAgent: cwd shared by 2+ agents → disambiguate by name", () => {
+  const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
+  const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "beta" });
+  expect(matchAgent(sess, [a, b])).toBe(a);
+});
+
+test("matchAgent: cwd ambiguous AND name ambiguous → null", () => {
+  const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
+  const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "alpha" });
+  expect(matchAgent(sess, [a, b])).toBeNull();
+});
+
+test("matchAgent: no terminalId and no cwd match → null", () => {
+  expect(matchAgent(sess, [mkAgent({ terminalId: "t9", cwd: "/other" })])).toBeNull();
+});
+
+test("matchAgents: a dead session cannot steal a live sibling's exact-id agent at the same cwd", () => {
+  const live = { id: "L", herdrAgentId: "term_live", worktreePath: "/wt", name: "x" };
+  const dead = { id: "D", herdrAgentId: "term_dead", worktreePath: "/wt", name: "x" };
+  const agents = [mkAgent({ terminalId: "term_live", cwd: "/wt", name: "x" })];
+  const m = matchAgents([live, dead], agents);
+  expect(m.get("L")?.terminalId).toBe("term_live");
+  expect(m.get("D")).toBeNull();
+});
+
+test("matchAgents: each live agent is adopted by at most one session", () => {
+  const a = { id: "A", herdrAgentId: "stale_a", worktreePath: "/wt", name: "alpha" };
+  const b = { id: "B", herdrAgentId: "stale_b", worktreePath: "/wt", name: "beta" };
+  const agents = [
+    mkAgent({ terminalId: "fresh_a", cwd: "/wt", name: "alpha" }),
+    mkAgent({ terminalId: "fresh_b", cwd: "/wt", name: "beta" }),
+  ];
+  const m = matchAgents([a, b], agents);
+  expect(m.get("A")?.terminalId).toBe("fresh_a");
+  expect(m.get("B")?.terminalId).toBe("fresh_b");
+});
+
+test("matchAgents: stale terminalId adopts the fresh agent at the same cwd", () => {
+  const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/z", name: "x" };
+  const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/z", name: "x" })]);
+  expect(m.get("S")?.terminalId).toBe("fresh");
+});
+
+test("matchAgents: across a herdr restart (all ids stale), a dead session can't steal the live one's agent by shared cwd", () => {
+  // Two non-isolated sessions at the same repo cwd; herdr reassigned every terminalId.
+  const dead = { id: "D", herdrAgentId: "old_d", worktreePath: "/repo", name: "dead-task" };
+  const live = { id: "L", herdrAgentId: "old_l", worktreePath: "/repo", name: "live-task" };
+  const agents = [mkAgent({ terminalId: "fresh_l", cwd: "/repo", name: "live-task" })];
+  const m = matchAgents([dead, live], agents); // dead listed first — must NOT win
+  expect(m.get("L")?.terminalId).toBe("fresh_l");
+  expect(m.get("D")).toBeNull();
+});
+
+test("matchAgents: a sole session at its cwd re-pairs even when its name drifted from the agent", () => {
+  // isolated session, unique cwd, herdr agent name no longer matches (relabel had failed).
+  const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/uniq", name: "new-name" };
+  const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/uniq", name: "old-name" })]);
+  expect(m.get("S")?.terminalId).toBe("fresh");
 });

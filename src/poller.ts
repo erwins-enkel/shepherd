@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
-import { mapState, type HerdrDriver, type HerdrAgent } from "./herdr";
+import { mapState, matchAgents, type HerdrDriver, type HerdrAgent } from "./herdr";
 import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
@@ -47,11 +47,12 @@ export class StatusPoller {
   ) {}
 
   tick(): void {
-    const byTerm = new Map(this.herdr.list().map((a) => [a.terminalId, a]));
+    const sessions = this.store.list({ activeOnly: true });
+    const matched = matchAgents(sessions, this.herdr.list());
     const activeIds = new Set<string>();
-    for (const s of this.store.list({ activeOnly: true })) {
+    for (const s of sessions) {
       activeIds.add(s.id);
-      const agent = byTerm.get(s.herdrAgentId);
+      const agent = matched.get(s.id) ?? null;
       if (!agent) this.reapGone(s);
       else this.reconcileAgent(s, agent);
     }
@@ -75,10 +76,16 @@ export class StatusPoller {
   /** Sync a live agent's status into the store and route its block/stall handling. */
   private reconcileAgent(s: Session, agent: HerdrAgent): void {
     const status = mapState(agent.agentStatus);
-    if (status !== s.status || agent.agentStatus !== s.lastState) {
-      this.store.update(s.id, { status, lastState: agent.agentStatus });
-      this.onChange(s.id, status);
+    const idChanged = agent.terminalId !== s.herdrAgentId;
+    if (idChanged || status !== s.status || agent.agentStatus !== s.lastState) {
+      this.store.update(s.id, {
+        status,
+        lastState: agent.agentStatus,
+        ...(idChanged ? { herdrAgentId: agent.terminalId } : {}),
+      });
+      this.onChange(s.id, status); // nudge clients to re-attach the PTY to the fresh terminal
     }
+    if (idChanged) s = { ...s, herdrAgentId: agent.terminalId };
     // There's a next action again → drop the manual "ready to merge" parking so
     // the row rejoins the active group. Sticky otherwise (idle/done keep it).
     if ((status === "running" || status === "blocked") && s.readyToMerge) {

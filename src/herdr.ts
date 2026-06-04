@@ -40,6 +40,88 @@ export function mapState(s: HerdrState): SessionStatus {
   }
 }
 
+/**
+ * Resolve a session to its live herdr agent by a STABLE key. terminalId is the fast
+ * path but is volatile across a herdr daemon restart, so on a miss we fall back to the
+ * immutable worktree cwd. A cwd shared by 2+ agents (non-isolated same-repo sessions)
+ * is disambiguated by agent name; still ambiguous → no match (never risk mis-pairing).
+ */
+export function matchAgent(
+  s: { herdrAgentId: string; worktreePath: string; name: string },
+  agents: HerdrAgent[],
+): HerdrAgent | null {
+  const byId = agents.find((a) => a.terminalId === s.herdrAgentId);
+  if (byId) return byId;
+  const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
+  if (byCwd.length === 1) return byCwd[0]!;
+  if (byCwd.length > 1) {
+    const byName = byCwd.filter((a) => a.name === s.name);
+    if (byName.length === 1) return byName[0]!;
+  }
+  return null;
+}
+
+/**
+ * Pick the cwd-fallback agent for one still-unmatched session from the untaken
+ * candidates. When the session contends for its cwd with another active session, only
+ * an unambiguous agent-NAME match is safe; a sole session adopts its lone cwd agent via
+ * `matchAgent` regardless of name (so a renamed isolated session still re-pairs).
+ */
+function pickByCwd(
+  s: { herdrAgentId: string; worktreePath: string; name: string },
+  candidates: HerdrAgent[],
+  contended: boolean,
+): HerdrAgent | null {
+  if (!contended) return matchAgent(s, candidates);
+  const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+  return byName.length === 1 ? byName[0]! : null;
+}
+
+/**
+ * Resolve EVERY active session to its live herdr agent at once, arbitrating
+ * cross-session collisions so a dead session can't steal a live sibling's agent.
+ *
+ * Pass 1 — exact terminalId (the stable-within-a-daemon fast path).
+ * Pass 2 — cwd fallback for stale ids (e.g. after a herdr daemon restart). When 2+
+ *   still-unmatched sessions share a cwd (non-isolated same-repo), only an exact
+ *   agent-NAME match is safe. A session that is the SOLE one at its cwd adopts its lone
+ *   agent via `matchAgent` regardless of name, so an isolated session whose name drifted
+ *   from its herdr agent still re-pairs. Each agent is adopted by at most one session.
+ */
+export function matchAgents(
+  sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
+  agents: HerdrAgent[],
+): Map<string, HerdrAgent | null> {
+  const out = new Map<string, HerdrAgent | null>();
+  const taken = new Set<string>(); // claimed terminalIds
+  const matched = new Set<string>(); // resolved session ids
+
+  for (const s of sessions) {
+    const a = agents.find((x) => x.terminalId === s.herdrAgentId);
+    if (a && !taken.has(a.terminalId)) {
+      out.set(s.id, a);
+      taken.add(a.terminalId);
+      matched.add(s.id);
+    }
+  }
+
+  // Frozen before pass 2 so claim order can't shift contention.
+  const remaining = sessions.filter((s) => !matched.has(s.id));
+  const sessionsPerCwd = new Map<string, number>();
+  for (const s of remaining) {
+    sessionsPerCwd.set(s.worktreePath, (sessionsPerCwd.get(s.worktreePath) ?? 0) + 1);
+  }
+
+  for (const s of remaining) {
+    const candidates = agents.filter((a) => !taken.has(a.terminalId));
+    const a = pickByCwd(s, candidates, (sessionsPerCwd.get(s.worktreePath) ?? 0) > 1);
+    out.set(s.id, a);
+    if (a) taken.add(a.terminalId);
+  }
+
+  return out;
+}
+
 export class HerdrDriver {
   constructor(private runner: Runner = defaultRunner) {}
 

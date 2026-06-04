@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
   import { isConfigured, loadConfig } from "../lib/config";
+  import { hasAllUrls } from "../lib/recorder-control";
   import type {
     CaptureConfig,
     CaptureResult,
@@ -8,6 +9,7 @@
     WorkerRequest,
     WorkerResponse,
   } from "../lib/types";
+  import type { SignalToggles } from "../lib/signals";
 
   type View = "loading" | "needs-config" | "ready" | "submitting" | "done" | "error";
 
@@ -17,6 +19,13 @@
   let prompt = $state("");
   let desig = $state("");
   let errorMsg = $state("");
+  let toggles = $state<SignalToggles>({
+    screenshot: true,
+    console: false,
+    network: false,
+    a11y: false,
+  });
+  let recorderAvailable = $state(false);
 
   function send(req: WorkerRequest): Promise<WorkerResponse> {
     return chrome.runtime.sendMessage(req) as Promise<WorkerResponse>;
@@ -50,7 +59,18 @@
       view = "needs-config";
       return;
     }
-    const res = await send({ type: "capture" });
+    toggles = { ...cfg.signals };
+    recorderAvailable = await hasAllUrls();
+    if (!recorderAvailable) {
+      toggles.console = false;
+      toggles.network = false;
+    }
+    await runCapture();
+  }
+
+  async function runCapture() {
+    view = "loading";
+    const res = await send({ type: "capture", toggles });
     if (res.ok && res.type === "capture") {
       capture = res.result;
       view = "ready";
@@ -58,6 +78,11 @@
       errorMsg = localizeError(res.errorKind, res.message);
       view = "error";
     }
+  }
+
+  async function setGather(key: "console" | "network" | "a11y", on: boolean) {
+    toggles[key] = on;
+    await runCapture();
   }
 
   async function submit() {
@@ -74,6 +99,8 @@
         prompt,
         metadata: capture.metadata,
         screenshotDataUrl: capture.screenshotDataUrl,
+        attachScreenshot: toggles.screenshot,
+        signals: capture.signals,
       },
     });
     if (res.ok && res.type === "spawn") {
@@ -116,6 +143,58 @@
       <span class="truncate">{capture.metadata.title}</span>
       <span>{capture.metadata.viewportW}×{capture.metadata.viewportH}</span>
     </div>
+
+    <fieldset class="flex flex-col gap-1 text-xs text-gray-600">
+      <span>{m.popup_attach_label()}</span>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" bind:checked={toggles.screenshot} />
+        <span>{m.signal_screenshot()}</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={toggles.a11y}
+          onchange={(e) => setGather("a11y", e.currentTarget.checked)}
+        />
+        <span>{m.signal_a11y()}</span>
+      </label>
+      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable}>
+        <input
+          type="checkbox"
+          checked={toggles.console}
+          disabled={!recorderAvailable}
+          onchange={(e) => setGather("console", e.currentTarget.checked)}
+        />
+        <span>{m.signal_console()}</span>
+      </label>
+      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable}>
+        <input
+          type="checkbox"
+          checked={toggles.network}
+          disabled={!recorderAvailable}
+          onchange={(e) => setGather("network", e.currentTarget.checked)}
+        />
+        <span>{m.signal_network()}</span>
+      </label>
+      {#if !recorderAvailable}
+        <button
+          type="button"
+          class="self-start text-blue-600 underline"
+          onclick={() => chrome.runtime.openOptionsPage()}
+        >
+          {m.popup_signals_locked()}
+        </button>
+      {/if}
+      {#if capture?.signals}
+        <span class="text-gray-500">
+          {m.popup_signal_summary({
+            console: capture.signals.console?.length ?? 0,
+            network: capture.signals.network?.length ?? 0,
+            a11y: capture.signals.a11y?.length ?? 0,
+          })}
+        </span>
+      {/if}
+    </fieldset>
 
     <label class="flex flex-col gap-1">
       <span class="text-gray-600">{m.popup_prompt_label()}</span>

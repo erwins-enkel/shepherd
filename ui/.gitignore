@@ -24,3 +24,7 @@ vite.config.ts.timestamp-*
 
 # Paraglide (generated)
 /src/lib/paraglide
+
+# Vitest browser-test failure artifacts (regenerated on failing runs)
+__screenshots__/
+.vitest-attachments/

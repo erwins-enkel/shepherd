@@ -5,6 +5,8 @@ import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { playwright } from "@vitest/browser-playwright";
+import { configDefaults } from "vitest/config";
 
 function gitSha(): string {
   try {
@@ -49,5 +51,30 @@ export default defineConfig({
       "/events": { target: "ws://localhost:7330", ws: true },
       "/pty": { target: "ws://localhost:7330", ws: true },
     },
+  },
+  test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          // browser specs run in the browser project; everything else here
+          exclude: [...configDefaults.exclude, "**/*.browser.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "browser",
+          include: ["src/**/*.browser.test.ts"],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: "chromium" }],
+          },
+        },
+      },
+    ],
   },
 });

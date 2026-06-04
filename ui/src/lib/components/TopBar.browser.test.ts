@@ -1,0 +1,496 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import TopBar from "./TopBar.svelte";
+import TopBarLimitsHarness from "./TopBarLimitsHarness.svelte";
+import "../../app.css";
+import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+
+// Deterministic measurement: pin the bar's font so CI (no Berkeley Mono) and
+// local agree. Mounted into a full-width container; widths come from page.viewport.
+// `body { width: <viewport> }` keeps the bar stretched to the full viewport so the
+// .hud actually spans the width under test (it's a flex container that would
+// otherwise size to content), making overflow measurable at the target width.
+let fontStyle: HTMLStyleElement;
+beforeEach(() => {
+  fontStyle = document.createElement("style");
+  fontStyle.textContent = `:root { --font-mono: ui-monospace, monospace; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; }`;
+  document.head.appendChild(fontStyle);
+});
+afterEach(() => {
+  fontStyle.remove();
+  document.body.innerHTML = "";
+  document.body.style.width = "";
+});
+
+type Mode = "mobile" | "touch-desktop" | "desktop";
+const FLAGS: Record<Mode, { mobile: boolean; touch: boolean }> = {
+  mobile: { mobile: true, touch: true },
+  "touch-desktop": { mobile: false, touch: true },
+  desktop: { mobile: false, touch: false },
+};
+
+function sessions(working: number): Session[] {
+  return Array.from({ length: working }, (_, i) => ({
+    id: `s${i}`,
+    status: "running",
+  })) as unknown as Session[];
+}
+
+function sessionsProp(working: number) {
+  return { sessions: sessions(working) };
+}
+
+interface Scenario {
+  name: string;
+  mode: Mode;
+  width: number;
+  props: Record<string, unknown>;
+}
+
+const allBadges = {
+  needsYou: 3,
+  learnings: 5,
+  update: { behind: 4 } as UpdateStatus,
+  herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+  whatsNew: true,
+};
+
+// Production-worst desktop chrome: both usage windows render as inline gauges
+// (gaugeList yields a gauge per non-null window), widening the bar further.
+const fullLimits: UsageLimits = {
+  session5h: { pct: 88, resetAt: 1_700_003_600_000 },
+  week: { pct: 64, resetAt: 1_700_600_000_000 },
+  stale: false,
+  calibratedAt: 1_700_000_000_000,
+};
+
+const SCENARIOS: Scenario[] = [
+  // The #322 device: unfolded Pixel at 1000px (touch-desktop).
+  {
+    name: "touch-desktop 1000 — all badges",
+    mode: "touch-desktop",
+    width: 1000,
+    props: { ...allBadges, ...sessionsProp(2) },
+  },
+  {
+    name: "touch-desktop 1000 — dual-update + learnings + needsYou + whatsNew",
+    mode: "touch-desktop",
+    width: 1000,
+    props: {
+      needsYou: 2,
+      learnings: 3,
+      update: { behind: 1 },
+      herdrUpdate: { updateAvailable: true },
+      whatsNew: true,
+      ...sessionsProp(0),
+    },
+  },
+  {
+    name: "touch-desktop 1000 — lone learnings (#322 regression)",
+    mode: "touch-desktop",
+    width: 1000,
+    props: { learnings: 4, ...sessionsProp(0) },
+  },
+  {
+    name: "touch-desktop 960 — all badges (bracket)",
+    mode: "touch-desktop",
+    width: 960,
+    props: { ...allBadges, ...sessionsProp(2) },
+  },
+  // Phones.
+  {
+    name: "mobile 390 — all badges",
+    mode: "mobile",
+    width: 390,
+    props: { ...allBadges, ...sessionsProp(2) },
+  },
+  {
+    name: "mobile 280 — all badges (fold cover)",
+    mode: "mobile",
+    width: 280,
+    props: { ...allBadges, ...sessionsProp(2) },
+  },
+  // Desktop.
+  //
+  // The TRUE cap: `TopBar` sits inside `.shell` (max-width:1480, 22px padding each
+  // side, border-box), so the widest inner width the bar EVER gets, on any monitor,
+  // is 1480 − 22 − 22 = 1436px. Every desktop fit-critical scenario measures at
+  // that real usable cap (1436), with the WIDEST badge selection for the count
+  // under test — NOT at 1480, which over-states the available width and would mask
+  // a real overflow. (A non-touch desktop *window* narrower than ~1480px viewport
+  // has usable < 1436 and may still clip; that sub-1480 edge is documented
+  // out-of-scope — we do not assert the impossible for tiny desktop windows.)
+  //
+  // FIXED (#322-desktop, then width-aware): with all five badges active the desktop
+  // bar's full-label content is ~1700px (with gauges: base 1055 + per-badge deltas;
+  // the halt e-stop lives in the gear menu, not the bar) and had NO fallback — desktop never
+  // compacted, so it overflowed 1436 on every monitor. Desktop compaction is now
+  // MEASUREMENT-DRIVEN in TopBar.svelte (measureFull + decideFromCache): the bar
+  // compacts (labels → icons, clock-time drops, Mission-Control label hides) iff it
+  // would actually overflow its container at the current width. These scenarios
+  // assert the crunched form fits — strict, no skip. The measurement happens in a
+  // requestAnimationFrame, so the runner waits for it to settle before asserting.
+  {
+    name: "desktop 1280 — all badges",
+    mode: "desktop",
+    width: 1280,
+    props: { ...allBadges, ...sessionsProp(2) },
+  },
+  // Production-worst overload: all six badges AND both usage gauges, at the usable
+  // cap (1436) and at 1280. Measured compacted intrinsic width ≈ 1135px ≪ 1436 → fits
+  // with wide margin (the icon-collapsed cluster is far narrower than the full-label
+  // form, which would be ~1751px).
+  {
+    name: "desktop 1436 — all 6 badges + gauges (usable cap, compacts + fits)",
+    mode: "desktop",
+    width: 1436,
+    props: { ...allBadges, ...sessionsProp(2), limits: fullLimits },
+  },
+  {
+    name: "desktop 1280 — all badges + gauges",
+    mode: "desktop",
+    width: 1280,
+    props: { ...allBadges, ...sessionsProp(2), limits: fullLimits },
+  },
+  // ── Width-awareness: narrow desktop windows the old count-3 threshold MISSED ──
+  // A ~1366px laptop gives the bar ~1322px usable; a ~1280px window ~1236px. With
+  // the production-worst chrome (both usage gauges present), the full-label bar
+  // measures ~1333px for 2 badges (learnings + needsYou) and ~1450px for 3 — so it
+  // overflows BOTH narrow widths even at just 2 badges, which the old count-3
+  // threshold never compacted. Runtime measurement does. Each asserts the bar
+  // compacts just enough to NOT overflow + keeps controls hittable. (Verified: with
+  // the measured-OR removed these overflow — full 1333/1450 vs client 1320/1234 —
+  // so they genuinely exercise the fix.)
+  {
+    name: "desktop 1322 — 2 full-label badges + gauges (1366px laptop, measured compaction)",
+    mode: "desktop",
+    width: 1322,
+    props: { needsYou: 2, learnings: 3, limits: fullLimits, ...sessionsProp(0) },
+  },
+  {
+    name: "desktop 1322 — 3 badges + gauges (1366px laptop, measured compaction)",
+    mode: "desktop",
+    width: 1322,
+    props: {
+      needsYou: 2,
+      learnings: 3,
+      update: { behind: 2 },
+      limits: fullLimits,
+      ...sessionsProp(0),
+    },
+  },
+  {
+    name: "desktop 1236 — 2 full-label badges + gauges (1280px window, measured compaction)",
+    mode: "desktop",
+    width: 1236,
+    props: { needsYou: 2, learnings: 3, limits: fullLimits, ...sessionsProp(0) },
+  },
+  {
+    name: "desktop 1236 — 3 badges + gauges (1280px window, measured compaction)",
+    mode: "desktop",
+    width: 1236,
+    props: {
+      needsYou: 2,
+      learnings: 3,
+      update: { behind: 2 },
+      limits: fullLimits,
+      ...sessionsProp(0),
+    },
+  },
+  // Empty baseline.
+  {
+    name: "touch-desktop 1000 — no badges",
+    mode: "touch-desktop",
+    width: 1000,
+    props: { ...sessionsProp(0) },
+  },
+];
+
+function baseProps(s: Scenario): Record<string, unknown> {
+  return {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    limits: null as UsageLimits | null,
+    ...FLAGS[s.mode],
+    ...s.props,
+  };
+}
+
+function assertNoOverflow(el: HTMLElement) {
+  // 1px slack absorbs sub-pixel rounding in the browser's layout engine.
+  expect(el.scrollWidth, `${el.className} overflows`).toBeLessThanOrEqual(el.clientWidth + 1);
+}
+
+// Desktop compaction is decided in a requestAnimationFrame after render, so the
+// no-overflow check has to wait for that frame to land. vi.waitFor re-runs the
+// assertion until it passes OR the timeout fires (then it surfaces the last
+// failure) — so a render that genuinely keeps overflowing still FAILS the test;
+// it can't be masked by polling. (touch-desktop/mobile already pass on the first
+// tick — their compaction is synchronous — so the wait is a no-op there.)
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+// Drain pending rAF-deferred measurement work: spin frames until the measured
+// compaction class stops changing across two consecutive frames (quiescent), so no
+// stale measuring frame remains queued. Bounded so a genuinely oscillating bar can't
+// hang the test.
+async function drainFrames(bar: HTMLElement, maxFrames = 20) {
+  const read = () => bar.querySelector(".needsyou")?.classList.contains("compact");
+  let prev = read();
+  let stable = 0;
+  for (let i = 0; i < maxFrames && stable < 2; i++) {
+    await nextFrame();
+    const cur = read();
+    stable = cur === prev ? stable + 1 : 0;
+    prev = cur;
+  }
+}
+
+async function waitNoOverflow(el: HTMLElement) {
+  await vi.waitFor(
+    () => {
+      expect(el.scrollWidth, `${el.className} overflows`).toBeLessThanOrEqual(el.clientWidth + 1);
+    },
+    { timeout: 1000 },
+  );
+}
+
+function assertControlsHittable(bar: HTMLElement) {
+  const barRect = bar.getBoundingClientRect();
+  const controls = bar.querySelectorAll<HTMLElement>("button, a[href]");
+  expect(controls.length, "bar has at least one control").toBeGreaterThan(0);
+  for (const c of controls) {
+    const r = c.getBoundingClientRect();
+    const label = c.getAttribute("aria-label") || c.className;
+    expect(r.width, `${label} has zero width`).toBeGreaterThan(0);
+    expect(r.height, `${label} has zero height`).toBeGreaterThan(0);
+    // Within the bar (2px slack for borders/rounding). Label may collapse;
+    // the clickable element must never be pushed outside or clipped.
+    expect(r.left, `${label} left of bar`).toBeGreaterThanOrEqual(barRect.left - 2);
+    expect(r.right, `${label} right of bar`).toBeLessThanOrEqual(barRect.right + 2);
+  }
+}
+
+describe("TopBar — no overflow, controls stay hittable", () => {
+  for (const s of SCENARIOS) {
+    it(s.name, async () => {
+      await page.viewport(s.width, 900);
+      // Pin the mount host to the viewport width so the bar (a flex container that
+      // would otherwise shrink-wrap its content) actually spans the width under test.
+      document.body.style.width = `${s.width}px`;
+      render(TopBar, baseProps(s));
+      const hud = document.querySelector<HTMLElement>(".hud");
+      expect(hud, "TopBar .hud mounted").not.toBeNull();
+      await waitNoOverflow(hud!);
+      assertControlsHittable(hud!);
+    });
+  }
+});
+
+describe("TopBar — wide desktop keeps full labels (measurement does NOT over-compact)", () => {
+  // Width-awareness must not over-fire: at the TRUE usable cap (1436px = .shell
+  // 1480 - 2x22 padding) the WIDEST 2-badge selection (learnings + needsYou ~1354px
+  // incl. both usage gauges) STILL FITS, so the measured path must leave it FULL —
+  // proving compaction triggers on real overflow, not merely on badge presence.
+  // Settle the rAF first (the measurement might briefly flip), then assert it stays
+  // non-compact. Plus a no-gauge variant. Both keep full labels AND fit 1436.
+  //
+  // Asserts: (a) the learnings + needsYou badges are present and NOT collapsed to
+  // their .compact icon/count form (full labels showing), (b) no overflow, (c) all
+  // controls hittable - catching a future left-cluster or gap change that silently
+  // overflows the non-compact desktop path. (Sub-1436px desktop windows have less
+  // usable width and DO compact — covered by the narrow-desktop scenarios above.)
+  const cases: Array<{ limits: UsageLimits | null; desc: string }> = [
+    { limits: fullLimits, desc: "usable cap with gauges (worst-case chrome)" },
+    { limits: null, desc: "usable cap no gauges" },
+  ];
+
+  for (const { limits, desc } of cases) {
+    it(`desktop 1436 — full labels, no overflow (${desc})`, async () => {
+      await page.viewport(1436, 900);
+      document.body.style.width = "1436px";
+      render(TopBar, {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        mobile: false,
+        touch: false,
+        // Widest 2-badge full-label combo (learnings + needsYou).
+        needsYou: 2,
+        learnings: 3,
+        limits,
+        ...sessionsProp(0),
+      });
+      const hud = document.querySelector<HTMLElement>(".hud");
+      expect(hud, "TopBar .hud mounted").not.toBeNull();
+
+      // Let the rAF-driven measurement settle (two frames), then assert it left the
+      // bar FULL — at this width it fits, so it must not have compacted.
+      await nextFrame();
+      await nextFrame();
+
+      // Full-label: both badges present and NOT in compact (icon/count) form.
+      const learnings = hud!.querySelector<HTMLElement>(".learnings-badge");
+      const needsYou = hud!.querySelector<HTMLElement>(".needsyou");
+      expect(learnings, "learnings badge present").not.toBeNull();
+      expect(needsYou, "needsYou badge present").not.toBeNull();
+      expect(learnings!.classList.contains("compact"), "learnings NOT compact").toBe(false);
+      expect(needsYou!.classList.contains("compact"), "needsYou NOT compact").toBe(false);
+      // The full word label renders inside the learnings badge (compact form omits it).
+      expect(learnings!.textContent ?? "", "learnings full label text").toContain(
+        m.learnings_title(),
+      );
+      expect(learnings!.getBoundingClientRect().width, "learnings has width").toBeGreaterThan(0);
+      expect(needsYou!.getBoundingClientRect().width, "needsYou has width").toBeGreaterThan(0);
+
+      // Must still not overflow despite showing full labels.
+      assertNoOverflow(hud!);
+      assertControlsHittable(hud!);
+    });
+  }
+});
+
+describe("TopBar — pure resize decides from cached full width (no flicker)", () => {
+  // The resize-flicker fix: a pure window-resize (content unchanged) must decide
+  // compaction from the CACHED full-label width vs the new clientWidth — WITHOUT
+  // resetting to full first. So a bar settled compact at a narrow width, then resized
+  // to another still-narrow width, must STAY compact and never overflow. (Pre-fix the
+  // ResizeObserver reset to full on every frame, flashing full→compact each tick.)
+  //
+  // We can't observe the intermediate full-flash frame deterministically, but we CAN
+  // assert the end state across a resize that keeps the bar narrow: still compact, no
+  // overflow. drainFrames ensures no stale full-measuring frame is left pending that
+  // could mask a regression.
+  it("desktop wide→narrow pure resize compacts via cached width (no content change)", async () => {
+    // Settle FULL at a wide width that fits, then RESIZE NARROW with content
+    // unchanged. The ONLY thing that can react is the ResizeObserver's cached-width
+    // path (decideFromCache) — no content-change effect fires — so this isolates the
+    // resize path: it must compact the bar to fit the narrower width WITHOUT a
+    // reset-to-full (which is what caused the per-frame flicker pre-fix).
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      mobile: false,
+      touch: false,
+      // Widest 2-badge full-label chrome + both gauges (~1354px): fits 1436, overflows 1236.
+      needsYou: 2,
+      learnings: 3,
+      limits: fullLimits,
+      ...sessionsProp(0),
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+
+    // Settle the initial content-change measurement → fits 1436, stays FULL.
+    await waitNoOverflow(hud!);
+    await drainFrames(hud!);
+    expect(
+      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      "full (not compact) at 1436",
+    ).toBe(false);
+
+    // Pure RESIZE narrow (content unchanged): only decideFromCache can fire. It must
+    // compact from the cached full width vs the new clientWidth, and the bar must fit.
+    await page.viewport(1236, 900);
+    document.body.style.width = "1236px";
+    await drainFrames(hud!);
+    expect(
+      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      "compacts after wide→narrow resize (cached-width path)",
+    ).toBe(true);
+    assertNoOverflow(hud!);
+    assertControlsHittable(hud!);
+  });
+});
+
+describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
+  // Reproduces the real production ordering the width-aware compaction must survive:
+  // `limits` (store.usageLimits) starts null and is populated AFTER first paint
+  // (snapshot/SSE). The two full-label badges alone are ~1113px intrinsic; once the
+  // two inline usage gauges arrive the bar jumps to ~1353px. At a ~1250px-usable
+  // desktop window the FIRST render (no gauges, 1113 < 1250) fits, so
+  // desktopCompact=false — then the gauges land and the bar would overflow (1353 >
+  // 1250). In production that arrival changes NEITHER mode/badgeCount NOR the
+  // .shell-capped box width (only inner content grows, going to scrollWidth), so unless
+  // the MEASURE EFFECT itself tracks the gauges, nothing re-fires and the bar silently
+  // overflows. This asserts the bar re-measures on null→populated and ends NON-overflowing.
+  //
+  // Two test-rig details make this faithful AND able to catch the bug:
+  //
+  // 1. Harness, not rerender(): vitest-browser-svelte's rerender() replaces the WHOLE
+  //    prop bag via $state.raw, re-reading every prop the component touches and
+  //    spuriously re-firing the measure effect even without the gauge dependency —
+  //    masking the bug. TopBarLimitsHarness flips ONLY its internal `limits` $state
+  //    (via setLimits), so null→populated is the sole change, matching the live store.
+  //
+  // 2. ResizeObserver stubbed to a no-op for this case: in production the bar's box is
+  //    width-capped by .shell and the gauges fit within the existing row height, so the
+  //    RO does NOT fire on gauge arrival. In this unconstrained test mount the gauges
+  //    would jitter the .hud box and the RO would fire and self-heal, hiding the
+  //    effect-level gap. Disabling it isolates the effect as the sole recompaction path
+  //    — exactly the path the fix lives on.
+  //
+  // Mutation check (verified): with `void gauges.length` removed from the measure
+  // effect in TopBar.svelte, this test FAILS — with the RO disabled nothing re-measures
+  // on gauge arrival, the bar stays full-label and overflows (scroll ~1353 > client
+  // ~1250). Restoring the gauge read makes it pass.
+  it("desktop 1252 — gauges arrive after mount, bar re-compacts to fit", async () => {
+    await page.viewport(1252, 900);
+    document.body.style.width = "1252px";
+
+    const RealResizeObserver = globalThis.ResizeObserver;
+    class NoopResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      // Widest 2-badge desktop chrome, but limits START null: ~1113px of full-label
+      // content fits the ~1250px window → no gauges, desktopCompact=false.
+      const { component } = render(TopBarLimitsHarness, {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        mobile: false,
+        touch: false,
+        needsYou: 2,
+        learnings: 3,
+        ...sessionsProp(0),
+      });
+      const hud = document.querySelector<HTMLElement>(".hud");
+      expect(hud, "TopBar .hud mounted").not.toBeNull();
+
+      // Settle the initial measurement: no gauges yet, fits, stays full (not compacted).
+      await waitNoOverflow(hud!);
+      // Fully drain initial-mount measurement churn: the bar settles through several
+      // measure passes, each scheduling a requestAnimationFrame. Wait until no further
+      // rAF-deferred work lands, so NO stale measuring frame is left pending — otherwise
+      // one could fire after the gauges render and self-heal the bar, masking the bug.
+      await drainFrames(hud!);
+      expect(hud!.querySelector(".gauges"), "no gauges before limits arrive").toBeNull();
+      expect(
+        hud!.querySelector(".needsyou")?.classList.contains("compact"),
+        "not compacted before gauges arrive",
+      ).toBe(false);
+
+      // ASYNC arrival: limits populate after first paint → both inline gauges render,
+      // pushing intrinsic width to ~1353 > ~1250. With the RO stubbed, ONLY the
+      // gauge-tracking measure effect can react and re-compact the bar.
+      component.setLimits(fullLimits);
+      await nextFrame();
+      expect(hud!.querySelector(".gauges"), "gauges render after limits arrive").not.toBeNull();
+
+      // The re-measure (driven by the tracked gauge read) must compact the bar back to
+      // a fitting form. waitNoOverflow re-runs until the rAF lands OR times out into a
+      // real failure — a bar that genuinely keeps overflowing still fails here.
+      await waitNoOverflow(hud!);
+      assertControlsHittable(hud!);
+    } finally {
+      globalThis.ResizeObserver = RealResizeObserver;
+    }
+  });
+});

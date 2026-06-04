@@ -3,6 +3,7 @@
   import { formatReset } from "$lib/format";
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { m } from "$lib/paraglide/messages";
+  import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
 
   let {
     sessions,
@@ -49,27 +50,112 @@
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
   const working = $derived(sessions.filter((s) => s.status === "running").length);
-  // How many right-side badges are vying for space (each renders one button).
-  // The halt e-stop is no longer one of them — it folds into the always-present
-  // gear menu (see below), so it never competes for a slot in this cluster.
-  const badgeCount = $derived(
-    (updateAvailable ? 1 : 0) +
-      (herdrUpdateAvailable ? 1 : 0) +
-      (learnings > 0 || overBudget > 0 ? 1 : 0) +
-      (needsYou > 0 ? 1 : 0) +
-      (whatsNew ? 1 : 0),
-  );
-  // Any badge crowds the bar on touch desktop-layout (unfolded foldable:
-  // narrower than a real desktop), so the numeric clock is the first thing to
-  // sacrifice (system status bar already shows the time; the connection dot
-  // stays inline), mirroring the phone layout.
-  const hideClockTime = $derived(touch && !mobile && badgeCount > 0);
-  // Tighter still: two or more badges won't fit at full width on touch-desktop
-  // even after dropping the clock. Collapse the labelled ones (LEARNINGS /
-  // NEEDS YOU / WHAT'S-NEW) to their compact icon/dot-only form (the phone
-  // treatment) to reclaim the row. A lone badge fits with just the clock gone,
-  // so it keeps its full label.
-  const compactBadges = $derived(touch && !mobile && badgeCount >= 2);
+  // Responsive right-cluster decisions live in ./top-bar-layout (pure + unit-tested,
+  // see top-bar-layout.test.ts). "touch-desktop" is the unfolded-foldable crunch
+  // (~1000px) the #247/#322 overflow fixes targeted. The halt e-stop is NOT a bar
+  // badge — it folds into the always-present gear menu — so it never counts here.
+  const mode = $derived(modeOf(mobile, touch));
+  const chrome = $derived({
+    updateAvailable,
+    herdrUpdateAvailable,
+    learnings,
+    overBudget,
+    needsYou,
+    whatsNew,
+  });
+  const plan = $derived(topBarPlan(mode, chrome));
+
+  // ── Desktop compaction is MEASURED, not count-based ──────────────────────────
+  // touch-desktop (≈fixed 1000px device, #322) + mobile stay rule-driven in
+  // top-bar-layout. But real desktop WIDTH varies — a ~1366px laptop gives the bar
+  // ~1322px usable, where even two full-label badges (~1354px) overflow, which a
+  // fixed badge count can't catch. So on desktop we compact only when the bar would
+  // ACTUALLY overflow its container, measured at runtime.
+  let hudEl = $state<HTMLElement | null>(null);
+  let desktopCompact = $state(false);
+  // Cached TRUE full-label content width (scrollWidth at the full render). The
+  // full-label content is RESIZE-INVARIANT — nothing inside the bar wraps or reflows
+  // on container width at desktop, so the content's intrinsic width doesn't change
+  // when only .hud's clientWidth does. We therefore measure it ONCE per content change
+  // and cache it, then a pure resize just compares the cached width against the new
+  // clientWidth — no reset-to-full, so no per-frame flicker during a window drag.
+  // 0 = unknown/stale (must re-measure). Non-reactive: changing it must not re-run effects.
+  let fullWidth = 0;
+  let measureScheduled = false;
+
+  // Re-measure the true full-label width: render full (so scrollWidth IS the full-label
+  // width), then in the next frame read + cache it and decide compaction. Used on a
+  // CONTENT change (badge/mode/gauge), where the cached width is stale. The brief
+  // full-render frame only happens on content changes now, not on every resize tick.
+  function measureFull() {
+    if (measureScheduled) return;
+    measureScheduled = true;
+    desktopCompact = false; // render full so scrollWidth is the full-label width
+    requestAnimationFrame(() => {
+      measureScheduled = false;
+      if (!hudEl || mode !== "desktop") {
+        desktopCompact = false;
+        fullWidth = 0;
+        return;
+      }
+      fullWidth = hudEl.scrollWidth;
+      // 1px slack absorbs sub-pixel layout rounding, so a flush-fitting full-label bar
+      // (scrollWidth a hair over clientWidth) isn't needlessly compacted.
+      desktopCompact = fullWidth > hudEl.clientWidth + 1;
+    });
+  }
+
+  // Resize path: decide compaction from the CACHED full width vs the current
+  // clientWidth — NO reset-to-full, so a continuous window drag doesn't flash
+  // full→compact every frame. If the cache is stale (0), fall back to a one-shot
+  // full measurement.
+  function decideFromCache() {
+    if (mode !== "desktop" || !hudEl) {
+      desktopCompact = false;
+      fullWidth = 0; // off-desktop: clear so re-entry re-measures fresh (matches content effect)
+      return;
+    }
+    if (fullWidth > 0) desktopCompact = fullWidth > hudEl.clientWidth + 1;
+    else measureFull();
+  }
+
+  // Re-measure when what's-in-the-bar (badge count), the layout mode, or the gauges
+  // change. These are the CONTENT changes that alter the full-label width, so they
+  // INVALIDATE the cache and force a fresh full measurement.
+  $effect(() => {
+    void mode;
+    void badgeCount(chrome);
+    // Gauges MUST be a tracked dependency: `limits` (store.usageLimits) starts null
+    // and is filled ASYNCHRONOUSLY (snapshot/SSE land after first paint), then ~110px
+    // of inline gauges render inside .hud. That arrival changes NEITHER mode/badgeCount
+    // NOR the .shell-capped box width (only inner content grows), so without this read
+    // neither this effect nor the ResizeObserver would re-fire — the bar would stay
+    // un-compacted and overflow until an unrelated resize/badge change self-healed it.
+    void gauges.length;
+    if (mode !== "desktop") {
+      desktopCompact = false;
+      fullWidth = 0; // off-desktop: clear the cache so re-entry re-measures fresh
+      return;
+    }
+    fullWidth = 0; // content changed → cached full width is stale
+    measureFull();
+  });
+  // Re-decide when the bar's own box size changes (window resize). This takes the
+  // CACHED-width path (decideFromCache) — no reset-to-full — so it does NOT flash the
+  // bar back to full on every drag frame, and the .shell-capped box means content
+  // compacting can't re-trigger it into an oscillation.
+  $effect(() => {
+    if (!hudEl) return;
+    const ro = new ResizeObserver(() => decideFromCache());
+    ro.observe(hudEl);
+    return () => ro.disconnect();
+  });
+
+  // OR the measured desktop result into the flags the markup already keys off
+  // (compactBadges / hideClockTime). The touch-desktop rules from top-bar-layout
+  // stay as-is; desktop adds the measured overflow signal.
+  const hideClockTime = $derived(plan.hideClockTime || (mode === "desktop" && desktopCompact));
+  const compactBadges = $derived(plan.compactBadges || (mode === "desktop" && desktopCompact));
 
   const idle = $derived(sessions.filter((s) => s.status === "idle").length);
   const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
@@ -192,7 +278,7 @@
 
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
-<div class="hud bracket" class:mobile>
+<div class="hud bracket" class:mobile bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
   {#if !mobile && !touch}
     <!-- hidden on phones AND unfolded foldables: the label crowds the bar and

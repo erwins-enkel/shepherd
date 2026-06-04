@@ -69,6 +69,9 @@ jobs:
           mkdir -p "$SHEPHERD_REPO_ROOT"
           bun test ./test
 
+      - name: Install Playwright Chromium (ui browser tests)
+        run: cd ui && bunx playwright install --with-deps chromium
+
       - name: Test (ui)
         run: cd ui && bun run test
 

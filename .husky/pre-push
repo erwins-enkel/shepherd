@@ -15,6 +15,9 @@ echo "▶ pre-push: lint · typecheck · tests · build"
 echo "→ branch hygiene (linear off main, no merge commits)"
 bash scripts/check-branch-hygiene.sh
 
+echo "→ feature catalog upkeep (feat + UI ⇒ catalog entry)"
+bash scripts/check-feature-catalog.sh
+
 echo "→ prettier --check"
 bunx prettier --check .
 

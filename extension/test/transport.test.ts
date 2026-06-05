@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { spawnNow } from "../src/lib/transport";
 import { TransportError, type CaptureConfig, type PageMetadata } from "../src/lib/types";
+import type { CapturedSignals } from "../src/lib/signals";
 
 const CONFIG: CaptureConfig = {
   baseUrl: "http://localhost:7330",
@@ -8,6 +9,7 @@ const CONFIG: CaptureConfig = {
   repoPath: "~/Work/foo",
   baseBranch: "main",
   model: "opus",
+  signals: { screenshot: true, console: false, network: false, a11y: false },
 };
 
 const META: PageMetadata = {
@@ -41,6 +43,7 @@ describe("spawnNow", () => {
       prompt: "Fix the button",
       metadata: META,
       screenshot: blob(),
+      attachScreenshot: true,
     });
 
     expect(desig).toBe("TASK-42");
@@ -78,6 +81,7 @@ describe("spawnNow", () => {
         prompt: "hi",
         metadata: META,
         screenshot: blob(),
+        attachScreenshot: true,
       },
     );
 
@@ -95,7 +99,12 @@ describe("spawnNow", () => {
   ])("maps upload status %i to TransportError kind %s", async (status, kind) => {
     const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "no" }, status));
     await expect(
-      spawnNow(fetchFn, CONFIG, { prompt: "p", metadata: META, screenshot: blob() }),
+      spawnNow(fetchFn, CONFIG, {
+        prompt: "p",
+        metadata: META,
+        screenshot: blob(),
+        attachScreenshot: true,
+      }),
     ).rejects.toMatchObject({ kind });
     expect(fetchFn).toHaveBeenCalledTimes(1); // never reaches session create
   });
@@ -103,7 +112,12 @@ describe("spawnNow", () => {
   it("maps a network throw to 'unreachable'", async () => {
     const fetchFn = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(
-      spawnNow(fetchFn, CONFIG, { prompt: "p", metadata: META, screenshot: blob() }),
+      spawnNow(fetchFn, CONFIG, {
+        prompt: "p",
+        metadata: META,
+        screenshot: blob(),
+        attachScreenshot: true,
+      }),
     ).rejects.toMatchObject({ kind: "unreachable" });
   });
 
@@ -113,7 +127,33 @@ describe("spawnNow", () => {
       .mockResolvedValueOnce(jsonRes({ path: "/staging/x.png" }, 200))
       .mockResolvedValueOnce(jsonRes({ error: "bad repo" }, 400));
     await expect(
-      spawnNow(fetchFn, CONFIG, { prompt: "p", metadata: META, screenshot: blob() }),
+      spawnNow(fetchFn, CONFIG, {
+        prompt: "p",
+        metadata: META,
+        screenshot: blob(),
+        attachScreenshot: true,
+      }),
     ).rejects.toBeInstanceOf(TransportError);
+  });
+
+  it("skips the upload and sends images:[] when attachScreenshot is false", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ desig: "TASK-9" }, 201));
+    const signals: CapturedSignals = {
+      console: [{ level: "error", text: "boom", ts: META.timestamp }],
+    };
+    const desig = await spawnNow(fetchFn, CONFIG, {
+      prompt: "no shot",
+      metadata: META,
+      attachScreenshot: false,
+      signals,
+    });
+    expect(desig).toBe("TASK-9");
+    expect(fetchFn).toHaveBeenCalledTimes(1); // sessions only — no /api/uploads
+    const [sessUrl, sessInit] = fetchFn.mock.calls[0];
+    expect(sessUrl).toBe("http://localhost:7330/api/sessions");
+    const sent = JSON.parse(sessInit.body);
+    expect(sent.images).toEqual([]);
+    expect(sent.prompt).toContain("Console (1):"); // signals reached the prompt
+    expect(sent.prompt).toContain("boom");
   });
 });

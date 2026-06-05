@@ -50,7 +50,12 @@
   // tailwindcss is pulled in through `@import "tailwindcss"` in app.css + the
   // @tailwindcss/vite plugin, not an ESM import — so fallow sees it as unlisted.
   // It is build/runtime-provided, not a missing dependency.
-  "ignoreDependencies": ["tailwindcss"],
+  //
+  // axe-core ships the extension's a11y audit: the `build:axe` script copies
+  // node_modules/axe-core/axe.min.js into extension/public/ and the background
+  // worker injects it with chrome.scripting.executeScript({files}) — there is no
+  // ESM import, so fallow can't see the usage. Build-provided, not unused.
+  "ignoreDependencies": ["tailwindcss", "axe-core"],
 
   "rules": {
     // OFF — every method fallow flags here (GitForge.openPr, the HerdrDriver

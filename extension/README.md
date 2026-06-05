@@ -1,7 +1,8 @@
 # Shepherd Capture (Chrome extension)
 
 MV3 Chromium extension that captures the active tab (screenshot + page metadata)
-and files it as a live Shepherd task via the task API (spawn-now). Phase 1 MVP.
+and files it as a live Shepherd task via the task API (spawn-now). Phase 2 adds
+capture signals (screenshot, a11y, console errors, failed requests).
 
 ## Develop
 
@@ -34,6 +35,26 @@ Open the extension's **options** (right-click the icon → Options) and set:
 - **Repo path** — must resolve inside the server's `SHEPHERD_REPO_ROOT`
   (e.g. `~/Work/my-repo`).
 - **Base branch**, **Model** (optional).
+
+## Signals
+
+A capture can attach optional, page-derived context. Toggle per-capture in the
+popup; set defaults in **Options**:
+
+- **Screenshot** — the visible-tab PNG (on by default).
+- **Accessibility (axe-core)** — runs an axe audit on the page and appends up to
+  20 findings. No extra permission; off by default (adds latency).
+- **Console errors** / **Failed requests** — require enabling **recording** in
+  Options, which asks for access to **all sites** so a background recorder can
+  buffer `console.error`/`warn`, uncaught errors, and failed `fetch`/XHR/resource
+  loads as they happen. Failed requests include the **full request URL** (query
+  strings may contain tokens), which is forwarded to Shepherd in the task. Turn
+  recording off to revoke that permission. Because the recorder injects at
+  document load, a tab opened before you enabled recording won't have a buffer —
+  reload it (the popup shows a hint when this happens).
+
+All page-derived strings are sanitized (newline/backtick-neutralized) before they
+enter the fenced context block, so a crafted page can't break out of the fence.
 
 ## Server setup (one-time)
 
@@ -69,9 +90,20 @@ If you skip this, spawn-now returns `403` and the popup shows the
       and the fenced browser-context block appended to the prompt.
 - [ ] On a `chrome://` page the popup shows the "can't capture this page" message.
 - [ ] Switching the browser UI language to German shows translated chrome.
+- [ ] Enabling **recording** in Options shows Chrome's all-sites permission prompt
+      once; accepting registers the recorder (console/network checkboxes become
+      enabled in the popup).
+- [ ] On a page that logged a `console.error` and made a request that 404s, a
+      capture with console+network on shows non-zero counts and includes both in
+      the session prompt's fenced block.
+- [ ] Enabling **Accessibility** re-runs capture and the prompt block gains an
+      `Accessibility (N)` section.
+- [ ] Unticking **Screenshot** files a session with no image attached.
+- [ ] Turning recording **off** in Options revokes the all-sites permission
+      (popup console/network checkboxes go disabled again).
+- [ ] Switching the browser UI language to German translates the new chrome.
 
-## Out of scope (later phases — see issue #308)
+## Out of scope (later phases — see issue #338)
 
-GitHub-issue delivery path, URL→repo rules, console/network capture, axe-core
-a11y audit, per-signal toggles, element picker, full-page stitch, keyboard
-shortcut.
+GitHub-issue delivery path, URL→repo rules, element picker, full-page stitch,
+keyboard shortcut, standalone remote-host (`ts.net`) support, toolbar icons.

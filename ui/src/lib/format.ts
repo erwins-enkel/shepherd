@@ -1,9 +1,26 @@
 import { m } from "$lib/paraglide/messages";
 import type { SessionStatus } from "./types";
 
+/**
+ * Live elapsed label for the session list, scaled so multi-day runs stay
+ * readable instead of overflowing to `2880:34`:
+ *   - `<1h` → `MM:SS`  (live ticking timer, seconds shown)
+ *   - `<1d` → `Hh MMm` (seconds dropped once into hours)
+ *   - `≥1d` → `Dd HHh`
+ * Unit letters d/h/m and the `:` separator are tech notation, NOT translated
+ * (same precedent as `formatAgo`). Negative/0 → "00:00".
+ */
 export function elapsed(fromMs: number, nowMs: number): string {
   const s = Math.max(0, Math.floor((nowMs - fromMs) / 1000));
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const min = Math.floor(s / 60);
+  if (min < 60) {
+    return `${String(min).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }
+  const h = Math.floor(min / 60);
+  if (h < 24) {
+    return `${h}h ${String(min % 60).padStart(2, "0")}m`;
+  }
+  return `${Math.floor(h / 24)}d ${String(h % 24).padStart(2, "0")}h`;
 }
 
 /**

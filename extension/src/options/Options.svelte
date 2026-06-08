@@ -26,6 +26,7 @@
   const extensionId = chrome.runtime.id;
   const pairingCommand = `SHEPHERD_ALLOWED_HOSTS=${extensionId} bun run start`;
   let copied = $state(false);
+  let copyFailed = $state(false);
 
   loadConfig().then((c) => (config = c));
   hasAllUrls().then((on) => (recorderOn = on));
@@ -144,9 +145,18 @@
   }
 
   async function copyExtensionId() {
-    await navigator.clipboard.writeText(extensionId);
-    copied = true;
-    setTimeout(() => (copied = false), 1500);
+    copied = false;
+    copyFailed = false;
+    try {
+      await navigator.clipboard.writeText(extensionId);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      // clipboard write can reject (denied permission / non-secure context);
+      // fail-closed with visible feedback rather than a silent no-op.
+      copyFailed = true;
+      setTimeout(() => (copyFailed = false), 3000);
+    }
   }
 </script>
 
@@ -303,6 +313,9 @@
           {copied ? m.options_copied() : m.options_copy()}
         </button>
       </div>
+      {#if copyFailed}
+        <span class="text-xs text-red-600">{m.options_copy_failed()}</span>
+      {/if}
 
       <span class="text-gray-600">{m.options_pairing_command_label()}</span>
       <code class="block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs"

@@ -87,5 +87,6 @@
   "options_extension_id_label": "Erweiterungs-ID",
   "options_pairing_command_label": "Server-Befehl",
   "options_copy": "Kopieren",
-  "options_copied": "Kopiert"
+  "options_copied": "Kopiert",
+  "options_copy_failed": "Kopieren fehlgeschlagen — manuell markieren und kopieren"
 }

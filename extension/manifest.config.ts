@@ -31,6 +31,12 @@ export default defineManifest({
   // allowlist entry is set once and never drifts per directory/machine. This is
   // the base64 DER SPKI of an RSA keypair; only the public half lives here (the
   // private key is kept out of the repo, needed only to re-pack a .crx later).
+  //
+  // Re-derive the ID from this key to confirm it matches the README/allowlist:
+  //   node -e 'const c=require("crypto"),der=Buffer.from(KEY,"base64"); \
+  //     console.log([...c.createHash("sha256").update(der).digest("hex").slice(0,32)] \
+  //       .map(h=>String.fromCharCode(97+parseInt(h,16))).join(""))'
+  // (SHA-256 of the DER bytes → first 16 bytes → each hex nibble 0-f mapped to a-p.)
   key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAso7Zwr/ekV8ZuPryegqmJNFxRCCrM32ddBctJz9Z4+j6MA4vdOKi8wgCj5nphcBgxQaQxltQE2HrEJ80g2UdthQlQ59qDO7aTWvoPzxcNssASgPWlNJyzGzhyokxO3VdCSGp4z6brlHa0x2MRrfxWOTUvLgDH44h5pKXhc/tn2G/dlLvaQ5YY0IijQD194GhaFLPmdj9f2PEsEV9D16wCo/qbREW8lvIE9WsFZHgJIIvMakl7udzzq8RBz2wkXltGuM1ZPo5oX0YoIlM9KZ+6CjiGrrcgNcm/q6Lwx98TWnums23Qq/MBrOFelhRalgHZvwU4zjic64RoGnMQU+5twIDAQAB",
   default_locale: "en",
   description: "__MSG_ext_description__",

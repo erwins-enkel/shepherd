@@ -2,6 +2,7 @@ import { describe, it, expect, test } from "vitest";
 import {
   collectReadyPrs,
   formatReadyPrs,
+  mergeTrainCreateInput,
   pickTrainRepo,
   isMerging,
   MERGE_STALE_MS,
@@ -148,6 +149,32 @@ describe("pickTrainRepo", () => {
 
   it("returns null repo for an empty list", () => {
     expect(pickTrainRepo([])).toEqual({ repoPath: null, prs: [], otherRepoCount: 0 });
+  });
+});
+
+describe("mergeTrainCreateInput", () => {
+  const prs = [
+    {
+      sessionId: "s1",
+      number: 11,
+      title: "feat: a",
+      url: "https://h/pull/11",
+      repoPath: "/repo/a",
+    },
+    { sessionId: "s2", number: 22, title: "fix: b", url: "https://h/pull/22", repoPath: "/repo/a" },
+  ];
+
+  it("always skips the plan gate (planGateEnabled === false)", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prs).planGateEnabled).toBe(false);
+  });
+
+  it("passes through repoPath/baseBranch with null model and a non-empty prompt", () => {
+    const input = mergeTrainCreateInput("/repo/a", "main", prs);
+    expect(input.repoPath).toBe("/repo/a");
+    expect(input.baseBranch).toBe("main");
+    expect(input.model).toBeNull();
+    expect(typeof input.prompt).toBe("string");
+    expect(input.prompt.length).toBeGreaterThan(0);
   });
 });
 

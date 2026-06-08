@@ -1,4 +1,5 @@
-import type { Session, GitState } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+import type { Session, GitState, CreateInput } from "$lib/types";
 
 /** Merge-train marks older than this read as stale (the row falls back to its
  *  prior state) so a stuck PR never sticks visually even if the server's TTL
@@ -79,4 +80,22 @@ export function pickTrainRepo(prs: ReadyPr[]): {
     }
   }
   return { repoPath: bestRepo, prs: best, otherRepoCount: prs.length - best.length };
+}
+
+/** Build the `createSession` input for a merge-train kickoff. Pure (no I/O, no
+ *  side effects) so the gate-skip invariant is locked by `merge-train.test.ts`. */
+export function mergeTrainCreateInput(
+  repoPath: string,
+  baseBranch: string,
+  prs: ReadyPr[],
+): CreateInput {
+  return {
+    repoPath,
+    baseBranch,
+    prompt: m.herd_merge_train_prompt({ prs: formatReadyPrs(prs) }),
+    model: null,
+    // Merge train is a procedural land-the-queue task, never a feature plan —
+    // always skip the plan gate regardless of the per-repo toggle.
+    planGateEnabled: false,
+  };
 }

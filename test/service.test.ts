@@ -1889,7 +1889,7 @@ test("sweepStaleMerging clears marks older than the TTL, keeps fresh ones", asyn
 // ── build queue ──────────────────────────────────────────────────────────────
 
 test("composeSystemPrompt includes <build-queue> block when directive is given", () => {
-  const sp = composeSystemPrompt(null, false, "directive text");
+  const sp = composeSystemPrompt(null, false, { buildQueue: "directive text" });
   expect(sp).toContain("<build-queue>");
   expect(sp).toContain("directive text");
   expect(sp).toContain("</build-queue>");
@@ -1902,7 +1902,7 @@ test("composeSystemPrompt omits <build-queue> block when null (1-arg backward co
 });
 
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
-  const sp = composeSystemPrompt(null, true, "bq-text");
+  const sp = composeSystemPrompt(null, true, { buildQueue: "bq-text" });
   const autopilotPos = sp.indexOf("<autopilot-directive>");
   const bqPos = sp.indexOf("<build-queue>");
   expect(autopilotPos).toBeGreaterThan(-1);
@@ -1910,7 +1910,7 @@ test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () 
 });
 
 test("composeSystemPrompt places <build-queue> after branch-rename-notice (no autopilot)", () => {
-  const sp = composeSystemPrompt(null, false, "bq-text");
+  const sp = composeSystemPrompt(null, false, { buildQueue: "bq-text" });
   const branchPos = sp.indexOf("<branch-rename-notice>");
   const bqPos = sp.indexOf("<build-queue>");
   expect(branchPos).toBeGreaterThan(-1);

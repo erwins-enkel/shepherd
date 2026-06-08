@@ -4,6 +4,7 @@
   import { hasAllUrls } from "../lib/recorder-control";
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import { resolveRepo } from "../lib/routing";
+  import { composeIssueBody, MAX_ISSUE_BODY_LEN, MAX_ISSUE_TITLE_LEN } from "../lib/transport";
   import type {
     CaptureConfig,
     CaptureResult,
@@ -157,10 +158,20 @@
       view = "error";
       return;
     }
-    // Mirror the server's title cap (POST /api/issues, ≤ 200) so an over-long
-    // title gets a clear inline message instead of a generic 'invalid' rejection.
-    if (target === "issue" && issueTitle.trim().length > 200) {
+    // Mirror the server's POST /api/issues caps so an over-long title or body
+    // gets a clear inline message instead of a generic 'invalid' rejection. The
+    // body is prompt + the fenced context block, so large signals can blow the
+    // cap even with a short prompt — validate the exact string fileIssue() sends.
+    if (target === "issue" && issueTitle.trim().length > MAX_ISSUE_TITLE_LEN) {
       errorMsg = m.popup_issue_title_too_long();
+      view = "error";
+      return;
+    }
+    if (
+      target === "issue" &&
+      composeIssueBody(prompt, capture.metadata, capture.signals).length > MAX_ISSUE_BODY_LEN
+    ) {
+      errorMsg = m.popup_issue_body_too_long();
       view = "error";
       return;
     }

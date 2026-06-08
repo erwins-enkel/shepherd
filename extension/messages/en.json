@@ -61,6 +61,7 @@
   "popup_issue_no_screenshot": "Screenshots aren't embedded in issues — the metadata & signals go in the issue body.",
   "popup_issue_empty_title": "Enter an issue title.",
   "popup_issue_title_too_long": "Issue title must be 200 characters or fewer.",
+  "popup_issue_body_too_long": "The issue is too long — trim the prompt or turn off some signals.",
   "popup_issue_success": "Filed issue #{number}.",
   "options_routing_title": "Routing rules",
   "options_routing_hint": "Map a captured tab's URL to a target repo. Patterns are globs (* wildcards) matched against the full URL; first match wins, otherwise the repo above is used.",

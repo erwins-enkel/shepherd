@@ -9,6 +9,25 @@ import type { CapturedSignals } from "./signals";
 
 export type FetchFn = (input: string, init: any) => Promise<Response>;
 
+/** Issue title / body caps — mirror the server's POST /api/issues limits so the
+ *  popup can pre-validate and show a clear message instead of a generic 'invalid'.
+ *  The server stays the authority; these only drive client-side UX. */
+export const MAX_ISSUE_TITLE_LEN = 200;
+export const MAX_ISSUE_BODY_LEN = 16000;
+
+/**
+ * Compose the issue body sent to POST /api/issues: the user's prompt plus the
+ * fenced metadata/signals context block. Exported so the popup pre-validates the
+ * exact string fileIssue() sends — one source of truth, no length-check drift.
+ */
+export function composeIssueBody(
+  prompt: string,
+  metadata: PageMetadata,
+  signals?: CapturedSignals,
+): string {
+  return `${prompt}\n\n${formatContextBlock(metadata, signals)}`;
+}
+
 interface SpawnInput {
   prompt: string;
   metadata: PageMetadata;
@@ -145,7 +164,7 @@ export async function fileIssue(
     signals?: CapturedSignals;
   },
 ): Promise<{ number: number; url: string }> {
-  const body = `${input.prompt}\n\n${formatContextBlock(input.metadata, input.signals)}`;
+  const body = composeIssueBody(input.prompt, input.metadata, input.signals);
 
   let res: Response;
   try {

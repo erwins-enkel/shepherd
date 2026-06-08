@@ -175,54 +175,10 @@
       </div>
     {/if}
   {:else}
-    <!-- desktop: persistent tab bar + side-by-side master / detail. Both panes
-         are always visible, so flipping the tab visibly swaps the detail pane. -->
-    <div class="tab-bar">
-      <button
-        class="tab-btn"
-        class:active={activeTab === "issues"}
-        type="button"
-        onclick={() => (activeTab = "issues")}
-      >
-        {selected && selected.openIssues !== null
-          ? m.backlog_tab_issues_count({ count: selected.openIssues })
-          : m.backlog_tab_issues()}
-      </button>
-      <button
-        class="tab-btn"
-        class:active={activeTab === "prs"}
-        type="button"
-        onclick={() => (activeTab = "prs")}
-      >
-        {selected && selected.openPRs !== null
-          ? m.backlog_tab_prs_count({ count: selected.openPRs })
-          : m.backlog_tab_prs()}
-      </button>
-      <button
-        class="tab-btn"
-        class:active={activeTab === "actions"}
-        class:failing={actionsState.kind === "failing"}
-        type="button"
-        onclick={() => (activeTab = "actions")}
-      >
-        {#if actionsState.kind === "failing"}
-          {m.backlog_tab_actions_failing()}
-        {:else if actionsState.kind === "count"}
-          {m.backlog_tab_actions_count({ count: actionsState.count })}
-        {:else}
-          {m.backlog_tab_actions()}
-        {/if}
-      </button>
-      <button
-        class="tab-btn"
-        class:active={activeTab === "readiness"}
-        type="button"
-        onclick={() => (activeTab = "readiness")}
-      >
-        {m.backlog_tab_readiness()}
-      </button>
-    </div>
-
+    <!-- desktop: side-by-side master / detail, with the tab bar sitting ABOVE the
+         detail pane (not the whole view) — the project list on the left is shared
+         across tabs, so the tabs only switch the selected repo's detail content;
+         keeping them inside the detail column makes that hierarchy legible. -->
     <div class="desktop-split">
       <div class="master-pane">
         <ProjectBacklogList
@@ -232,30 +188,77 @@
           onselect={(p) => (selectedPath = p)}
         />
       </div>
-      <div class="detail-pane">
-        {#if selectedPath !== null}
-          {#if activeTab === "issues"}
-            <IssuesPanel
-              repoPath={selectedPath}
-              onnewtask={(issue) => {
-                onissue(selectedPath!, issue);
-              }}
-              onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
-              bodyPreview
-              age
-            />
-          {:else if activeTab === "prs"}
-            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
-          {:else if activeTab === "actions"}
-            <ActionsPanel repoPath={selectedPath} />
+      <div class="detail-column">
+        <div class="tab-bar">
+          <button
+            class="tab-btn"
+            class:active={activeTab === "issues"}
+            type="button"
+            onclick={() => (activeTab = "issues")}
+          >
+            {selected && selected.openIssues !== null
+              ? m.backlog_tab_issues_count({ count: selected.openIssues })
+              : m.backlog_tab_issues()}
+          </button>
+          <button
+            class="tab-btn"
+            class:active={activeTab === "prs"}
+            type="button"
+            onclick={() => (activeTab = "prs")}
+          >
+            {selected && selected.openPRs !== null
+              ? m.backlog_tab_prs_count({ count: selected.openPRs })
+              : m.backlog_tab_prs()}
+          </button>
+          <button
+            class="tab-btn"
+            class:active={activeTab === "actions"}
+            class:failing={actionsState.kind === "failing"}
+            type="button"
+            onclick={() => (activeTab = "actions")}
+          >
+            {#if actionsState.kind === "failing"}
+              {m.backlog_tab_actions_failing()}
+            {:else if actionsState.kind === "count"}
+              {m.backlog_tab_actions_count({ count: actionsState.count })}
+            {:else}
+              {m.backlog_tab_actions()}
+            {/if}
+          </button>
+          <button
+            class="tab-btn"
+            class:active={activeTab === "readiness"}
+            type="button"
+            onclick={() => (activeTab = "readiness")}
+          >
+            {m.backlog_tab_readiness()}
+          </button>
+        </div>
+        <div class="detail-pane">
+          {#if selectedPath !== null}
+            {#if activeTab === "issues"}
+              <IssuesPanel
+                repoPath={selectedPath}
+                onnewtask={(issue) => {
+                  onissue(selectedPath!, issue);
+                }}
+                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
+                bodyPreview
+                age
+              />
+            {:else if activeTab === "prs"}
+              <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+            {:else if activeTab === "actions"}
+              <ActionsPanel repoPath={selectedPath} />
+            {:else}
+              <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
+            {/if}
           {:else}
-            <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
+            <div class="detail-empty">
+              <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
+            </div>
           {/if}
-        {:else}
-          <div class="detail-empty">
-            <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
-          </div>
-        {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -376,7 +379,18 @@
     border-radius: 2px;
   }
 
+  /* Right column: tab bar stacked above the detail content, so the tabs read as
+     controlling this pane rather than the whole view. */
+  .detail-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .detail-pane {
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;

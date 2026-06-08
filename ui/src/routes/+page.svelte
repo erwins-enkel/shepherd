@@ -1062,8 +1062,10 @@
   .shell.mobile.list {
     height: auto;
     min-height: 100dvh;
-    /* the sticky ActionBar owns the bottom safe-area inset, so drop the shell's
-       bottom padding to avoid a blank gap below the pinned bar */
+    /* the pinned chrome/ActionBar own the top/bottom safe-area insets (see below),
+       so drop the shell's own top+bottom padding — otherwise a stuck header would
+       inset twice (notch + shell), and a blank gap would sit below the pinned bar */
+    padding-top: 0;
     padding-bottom: 0;
   }
   .shell.mobile.list .chrome {
@@ -1073,6 +1075,11 @@
     /* opaque base surface so list content scrolling underneath doesn't show
        through the gap between TopBar and QueueStrip */
     background: var(--color-bg);
+    /* own the top safe-area inset (mirrors the ActionBar's padding-bottom): keeps
+       the TopBar clear of the notch / Dynamic Island while the chrome is stuck at
+       top:0, with the opaque background filling the inset area. max(10px, …) keeps
+       the prior 10px breathing room on non-notched devices. */
+    padding-top: max(10px, env(safe-area-inset-top));
   }
   .shell.mobile.list .main-region,
   .shell.mobile.list .col {

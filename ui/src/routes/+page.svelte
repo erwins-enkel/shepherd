@@ -140,10 +140,15 @@
   // Re-pull the REST-loaded state on tab return. The live /events stream is
   // delta-only: while a mobile tab is frozen (locked phone / backgrounded app)
   // the socket drops and every missed event is gone for good, so sessions, git,
-  // usage and backlog sit stale until a manual refresh. Resync the high-signal
-  // data when the tab comes back so launching from a notification or unlocking
-  // shows current state without one. Always fires — a half-open socket can read
-  // as connected, so we can't gate on store.connected.
+  // usage, backlog — and the critic/plan-gate verdicts plus their in-flight
+  // `reviewing` latches — sit stale until a manual refresh. The reviewing latch
+  // is the costly one: it only clears on a live `reviewing=false`/verdict event,
+  // so a server restart mid-review (which boots with an empty in-flight map and
+  // never re-emits the `false`) strands it `true`, pinning the card in the
+  // reviewing group until a full reload. Resync the high-signal data when the tab
+  // comes back so launching from a notification or unlocking shows current state
+  // without one. Always fires — a half-open socket can read as connected, so we
+  // can't gate on store.connected.
   function resync() {
     listSessions()
       .then((list) => store.setAll(list))
@@ -160,6 +165,11 @@
     getBacklog()
       .then((p) => (backlog = p))
       .catch(() => {});
+    // Reconcile critic + plan-gate verdicts and their reviewing latches from the
+    // server snapshot (both self-handle errors). load() re-fetches the /inflight
+    // ids, so a `reviewing=false` missed across a disconnect/restart is corrected.
+    reviews.load();
+    planGates.load();
   }
 
   // Fetch backlog when the overview is empty, or when the operator opens the

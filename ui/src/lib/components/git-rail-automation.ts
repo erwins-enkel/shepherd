@@ -12,7 +12,9 @@ export type AutomationKey =
   | "autoMerge"
   | "buildQueue";
 
-/** On/off state for each automation, as read from repoConfig in the component. */
+/** On/off state for each automation, as read from repoConfig in the component.
+ *  `planGate` is carried for the pre-execution plan-gate toggle but is NOT yet part
+ *  of AUTOMATION_GROUPS / the pill count — its row lands with the plan-gate UI task. */
 export interface AutomationFlags {
   critic: boolean;
   autoAddress: boolean;
@@ -21,6 +23,7 @@ export interface AutomationFlags {
   autoDrain: boolean;
   autoMerge: boolean;
   buildQueue: boolean;
+  planGate: boolean;
 }
 
 /** A themed group of automation rows shown in the panel. */

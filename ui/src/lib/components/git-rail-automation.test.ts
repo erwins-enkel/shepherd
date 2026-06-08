@@ -14,6 +14,7 @@ const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   autoDrain: false,
   autoMerge: false,
   buildQueue: false,
+  planGate: false,
   ...over,
 });
 

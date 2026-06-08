@@ -40,7 +40,7 @@
   import { sortBlocked } from "$lib/triage";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, planGates } from "$lib/reviews.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
@@ -405,6 +405,7 @@
     steers.load();
     projectIcons.load();
     reviews.load();
+    planGates.load();
     learnings.load();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().

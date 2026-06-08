@@ -579,6 +579,9 @@
   "backlog_loading": "Backlog wird geladen…",
   "backlog_no_forge_repos": "Keine Forge-Projekte",
   "backlog_select_a_project": "Projekt auswählen",
+  "backlog_filter_has_issues": "Hat Issues",
+  "backlog_filter_has_prs": "Hat PRs",
+  "backlog_filter_none_match": "Keine Repos entsprechen dem Filter",
   "a11y_skip_to_main": "Zum Hauptinhalt springen",
   "todopanel_add_aria": "Neuer To-do-Eintrag",
   "todopanel_item_aria": "Erledigt umschalten: {item}",
@@ -672,5 +675,7 @@
   "feat_buildqueue_title": "Agent-erstellte Build-Queue",
   "feat_buildqueue_body": "Aktiviere das Build-Queue-Flag für ein Repo, damit der Agent eine geordnete Schritt-Liste erstellt, bevor er startet. Du kuratierst die Schritte — bearbeiten, neu anordnen, löschen, hinzufügen — und klickst auf Freigeben & ausführen. Im Autopilot-Modus wird die Queue automatisch freigegeben.",
   "feat_plan_gate_title": "Plan-Gate",
-  "feat_plan_gate_body": "Aktiviere das Plan-Gate, um dich vor dem Start abzustimmen: Der Agent befragt dich und schreibt einen Plan, dann prüft ein zweiter Claude diesen kritisch, bis er standhält — nur ein freigegebener Plan läuft. Pro Aufgabe im Neue-Aufgabe-Dialog oder pro Repo im Automatisierungs-Panel einschaltbar."
+  "feat_plan_gate_body": "Aktiviere das Plan-Gate, um dich vor dem Start abzustimmen: Der Agent befragt dich und schreibt einen Plan, dann prüft ein zweiter Claude diesen kritisch, bis er standhält — nur ein freigegebener Plan läuft. Pro Aufgabe im Neue-Aufgabe-Dialog oder pro Repo im Automatisierungs-Panel einschaltbar.",
+  "feat_backlog_repo_filter_title": "Repo-Liste filtern",
+  "feat_backlog_repo_filter_body": "Grenze die Repo-Liste des Backlogs mit den neuen Umschalt-Chips auf Repos mit offenen Issues und/oder offenen PRs ein."
 }

@@ -61,3 +61,18 @@ export function requestHostPermission(baseUrl: string): Promise<boolean> {
   if (hostKind(baseUrl) !== "remote") return Promise.resolve(true);
   return chrome.permissions.request({ origins: [originPattern(baseUrl)] });
 }
+
+/**
+ * Drop the optional host permission for a previous remote base URL when the
+ * configured host has changed, so stale ts.net grants don't pile up across
+ * edits (mirrors disableRecorder releasing its <all_urls> grant). No-op when the
+ * previous host wasn't remote or is still the current origin. Does not need a
+ * user gesture — chrome.permissions.remove can run after Save.
+ */
+export async function releaseStaleHost(prevBaseUrl: string, nextBaseUrl: string): Promise<void> {
+  if (hostKind(prevBaseUrl) !== "remote") return;
+  const prevPattern = originPattern(prevBaseUrl);
+  const nextPattern = hostKind(nextBaseUrl) === "remote" ? originPattern(nextBaseUrl) : null;
+  if (prevPattern === nextPattern) return;
+  await chrome.permissions.remove({ origins: [prevPattern] });
+}

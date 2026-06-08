@@ -12,6 +12,8 @@
   "popup_success": "Created {desig}",
   "popup_no_config": "Configure Shepherd Capture before filing a task.",
   "popup_open_options": "Open settings",
+  "popup_needs_host": "Access to {baseUrl} was revoked. Grant it again to file captures there.",
+  "popup_grant_host": "Grant access",
   "popup_cant_capture": "This page can't be captured (browser or store page).",
   "popup_empty_prompt": "Enter a task description first.",
   "err_origin": "Shepherd rejected the request origin. Add this extension's ID to SHEPHERD_ALLOWED_HOSTS.",

@@ -12,6 +12,8 @@
   "popup_success": "{desig} erstellt",
   "popup_no_config": "Richte Shepherd Capture ein, bevor du eine Aufgabe anlegst.",
   "popup_open_options": "Einstellungen öffnen",
+  "popup_needs_host": "Der Zugriff auf {baseUrl} wurde entzogen. Erlaube ihn erneut, um dort Captures anzulegen.",
+  "popup_grant_host": "Zugriff erlauben",
   "popup_cant_capture": "Diese Seite kann nicht erfasst werden (Browser- oder Store-Seite).",
   "popup_empty_prompt": "Gib zuerst eine Aufgabenbeschreibung ein.",
   "err_origin": "Shepherd hat den Anfrage-Ursprung abgelehnt. Füge die ID dieser Erweiterung zu SHEPHERD_ALLOWED_HOSTS hinzu.",

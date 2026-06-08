@@ -3,14 +3,16 @@ import {
   hasHostPermission,
   hostKind,
   originPattern,
+  releaseStaleHost,
   requestHostPermission,
 } from "../src/lib/remote-host";
 
 function installPermissionsStub(opts: { contains?: boolean; request?: boolean } = {}) {
   const contains = vi.fn(async () => opts.contains ?? false);
   const request = vi.fn(async () => opts.request ?? false);
-  (globalThis as any).chrome = { permissions: { contains, request } };
-  return { contains, request };
+  const remove = vi.fn(async () => true);
+  (globalThis as any).chrome = { permissions: { contains, request, remove } };
+  return { contains, request, remove };
 }
 
 afterEach(() => {
@@ -77,5 +79,31 @@ describe("requestHostPermission", () => {
   it("returns false when the user denies the prompt", async () => {
     installPermissionsStub({ request: false });
     expect(await requestHostPermission("https://box.ts.net")).toBe(false);
+  });
+});
+
+describe("releaseStaleHost", () => {
+  it("removes the previous remote grant when the host changes", async () => {
+    const { remove } = installPermissionsStub();
+    await releaseStaleHost("https://old.ts.net", "https://new.ts.net");
+    expect(remove).toHaveBeenCalledWith({ origins: ["https://old.ts.net/*"] });
+  });
+
+  it("removes the previous remote grant when switching to localhost", async () => {
+    const { remove } = installPermissionsStub();
+    await releaseStaleHost("https://old.ts.net", "http://localhost:7330");
+    expect(remove).toHaveBeenCalledWith({ origins: ["https://old.ts.net/*"] });
+  });
+
+  it("is a no-op when the remote host is unchanged", async () => {
+    const { remove } = installPermissionsStub();
+    await releaseStaleHost("https://box.ts.net/", "https://box.ts.net");
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when the previous host wasn't remote", async () => {
+    const { remove } = installPermissionsStub();
+    await releaseStaleHost("http://localhost:7330", "https://new.ts.net");
+    expect(remove).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@
   import { m } from "../lib/paraglide/messages";
   import { isConfigured, loadConfig } from "../lib/config";
   import { hasAllUrls } from "../lib/recorder-control";
+  import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import type {
     CaptureConfig,
     CaptureResult,
@@ -11,7 +12,7 @@
   } from "../lib/types";
   import type { GatherSignal, SignalToggles } from "../lib/signals";
 
-  type View = "loading" | "needs-config" | "ready" | "submitting" | "done" | "error";
+  type View = "loading" | "needs-config" | "needs-host" | "ready" | "submitting" | "done" | "error";
 
   let view = $state<View>("loading");
   let config = $state<CaptureConfig | null>(null);
@@ -59,6 +60,14 @@
       view = "needs-config";
       return;
     }
+    // A remote (ts.net) host's optional permission can be revoked from
+    // chrome://extensions after it was configured; without it the spawn fetch
+    // fails with a generic "unreachable". Detect it up front and offer a
+    // re-grant (a popup button click is a valid user gesture for the request).
+    if (!(await hasHostPermission(cfg.baseUrl))) {
+      view = "needs-host";
+      return;
+    }
     toggles = { ...cfg.signals };
     recorderAvailable = await hasAllUrls();
     if (!recorderAvailable) {
@@ -66,6 +75,14 @@
       toggles.network = false;
     }
     await runCapture();
+  }
+
+  // Re-request the revoked remote host permission, then resume the normal flow.
+  // Triggered by the needs-host button (user gesture); a denial leaves us on the
+  // needs-host view so the user can retry.
+  async function grantHost() {
+    if (!config) return;
+    if (await requestHostPermission(config.baseUrl)) await init();
   }
 
   async function runCapture() {
@@ -144,6 +161,11 @@
       onclick={() => chrome.runtime.openOptionsPage()}
     >
       {m.popup_open_options()}
+    </button>
+  {:else if view === "needs-host"}
+    <p class="text-gray-600">{m.popup_needs_host({ baseUrl: config?.baseUrl ?? "" })}</p>
+    <button class="self-start rounded bg-gray-900 px-3 py-1.5 text-white" onclick={grantHost}>
+      {m.popup_grant_host()}
     </button>
   {:else if view === "done"}
     <p class="rounded bg-green-50 px-3 py-2 text-green-700">{m.popup_success({ desig })}</p>

@@ -2,7 +2,7 @@
   import { m } from "../lib/paraglide/messages";
   import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
-  import { hostKind, requestHostPermission } from "../lib/remote-host";
+  import { hostKind, releaseStaleHost, requestHostPermission } from "../lib/remote-host";
   import type { CaptureConfig } from "../lib/types";
 
   let config = $state<CaptureConfig>({ ...DEFAULT_CONFIG });
@@ -63,11 +63,16 @@
       hostUnsupported = true;
       return;
     }
+    // requestHostPermission MUST be the first await so the user gesture survives.
     if (kind === "remote" && !(await requestHostPermission(config.baseUrl))) {
       hostDenied = true;
       return;
     }
+    const prevBaseUrl = (await loadConfig()).baseUrl;
     await saveConfig(config);
+    // Release the previous remote host's grant if we've switched hosts (remove
+    // needs no gesture, so it can run after Save).
+    await releaseStaleHost(prevBaseUrl, config.baseUrl);
     saved = true;
     setTimeout(() => (saved = false), 1500);
   }

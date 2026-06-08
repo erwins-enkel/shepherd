@@ -36,6 +36,10 @@ export interface Session {
   /** The classifier's 1–2 sentence hand-back summary — what the agent is waiting for (paused)
    *  or what it delivered (complete); null in neither state. */
   autopilotQuestion: string | null;
+  /** Plan-gate opt-in: true/false override, or null to inherit the repo default. */
+  planGateEnabled: boolean | null;
+  /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */
+  planPhase: "planning" | "executing" | null;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -78,6 +82,8 @@ export interface CreateSessionInput {
    *  persisted `issueNumber` is NOT an input here — the service derives it from
    *  `issueRef.number`, so an attached issue is mapped for drain dedupe automatically. */
   auto?: boolean;
+  /** Per-task plan-gate override; absent → inherit repo default. */
+  planGateEnabled?: boolean | null;
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag. */
@@ -139,6 +145,23 @@ export interface HerdrUpdateStatus {
   checkedAt: number;
   /** set when the check itself failed (binary missing / network); badge stays hidden */
   error?: string;
+}
+
+// ── pre-execution plan gate ──────────────────────────────────────────────────
+export type PlanDecision = "approved" | "changes_requested" | "error";
+
+export interface PlanGate {
+  sessionId: string;
+  planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan
+  decision: PlanDecision;
+  summary: string; // <=100 char one-liner for the badge tooltip
+  body: string; // full markdown reviewer write-up
+  findings: string[]; // discrete actionable items; [] = nothing to address
+  round: number; // adversarial rounds spent on the current plan streak (0 = reset)
+  cap: number; // the round cap this run used — surfaced so the UI badge need not mirror it
+  approved: boolean; // load-bearing gate flag: execution allowed only when true
+  plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  updatedAt: number;
 }
 
 // ── critic-on-PR review verdict ─────────────────────────────────────────────

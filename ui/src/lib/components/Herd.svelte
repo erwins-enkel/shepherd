@@ -4,7 +4,7 @@
   import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions } from "./herd-partition";
   import { collectReadyPrs } from "./merge-train";
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -48,12 +48,20 @@
     filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
   );
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
-  // PR-CI-running and critic-reviewing in-flight groups, then the parked
-  // ready-to-merge (green) and landed merged (blue) groups at the bottom.
-  // reviews.reviewing is $state, so this re-derives on `session:reviewing` events.
+  // PR-CI-running and critic-reviewing / plan-gate-reviewing in-flight groups, then
+  // the parked ready-to-merge (green) and landed merged (blue) groups at the bottom.
+  // reviews.reviewing and planGates.reviewing are both $state, so this re-derives on
+  // `session:reviewing` and `session:plangate-reviewing` events respectively.
   // nowMs (the reactive clock tick) is threaded in so the Merging group re-partitions
   // as the per-session merge TTL elapses, matching the badge/pip which also use nowMs.
-  const partition = $derived(partitionSessions(shown, git, (id) => reviews.isReviewing(id), nowMs));
+  const partition = $derived(
+    partitionSessions(
+      shown,
+      git,
+      (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      nowMs,
+    ),
+  );
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   const readyPrCount = $derived(collectReadyPrs(shown, git).length);

@@ -369,6 +369,17 @@ test("session:activity replaces an existing entry (latest wins)", () => {
   expect(s.activity["s1"]?.summary).toBe("$ bun test");
 });
 
+test("session:merging sets and clears the mark", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({ event: "session:merging", data: { id: "s1", since: 111 } });
+  expect(s.byId("s1")?.mergingSince).toBe(111);
+  expect(s.byId("s2")?.mergingSince).toBeNull(); // other sessions untouched
+  s.apply({ event: "session:merging", data: { id: "s1", since: null } });
+  expect(s.byId("s1")?.mergingSince).toBeNull();
+  expect(s.byId("s1")?.mergingTrainId).toBeNull();
+});
+
 test("session:archived drops the activity entry for that session", () => {
   const s = new HerdStore();
   s.setAll([session("s1")]);

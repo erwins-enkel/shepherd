@@ -132,6 +132,17 @@ export class HerdStore {
           s.id === ev.data.id ? { ...s, readyToMerge: ev.data.ready } : s,
         );
         break;
+      case "session:merging":
+        this.sessions = this.sessions.map((s) =>
+          s.id === ev.data.id
+            ? {
+                ...s,
+                mergingSince: ev.data.since,
+                mergingTrainId: ev.data.since === null ? null : s.mergingTrainId,
+              }
+            : s,
+        );
+        break;
       case "session:autopilot":
         this.sessions = this.sessions.map((s) =>
           s.id === ev.data.id

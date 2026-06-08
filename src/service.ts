@@ -11,6 +11,11 @@ import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 
+/** A merge-train mark older than this is treated as stale and swept, so a
+ *  rejected/held-back PR (never merged, train never archived) can't stay
+ *  "Merging" forever. Mirrored in ui/src/lib/components/merge-train.ts. */
+export const MERGE_STALE_MS = 30 * 60_000;
+
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
@@ -495,6 +500,45 @@ export class SessionService {
   setReadyToMerge(id: string, ready: boolean): void {
     this.deps.store.update(id, { readyToMerge: ready });
     this.deps.events?.emit("session:ready", { id, ready });
+  }
+
+  /**
+   * Mark each session as part of a launched merge train (the client passes the
+   * scoped ready-PR ids). Stamps `mergingSince`/`mergingTrainId`, persists, and
+   * pushes `session:merging` so every client patches the row live. Unknown ids
+   * are skipped (best-effort: the set is cosmetic, never load-bearing).
+   */
+  setMerging(ids: string[], trainId: string): void {
+    const since = Date.now();
+    for (const id of ids) {
+      if (!this.deps.store.get(id)) continue;
+      this.deps.store.update(id, { mergingSince: since, mergingTrainId: trainId });
+      this.deps.events?.emit("session:merging", { id, since });
+    }
+  }
+
+  /** Clear one session's merge-train mark. No-op (no event) when not marked. */
+  clearMerging(id: string): void {
+    const s = this.deps.store.get(id);
+    if (!s || s.mergingSince === null) return;
+    this.deps.store.update(id, { mergingSince: null, mergingTrainId: null });
+    this.deps.events?.emit("session:merging", { id, since: null });
+  }
+
+  /** Clear every session marked by a given train (its session was archived). */
+  clearMergingForTrain(trainId: string): void {
+    for (const s of this.deps.store.list({ activeOnly: true })) {
+      if (s.mergingTrainId === trainId) this.clearMerging(s.id);
+    }
+  }
+
+  /** Backstop: clear marks older than MERGE_STALE_MS. `now` injectable for tests. */
+  sweepStaleMerging(now: number = Date.now()): void {
+    for (const s of this.deps.store.list({ activeOnly: true })) {
+      if (s.mergingSince !== null && now - s.mergingSince > MERGE_STALE_MS) {
+        this.clearMerging(s.id);
+      }
+    }
   }
 
   /** Leftover subprocesses/proxies that would survive this session's close; [] when none. */

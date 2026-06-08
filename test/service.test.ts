@@ -1,6 +1,11 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { SessionService, spawnSettingsOverlay, composeSystemPrompt } from "../src/service";
+import {
+  SessionService,
+  spawnSettingsOverlay,
+  composeSystemPrompt,
+  MERGE_STALE_MS,
+} from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config } from "../src/config";
 
@@ -1720,4 +1725,89 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
   expect(store.get(a.id)?.status).toBe("archived");
   expect(store.get(c.id)?.status).toBe("archived");
   expect(store.get(b.id)?.status).not.toBe("archived"); // b stays active (teardown threw)
+});
+
+function mergeSvc() {
+  const store = new SessionStore(":memory:");
+  const emitted: { event: string; data: any }[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "n",
+    worktree: {
+      create: () => ({ worktreePath: "/wt", branch: "b", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({
+        terminalId: "t",
+        cwd: "/",
+        agent: "claude",
+        agentStatus: "idle",
+        paneId: "p",
+        tabId: "x",
+        workspaceId: "w",
+      }),
+      list: () => [],
+      stop: () => {},
+    } as any,
+    events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
+  });
+  return { store, service, emitted };
+}
+
+async function mkSession(service: SessionService) {
+  return service.create({
+    repoPath: "/r",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+}
+
+test("setMerging stamps each id and emits session:merging; skips unknown ids", async () => {
+  const { store, service, emitted } = mergeSvc();
+  const a = await mkSession(service);
+  service.setMerging([a.id, "ghost"], "train-9");
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  expect(store.get(a.id)!.mergingTrainId).toBe("train-9");
+  const ev = emitted.filter((e) => e.event === "session:merging");
+  expect(ev).toHaveLength(1);
+  expect(ev[0]!.data).toMatchObject({ id: a.id });
+  expect(typeof ev[0]!.data.since).toBe("number");
+});
+
+test("clearMerging nulls the fields and emits since:null; no-op when not merging", async () => {
+  const { store, service, emitted } = mergeSvc();
+  const a = await mkSession(service);
+  service.clearMerging(a.id);
+  expect(emitted.filter((e) => e.event === "session:merging")).toHaveLength(0);
+  service.setMerging([a.id], "t1");
+  service.clearMerging(a.id);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+  expect(store.get(a.id)!.mergingTrainId).toBeNull();
+  const last = emitted.filter((e) => e.event === "session:merging").at(-1)!;
+  expect(last.data).toEqual({ id: a.id, since: null });
+});
+
+test("clearMergingForTrain clears every member of one train, leaves others", async () => {
+  const { store, service } = mergeSvc();
+  const a = await mkSession(service);
+  const b = await mkSession(service);
+  service.setMerging([a.id], "train-A");
+  service.setMerging([b.id], "train-B");
+  service.clearMergingForTrain("train-A");
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+  expect(store.get(b.id)!.mergingSince).toBeGreaterThan(0);
+});
+
+test("sweepStaleMerging clears marks older than the TTL, keeps fresh ones", async () => {
+  const { store, service } = mergeSvc();
+  const a = await mkSession(service);
+  service.setMerging([a.id], "t");
+  const now = Date.now();
+  service.sweepStaleMerging(now);
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  service.sweepStaleMerging(now + MERGE_STALE_MS + 1);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
 });

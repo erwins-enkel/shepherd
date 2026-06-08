@@ -1094,6 +1094,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,

@@ -44,6 +44,8 @@ export interface RepoConfig {
   autoDrainEnabled: boolean;
   /** Full-auto: when on, the merge train lands ready PRs instead of handing off. */
   autoMergeEnabled: boolean;
+  /** Per-repo opt-in for the agent-authored build queue (default OFF). */
+  buildQueueEnabled: boolean;
   /** Concurrency cap on auto-spawned agents for this repo (default 1). */
   maxAuto: number;
   /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
@@ -220,7 +222,7 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-                autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct
+                autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -230,6 +232,7 @@ export class SessionStore implements CapStore {
       autopilotEnabled: number;
       autoDrainEnabled: number;
       autoMergeEnabled: number;
+      buildQueueEnabled: number;
       maxAuto: number;
       autoLabel: string;
       usageCeilingPct: number;
@@ -243,6 +246,7 @@ export class SessionStore implements CapStore {
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
       autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
       autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
+      buildQueueEnabled: r ? !!r.buildQueueEnabled : false,
       maxAuto: r ? r.maxAuto : 1,
       autoLabel: r ? r.autoLabel : "shepherd:auto",
       usageCeilingPct: r ? r.usageCeilingPct : 80,
@@ -253,14 +257,15 @@ export class SessionStore implements CapStore {
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-          autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+          autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
          autoDrainEnabled = excluded.autoDrainEnabled,
          autoMergeEnabled = excluded.autoMergeEnabled,
+         buildQueueEnabled = excluded.buildQueueEnabled,
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
@@ -273,6 +278,7 @@ export class SessionStore implements CapStore {
         cfg.autopilotEnabled ? 1 : 0,
         cfg.autoDrainEnabled ? 1 : 0,
         cfg.autoMergeEnabled ? 1 : 0,
+        cfg.buildQueueEnabled ? 1 : 0,
         cfg.maxAuto,
         cfg.autoLabel,
         cfg.usageCeilingPct,
@@ -743,6 +749,7 @@ export class SessionStore implements CapStore {
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoMergeEnabled", `autoMergeEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("buildQueueEnabled", `buildQueueEnabled INTEGER NOT NULL DEFAULT 0`);
     add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
     add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);

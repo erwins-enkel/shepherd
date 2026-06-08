@@ -113,6 +113,8 @@
   "automation_autodrain_desc": "Auto-spawn agents for labeled issues",
   "automation_automerge_name": "Full-auto merge",
   "automation_automerge_desc": "Land ready PRs automatically (rebases & re-verifies first).",
+  "automation_buildqueue_name": "Build queue",
+  "automation_buildqueue_desc": "Let the agent author an ordered, self-revising build plan you curate before it runs.",
   "drain_strip_label": "Drain",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} queued",

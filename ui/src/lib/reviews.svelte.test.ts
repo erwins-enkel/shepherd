@@ -19,6 +19,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autopilotEnabled: false,
   autoDrainEnabled: false,
   autoMergeEnabled: false,
+  buildQueueEnabled: false,
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,
@@ -47,6 +48,7 @@ beforeEach(() => {
   repoConfig.learnings = {};
   repoConfig.autopilot = {};
   repoConfig.autoDrain = {};
+  repoConfig.buildQueue = {};
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
   repoConfig.usageCeiling = {};

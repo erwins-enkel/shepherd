@@ -247,6 +247,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autopilotEnabled",
   "autoDrainEnabled",
   "autoMergeEnabled",
+  "buildQueueEnabled",
 ] as const;
 
 type RepoCfgBody = {
@@ -256,6 +257,7 @@ type RepoCfgBody = {
   autopilotEnabled?: unknown;
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
+  buildQueueEnabled?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -279,6 +281,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autopilotEnabled?: boolean;
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
+      buildQueueEnabled?: boolean;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -290,7 +293,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled) must be booleans",
       },
       400,
     );
@@ -322,7 +325,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -334,6 +337,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
+    buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -352,6 +356,7 @@ function mergeRepoConfig(
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
+    buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,

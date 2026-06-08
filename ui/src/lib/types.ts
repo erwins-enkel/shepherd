@@ -161,6 +161,7 @@ export interface RepoConfig {
   autopilotEnabled: boolean;
   autoDrainEnabled: boolean;
   autoMergeEnabled: boolean;
+  buildQueueEnabled: boolean;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;

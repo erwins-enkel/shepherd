@@ -47,6 +47,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -58,6 +59,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -69,6 +71,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -80,6 +83,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -91,6 +95,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autopilotEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -112,6 +117,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autopilotEnabled: false,
     autoDrainEnabled: true,
     autoMergeEnabled: false,
+    buildQueueEnabled: false,
     maxAuto: 3,
     autoLabel: "auto-go",
     usageCeilingPct: 65,
@@ -400,6 +406,14 @@ test("repo config: autoMergeEnabled defaults false and round-trips", () => {
   const cfg = store.getRepoConfig("/r");
   store.setRepoConfig("/r", { ...cfg, autoMergeEnabled: true });
   expect(store.getRepoConfig("/r").autoMergeEnabled).toBe(true);
+});
+
+test("repo config: buildQueueEnabled defaults false and round-trips", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/r").buildQueueEnabled).toBe(false);
+  const cfg = store.getRepoConfig("/r");
+  store.setRepoConfig("/r", { ...cfg, buildQueueEnabled: true });
+  expect(store.getRepoConfig("/r").buildQueueEnabled).toBe(true);
 });
 
 test("session: autoMergeEnabled override + rebase count round-trip", () => {

@@ -9,7 +9,8 @@ export type AutomationKey =
   | "learnings"
   | "autopilot"
   | "autoDrain"
-  | "autoMerge";
+  | "autoMerge"
+  | "buildQueue";
 
 /** On/off state for each automation, as read from repoConfig in the component. */
 export interface AutomationFlags {
@@ -19,6 +20,7 @@ export interface AutomationFlags {
   autopilot: boolean;
   autoDrain: boolean;
   autoMerge: boolean;
+  buildQueue: boolean;
 }
 
 /** A themed group of automation rows shown in the panel. */
@@ -31,7 +33,7 @@ export interface AutomationGroup {
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
   { id: "review", items: ["critic", "autoAddress"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
-  { id: "queue", items: ["autoDrain", "autoMerge"] },
+  { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue"] },
 ];
 
 /** The pill denominator: total automations, derived from the group layout so it
@@ -48,5 +50,6 @@ export function automationCount(flags: AutomationFlags): number {
     flags.autopilot,
     flags.autoDrain,
     flags.autoMerge,
+    flags.buildQueue,
   ].filter(Boolean).length;
 }

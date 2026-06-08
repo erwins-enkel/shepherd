@@ -165,6 +165,22 @@
       <span class="knob"></span>
     </button>
   </div>
+  <div class="auto-row">
+    <div class="auto-meta">
+      <div class="auto-name">🧱 {m.automation_buildqueue_name()}</div>
+      <div class="auto-desc">{m.automation_buildqueue_desc()}</div>
+    </div>
+    <button
+      class={["sw", { on: flags.buildQueue }]}
+      type="button"
+      role="switch"
+      aria-checked={flags.buildQueue}
+      aria-label={m.automation_buildqueue_name()}
+      onclick={() => repoConfig.toggleBuildQueue(repoPath)}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
   {#if flags.autoDrain}
     <div class="drain-fields">
       <label class="drain-field">

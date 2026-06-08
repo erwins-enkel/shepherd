@@ -18,13 +18,15 @@ export interface StallConfig {
 }
 
 export const DEFAULT_STALL: StallConfig = {
-  // 8m of transcript silence (no new tool-use) makes a turn a stall *candidate*,
-  // not a confirmed stall: a long pure-generation turn (plan/deep-think) is also
-  // tool-silent. The poller confirms candidates with a live-terminal liveness
-  // diff before alarming; the pending-guard below excludes long-running commands.
+  // 8m of transcript silence with the last tool *finished* makes a turn a stall
+  // *candidate*, not a confirmed stall: a long pure-generation turn (plan/deep-
+  // think) is also tool-silent. The poller confirms these !pending candidates with
+  // a live-terminal liveness diff before alarming.
   stallMs: 8 * 60_000,
   // a tool that has been "running" for 20m with no result is almost certainly a
-  // hung command (the pending-guard would otherwise mask it forever).
+  // hung command. The poller fires these pending candidates directly, bypassing
+  // the liveness diff — a hung command's "esc to interrupt" timer keeps the
+  // terminal ticking, so the diff would otherwise mask the hang forever.
   pendingStallMs: 20 * 60_000,
 };
 

@@ -339,6 +339,60 @@ test("does NOT flag a transcript-silent agent whose terminal is still moving (li
   expect(blocks).toHaveLength(0);
 });
 
+test("fires a stall for a hung command (pending past the ceiling) even when the terminal keeps ticking", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  // a tool stuck "running" past pendingStallMs: its "esc to interrupt" elapsed
+  // timer keeps the visible buffer changing every probe. The liveness diff must
+  // NOT treat that motion as alive — the pending path bypasses the gate.
+  let frame = 0;
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => `$ slow-cmd  (esc to interrupt · ${frame}s)`,
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    // pending=true → the hung-command path; gap (600s) is past pendingStallMs (1ms)
+    () => ({ snapshot: { lastTs: clock - 600_000, pending: true }, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+  );
+
+  // pending candidate fires immediately (no baseline defer) despite the moving terminal
+  frame += 5;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+
+  // still hung + still ticking → once per episode, no re-fire / no false clear
+  frame += 5;
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+});
+
 test("clears an emitted stall when the terminal resumes moving even before the transcript catches up", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

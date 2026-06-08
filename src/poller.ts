@@ -166,6 +166,9 @@ export class StatusPoller {
    * We confirm with a live-terminal liveness diff: a turn still generating keeps
    * its spinner/elapsed/token counter ticking, so the visible buffer changes
    * between probes; only a frozen buffer + a silent transcript is a real stall.
+   * The diff applies ONLY to the pure-generation case (!pending) — a tool still
+   * running past `pendingStallMs` is a hung command whose elapsed timer also
+   * ticks, so it bypasses the gate and fires directly.
    * Surfaces as a "needs you" reason; fires once per episode (guarded by
    * `lastSig === STALL_SIG`) until the turn progresses, then re-arms.
    *
@@ -197,37 +200,70 @@ export class StatusPoller {
     }
 
     // ── stall decision: transcript candidate + live-terminal liveness gate ──
-    const snap = signals.snapshot;
+    this.evaluateStall(s, t, signals.snapshot);
+  }
+
+  /**
+   * Confirm or clear a stall for a running agent from its transcript snapshot.
+   * No candidate (transcript progressing) → clear any stall + reset baseline.
+   * A candidate reads the live terminal once (for the tail and the liveness diff).
+   * The diff applies ONLY to pure-generation candidates (`!pending`): a hung
+   * command (pending past the ceiling) keeps its "esc to interrupt" timer ticking,
+   * so it bypasses the gate and fires directly.
+   */
+  private evaluateStall(s: Session, t: number, snap: ActivitySnapshot | null): void {
     if (!snap || !isStalled(snap, t, this.stallCfg)) {
       this.clearBlock(s.id); // transcript progressed → clear any stall + reset baseline
       return;
     }
-    // Transcript silent past the window → stall *candidate*. Confirm against the
-    // live terminal: a turn still generating keeps ticking, so its visible buffer
-    // changes between probes; a wedged/idle turn leaves it frozen.
     let visible: string;
     try {
       visible = this.herdr.read(s.herdrAgentId, "visible");
     } catch {
-      return; // can't assess liveness this cycle → best-effort, retry next cadence
+      return; // can't assess this cycle → best-effort, retry next cadence
     }
-    const prev = this.lastVisible.get(s.id);
-    this.lastVisible.set(s.id, visible);
-    if (prev === undefined) return; // no baseline yet → defer one probe to compare
-    if (visible !== prev) {
-      // terminal still moving → the turn is alive, not stalled. Clear a stall that
-      // recovered; keep the fresh baseline (already set) for the next comparison.
-      if (this.lastSig.get(s.id) === STALL_SIG) {
-        this.lastSig.delete(s.id);
-        this.lastReadAt.delete(s.id);
-        this.onBlock(s.id, null);
-      }
+    // Pure-generation candidate: a terminal still ticking (or no baseline yet) is
+    // not a stall this cycle — clear one that recovered and wait. Pending (hung
+    // command) skips the gate and fires directly.
+    // NOTE: this is deliberately a "TUI alive" check, not "model progressing" —
+    // the buffer includes the client-side elapsed-seconds timer, so any rendering
+    // TUI reads as alive. That's the intended conservative tradeoff: it only fires
+    // when the TUI is fully frozen, which is exactly the false positive being fixed
+    // (a long generation turn whose TUI keeps rendering must NOT flag).
+    if (!snap.pending && this.sampleTerminal(s.id, visible) !== "frozen") {
+      this.clearStall(s.id);
       return;
     }
-    // transcript silent AND terminal frozen → genuine stall.
-    if (this.lastSig.get(s.id) === STALL_SIG) return; // already announced this episode
-    this.lastSig.set(s.id, STALL_SIG);
-    this.onBlock(s.id, { shape: "stall", options: [], tail: tailLines(visible) });
+    this.fireStall(s.id, visible);
+  }
+
+  /**
+   * Record the current visible buffer as the new liveness baseline and report how
+   * it compares to the previous sample. A turn still generating keeps its
+   * spinner/elapsed/token counter ticking, so the buffer moves between probes; a
+   * wedged/idle turn leaves it frozen. "fresh" on the first probe of an episode —
+   * nothing to compare against yet, so the caller defers one cycle.
+   */
+  private sampleTerminal(id: string, visible: string): "fresh" | "moving" | "frozen" {
+    const prev = this.lastVisible.get(id);
+    this.lastVisible.set(id, visible);
+    if (prev === undefined) return "fresh";
+    return visible === prev ? "frozen" : "moving";
+  }
+
+  /** Clear a live stall flag (no-op if none); leaves the terminal baseline intact. */
+  private clearStall(id: string): void {
+    if (this.lastSig.get(id) !== STALL_SIG) return;
+    this.lastSig.delete(id);
+    this.lastReadAt.delete(id);
+    this.onBlock(id, null);
+  }
+
+  /** Emit a stall block once per episode (guarded by `lastSig === STALL_SIG`). */
+  private fireStall(id: string, visible: string): void {
+    if (this.lastSig.get(id) === STALL_SIG) return; // already announced this episode
+    this.lastSig.set(id, STALL_SIG);
+    this.onBlock(id, { shape: "stall", options: [], tail: tailLines(visible) });
   }
 
   /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */

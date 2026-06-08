@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { collectReadyPrs, formatReadyPrs, pickTrainRepo } from "./merge-train";
+import { describe, it, expect, test } from "vitest";
+import {
+  collectReadyPrs,
+  formatReadyPrs,
+  pickTrainRepo,
+  isMerging,
+  MERGE_STALE_MS,
+} from "./merge-train";
 import type { Session, GitState } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -126,4 +132,16 @@ describe("pickTrainRepo", () => {
   it("returns null repo for an empty list", () => {
     expect(pickTrainRepo([])).toEqual({ repoPath: null, prs: [], otherRepoCount: 0 });
   });
+});
+
+test("isMerging: true when marked and within TTL, false when null or stale", () => {
+  const now = 1_000_000_000;
+  const make = (mergingSince: number | null) => ({
+    ...session({ id: "m" }),
+    mergingSince,
+    mergingTrainId: mergingSince ? "t" : null,
+  });
+  expect(isMerging(make(null), now)).toBe(false);
+  expect(isMerging(make(now - 1000), now)).toBe(true);
+  expect(isMerging(make(now - MERGE_STALE_MS - 1), now)).toBe(false);
 });

@@ -1,5 +1,16 @@
 import type { Session, GitState } from "$lib/types";
 
+/** Merge-train marks older than this read as stale (the row falls back to its
+ *  prior state) so a stuck PR never sticks visually even if the server's TTL
+ *  sweep is briefly behind. Mirrors MERGE_STALE_MS in src/service.ts. */
+export const MERGE_STALE_MS = 30 * 60_000;
+
+/** True when a session is in a currently-running merge train: marked and the
+ *  mark is still within the TTL. `now` injectable for tests. */
+export function isMerging(s: Session, now: number = Date.now()): boolean {
+  return s.mergingSince !== null && now - s.mergingSince < MERGE_STALE_MS;
+}
+
 /** A ready-to-merge session's open PR, the unit a merge train works through. */
 export interface ReadyPr {
   number: number;

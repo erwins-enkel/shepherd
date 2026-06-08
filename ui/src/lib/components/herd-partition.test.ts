@@ -19,6 +19,8 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     model: null,
     status,
     readyToMerge,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

@@ -217,6 +217,11 @@ export interface Session {
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;
+  /** Epoch ms when a merge train marked this PR-session in-flight; null when not.
+   *  Transient — cleared server-side on merge/close, train archive, or TTL. */
+  mergingSince: number | null;
+  /** Id of the owning merge-train session; null when not merging. */
+  mergingTrainId: string | null;
   autopilotEnabled: boolean | null;
   autopilotStepCount: number;
   autopilotPaused: boolean;
@@ -320,6 +325,7 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  | { event: "session:merging"; data: { id: string; since: number | null } }
   | {
       event: "session:autopilot";
       data: { id: string; paused: boolean; question: string | null; enabled: boolean | null };

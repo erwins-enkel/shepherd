@@ -21,6 +21,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
     model: null,
     status: "idle",
     readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

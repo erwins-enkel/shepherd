@@ -18,6 +18,8 @@ const s = (id: string, status: any = "running"): Session => ({
   model: null,
   status,
   readyToMerge: false,
+  mergingSince: null,
+  mergingTrainId: null,
   autopilotEnabled: null,
   autopilotStepCount: 0,
   autopilotPaused: false,

@@ -28,6 +28,8 @@ function session(id: string): Session {
     model: null,
     status: "running",
     readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

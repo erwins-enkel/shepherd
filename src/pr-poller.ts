@@ -131,6 +131,30 @@ export class PrPoller implements PrCache {
     }
   }
 
+  /** `gh pr list --head <branch>` matches by branch NAME only and `--state all`
+   *  includes history, so a prior, already-merged PR that reused this branch name
+   *  surfaces as a terminal hit even though this session opened no PR. Trust a
+   *  merged/closed PR only when its head commit is reachable from the session's
+   *  branch tip; otherwise it's a name collision — drop it back to "none" so the
+   *  row doesn't flip to a false MERGED. Applied to every poll result (stored and
+   *  adopted-live branch alike). Open PRs are the inherently-current one, so they
+   *  pass through untouched. */
+  private rejectStaleTerminal(s: Session, git: GitState): GitState {
+    if (
+      (git.state === "merged" || git.state === "closed") &&
+      git.headSha &&
+      this.ownsPr(s, git.headSha) === false
+    ) {
+      return {
+        kind: git.kind,
+        state: "none",
+        checks: "none",
+        deployConfigured: git.deployConfigured,
+      };
+    }
+    return git;
+  }
+
   /** Poll one session and emit `session:git` if its PR state moved. Shared by
    *  the full sweep and the targeted `pollSession` path. */
   private async refresh(s: Session): Promise<void> {
@@ -138,35 +162,19 @@ export class PrPoller implements PrCache {
     if (!forge || !s.branch) return; // no PR possible — leave uncached
     let git: GitState;
     try {
-      git = { kind: forge.kind, ...(await forge.prStatus(s.branch)) };
+      git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(s.branch)) });
     } catch {
       return; // transient gh failure → keep last cached value
     }
-    // `gh pr list --head <branch>` matches by branch NAME only and `--state all`
-    // includes history, so a prior, already-merged PR that reused this branch name
-    // surfaces as a terminal hit even though this session opened no PR. Trust a
-    // merged/closed PR only when its head commit is reachable from the session's
-    // branch tip; otherwise it's a name collision — drop it back to "none" so the
-    // reconcile path below runs and the row doesn't flip to a false MERGED.
-    if (
-      (git.state === "merged" || git.state === "closed") &&
-      git.headSha &&
-      this.ownsPr(s, git.headSha) === false
-    ) {
-      git = {
-        kind: forge.kind,
-        state: "none",
-        checks: "none",
-        deployConfigured: git.deployConfigured,
-      };
-    }
     // No PR for the stored branch — the agent may have renamed the worktree's
-    // branch out from under us. Adopt the live branch and retry against it.
+    // branch out from under us. Adopt the live branch and retry against it. The
+    // adopted branch is just as susceptible to a reused-name terminal hit, so run
+    // the same ownership guard over its status too.
     if (git.state === "none") {
       const live = this.reconcileBranch(s);
       if (live) {
         try {
-          git = { kind: forge.kind, ...(await forge.prStatus(live)) };
+          git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(live)) });
         } catch {
           return;
         }

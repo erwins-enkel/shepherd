@@ -405,6 +405,29 @@ test("never runs the ownership check for an open PR (name match is current)", as
   expect(ownsCalls).toBe(0); // open PRs are inherently the live one — no guard needed
 });
 
+test("applies the ownership guard to an adopted live branch's terminal PR too", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession); // stored branch shepherd/x has no PR
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    // stored branch → none, forcing reconcile; adopted branch → a stale merged PR
+    () => forgeByBranch({ "shepherd/renamed": MERGED }),
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => "shepherd/renamed", // agent renamed the worktree branch
+    15_000,
+    8,
+    () => false, // the adopted branch's merged head isn't this session's commit
+  );
+
+  await poller.tick();
+  // the reused-name merged hit on the adopted branch is rejected, not re-introduced
+  expect(emitted).toEqual([{ state: "none", number: undefined }]);
+  expect(poller.snapshot()[s.id]?.state).toBe("none");
+});
+
 test("fast tick re-polls only open PRs — accelerating in-flight CI", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: "shepherd/a" }); // open PR (CI running)

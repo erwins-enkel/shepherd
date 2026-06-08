@@ -26,6 +26,12 @@ export default defineManifest({
   manifest_version: 3,
   name: "Shepherd Capture",
   version: "0.0.1",
+  // Pins the unpacked-load extension ID to a constant
+  // (bflahkibnmcbijbhelmpjbohpfhlbaig) so the server's SHEPHERD_ALLOWED_HOSTS
+  // allowlist entry is set once and never drifts per directory/machine. This is
+  // the base64 DER SPKI of an RSA keypair; only the public half lives here (the
+  // private key is kept out of the repo, needed only to re-pack a .crx later).
+  key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAso7Zwr/ekV8ZuPryegqmJNFxRCCrM32ddBctJz9Z4+j6MA4vdOKi8wgCj5nphcBgxQaQxltQE2HrEJ80g2UdthQlQ59qDO7aTWvoPzxcNssASgPWlNJyzGzhyokxO3VdCSGp4z6brlHa0x2MRrfxWOTUvLgDH44h5pKXhc/tn2G/dlLvaQ5YY0IijQD194GhaFLPmdj9f2PEsEV9D16wCo/qbREW8lvIE9WsFZHgJIIvMakl7udzzq8RBz2wkXltGuM1ZPo5oX0YoIlM9KZ+6CjiGrrcgNcm/q6Lwx98TWnums23Qq/MBrOFelhRalgHZvwU4zjic64RoGnMQU+5twIDAQAB",
   default_locale: "en",
   description: "__MSG_ext_description__",
   icons: {

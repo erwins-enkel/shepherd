@@ -21,7 +21,9 @@ bun run check:i18n # EN+DE catalog parity
 1. `bun run build`.
 2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked**
    → select `extension/dist`.
-3. Copy the extension's **ID** shown on the card — you need it for the server.
+3. The extension's **ID** is now fixed at `bflahkibnmcbijbhelmpjbohpfhlbaig`
+   (pinned by the manifest `key`), so it no longer drifts per directory/machine —
+   set the server allowlist (below) once. The card shows the same ID.
 
 ## Open the popup
 
@@ -111,10 +113,11 @@ single default **Repo path**. Each rule is a `pattern → repo path` pair:
 
 The extension's `fetch` sends `Origin: chrome-extension://<id>`. Shepherd's origin
 guard allowlists by the URL **hostname**, which for that origin is the **raw
-extension ID**. Add it to the server's allowlist:
+extension ID**. The ID is fixed at `bflahkibnmcbijbhelmpjbohpfhlbaig` (pinned by
+the manifest `key`), so set this once — it won't drift between loads:
 
 ```bash
-SHEPHERD_ALLOWED_HOSTS="<your-extension-id>" bun run start
+SHEPHERD_ALLOWED_HOSTS="bflahkibnmcbijbhelmpjbohpfhlbaig" bun run start
 ```
 
 If you skip this, spawn-now returns `403` and the popup shows the

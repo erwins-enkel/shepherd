@@ -372,10 +372,11 @@ test("session:activity replaces an existing entry (latest wins)", () => {
 test("session:merging sets and clears the mark", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);
-  s.apply({ event: "session:merging", data: { id: "s1", since: 111 } });
+  s.apply({ event: "session:merging", data: { id: "s1", since: 111, trainId: "train-1" } });
   expect(s.byId("s1")?.mergingSince).toBe(111);
+  expect(s.byId("s1")?.mergingTrainId).toBe("train-1"); // trainId carried live, not left null
   expect(s.byId("s2")?.mergingSince).toBeNull(); // other sessions untouched
-  s.apply({ event: "session:merging", data: { id: "s1", since: null } });
+  s.apply({ event: "session:merging", data: { id: "s1", since: null, trainId: null } });
   expect(s.byId("s1")?.mergingSince).toBeNull();
   expect(s.byId("s1")?.mergingTrainId).toBeNull();
 });

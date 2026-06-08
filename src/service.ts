@@ -505,15 +505,16 @@ export class SessionService {
   /**
    * Mark each session as part of a launched merge train (the client passes the
    * scoped ready-PR ids). Stamps `mergingSince`/`mergingTrainId`, persists, and
-   * pushes `session:merging` so every client patches the row live. Unknown ids
-   * are skipped (best-effort: the set is cosmetic, never load-bearing).
+   * pushes `session:merging` (carrying `trainId` so the live patch matches a
+   * refetch — the field is server state mirrored on the client). Unknown ids are
+   * skipped (best-effort: the set is cosmetic, never load-bearing).
    */
   setMerging(ids: string[], trainId: string): void {
     const since = Date.now();
     for (const id of ids) {
       if (!this.deps.store.get(id)) continue;
       this.deps.store.update(id, { mergingSince: since, mergingTrainId: trainId });
-      this.deps.events?.emit("session:merging", { id, since });
+      this.deps.events?.emit("session:merging", { id, since, trainId });
     }
   }
 
@@ -522,7 +523,7 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s || s.mergingSince === null) return;
     this.deps.store.update(id, { mergingSince: null, mergingTrainId: null });
-    this.deps.events?.emit("session:merging", { id, since: null });
+    this.deps.events?.emit("session:merging", { id, since: null, trainId: null });
   }
 
   /** Clear every session marked by a given train (its session was archived). */

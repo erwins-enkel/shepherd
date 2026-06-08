@@ -325,7 +325,10 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
-  | { event: "session:merging"; data: { id: string; since: number | null } }
+  | {
+      event: "session:merging";
+      data: { id: string; since: number | null; trainId: string | null };
+    }
   | {
       event: "session:autopilot";
       data: { id: string; paused: boolean; question: string | null; enabled: boolean | null };

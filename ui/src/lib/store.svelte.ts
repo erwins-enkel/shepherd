@@ -135,11 +135,7 @@ export class HerdStore {
       case "session:merging":
         this.sessions = this.sessions.map((s) =>
           s.id === ev.data.id
-            ? {
-                ...s,
-                mergingSince: ev.data.since,
-                mergingTrainId: ev.data.since === null ? null : s.mergingTrainId,
-              }
+            ? { ...s, mergingSince: ev.data.since, mergingTrainId: ev.data.trainId }
             : s,
         );
         break;

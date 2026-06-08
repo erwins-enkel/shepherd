@@ -1773,7 +1773,7 @@ test("setMerging stamps each id and emits session:merging; skips unknown ids", a
   expect(store.get(a.id)!.mergingTrainId).toBe("train-9");
   const ev = emitted.filter((e) => e.event === "session:merging");
   expect(ev).toHaveLength(1);
-  expect(ev[0]!.data).toMatchObject({ id: a.id });
+  expect(ev[0]!.data).toMatchObject({ id: a.id, trainId: "train-9" });
   expect(typeof ev[0]!.data.since).toBe("number");
 });
 
@@ -1787,7 +1787,7 @@ test("clearMerging nulls the fields and emits since:null; no-op when not merging
   expect(store.get(a.id)!.mergingSince).toBeNull();
   expect(store.get(a.id)!.mergingTrainId).toBeNull();
   const last = emitted.filter((e) => e.event === "session:merging").at(-1)!;
-  expect(last.data).toEqual({ id: a.id, since: null });
+  expect(last.data).toEqual({ id: a.id, since: null, trainId: null });
 });
 
 test("clearMergingForTrain clears every member of one train, leaves others", async () => {

@@ -24,6 +24,17 @@ Every PR branch must be cut from the **latest `main`** and kept **linear**:
 
 A branch that merges other branches drags their commits + a bloated diff into the PR. The gate `scripts/check-branch-hygiene.sh` fails any branch with merge commits relative to main; it runs in the **PR hygiene** CI workflow and the pre-push hook. To fix a polluted branch, re-create it off main with just your change (`git checkout -b <branch> origin/main` then cherry-pick / `rebase --onto origin/main`).
 
+## Design system (REQUIRED for any UI work)
+
+The UI has a **semantic token layer** (`ui/src/app.css` — `--color-*` surfaces/text/accents, the `--fs-*` type scale, `--status-*`/`--wash-*`) and a live reference page that documents it plus the canonical component recipes: **`/design-system`** (`ui/src/routes/design-system/+page.svelte`). It exists to stop **design drift** — every session re-inventing buttons, spacing and colors. Before authoring any UI:
+
+1. **Consult `/design-system` first.** It renders the live tokens (swatches read straight off `app.css`, so they can't drift) plus the button / form-field / badge / panel / scrim recipes, each with a when-to-use note and copy-paste markup.
+2. **Use the tokens, never literals.** Every color is `var(--color-*)`; every font size is `var(--fs-*)`. **Never** introduce a raw hex, `rgba()`, or ad-hoc `px` font size — if you reach for one, the token you need already exists (or belongs in `app.css`).
+3. **Reuse a recipe before authoring a new component.** Match the existing `.gbtn` / field / `.badge` / `.panel` conventions; don't grow a per-element Tailwind utility stack for headings or buttons.
+4. Accent hues are **semantic, not decorative** — pick by meaning. `--color-green` is reserved for genuinely actionable-complete (READY); a finished-but-parked session is slate (`--status-done`), never green.
+
+The `/design-system` page is a developer/agent-facing internal reference (unlinked from the app), so it is **exempt from i18n** and the feature catalog. No automated gate flags off-token colors yet — this directive + review are the enforcement.
+
 ## Internationalization (REQUIRED for any UI work)
 
 The UI is fully internationalized with Paraglide JS (EN + DE). **Never hardcode user-facing text.** Every display string — labels, buttons, placeholders, `title`/`aria-label`, empty/error/loading states, toast text, and **server-side notification payloads** — must route through a message:

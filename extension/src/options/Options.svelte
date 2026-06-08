@@ -71,8 +71,12 @@
   // any other host is rejected (not declared in the manifest).
   async function onSave(e: Event) {
     e.preventDefault();
+    // Clear the full shared status set so only this action's outcome shows.
+    saved = false;
     hostDenied = false;
     hostUnsupported = false;
+    testOk = false;
+    testError = "";
     const kind = hostKind(config.baseUrl);
     if (kind === "unsupported") {
       hostUnsupported = true;
@@ -105,6 +109,10 @@
   // "unreachable". All failures route through the shared localizeError path.
   async function onTest(e: Event) {
     e.preventDefault();
+    // Clear the full shared status set so only this action's outcome shows.
+    saved = false;
+    hostDenied = false;
+    hostUnsupported = false;
     testOk = false;
     testError = "";
     const kind = hostKind(config.baseUrl);

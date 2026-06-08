@@ -72,6 +72,13 @@ describe("addressRoundInfo", () => {
       addressRoundInfo(v({ addressRound: 3, findings: [], finalRoundPending: false }), 2_000_000),
     ).toEqual({ round: 3, cap: 3, status: "round" });
   });
+  it("clamps the displayed round to the cap when the cap was lowered mid-streak", () => {
+    // operator dropped the global cap to 2 while a round-3 streak was in flight: the
+    // verdict holds addressRound=3 against the new addressCap=2 — show "2/2", not "3/2".
+    expect(
+      addressRoundInfo(v({ addressRound: 3, addressCap: 2, finalRoundPending: false }), 2_000_000),
+    ).toEqual({ round: 2, cap: 2, status: "stalled" });
+  });
 });
 
 describe("criticChip", () => {

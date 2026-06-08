@@ -14,9 +14,12 @@ const herdrUpdateLogPath =
 
 // Review auto-address cap: how many critic→agent steer rounds a findings streak may
 // spend before escalating to a human (also the ceiling for the consecutive-error
-// counter). Global, UI-configurable + persisted; the env seeds a fresh DB. Bounded
-// [1,8]: at least one round, capped so a runaway config can't ping-pong forever. The
-// bound is the single source of truth for both the env seed and the PUT validator.
+// counter). Global, UI-configurable + persisted; the env seeds a fresh DB. The bound is
+// the single source of truth for both the env seed and the PUT validator.
+//
+// Range [1,8]: MIN 1 guarantees at least one round; MAX 8 is a deliberate operator choice
+// — the task suggested ~5, but 8 gives headroom for noisier repos while still capping a
+// runaway config from ping-ponging an agent forever. Raise MAX here if 8 proves tight.
 export const REVIEW_CYCLES_MIN = 1;
 export const REVIEW_CYCLES_MAX = 8;
 // module-local: the seed default, used by the clamp + the config seed below only.

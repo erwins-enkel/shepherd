@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
-import type { Session, PlanGate } from "./types";
+import type { Session, PlanGate, PlanDecision } from "./types";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 export const PLAN_FILE = ".shepherd-plan.md";
@@ -150,6 +150,7 @@ export interface PlanGateServiceDeps {
 
 interface PlanInFlight {
   sessionId: string;
+  repoPath: string; // for the stall signal
   worktreePath: string; // the disposable reviewer worktree
   terminalId: string;
   planHash: string;
@@ -252,6 +253,7 @@ export class PlanGateService {
     }
     this.inflight.set(session.id, {
       sessionId: session.id,
+      repoPath: session.repoPath,
       worktreePath: wt.worktreePath,
       terminalId,
       planHash,
@@ -262,12 +264,170 @@ export class PlanGateService {
     this.deps.onReviewing?.(session.id, true);
   }
 
-  // Task 6 implements tick()/finalize() (verdict handling).
+  /** Finalize any in-flight plan review whose verdict file is ready or that timed out. */
+  async tick(): Promise<void> {
+    for (const f of [...this.inflight.values()]) {
+      if (f.finalizing) continue; // already being finalized by an overlapping tick
+      const raw = this.readVerdict(f.worktreePath);
+      const timedOut = this.now() - f.startedAt > this.timeoutMs;
+      if (!raw && !timedOut) continue;
+      f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
+      // Always drop the entry, even if finalize throws — otherwise it stays
+      // `finalizing=true` and every later tick `continue`s past it, wedging the
+      // session's gate forever (and leaking its worktree/terminal).
+      try {
+        await this.finalize(f, raw);
+      } finally {
+        this.inflight.delete(f.sessionId);
+      }
+    }
+  }
+
+  private async finalize(f: PlanInFlight, raw: RawPlanVerdict | null): Promise<void> {
+    // Reap the reviewer terminal + disposable worktree no matter what happens above
+    // (a store/steer/release failure must not strand them).
+    try {
+      const gate = this.buildGate(f, raw);
+      if (gate.decision === "approved") {
+        this.deps.store.putPlanGate(gate);
+        this.deps.onChange(f.sessionId, gate);
+        // Auto sessions clear the gate straight into execution; interactive sessions
+        // wait for the human's explicit Go (so we do NOT release them here).
+        if (this.deps.store.get(f.sessionId)?.auto === true) this.deps.release(f.sessionId);
+      } else if (gate.decision === "changes_requested") {
+        // Steer the findings back to the LIVE planning agent — but only while under the
+        // cap. At/over the cap we stop steering and escalate to the operator instead.
+        const priorRound = f.priorRound;
+        let delivered = false;
+        if (priorRound < this.cap) {
+          try {
+            delivered = this.deps.reply(f.sessionId, planSteerText(gate.findings));
+          } catch (err) {
+            console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
+          }
+        }
+        // Round advances only when the steer actually lands; at/over the cap it holds.
+        gate.round = priorRound >= this.cap ? priorRound : delivered ? priorRound + 1 : priorRound;
+        // Escalate to the operator whenever the streak is at/over the cap — a plan
+        // stuck at the cap (or a steer that couldn't land at the cap boundary) can't
+        // make progress on its own. Fires on the crossing round and on any re-review
+        // that re-enters already at the cap (each is a fresh "still stuck" event).
+        if (gate.round >= this.cap) {
+          this.deps.store.addSignal({
+            repoPath: f.repoPath,
+            sessionId: f.sessionId,
+            kind: "stall",
+            payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
+          });
+        }
+        this.deps.store.putPlanGate(gate);
+        this.deps.onChange(f.sessionId, gate);
+        // Do NOT release: execution stays gated until the plan is approved.
+      } else {
+        // error (timeout / unparseable verdict): bias to surface. Persist the error
+        // gate + escalate, but don't steer (no real findings) and don't release.
+        this.deps.store.putPlanGate(gate);
+        this.deps.onChange(f.sessionId, gate);
+        this.deps.store.addSignal({
+          repoPath: f.repoPath,
+          sessionId: f.sessionId,
+          kind: "stall",
+          payload: "plan reviewer did not produce a verdict — needs a human",
+        });
+      }
+    } finally {
+      this.deps.onReviewing?.(f.sessionId, false);
+      this.deps.herdr.stop(f.terminalId);
+      this.deps.worktree.remove(f.worktreePath);
+    }
+  }
+
+  private buildGate(f: PlanInFlight, raw: RawPlanVerdict | null): PlanGate {
+    const decision = normalizeDecision(raw?.decision);
+    const resolved: PlanDecision = raw && decision ? decision : "error";
+    const summary =
+      resolved === "error"
+        ? "plan reviewer did not produce a verdict"
+        : raw && typeof raw.summary === "string"
+          ? raw.summary.slice(0, 100)
+          : "";
+    const body = raw && typeof raw.body === "string" ? raw.body : "";
+    const parsed = normalizeFindings(raw?.findings);
+    // a request-changes verdict with no usable findings still has something to address;
+    // fall back to its summary so the steer-back isn't empty.
+    const findings =
+      resolved === "approved" || resolved === "error"
+        ? []
+        : parsed.length
+          ? parsed
+          : summary
+            ? [summary]
+            : [];
+    return {
+      sessionId: f.sessionId,
+      planHash: f.planHash,
+      decision: resolved,
+      summary,
+      body,
+      findings,
+      // approved resets the streak; changes_requested/error carry priorRound (finalize()
+      // overwrites it for changes_requested once the steer outcome is known).
+      round: resolved === "approved" ? 0 : f.priorRound,
+      cap: this.cap, // surface the live cap so the UI badge need not mirror it
+      approved: resolved === "approved",
+      plan: f.plan,
+      updatedAt: this.now(),
+    };
+  }
+
+  snapshot(): Record<string, PlanGate> {
+    return this.deps.store.snapshotPlanGates();
+  }
 
   /** Session ids with a plan review currently in flight (for client bootstrap). */
   reviewingIds(): string[] {
     return [...this.inflight.keys()];
   }
+
+  forget(sessionId: string): void {
+    // Clear any mid-spawn claim: a begin() suspended on its plan hash checks this is
+    // implicit via inflight, but the `starting` set must be cleared so an archived
+    // session can't get a review after forget().
+    this.starting.delete(sessionId);
+    const f = this.inflight.get(sessionId);
+    if (f) {
+      this.deps.herdr.stop(f.terminalId);
+      this.deps.worktree.remove(f.worktreePath);
+      this.inflight.delete(sessionId);
+      this.deps.onReviewing?.(sessionId, false);
+    }
+    this.deps.store.dropPlanGate(sessionId);
+  }
+}
+
+/** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */
+export function planSteerText(findings: string[]): string {
+  return (
+    "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +
+    findings.map((f, i) => `${i + 1}. ${f}`).join("\n") +
+    "\n\nDon't start implementing yet — wait for the plan to be approved."
+  );
+}
+
+/** Map the reviewer's raw decision string onto a PlanDecision; null = unrecognized (→ error). */
+function normalizeDecision(d: unknown): PlanDecision | null {
+  if (d === "approve") return "approved";
+  if (d === "request-changes") return "changes_requested";
+  return null;
+}
+
+/** Coerce the reviewer's `findings` field to a clean string[] (drops junk, never throws). */
+function normalizeFindings(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((f): f is string => typeof f === "string")
+    .map((f) => f.trim())
+    .filter(Boolean);
 }
 
 /** Read the live session worktree's plan text. Null when no plan has been written yet. */

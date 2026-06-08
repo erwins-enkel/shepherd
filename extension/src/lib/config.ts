@@ -21,6 +21,11 @@ export async function loadConfig(): Promise<CaptureConfig> {
     ...DEFAULT_CONFIG,
     ...stored,
     signals: { ...DEFAULT_CONFIG.signals, ...(stored.signals ?? {}) },
+    // routingRules is the single source consumers iterate (resolveRepo, the
+    // options `{#each}`). A spread leaves a stored non-array (corrupt/legacy
+    // data) in place — `??` only catches null/undefined — which would crash the
+    // popup's effectiveRepo derived with "is not iterable". Coerce to an array.
+    routingRules: Array.isArray(stored.routingRules) ? stored.routingRules : [],
   };
 }
 

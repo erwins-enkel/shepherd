@@ -812,9 +812,10 @@
     // the write stream: if content lands while they're scrolled up at all (even a
     // sub-threshold nudge), surface the jump-to-bottom button. This also fires
     // while the term tab is backgrounded, so the button is already armed when the
-    // reader switches back. No-op in the xterm-owned regime (scrollDepth stays 0).
+    // reader switches back. Agent-owned regime only — xterm-owned scroll already
+    // tracks writes via onScroll.
     const writeSub = term.onWriteParsed(() => {
-      if (scrollDepth > 0 && !contentBelowScroll) {
+      if (agentOwnsScroll(term) && scrollDepth > 0 && !contentBelowScroll) {
         contentBelowScroll = true;
         recomputeScrolled();
       }

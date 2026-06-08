@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.18.0](https://github.com/erwins-enkel/shepherd/compare/v1.17.0...v1.18.0) (2026-06-08)
+
+
+### Features
+
+* agent-authored, self-revising build queue ([#346](https://github.com/erwins-enkel/shepherd/issues/346)) ([#376](https://github.com/erwins-enkel/shepherd/issues/376)) ([bebbb69](https://github.com/erwins-enkel/shepherd/commit/bebbb69595f0d08342563a46d0f47b728d5a6db1))
+* **backlog:** filter repo list by has-issues / has-PRs ([#386](https://github.com/erwins-enkel/shepherd/issues/386)) ([6d0f911](https://github.com/erwins-enkel/shepherd/commit/6d0f911a9de2aa03f4a5b32c865a2330be461968))
+* **extension:** capture delivery targets + URL→repo routing ([#379](https://github.com/erwins-enkel/shepherd/issues/379)) ([13a3955](https://github.com/erwins-enkel/shepherd/commit/13a39552abbc34b8957c06c503f77d7c8119a563))
+* **extension:** capture fidelity — element picker + full-page stitch ([#381](https://github.com/erwins-enkel/shepherd/issues/381)) ([0c6b5fa](https://github.com/erwins-enkel/shepherd/commit/0c6b5fac4e09b492b828e9a17eace48d52301bf1))
+* pre-execution plan gate (grill + adversarial plan review) before autonomous runs ([#348](https://github.com/erwins-enkel/shepherd/issues/348)) ([#375](https://github.com/erwins-enkel/shepherd/issues/375)) ([de58ee9](https://github.com/erwins-enkel/shepherd/commit/de58ee967f3ecaf4c07a8caa28d7fcaf9e27a5de))
+
+
+### Bug Fixes
+
+* **extension:** open options page reliably from popup ([#380](https://github.com/erwins-enkel/shepherd/issues/380)) ([707ee38](https://github.com/erwins-enkel/shepherd/commit/707ee380e9f5ad156682e36a7f3086fd587ed31e))
+* **extension:** tolerate non-array routingRules so capture doesn't crash ([#383](https://github.com/erwins-enkel/shepherd/issues/383)) ([ef038be](https://github.com/erwins-enkel/shepherd/commit/ef038becd28a2f6eda081869a421e0dcb7a5e787))
+* **plan-gate:** auto-release approved plans under autopilot, not just drain-spawned ([#387](https://github.com/erwins-enkel/shepherd/issues/387)) ([60919a9](https://github.com/erwins-enkel/shepherd/commit/60919a9c479ebe94cdcd9a119a6f8c4bd46bc38b))
+* **poller:** don't flip a session to MERGED on a reused branch name ([#378](https://github.com/erwins-enkel/shepherd/issues/378)) ([ea57153](https://github.com/erwins-enkel/shepherd/commit/ea571538ba7d62964b8cb2dc03d9b5c29bc82e2f))
+* **ui:** scope plan-gate reviews into the Herd "Reviewing" group ([#385](https://github.com/erwins-enkel/shepherd/issues/385)) ([258ab87](https://github.com/erwins-enkel/shepherd/commit/258ab87e37f9f00a7d461c0cefdc8544c72fe0d2))
+* **ui:** scrollable mobile backlog tab strip so close button never collides ([#388](https://github.com/erwins-enkel/shepherd/issues/388)) ([2ee910d](https://github.com/erwins-enkel/shepherd/commit/2ee910df0cd53f4fd642f33320df5bb5aad61aa7))
+* **ui:** surface per-task plan-gate state in repo automation panel ([#382](https://github.com/erwins-enkel/shepherd/issues/382)) ([a959955](https://github.com/erwins-enkel/shepherd/commit/a959955b65f02c9dcc42dd283b661fcef034c1c4))
+
 ## [1.17.0](https://github.com/erwins-enkel/shepherd/compare/v1.16.0...v1.17.0) (2026-06-08)
 
 

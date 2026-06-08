@@ -5,8 +5,10 @@ import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
-import { makeApp, serve, PTY_GONE_CODE, type AppDeps } from "../src/server";
+import { makeApp, serve, PTY_GONE_CODE, claimLinkedIssue, type AppDeps } from "../src/server";
+import type { GitForge } from "../src/forge/types";
 import { config } from "../src/config";
+import { ACTIVE_LABEL } from "../src/drain-core";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
 let tmpRoot: string;
@@ -1465,4 +1467,33 @@ test("PUT /api/sessions/:id/automerge emits session:automerge with the new overr
     event: "session:automerge",
     data: { id, enabled: true },
   });
+});
+
+test("claimLinkedIssue stamps the active label on the linked issue", async () => {
+  const calls: { number: number; label: string }[] = [];
+  const forge = {
+    addIssueLabel: async (number: number, label: string) => {
+      calls.push({ number, label });
+    },
+  } as unknown as GitForge;
+  await claimLinkedIssue(forge, 42);
+  expect(calls).toEqual([{ number: 42, label: ACTIVE_LABEL }]);
+});
+
+test("claimLinkedIssue is a no-op without a forge", async () => {
+  await expect(claimLinkedIssue(null, 42)).resolves.toBeUndefined();
+});
+
+test("claimLinkedIssue tolerates a forge lacking addIssueLabel", async () => {
+  const forge = {} as unknown as GitForge;
+  await expect(claimLinkedIssue(forge, 42)).resolves.toBeUndefined();
+});
+
+test("claimLinkedIssue swallows an addIssueLabel rejection", async () => {
+  const forge = {
+    addIssueLabel: async () => {
+      throw new Error("label api boom");
+    },
+  } as unknown as GitForge;
+  await expect(claimLinkedIssue(forge, 42)).resolves.toBeUndefined();
 });

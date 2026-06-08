@@ -344,21 +344,24 @@ export class DrainService {
     const retainClaim = this.retainClaimOnArchive.delete(id); // true → retire, or merged-but-close-failed
     const s = this.deps.store.get(id); // archived rows still return → repoPath available
     if (!s) return;
-    // Drop the host claim label for an auto session UNLESS it was retired (ready PR
-    // still open) or merged-but-close-failed (issue still open) — those keep the
-    // claim. The remaining case is an ABANDON (manual archive of a session that never
-    // retired), which re-queues the issue. NOTE: the abandoning instance still maps
-    // this issue via its own archived session, so the release re-queues it for OTHER
-    // instances — and for this one only after its archived session is pruned.
+    // Drop the host claim label for ANY archived session holding a claim — whether
+    // the drain stamped it (auto spawn) or a human stamped it by linking an issue at
+    // task creation (via the create route). Release fires UNLESS retainClaim is set:
+    // a retire (ready PR still open) or merged-but-close-failed (issue still open),
+    // both of which keep the claim. The remaining case is an ABANDON (manual archive
+    // of a session that never retired), which re-queues the issue. NOTE: the
+    // abandoning instance still maps this issue via its own archived session, so the
+    // release re-queues it for OTHER instances — and for this one only after its
+    // archived session is pruned.
     // CAVEAT: an abandon does not inspect PR state, so manually archiving a session
-    // that already opened a PR (without going through the retire path) releases the
-    // claim and lets another instance spawn a DUPLICATE against that still-open PR.
-    // Accepted: a manual archive is a deliberate "drop this" signal, and the retire
-    // path (not manual archive) is how a ready PR is normally handed off with its
-    // claim kept. Unconditional of the drain toggle (mirrors onGit's closeIssue) so a
-    // disabled-mid-flight session still frees its claim. Non-auto sessions never set
-    // a claim, so they're skipped.
-    if (!retainClaim && s.auto && s.issueNumber != null) {
+    // (auto OR a manually-linked one) that already opened a PR — without going through
+    // the retire path — releases the claim and lets another instance / the drain spawn
+    // a DUPLICATE against that still-open PR. Accepted: a manual archive is a deliberate
+    // "drop this" signal, and the retire path (not manual archive) is how a ready PR is
+    // normally handed off with its claim kept. Unconditional of the drain toggle
+    // (mirrors onGit's closeIssue) so a disabled-mid-flight session still frees its
+    // claim. A session without an issueNumber never set a claim, so it's skipped.
+    if (!retainClaim && s.issueNumber != null) {
       try {
         await this.deps.resolveForge(s.repoPath)?.removeIssueLabel?.(s.issueNumber, ACTIVE_LABEL);
       } catch (err) {

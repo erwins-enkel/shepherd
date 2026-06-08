@@ -50,6 +50,7 @@ import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
+import { ACTIVE_LABEL } from "./drain-core";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
@@ -647,6 +648,17 @@ async function handlePush(ctx: Ctx): Promise<Response | null> {
   return route ? route.run(ctx) : null;
 }
 
+/** Best-effort: stamp the drain claim label on a manually-linked issue so the board shows it's
+ *  being worked and the drain won't double-spawn it. Fire-and-forget — failures must never affect
+ *  the create response. Mirrors doSpawn's best-effort claim for the auto path. */
+export async function claimLinkedIssue(forge: GitForge | null, issueNumber: number): Promise<void> {
+  try {
+    await forge?.addIssueLabel?.(issueNumber, ACTIVE_LABEL);
+  } catch (err) {
+    console.warn(`[create] claim label for issue #${issueNumber} failed:`, err);
+  }
+}
+
 // POST /api/sessions — create a session.
 async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && !parts[2])) return null;
@@ -667,6 +679,17 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
     return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
   }
   deps.events.emit("session:new", s);
+  // A human linked an issue: stamp the drain claim so the board reflects it's being
+  // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
+  // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting
+  // would still block this tick — setTimeout(0) lets json(s, 201) flush first.
+  if (result.value.issueRef) {
+    const { repoPath, issueRef } = result.value;
+    setTimeout(
+      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+      0,
+    );
+  }
   return json(s, 201);
 }
 

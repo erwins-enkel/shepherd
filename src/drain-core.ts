@@ -8,15 +8,18 @@ export const PRIORITY_LABEL = "shepherd:priority";
 
 /** The drain stamps this label on an issue when it claims it (spawns an auto
  *  session) and keeps it through retire — a ready PR awaiting human merge is still
- *  "taken". It is the ONLY cross-instance coordination point: a second shepherd
- *  draining the same forge filters claimed issues out (see {@link selectCandidates}),
- *  so two instances don't take the same issue, and a retired-but-unmerged issue is
- *  not re-spawned. A constant (not the per-repo `autoLabel`) so every instance agrees
- *  on it without sharing config. The window is narrowed, not eliminated — two
- *  instances listing within the claim's set-up latency can still race; local dedup
- *  then prevents a single instance double-spawning. Released only when the work is
- *  abandoned (manual archive, no merge); a human merge auto-closes the issue, retiring
- *  the claim with it. */
+ *  "taken". The SAME label is also stamped when a human links an issue at task
+ *  creation (via the create route) and released when that session is archived, so a
+ *  manually-linked issue is claimed too. It is the ONLY cross-instance coordination
+ *  point: a second shepherd draining the same forge filters claimed issues out (see
+ *  {@link selectCandidates}), so neither a second shepherd NOR the local drain takes
+ *  an already-claimed issue (auto or manually-linked), and a retired-but-unmerged
+ *  issue is not re-spawned. A constant (not the per-repo `autoLabel`) so every
+ *  instance agrees on it without sharing config. The window is narrowed, not
+ *  eliminated — two instances listing within the claim's set-up latency can still
+ *  race; local dedup then prevents a single instance double-spawning. Released only
+ *  when the work is abandoned (manual archive, no merge); a human merge auto-closes
+ *  the issue, retiring the claim with it. */
 export const ACTIVE_LABEL = "shepherd:active";
 
 /** Why the drain is holding rather than spawning/retiring — surfaced on `drain:status`. */

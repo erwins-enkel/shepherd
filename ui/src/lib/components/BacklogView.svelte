@@ -7,7 +7,7 @@
   import PrsPanel from "./PrsPanel.svelte";
   import ActionsPanel from "./ActionsPanel.svelte";
   import ReadinessPanel from "./ReadinessPanel.svelte";
-  import { actionsTabState } from "./backlog-view";
+  import { actionsTabState, filterProjects } from "./backlog-view";
 
   let {
     payload,
@@ -37,6 +37,14 @@
   // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
+  // Repo-list filter (chips live in ProjectBacklogList, state owned here so the
+  // selection effects below can stay in sync with what the list actually shows).
+  let hasIssues = $state(false);
+  let hasPRs = $state(false);
+  let visibleProjects = $derived(
+    payload ? filterProjects(payload.projects, { hasIssues, hasPRs }) : [],
+  );
+
   // Tab badges count the SELECTED repo's items — the same repo the detail pane
   // shows — not the all-repos `payload.totals` (which made "PRs · 5" sit over a
   // repo with no open PRs). null when nothing is selected → bare tab labels.
@@ -56,10 +64,29 @@
   // On mobile the detail is a full-screen overlay that hides the project list
   // and the tab toggle, so auto-seeding would drop the user straight into a
   // repo's items on load — skip it and let mobile open from the list on tap.
+  //
+  // Skip the seed when the filter currently hides the pinned repo — otherwise it
+  // would re-select a repo absent from the list (and fight the clear effect
+  // below on every poll). visibleProjects is read untracked so a filter toggle
+  // alone never auto-seeds; seeding stays tied to payload/pinned changes.
   $effect(() => {
     const pinned = payload?.pinnedPath;
-    if (pinned && !mobile && untrack(() => selectedPath === null)) {
+    if (
+      pinned &&
+      !mobile &&
+      untrack(() => selectedPath === null && visibleProjects.some((p) => p.path === pinned))
+    ) {
       selectedPath = pinned;
+    }
+  });
+
+  // Desktop: if an active filter hides the currently selected repo, drop the
+  // selection so the detail pane can't keep showing a repo that's no longer in
+  // the list. Mobile selects from the visible list and can't toggle filters
+  // while the detail overlay covers the list, so it never needs this.
+  $effect(() => {
+    if (!mobile && selectedPath !== null && !visibleProjects.some((p) => p.path === selectedPath)) {
+      selectedPath = null;
     }
   });
 
@@ -90,9 +117,13 @@
          since list and detail are never co-visible. -->
     <div class="mobile-master">
       <ProjectBacklogList
-        projects={payload.projects}
+        projects={visibleProjects}
         pinnedPath={payload.pinnedPath}
         {selectedPath}
+        {hasIssues}
+        {hasPRs}
+        ontoggleissues={() => (hasIssues = !hasIssues)}
+        ontoggleprs={() => (hasPRs = !hasPRs)}
         onselect={(p) => (selectedPath = p)}
       />
     </div>
@@ -182,9 +213,13 @@
     <div class="desktop-split">
       <div class="master-pane">
         <ProjectBacklogList
-          projects={payload.projects}
+          projects={visibleProjects}
           pinnedPath={payload.pinnedPath}
           {selectedPath}
+          {hasIssues}
+          {hasPRs}
+          ontoggleissues={() => (hasIssues = !hasIssues)}
+          ontoggleprs={() => (hasPRs = !hasPRs)}
           onselect={(p) => (selectedPath = p)}
         />
       </div>

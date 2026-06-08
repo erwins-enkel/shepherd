@@ -1,25 +1,29 @@
 <script lang="ts">
   import type { BacklogProject } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { filterProjects } from "./backlog-view";
   import ProjectRow from "./ProjectRow.svelte";
 
   let {
     projects,
     pinnedPath,
     selectedPath,
+    hasIssues,
+    hasPRs,
+    ontoggleissues,
+    ontoggleprs,
     onselect,
   }: {
+    /** Already filtered by the parent (BacklogView) via filterProjects — the
+     *  parent owns the filter state so it can keep the selection in sync. */
     projects: BacklogProject[];
     pinnedPath: string | null;
     selectedPath: string | null;
+    hasIssues: boolean;
+    hasPRs: boolean;
+    ontoggleissues: () => void;
+    ontoggleprs: () => void;
     onselect: (path: string) => void;
   } = $props();
-
-  let hasIssues = $state(false);
-  let hasPRs = $state(false);
-
-  const visible = $derived(filterProjects(projects, { hasIssues, hasPRs }));
 </script>
 
 <div class="filter-bar">
@@ -28,7 +32,7 @@
     class:active={hasIssues}
     type="button"
     aria-pressed={hasIssues}
-    onclick={() => (hasIssues = !hasIssues)}
+    onclick={ontoggleissues}
   >
     {m.backlog_filter_has_issues()}
   </button>
@@ -37,19 +41,21 @@
     class:active={hasPRs}
     type="button"
     aria-pressed={hasPRs}
-    onclick={() => (hasPRs = !hasPRs)}
+    onclick={ontoggleprs}
   >
     {m.backlog_filter_has_prs()}
   </button>
 </div>
 
-{#if projects.length > 0 && visible.length === 0}
+<!-- The parent only renders this list when there are forge repos, so an empty
+     `projects` here always means the active filter matched nothing. -->
+{#if projects.length === 0}
   <div class="filter-empty">
     <span class="filter-empty-label">{m.backlog_filter_none_match()}</span>
   </div>
 {:else}
   <div class="project-list">
-    {#each visible as project (project.path)}
+    {#each projects as project (project.path)}
       <ProjectRow
         {project}
         pinned={project.path === pinnedPath}

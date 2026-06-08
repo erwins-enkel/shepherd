@@ -6,6 +6,7 @@
     putRemoteControl,
     putStandardCommand,
     putSessionHousekeeping,
+    putReviewCyclesCap,
     listDirs,
   } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
@@ -108,6 +109,11 @@
   let hkBusy = $state(false);
   let retentionDays = $state(30); // display-only, from the settings payload
   let retentionKeep = $state(250); // display-only, from the settings payload
+  let reviewCycles = $state(3); // global max critic auto-address rounds (stepper value)
+  let reviewCyclesMin = $state(1); // bounds from the settings payload (drive min/max)
+  let reviewCyclesMax = $state(8);
+  let reviewCyclesSaved = 3; // last server-confirmed value, for revert on failure
+  let rcyBusy = $state(false);
 
   async function saveStandardCommand() {
     if (scBusy) return;
@@ -119,6 +125,34 @@
       scSaved = true;
     } finally {
       scBusy = false;
+    }
+  }
+
+  async function saveReviewCycles() {
+    if (rcyBusy) return;
+    rcyBusy = true;
+    // Clamp client-side to the server bounds before sending (the server clamps too);
+    // an empty/NaN field falls back to the minimum rather than posting garbage.
+    const n = Math.round(Number(reviewCycles));
+    const clamped = Number.isFinite(n)
+      ? Math.min(reviewCyclesMax, Math.max(reviewCyclesMin, n))
+      : reviewCyclesMin;
+    reviewCycles = clamped;
+    try {
+      const r = await putReviewCyclesCap(clamped);
+      reviewCycles = r.reviewCyclesCap;
+      reviewCyclesSaved = r.reviewCyclesCap;
+    } catch {
+      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // deduped alert so the no-op never looks like a save.
+      reviewCycles = reviewCyclesSaved;
+      toasts.info(m.settings_review_cycles_save_failed(), {
+        key: "review-cycles-cap",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      rcyBusy = false;
     }
   }
 
@@ -196,6 +230,10 @@
       housekeeping = s.sessionHousekeepingEnabled;
       retentionDays = s.sessionRetentionDays;
       retentionKeep = s.sessionRetentionKeep;
+      reviewCyclesMin = s.reviewCyclesMin;
+      reviewCyclesMax = s.reviewCyclesMax;
+      reviewCycles = s.reviewCyclesCap;
+      reviewCyclesSaved = s.reviewCyclesCap;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -411,6 +449,26 @@
             >{housekeeping ? m.settings_housekeeping_on() : m.settings_housekeeping_off()}</span
           >
         </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_review_cycles_title()}</span>
+        <p class="hint">
+          {m.settings_review_cycles_hint({ min: reviewCyclesMin, max: reviewCyclesMax })}
+        </p>
+        <label class="cycles">
+          <span class="cycles-label">{m.settings_review_cycles_label()}</span>
+          <input
+            class="num"
+            type="number"
+            min={reviewCyclesMin}
+            max={reviewCyclesMax}
+            step="1"
+            disabled={rcyBusy}
+            bind:value={reviewCycles}
+            aria-label={m.settings_review_cycles_label()}
+            onchange={saveReviewCycles}
+          />
+        </label>
       </div>
       <SteersEditor />
     </div>
@@ -857,6 +915,38 @@
   }
   .sc .run {
     align-self: flex-start;
+  }
+  /* Review-cycles stepper: an inline label + compact number input, mirroring the
+     drain-cap control in AutomationPanel. */
+  .cycles {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    align-self: flex-start;
+  }
+  .cycles-label {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-bright);
+  }
+  .cycles .num {
+    width: 4.5em;
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    padding: 6px 8px;
+    border-radius: 2px;
+    min-height: 36px;
+  }
+  .cycles .num:focus {
+    outline: none;
+    border-color: var(--color-amber);
+  }
+  .cycles .num:disabled {
+    opacity: 0.5;
   }
   .toggle {
     display: flex;

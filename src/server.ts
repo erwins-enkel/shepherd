@@ -2,7 +2,14 @@ import type { SessionStore } from "./store";
 import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
-import { config, SESSION_RETENTION_DAYS, SESSION_RETENTION_KEEP } from "./config";
+import {
+  config,
+  SESSION_RETENTION_DAYS,
+  SESSION_RETENTION_KEEP,
+  clampReviewCyclesCap,
+  REVIEW_CYCLES_MIN,
+  REVIEW_CYCLES_MAX,
+} from "./config";
 import {
   validateCreate,
   validateCloneUrl,
@@ -1087,6 +1094,11 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       remoteControlAtStartup: config.remoteControlAtStartup,
       standardCommand: config.standardCommand,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
+      reviewCyclesCap: config.reviewCyclesCap,
+      // display-only: the cap's valid bounds, so the UI stepper reads min/max off the
+      // payload instead of hardcoding a mirror of the server constants.
+      reviewCyclesMin: REVIEW_CYCLES_MIN,
+      reviewCyclesMax: REVIEW_CYCLES_MAX,
       // display-only: the real retention thresholds, so the UI shows the actual numbers
       // instead of hardcoding a mirror of the server constants.
       sessionRetentionDays: SESSION_RETENTION_DAYS,
@@ -1094,28 +1106,27 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
     });
   }
   if (req.method === "PUT") {
-    const body = (await req.json().catch(() => null)) as {
-      repoRoot?: unknown;
-      remoteControlAtStartup?: unknown;
-      standardCommand?: unknown;
-      sessionHousekeepingEnabled?: unknown;
-    } | null;
-    // Remote Control toggle is a standalone boolean patch (no repoRoot in the body).
-    if (body && "remoteControlAtStartup" in body && body.repoRoot === undefined) {
-      return putRemoteControl(body.remoteControlAtStartup, deps);
-    }
-    // Standard command is a standalone string patch (no repoRoot in the body).
-    if (body && "standardCommand" in body && body.repoRoot === undefined) {
-      return putStandardCommand(body.standardCommand, deps);
-    }
-    // Session housekeeping toggle is a standalone boolean patch (no repoRoot in the body).
-    if (body && "sessionHousekeepingEnabled" in body && body.repoRoot === undefined) {
-      return putSessionHousekeeping(body.sessionHousekeepingEnabled, deps);
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    // A standalone field patch carries exactly one setting and no repoRoot; dispatch by
+    // the first matching field. Anything else is a repo-root change. One row per setting.
+    if (body && body.repoRoot === undefined) {
+      for (const [field, handler] of SETTING_PATCHES) {
+        if (field in body) return handler(body[field], deps);
+      }
     }
     return putRepoRoot(body?.repoRoot, deps);
   }
   return null;
 }
+
+// Standalone settings patches: field name → its validating handler. Each handler
+// validates the value, live-updates config, and persists to the store.
+const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response][] = [
+  ["remoteControlAtStartup", putRemoteControl],
+  ["standardCommand", putStandardCommand],
+  ["sessionHousekeepingEnabled", putSessionHousekeeping],
+  ["reviewCyclesCap", putReviewCyclesCap],
+];
 
 // max length for the persisted standard command; mirrors the 8000-char human-prompt
 // guard so a configured command can't be larger than what a session would accept.
@@ -1149,6 +1160,16 @@ function putSessionHousekeeping(value: unknown, deps: Ctx["deps"]): Response {
   config.sessionHousekeepingEnabled = value; // live: the next daily sweep honors it
   deps.store.setSetting("sessionHousekeepingEnabled", value ? "1" : "0"); // persist
   return json({ sessionHousekeepingEnabled: config.sessionHousekeepingEnabled });
+}
+
+function putReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "reviewCyclesCap must be a number" }, 400);
+  }
+  const cap = clampReviewCyclesCap(value); // snap out-of-range into [MIN,MAX]
+  config.reviewCyclesCap = cap; // live: the next critic run reads it
+  deps.store.setSetting("reviewCyclesCap", String(cap)); // persist across restarts
+  return json({ reviewCyclesCap: config.reviewCyclesCap });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

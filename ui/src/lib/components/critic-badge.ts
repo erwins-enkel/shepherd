@@ -56,7 +56,11 @@ export function addressRoundInfo(
 ): { round: number; cap: number; status: AddressStatus } | null {
   if (!v || v.addressRound <= 0) return null;
   const cap = v.addressCap;
-  const round = v.addressRound;
+  // Clamp the displayed numerator to the cap. The stored round can exceed the cap when the
+  // operator lowers the global cap mid-streak (it holds an over-cap streak rather than
+  // steering further — see runAutoAddress); without this the badge would read e.g. "3/2".
+  // The streak still escalates correctly; this only keeps the counter from reading past 100%.
+  const round = Math.min(v.addressRound, cap);
   // No findings while the streak is held = a transient error verdict (critic produced
   // nothing this pass; the round is preserved). Show the in-progress counter rather than
   // flicker it out or mis-escalate — final/stalled require a real verdict with outstanding

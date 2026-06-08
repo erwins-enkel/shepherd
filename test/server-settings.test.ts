@@ -13,6 +13,7 @@ let savedCeiling: string;
 let savedRc: boolean;
 let savedSc: string;
 let savedHk: boolean;
+let savedCap: number;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -23,6 +24,7 @@ beforeEach(() => {
   savedRc = config.remoteControlAtStartup;
   savedSc = config.standardCommand;
   savedHk = config.sessionHousekeepingEnabled;
+  savedCap = config.reviewCyclesCap;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -34,6 +36,7 @@ afterEach(() => {
   config.remoteControlAtStartup = savedRc;
   config.standardCommand = savedSc;
   config.sessionHousekeepingEnabled = savedHk;
+  config.reviewCyclesCap = savedCap;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -73,6 +76,53 @@ test("GET /api/settings returns the current repo root and remote-control flag", 
   expect(typeof body.sessionHousekeepingEnabled).toBe("boolean");
   expect(body.sessionRetentionDays).toBeGreaterThan(0);
   expect(body.sessionRetentionKeep).toBeGreaterThan(0);
+  // review-cycles cap + its display-only bounds
+  expect(typeof body.reviewCyclesCap).toBe("number");
+  expect(body.reviewCyclesMin).toBeGreaterThan(0);
+  expect(body.reviewCyclesMax).toBeGreaterThanOrEqual(body.reviewCyclesMin);
+});
+
+test("PUT /api/settings sets reviewCyclesCap in range, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.reviewCyclesCap = 3;
+  const { app, store } = harness();
+  const res = await put(app, { reviewCyclesCap: 5 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).reviewCyclesCap).toBe(5);
+  expect(config.reviewCyclesCap).toBe(5); // live
+  expect(store.getSetting("reviewCyclesCap")).toBe("5"); // persisted as a string
+  expect(config.repoRoot).toBe(tmp); // a cap patch must not touch the repo root
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.reviewCyclesCap).toBe(5);
+});
+
+test("PUT /api/settings clamps an out-of-range reviewCyclesCap into the valid bounds", async () => {
+  const { app, store } = harness();
+  const high = await put(app, { reviewCyclesCap: 99 });
+  expect(high.status).toBe(200);
+  const hi = (await high.json()).reviewCyclesCap;
+  expect(hi).toBeLessThanOrEqual(8); // snapped to MAX, not rejected
+  expect(store.getSetting("reviewCyclesCap")).toBe(String(hi));
+  const low = await put(app, { reviewCyclesCap: 0 });
+  expect(low.status).toBe(200);
+  expect((await low.json()).reviewCyclesCap).toBeGreaterThanOrEqual(1); // snapped to MIN
+});
+
+test("PUT /api/settings rounds a fractional reviewCyclesCap to an integer", async () => {
+  const { app } = harness();
+  const res = await put(app, { reviewCyclesCap: 4.7 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).reviewCyclesCap).toBe(5);
+});
+
+test("PUT /api/settings rejects a non-number reviewCyclesCap", async () => {
+  const { app } = harness();
+  config.reviewCyclesCap = 3;
+  for (const bad of ["4", true, null, NaN]) {
+    const res = await put(app, { reviewCyclesCap: bad });
+    expect(res.status).toBe(400);
+  }
+  expect(config.reviewCyclesCap).toBe(3); // unchanged on failure
 });
 
 test("PUT /api/settings sets standardCommand, persists, leaves repoRoot intact", async () => {

@@ -12,6 +12,25 @@ const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.
 const herdrUpdateLogPath =
   process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
 
+// Review auto-address cap: how many critic→agent steer rounds a findings streak may
+// spend before escalating to a human (also the ceiling for the consecutive-error
+// counter). Global, UI-configurable + persisted; the env seeds a fresh DB. The bound is
+// the single source of truth for both the env seed and the PUT validator.
+//
+// Range [1,8]: MIN 1 guarantees at least one round; MAX 8 is a deliberate operator choice
+// — the task suggested ~5, but 8 gives headroom for noisier repos while still capping a
+// runaway config from ping-ponging an agent forever. Raise MAX here if 8 proves tight.
+export const REVIEW_CYCLES_MIN = 1;
+export const REVIEW_CYCLES_MAX = 8;
+// module-local: the seed default, used by the clamp + the config seed below only.
+const REVIEW_CYCLES_DEFAULT = 3;
+// Coerce any input (env/DB/request) to a valid integer cap, snapping out-of-range or
+// non-finite values into [MIN,MAX] rather than rejecting — callers stay forgiving.
+export function clampReviewCyclesCap(n: number): number {
+  if (!Number.isFinite(n)) return REVIEW_CYCLES_DEFAULT;
+  return Math.min(REVIEW_CYCLES_MAX, Math.max(REVIEW_CYCLES_MIN, Math.round(n)));
+}
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -86,6 +105,11 @@ export const config = {
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
   // Model alias for the transient autopilot stop-classifier spawn (cheap + fast is plenty).
   autopilotModel: process.env.SHEPHERD_AUTOPILOT_MODEL ?? "haiku",
+  // Max critic auto-address rounds before escalating to a human (see clampReviewCyclesCap
+  // above). UI-configurable + persisted; the env seeds the initial value on a fresh DB.
+  reviewCyclesCap: clampReviewCyclesCap(
+    Number(process.env.SHEPHERD_REVIEW_CYCLES_CAP ?? REVIEW_CYCLES_DEFAULT),
+  ),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

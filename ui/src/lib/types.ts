@@ -16,6 +16,12 @@ export interface Settings {
   standardCommand: string;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
+  /** Max critic auto-address rounds before escalating to a human (global). */
+  reviewCyclesCap: number;
+  /** Display-only: lower bound for reviewCyclesCap (drives the stepper's min). */
+  reviewCyclesMin: number;
+  /** Display-only: upper bound for reviewCyclesCap (drives the stepper's max). */
+  reviewCyclesMax: number;
   /** Display-only: archived sessions older than this many days are pruned. */
   sessionRetentionDays: number;
   /** Display-only: newest archived sessions kept regardless of age. */

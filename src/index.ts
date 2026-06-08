@@ -1,6 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { config, SESSION_RETENTION_MS, SESSION_RETENTION_KEEP } from "./config";
+import {
+  config,
+  SESSION_RETENTION_MS,
+  SESSION_RETENTION_KEEP,
+  clampReviewCyclesCap,
+} from "./config";
 import { SessionStore } from "./store";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
@@ -65,6 +70,10 @@ if (savedSc !== null) config.standardCommand = savedSc;
 // absent → keep the config default (on). Stored as "1"/"0".
 const savedHk = store.getSetting("sessionHousekeepingEnabled");
 if (savedHk !== null) config.sessionHousekeepingEnabled = savedHk === "1";
+// a UI-chosen review-cycles cap (persisted) overrides the env seed; absent → keep the
+// config default. Clamped on read so a hand-edited/out-of-range DB value can't escape.
+const savedCap = store.getSetting("reviewCyclesCap");
+if (savedCap !== null) config.reviewCyclesCap = clampReviewCyclesCap(Number(savedCap));
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
@@ -191,8 +200,11 @@ const reviewService = new ReviewService({
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
-  // round cap inside ReviewService stops it ping-ponging forever.
+  // round cap below stops it ping-ponging forever.
   autoAddress: (id, text) => service.reply(id, text),
+  // global, UI-configurable max auto-address rounds before escalating to the human.
+  // A thunk so a settings change takes effect on the next critic run, no restart.
+  cap: () => config.reviewCyclesCap,
 });
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);

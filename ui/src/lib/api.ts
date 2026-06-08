@@ -142,11 +142,15 @@ export async function getSettings(): Promise<Settings> {
   return r.json();
 }
 
-export async function putSettings(repoRoot: string): Promise<Settings> {
+// Standalone settings patch: PUT exactly the given fields to /api/settings, throw the
+// server's error message on failure, and return the parsed response. The server routes
+// by which field is present — a bare {repoRoot} is the repo-root change; any other single
+// field is its own validating patch.
+async function patchSettings<T>(patch: Record<string, unknown>): Promise<T> {
   const r = await fetch("/api/settings", {
     method: "PUT",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ repoRoot }),
+    body: JSON.stringify(patch),
   });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
@@ -154,56 +158,28 @@ export async function putSettings(repoRoot: string): Promise<Settings> {
   }
   return r.json();
 }
+
+export const putSettings = (repoRoot: string): Promise<Settings> =>
+  patchSettings<Settings>({ repoRoot });
 
 // Toggle Claude Code Remote Control auto-start for Shepherd-spawned sessions.
-// Standalone boolean patch — the server distinguishes it from a repoRoot change.
-export async function putRemoteControl(
-  enabled: boolean,
-): Promise<{ remoteControlAtStartup: boolean }> {
-  const r = await fetch("/api/settings", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ remoteControlAtStartup: enabled }),
-  });
-  if (!r.ok) {
-    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
-  }
-  return r.json();
-}
+export const putRemoteControl = (enabled: boolean): Promise<{ remoteControlAtStartup: boolean }> =>
+  patchSettings({ remoteControlAtStartup: enabled });
 
 // Toggle the daily session-housekeeping sweep (prune of old archived sessions).
-// Standalone boolean patch — the server distinguishes it from a repoRoot change.
-export async function putSessionHousekeeping(
+export const putSessionHousekeeping = (
   enabled: boolean,
-): Promise<{ sessionHousekeepingEnabled: boolean }> {
-  const r = await fetch("/api/settings", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ sessionHousekeepingEnabled: enabled }),
-  });
-  if (!r.ok) {
-    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
-  }
-  return r.json();
-}
+): Promise<{ sessionHousekeepingEnabled: boolean }> =>
+  patchSettings({ sessionHousekeepingEnabled: enabled });
 
-// Persist the backlog quick-launch standard command. Standalone string patch —
-// the server distinguishes it from a repoRoot change. Empty string disables the
-// quick-launch shortcut.
-export async function putStandardCommand(command: string): Promise<{ standardCommand: string }> {
-  const r = await fetch("/api/settings", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ standardCommand: command }),
-  });
-  if (!r.ok) {
-    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
-  }
-  return r.json();
-}
+// Persist the backlog quick-launch standard command; empty string disables the shortcut.
+export const putStandardCommand = (command: string): Promise<{ standardCommand: string }> =>
+  patchSettings({ standardCommand: command });
+
+// Persist the global review-cycles cap (max critic auto-address rounds). The server
+// clamps the value into its valid range and returns the stored value.
+export const putReviewCyclesCap = (cap: number): Promise<{ reviewCyclesCap: number }> =>
+  patchSettings({ reviewCyclesCap: cap });
 
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";

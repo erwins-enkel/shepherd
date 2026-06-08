@@ -175,6 +175,28 @@ events.subscribe((event, data) => {
   if (status !== "running") prPoller.pollSession(id);
 });
 
+// A PR in a merge train just landed (or was closed) → drop its "Merging" mark
+// so the row resolves out of the Merging group one-by-one as the train works.
+// session:git fires on any git change; clearMerging no-ops when not marked.
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  if (git.state === "merged" || git.state === "closed") service.clearMerging(id);
+});
+
+// The train session itself was archived → clear any of its PRs still marked
+// (e.g. ones it held back / rejected and never merged). Keyed on archive (a
+// terminal state), NOT done/idle — a Claude pane reports done at the train's
+// approval gate, where clearing would wipe the marks mid-train.
+events.subscribe((event, data) => {
+  if (event !== "session:archived") return;
+  service.clearMergingForTrain((data as { id: string }).id);
+});
+
+// Backstop sweep: drop marks older than the TTL so a stuck/rejected PR can't
+// stay "Merging" forever when neither of the above fires.
+setInterval(() => service.sweepStaleMerging(), 60_000);
+
 // Hourly: delete local shepherd/* branches whose PR has merged. The merge train
 // squash-merges, so the at-archive ancestry prune (worktree.ts) never catches
 // them and they pile up — and at merge time the session still holds the worktree

@@ -3,6 +3,7 @@
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions } from "./herd-partition";
+  import { collectReadyPrs } from "./merge-train";
   import { reviews } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -16,6 +17,7 @@
     activity,
     ondecommission,
     onclearmerged = undefined,
+    onmergetrain = undefined,
     standardCommandUnset = false,
     onsettings = undefined,
   }: {
@@ -30,6 +32,9 @@
     ondecommission?: (id: string) => void;
     // when provided, the merged group header gains a "clear all" action
     onclearmerged?: () => void;
+    // when provided, the ready-to-merge group header gains a "merge train" action
+    // (kicks off a new session that works through this group's PRs)
+    onmergetrain?: () => void;
     // first-run empty state: quick-launch is invisible until the standard command
     // is set → surface a quiet nudge pointing at Settings.
     standardCommandUnset?: boolean;
@@ -47,6 +52,9 @@
   // ready-to-merge (green) and landed merged (blue) groups at the bottom.
   // reviews.reviewing is $state, so this re-derives on `session:reviewing` events.
   const partition = $derived(partitionSessions(shown, git, (id) => reviews.isReviewing(id)));
+  // ready-to-merge sessions that actually have an open PR — the merge-train link
+  // only surfaces when there's something to run (fail-closed: no PR → no link).
+  const readyPrCount = $derived(collectReadyPrs(shown, git).length);
 </script>
 
 <div class="panel bracket">
@@ -153,7 +161,17 @@
         {/each}
       {/if}
       {#if partition.ready.length > 0}
-        <div class="ready-head micro">{m.herd_ready_group({ count: partition.ready.length })}</div>
+        <div class="ready-head micro">
+          {m.herd_ready_group({ count: partition.ready.length })}
+          {#if onmergetrain && readyPrCount > 0}
+            <button
+              type="button"
+              class="merge-train micro"
+              title={m.herd_merge_train_title()}
+              onclick={onmergetrain}>{m.herd_merge_train_action()}</button
+            >
+          {/if}
+        </div>
         {#each partition.ready as session (session.id)}
           <UnitRow
             {session}
@@ -306,6 +324,21 @@
     color: var(--color-blue);
     border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
   }
+  /* right-aligned action in the ready-to-merge group header */
+  .merge-train {
+    margin-left: auto;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+    color: color-mix(in srgb, var(--color-green) 70%, var(--color-faint));
+    transition: color 0.12s ease;
+  }
+  .merge-train:hover {
+    color: var(--color-green);
+  }
+
   /* right-aligned bulk action in the merged group header */
   .clear-merged {
     margin-left: auto;

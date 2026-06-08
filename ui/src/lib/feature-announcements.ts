@@ -49,4 +49,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feature_capture_extension_title",
     bodyKey: "feature_capture_extension_body",
   },
+  {
+    id: "merge-train-shortcut",
+    sinceVersion: "1.17.0",
+    titleKey: "feat_merge_train_title",
+    bodyKey: "feat_merge_train_body",
+  },
 ];

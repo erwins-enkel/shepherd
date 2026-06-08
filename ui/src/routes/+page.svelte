@@ -45,6 +45,7 @@
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
+  import { collectReadyPrs, formatReadyPrs, pickTrainRepo } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
@@ -231,6 +232,37 @@
     } catch {
       // spawn failed → hand off to the dialog so the operator can retry manually
       onissue(repoPath, issue);
+    }
+  }
+
+  // Merge-train shortcut (Ready-to-merge group header): spawn a new session that
+  // works through the PRs of every ready-to-merge session, suggesting a merge
+  // order. A merge train is per-repo, so when ready PRs span repos we scope to
+  // the repo with the most and surface a fail-loud notice for the rest rather
+  // than silently folding them in. Mirrors onquickissue for branch + create.
+  async function onmergetrain() {
+    const ready = collectReadyPrs(store.sessions, store.git);
+    const { repoPath, prs, otherRepoCount } = pickTrainRepo(ready);
+    if (!repoPath || prs.length === 0) {
+      toasts.info(m.toast_merge_train_no_prs());
+      return;
+    }
+    const br = await listBranches(repoPath).catch(() => null);
+    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+    try {
+      const s = await createSession({
+        repoPath,
+        baseBranch,
+        prompt: m.herd_merge_train_prompt({ prs: formatReadyPrs(prs) }),
+        model: null,
+      });
+      selectedId = s.id;
+      showBacklog = false;
+      if (mobile.current) mobileScreen = "detail";
+      if (otherRepoCount > 0)
+        toasts.info(m.toast_merge_train_other_repos({ count: otherRepoCount }));
+    } catch {
+      toasts.info(m.toast_merge_train_failed());
     }
   }
 
@@ -619,6 +651,7 @@
             activity={store.activity}
             ondecommission={onarchive}
             {onclearmerged}
+            {onmergetrain}
             {standardCommandUnset}
             onsettings={() => (showSettings = true)}
           />
@@ -683,6 +716,7 @@
           git={store.git}
           activity={store.activity}
           {onclearmerged}
+          {onmergetrain}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
         />

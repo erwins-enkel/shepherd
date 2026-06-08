@@ -224,12 +224,13 @@ export class AutopilotService {
     if (!s || s.status === "archived" || !this.enabled(s)) return;
     if (!this.openSeen.has(id)) {
       this.openSeen.add(id);
-      // Critic handoff (the single handoff path: onPrOpen), once per PR-open — clear a pre-PR
-      // pause + reset the step budget for the post-PR phase. Skip it when CI is already red: a
-      // red PR that's paused was handed to the operator (e.g. a CI-fix cap pause that survived a
-      // restart), and re-engaging it would resume the thrash the cap stopped. The CI-fix loop
-      // below keeps the persisted budget in that case.
-      if (git.checks !== "failure") this.onPrOpen(id);
+      // Critic handoff (the single handoff path: onPrOpen), once per PR-open — clear pause + reset
+      // the step budget for the post-PR phase. Gated on NOT being paused: openSeen is in-memory,
+      // so after a restart the first poll of an already-open PR re-enters here; a deliberate pause
+      // (operator hand-back or a CI-fix cap pause, on a PR whose CI may since have gone green) must
+      // survive that, not be silently cleared. A red PR is skipped for the same reason and keeps
+      // its persisted CI-fix budget below.
+      if (git.checks !== "failure" && !s.autopilotPaused) this.onPrOpen(id);
     }
     if (git.checks === "failure") this.considerCi(s, git);
   }

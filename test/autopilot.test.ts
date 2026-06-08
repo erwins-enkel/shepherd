@@ -398,14 +398,23 @@ test("step cap stops CI-fix thrash and pauses to the operator", () => {
   expect(h.state().autopilotPaused).toBe(true);
 });
 
-test("PR open clears a prior pre-PR pause and resets the step budget (handoff)", () => {
+test("a green PR-open hands off to the critic (clears a stale pause + resets budget)", () => {
+  const h = harness({ session: sess({ autopilotStepCount: 4 }), repoEnabled: true });
+  h.svc.onGit("s1", git({ checks: "success" }));
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("a deliberate pause survives a PR-open handoff (in-memory openSeen lost on restart)", () => {
+  // After a restart openSeen is empty, so the first poll of an already-open green PR re-enters
+  // the handoff. An operator's pause (or a CI-fix cap pause whose CI since went green) must NOT
+  // be silently cleared and the session re-engaged.
   const h = harness({
-    session: sess({ autopilotPaused: true, autopilotStepCount: 4 }),
+    session: sess({ autopilotPaused: true, autopilotStepCount: 7 }),
     repoEnabled: true,
   });
   h.svc.onGit("s1", git({ checks: "success" }));
-  expect(h.state().autopilotPaused).toBe(false);
-  expect(h.state().autopilotStepCount).toBe(0);
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotStepCount).toBe(7);
 });
 
 test("handoff reset fires once per PR-open, not every poll (preserves CI-fix budget)", () => {

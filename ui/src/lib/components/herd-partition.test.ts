@@ -192,3 +192,13 @@ test("omitted reviewing predicate leaves reviewerRunning empty", () => {
   const { reviewerRunning } = partitionSessions([session("a")], {});
   expect(reviewerRunning).toHaveLength(0);
 });
+
+test("merging sessions land in merging, pulled out of ready; merged still wins", () => {
+  const now = 1_000_000_000;
+  const m1 = { ...session("m1", true), mergingSince: now - 1000, mergingTrainId: "t" };
+  const m2 = { ...session("m2", true), mergingSince: now - 1000, mergingTrainId: "t" };
+  const list = [session("r1", true), m1, m2];
+  const { ready, merging } = partitionSessions(list, { m2: git("merged") }, () => false, now);
+  expect(merging.map((s) => s.id)).toEqual(["m1"]); // m2 merged → merged group
+  expect(ready.map((s) => s.id)).toEqual(["r1"]);
+});

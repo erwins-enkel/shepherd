@@ -1,4 +1,5 @@
 import type { Session, GitState } from "$lib/types";
+import { isMerging } from "./merge-train";
 
 /** Split sessions into stage groups, preserving input order within each:
  *  - active: still in play, no later stage reached
@@ -12,27 +13,30 @@ import type { Session, GitState } from "$lib/types";
  *    steered findings back (with the PR's green CI now stale), or blocked awaiting
  *    operator input — so it stays in `active` rather than flicker into "waiting for
  *    merge" / get buried when it actually needs attention.
+ *  - merging: PR-sessions a launched merge train is working through (marked + within TTL)
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
  *
  *  First-match precedence (terminal states win; reviewing beats the CI/merge stages
  *  as the later in-flight stage):
- *    merged > ready > reviewerRunning > ciRunning > ciFailed > awaitingMerge > active.
+ *    merged > merging > ready > reviewerRunning > ciRunning > ciFailed > awaitingMerge > active.
  *  An open PR with `none` checks (no CI reported yet) stays in `active` to avoid
  *  flicker into the "Your turn" group before CI registers as pending.
  *  The groups render top→bottom as active → ciRunning → ciFailed → reviewerRunning →
- *  awaitingMerge → ready → merged, mirroring the session lifecycle. `isReviewing` is
+ *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing` is
  *  injected so this stays a pure function (the caller wires it to the reviews store). */
 export function partitionSessions(
   sessions: Session[],
   git: Record<string, GitState>,
   isReviewing: (id: string) => boolean = () => false,
+  now: number = Date.now(),
 ): {
   active: Session[];
   ciRunning: Session[];
   ciFailed: Session[];
   reviewerRunning: Session[];
   awaitingMerge: Session[];
+  merging: Session[];
   ready: Session[];
   merged: Session[];
 } {
@@ -41,11 +45,13 @@ export function partitionSessions(
   const ciFailed: Session[] = [];
   const reviewerRunning: Session[] = [];
   const awaitingMerge: Session[] = [];
+  const merging: Session[] = [];
   const ready: Session[] = [];
   const merged: Session[] = [];
   for (const s of sessions) {
     const g = git[s.id];
     if (g?.state === "merged") merged.push(s);
+    else if (isMerging(s, now)) merging.push(s);
     else if (s.readyToMerge) ready.push(s);
     else if (isReviewing(s.id)) reviewerRunning.push(s);
     else if (g?.state === "open" && g.checks === "pending") ciRunning.push(s);
@@ -59,5 +65,5 @@ export function partitionSessions(
       awaitingMerge.push(s);
     else active.push(s);
   }
-  return { active, ciRunning, ciFailed, reviewerRunning, awaitingMerge, ready, merged };
+  return { active, ciRunning, ciFailed, reviewerRunning, awaitingMerge, merging, ready, merged };
 }

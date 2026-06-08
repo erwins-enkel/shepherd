@@ -11,6 +11,7 @@
   import { reviews } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
+  import PlanGateBadge from "./PlanGateBadge.svelte";
   import AutoPip from "./AutoPip.svelte";
 
   let {
@@ -137,6 +138,7 @@
     {/if}
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
+    <PlanGateBadge {session} />
     <AutopilotBadge {session} />
     <AutoPip {session} />
     {#if session.readyToMerge}

@@ -18,6 +18,7 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
+  import PlanGateBadge from "./PlanGateBadge.svelte";
   import { onDestroy } from "svelte";
   import {
     REVEAL_PX,
@@ -165,6 +166,7 @@
     <div class="u-right">
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
+      <PlanGateBadge {session} />
       <AutopilotBadge {session} />
       {#if isMerging(session, nowMs)}
         <span class="badge merging">{m.status_merging()}</span>

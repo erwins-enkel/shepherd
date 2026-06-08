@@ -131,6 +131,23 @@
     </button>
   </div>
 
+  <div class="auto-row">
+    <div class="auto-meta">
+      <div class="auto-name">🪧 {m.automation_plan_gate_label()}</div>
+      <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
+    </div>
+    <button
+      class={["sw", { on: flags.planGate }]}
+      type="button"
+      role="switch"
+      aria-checked={flags.planGate}
+      aria-label={m.automation_plan_gate_label()}
+      onclick={() => repoConfig.togglePlanGate(repoPath)}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
+
   <!-- Work queue -->
   <div class="auto-group">{m.automation_group_queue()}</div>
   <div class="auto-row">

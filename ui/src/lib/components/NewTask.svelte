@@ -8,6 +8,8 @@
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { dialog } from "$lib/a11yDialog";
+  import { repoConfig } from "$lib/reviews.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -25,6 +27,7 @@
       model: string | null;
       images: string[];
       issueRef?: IssueRef;
+      planGateEnabled: boolean;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -49,6 +52,10 @@
   let repoPath = $state(initialRepoPath ?? "");
   let baseBranch = $state("main");
   let model = $state("default"); // "default" → claude's own model (no --model flag)
+  // Plan gate: defaults to the selected repo's stored flag until the user toggles
+  // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
+  let planGate = $state(false);
+  let planGateTouched = $state(false);
   let submitting = $state(false);
   let error = $state<string | null>(null);
   // re-invokes whichever action last failed (upload or create) from an inline Retry
@@ -119,6 +126,18 @@
       .catch(() => {
         branches = [];
       });
+  });
+
+  // Seed the plan-gate checkbox from the selected repo's stored default. ensure()
+  // fetches+caches the repo config; the derived default below tracks the cached
+  // flag and re-seeds the checkbox on repo change unless the user has toggled it.
+  $effect(() => {
+    if (repoPath) repoConfig.ensure(repoPath);
+  });
+  const planGateDefault = $derived(repoPath ? repoConfig.isPlanGateEnabled(repoPath) : false);
+  $effect(() => {
+    // mirror the repo default until the user makes a manual choice
+    if (!planGateTouched) planGate = planGateDefault;
   });
 
   // (re)load the slash-command list when the target repo changes — a repo's own
@@ -276,6 +295,7 @@
               body: issueRef.body,
             }
           : undefined,
+        planGateEnabled: planGate,
       });
     } catch (err) {
       error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
@@ -432,6 +452,14 @@
       {/each}
     </select>
 
+    <label class="plan-gate" use:coachTarget={"plan-gate"} title={m.newtask_plan_gate_hint()}>
+      <input type="checkbox" bind:checked={planGate} onchange={() => (planGateTouched = true)} />
+      <span class="pg-text">
+        <span class="pg-label">{m.newtask_plan_gate_label()}</span>
+        <span class="pg-hint">{m.newtask_plan_gate_hint()}</span>
+      </span>
+    </label>
+
     {#if error}
       <div class="err" role="alert">
         <span>{error}</span>
@@ -548,6 +576,33 @@
   select:focus {
     outline: none;
     border-color: var(--color-line-bright);
+  }
+  .plan-gate {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    cursor: pointer;
+  }
+  .plan-gate input {
+    width: auto;
+    margin-top: 2px;
+    flex: 0 0 auto;
+    accent-color: var(--color-amber);
+  }
+  .pg-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .pg-label {
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+  }
+  .pg-hint {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
   .err {
     color: var(--color-red);

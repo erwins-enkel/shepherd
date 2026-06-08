@@ -469,6 +469,7 @@
     model: string | null;
     images: string[];
     issueRef?: IssueRef;
+    planGateEnabled: boolean;
   }) {
     const s = await createSession(input);
     selectedId = s.id;

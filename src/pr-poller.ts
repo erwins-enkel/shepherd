@@ -10,6 +10,34 @@ export interface PrCache {
   drop(id: string): void;
 }
 
+/** `gh pr list --head <branch>` matches by branch NAME only and `--state all`
+ *  includes history, so a prior, already-merged PR that reused this branch name
+ *  surfaces as a terminal hit even though the session opened no PR. Trust a
+ *  merged/closed PR only when its head commit is reachable from the session's
+ *  branch tip (`owns(headSha)` — true/false/null when unknowable); otherwise it's
+ *  a name collision, so drop it to "none" rather than flip the row to a false
+ *  MERGED. Open PRs are the inherently-current one and pass through untouched.
+ *  Pure + shared so the background poller and the on-demand GET endpoint guard
+ *  identically — the list overview and GitRail can't disagree. */
+export function guardStaleTerminal(
+  git: GitState,
+  owns: (headSha: string) => boolean | null,
+): GitState {
+  if (
+    (git.state === "merged" || git.state === "closed") &&
+    git.headSha &&
+    owns(git.headSha) === false
+  ) {
+    return {
+      kind: git.kind,
+      state: "none",
+      checks: "none",
+      deployConfigured: git.deployConfigured,
+    };
+  }
+  return git;
+}
+
 /**
  * Polls PR status for active sessions and caches it in memory. One `gh` process
  * runs at a time (sequential awaits) to bound the synchronous `execFileSync`
@@ -131,28 +159,10 @@ export class PrPoller implements PrCache {
     }
   }
 
-  /** `gh pr list --head <branch>` matches by branch NAME only and `--state all`
-   *  includes history, so a prior, already-merged PR that reused this branch name
-   *  surfaces as a terminal hit even though this session opened no PR. Trust a
-   *  merged/closed PR only when its head commit is reachable from the session's
-   *  branch tip; otherwise it's a name collision — drop it back to "none" so the
-   *  row doesn't flip to a false MERGED. Applied to every poll result (stored and
-   *  adopted-live branch alike). Open PRs are the inherently-current one, so they
-   *  pass through untouched. */
+  /** Reject a reused-name terminal PR for `s` via the shared `guardStaleTerminal`.
+   *  Applied to every poll result (stored and adopted-live branch alike). */
   private rejectStaleTerminal(s: Session, git: GitState): GitState {
-    if (
-      (git.state === "merged" || git.state === "closed") &&
-      git.headSha &&
-      this.ownsPr(s, git.headSha) === false
-    ) {
-      return {
-        kind: git.kind,
-        state: "none",
-        checks: "none",
-        deployConfigured: git.deployConfigured,
-      };
-    }
-    return git;
+    return guardStaleTerminal(git, (headSha) => this.ownsPr(s, headSha));
   }
 
   /** Poll one session and emit `session:git` if its PR state moved. Shared by

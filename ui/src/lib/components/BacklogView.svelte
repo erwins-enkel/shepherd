@@ -450,6 +450,7 @@
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     min-height: 44px;
+    gap: 8px;
   }
 
   .overlay-close {
@@ -464,24 +465,36 @@
     cursor: pointer;
     min-height: 40px;
     touch-action: manipulation;
+    flex-shrink: 0;
   }
 
   .overlay-close:hover {
     background: var(--color-hover);
   }
 
-  /* Tab toggle relocated into the overlay header on mobile, pushed to the
-     right of the back/close button. Touch-sized to match .overlay-close. */
+  /* Tab strip sits after the fixed close button and scrolls horizontally when
+     tabs exceed the available width. Scrollbar is hidden (matches ControlBar
+     convention). */
   .overlay-tabs {
     display: flex;
     gap: 2px;
-    margin-left: auto;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .overlay-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .overlay-tabs .tab-btn {
     min-height: 40px;
     padding: 0 12px;
     touch-action: manipulation;
+    flex-shrink: 0;
   }
 
   .overlay-body {

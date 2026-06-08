@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { Session, AutopilotVerdict } from "./types";
 import type { BlockReason } from "./blocked";
+import type { GitState } from "./forge/types";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -18,6 +19,13 @@ export const OPEN_PR_STEER = [
   "You're in autopilot and you've stopped, but there's no pull request yet. Commit your",
   "work, push the branch, and open a PR (gh pr create). If something genuinely blocks that,",
   "say specifically what you need.",
+].join("\n");
+
+export const CI_FIX_STEER = [
+  "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
+  "red PR, so this is on you: inspect the failing checks (`gh pr checks`, `gh run view --log-failed`),",
+  "fix the root cause, and push. Don't stop to ask — only surface if it's a genuine blocker you",
+  "can't resolve, and then say exactly what you need.",
 ].join("\n");
 
 /** Steers autopilot will only consider for these block shapes. menu/stall always surface. */
@@ -59,6 +67,13 @@ export class AutopilotService {
   // Re-entrancy guard: classify() is async, so a second event for the same session must
   // not start a second spawn (mirrors ReviewService.starting).
   private pending = new Set<string>();
+  // Post-PR CI-red recovery state (onGit). `openSeen` fires the critic handoff (pause-clear +
+  // budget reset) exactly once per PR-open, so the 120s git poll doesn't keep zeroing the
+  // step budget the CI-fix loop is spending. `ciNudged` maps a session to the head SHA we last
+  // steered for a red CI, so a still-failing head isn't re-nudged every poll — only a fresh
+  // push (new head) that still fails earns another steer.
+  private openSeen = new Set<string>();
+  private ciNudged = new Map<string, string>();
   private stepCap: number;
 
   constructor(private deps: AutopilotDeps) {
@@ -183,11 +198,57 @@ export class AutopilotService {
     this.deps.onState?.(id);
   }
 
-  /** A PR opened → hand off to the critic loop. Clear pause + reset the step budget. */
+  /** The critic handoff: clear pause + reset the step budget. Invoked once per PR-open by
+   *  onGit (for a non-red PR) — the single place this transition is applied. */
   onPrOpen(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;
     this.deps.store.setAutopilotState(id, { paused: false, question: null, stepCount: 0 });
     this.deps.onState?.(id);
+  }
+
+  /** session:git handler. Two jobs, both keyed off the PR's live state:
+   *  1. PR-open transition (none/closed → open): hand off to the critic loop once (onPrOpen).
+   *  2. Open PR with FAILING CI: the dead zone — the critic only reviews a green PR and pre-PR
+   *     autopilot has stood down (a PR exists), so nobody steers a red PR. Drive the task agent
+   *     to fix its own CI. Replaces the old `if (open) onPrOpen` wiring in index.ts. */
+  onGit(id: string, git: GitState): void {
+    if (git.state !== "open") {
+      // PR gone (none/merged/closed): drop the per-PR dedup so a future PR-open re-arms both
+      // the handoff reset and the CI-fix nudge.
+      this.openSeen.delete(id);
+      this.ciNudged.delete(id);
+      return;
+    }
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived" || !this.enabled(s)) return;
+    if (!this.openSeen.has(id)) {
+      this.openSeen.add(id);
+      // Critic handoff (the single handoff path: onPrOpen), once per PR-open — clear pause + reset
+      // the step budget for the post-PR phase. Gated on NOT being paused: openSeen is in-memory,
+      // so after a restart the first poll of an already-open PR re-enters here; a deliberate pause
+      // (operator hand-back or a CI-fix cap pause, on a PR whose CI may since have gone green) must
+      // survive that, not be silently cleared. A red PR is skipped for the same reason and keeps
+      // its persisted CI-fix budget below.
+      if (git.checks !== "failure" && !s.autopilotPaused) this.onPrOpen(id);
+    }
+    if (git.checks === "failure") this.considerCi(s, git);
+  }
+
+  /** Open PR + red CI → steer the task agent to fix it. Synchronous (no classify needed: a red
+   *  rollup is already an actionable verdict). The caller (onGit) has already checked
+   *  existence / archive / enablement; here we gate on pause + per-head dedup and bound it by
+   *  the same step cap as the gate loop. */
+  private considerCi(s: Session, git: GitState): void {
+    if (s.autopilotPaused) return; // already handed back; waits for operator
+    if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
+    if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
+    if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
+    if (s.autopilotStepCount >= this.stepCap) {
+      this.pause(s, CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
+      return;
+    }
+    this.ciNudged.set(s.id, git.headSha);
+    this.driveSteer(s, CI_FIX_STEER);
   }
 }

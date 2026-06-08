@@ -90,6 +90,22 @@ const ENGINEERING_POSTURE =
   "loop until they actually pass — never declare work done before verifying against them.";
 
 /**
+ * Seeded into the system prompt at spawn when the repo has autopilot on, so the agent knows
+ * up front it's running unattended. Without it autopilot is purely reactive — the agent stops
+ * to ask "commit + open a PR?", and a steer only lands after a stop is detected and classified
+ * (which the operator routinely beats by answering manually). Stating the contract up front
+ * stops the procedural halt at the source. Deliberately conditional ("for a code change…") so a
+ * research / issue-creation task isn't pushed to open a meaningless PR. Not user-facing chrome
+ * (an instruction to the agent), so no i18n.
+ */
+const AUTOPILOT_DIRECTIVE =
+  "You are running unattended in Shepherd autopilot. Do not stop to ask for permission on " +
+  "procedural or workflow steps — writing a spec or plan, committing, pushing, or opening a " +
+  "pull request. Make a reasonable decision and keep going until the task's deliverable is " +
+  "complete; for a code change that means an open PR (`gh pr create`). Only stop to ask when " +
+  "you hit a genuine product or requirements decision that only a human can make.";
+
+/**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
  * (the flag is last-wins, not repeatable, so all blocks must share one value).
  *
@@ -98,11 +114,14 @@ const ENGINEERING_POSTURE =
  * so the agent can cleanly separate persistent guidance from the task in its human turn.
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture and branch-rename blocks always ride.
+ * `autopilotActive` appends the autopilot directive (see above).
  */
-export function composeSystemPrompt(houseRules: string | null): string {
+export function composeSystemPrompt(houseRules: string | null, autopilotActive = false): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
   const blocks = houseRules ? [posture, houseRules, branchNotice] : [posture, branchNotice];
+  if (autopilotActive)
+    blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
   return blocks.join("\n\n");
 }
 
@@ -147,12 +166,15 @@ export class SessionService {
 
       // Shepherd-curated house rules go into the system prompt (not the human turn) so every
       // spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the repo's
-      // learned corrections without the rules bleeding into the task text.
+      // learned corrections without the rules bleeding into the task text. The autopilot
+      // directive rides the same prompt when the repo has autopilot on, so the agent drives to a
+      // PR without stopping for procedural gates instead of waiting for a reactive steer.
       const houseRules = this.houseRules(input.repoPath);
+      const autopilotActive = this.deps.store.getRepoConfig(input.repoPath).autopilotEnabled;
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
       argv.push("--settings", spawnSettingsOverlay());
-      argv.push("--append-system-prompt", composeSystemPrompt(houseRules));
+      argv.push("--append-system-prompt", composeSystemPrompt(houseRules, autopilotActive));
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);

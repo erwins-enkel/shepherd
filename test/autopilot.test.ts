@@ -314,3 +314,122 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
   expect(classifyCalls).toBe(1);
   expect(events.filter((e) => "steer" in e).length).toBe(1);
 });
+
+// ───────────────────────── CI-red recovery (onGit) ─────────────────────────
+// The post-PR dead zone: once a PR is open the critic owns review, but it only runs
+// on green CI (review.ts) and pre-PR autopilot has stood down (hasPr). A PR sitting on
+// red CI is steered by nobody. onGit closes that gap: open + checks "failure" → drive
+// the task agent to fix the failing checks (dedup per head, step-capped).
+import { CI_FIX_STEER } from "../src/autopilot";
+import type { GitState } from "../src/forge/types";
+
+function git(over: Partial<GitState> = {}): GitState {
+  return {
+    kind: "github",
+    state: "open",
+    checks: "failure",
+    headSha: "sha1",
+    number: 7,
+    deployConfigured: false,
+    ...over,
+  };
+}
+
+test("open PR + failing CI → CI-fix steer + step++", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git());
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("same failing head is nudged only once", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  h.svc.onGit("s1", git({ headSha: "sha1" })); // next poll, same red head
+  expect(h.events.filter((e) => "steer" in e).length).toBe(1);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("a new failing head (agent pushed a fix that still fails) re-steers", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  h.svc.onGit("s1", git({ headSha: "sha2" }));
+  expect(h.events.filter((e) => "steer" in e).length).toBe(2);
+  expect(h.state().autopilotStepCount).toBe(2);
+});
+
+test("green CI never triggers a CI-fix steer", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ checks: "success" }));
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("pending CI never triggers a CI-fix steer", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ checks: "pending" }));
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("CI-fix recovery is gated by autopilot enablement", () => {
+  const h = harness({ session: sess({ autopilotEnabled: null }), repoEnabled: false });
+  h.svc.onGit("s1", git());
+  expect(h.events.length).toBe(0);
+});
+
+test("a paused session is not CI-steered (already handed to the operator)", () => {
+  const h = harness({ session: sess({ autopilotPaused: true }), repoEnabled: true });
+  h.svc.onGit("s1", git());
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("CI-fix recovery resumes a dead pane before steering", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true, paneAlive: false });
+  h.svc.onGit("s1", git());
+  expect(h.events).toContainEqual({ resume: true });
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("step cap stops CI-fix thrash and pauses to the operator", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  // The session starts at step 0; each distinct red head burns one step (the red CI skips the
+  // onPrOpen handoff, so there's no budget reset). With stepCap 10, the 11th distinct failing
+  // head surfaces (pauses) instead of steering.
+  for (let i = 0; i <= 10; i++) h.svc.onGit("s1", git({ headSha: "sha" + i }));
+  expect(h.events.filter((e) => "steer" in e).length).toBe(10);
+  expect(h.state().autopilotPaused).toBe(true);
+});
+
+test("a green PR-open hands off to the critic (clears a stale pause + resets budget)", () => {
+  const h = harness({ session: sess({ autopilotStepCount: 4 }), repoEnabled: true });
+  h.svc.onGit("s1", git({ checks: "success" }));
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("a deliberate pause survives a PR-open handoff (in-memory openSeen lost on restart)", () => {
+  // After a restart openSeen is empty, so the first poll of an already-open green PR re-enters
+  // the handoff. An operator's pause (or a CI-fix cap pause whose CI since went green) must NOT
+  // be silently cleared and the session re-engaged.
+  const h = harness({
+    session: sess({ autopilotPaused: true, autopilotStepCount: 7 }),
+    repoEnabled: true,
+  });
+  h.svc.onGit("s1", git({ checks: "success" }));
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotStepCount).toBe(7);
+});
+
+test("handoff reset fires once per PR-open, not every poll (preserves CI-fix budget)", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ checks: "success", headSha: "sha1" })); // open transition → reset
+  h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // red → step 1
+  h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // same red head, no reset, no re-steer
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("PR closing/merging clears CI dedup so a reopened red head can re-steer", () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ headSha: "sha1" })); // steer 1
+  h.svc.onGit("s1", git({ state: "merged", checks: "success" })); // clears dedup + openSeen
+  h.svc.onGit("s1", git({ headSha: "sha1" })); // open again, same head → steer 2
+  expect(h.events.filter((e) => "steer" in e).length).toBe(2);
+});

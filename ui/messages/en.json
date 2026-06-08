@@ -120,7 +120,6 @@
   "automation_plan_gate_desc": "Grill + adversarial plan review before the agent runs",
   "automation_plan_gate_task_planning": "This task: gate active — planning",
   "automation_plan_gate_task_executing": "This task: plan approved — executing",
-  "automation_plan_gate_task_off": "This task: not gated",
   "drain_strip_label": "Drain",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} queued",

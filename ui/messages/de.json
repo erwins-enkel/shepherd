@@ -120,7 +120,6 @@
   "automation_plan_gate_desc": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
   "automation_plan_gate_task_planning": "Dieser Task: Gate aktiv — Planung",
   "automation_plan_gate_task_executing": "Dieser Task: Plan genehmigt — Ausführung",
-  "automation_plan_gate_task_off": "Dieser Task: kein Gate",
   "drain_strip_label": "Queue",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} in Warteschlange",

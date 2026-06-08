@@ -16,13 +16,13 @@
 
   // The panel's switches are repo-level defaults; the plan gate is also a per-task
   // one-shot set at creation. Surface THIS task's actual gate phase so a tick in
-  // New Task doesn't read as "off" just because the repo default is off.
+  // New Task doesn't read as "off" just because the repo default is off. Shown only
+  // when the task is genuinely gated — an ungated task needs no line (the repo-wide
+  // subtitle already explains the switch is a default).
   const planGateTaskLabel = $derived(
     planPhase === "planning"
       ? m.automation_plan_gate_task_planning()
-      : planPhase === "executing"
-        ? m.automation_plan_gate_task_executing()
-        : m.automation_plan_gate_task_off(),
+      : m.automation_plan_gate_task_executing(),
   );
 
   // Drain config fields, seeded from stored config and re-seeded whenever the
@@ -116,7 +116,9 @@
     <div class="auto-meta">
       <div class="auto-name">🪧 {m.automation_plan_gate_name()}</div>
       <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
-      <div class={["auto-task", { gated: planPhase != null }]}>{planGateTaskLabel}</div>
+      {#if planPhase != null}
+        <div class="auto-task">{planGateTaskLabel}</div>
+      {/if}
     </div>
     <button
       class={["sw", { on: flags.planGate }]}
@@ -317,15 +319,12 @@
     color: var(--color-muted);
     margin-top: 2px;
   }
-  /* per-task plan-gate reality: muted when off, amber when this task is actually
-     gated — so a New Task tick reads as active even when the repo default is off */
+  /* per-task plan-gate reality: amber, shown only when this task is actually gated
+     — so a New Task tick reads as active even when the repo default is off */
   .auto-task {
     font-size: var(--fs-micro);
-    color: var(--color-faint);
-    margin-top: 3px;
-  }
-  .auto-task.gated {
     color: var(--color-amber);
+    margin-top: 3px;
   }
   /* switch: track + knob, green when on, amber pulse while reviewing */
   .sw {

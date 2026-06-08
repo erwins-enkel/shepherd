@@ -1,6 +1,9 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "popup_title": "Shepherd Capture",
+  "popup_conn_checking": "Wird geprüft…",
+  "popup_conn_linked": "Verbunden",
+  "popup_conn_unlinked": "Nicht verbunden",
   "popup_capturing": "Seite wird erfasst…",
   "popup_prompt_label": "Aufgabe",
   "popup_prompt_placeholder": "Aufgabe beschreiben (was ist falsch, was ist zu tun)…",

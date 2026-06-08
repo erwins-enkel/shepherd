@@ -6,7 +6,12 @@
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import { resolveRepo } from "../lib/routing";
   import { takePendingCapture } from "../lib/picker-session";
-  import { composeIssueBody, MAX_ISSUE_BODY_LEN, MAX_ISSUE_TITLE_LEN } from "../lib/transport";
+  import {
+    composeIssueBody,
+    MAX_ISSUE_BODY_LEN,
+    MAX_ISSUE_TITLE_LEN,
+    ping,
+  } from "../lib/transport";
   import type {
     CaptureConfig,
     CaptureMode,
@@ -40,6 +45,27 @@
   let recorderAvailable = $state(false);
   let mode = $state<CaptureMode>("visible");
 
+  // Connection-status indicator: reflects whether the configured core is
+  // reachable + authorized, surfaced in the header without opening Options.
+  // "none" = not configured (indicator hidden — the needs-config view covers it).
+  type ConnState = "none" | "checking" | "linked" | "not-linked";
+  let conn = $state<ConnState>("none");
+
+  // Fire-and-forget reachability probe. STRICTLY non-blocking: this is kicked off
+  // WITHOUT await from init(), so it never delays config load, the screenshot, the
+  // popup becoming interactive, or gates capture. Fail-closed — any throw (a
+  // TransportError or otherwise) lands on "not-linked"; "linked" is only set on a
+  // resolved ping.
+  async function checkConnection(cfg: CaptureConfig) {
+    conn = "checking";
+    try {
+      await ping(fetch, cfg);
+      conn = "linked";
+    } catch {
+      conn = "not-linked";
+    }
+  }
+
   // Element captures arrive pre-gathered (signals run at pick time), so the
   // gather toggles are read-only — re-running them would replace the cropped
   // element with a fresh visible capture.
@@ -68,6 +94,9 @@
       view = "needs-config";
       return;
     }
+    // Kick off the connection probe fire-and-forget (no await): it updates `conn`
+    // when it settles and must never delay or gate the capture flow below.
+    void checkConnection(cfg);
     // A remote (ts.net) host's optional permission can be revoked from
     // chrome://extensions after it was configured; without it the spawn fetch
     // fails with a generic "unreachable". Detect it up front and offer a
@@ -286,7 +315,29 @@
 </script>
 
 <main class="flex w-[380px] flex-col gap-3 p-3 font-sans text-sm text-gray-900">
-  <h1 class="font-semibold">{m.popup_title()}</h1>
+  <div class="flex items-center justify-between gap-2">
+    <h1 class="font-semibold">{m.popup_title()}</h1>
+    {#if conn !== "none"}
+      {@const tone =
+        conn === "linked"
+          ? "text-green-700"
+          : conn === "not-linked"
+            ? "text-red-700"
+            : "text-gray-500"}
+      {@const dot =
+        conn === "linked" ? "bg-green-600" : conn === "not-linked" ? "bg-red-600" : "bg-gray-400"}
+      <span class={["flex items-center gap-1 text-xs", tone]}>
+        <span class={["h-2 w-2 rounded-full", dot]} aria-hidden="true"></span>
+        <span>
+          {conn === "linked"
+            ? m.popup_conn_linked()
+            : conn === "not-linked"
+              ? m.popup_conn_unlinked()
+              : m.popup_conn_checking()}
+        </span>
+      </span>
+    {/if}
+  </div>
 
   {#if view === "loading"}
     <p class="text-gray-500">{m.popup_capturing()}</p>

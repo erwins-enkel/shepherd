@@ -8,7 +8,7 @@ import type { AutopilotVerdict, AutopilotKind } from "./types";
 /** The file the classifier agent writes its verdict JSON to, in its temp cwd. */
 export const VERDICT_FILE = ".shepherd-autopilot.json";
 
-const KINDS: AutopilotKind[] = ["gate", "question", "finished", "unknown"];
+const KINDS: AutopilotKind[] = ["gate", "question", "finished", "complete", "unknown"];
 /** Uncertain → surface. A wrongly-surfaced gate costs one click; a wrongly-answered
  *  question costs a bad product decision. */
 const SURFACE: AutopilotVerdict = { kind: "unknown", summary: "" };
@@ -51,11 +51,12 @@ export function classifierPrompt(tail: string[], taskPrompt: string): string {
     "Classify into exactly one `kind`:",
     '- "gate": a procedural/workflow stop the agent could resolve itself and the answer is obviously "yes, keep going" — e.g. "shall I write the spec first?", "ready to start implementing?", "want me to commit now?". Choose this ONLY when proceeding is clearly correct.',
     '- "question": a real decision that needs a human — a product/requirements fork, ambiguous intent, a choice between materially different approaches, or anything the agent should not decide unilaterally.',
-    '- "finished": the agent believes it is done or has nothing left to do, but has not opened a pull request yet.',
+    '- "finished": the agent has done code/implementation work whose deliverable is a pull request, believes it is done, but has not opened the PR yet. (It still needs to be driven to a PR.)',
+    '- "complete": the agent has fully delivered a task whose deliverable is NOT a pull request — research/investigation/analysis, creating a GitHub issue, or a one-off answer — and there is nothing to turn into a PR. Judge by the TASK: if it never asked for code changes, a finished agent is "complete", not "finished".',
     '- "unknown": you cannot confidently tell. When in doubt, use this — never guess "gate".',
     "",
     `Write your verdict as JSON to the file \`${VERDICT_FILE}\` in the current directory, with EXACTLY this shape, then stop:`,
-    '{"kind": "gate" | "question" | "finished" | "unknown", "summary": "<1-2 sentence plain description of what the agent is waiting for>"}',
+    '{"kind": "gate" | "question" | "finished" | "complete" | "unknown", "summary": "<1-2 sentence plain description of what the agent is waiting for, or for \\"complete\\" what it delivered>"}',
     "Do not read or modify any other file.",
   ].join("\n");
 }

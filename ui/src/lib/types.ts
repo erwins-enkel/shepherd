@@ -225,6 +225,9 @@ export interface Session {
   autopilotEnabled: boolean | null;
   autopilotStepCount: number;
   autopilotPaused: boolean;
+  /** True when autopilot judged the task done with a non-PR deliverable (research / issue
+   *  creation / one-off answer) — a clean "completed", distinct from a pause. */
+  autopilotComplete: boolean;
   autopilotQuestion: string | null;
   /** Whether this session was launched by the auto-drain queue. */
   auto: boolean;
@@ -331,7 +334,13 @@ export type WsEvent =
     }
   | {
       event: "session:autopilot";
-      data: { id: string; paused: boolean; question: string | null; enabled: boolean | null };
+      data: {
+        id: string;
+        paused: boolean;
+        complete: boolean;
+        question: string | null;
+        enabled: boolean | null;
+      };
     }
   | { event: "session:archived"; data: { id: string } }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }

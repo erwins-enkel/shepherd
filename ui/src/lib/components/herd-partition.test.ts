@@ -24,6 +24,7 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,
+    autopilotComplete: false,
     autopilotQuestion: null,
     auto: false,
     issueNumber: null,

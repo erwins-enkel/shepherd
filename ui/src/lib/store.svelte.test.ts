@@ -33,6 +33,7 @@ function session(id: string): Session {
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,
+    autopilotComplete: false,
     autopilotQuestion: null,
     auto: false,
     issueNumber: null,
@@ -112,7 +113,7 @@ test("session:autopilot merges autopilot fields into the matching session", () =
   s.setAll([session("s1"), session("s2")]);
   s.apply({
     event: "session:autopilot",
-    data: { id: "s1", paused: true, question: "Which provider?", enabled: true },
+    data: { id: "s1", paused: true, complete: false, question: "Which provider?", enabled: true },
   });
   const a = s.byId("s1");
   const b = s.byId("s2");
@@ -120,12 +121,26 @@ test("session:autopilot merges autopilot fields into the matching session", () =
   expect(a?.autopilotQuestion).toBe("Which provider?");
   expect(a?.autopilotEnabled).toBe(true);
   expect(b?.autopilotPaused).toBe(false); // other sessions untouched
+  // complete path
+  s.apply({
+    event: "session:autopilot",
+    data: {
+      id: "s1",
+      paused: false,
+      complete: true,
+      question: "Created issue #345.",
+      enabled: true,
+    },
+  });
+  expect(s.byId("s1")?.autopilotComplete).toBe(true);
+  expect(s.byId("s1")?.autopilotPaused).toBe(false);
   // clear path
   s.apply({
     event: "session:autopilot",
-    data: { id: "s1", paused: false, question: null, enabled: null },
+    data: { id: "s1", paused: false, complete: false, question: null, enabled: null },
   });
   expect(s.byId("s1")?.autopilotPaused).toBe(false);
+  expect(s.byId("s1")?.autopilotComplete).toBe(false);
   expect(s.byId("s1")?.autopilotQuestion).toBeNull();
   expect(s.byId("s1")?.autopilotEnabled).toBeNull();
 });

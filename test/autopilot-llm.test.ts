@@ -33,6 +33,15 @@ test("classifierPrompt embeds the tail + task and asks for the verdict file", ()
   expect(p).toContain(VERDICT_FILE);
   expect(p.toLowerCase()).toContain("gate");
   expect(p.toLowerCase()).toContain("question");
+  expect(p.toLowerCase()).toContain("complete");
+});
+
+test("classifyStop: parses a complete verdict (non-PR deliverable)", async () => {
+  const { deps } = makeDeps({
+    readVerdict: () => ({ kind: "complete", summary: "Created issue #345." }),
+  });
+  const v = await classifyStop(["Created the issue. Done."], "create an issue for X", deps, "l");
+  expect(v).toEqual({ kind: "complete", summary: "Created issue #345." });
 });
 
 test("classifyStop: parses a gate verdict; spawns haiku, dontAsk, Write-only", async () => {

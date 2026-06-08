@@ -30,7 +30,11 @@ export interface Session {
   autopilotStepCount: number;
   /** True when autopilot handed control back for a genuine question / step-cap. */
   autopilotPaused: boolean;
-  /** The classifier's 1–2 sentence summary of what the agent is waiting for; null when not paused. */
+  /** True when autopilot judged the task done with a non-PR deliverable (research / issue
+   *  creation / one-off answer) — a clean terminal "completed", distinct from a pause. */
+  autopilotComplete: boolean;
+  /** The classifier's 1–2 sentence hand-back summary — what the agent is waiting for (paused)
+   *  or what it delivered (complete); null in neither state. */
   autopilotQuestion: string | null;
   /** True when this session was auto-spawned by the drain queue. */
   auto: boolean;
@@ -151,11 +155,12 @@ export interface ReviewVerdict {
 }
 
 // ── autopilot mode ──────────────────────────────────────────────────────────
-export type AutopilotKind = "gate" | "question" | "finished" | "unknown";
+export type AutopilotKind = "gate" | "question" | "finished" | "complete" | "unknown";
 
 export interface AutopilotVerdict {
   kind: AutopilotKind;
-  /** 1–2 sentence plain-English description of what the agent is waiting for. */
+  /** 1–2 sentence plain-English description of what the agent is waiting for (or, for
+   *  "complete", what it delivered). */
   summary: string;
 }
 

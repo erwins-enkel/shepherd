@@ -9,7 +9,7 @@ export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot" | "autopilot-done";
   tag: string;
 }
 
@@ -21,6 +21,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   blocked: "agent",
   done: "agent",
   autopilot: "agent",
+  "autopilot-done": "agent",
   review: "reviews",
   "review-human": "reviews",
   ci: "ci",
@@ -28,7 +29,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot";
+  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot" | "autopilot-done";
   sessionId: string;
   tag: string;
   name: string;
@@ -39,7 +40,7 @@ export interface NotifyInput {
   ciState?: ChecksState;
   /** For kind "review-human": the human review state, selecting the body copy. */
   reviewState?: "approved" | "changes_requested" | "commented";
-  /** For kind "autopilot": the classifier's question summary (verbatim passthrough). */
+  /** For kind "autopilot"/"autopilot-done": the classifier's hand-back summary (verbatim). */
   summary?: string;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
@@ -78,6 +79,8 @@ const NOTIFY_TEXT = {
     humanCommented: "A reviewer left a comment.",
     autopilotTitle: (name: string) => `${name} — needs you`,
     autopilotFallback: "Autopilot paused for your input.",
+    autopilotDoneTitle: (name: string) => `${name} — complete`,
+    autopilotDoneFallback: "Autopilot finished — task complete, nothing to open as a PR.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -100,6 +103,8 @@ const NOTIFY_TEXT = {
     humanCommented: "Ein Reviewer hat einen Kommentar hinterlassen.",
     autopilotTitle: (name: string) => `${name} — braucht dich`,
     autopilotFallback: "Autopilot pausiert für deine Eingabe.",
+    autopilotDoneTitle: (name: string) => `${name} — fertig`,
+    autopilotDoneFallback: "Autopilot fertig — Aufgabe erledigt, kein PR zu öffnen.",
   },
 } as const;
 
@@ -164,6 +169,12 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         ...base,
         title: t.autopilotTitle(input.name),
         body: input.summary && input.summary.trim() ? input.summary : t.autopilotFallback,
+      };
+    case "autopilot-done":
+      return {
+        ...base,
+        title: t.autopilotDoneTitle(input.name),
+        body: input.summary && input.summary.trim() ? input.summary : t.autopilotDoneFallback,
       };
     default:
       return {

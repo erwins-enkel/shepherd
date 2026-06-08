@@ -145,6 +145,7 @@ export class HerdStore {
             ? {
                 ...s,
                 autopilotPaused: ev.data.paused,
+                autopilotComplete: ev.data.complete,
                 autopilotQuestion: ev.data.question,
                 autopilotEnabled: ev.data.enabled,
               }

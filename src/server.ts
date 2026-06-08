@@ -851,6 +851,7 @@ async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Respon
     deps.events.emit("session:autopilot", {
       id: parts[2],
       paused: updated.autopilotPaused,
+      complete: updated.autopilotComplete,
       question: updated.autopilotQuestion,
       enabled: updated.autopilotEnabled,
     });

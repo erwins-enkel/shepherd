@@ -1,4 +1,12 @@
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync, lstatSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  statSync,
+  lstatSync,
+  realpathSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -38,6 +46,30 @@ export function listRepos(repoRoot: string): RepoEntry[] {
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Map a realpath-resolved repo dir (e.g. from {@link safeRepoDir}, which follows
+ * symlinks) back to the path form {@link listRepos} enumerates — the raw
+ * `join(repoRoot, name)`. That raw form is the key the backlog counts cache and
+ * `buildBacklogPayload` read by, so a caller holding the realpath (the merge
+ * path) must reconcile to it or it writes/reads a *different* cache key under a
+ * symlinked repoRoot/repo — silently operating on a phantom entry.
+ *
+ * Matches by realpath-comparing each enumerated repo against `realDir`. Returns
+ * `realDir` unchanged when nothing matches (e.g. a repo outside repoRoot), so the
+ * caller still refreshes a sane key rather than dropping the request.
+ */
+export function listReposPathForReal(realDir: string, repoRoot: string): string {
+  const realpathOr = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p; // broken symlink / vanished entry — can't match, skip past it
+    }
+  };
+  const match = listRepos(repoRoot).find((r) => realpathOr(r.path) === realDir);
+  return match?.path ?? realDir;
 }
 
 const TODO = "TODO.md";

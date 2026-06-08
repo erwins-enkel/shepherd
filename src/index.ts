@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config, SESSION_RETENTION_MS, SESSION_RETENTION_KEEP } from "./config";
 import { SessionStore } from "./store";
@@ -32,7 +32,7 @@ import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
-import { listRepos } from "./repos";
+import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
 import { attachSignalCapture } from "./signals";
@@ -465,15 +465,7 @@ const server = serve(
     // piggyback on an in-flight pre-merge warm fetch and broadcast slightly stale
     // counts; the next warm tick reconciles. Acceptable for a freshness nudge.
     refreshBacklog: async (dir) => {
-      const realpathOr = (p: string) => {
-        try {
-          return realpathSync(p);
-        } catch {
-          return p;
-        }
-      };
-      const match = listRepos(config.repoRoot).find((r) => realpathOr(r.path) === dir);
-      await backlog.refresh(match?.path ?? dir);
+      await backlog.refresh(listReposPathForReal(dir, config.repoRoot));
       await broadcastBacklog();
     },
     distiller,

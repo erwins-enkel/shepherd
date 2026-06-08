@@ -86,6 +86,14 @@ test("consider no-ops when already approved", async () => {
   await h.svc.consider(planningSession() as any);
   expect(h.started.length).toBe(0);
 });
+test("consider re-reviews an error verdict even when the plan hash is unchanged", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({
+    store: { getPlanGate: () => ({ planHash: hash, approved: false, decision: "error" }) },
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(h.started.length).toBe(1); // an error verdict is retried, not deduped away
+});
 test("consider won't double-spawn while one is in flight", async () => {
   const h = harness();
   await Promise.all([
@@ -173,6 +181,27 @@ test("request-changes at cap → stops steering, emits stall signal", async () =
   await h.svc.tick();
   expect(steers.length).toBe(0); // at cap → no steer
   expect(signals.some((s) => s.kind === "stall")).toBe(true);
+});
+test("request-changes sub-cap but the steer can't land → stall signal, round held", async () => {
+  const signals: any[] = [];
+  const h = harness({
+    cap: 3,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    reply: () => false, // dead / unreachable pane — the steer never reaches the agent
+    store: {
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates instead of going silent
+  expect(h.store.gate.round).toBe(0); // round did not advance (nothing delivered)
 });
 test("timeout with no verdict → error gate, reaped, not released", async () => {
   let t = 1000;

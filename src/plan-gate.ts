@@ -164,7 +164,10 @@ export class PlanGateService {
       const planHash = await PlanGateService.hashPlan(plan);
       const prior = this.deps.store.getPlanGate(session.id);
       if (prior?.approved) return; // already cleared → execution allowed, don't re-review
-      if (prior?.planHash === planHash) return; // dedupe an unchanged plan
+      // Dedupe an unchanged plan — but NEVER skip past an `error` verdict. A timeout/unparseable
+      // run produced no real verdict, so re-running it (e.g. via the "Review plan now" button) must
+      // retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip's error carve-out.
+      if (prior?.planHash === planHash && prior.decision !== "error") return;
       await this.begin(session, plan, planHash, prior);
     } finally {
       this.starting.delete(session.id);
@@ -275,15 +278,28 @@ export class PlanGateService {
     }
     // Round advances only when the steer actually lands; at/over the cap it holds.
     gate.round = priorRound >= this.cap ? priorRound : delivered ? priorRound + 1 : priorRound;
-    // Escalate to the operator whenever the streak is at/over the cap — a plan stuck at the cap
-    // (or a steer that couldn't land at the cap boundary) can't make progress on its own. Fires on
-    // the crossing round and on any re-review that re-enters already at the cap.
     if (gate.round >= this.cap) {
+      // At/over the cap — a plan still unapproved after this many rounds can't progress on its own.
+      // Fires on the crossing round and on any re-review that re-enters already at the cap.
       this.deps.store.addSignal({
         repoPath: f.repoPath,
         sessionId: f.sessionId,
         kind: "stall",
         payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
+      });
+    } else if (!delivered) {
+      // Sub-cap but the steer didn't land (dead/unreachable pane): the findings never reached the
+      // planning agent and the round didn't advance, so it's stranded just like a cap stall rather
+      // than mid-revision. Escalate so it surfaces instead of silently going quiet.
+      console.warn(
+        `[plan-gate] changes-requested steer did not land for ${f.sessionId}; escalating`,
+      );
+      this.deps.store.addSignal({
+        repoPath: f.repoPath,
+        sessionId: f.sessionId,
+        kind: "stall",
+        payload:
+          "plan reviewer requested changes but the planning agent's pane was unreachable — needs a human",
       });
     }
     this.deps.store.putPlanGate(gate);

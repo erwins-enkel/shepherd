@@ -108,5 +108,4 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_plan_gate_body",
     targetId: "plan-gate",
   },
-
 ];

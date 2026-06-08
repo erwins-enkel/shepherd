@@ -270,8 +270,7 @@ export function composeSystemPrompt(
     blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
   }
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config).
-  if (opts.buildQueue != null)
-    blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
+  if (opts.buildQueue != null) blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
   return blocks.join("\n\n");
 }
 

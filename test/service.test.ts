@@ -1929,6 +1929,7 @@ function buildQueueDeps(
       autoAddressEnabled: false,
       learningsEnabled: false,
       autopilotEnabled: false,
+      planGateEnabled: false,
       autoDrainEnabled: false,
       autoMergeEnabled: false,
       buildQueueEnabled: false,

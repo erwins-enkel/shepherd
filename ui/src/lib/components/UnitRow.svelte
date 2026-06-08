@@ -507,7 +507,7 @@
      merge train, louder than the quiet muted text badges around it. */
   .badge.merging {
     color: var(--color-amber);
-    animation: pip-pulse 1.5s ease-out infinite;
+    animation: merge-pulse 1.5s ease-in-out infinite;
   }
 
   .elapsed {

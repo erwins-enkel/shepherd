@@ -704,23 +704,6 @@ export async function putBuildQueue(
   return r.json();
 }
 
-export async function setBuildStepStatus(
-  sessionId: string,
-  stepId: string,
-  status: BuildStepStatus,
-): Promise<BuildQueue> {
-  const r = await fetch(
-    `/api/sessions/${encodeURIComponent(sessionId)}/queue/steps/${encodeURIComponent(stepId)}`,
-    {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ status }),
-    },
-  );
-  if (!r.ok) throw await failed(r, "build-step status");
-  return r.json();
-}
-
 export async function approveBuildQueue(sessionId: string): Promise<BuildQueue> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/approve`, {
     method: "POST",

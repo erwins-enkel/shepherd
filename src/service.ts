@@ -224,8 +224,37 @@ export function composeSystemPrompt(
   return blocks.join("\n\n");
 }
 
+/**
+ * Base URL an agent uses to reach Shepherd's own API from inside its worktree.
+ * When the server binds to 0.0.0.0 (all interfaces) the loopback address is still
+ * the right target — the agent always runs on the same machine and 0.0.0.0 isn't
+ * a valid call target.
+ */
+function agentBaseUrl(): string {
+  return `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
+
+  /**
+   * Build the human-turn prompt: the user's text plus any attached images and the
+   * issue body, both appended out-of-band so they never count against the
+   * 8000-char human-prompt guard (the same approach for each).
+   */
+  private composePromptArg(input: CreateSessionInput, worktreePath: string): string {
+    let promptArg = input.prompt;
+    if (input.images.length > 0) {
+      const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
+      const moved = move(input.images, worktreePath);
+      promptArg = `${promptArg}\n\nAttached images:\n${moved.join("\n")}`;
+    }
+    if (input.issueRef) {
+      const r = input.issueRef;
+      promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
+    }
+    return promptArg;
+  }
 
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when
    *  none / learnings disabled. Injected into every new agent's system prompt
@@ -253,18 +282,7 @@ export class SessionService {
       // before the store row exists — the store.create() call below receives this id explicitly.
       const sessionId = randomUUID();
 
-      let promptArg = input.prompt;
-      if (input.images.length > 0) {
-        const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
-        const moved = move(input.images, wt.worktreePath);
-        promptArg = `${promptArg}\n\nAttached images:\n${moved.join("\n")}`;
-      }
-      // Attach the issue body out-of-band so it never counts against the
-      // 8000-char human-prompt guard — same approach as images above.
-      if (input.issueRef) {
-        const r = input.issueRef;
-        promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
-      }
+      const promptArg = this.composePromptArg(input, wt.worktreePath);
 
       // Shepherd-curated house rules go into the system prompt (not the human turn) so every
       // spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the repo's
@@ -275,15 +293,10 @@ export class SessionService {
       const houseRules = this.houseRules(input.repoPath);
       const autopilotActive = repoConfig.autopilotEnabled;
       const buildQueueEnabled = repoConfig.buildQueueEnabled;
-
-      // Build the base URL the agent will use to reach the queue API. When the server binds
-      // to 0.0.0.0 (all interfaces) the loopback address is still the right target for the
-      // agent — it's always running on the same machine and 0.0.0.0 isn't a valid call target.
-      const baseUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
       const buildQueueDirectiveText = buildQueueEnabled
         ? buildQueueDirective({
             sessionId,
-            baseUrl,
+            baseUrl: agentBaseUrl(),
             token: config.token,
             autopilot: autopilotActive,
           })

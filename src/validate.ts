@@ -360,6 +360,38 @@ const STEP_DETAIL_MAX = 4000;
 const STEP_ID_MAX = 200;
 const STEPS_MAX = 100;
 
+/** A trimmed string within [min,max] length, or null when not a string / out of range. */
+function boundedString(v: unknown, max: number, allowEmpty: boolean): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t.length > max || (!allowEmpty && t.length === 0)) return null;
+  return t;
+}
+
+/** Validate + normalize a single queue-step input. Returns null on any violation. */
+function validateBuildStepItem(it: unknown): BuildStepInput | null {
+  if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+  const s = it as Record<string, unknown>;
+  const title = boundedString(s.title, STEP_TITLE_MAX, false);
+  if (title === null) return null;
+  const step: BuildStepInput = { title };
+  if (s.detail !== undefined) {
+    const detail = boundedString(s.detail, STEP_DETAIL_MAX, true);
+    if (detail === null) return null;
+    step.detail = detail;
+  }
+  if (s.id !== undefined) {
+    const id = boundedString(s.id, STEP_ID_MAX, false);
+    if (id === null) return null;
+    step.id = id;
+  }
+  if (s.status !== undefined) {
+    if (!(BUILD_STEP_STATUSES as readonly string[]).includes(s.status as string)) return null;
+    step.status = s.status as BuildStepStatus;
+  }
+  return step;
+}
+
 /** Validate + normalize a PUT /api/sessions/:id/queue body. Returns null on any violation. */
 export function validateBuildSteps(body: unknown): BuildStepInput[] | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
@@ -367,28 +399,8 @@ export function validateBuildSteps(body: unknown): BuildStepInput[] | null {
   if (!Array.isArray(o.steps) || o.steps.length > STEPS_MAX) return null;
   const out: BuildStepInput[] = [];
   for (const it of o.steps) {
-    if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
-    const s = it as Record<string, unknown>;
-    if (typeof s.title !== "string") return null;
-    const title = s.title.trim();
-    if (title.length === 0 || title.length > STEP_TITLE_MAX) return null;
-    const step: BuildStepInput = { title };
-    if (s.detail !== undefined) {
-      if (typeof s.detail !== "string") return null;
-      const detail = s.detail.trim();
-      if (detail.length > STEP_DETAIL_MAX) return null;
-      step.detail = detail;
-    }
-    if (s.id !== undefined) {
-      if (typeof s.id !== "string") return null;
-      const id = s.id.trim();
-      if (id.length === 0 || id.length > STEP_ID_MAX) return null;
-      step.id = id;
-    }
-    if (s.status !== undefined) {
-      if (!(BUILD_STEP_STATUSES as readonly string[]).includes(s.status as string)) return null;
-      step.status = s.status as BuildStepStatus;
-    }
+    const step = validateBuildStepItem(it);
+    if (step === null) return null;
     out.push(step);
   }
   return out;

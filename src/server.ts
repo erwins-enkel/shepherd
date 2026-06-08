@@ -914,55 +914,58 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
 const APPROVE_STEER =
   "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done via the build-queue API as you go (see the build-queue instructions in your system prompt). If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
 
+// PUT /api/sessions/:id/queue — replace the full step list.
+async function putBuildQueue(req: Request, deps: AppDeps, id: string): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const steps = validateBuildSteps(await req.json().catch(() => null));
+  if (steps === null) return json({ error: "invalid build steps" }, 400);
+  const q = deps.store.replaceBuildQueue(id, steps);
+  deps.events?.emit("queue:update", q);
+  return json(q);
+}
+
+// POST /api/sessions/:id/queue/steps/:stepId — set a single step's status.
+async function postBuildStepStatus(
+  req: Request,
+  deps: AppDeps,
+  id: string,
+  stepId: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const status = validateBuildStepStatus(await req.json().catch(() => null));
+  if (status === null) return json({ error: "invalid status" }, 400);
+  if (!deps.store.setBuildStepStatus(id, stepId, status)) {
+    return json({ error: "step not found" }, 404);
+  }
+  const q = deps.store.getBuildQueue(id);
+  deps.events?.emit("queue:update", q);
+  return json(q);
+}
+
+// POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
+function approveBuildQueue(deps: AppDeps, id: string): Response {
+  deps.store.setBuildQueueApproved(id, true);
+  const q = deps.store.getBuildQueue(id);
+  deps.events?.emit("queue:update", q);
+  deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
+  return json(q);
+}
+
 // /api/sessions/:id/queue[/steps/:stepId | /approve]
 // Returns null for any path it doesn't own so other session sub-routes fall through.
 async function handleBuildQueue({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "queue")) return null;
-
   const id = parts[2];
   if (!id) return null;
   if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
 
-  // GET /api/sessions/:id/queue
-  if (req.method === "GET" && !parts[4]) {
-    return json(deps.store.getBuildQueue(id));
-  }
-
-  // PUT /api/sessions/:id/queue — replace the full step list
-  if (req.method === "PUT" && !parts[4]) {
-    const ctErr = requireJsonContentType(req);
-    if (ctErr) return ctErr;
-    const body = await req.json().catch(() => null);
-    const steps = validateBuildSteps(body);
-    if (steps === null) return json({ error: "invalid build steps" }, 400);
-    const q = deps.store.replaceBuildQueue(id, steps);
-    deps.events?.emit("queue:update", q);
-    return json(q);
-  }
-
-  // POST /api/sessions/:id/queue/steps/:stepId — set a single step's status
-  if (req.method === "POST" && parts[4] === "steps" && parts[5]) {
-    const ctErr = requireJsonContentType(req);
-    if (ctErr) return ctErr;
-    const body = await req.json().catch(() => null);
-    const status = validateBuildStepStatus(body);
-    if (status === null) return json({ error: "invalid status" }, 400);
-    const ok = deps.store.setBuildStepStatus(id, parts[5], status);
-    if (!ok) return json({ error: "step not found" }, 404);
-    const q = deps.store.getBuildQueue(id);
-    deps.events?.emit("queue:update", q);
-    return json(q);
-  }
-
-  // POST /api/sessions/:id/queue/approve — human gate: approve + steer agent
-  if (req.method === "POST" && parts[4] === "approve") {
-    deps.store.setBuildQueueApproved(id, true);
-    const q = deps.store.getBuildQueue(id);
-    deps.events?.emit("queue:update", q);
-    deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
-    return json(q);
-  }
-
+  if (req.method === "GET" && !parts[4]) return json(deps.store.getBuildQueue(id));
+  if (req.method === "PUT" && !parts[4]) return putBuildQueue(req, deps, id);
+  if (req.method === "POST" && parts[4] === "steps" && parts[5])
+    return postBuildStepStatus(req, deps, id, parts[5]);
+  if (req.method === "POST" && parts[4] === "approve") return approveBuildQueue(deps, id);
   return null;
 }
 

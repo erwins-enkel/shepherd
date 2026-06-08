@@ -7,6 +7,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import { effectiveAutopilot } from "./effective-autopilot";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
@@ -81,7 +82,7 @@ export interface PlanGateServiceDeps {
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
   /** Steer reviewer findings into the live planning agent's PTY (SessionService.reply). */
   reply: (sessionId: string, text: string) => boolean;
-  /** Release an APPROVED auto session into execution (SessionService.releasePlanGate). */
+  /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate). */
   release: (sessionId: string) => void;
   onChange: (id: string, gate: PlanGate) => void;
   /** Fired when a plan review starts (true) and when it ends (false) for a session. */
@@ -256,12 +257,18 @@ export class PlanGateService {
     }
   }
 
-  /** Persist an approved gate; auto sessions clear straight into execution, interactive ones
-   *  wait for the human's explicit Go (so we do NOT release them here). */
+  /** Persist an approved gate. A session meant to run hands-free — drain-spawned (auto) OR
+   *  autopilot-enabled — clears straight into execution; a purely interactive (autopilot-off)
+   *  session waits for the operator's explicit Go (so we do NOT release it here). */
   private applyApproved(f: PlanInFlight, gate: PlanGate): void {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
-    if (this.deps.store.get(f.sessionId)?.auto === true) this.deps.release(f.sessionId);
+    const s = this.deps.store.get(f.sessionId);
+    if (
+      s &&
+      (s.auto || effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled))
+    )
+      this.deps.release(f.sessionId);
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop

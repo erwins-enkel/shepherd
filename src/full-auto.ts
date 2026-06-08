@@ -1,5 +1,6 @@
 import type { Session } from "./types";
 import type { RepoConfig } from "./store";
+import { effectiveAutopilot } from "./effective-autopilot";
 
 /**
  * A session is "full-auto" — the merge train carries its PR all the way to a merge — when
@@ -13,7 +14,7 @@ export function isFullAuto(
   s: Pick<Session, "autopilotEnabled" | "autoMergeEnabled">,
   cfg: Pick<RepoConfig, "autopilotEnabled" | "autoMergeEnabled">,
 ): boolean {
-  const autopilot = s.autopilotEnabled ?? cfg.autopilotEnabled;
+  const autopilot = effectiveAutopilot(s, cfg.autopilotEnabled);
   const merge = s.autoMergeEnabled ?? cfg.autoMergeEnabled;
   return autopilot && merge;
 }

@@ -133,6 +133,62 @@ test("approve on an interactive session does NOT auto-release", async () => {
   expect(h.store.gate.approved).toBe(true);
   expect(released).toEqual([]);
 });
+test("approve → autopilot override ON (non-drain) auto-releases", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({ id: "s1", auto: false, autopilotEnabled: true, repoPath: "/r" }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual(["s1"]);
+});
+test("approve → autopilot override OFF does NOT auto-release", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({ id: "s1", auto: false, autopilotEnabled: false, repoPath: "/r" }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: true }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual([]);
+});
+test("approve → autopilot inherited from repo default ON auto-releases", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({ id: "s1", auto: false, autopilotEnabled: null, repoPath: "/r" }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: true }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual(["s1"]);
+});
+test("approve → autopilot inherited from repo default OFF does NOT auto-release", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({ id: "s1", auto: false, autopilotEnabled: null, repoPath: "/r" }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual([]);
+});
 test("request-changes → steers findings to the live agent, round++, not released, not approved", async () => {
   const steers: string[] = [];
   const h = harness({

@@ -634,15 +634,6 @@ export async function setSessionAutopilot(id: string, enabled: boolean | null): 
   if (!r.ok) throw new Error(`autopilot toggle failed: ${r.status}`);
 }
 
-export async function setSessionAutoMerge(id: string, enabled: boolean | null): Promise<void> {
-  const r = await fetch(`/api/sessions/${id}/automerge`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ enabled }),
-  });
-  if (!r.ok) throw new Error(`automerge toggle failed: ${r.status}`);
-}
-
 /** Bootstrap: per-repo automerge status (mirrors GET /api/drain). */
 export async function getAutoMerge(): Promise<AutoMergeStatus[]> {
   return getJson("/api/automerge", "automerge");

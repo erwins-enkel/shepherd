@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { marked } from "marked";
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import { releasePlanGate, reviewPlan } from "$lib/api";
@@ -15,10 +14,37 @@
   // Manual re-review only makes sense while still planning (not once executing).
   const canReviewNow = $derived(session.planPhase === "planning");
 
-  // Render the plan + reviewer body as markdown (the server writes markdown).
-  // marked is synchronous here (no async extensions configured).
-  const planHtml = $derived(gate?.plan ? (marked.parse(gate.plan) as string) : "");
-  const bodyHtml = $derived(gate?.body ? (marked.parse(gate.body) as string) : "");
+  // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
+  // agent-authored — the planning agent and the reviewer ingest untrusted input (issue
+  // bodies, repo contents), so their markdown is untrusted and must be scrubbed of any
+  // embedded HTML/scripts. Mirrors GitRail's critic-body render: marked + DOMPurify are
+  // dynamically imported on first render (off the critical path; the browser-only
+  // sanitizer never runs during SSR).
+  let planHtml = $state("");
+  let bodyHtml = $state("");
+  $effect(() => {
+    const plan = gate?.plan ?? "";
+    const body = gate?.body ?? "";
+    if (!plan && !body) {
+      planHtml = "";
+      bodyHtml = "";
+      return;
+    }
+    let alive = true;
+    Promise.all([import("marked"), import("dompurify")])
+      .then(([{ marked }, { default: DOMPurify }]) => {
+        if (!alive) return;
+        planHtml = plan ? DOMPurify.sanitize(marked.parse(plan, { async: false }) as string) : "";
+        bodyHtml = body ? DOMPurify.sanitize(marked.parse(body, { async: false }) as string) : "";
+      })
+      .catch((err) => {
+        // Markdown render is progressive enhancement; warn so a broken load isn't swallowed.
+        console.warn("plan markdown render failed", err);
+      });
+    return () => {
+      alive = false;
+    };
+  });
 
   let busy = $state(false);
 
@@ -67,7 +93,7 @@
 
     <section class="plan">
       {#if planHtml}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer/plan markdown, server-authored -->
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
         <div class="md">{@html planHtml}</div>
       {:else}
         <p class="empty">{m.planpanel_empty()}</p>
@@ -81,7 +107,7 @@
           <p class="summary">{gate.summary}</p>
         {/if}
         {#if bodyHtml}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, server-authored -->
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->
           <div class="md">{@html bodyHtml}</div>
         {/if}
         {#if gate.findings.length > 0}

@@ -116,7 +116,12 @@ export interface ReviewServiceDeps {
    * disabled regardless of per-repo config.
    */
   autoAddress?: (sessionId: string, text: string) => boolean;
-  cap?: number; // max auto-address rounds before escalating to the human (default 3)
+  /**
+   * Max auto-address rounds before escalating to the human (default 3). Pass a thunk to
+   * read a live, UI-configurable value per-use — the cap is resolved on every read so a
+   * settings change takes effect on the next critic run without a restart.
+   */
+  cap?: number | (() => number);
   model?: string | null; // optional --model for the critic
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
@@ -143,14 +148,21 @@ export class ReviewService {
   private starting = new Set<string>();
   private now: () => number;
   private timeoutMs: number;
-  private cap: number;
+  // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
+  // next critic run. A plain number or absent dep collapses to a constant thunk.
+  private capFn: () => number;
+  private get cap(): number {
+    return this.capFn();
+  }
   private readVerdict: (worktreePath: string) => RawVerdict | null;
   private computePatchId: (worktreePath: string, base: string) => string | null;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
-    this.cap = deps.cap ?? DEFAULT_CAP;
+    // capture into a const so the constant-thunk closure keeps the narrowed type.
+    const cap = deps.cap;
+    this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
   }

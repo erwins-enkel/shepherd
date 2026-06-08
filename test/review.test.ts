@@ -855,6 +855,20 @@ test("verdict surfaces the configured cap so the UI need not mirror it", async (
   expect(reviews["s1"]?.addressCap).toBe(5); // ReviewService({cap}) → verdict payload
 });
 
+test("a cap thunk is resolved live so a settings change applies without a restart", async () => {
+  let live = 3; // stands in for config.reviewCyclesCap
+  const { deps: d, reviews } = makeDeps({ cap: () => live });
+  const svc = new ReviewService(d as any);
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressCap).toBe(3); // first run reads the thunk's current value
+  live = 7; // operator bumps the global setting mid-run
+  delete reviews["s1"]; // force a fresh verdict on the next run
+  svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.addressCap).toBe(7); // new cap takes effect, no reconstruction
+});
+
 test("re-review injects only author notes not already shown on an earlier round", async () => {
   const {
     deps: d,

@@ -102,6 +102,14 @@ describe("config", () => {
     expect(cfg.routingRules).toEqual([]);
   });
 
+  it("ignores a non-object stored signals, falling back to the defaults", async () => {
+    // A non-object can't throw but would spread garbage keys (a string →
+    // {0:"…"}); coerce to {} so the toggles stay the clean default shape.
+    installChromeStub({ captureConfig: { signals: "screenshot" } });
+    const cfg = await loadConfig();
+    expect(cfg.signals).toEqual(DEFAULT_CONFIG.signals);
+  });
+
   it("preserves a valid stored routingRules array", async () => {
     const rules = [{ pattern: "https://github.com/*", repoPath: "~/Work/gh" }];
     installChromeStub({ captureConfig: { routingRules: rules } });

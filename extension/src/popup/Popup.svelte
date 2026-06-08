@@ -94,9 +94,6 @@
       view = "needs-config";
       return;
     }
-    // Kick off the connection probe fire-and-forget (no await): it updates `conn`
-    // when it settles and must never delay or gate the capture flow below.
-    void checkConnection(cfg);
     // A remote (ts.net) host's optional permission can be revoked from
     // chrome://extensions after it was configured; without it the spawn fetch
     // fails with a generic "unreachable". Detect it up front and offer a
@@ -105,6 +102,13 @@
       view = "needs-host";
       return;
     }
+    // Kick off the connection probe fire-and-forget (no await): it updates `conn`
+    // when it settles and must never delay or gate the capture flow below. Gated
+    // on the host-permission check above so a revoked-permission remote host shows
+    // only the needs-host re-grant view, not a redundant "not-linked" badge — the
+    // probe would fail anyway (Chrome blocks the fetch without the grant). A
+    // successful re-grant re-runs init(), which then fires this probe.
+    void checkConnection(cfg);
     toggles = { ...cfg.signals };
     recorderAvailable = await hasAllUrls();
     if (!recorderAvailable) {

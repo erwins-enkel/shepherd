@@ -1704,6 +1704,24 @@ test("composeSystemPrompt always injects the engineering-posture block, with or 
   expect(withoutRules).not.toContain(`<${HOUSE_RULES_TAG}>`);
 });
 
+test("composeSystemPrompt always injects the research-first notice, with or without house rules", () => {
+  // Fixed standing guidance (issue #347), not a per-repo learning, so it rides every spawn
+  // regardless of the learnings toggle / house-rules state — i.e. even when houseRules is null.
+  const withoutRules = composeSystemPrompt(null);
+  const withRules = composeSystemPrompt(
+    `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`,
+  );
+  for (const sp of [withoutRules, withRules]) {
+    expect(sp).toContain("<research-first-notice>");
+    expect(sp).toContain("</research-first-notice>");
+    // Scoped to non-trivial external API work, with the "note what you found" half intact.
+    expect(sp).toContain("do a quick web search to confirm the present best approach");
+    expect(sp).toContain("Skip this for trivial edits");
+  }
+  // Rides unconditionally, like the autopilot-independent posture/branch blocks.
+  expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");
+});
+
 test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", () => {
   const store = new SessionStore(":memory:");
   let startCalls = 0;

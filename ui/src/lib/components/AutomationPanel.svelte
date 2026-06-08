@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { m } from "$lib/paraglide/messages";
-  import { reviews, repoConfig } from "$lib/reviews.svelte";
+  import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import type { Session } from "$lib/types";
 
@@ -13,6 +13,7 @@
 
   const flags = $derived(repoConfig.flags(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
+  const planReviewing = $derived(planGates.isReviewing(sessionId));
 
   // The panel's switches are repo-level defaults; the plan gate is also a per-task
   // one-shot set at creation. Surface THIS task's actual gate phase so a tick in
@@ -121,10 +122,11 @@
       {/if}
     </div>
     <button
-      class={["sw", { on: flags.planGate }]}
+      class={["sw", { on: flags.planGate, reviewing: planReviewing }]}
       type="button"
       role="switch"
       aria-checked={flags.planGate}
+      aria-busy={planReviewing}
       aria-label={m.automation_plan_gate_name()}
       onclick={() => repoConfig.togglePlanGate(repoPath)}
     >

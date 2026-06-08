@@ -42,6 +42,10 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
+// The plan-gate reviewing store drives the auto-pill pulse for plan reviews,
+// mirroring the critic (reviews) store. Imported from the same module the
+// component reads so toggling it reactively updates the rendered pill.
+const { planGates } = await import("$lib/reviews.svelte");
 
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
 // local agree. The rail mounts into a fixed-width host cell (a session row's git
@@ -290,5 +294,37 @@ describe("GitRail — controls stay within the cell", () => {
     await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
 
     assertControlsWithin(h);
+  });
+});
+
+describe("GitRail — plan review pulses the automation pill", () => {
+  afterEach(() => {
+    // store is module-global; clear so reviewing state can't leak between tests
+    planGates.drop(baseProps.sessionId);
+  });
+
+  it("toggles the .auto-pill reviewing class + aria-busy when a plan review is in flight", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    // rail (and the pill) only renders once the mocked gitState resolves on mount
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const pill = h.querySelector<HTMLButtonElement>("button.auto-pill");
+    expect(pill, "auto-pill present").not.toBeNull();
+    expect(pill!.classList.contains("reviewing"), "not pulsing initially").toBe(false);
+
+    // plan reviewer goes in flight → pill pulses
+    planGates.applyReviewing(baseProps.sessionId, true);
+    await expect.element(pill!).toHaveClass(/reviewing/);
+    expect(pill!.getAttribute("aria-busy")).toBe("true");
+
+    // plan review lands → pulse clears
+    planGates.applyReviewing(baseProps.sessionId, false);
+    await vi.waitFor(() =>
+      expect(pill!.classList.contains("reviewing"), "pulse cleared").toBe(false),
+    );
+    expect(pill!.getAttribute("aria-busy")).toBe("false");
   });
 });

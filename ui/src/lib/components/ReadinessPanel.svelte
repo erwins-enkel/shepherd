@@ -321,6 +321,7 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
+  /* Band label color tracks the score ring so the two readouts agree. */
   .score-band {
     font-size: var(--fs-base);
     font-weight: 600;
@@ -328,6 +329,13 @@
   }
   .score-band.low {
     color: var(--color-red);
+  }
+  .score-band.fair {
+    color: var(--color-amber, #d2a64a);
+  }
+  .score-band.good,
+  .score-band.strong {
+    color: var(--color-green, #5aa86b);
   }
   .score-summary {
     font-size: var(--fs-meta);

@@ -51,7 +51,9 @@
   // PR-CI-running and critic-reviewing in-flight groups, then the parked
   // ready-to-merge (green) and landed merged (blue) groups at the bottom.
   // reviews.reviewing is $state, so this re-derives on `session:reviewing` events.
-  const partition = $derived(partitionSessions(shown, git, (id) => reviews.isReviewing(id)));
+  // nowMs (the reactive clock tick) is threaded in so the Merging group re-partitions
+  // as the per-session merge TTL elapses, matching the badge/pip which also use nowMs.
+  const partition = $derived(partitionSessions(shown, git, (id) => reviews.isReviewing(id), nowMs));
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   const readyPrCount = $derived(collectReadyPrs(shown, git).length);
@@ -149,6 +151,22 @@
           {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
         </div>
         {#each partition.awaitingMerge as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            activity={activity[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.merging.length > 0}
+        <div class="merging-head micro">
+          {m.herd_merging_group({ count: partition.merging.length })}
+        </div>
+        {#each partition.merging as session (session.id)}
           <UnitRow
             {session}
             selected={session.id === selectedId}
@@ -284,7 +302,8 @@
   /* amber section headers for the in-flight stages (PR CI running, critic
      reviewing) — amber mirrors the CI-pending dot and the critic badge */
   .ci-head,
-  .reviewing-head {
+  .reviewing-head,
+  .merging-head {
     display: flex;
     align-items: center;
     padding: 10px 8px 6px;

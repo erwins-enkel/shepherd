@@ -350,3 +350,40 @@ test("pruneArchivedSessions: legacy archived row with null archivedAt expires vi
   expect(removed).toBe(1);
   expect(s.get(a.id)).toBeNull();
 });
+
+function newMergeInput() {
+  return {
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "a",
+  };
+}
+
+test("merging fields default null and round-trip through update", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(newMergeInput());
+  expect(s.mergingSince).toBeNull();
+  expect(s.mergingTrainId).toBeNull();
+
+  store.update(s.id, { mergingSince: 1234, mergingTrainId: "train-1" });
+  const got = store.get(s.id)!;
+  expect(got.mergingSince).toBe(1234);
+  expect(got.mergingTrainId).toBe("train-1");
+
+  // a later unrelated update preserves them (mirrors readyToMerge survival)
+  store.update(s.id, { status: "idle" });
+  const after = store.get(s.id)!;
+  expect(after.mergingSince).toBe(1234);
+  expect(after.mergingTrainId).toBe("train-1");
+
+  store.update(s.id, { mergingSince: null, mergingTrainId: null });
+  const cleared = store.get(s.id)!;
+  expect(cleared.mergingSince).toBeNull();
+  expect(cleared.mergingTrainId).toBeNull();
+});

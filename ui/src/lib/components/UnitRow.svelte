@@ -7,6 +7,7 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge } from "$lib/format";
+  import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
@@ -129,7 +130,11 @@
     type="button"
   >
     <div class="pip-col">
-      <StatusPip status={session.status} ready={session.readyToMerge} />
+      <StatusPip
+        status={session.status}
+        ready={session.readyToMerge}
+        merging={isMerging(session, nowMs)}
+      />
     </div>
 
     <div class="u-main">
@@ -161,7 +166,9 @@
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
       <AutopilotBadge {session} />
-      {#if session.readyToMerge}
+      {#if isMerging(session, nowMs)}
+        <span class="badge merging">{m.status_merging()}</span>
+      {:else if session.readyToMerge}
         <span class="badge">{m.status_ready_to_merge()}</span>
       {:else if !hideStatus}
         <span class="badge">{statusLabel(session.status)}</span>
@@ -492,6 +499,13 @@
     text-transform: uppercase;
     color: var(--color-muted);
     white-space: nowrap;
+  }
+
+  /* MERGING: the one colored, moving badge — amber + pulse marks the in-flight
+     merge train, louder than the quiet muted text badges around it. */
+  .badge.merging {
+    color: var(--color-amber);
+    animation: pip-pulse 1.5s ease-out infinite;
   }
 
   .elapsed {

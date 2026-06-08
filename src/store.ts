@@ -73,6 +73,8 @@ type NewSession = Omit<
   | "model"
   | "claudeSessionId"
   | "readyToMerge"
+  | "mergingSince"
+  | "mergingTrainId"
   | "autopilotEnabled"
   | "autopilotStepCount"
   | "autopilotPaused"
@@ -90,7 +92,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotQuestion,
   auto, issueNumber,
-  createdAt, updatedAt, archivedAt`;
+  createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
 export class SessionStore implements CapStore {
   private db: Database;
@@ -314,9 +316,11 @@ export class SessionStore implements CapStore {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      mergingSince: null,
+      mergingTrainId: null,
     };
     this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         s.id,
         s.desig,
@@ -343,6 +347,8 @@ export class SessionStore implements CapStore {
         s.createdAt,
         s.updatedAt,
         s.archivedAt,
+        s.mergingSince,
+        s.mergingTrainId,
       ],
     );
     return s;
@@ -363,14 +369,24 @@ export class SessionStore implements CapStore {
   update(
     id: string,
     patch: Partial<
-      Pick<Session, "name" | "status" | "lastState" | "branch" | "herdrAgentId" | "readyToMerge">
+      Pick<
+        Session,
+        | "name"
+        | "status"
+        | "lastState"
+        | "branch"
+        | "herdrAgentId"
+        | "readyToMerge"
+        | "mergingSince"
+        | "mergingTrainId"
+      >
     >,
   ) {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -378,6 +394,8 @@ export class SessionStore implements CapStore {
         next.branch,
         next.herdrAgentId,
         next.readyToMerge ? 1 : 0,
+        next.mergingSince,
+        next.mergingTrainId,
         next.updatedAt,
         id,
       ],
@@ -633,6 +651,8 @@ export class SessionStore implements CapStore {
     add("autopilotQuestion", `autopilotQuestion TEXT`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
+    add("mergingSince", `mergingSince INTEGER`);
+    add("mergingTrainId", `mergingTrainId TEXT`);
   }
 
   // migrate repo_config that predates these opt-in columns. auto-address defaults
@@ -882,6 +902,8 @@ export class SessionStore implements CapStore {
       autopilotQuestion: r.autopilotQuestion ?? null,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
+      mergingSince: r.mergingSince ?? null,
+      mergingTrainId: r.mergingTrainId ?? null,
     } as Session;
   }
 }

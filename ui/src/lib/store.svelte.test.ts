@@ -28,6 +28,8 @@ function session(id: string): Session {
     model: null,
     status: "running",
     readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,
@@ -365,6 +367,18 @@ test("session:activity replaces an existing entry (latest wins)", () => {
   s.apply({ event: "session:activity", data: { id: "s1", activity: updated } });
   expect(s.activity["s1"]?.lastActivityTs).toBe(2000);
   expect(s.activity["s1"]?.summary).toBe("$ bun test");
+});
+
+test("session:merging sets and clears the mark", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({ event: "session:merging", data: { id: "s1", since: 111, trainId: "train-1" } });
+  expect(s.byId("s1")?.mergingSince).toBe(111);
+  expect(s.byId("s1")?.mergingTrainId).toBe("train-1"); // trainId carried live, not left null
+  expect(s.byId("s2")?.mergingSince).toBeNull(); // other sessions untouched
+  s.apply({ event: "session:merging", data: { id: "s1", since: null, trainId: null } });
+  expect(s.byId("s1")?.mergingSince).toBeNull();
+  expect(s.byId("s1")?.mergingTrainId).toBeNull();
 });
 
 test("session:archived drops the activity entry for that session", () => {

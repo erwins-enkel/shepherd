@@ -20,6 +20,8 @@ const SESSION: Session = {
   claudeSessionId: "c1",
   model: null,
   readyToMerge: false,
+  mergingSince: null,
+  mergingTrainId: null,
   autopilotEnabled: null,
   autopilotStepCount: 0,
   autopilotPaused: false,

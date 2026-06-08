@@ -16,6 +16,7 @@
     onquick = undefined,
     onpr,
     onadopt,
+    flow = false,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -27,6 +28,9 @@
     onpr: (repoPath: string, pr: PullRequest) => void;
     /** Seed a New Task with the AI-readiness install prescription (Readiness tab). */
     onadopt: (repoPath: string, prompt: string) => void;
+    /** When true, renders at natural height for parent-page scrolling (mobile list);
+     *  default false preserves existing viewport-filling behavior. */
+    flow?: boolean;
   } = $props();
 
   type Tab = "issues" | "prs" | "actions" | "readiness";
@@ -97,7 +101,7 @@
   }
 </script>
 
-<div class="backlog-view" class:mobile>
+<div class="backlog-view" class:mobile class:flow>
   {#if payload === null}
     <!-- loading state -->
     <div class="state-full">
@@ -475,6 +479,12 @@
   /* BacklogView must be position:relative so the overlay is contained */
   .backlog-view.mobile {
     position: relative;
+  }
+
+  /* flow mode: render at natural height for parent-page scrolling (mobile list) */
+  .backlog-view.flow {
+    height: auto;
+    overflow: visible;
   }
 
   .overlay-head {

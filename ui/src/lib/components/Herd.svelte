@@ -20,6 +20,7 @@
     onmergetrain = undefined,
     standardCommandUnset = false,
     onsettings = undefined,
+    flow = false,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -39,6 +40,9 @@
     // is set → surface a quiet nudge pointing at Settings.
     standardCommandUnset?: boolean;
     onsettings?: () => void;
+    // when true, the session list renders at natural height (no internal scroll)
+    // so the parent page can drive scrolling; default false preserves existing behavior
+    flow?: boolean;
   } = $props();
 
   // sidebar list filter: "all" or "ready" (only sessions not actively working —
@@ -89,7 +93,7 @@
       >
     </div>
   </div>
-  <div class="units">
+  <div class="units" class:flow>
     {#if sessions.length === 0}
       <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
     {:else if shown.length === 0}
@@ -389,6 +393,13 @@
     /* size context for UnitRow's container queries — lets rows adapt the
        designator to the actual sidebar width (compact vs desktop) */
     container: herd / inline-size;
+  }
+
+  /* flow mode: render at natural height for parent-page scrolling (mobile list) */
+  .units.flow {
+    overflow: visible;
+    flex: none;
+    min-height: auto;
   }
 
   .empty {

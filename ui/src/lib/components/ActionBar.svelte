@@ -229,8 +229,16 @@
     background: var(--color-inset);
     border-color: var(--color-amber);
   }
+  /* Mobile list document-scrolls: the herd/backlog above flex-fills the viewport
+     when the list is short, keeping the bar at the bottom; position:sticky pins
+     the bar to the viewport bottom while scrolling a long list. padding-bottom
+     clears the gesture-nav safe-area inset. */
   .actions.mobile {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     padding: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   .actions.mobile .btn.primary {
     flex: 1;

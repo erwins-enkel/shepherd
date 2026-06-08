@@ -22,6 +22,7 @@
   import { composeKeystrokes } from "$lib/compose";
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { detectNotesKey } from "$lib/notesAffordance";
+  import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -126,6 +127,12 @@
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
   // buffer switch, and a jump-to-bottom.
   let scrollDepth = 0;
+  // agent-owned regime only: new output landed while the reader was scrolled up
+  // (any amount). xterm's viewport stays pinned there, so a sub-threshold nudge
+  // followed by fresh agent output — common while the pane is backgrounded —
+  // would otherwise never surface the jump-to-bottom button. Plain (non-reactive)
+  // like scrollDepth; cleared when the reader is back at the bottom or jumps down.
+  let contentBelowScroll = false;
   let dragging = $state(false);
   // The key to press for Claude's "add notes" prompt option, scraped live from
   // the painted screen (null when the prompt isn't offering it). On a phone
@@ -457,6 +464,7 @@
       term.scrollToBottom();
     }
     scrollDepth = 0;
+    contentBelowScroll = false;
     scrolledUp = false;
   }
 
@@ -557,6 +565,7 @@
     parked = false; // fresh attach for this unit
     scrolledUp = false; // fresh terminal starts pinned to the bottom
     scrollDepth = 0;
+    contentBelowScroll = false;
     notesKey = null; // no prompt scraped yet on this fresh terminal
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
@@ -780,20 +789,36 @@
     });
     ro.observe(el);
 
-    // track scroll position so we can offer a jump-to-bottom button. When the
-    // agent owns the scroll (alternate screen, or mouse-tracking on the normal
-    // buffer like Claude Code) it forwards wheel input to the app and xterm's
-    // viewport never moves, so we lean on the gesture accumulator. Otherwise the
-    // normal buffer carries scrollback → read xterm's viewport offset directly.
-    const SCROLL_UP_PX = 30; // small swipe / one wheel notch before the button shows
+    // track scroll position so we can offer a jump-to-bottom button. The two
+    // regimes (gesture accumulator vs. xterm viewport offset) and why content
+    // arrival matters are documented in `isScrolledAwayFromBottom`.
     const recomputeScrolled = () => {
       const b = term.buffer.active;
-      scrolledUp = agentOwnsScroll(term) ? scrollDepth > SCROLL_UP_PX : b.baseY - b.viewportY > 0;
+      if (scrollDepth === 0) contentBelowScroll = false; // back at the bottom → re-arm
+      scrolledUp = isScrolledAwayFromBottom({
+        agentOwnsScroll: agentOwnsScroll(term),
+        scrollDepth,
+        contentBelowScroll,
+        viewportOffsetLines: b.baseY - b.viewportY,
+      });
     };
     const scrollSub = term.onScroll(recomputeScrolled);
     const bufSub = term.buffer.onBufferChange(() => {
       scrollDepth = 0;
       recomputeScrolled();
+    });
+    // When the agent owns the scroll xterm's viewport never moves, so onScroll
+    // can't tell us the reader fell behind a fresh burst of agent output. Watch
+    // the write stream: if content lands while they're scrolled up at all (even a
+    // sub-threshold nudge), surface the jump-to-bottom button. This also fires
+    // while the term tab is backgrounded, so the button is already armed when the
+    // reader switches back. Agent-owned regime only — xterm-owned scroll already
+    // tracks writes via onScroll.
+    const writeSub = term.onWriteParsed(() => {
+      if (agentOwnsScroll(term) && scrollDepth > 0 && !contentBelowScroll) {
+        contentBelowScroll = true;
+        recomputeScrolled();
+      }
     });
 
     // Surface Claude Code's "press n to add notes" prompt option as a tappable
@@ -837,6 +862,7 @@
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
       scrollSub.dispose();
       bufSub.dispose();
+      writeSub.dispose();
       renderSub.dispose();
       ro.disconnect();
       c.close();

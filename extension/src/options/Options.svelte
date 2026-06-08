@@ -68,9 +68,11 @@
       hostDenied = true;
       return;
     }
-    // Drop fully-empty routing rows so the saved list stays clean.
+    // Drop incomplete routing rows (either field blank). resolveRepo skips a rule
+    // missing a pattern or a repoPath anyway, so persisting a half-filled row would
+    // be a silently-dead rule — require both fields to keep one.
     config.routingRules = config.routingRules.filter(
-      (r) => r.pattern.trim() !== "" || r.repoPath.trim() !== "",
+      (r) => r.pattern.trim() !== "" && r.repoPath.trim() !== "",
     );
     const prevBaseUrl = (await loadConfig()).baseUrl;
     await saveConfig(config);

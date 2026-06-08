@@ -60,6 +60,7 @@
   "popup_issue_title_label": "Issue-Titel",
   "popup_issue_no_screenshot": "Screenshots werden nicht in Issues eingebettet – Metadaten & Signale stehen im Issue-Text.",
   "popup_issue_empty_title": "Gib einen Issue-Titel ein.",
+  "popup_issue_title_too_long": "Der Issue-Titel darf höchstens 200 Zeichen lang sein.",
   "popup_issue_success": "Issue #{number} angelegt.",
   "options_routing_title": "Routing-Regeln",
   "options_routing_hint": "Ordne die URL eines erfassten Tabs einem Ziel-Repository zu. Muster sind Globs (*-Platzhalter), die gegen die vollständige URL geprüft werden; der erste Treffer gewinnt, sonst wird das Repository oben verwendet.",

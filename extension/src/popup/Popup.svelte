@@ -157,6 +157,13 @@
       view = "error";
       return;
     }
+    // Mirror the server's title cap (POST /api/issues, ≤ 200) so an over-long
+    // title gets a clear inline message instead of a generic 'invalid' rejection.
+    if (target === "issue" && issueTitle.trim().length > 200) {
+      errorMsg = m.popup_issue_title_too_long();
+      view = "error";
+      return;
+    }
     view = "submitting";
     const req: WorkerRequest =
       target === "issue"

@@ -23,6 +23,11 @@ bun run check:i18n # EN+DE catalog parity
    → select `extension/dist`.
 3. Copy the extension's **ID** shown on the card — you need it for the server.
 
+## Open the popup
+
+Click the toolbar icon, or press **Alt+Shift+S** (rebindable at
+`chrome://extensions/shortcuts`).
+
 ## Configure
 
 Open the extension's **options** (right-click the icon → Options) and set:
@@ -127,7 +132,8 @@ If you skip this, spawn-now returns `403` and the popup shows the
 ## Manual verification checklist (Phase 1 acceptance)
 
 - [ ] `bun run build` produces a loadable `dist/`.
-- [ ] Loading unpacked shows the **Shepherd Capture** toolbar icon.
+- [ ] Loading unpacked shows the branded **Shepherd sheep** toolbar icon.
+- [ ] Pressing **Alt+Shift+S** opens the capture popup.
 - [ ] With the server running + extension ID in `SHEPHERD_ALLOWED_HOSTS` and a
       valid repo configured: click the icon on any normal web page → popup shows a
       screenshot thumbnail + the target repo.
@@ -164,4 +170,4 @@ If you skip this, spawn-now returns `403` and the popup shows the
 
 ## Out of scope (later phases — see issue #338)
 
-Keyboard shortcut, toolbar icons (#343); horizontal full-page stitch.
+Horizontal full-page stitch.

@@ -2,7 +2,14 @@ import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
-import { MODELS, type CreateSessionInput, type IssueRef, type Steer } from "./types";
+import {
+  MODELS,
+  type CreateSessionInput,
+  type IssueRef,
+  type Steer,
+  type BuildStepInput,
+  type BuildStepStatus,
+} from "./types";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 
@@ -342,6 +349,57 @@ export function validateIconPatch(body: unknown): { path: string; emoji: string 
     if (codePoints.some((c) => (c.codePointAt(0) ?? 0x20) < 0x20)) return null; // no control chars
   }
   return { path, emoji };
+}
+
+// ── build-queue validators ────────────────────────────────────────────────────
+
+export const BUILD_STEP_STATUSES = ["pending", "active", "done", "skipped"] as const;
+
+const STEP_TITLE_MAX = 200;
+const STEP_DETAIL_MAX = 4000;
+const STEP_ID_MAX = 200;
+const STEPS_MAX = 100;
+
+/** Validate + normalize a PUT /api/sessions/:id/queue body. Returns null on any violation. */
+export function validateBuildSteps(body: unknown): BuildStepInput[] | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (!Array.isArray(o.steps) || o.steps.length > STEPS_MAX) return null;
+  const out: BuildStepInput[] = [];
+  for (const it of o.steps) {
+    if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+    const s = it as Record<string, unknown>;
+    if (typeof s.title !== "string") return null;
+    const title = s.title.trim();
+    if (title.length === 0 || title.length > STEP_TITLE_MAX) return null;
+    const step: BuildStepInput = { title };
+    if (s.detail !== undefined) {
+      if (typeof s.detail !== "string") return null;
+      const detail = s.detail.trim();
+      if (detail.length > STEP_DETAIL_MAX) return null;
+      step.detail = detail;
+    }
+    if (s.id !== undefined) {
+      if (typeof s.id !== "string") return null;
+      const id = s.id.trim();
+      if (id.length === 0 || id.length > STEP_ID_MAX) return null;
+      step.id = id;
+    }
+    if (s.status !== undefined) {
+      if (!(BUILD_STEP_STATUSES as readonly string[]).includes(s.status as string)) return null;
+      step.status = s.status as BuildStepStatus;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
+/** Validate a POST /api/sessions/:id/queue/steps/:stepId body. Returns null on any violation. */
+export function validateBuildStepStatus(body: unknown): BuildStepStatus | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (!(BUILD_STEP_STATUSES as readonly string[]).includes(o.status as string)) return null;
+  return o.status as BuildStepStatus;
 }
 
 /** Validate a POST /api/broadcast payload. Returns null on any violation. */

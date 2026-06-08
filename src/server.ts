@@ -20,6 +20,8 @@ import {
   validateSteers,
   validateBroadcast,
   validateIconPatch,
+  validateBuildSteps,
+  validateBuildStepStatus,
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
@@ -907,6 +909,63 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
   return json(updated);
 }
 
+// Steer text sent to the agent when the operator approves the build queue.
+// Agent-facing — plain English, not user chrome, so no i18n.
+const APPROVE_STEER =
+  "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done via the build-queue API as you go (see the build-queue instructions in your system prompt). If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
+
+// /api/sessions/:id/queue[/steps/:stepId | /approve]
+// Returns null for any path it doesn't own so other session sub-routes fall through.
+async function handleBuildQueue({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "queue")) return null;
+
+  const id = parts[2];
+  if (!id) return null;
+  if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
+
+  // GET /api/sessions/:id/queue
+  if (req.method === "GET" && !parts[4]) {
+    return json(deps.store.getBuildQueue(id));
+  }
+
+  // PUT /api/sessions/:id/queue — replace the full step list
+  if (req.method === "PUT" && !parts[4]) {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    const body = await req.json().catch(() => null);
+    const steps = validateBuildSteps(body);
+    if (steps === null) return json({ error: "invalid build steps" }, 400);
+    const q = deps.store.replaceBuildQueue(id, steps);
+    deps.events?.emit("queue:update", q);
+    return json(q);
+  }
+
+  // POST /api/sessions/:id/queue/steps/:stepId — set a single step's status
+  if (req.method === "POST" && parts[4] === "steps" && parts[5]) {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    const body = await req.json().catch(() => null);
+    const status = validateBuildStepStatus(body);
+    if (status === null) return json({ error: "invalid status" }, 400);
+    const ok = deps.store.setBuildStepStatus(id, parts[5], status);
+    if (!ok) return json({ error: "step not found" }, 404);
+    const q = deps.store.getBuildQueue(id);
+    deps.events?.emit("queue:update", q);
+    return json(q);
+  }
+
+  // POST /api/sessions/:id/queue/approve — human gate: approve + steer agent
+  if (req.method === "POST" && parts[4] === "approve") {
+    deps.store.setBuildQueueApproved(id, true);
+    const q = deps.store.getBuildQueue(id);
+    deps.events?.emit("queue:update", q);
+    deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
+    return json(q);
+  }
+
+  return null;
+}
+
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
 // preserving the original inner guard order. Returns null for anything those
 // don't claim (e.g. `…/git` sub-routes), so handleSessionGit can pick it up.
@@ -1765,6 +1824,7 @@ const ROUTE_HANDLERS = [
   handleRepoConfig,
   handleLearnings,
   handlePush,
+  handleBuildQueue,
   handleSessions,
   handleSessionGit,
   handleUsageLimits,

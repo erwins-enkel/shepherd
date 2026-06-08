@@ -24,6 +24,7 @@
   let errorMsg = $state("");
   let target = $state<DeliveryTarget>("session");
   let issueTitle = $state("");
+  let titlePrefilled = $state(false);
   let issueUrl = $state("");
   let issueNumber = $state(0);
   let doneKind = $state<"session" | "issue">("session");
@@ -134,10 +135,14 @@
       : (config?.repoPath ?? ""),
   );
 
-  // Prefill the issue title from the page title once it's available, leaving any
-  // user edit intact (only fills while still blank).
+  // Prefill the issue title from the page title once, the first time a capture is
+  // available. A one-shot flag (not an `=== ""` guard) so a user who deliberately
+  // clears the field isn't refilled on the next reactive tick.
   $effect(() => {
-    if (issueTitle === "" && capture?.metadata.title) issueTitle = capture.metadata.title;
+    if (!titlePrefilled && capture?.metadata.title) {
+      issueTitle = capture.metadata.title;
+      titlePrefilled = true;
+    }
   });
 
   async function submit() {

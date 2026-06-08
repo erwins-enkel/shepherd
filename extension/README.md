@@ -66,7 +66,7 @@ enter the fenced context block, so a crafted page can't break out of the fence.
 - **Spawn session** (default) — the Phase-1 path: uploads the screenshot (when
   attached) and spawns a live Shepherd session whose prompt is your text plus the
   fenced context block.
-- **GitHub issue** — files the capture as an issue (title + body) on the target
+- **Issue** — files the capture as an issue (title + body) on the target
   repo's forge (GitHub via `gh`, Gitea via its API) instead of spawning. The issue
   body is your prompt plus the same fenced metadata/signals block. The popup shows
   an **Issue title** field (prefilled from the page title; required). A screenshot

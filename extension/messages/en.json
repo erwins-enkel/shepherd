@@ -55,7 +55,7 @@
   "options_recorder_denied": "Permission denied — recording stays off.",
   "popup_target_label": "Deliver as",
   "popup_target_session": "Spawn session",
-  "popup_target_issue": "GitHub issue",
+  "popup_target_issue": "Issue",
   "popup_repo_routed": "(routed)",
   "popup_issue_title_label": "Issue title",
   "popup_issue_no_screenshot": "Screenshots aren't embedded in issues — the metadata & signals go in the issue body.",

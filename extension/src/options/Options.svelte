@@ -156,7 +156,7 @@
       <legend class="text-gray-600">{m.options_routing_title()}</legend>
       <span class="text-xs text-gray-500">{m.options_routing_hint()}</span>
 
-      {#each config.routingRules as rule, i (i)}
+      {#each config.routingRules as rule (rule)}
         <div class="flex items-center gap-2">
           <input
             class="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1"
@@ -174,7 +174,7 @@
             type="button"
             class="shrink-0 text-red-600"
             aria-label={m.options_routing_remove()}
-            onclick={() => (config.routingRules = config.routingRules.filter((_, j) => j !== i))}
+            onclick={() => (config.routingRules = config.routingRules.filter((r) => r !== rule))}
           >
             {m.options_routing_remove()}
           </button>

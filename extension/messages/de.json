@@ -55,7 +55,7 @@
   "options_recorder_denied": "Berechtigung verweigert – Aufzeichnung bleibt aus.",
   "popup_target_label": "Ausliefern als",
   "popup_target_session": "Sitzung starten",
-  "popup_target_issue": "GitHub-Issue",
+  "popup_target_issue": "Issue",
   "popup_repo_routed": "(geroutet)",
   "popup_issue_title_label": "Issue-Titel",
   "popup_issue_no_screenshot": "Screenshots werden nicht in Issues eingebettet – Metadaten & Signale stehen im Issue-Text.",

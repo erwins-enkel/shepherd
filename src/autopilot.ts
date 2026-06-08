@@ -2,6 +2,7 @@ import type { SessionStore } from "./store";
 import type { Session, AutopilotVerdict } from "./types";
 import type { BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
+import { effectiveAutopilot } from "./effective-autopilot";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -89,8 +90,7 @@ export class AutopilotService {
 
   /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
   private enabled(s: Session): boolean {
-    if (s.autopilotEnabled !== null) return s.autopilotEnabled;
-    return this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled;
+    return effectiveAutopilot(s, (rp) => this.deps.store.getRepoConfig(rp));
   }
 
   /** Shared eligibility gate. Returns the session when autopilot should act, else null. A

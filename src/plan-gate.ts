@@ -7,6 +7,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import { effectiveAutopilot } from "./effective-autopilot";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
@@ -256,13 +257,6 @@ export class PlanGateService {
     }
   }
 
-  /** Effective autopilot opt-in for a session: explicit override wins, else the repo default.
-   *  Mirrors AutopilotService.enabled so the plan gate and autopilot agree on "runs hands-free". */
-  private autopilotEffective(s: Session): boolean {
-    if (s.autopilotEnabled !== null) return s.autopilotEnabled;
-    return this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled;
-  }
-
   /** Persist an approved gate. A session meant to run hands-free — drain-spawned (auto) OR
    *  autopilot-enabled — clears straight into execution; a purely interactive (autopilot-off)
    *  session waits for the operator's explicit Go (so we do NOT release it here). */
@@ -270,7 +264,8 @@ export class PlanGateService {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
     const s = this.deps.store.get(f.sessionId);
-    if (s && (s.auto || this.autopilotEffective(s))) this.deps.release(f.sessionId);
+    if (s && (s.auto || effectiveAutopilot(s, (rp) => this.deps.store.getRepoConfig(rp))))
+      this.deps.release(f.sessionId);
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop

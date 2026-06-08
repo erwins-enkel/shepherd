@@ -361,6 +361,10 @@ export class DrainService {
     // normally handed off with its claim kept. Unconditional of the drain toggle
     // (mirrors onGit's closeIssue) so a disabled-mid-flight session still frees its
     // claim. A session without an issueNumber never set a claim, so it's skipped.
+    // A legacy manual session created before issue-link stamping carries an
+    // issueNumber but never had the label applied; the remove is then a harmless
+    // idempotent no-op (best-effort, swallowed below) — not worth a per-session
+    // "was-stamped" flag to suppress.
     if (!retainClaim && s.issueNumber != null) {
       try {
         await this.deps.resolveForge(s.repoPath)?.removeIssueLabel?.(s.issueNumber, ACTIVE_LABEL);

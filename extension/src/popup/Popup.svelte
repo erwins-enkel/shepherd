@@ -41,6 +41,18 @@
     return chrome.runtime.sendMessage(req) as Promise<WorkerResponse>;
   }
 
+  // Open the options page. Called from the popup, openOptionsPage() can fail to
+  // find a tabbed window and reject with "Could not create an options page." —
+  // use the callback form (which consumes chrome.runtime.lastError instead of
+  // surfacing an uncaught rejection) and fall back to opening it in a tab.
+  function openOptions(): void {
+    chrome.runtime.openOptionsPage(() => {
+      if (chrome.runtime.lastError) {
+        void chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
+      }
+    });
+  }
+
   function localizeError(kind: TransportErrorKind | "capture", message: string): string {
     switch (kind) {
       case "origin":
@@ -225,10 +237,7 @@
     <p class="text-gray-500">{m.popup_capturing()}</p>
   {:else if view === "needs-config"}
     <p class="text-gray-600">{m.popup_no_config()}</p>
-    <button
-      class="self-start rounded bg-gray-900 px-3 py-1.5 text-white"
-      onclick={() => chrome.runtime.openOptionsPage()}
-    >
+    <button class="self-start rounded bg-gray-900 px-3 py-1.5 text-white" onclick={openOptions}>
       {m.popup_open_options()}
     </button>
   {:else if view === "needs-host"}
@@ -315,11 +324,7 @@
         <span>{m.signal_network()}</span>
       </label>
       {#if !recorderAvailable}
-        <button
-          type="button"
-          class="self-start text-blue-600 underline"
-          onclick={() => chrome.runtime.openOptionsPage()}
-        >
+        <button type="button" class="self-start text-blue-600 underline" onclick={openOptions}>
           {m.popup_signals_locked()}
         </button>
       {/if}

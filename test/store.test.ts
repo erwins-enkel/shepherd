@@ -46,6 +46,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     learningsEnabled: true,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -56,6 +57,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     learningsEnabled: false,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -66,6 +68,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     learningsEnabled: false,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -76,6 +79,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     learningsEnabled: true,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -86,6 +90,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     learningsEnabled: true,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -106,6 +111,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     learningsEnabled: true,
     autopilotEnabled: false,
     autoDrainEnabled: true,
+    autoMergeEnabled: false,
     maxAuto: 3,
     autoLabel: "auto-go",
     usageCeilingPct: 65,
@@ -386,4 +392,29 @@ test("merging fields default null and round-trip through update", () => {
   const cleared = store.get(s.id)!;
   expect(cleared.mergingSince).toBeNull();
   expect(cleared.mergingTrainId).toBeNull();
+});
+
+test("repo config: autoMergeEnabled defaults false and round-trips", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/r").autoMergeEnabled).toBe(false);
+  const cfg = store.getRepoConfig("/r");
+  store.setRepoConfig("/r", { ...cfg, autoMergeEnabled: true });
+  expect(store.getRepoConfig("/r").autoMergeEnabled).toBe(true);
+});
+
+test("session: autoMergeEnabled override + rebase count round-trip", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(base);
+  expect(s.autoMergeEnabled).toBeNull();
+  expect(s.autoMergeRebaseCount).toBe(0);
+  store.setAutoMergeState(s.id, { enabled: true });
+  expect(store.get(s.id)!.autoMergeEnabled).toBe(true);
+  store.setAutoMergeState(s.id, { rebaseCount: 3 });
+  expect(store.get(s.id)!.autoMergeRebaseCount).toBe(3);
+  // rebaseHead round-trip: string then null
+  expect(s.autoMergeRebaseHead).toBeNull();
+  store.setAutoMergeState(s.id, { rebaseHead: "deadbeef" });
+  expect(store.get(s.id)!.autoMergeRebaseHead).toBe("deadbeef");
+  store.setAutoMergeState(s.id, { rebaseHead: null });
+  expect(store.get(s.id)!.autoMergeRebaseHead).toBeNull();
 });

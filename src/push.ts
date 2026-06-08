@@ -9,7 +9,15 @@ export interface PushPayload {
   title: string;
   body: string;
   sessionId: string;
-  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot" | "autopilot-done";
+  kind:
+    | "blocked"
+    | "done"
+    | "review"
+    | "ci"
+    | "review-human"
+    | "autopilot"
+    | "autopilot-done"
+    | "merge_attention";
   tag: string;
 }
 
@@ -25,11 +33,20 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   review: "reviews",
   "review-human": "reviews",
   ci: "ci",
+  merge_attention: "ci",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
 export interface NotifyInput {
-  kind: "blocked" | "done" | "review" | "ci" | "review-human" | "autopilot" | "autopilot-done";
+  kind:
+    | "blocked"
+    | "done"
+    | "review"
+    | "ci"
+    | "review-human"
+    | "autopilot"
+    | "autopilot-done"
+    | "merge_attention";
   sessionId: string;
   tag: string;
   name: string;
@@ -42,6 +59,10 @@ export interface NotifyInput {
   reviewState?: "approved" | "changes_requested" | "commented";
   /** For kind "autopilot"/"autopilot-done": the classifier's hand-back summary (verbatim). */
   summary?: string;
+  /** For kind "merge_attention": the automerge state ("merge_error" | "rebase_cap"). */
+  mergeState?: "merge_error" | "rebase_cap";
+  /** For kind "merge_attention": the desig of the session that needs attention. */
+  desig?: string;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -81,6 +102,10 @@ const NOTIFY_TEXT = {
     autopilotFallback: "Autopilot paused for your input.",
     autopilotDoneTitle: (name: string) => `${name} — complete`,
     autopilotDoneFallback: "Autopilot finished — task complete, nothing to open as a PR.",
+    mergeErrorTitle: "Merge failed",
+    mergeErrorBody: (desig: string) => `${desig}: the merge train needs your help`,
+    rebaseCapTitle: "Rebase limit reached",
+    rebaseCapBody: (desig: string) => `${desig}: too many rebase attempts — over to you`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -105,6 +130,10 @@ const NOTIFY_TEXT = {
     autopilotFallback: "Autopilot pausiert für deine Eingabe.",
     autopilotDoneTitle: (name: string) => `${name} — fertig`,
     autopilotDoneFallback: "Autopilot fertig — Aufgabe erledigt, kein PR zu öffnen.",
+    mergeErrorTitle: "Merge fehlgeschlagen",
+    mergeErrorBody: (desig: string) => `${desig}: der Merge-Train braucht deine Hilfe`,
+    rebaseCapTitle: "Rebase-Limit erreicht",
+    rebaseCapBody: (desig: string) => `${desig}: zu viele Rebase-Versuche — du bist dran`,
   },
 } as const;
 
@@ -176,6 +205,13 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         title: t.autopilotDoneTitle(input.name),
         body: input.summary && input.summary.trim() ? input.summary : t.autopilotDoneFallback,
       };
+    case "merge_attention": {
+      const desig = input.desig ?? input.name;
+      if (input.mergeState === "rebase_cap") {
+        return { ...base, title: t.rebaseCapTitle, body: t.rebaseCapBody(desig) };
+      }
+      return { ...base, title: t.mergeErrorTitle, body: t.mergeErrorBody(desig) };
+    }
     default:
       return {
         ...base,
@@ -331,6 +367,38 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
       const name = store.get(id)?.name ?? id;
       void push.notify({ kind: "blocked", sessionId: id, tag: id, name, reason: block });
     }
+  });
+}
+
+/** Bridge automerge:status attention states to push notifications. */
+export function attachMergePush(events: EventHub, push: PushService): void {
+  events.subscribe((event, data) => {
+    if (event !== "automerge:status") return;
+    const { repoPath, state, detail, sessionId } = data as {
+      repoPath: string;
+      enabled: boolean;
+      state: string | null;
+      detail: string | null;
+      sessionId: string | null;
+    };
+    if (state !== "merge_error" && state !== "rebase_cap") return;
+    const desig = detail ?? repoPath;
+    // Deep-link to the affected session when known; fall back to repoPath.
+    const target = sessionId ?? repoPath;
+    // Key the tag AND cooldown by the affected session (not the repo): two sessions in the
+    // same repo hitting the same attention state must each surface (and not replace each
+    // other on the device), rather than the second being collapsed/suppressed.
+    void push
+      .notify({
+        kind: "merge_attention",
+        sessionId: target,
+        tag: `merge_attention:${target}`,
+        name: desig,
+        mergeState: state,
+        desig,
+        cooldownKey: `${state}:${target}`,
+      })
+      .catch((err) => console.warn("[push] merge_attention notify failed:", err));
   });
 }
 

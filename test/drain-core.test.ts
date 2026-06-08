@@ -28,6 +28,7 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
     git: null,
     reviewDecision: null,
     reviewHeadSha: null,
+    fullAuto: false,
     ...over,
   };
 }
@@ -271,6 +272,22 @@ describe("computeNext", () => {
       }),
     );
     expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+  });
+
+  test("full-auto session is left for the merge train; non-full-auto retires", () => {
+    const readyGit = { state: "open", checks: "success", mergeable: true, number: 5, headSha: "h" };
+    // A ready full-auto session must NOT be retired (the merge train lands it).
+    const fa = autoSession({ status: "idle", git: readyGit as any, fullAuto: true });
+    expect(computeNext(state({ autoSessions: [fa] })).kind).toBe("hold");
+    // The SAME ready PR, but not effectively full-auto (e.g. autopilot off, or per-session
+    // automerge override=false) MUST still retire — otherwise it sits un-retired-and-un-merged
+    // holding a maxAuto slot and deadlocks the drain.
+    const notFa = autoSession({ status: "idle", git: readyGit as any, fullAuto: false });
+    expect(computeNext(state({ autoSessions: [notFa] }))).toEqual({
+      kind: "retire",
+      sessionId: "s1",
+      prNumber: 5,
+    });
   });
 });
 

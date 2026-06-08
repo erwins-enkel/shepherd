@@ -17,6 +17,7 @@
     renameSession,
     getLeftovers,
     setSessionAutopilot,
+    setSessionAutoMerge,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -305,6 +306,21 @@
       await setSessionAutopilot(session.id, !autopilotEffective);
     } catch {
       toasts.info(m.session_autopilot_toggle_failed());
+    }
+  }
+
+  // Effective autoMerge state: session override when set, otherwise repo default.
+  const autoMergeEffective = $derived(
+    session.autoMergeEnabled ?? repoConfig.isAutoMergeEnabled(session.repoPath),
+  );
+
+  async function toggleSessionAutoMerge() {
+    // Flip the effective state to an explicit override. The button reflects server-confirmed
+    // state via the session:automerge WS event — on failure it won't move.
+    try {
+      await setSessionAutoMerge(session.id, !autoMergeEffective);
+    } catch {
+      toasts.info(m.session_automerge_toggle_failed());
     }
   }
 
@@ -1167,6 +1183,18 @@
           {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
         </button>
         <AutopilotBadge {session} />
+        <!-- desktop: per-session full-auto merge override toggle. Mirrors autopilot pattern. -->
+        <button
+          class="ap-toggle"
+          class:on={autoMergeEffective}
+          type="button"
+          aria-pressed={autoMergeEffective}
+          aria-label={m.session_automerge_label()}
+          title={m.session_automerge_label()}
+          onclick={toggleSessionAutoMerge}
+        >
+          {m.session_automerge_label()}
+        </button>
       {/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a

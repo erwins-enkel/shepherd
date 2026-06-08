@@ -110,6 +110,8 @@ export const config = {
   reviewCyclesCap: clampReviewCyclesCap(
     Number(process.env.SHEPHERD_REVIEW_CYCLES_CAP ?? REVIEW_CYCLES_DEFAULT),
   ),
+  // Max consecutive auto-rebase attempts the merge train spends on a PR before pausing for the operator.
+  autoMergeRebaseCap: Number(process.env.SHEPHERD_AUTOMERGE_REBASE_CAP ?? 5),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),

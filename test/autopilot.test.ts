@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, mock } from "bun:test";
 import { AutopilotService, PROCEED_STEER, OPEN_PR_STEER } from "../src/autopilot";
 import type { AutopilotVerdict, Session } from "../src/types";
 import type { BlockReason } from "../src/blocked";
@@ -26,6 +26,9 @@ function sess(over: Partial<Session> = {}): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
+    autoMergeRebaseHead: null,
     auto: false,
     issueNumber: null,
     status: "blocked",
@@ -49,9 +52,11 @@ function harness(opts: {
   paneAlive?: boolean;
   resumeOk?: boolean;
   steerOk?: boolean;
+  fullAuto?: boolean;
 }) {
   let cur = opts.session;
   const events: any[] = [];
+  const setAutoMergeStateCalls: any[] = [];
   const svc = new AutopilotService({
     store: {
       get: () => cur,
@@ -81,6 +86,18 @@ function harness(opts: {
           autopilotQuestion: patch.question === undefined ? cur.autopilotQuestion : patch.question,
         };
       },
+      setAutoMergeState: (
+        _id: string,
+        patch: { rebaseCount?: number; rebaseHead?: string | null },
+      ) => {
+        setAutoMergeStateCalls.push({ id: _id, patch });
+        cur = {
+          ...cur,
+          autoMergeRebaseCount: patch.rebaseCount ?? cur.autoMergeRebaseCount,
+          autoMergeRebaseHead:
+            patch.rebaseHead === undefined ? cur.autoMergeRebaseHead : patch.rebaseHead,
+        };
+      },
     } as any,
     classify: async () => opts.verdict ?? { kind: "unknown", summary: "" },
     steer: (_id, text) => {
@@ -94,13 +111,14 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
     hasPr: () => opts.openPr ?? false,
+    fullAuto: () => opts.fullAuto ?? false,
     refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
     onComplete: (id, summary) => events.push({ complete: id, summary }),
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
   });
-  return { svc, events, state: () => cur };
+  return { svc, events, state: () => cur, mergeStateCalls: setAutoMergeStateCalls };
 }
 
 test("gate verdict → proceed steer + step++", async () => {
@@ -282,6 +300,18 @@ test("onStatus running after pause clears pause + resets steps", async () => {
   expect(h.state().autopilotStepCount).toBe(0);
 });
 
+test("onStatus running after pause resets autoMergeRebaseCount (operator intervention)", () => {
+  const h = harness({
+    session: sess({ autopilotPaused: true, autopilotStepCount: 3, autoMergeRebaseCount: 4 }),
+  });
+  h.svc.onStatus("s1", "running");
+  expect(h.mergeStateCalls).toContainEqual({
+    id: "s1",
+    patch: { rebaseCount: 0, rebaseHead: null },
+  });
+  expect(h.state().autoMergeRebaseCount).toBe(0);
+});
+
 test("onStatus running when not paused is a no-op (doesn't reset the cap)", async () => {
   const h = harness({ session: sess({ autopilotPaused: false, autopilotStepCount: 5 }) });
   h.svc.onStatus("s1", "running");
@@ -314,6 +344,49 @@ test("onState fired after onPrOpen handoff clear", () => {
   const h = harness({ session: sess({ autopilotPaused: true, autopilotStepCount: 3 }) });
   h.svc.onPrOpen("s1");
   expect(h.events).toContainEqual({ state: "s1" });
+});
+
+test("full-auto: stays eligible after PR exists (keeps unblocking gates)", async () => {
+  const steer = mock(() => true);
+  const ap = harness({
+    session: sess(),
+    openPr: true,
+    fullAuto: true,
+    verdict: { kind: "gate", summary: "" },
+    steerOk: true,
+  });
+  // Swap out the steer so we can count calls directly
+  (ap.svc as any).deps.steer = steer;
+  await ap.svc.onBlock("s1", { shape: "yes-no", options: [], tail: [] } as any);
+  expect(steer.mock.calls.length).toBe(1);
+});
+
+test("non-full-auto: still stands down once a PR exists", async () => {
+  const steer = mock(() => true);
+  const ap = harness({
+    session: sess(),
+    openPr: true,
+    fullAuto: false,
+    verdict: { kind: "gate", summary: "" },
+    steerOk: true,
+  });
+  (ap.svc as any).deps.steer = steer;
+  await ap.svc.onBlock("s1", { shape: "yes-no", options: [], tail: [] } as any);
+  expect(steer.mock.calls.length).toBe(0);
+});
+
+test("full-auto: a 'finished' verdict with a PR does NOT re-steer open-a-PR", async () => {
+  const steer = mock(() => true);
+  const ap = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    fullAuto: true,
+    verdict: { kind: "finished", summary: "" },
+    steerOk: true,
+  });
+  (ap.svc as any).deps.steer = steer;
+  await ap.svc.onDone("s1");
+  expect(steer.mock.calls.length).toBe(0);
 });
 
 test("re-entrant onBlock during an in-flight classify spawns + steers only once", async () => {
@@ -349,6 +422,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     paneAlive: () => true,
     readTail: () => [],
     hasPr: () => false,
+    fullAuto: () => false,
     onPause: () => {},
     stepCap: 10,
   });

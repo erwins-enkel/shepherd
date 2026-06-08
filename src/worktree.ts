@@ -102,6 +102,51 @@ export class WorktreeMgr {
     }
   }
 
+  /** Whether the branch checked out at `worktreePath` is BEHIND `baseBranch` — i.e.
+   *  base has commits not yet in HEAD, so a strict merge train must rebase first.
+   *  Best-effort fetches `origin/<base>` and prefers it; falls back to the local
+   *  base ref when offline. Returns:
+   *    false → base is an ancestor of HEAD (up-to-date, safe to merge)
+   *    true  → base has commits HEAD lacks (stale, rebase needed)
+   *    null  → unknowable (bad worktree / git error) → caller treats as "do not merge"
+   */
+  behindBase(worktreePath: string, baseBranch: string): boolean | null {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return null;
+    try {
+      execFileSync("git", ["fetch", "origin", "--", baseBranch], {
+        cwd: worktreePath,
+        stdio: "pipe",
+      });
+    } catch {
+      /* offline / no origin — compare against whatever base ref is local */
+    }
+    // Prefer the just-fetched remote ref; fall back to a local base branch.
+    const candidates = [`origin/${baseBranch}`, baseBranch];
+    for (const ref of candidates) {
+      try {
+        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+          cwd: worktreePath,
+          stdio: "pipe",
+        });
+      } catch {
+        continue; // ref doesn't exist locally; try the next
+      }
+      try {
+        execFileSync("git", ["merge-base", "--is-ancestor", ref, "HEAD"], {
+          cwd: worktreePath,
+          stdio: "pipe",
+        });
+        return false; // ref is an ancestor of HEAD → up-to-date
+      } catch (err) {
+        // exit 1 = "not an ancestor" → genuinely behind; any other exit (e.g. 128,
+        // a transient/ref error) is unknowable → null (caller treats as "do not merge").
+        if ((err as { status?: number }).status === 1) return true;
+        return null;
+      }
+    }
+    return null; // no usable base ref → unknown
+  }
+
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {

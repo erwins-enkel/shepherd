@@ -27,11 +27,13 @@ import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
-import { PushService, attachPush, attachReviewPush, attachGitPush } from "./push";
+import { PushService, attachPush, attachReviewPush, attachGitPush, attachMergePush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
+import { AutoMergeService } from "./automerge";
+import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
@@ -234,6 +236,7 @@ const reviewService = new ReviewService({
 });
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
+attachMergePush(events, push);
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
 events.subscribe((event, data) => {
   if (event !== "session:git") return;
@@ -280,6 +283,10 @@ const autopilot = new AutopilotService({
   hasPr: (id) => {
     const st = prPoller.snapshot()[id]?.state;
     return st !== undefined && st !== "none";
+  },
+  fullAuto: (id) => {
+    const s = store.get(id);
+    return !!s && isFullAuto(s, store.getRepoConfig(s.repoPath));
   },
   refreshPr: (id) => prPoller.pollSession(id),
   onPause: (id, question) => {
@@ -371,6 +378,42 @@ events.subscribe((event, data) => {
 setInterval(() => {
   if (maintenance.active) return;
   void drain.tick().catch((err) => console.warn("[drain] tick:", err));
+}, 30_000);
+
+const autoMerge = new AutoMergeService({
+  store,
+  service, // archive, reply, resume
+  resolveForge,
+  worktree, // has behindBase
+  prCache: prPoller,
+  paneAlive: (id) => {
+    const s = store.get(id);
+    return !!s && matchAgent(s, herdr.list()) !== null;
+  },
+  repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  emitStatus: (status) => events.emit("automerge:status", status),
+  emitArchived: (id) => events.emit("session:archived", { id }),
+  dropPrCache: (id) => prPoller.drop(id),
+  retainClaim: (id) => drain.retainClaim(id),
+  rebaseCap: config.autoMergeRebaseCap,
+});
+
+// Drive the merge train off the same poller/critic events the rest of the system emits.
+events.subscribe((event, data) => {
+  if (event === "session:git") {
+    const { id } = data as { id: string };
+    void autoMerge.onGit(id).catch((err) => console.warn("[automerge] onGit:", err));
+  } else if (event === "session:review") {
+    const { id } = data as { id: string };
+    void autoMerge.onReview(id).catch((err) => console.warn("[automerge] onReview:", err));
+  } else if (event === "session:status") {
+    const { id } = data as { id: string };
+    void autoMerge.onStatus(id).catch((err) => console.warn("[automerge] onStatus:", err));
+  }
+});
+setInterval(() => {
+  if (maintenance.active) return;
+  void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
 }, 30_000);
 
 // Learnings flywheel: capture block/stall signals, run the distiller on a slow
@@ -523,6 +566,7 @@ const server = serve(
     distiller,
     promoter,
     drain: { snapshot: () => drain.snapshot(), queue: (repoPath) => drain.queue(repoPath) },
+    autoMerge: { snapshot: () => autoMerge.snapshot() },
   },
   config.port,
 );

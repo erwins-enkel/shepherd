@@ -1,0 +1,561 @@
+import { test, expect, mock } from "bun:test";
+import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
+
+function baseSession(over: any = {}) {
+  return {
+    id: "s1",
+    desig: "TASK-01",
+    repoPath: "/r",
+    baseBranch: "main",
+    worktreePath: "/wt",
+    branch: "shepherd/x",
+    status: "idle",
+    auto: true,
+    issueNumber: 9,
+    autopilotEnabled: true,
+    autoMergeEnabled: true,
+    autoMergeRebaseCount: 0,
+    autoMergeRebaseHead: null,
+    ...over,
+  };
+}
+
+function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
+  const session = baseSession();
+  return {
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    service: { archive: mock(() => 1), reply: mock(() => true), resume: mock(() => true) } as any,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge: mock(async () => {}),
+        closeIssue: mock(async () => {}),
+      }) as any,
+    worktree: { behindBase: () => false } as any,
+    prCache: {
+      snapshot: () => ({
+        s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
+      }),
+    } as any,
+    paneAlive: () => true,
+    repos: () => ["/r"],
+    emitStatus: mock(() => {}),
+    emitArchived: mock(() => {}),
+    dropPrCache: mock(() => {}),
+    retainClaim: mock(() => {}),
+    rebaseCap: 5,
+    ...over,
+  };
+}
+
+test("ready PR → forge.merge called with squash + delete-branch, then archived", async () => {
+  const merge = mock(async () => {});
+  const archive = mock(() => 1);
+  const d = deps({
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+  expect(archive.mock.calls.length).toBe(1);
+});
+
+test("behind → steers a rebase + bumps the counter, does NOT merge", async () => {
+  const reply = mock(() => true);
+  const setState = mock(() => {});
+  const merge = mock(async () => {});
+  const d = deps({
+    worktree: { behindBase: () => true } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+  });
+  const apState = mock(() => {});
+  d.store.setAutoMergeState = setState as any;
+  d.store.setAutopilotState = apState as any;
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(1);
+  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+  // The rebase is a fresh procedural task → autopilot's step budget is reset so unblocking
+  // it across gates doesn't spuriously trip the runaway cap.
+  expect((apState as any).mock.calls[0]).toEqual(["s1", { stepCount: 0 }]);
+  expect(merge.mock.calls.length).toBe(0);
+});
+
+test("forge.merge throws (non-conflict) → fail-closed: not archived", async () => {
+  const archive = mock(() => 1);
+  const d = deps({
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge: async () => {
+          throw new Error("403");
+        },
+        closeIssue: mock(async () => {}),
+      }) as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(archive.mock.calls.length).toBe(0);
+});
+
+test("dead pane → resume attempted before steer; counter bumped once resumed", async () => {
+  const reply = mock(() => true);
+  const resume = mock(() => true);
+  const setState = mock(() => {});
+  const d = deps({
+    worktree: { behindBase: () => true } as any,
+    paneAlive: () => false,
+    service: { archive: mock(() => 1), reply, resume } as any,
+  });
+  d.store.setAutoMergeState = setState as any;
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(resume.mock.calls.length).toBe(1);
+  expect(reply.mock.calls.length).toBe(1);
+  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+});
+
+test("rebase steer fails to deliver → counter NOT bumped", async () => {
+  const reply = mock(() => false);
+  const setState = mock(() => {});
+  const d = deps({
+    worktree: { behindBase: () => true } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+  });
+  d.store.setAutoMergeState = setState as any;
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(1);
+  expect(setState.mock.calls.length).toBe(0);
+});
+
+// ── multi-session ──────────────────────────────────────────────────────────────
+
+test("multi-session: merges ready A then steers rebase for behind B", async () => {
+  const sessionA = baseSession({ id: "sA", desig: "TASK-A", autoMergeRebaseCount: 0 });
+  const sessionB = baseSession({
+    id: "sB",
+    desig: "TASK-B",
+    autoMergeRebaseCount: 0,
+    worktreePath: "/wtB",
+    branch: "shepherd/b",
+  });
+  const mergeA = mock(async () => {});
+  const reply = mock(() => true);
+  const archive = mock(() => 1);
+
+  // After merging A, store.list() returns only B (A is gone).
+  let callCount = 0;
+  const listFn = mock(() => {
+    callCount++;
+    return callCount <= 1 ? [sessionA as any, sessionB as any] : [sessionB as any];
+  });
+  const getFn = mock((id: string) => (id === "sA" ? (sessionA as any) : (sessionB as any)));
+
+  const d = deps({
+    store: {
+      get: getFn as any,
+      list: listFn as any,
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    service: { archive, reply, resume: mock(() => true) } as any,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge: mergeA,
+        closeIssue: mock(async () => {}),
+      }) as any,
+    // A is up-to-date (behind=false → ready to merge), B is behind → needs rebase
+    worktree: {
+      behindBase: (wt: string) => (wt === "/wt" ? false : true),
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        sA: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "hA" },
+        sB: { state: "open", checks: "success", mergeable: true, number: 8, headSha: "hB" },
+      }),
+    } as any,
+  });
+
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+
+  // A was merged
+  expect(mergeA.mock.calls.length).toBe(1);
+  expect((mergeA as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+  // B got a rebase steer
+  expect(reply.mock.calls.length).toBe(1);
+});
+
+// ── merge_error status ─────────────────────────────────────────────────────────
+
+test("forge.merge throws → emitStatus called with merge_error state", async () => {
+  const emitStatus = mock(() => {});
+  const d = deps({
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge: async () => {
+          throw new Error("500");
+        },
+        closeIssue: mock(async () => {}),
+      }) as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  const calls: any[] = (emitStatus as any).mock.calls;
+  const errorCall = calls.find((c) => c[0]?.state === "merge_error");
+  expect(errorCall).toBeDefined();
+});
+
+// ── rebase_cap hold ────────────────────────────────────────────────────────────
+
+test("rebase_cap: behind session at cap → no reply steer, emitStatus rebase_cap", async () => {
+  const reply = mock(() => true);
+  const emitStatus = mock(() => {});
+  const session = baseSession({ autoMergeRebaseCount: 5 }); // at cap
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => true } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    emitStatus,
+    rebaseCap: 5,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(0);
+  const calls: any[] = (emitStatus as any).mock.calls;
+  const capCall = calls.find((c) => c[0]?.state === "rebase_cap");
+  expect(capCall).toBeDefined();
+});
+
+// ── rebase counter reset on progress ──────────────────────────────────────────
+
+test("reset-on-progress: behind=false + mergeable=true → rebaseCount reset to 0 then merged", async () => {
+  // Session had 3 prior rebase attempts, but now the branch is current + conflict-free.
+  // pump should reset the counter AND proceed to merge.
+  const setState = mock(() => {});
+  const merge = mock(async () => {});
+  const session = baseSession({ autoMergeRebaseCount: 3 });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: setState,
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => false } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: { archive: mock(() => 1), reply: mock(() => true), resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  // Counter was reset
+  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 0, rebaseHead: null }]);
+  // Merge was called (session is ready after reset)
+  expect(merge.mock.calls.length).toBe(1);
+});
+
+test("reset-on-progress NEGATIVE: behind=false + mergeable=false → counter NOT reset (still conflicting)", async () => {
+  // The branch is current but the host says it can't merge (textual conflict).
+  // The counter must NOT be reset — it keeps counting toward the cap.
+  const setState = mock(() => {});
+  const reply = mock(() => true);
+  const session = baseSession({ autoMergeRebaseCount: 3 });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: setState,
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => false } as any,
+    // PR is open+green but mergeable=false (conflict)
+    prCache: {
+      snapshot: () => ({
+        s1: { state: "open", checks: "success", mergeable: false, number: 7, headSha: "h1" },
+      }),
+    } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  // No reset call with rebaseCount:0
+  const resetCalls = (setState as any).mock.calls.filter((c: any[]) => c[1]?.rebaseCount === 0);
+  expect(resetCalls.length).toBe(0);
+  // A rebase steer was sent (mergeable=false triggers needsRebase) and counter bumped to 4
+  expect(reply.mock.calls.length).toBe(1);
+  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 4, rebaseHead: "h1" }]);
+});
+
+// ── behind cache ───────────────────────────────────────────────────────────────
+
+test("behind cache: two pumps with frozen clock call behindBase only once", async () => {
+  let nowVal = 1000;
+  const behindBase = mock(() => true);
+  const reply = mock(() => true);
+
+  const d = deps({
+    worktree: { behindBase } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    now: () => nowVal,
+    behindTtlMs: 10_000,
+  });
+
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  await svc.pump("/r");
+
+  // Both pumps share the same frozen timestamp → behindBase called once
+  expect((behindBase as any).mock.calls.length).toBe(1);
+
+  // Advance clock past TTL, pump again → should call again
+  nowVal = 1000 + 10_001;
+  await svc.pump("/r");
+  expect((behindBase as any).mock.calls.length).toBe(2);
+});
+
+// ── tick repo-gating ───────────────────────────────────────────────────────────
+
+test("tick: skips repo with no full-auto session (no merge/steer)", async () => {
+  const merge = mock(async () => {});
+  const reply = mock(() => true);
+  // Repo flag off AND the session opts merge OFF → no full-auto session exists → train idle.
+  const session = baseSession({ autoMergeEnabled: false });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: false, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge,
+        closeIssue: mock(async () => {}),
+      }) as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+  });
+
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+
+  expect(merge.mock.calls.length).toBe(0);
+  expect(reply.mock.calls.length).toBe(0);
+});
+
+// ── Fix 2: per-session override enables the train in a repo defaulting off ────────
+
+test("per-session override true + repo default false → merges (repoHasFullAuto via override)", async () => {
+  const merge = mock(async () => {});
+  const archive = mock(() => 1);
+  // Repo flag OFF, but the session overrides autoMergeEnabled true → full-auto → train runs.
+  const session = baseSession({ autoMergeEnabled: true });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: false, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+  expect(merge.mock.calls.length).toBe(1);
+  expect(archive.mock.calls.length).toBe(1);
+});
+
+// ── Fix 1: rebase-outstanding guard ──────────────────────────────────────────────
+
+test("rebase outstanding: same head not re-steered / not re-bumped on a second pump", async () => {
+  const reply = mock(() => true);
+  // First pump: behind + no steered head yet → steer + persist rebaseHead "h1".
+  // Mutate the session in place to mirror what the store would persist, then pump again.
+  const session = baseSession({ autoMergeRebaseHead: null });
+  const setState = mock((_id: string, patch: any) => {
+    if (patch.rebaseHead !== undefined) session.autoMergeRebaseHead = patch.rebaseHead;
+    if (patch.rebaseCount !== undefined) session.autoMergeRebaseCount = patch.rebaseCount;
+  });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: setState as any,
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => true } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(1);
+  expect(session.autoMergeRebaseHead).toBe("h1");
+  expect(session.autoMergeRebaseCount).toBe(1);
+  // Second pump, SAME head "h1" still behind → outstanding → no re-steer, no re-bump.
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(1);
+  expect(session.autoMergeRebaseCount).toBe(1);
+});
+
+// ── Fix 6: merge-error backoff ───────────────────────────────────────────────────
+
+test("merge-error backoff: after CAP failures the stuck PR is skipped, a ready sibling merges", async () => {
+  const nowVal = 1000;
+  const mergeA = mock(async () => {
+    throw new Error("branch protection");
+  });
+  const mergeB = mock(async () => {});
+  const archive = mock(() => 1);
+  const sessionA = baseSession({ id: "sA", desig: "TASK-A" });
+  const sessionB = baseSession({ id: "sB", desig: "TASK-B", worktreePath: "/wtB" });
+  // B appears only after A is permanently stuck, so each pump first tries A.
+  const listFn = () => [sessionA as any, sessionB as any];
+  const getFn = (id: string) => (id === "sA" ? (sessionA as any) : (sessionB as any));
+  const forge = {
+    kind: "github",
+    mergeMethod: "squash",
+    merge: (n: number) => (n === 7 ? mergeA() : mergeB()),
+    closeIssue: mock(async () => {}),
+  };
+  const d = deps({
+    store: {
+      get: getFn as any,
+      list: listFn as any,
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    resolveForge: () => forge as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+    prCache: {
+      snapshot: () => ({
+        sA: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "hA" },
+        sB: { state: "open", checks: "success", mergeable: true, number: 8, headSha: "hB" },
+      }),
+    } as any,
+    now: () => nowVal,
+  });
+  const svc = new AutoMergeService(d);
+  // Each pump: A is first-in-line, fails (attempted-guard breaks the pump). Run CAP times.
+  await svc.pump("/r");
+  await svc.pump("/r");
+  await svc.pump("/r");
+  expect(mergeA.mock.calls.length).toBe(3); // CAP failures on head hA
+  // Now A is backed off (mergeBlocked) → next pump skips A, B merges.
+  await svc.pump("/r");
+  expect(mergeA.mock.calls.length).toBe(3); // not re-fired
+  expect(mergeB.mock.calls.length).toBe(1);
+});
+
+// ── Fix 3: status carries the real sessionId ─────────────────────────────────────
+
+test("status payload carries the affected sessionId (merging)", async () => {
+  const emitStatus = mock(() => {});
+  const d = deps({ emitStatus });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  const calls: any[] = (emitStatus as any).mock.calls;
+  const merging = calls.find((c) => c[0]?.state === "merging");
+  expect(merging?.[0]?.sessionId).toBe("s1");
+});
+
+test("status payload carries sessionId on rebase_cap hold", async () => {
+  const emitStatus = mock(() => {});
+  const session = baseSession({ autoMergeRebaseCount: 5 });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => true } as any,
+    emitStatus,
+    rebaseCap: 5,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  const calls: any[] = (emitStatus as any).mock.calls;
+  const cap = calls.find((c) => c[0]?.state === "rebase_cap");
+  expect(cap?.[0]?.sessionId).toBe("s1");
+});
+
+// ── Fix 4: rebase steer names the session's real base branch ─────────────────────
+
+test("rebase steer references origin/<baseBranch> from the session", async () => {
+  const reply = mock(() => true);
+  const session = baseSession({ baseBranch: "develop-trunk" });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+    } as any,
+    worktree: { behindBase: () => true } as any,
+    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(reply.mock.calls.length).toBe(1);
+  expect((reply as any).mock.calls[0][1]).toContain("origin/develop-trunk");
+});

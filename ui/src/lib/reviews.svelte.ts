@@ -58,13 +58,14 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic + auto-address + learnings + autopilot + drain on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge on/off, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
   autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
+  autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
@@ -78,6 +79,7 @@ class RepoConfigStore {
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
       this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
       this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
+      this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -97,6 +99,7 @@ class RepoConfigStore {
         | "learningsEnabled"
         | "autopilotEnabled"
         | "autoDrainEnabled"
+        | "autoMergeEnabled"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -111,6 +114,7 @@ class RepoConfigStore {
       this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
       this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
       this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
+      this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -164,6 +168,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleAutoMerge(repoPath: string) {
+    const prev = this.autoMerge[repoPath];
+    const next = !this.isAutoMergeEnabled(repoPath);
+    this.autoMerge = { ...this.autoMerge, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { autoMergeEnabled: next }, () => {
+      this.autoMerge = { ...this.autoMerge, [repoPath]: prev };
+    });
+  }
+
   async setMaxAuto(repoPath: string, n: number) {
     const prev = this.maxAuto[repoPath];
     this.maxAuto = { ...this.maxAuto, [repoPath]: n }; // optimistic
@@ -208,6 +221,10 @@ class RepoConfigStore {
     return this.autoDrain[repoPath] ?? false;
   }
 
+  isAutoMergeEnabled(repoPath: string): boolean {
+    return this.autoMerge[repoPath] ?? false;
+  }
+
   /** All automation on/off flags for a repo, in one read — shared by the pill's
    *  count (GitRail) and the panel's switch rows (AutomationPanel). */
   flags(repoPath: string): AutomationFlags {
@@ -217,6 +234,7 @@ class RepoConfigStore {
       learnings: this.learningsOn(repoPath),
       autopilot: this.isAutopilotEnabled(repoPath),
       autoDrain: this.isAutoDrainEnabled(repoPath),
+      autoMerge: this.isAutoMergeEnabled(repoPath),
     };
   }
 

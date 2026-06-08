@@ -18,6 +18,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   learningsEnabled: true,
   autopilotEnabled: false,
   autoDrainEnabled: false,
+  autoMergeEnabled: false,
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,

@@ -3,7 +3,13 @@
  *  (mirrors git-rail-drain.ts and pr-badge.ts). */
 
 /** Every automation key. `autoAddress` depends on `critic`. */
-export type AutomationKey = "critic" | "autoAddress" | "learnings" | "autopilot" | "autoDrain";
+export type AutomationKey =
+  | "critic"
+  | "autoAddress"
+  | "learnings"
+  | "autopilot"
+  | "autoDrain"
+  | "autoMerge";
 
 /** On/off state for each automation, as read from repoConfig in the component. */
 export interface AutomationFlags {
@@ -12,6 +18,7 @@ export interface AutomationFlags {
   learnings: boolean;
   autopilot: boolean;
   autoDrain: boolean;
+  autoMerge: boolean;
 }
 
 /** A themed group of automation rows shown in the panel. */
@@ -24,7 +31,7 @@ export interface AutomationGroup {
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
   { id: "review", items: ["critic", "autoAddress"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
-  { id: "queue", items: ["autoDrain"] },
+  { id: "queue", items: ["autoDrain", "autoMerge"] },
 ];
 
 /** The pill denominator: total automations, derived from the group layout so it
@@ -40,5 +47,6 @@ export function automationCount(flags: AutomationFlags): number {
     flags.learnings,
     flags.autopilot,
     flags.autoDrain,
+    flags.autoMerge,
   ].filter(Boolean).length;
 }

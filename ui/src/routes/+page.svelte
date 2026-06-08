@@ -25,6 +25,7 @@
     getMergedClearable,
     clearMerged,
     getDrain,
+    getAutoMerge,
     halt as apiHalt,
   } from "$lib/api";
   import type {
@@ -398,6 +399,9 @@
     getDrain()
       .then((l) => store.setDrain(l))
       .catch(() => {});
+    getAutoMerge()
+      .then((l) => store.setAutoMerge(l))
+      .catch(() => {});
     steers.load();
     projectIcons.load();
     reviews.load();
@@ -654,7 +658,7 @@
       whatsNew={whatsNewDotOn}
       onwhatsnew={() => (showWhatsNew = true)}
     />
-    <QueueStrip drain={store.drain} />
+    <QueueStrip drain={store.drain} autoMerge={store.autoMerge} />
   {/if}
 
   <main id="main-content" class="main-region">

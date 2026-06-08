@@ -1010,6 +1010,32 @@
       {/if}
     </span>
   {/snippet}
+  {#snippet renameControl()}
+    {#if renaming}
+      <span class="rename-edit">
+        <input
+          bind:this={renameInput}
+          class="rename-input"
+          class:err={renameError}
+          bind:value={renameDraft}
+          placeholder={m.viewport_rename_placeholder()}
+          aria-label={m.viewport_rename_aria()}
+          onkeydown={onRenameKey}
+          onblur={commitRename}
+        />
+        {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
+      </span>
+    {:else}
+      <button
+        class="rename-btn"
+        type="button"
+        onclick={startRename}
+        title={m.viewport_rename_aria()}
+        aria-label={m.viewport_rename_aria()}>✎</button
+      >
+      {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
+    {/if}
+  {/snippet}
   <!-- header -->
   <div
     class="vp-head"
@@ -1096,6 +1122,9 @@
     {#if !compact}
       <span class="sep">·</span>
       <span class="branch">{session.branch ?? session.worktreePath}</span>
+      <!-- desktop: rename affordance sits right after the identity, next to the
+           task name (compact/phone keeps it in the trailing .vp-actions cluster) -->
+      {@render renameControl()}
     {/if}
     <div class="spacer"></div>
     <div class="tab-group" class:mobile={compact}>
@@ -1206,29 +1235,8 @@
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
     <div class="vp-actions">
-      {#if renaming}
-        <span class="rename-edit">
-          <input
-            bind:this={renameInput}
-            class="rename-input"
-            class:err={renameError}
-            bind:value={renameDraft}
-            placeholder={m.viewport_rename_placeholder()}
-            aria-label={m.viewport_rename_aria()}
-            onkeydown={onRenameKey}
-            onblur={commitRename}
-          />
-          {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
-        </span>
-      {:else}
-        <button
-          class="rename-btn"
-          type="button"
-          onclick={startRename}
-          title={m.viewport_rename_aria()}
-          aria-label={m.viewport_rename_aria()}>✎</button
-        >
-        {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
+      {#if compact}
+        {@render renameControl()}
       {/if}
       <button
         class="decom"
@@ -1880,7 +1888,8 @@
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
 
-  /* rename: pencil affordance + inline editor, sitting just left of decommission */
+  /* rename: pencil affordance + inline editor — next to the task name on desktop,
+     in the trailing cluster (left of decommission) on compact/phone */
   .rename-btn {
     flex-shrink: 0;
     background: transparent;

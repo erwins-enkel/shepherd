@@ -229,8 +229,18 @@
     background: var(--color-inset);
     border-color: var(--color-amber);
   }
+  /* Mobile list document-scrolls: margin-top:auto bottom-aligns the bar when
+     the list is short (no scroll); position:sticky pins it to the viewport
+     bottom while scrolling a long list. The two are complementary — removing
+     either breaks one of the two cases. padding-bottom clears the gesture-nav
+     safe-area inset. */
   .actions.mobile {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-top: auto;
     padding: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   .actions.mobile .btn.primary {
     flex: 1;

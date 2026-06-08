@@ -100,6 +100,11 @@ export interface AppDeps {
   };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
+  /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
+   *  rebuilt overview to every client. Fired after a mutation that changes a repo's
+   *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
+   *  immediately instead of lingering until the next warm poll. Absent in tests. */
+  refreshBacklog?: (repoDir: string) => Promise<void>;
   /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
    *  Optional so environments/tests that don't wire it still type-check; the route
    *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
@@ -1449,6 +1454,11 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
     });
+    // Detached, best-effort: the merge already succeeded, so a refresh/broadcast
+    // hiccup must not fail the response, and the GraphQL refetch must not delay the
+    // "merged" feedback. Pushes the merged PR (and any auto-closed linked issue) out
+    // of the backlog counters + headline now; the warm poller reconciles regardless.
+    void deps.refreshBacklog?.(dir).catch(() => {});
     return json({ ok: true });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "merge failed" }, 502);

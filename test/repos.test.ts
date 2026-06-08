@@ -3,7 +3,15 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { listRepos, readTodo, writeTodo, cloneRepo, classifyCloneError } from "../src/repos";
+import {
+  listRepos,
+  listReposPathForReal,
+  readTodo,
+  writeTodo,
+  cloneRepo,
+  classifyCloneError,
+} from "../src/repos";
+import { realpathSync } from "node:fs";
 
 let root: string;
 
@@ -28,6 +36,35 @@ test("listRepos returns sorted dirs, excludes file and dotdir", () => {
 
 test("listRepos returns [] for nonexistent root", () => {
   expect(listRepos(join(root, "nonexistent"))).toEqual([]);
+});
+
+// ── listReposPathForReal (post-merge backlog refresh key reconciliation) ───────
+
+test("listReposPathForReal maps a realpath back to listRepos' join(repoRoot, name) key", () => {
+  // A symlinked repoRoot is exactly where the merge path's realpath-resolved dir
+  // diverges from the raw join(repoRoot, name) the counts cache + buildBacklogPayload
+  // key by. linkRoot → root, so listRepos enumerates under linkRoot while the merge
+  // path (safeRepoDir) hands us the real path.
+  const linkRoot = join(tmpdir(), `shepherd-repos-link-${process.pid}-${root.split("-").pop()}`);
+  symlinkSync(root, linkRoot, "dir");
+  try {
+    const enumerated = join(linkRoot, "alpha"); // the key listRepos / readers use
+    const realDir = realpathSync(enumerated); // what safeRepoDir would yield
+    // Precondition: the two forms genuinely diverge under the symlink, so this
+    // test would fail if the reconciliation were a no-op.
+    expect(realDir).not.toBe(enumerated);
+
+    // The fix: realpath → the enumerated key the readers (and warmer) cache by, so
+    // refresh writes the same entry buildBacklogPayload later reads.
+    expect(listReposPathForReal(realDir, linkRoot)).toBe(enumerated);
+  } finally {
+    rmSync(linkRoot, { force: true });
+  }
+});
+
+test("listReposPathForReal returns the dir unchanged when no enumerated repo matches", () => {
+  const outside = join(tmpdir(), "definitely-not-under-repoRoot");
+  expect(listReposPathForReal(outside, root)).toBe(outside);
 });
 
 // ── readTodo ──────────────────────────────────────────────────────────────────

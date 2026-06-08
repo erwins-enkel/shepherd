@@ -19,6 +19,12 @@ export class StatusPoller {
   private lastProbeAt = new Map<string, number>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
+  /** Last visible-terminal buffer per stall-candidate session, for the liveness
+   *  diff. A transcript gone silent past the stall window only makes a turn a
+   *  *candidate*; comparing the live terminal across probes confirms it. A turn
+   *  still generating keeps its spinner/elapsed/token counter ticking, so the
+   *  buffer changes between probes; a wedged or idle turn leaves it frozen. */
+  private lastVisible = new Map<string, string>();
 
   constructor(
     private store: SessionStore,
@@ -123,6 +129,7 @@ export class StatusPoller {
       ...this.lastProbeAt.keys(),
       ...this.lastActivitySig.keys(),
       ...this.lastActivity.keys(),
+      ...this.lastVisible.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -131,6 +138,7 @@ export class StatusPoller {
         this.lastProbeAt.delete(id);
         this.lastActivitySig.delete(id);
         this.lastActivity.delete(id);
+        this.lastVisible.delete(id);
       }
     }
   }
@@ -150,10 +158,16 @@ export class StatusPoller {
    * Activity: emit the heartbeat/summary signal, deduped by content so clients
    * only receive genuine changes; a null signal (no transcript yet) is skipped.
    *
-   * Stall: flag a working agent gone silent — no new tool-use within the stall
-   * window (a tool still running is excluded until the hung-command ceiling).
+   * Stall: a working agent whose transcript has gone silent past the stall
+   * window (no new tool-use; a running tool is excluded until the hung-command
+   * ceiling) is only a *candidate*. A long pure-generation turn (writing a plan,
+   * deep thinking) emits no tool-use and flushes nothing to the transcript until
+   * it completes, so it looks identical to a wedged turn on the transcript alone.
+   * We confirm with a live-terminal liveness diff: a turn still generating keeps
+   * its spinner/elapsed/token counter ticking, so the visible buffer changes
+   * between probes; only a frozen buffer + a silent transcript is a real stall.
    * Surfaces as a "needs you" reason; fires once per episode (guarded by
-   * `lastSig === STALL_SIG`) until activity resumes, then re-arms.
+   * `lastSig === STALL_SIG`) until the turn progresses, then re-arms.
    *
    * Note: stall detection now runs at the (faster) `probeCheckMs` cadence rather
    * than the old 30s stall cadence. This only improves detection latency — the
@@ -182,21 +196,38 @@ export class StatusPoller {
       }
     }
 
-    // ── stall decision (identical to the former maybeStall) ──
+    // ── stall decision: transcript candidate + live-terminal liveness gate ──
     const snap = signals.snapshot;
     if (!snap || !isStalled(snap, t, this.stallCfg)) {
-      this.clearBlock(s.id); // activity resumed (or never stalled) → re-arm
+      this.clearBlock(s.id); // transcript progressed → clear any stall + reset baseline
       return;
     }
+    // Transcript silent past the window → stall *candidate*. Confirm against the
+    // live terminal: a turn still generating keeps ticking, so its visible buffer
+    // changes between probes; a wedged/idle turn leaves it frozen.
+    let visible: string;
+    try {
+      visible = this.herdr.read(s.herdrAgentId, "visible");
+    } catch {
+      return; // can't assess liveness this cycle → best-effort, retry next cadence
+    }
+    const prev = this.lastVisible.get(s.id);
+    this.lastVisible.set(s.id, visible);
+    if (prev === undefined) return; // no baseline yet → defer one probe to compare
+    if (visible !== prev) {
+      // terminal still moving → the turn is alive, not stalled. Clear a stall that
+      // recovered; keep the fresh baseline (already set) for the next comparison.
+      if (this.lastSig.get(s.id) === STALL_SIG) {
+        this.lastSig.delete(s.id);
+        this.lastReadAt.delete(s.id);
+        this.onBlock(s.id, null);
+      }
+      return;
+    }
+    // transcript silent AND terminal frozen → genuine stall.
     if (this.lastSig.get(s.id) === STALL_SIG) return; // already announced this episode
     this.lastSig.set(s.id, STALL_SIG);
-    let tail: string[] = [];
-    try {
-      tail = tailLines(this.herdr.read(s.herdrAgentId, "visible"));
-    } catch {
-      // terminal read is best-effort context; an empty tail still flags the stall
-    }
-    this.onBlock(s.id, { shape: "stall", options: [], tail });
+    this.onBlock(s.id, { shape: "stall", options: [], tail: tailLines(visible) });
   }
 
   /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */
@@ -231,6 +262,7 @@ export class StatusPoller {
   }
 
   private clearBlock(id: string): void {
+    this.lastVisible.delete(id); // reset the stall liveness baseline regardless of block state
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);

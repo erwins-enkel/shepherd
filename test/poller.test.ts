@@ -208,11 +208,13 @@ test("clears an active block when the agent disappears", () => {
   expect(blocks[blocks.length - 1]).toEqual({ id: s.id, block: null }); // block cleared
 });
 
-test("flags a silent working agent as a stall, fires once, re-arms on resume", () => {
+test("flags a silent working agent with a FROZEN terminal as a stall, fires once, re-arms on resume", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
 
+  // a frozen terminal — the visible buffer never changes between probes, so the
+  // liveness gate confirms the transcript-silence candidate as a genuine stall.
   const herdr = {
     list: (): HerdrAgent[] => [
       {
@@ -249,6 +251,12 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
     7000, // probeCheckMs
   );
 
+  // first candidate probe only captures a terminal baseline — no emit yet
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+
+  // next probe: terminal unchanged + transcript silent → stall fires
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
@@ -264,18 +272,124 @@ test("flags a silent working agent as a stall, fires once, re-arms on resume", (
   poller.tick();
   expect(blocks).toHaveLength(1);
 
-  // activity resumes → one clear, then re-arms for the next episode
+  // transcript progresses → one clear, then re-arms for the next episode
   stalled = false;
   clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
+  // stalled again: baseline was reset on resume, so the first probe defers again…
   stalled = true;
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  // …and the next confirms the frozen terminal → fires
   clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(3);
   expect((blocks[2]!.block as any).shape).toBe("stall");
+});
+
+test("does NOT flag a transcript-silent agent whose terminal is still moving (live generation)", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  // the agent is mid-generation: no tool-use (transcript silent) but the spinner /
+  // token counter ticks, so the visible buffer changes every probe.
+  let frame = 0;
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => `Computing… (${frame}s • ${frame}k tokens)`,
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: { lastTs: clock - 600_000, pending: false }, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+  );
+
+  // probe across several cadences — the terminal changes each time → never a stall
+  for (let i = 0; i < 4; i++) {
+    frame += 13;
+    poller.tick();
+    clock += 7000;
+  }
+  expect(blocks).toHaveLength(0);
+});
+
+test("clears an emitted stall when the terminal resumes moving even before the transcript catches up", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  // transcript stays silent throughout (slow tool-less turn); only the terminal
+  // tells us whether the turn is alive.
+  let visible = "frozen";
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => visible,
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: { lastTs: clock - 600_000, pending: false }, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+  );
+
+  poller.tick(); // baseline
+  clock += 7000;
+  poller.tick(); // frozen → stall fires
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+
+  // terminal resumes ticking while the transcript is still silent → clear the stall
+  visible = "Computing… (601s)";
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
 
 test("acknowledgeStall clears the flag without re-firing while still stalled", () => {
@@ -318,7 +432,10 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
     7000, // probeCheckMs
   );
 
-  poller.tick(); // stall fires
+  poller.tick(); // baseline capture, no emit yet
+  expect(blocks).toHaveLength(0);
+  clock += 7000;
+  poller.tick(); // frozen terminal → stall fires
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
 
@@ -332,14 +449,16 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   poller.tick();
   expect(blocks).toHaveLength(2);
 
-  // activity resumes → episode re-arms; acknowledgeStall now no-ops (no live stall)
+  // transcript progresses → episode re-arms; acknowledgeStall now no-ops (no live stall)
   stalled = false;
   clock += 7000;
   poller.tick();
   expect(poller.acknowledgeStall(s.id)).toBe(false);
 
-  // a later stall fires again
+  // a later stall fires again (baseline reset on resume → defer one probe, then fire)
   stalled = true;
+  clock += 7000;
+  poller.tick();
   clock += 7000;
   poller.tick();
   expect((blocks[blocks.length - 1]!.block as any).shape).toBe("stall");

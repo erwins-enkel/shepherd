@@ -18,16 +18,22 @@ export interface StallConfig {
 }
 
 export const DEFAULT_STALL: StallConfig = {
-  // 8m of pure think/generate time with zero new tool-use is abnormal; the
-  // pending-guard below already excludes legitimate long-running commands, so
-  // this only fires on a genuinely wedged turn. Single knob, easy to tune.
+  // 8m of transcript silence (no new tool-use) makes a turn a stall *candidate*,
+  // not a confirmed stall: a long pure-generation turn (plan/deep-think) is also
+  // tool-silent. The poller confirms candidates with a live-terminal liveness
+  // diff before alarming; the pending-guard below excludes long-running commands.
   stallMs: 8 * 60_000,
   // a tool that has been "running" for 20m with no result is almost certainly a
   // hung command (the pending-guard would otherwise mask it forever).
   pendingStallMs: 20 * 60_000,
 };
 
-/** Pure stall decision for a *working* agent, given its latest activity snapshot. */
+/**
+ * Pure transcript-silence decision for a *working* agent: true when its latest
+ * snapshot shows no forward progress within the window. This is a stall
+ * *candidate* — the poller confirms it against the live terminal before alarming,
+ * since a long tool-silent generation turn trips this too.
+ */
 export function isStalled(snap: ActivitySnapshot, now: number, cfg: StallConfig): boolean {
   if (snap.lastTs <= 0) return false; // no tool activity to measure a gap against yet
   const gap = now - snap.lastTs;

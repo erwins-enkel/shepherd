@@ -90,6 +90,26 @@ const ENGINEERING_POSTURE =
   "loop until they actually pass — never declare work done before verifying against them.";
 
 /**
+ * Fixed, repo-independent standing guidance injected into every spawn (issue #347, sourced from
+ * the upstream Tank unattended prompt). Counterpart to ENGINEERING_POSTURE: that block stops the
+ * agent *over-building*; this one stops it building against a *stale or assumed* external API. Left
+ * uncorrected on an overnight/unattended run, the agent confidently scaffolds many files against a
+ * library version or pattern that's no longer current, with no human to catch it early — a cheap
+ * web search up front is high-leverage insurance against that.
+ *
+ * Deliberately scoped to non-trivial code against an external library/framework/API the agent isn't
+ * sure is current, so it doesn't fire a search on every trivial edit or well-known pattern. WebSearch
+ * is already allowed for task agents, so this adds no new permission prompt. Agent-facing prompt text
+ * (not operator UI), so fixed English — same precedent as the other notices.
+ */
+const RESEARCH_FIRST_NOTICE =
+  "Before writing non-trivial code against an external library, framework, or API — especially one " +
+  "you're not certain is current — do a quick web search to confirm the present best approach, then " +
+  "note in one or two lines what you found and why you chose it. Skip this for trivial edits and " +
+  "well-established patterns you're already confident about; it exists to stop you scaffolding many " +
+  "files against a stale or assumed API with no human to correct course.";
+
+/**
  * Seeded into the system prompt at spawn when the repo has autopilot on, so the agent knows
  * up front it's running unattended. Without it autopilot is purely reactive — the agent stops
  * to ask "commit + open a PR?", and a steer only lands after a stop is detected and classified
@@ -113,13 +133,16 @@ const AUTOPILOT_DIRECTIVE =
  * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
  * so the agent can cleanly separate persistent guidance from the task in its human turn.
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
- * none / learnings are disabled; the engineering-posture and branch-rename blocks always ride.
- * `autopilotActive` appends the autopilot directive (see above).
+ * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
+ * always ride. `autopilotActive` appends the autopilot directive (see above).
  */
 export function composeSystemPrompt(houseRules: string | null, autopilotActive = false): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
+  const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
-  const blocks = houseRules ? [posture, houseRules, branchNotice] : [posture, branchNotice];
+  const blocks = houseRules
+    ? [posture, research, houseRules, branchNotice]
+    : [posture, research, branchNotice];
   if (autopilotActive)
     blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
   return blocks.join("\n\n");

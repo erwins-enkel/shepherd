@@ -1,14 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
+import { readonlyReviewerArgv } from "./reviewer-argv";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
-export const PLAN_FILE = ".shepherd-plan.md";
+const PLAN_FILE = ".shepherd-plan.md";
 
 /** The file the adversarial plan reviewer writes its verdict JSON to, in its detached worktree. */
 export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
@@ -46,55 +47,10 @@ export function planReviewPrompt(task: string, plan: string, priorFindings: stri
   return lines.join("\n");
 }
 
-/** Build the read-only plan reviewer's argv — deliberately NOT --dangerously-skip-permissions. It
- *  inspects UNTRUSTED agent-written plan text, so a prompt-injection hidden in that plan must not
- *  be able to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
- *  (an unattended PTY would otherwise hang on a permission prompt); the allowlist is
- *  read-only inspection + read-only git + writing files in its own disposable worktree. */
+/** The read-only plan reviewer's argv — the PR critic's exact hardening, shared via one builder
+ *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). */
 export function reviewerArgv(model: string | null, prompt: string): string[] {
-  const argv = [
-    "claude",
-    "--session-id",
-    randomUUID(),
-    // Run the reviewer in a CLEAN context. It's a fresh `claude` startup, so it
-    // would otherwise inherit the user's global hooks + plugins — notably the
-    // superpowers SessionStart hook, which injects a forceful "you MUST invoke
-    // a skill" preamble. Skill isn't on the allowlist, so dontAsk denies it and
-    // the agent thrashes instead of reviewing. disableAllHooks strips every
-    // inherited hook (also gsd/herdr/ensure-deps — none of which the reviewer
-    // needs); --disable-slash-commands removes skills entirely.
-    // NOT --bare: it refuses OAuth/keychain auth (strictly ANTHROPIC_API_KEY),
-    // and shepherd runs on subscription OAuth with no API key — --bare would
-    // break the reviewer's auth. --settings keeps OAuth while disabling hooks.
-    "--settings",
-    '{"disableAllHooks":true}',
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Read",
-    "Grep",
-    "Glob",
-    "Bash(git diff *)",
-    "Bash(git log *)",
-    "Bash(git show *)",
-    "Bash(git status)",
-    // Bare `Write` — NOT Write(<path>). Path-scoped Write rules are silently
-    // denied under --permission-mode dontAsk (every scoped form fails to match),
-    // so a scoped rule would block the verdict write and the reviewer could never
-    // finish → timeout. Bare Write is an acceptable widening: the worktree is
-    // detached + disposable (removed right after the review) and the agent still
-    // can't exec, commit, push, or reach anything outside it (no general Bash,
-    // no Edit, no network).
-    "Write",
-  ];
-  if (model) argv.push("--model", model);
-  // --permission-mode LAST: `--allowedTools <tools...>` is variadic and eats
-  // every following token until the next flag. The task prompt is a trailing
-  // positional, so a single-value flag MUST sit between the allowlist and the
-  // prompt — otherwise `claude` folds the prompt into the allowlist, launches
-  // with no task, and hangs until timeout (every review). Don't reorder.
-  argv.push("--permission-mode", "dontAsk");
-  argv.push(prompt);
-  return argv;
+  return readonlyReviewerArgv(model, prompt);
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
@@ -287,53 +243,9 @@ export class PlanGateService {
     // (a store/steer/release failure must not strand them).
     try {
       const gate = this.buildGate(f, raw);
-      if (gate.decision === "approved") {
-        this.deps.store.putPlanGate(gate);
-        this.deps.onChange(f.sessionId, gate);
-        // Auto sessions clear the gate straight into execution; interactive sessions
-        // wait for the human's explicit Go (so we do NOT release them here).
-        if (this.deps.store.get(f.sessionId)?.auto === true) this.deps.release(f.sessionId);
-      } else if (gate.decision === "changes_requested") {
-        // Steer the findings back to the LIVE planning agent — but only while under the
-        // cap. At/over the cap we stop steering and escalate to the operator instead.
-        const priorRound = f.priorRound;
-        let delivered = false;
-        if (priorRound < this.cap) {
-          try {
-            delivered = this.deps.reply(f.sessionId, planSteerText(gate.findings));
-          } catch (err) {
-            console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
-          }
-        }
-        // Round advances only when the steer actually lands; at/over the cap it holds.
-        gate.round = priorRound >= this.cap ? priorRound : delivered ? priorRound + 1 : priorRound;
-        // Escalate to the operator whenever the streak is at/over the cap — a plan
-        // stuck at the cap (or a steer that couldn't land at the cap boundary) can't
-        // make progress on its own. Fires on the crossing round and on any re-review
-        // that re-enters already at the cap (each is a fresh "still stuck" event).
-        if (gate.round >= this.cap) {
-          this.deps.store.addSignal({
-            repoPath: f.repoPath,
-            sessionId: f.sessionId,
-            kind: "stall",
-            payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
-          });
-        }
-        this.deps.store.putPlanGate(gate);
-        this.deps.onChange(f.sessionId, gate);
-        // Do NOT release: execution stays gated until the plan is approved.
-      } else {
-        // error (timeout / unparseable verdict): bias to surface. Persist the error
-        // gate + escalate, but don't steer (no real findings) and don't release.
-        this.deps.store.putPlanGate(gate);
-        this.deps.onChange(f.sessionId, gate);
-        this.deps.store.addSignal({
-          repoPath: f.repoPath,
-          sessionId: f.sessionId,
-          kind: "stall",
-          payload: "plan reviewer did not produce a verdict — needs a human",
-        });
-      }
+      if (gate.decision === "approved") this.applyApproved(f, gate);
+      else if (gate.decision === "changes_requested") this.applyChangesRequested(f, gate);
+      else this.applyError(f, gate); // timeout / unparseable verdict
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       this.deps.herdr.stop(f.terminalId);
@@ -341,27 +253,61 @@ export class PlanGateService {
     }
   }
 
+  /** Persist an approved gate; auto sessions clear straight into execution, interactive ones
+   *  wait for the human's explicit Go (so we do NOT release them here). */
+  private applyApproved(f: PlanInFlight, gate: PlanGate): void {
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(f.sessionId, gate);
+    if (this.deps.store.get(f.sessionId)?.auto === true) this.deps.release(f.sessionId);
+  }
+
+  /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop
+   *  steering and escalate to the operator. Execution stays gated until the plan is approved. */
+  private applyChangesRequested(f: PlanInFlight, gate: PlanGate): void {
+    const priorRound = f.priorRound;
+    let delivered = false;
+    if (priorRound < this.cap) {
+      try {
+        delivered = this.deps.reply(f.sessionId, planSteerText(gate.findings));
+      } catch (err) {
+        console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
+      }
+    }
+    // Round advances only when the steer actually lands; at/over the cap it holds.
+    gate.round = priorRound >= this.cap ? priorRound : delivered ? priorRound + 1 : priorRound;
+    // Escalate to the operator whenever the streak is at/over the cap — a plan stuck at the cap
+    // (or a steer that couldn't land at the cap boundary) can't make progress on its own. Fires on
+    // the crossing round and on any re-review that re-enters already at the cap.
+    if (gate.round >= this.cap) {
+      this.deps.store.addSignal({
+        repoPath: f.repoPath,
+        sessionId: f.sessionId,
+        kind: "stall",
+        payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
+      });
+    }
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(f.sessionId, gate);
+  }
+
+  /** Persist the error gate + escalate, but don't steer (no real findings) and don't release. */
+  private applyError(f: PlanInFlight, gate: PlanGate): void {
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(f.sessionId, gate);
+    this.deps.store.addSignal({
+      repoPath: f.repoPath,
+      sessionId: f.sessionId,
+      kind: "stall",
+      payload: "plan reviewer did not produce a verdict — needs a human",
+    });
+  }
+
   private buildGate(f: PlanInFlight, raw: RawPlanVerdict | null): PlanGate {
     const decision = normalizeDecision(raw?.decision);
     const resolved: PlanDecision = raw && decision ? decision : "error";
-    const summary =
-      resolved === "error"
-        ? "plan reviewer did not produce a verdict"
-        : raw && typeof raw.summary === "string"
-          ? raw.summary.slice(0, 100)
-          : "";
+    const summary = resolveSummary(resolved, raw);
     const body = raw && typeof raw.body === "string" ? raw.body : "";
-    const parsed = normalizeFindings(raw?.findings);
-    // a request-changes verdict with no usable findings still has something to address;
-    // fall back to its summary so the steer-back isn't empty.
-    const findings =
-      resolved === "approved" || resolved === "error"
-        ? []
-        : parsed.length
-          ? parsed
-          : summary
-            ? [summary]
-            : [];
+    const findings = resolveFindings(resolved, normalizeFindings(raw?.findings), summary);
     return {
       sessionId: f.sessionId,
       planHash: f.planHash,
@@ -406,7 +352,7 @@ export class PlanGateService {
 }
 
 /** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */
-export function planSteerText(findings: string[]): string {
+function planSteerText(findings: string[]): string {
   return (
     "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +
     findings.map((f, i) => `${i + 1}. ${f}`).join("\n") +
@@ -419,6 +365,20 @@ function normalizeDecision(d: unknown): PlanDecision | null {
   if (d === "approve") return "approved";
   if (d === "request-changes") return "changes_requested";
   return null;
+}
+
+/** The gate summary: a fixed line for `error`, else the (clamped) verdict summary or "". */
+function resolveSummary(resolved: PlanDecision, raw: RawPlanVerdict | null): string {
+  if (resolved === "error") return "plan reviewer did not produce a verdict";
+  return raw && typeof raw.summary === "string" ? raw.summary.slice(0, 100) : "";
+}
+
+/** The gate findings: none for approved/error; else the parsed findings, falling back to the
+ *  summary so a request-changes steer-back is never empty. */
+function resolveFindings(resolved: PlanDecision, parsed: string[], summary: string): string[] {
+  if (resolved === "approved" || resolved === "error") return [];
+  if (parsed.length) return parsed;
+  return summary ? [summary] : [];
 }
 
 /** Coerce the reviewer's `findings` field to a clean string[] (drops junk, never throws). */

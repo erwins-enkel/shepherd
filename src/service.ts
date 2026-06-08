@@ -319,6 +319,41 @@ export class SessionService {
     return renderHouseRulesBlock(injected);
   }
 
+  /** Assemble the spawn argv. Shepherd-curated house rules go into the system prompt (not the human
+   *  turn) so every spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the
+   *  repo's learned corrections without bleeding into the task text. The autopilot directive rides
+   *  the same prompt when the repo has autopilot on; the plan-gate directive when planGateOn; the
+   *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled. */
+  private buildSpawnArgv(
+    input: CreateSessionInput,
+    claudeSessionId: string,
+    sessionId: string,
+    promptArg: string,
+    planGateOn: boolean | undefined,
+  ): string[] {
+    const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    const houseRules = this.houseRules(input.repoPath);
+    const autopilotActive = repoConfig.autopilotEnabled;
+    const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
+    const buildQueue = repoConfig.buildQueueEnabled
+      ? buildQueueDirective({
+          sessionId,
+          baseUrl: agentBaseUrl(),
+          token: config.token,
+          autopilot: autopilotActive,
+        })
+      : null;
+    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
+    argv.push("--settings", spawnSettingsOverlay());
+    argv.push(
+      "--append-system-prompt",
+      composeSystemPrompt(houseRules, autopilotActive, { planGate, buildQueue }),
+    );
+    if (input.model) argv.push("--model", input.model);
+    argv.push(promptArg);
+    return argv;
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
     const basename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = basename ? slugifyManual(basename) : undefined;
@@ -334,41 +369,12 @@ export class SessionService {
       const sessionId = randomUUID();
 
       const promptArg = this.composePromptArg(input, wt.worktreePath);
-
-      // Shepherd-curated house rules go into the system prompt (not the human turn) so every
-      // spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the repo's
-      // learned corrections without the rules bleeding into the task text. The autopilot
-      // directive rides the same prompt when the repo has autopilot on, so the agent drives to a
-      // PR without stopping for procedural gates instead of waiting for a reactive steer.
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-      const houseRules = this.houseRules(input.repoPath);
-      const autopilotActive = repoConfig.autopilotEnabled;
-      const buildQueueEnabled = repoConfig.buildQueueEnabled;
-      const buildQueueDirectiveText = buildQueueEnabled
-        ? buildQueueDirective({
-            sessionId,
-            baseUrl: agentBaseUrl(),
-            token: config.token,
-            autopilot: autopilotActive,
-          })
-        : null;
       // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
       // plan. Session-level override wins over the repo default.
       const planGateOn = input.planGateEnabled ?? repoConfig.planGateEnabled;
-      const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
-
-      const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
-      argv.push("--settings", spawnSettingsOverlay());
-      argv.push(
-        "--append-system-prompt",
-        composeSystemPrompt(houseRules, autopilotActive, {
-          planGate,
-          buildQueue: buildQueueDirectiveText,
-        }),
-      );
-      if (input.model) argv.push("--model", input.model);
-      argv.push(promptArg);
+      const argv = this.buildSpawnArgv(input, claudeSessionId, sessionId, promptArg, planGateOn);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
       const session = this.deps.store.create({
         id: sessionId,
@@ -391,7 +397,7 @@ export class SessionService {
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
-      if (buildQueueEnabled && autopilotActive)
+      if (repoConfig.buildQueueEnabled && repoConfig.autopilotEnabled)
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
       return session;

@@ -20,6 +20,8 @@ import {
   validateSteers,
   validateBroadcast,
   validateIconPatch,
+  validateBuildSteps,
+  validateBuildStepStatus,
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
@@ -247,6 +249,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autopilotEnabled",
   "autoDrainEnabled",
   "autoMergeEnabled",
+  "buildQueueEnabled",
 ] as const;
 
 type RepoCfgBody = {
@@ -256,6 +259,7 @@ type RepoCfgBody = {
   autopilotEnabled?: unknown;
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
+  buildQueueEnabled?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -279,6 +283,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autopilotEnabled?: boolean;
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
+      buildQueueEnabled?: boolean;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -290,7 +295,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled) must be booleans",
       },
       400,
     );
@@ -322,7 +327,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -334,6 +339,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
+    buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -352,6 +358,7 @@ function mergeRepoConfig(
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
+    buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
@@ -900,6 +907,66 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
       enabled: updated.autoMergeEnabled,
     });
   return json(updated);
+}
+
+// Steer text sent to the agent when the operator approves the build queue.
+// Agent-facing — plain English, not user chrome, so no i18n.
+const APPROVE_STEER =
+  "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done via the build-queue API as you go (see the build-queue instructions in your system prompt). If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
+
+// PUT /api/sessions/:id/queue — replace the full step list.
+async function putBuildQueue(req: Request, deps: AppDeps, id: string): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const steps = validateBuildSteps(await req.json().catch(() => null));
+  if (steps === null) return json({ error: "invalid build steps" }, 400);
+  const q = deps.store.replaceBuildQueue(id, steps);
+  deps.events?.emit("queue:update", q);
+  return json(q);
+}
+
+// POST /api/sessions/:id/queue/steps/:stepId — set a single step's status.
+async function postBuildStepStatus(
+  req: Request,
+  deps: AppDeps,
+  id: string,
+  stepId: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const status = validateBuildStepStatus(await req.json().catch(() => null));
+  if (status === null) return json({ error: "invalid status" }, 400);
+  if (!deps.store.setBuildStepStatus(id, stepId, status)) {
+    return json({ error: "step not found" }, 404);
+  }
+  const q = deps.store.getBuildQueue(id);
+  deps.events?.emit("queue:update", q);
+  return json(q);
+}
+
+// POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
+function approveBuildQueue(deps: AppDeps, id: string): Response {
+  deps.store.setBuildQueueApproved(id, true);
+  const q = deps.store.getBuildQueue(id);
+  deps.events?.emit("queue:update", q);
+  deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
+  return json(q);
+}
+
+// /api/sessions/:id/queue[/steps/:stepId | /approve]
+// Returns null for any path it doesn't own so other session sub-routes fall through.
+async function handleBuildQueue({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "queue")) return null;
+  const id = parts[2];
+  if (!id) return null;
+  if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
+
+  if (req.method === "GET" && !parts[4]) return json(deps.store.getBuildQueue(id));
+  if (req.method === "PUT" && !parts[4]) return putBuildQueue(req, deps, id);
+  if (req.method === "POST" && parts[4] === "steps" && parts[5])
+    return postBuildStepStatus(req, deps, id, parts[5]);
+  if (req.method === "POST" && parts[4] === "approve") return approveBuildQueue(deps, id);
+  return null;
 }
 
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
@@ -1760,6 +1827,7 @@ const ROUTE_HANDLERS = [
   handleRepoConfig,
   handleLearnings,
   handlePush,
+  handleBuildQueue,
   handleSessions,
   handleSessionGit,
   handleUsageLimits,

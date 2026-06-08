@@ -1,6 +1,17 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import type { Session, ReviewVerdict, Signal, SignalKind, Learning, LearningStatus } from "./types";
+import type {
+  Session,
+  ReviewVerdict,
+  Signal,
+  SignalKind,
+  Learning,
+  LearningStatus,
+  BuildStep,
+  BuildStepStatus,
+  BuildQueue,
+  BuildStepInput,
+} from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -33,6 +44,8 @@ export interface RepoConfig {
   autoDrainEnabled: boolean;
   /** Full-auto: when on, the merge train lands ready PRs instead of handing off. */
   autoMergeEnabled: boolean;
+  /** Per-repo opt-in for the agent-authored build queue (default OFF). */
+  buildQueueEnabled: boolean;
   /** Concurrency cap on auto-spawned agents for this repo (default 1). */
   maxAuto: number;
   /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
@@ -88,6 +101,7 @@ type NewSession = Omit<
   | "auto"
   | "issueNumber"
 > & {
+  id?: string;
   model?: string | null;
   claudeSessionId?: string;
   auto?: boolean;
@@ -155,6 +169,16 @@ export class SessionStore implements CapStore {
   ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
     this.migrateLearningsColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
+      title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS build_queue_steps_session ON build_queue_steps (sessionId, position)`,
+    );
+    this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
+      sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -198,7 +222,7 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-                autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct
+                autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -208,6 +232,7 @@ export class SessionStore implements CapStore {
       autopilotEnabled: number;
       autoDrainEnabled: number;
       autoMergeEnabled: number;
+      buildQueueEnabled: number;
       maxAuto: number;
       autoLabel: string;
       usageCeilingPct: number;
@@ -221,6 +246,7 @@ export class SessionStore implements CapStore {
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
       autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
       autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
+      buildQueueEnabled: r ? !!r.buildQueueEnabled : false,
       maxAuto: r ? r.maxAuto : 1,
       autoLabel: r ? r.autoLabel : "shepherd:auto",
       usageCeilingPct: r ? r.usageCeilingPct : 80,
@@ -231,14 +257,15 @@ export class SessionStore implements CapStore {
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-          autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+          autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
          autoDrainEnabled = excluded.autoDrainEnabled,
          autoMergeEnabled = excluded.autoMergeEnabled,
+         buildQueueEnabled = excluded.buildQueueEnabled,
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
@@ -251,6 +278,7 @@ export class SessionStore implements CapStore {
         cfg.autopilotEnabled ? 1 : 0,
         cfg.autoDrainEnabled ? 1 : 0,
         cfg.autoMergeEnabled ? 1 : 0,
+        cfg.buildQueueEnabled ? 1 : 0,
         cfg.maxAuto,
         cfg.autoLabel,
         cfg.usageCeilingPct,
@@ -314,7 +342,7 @@ export class SessionStore implements CapStore {
       ...input,
       model: input.model ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       desig: `TASK-${String(n + 1).padStart(2, "0")}`,
       readyToMerge: false,
       autopilotEnabled: null,
@@ -670,6 +698,14 @@ export class SessionStore implements CapStore {
         `DELETE FROM reviews WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
+      this.db.run(
+        `DELETE FROM build_queue_steps WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM build_queue_state WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
@@ -713,6 +749,7 @@ export class SessionStore implements CapStore {
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoMergeEnabled", `autoMergeEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("buildQueueEnabled", `buildQueueEnabled INTEGER NOT NULL DEFAULT 0`);
     add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
     add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
@@ -931,6 +968,80 @@ export class SessionStore implements CapStore {
          WHERE id IN (${placeholders}) ORDER BY ts DESC, rowid DESC`,
       )
       .all(...ids) as Signal[];
+  }
+
+  // ── build queue ──────────────────────────────────────────────────────────────
+  getBuildQueue(sessionId: string): BuildQueue {
+    const rows = this.db
+      .query(
+        `SELECT id, position, title, detail, status
+         FROM build_queue_steps WHERE sessionId = ? ORDER BY position`,
+      )
+      .all(sessionId) as {
+      id: string;
+      position: number;
+      title: string;
+      detail: string;
+      status: string;
+    }[];
+    const state = this.db
+      .query(`SELECT approved FROM build_queue_state WHERE sessionId = ?`)
+      .get(sessionId) as { approved: number } | null;
+    const steps: BuildStep[] = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      detail: r.detail,
+      status: r.status as BuildStepStatus,
+      position: r.position,
+    }));
+    return { sessionId, steps, approved: state ? !!state.approved : false };
+  }
+
+  replaceBuildQueue(sessionId: string, steps: BuildStepInput[]): BuildQueue {
+    const now = Date.now();
+    this.db.transaction(() => {
+      // read existing rows (inside the txn) to preserve status + createdAt for id-matching entries
+      const existing = new Map<string, { status: BuildStepStatus; createdAt: number }>();
+      const existingRows = this.db
+        .query(`SELECT id, status, createdAt FROM build_queue_steps WHERE sessionId = ?`)
+        .all(sessionId) as { id: string; status: string; createdAt: number }[];
+      for (const r of existingRows) {
+        existing.set(r.id, { status: r.status as BuildStepStatus, createdAt: r.createdAt });
+      }
+      this.db.run(`DELETE FROM build_queue_steps WHERE sessionId = ?`, [sessionId]);
+      for (let i = 0; i < steps.length; i++) {
+        const input = steps[i]!;
+        const matchId = input.id && existing.has(input.id) ? input.id : null;
+        const prior = matchId ? existing.get(matchId)! : null;
+        const id = matchId ?? randomUUID();
+        const status = input.status ?? prior?.status ?? "pending";
+        const createdAt = prior?.createdAt ?? now;
+        this.db.run(
+          `INSERT INTO build_queue_steps (id, sessionId, position, title, detail, status, createdAt, updatedAt)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [id, sessionId, i, input.title, input.detail ?? "", status, createdAt, now],
+        );
+      }
+    })();
+    return this.getBuildQueue(sessionId);
+  }
+
+  /** Update the status of a single step. Returns true when a row was actually changed. */
+  setBuildStepStatus(sessionId: string, stepId: string, status: BuildStepStatus): boolean {
+    const { changes } = this.db.run(
+      `UPDATE build_queue_steps SET status = ?, updatedAt = ? WHERE id = ? AND sessionId = ?`,
+      [status, Date.now(), stepId, sessionId],
+    );
+    return changes > 0;
+  }
+
+  /** Flip the human-curation gate for a session's queue. */
+  setBuildQueueApproved(sessionId: string, approved: boolean): void {
+    this.db.run(
+      `INSERT INTO build_queue_state (sessionId, approved, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET approved = excluded.approved, updatedAt = excluded.updatedAt`,
+      [sessionId, approved ? 1 : 0, Date.now()],
+    );
   }
 
   private hydrate(r: any): Session {

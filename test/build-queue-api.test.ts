@@ -1,0 +1,328 @@
+import { test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { makeApp, type AppDeps } from "../src/server";
+import { SessionStore } from "../src/store";
+import { EventHub } from "../src/events";
+import { config } from "../src/config";
+
+let tmpRoot: string;
+let repoDir: string;
+
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-bq-api-test-"));
+  repoDir = join(tmpRoot, "repo");
+  mkdirSync(repoDir);
+});
+afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
+
+function harness(): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  emitted: { event: string; data: unknown }[];
+  replies: { id: string; text: string }[];
+} {
+  const store = new SessionStore(":memory:");
+  const emitted: { event: string; data: unknown }[] = [];
+  const replies: { id: string; text: string }[] = [];
+  const hub = new EventHub();
+  hub.subscribe((event, data) => emitted.push({ event, data }));
+  const fakeService = {
+    reply(id: string, text: string): boolean {
+      replies.push({ id, text });
+      return true;
+    },
+  };
+  const deps: AppDeps = {
+    store,
+    service: fakeService as any,
+    events: hub,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  return { app: makeApp(deps), store, emitted, replies };
+}
+
+function makeSession(store: SessionStore, repoPath: string) {
+  return store.create({
+    name: "test-session",
+    prompt: "do something",
+    repoPath,
+    baseBranch: "main",
+    branch: "shepherd/test-session",
+    worktreePath: repoPath,
+    isolated: false,
+    herdrSession: "sess-x",
+    herdrAgentId: "agent-x",
+    claudeSessionId: "claude-x",
+    model: null,
+  });
+}
+
+// ── GET /api/sessions/:id/queue ───────────────────────────────────────────────
+
+test("GET queue returns empty queue for new session", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(new Request(`http://x/api/sessions/${session.id}/queue`));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.sessionId).toBe(session.id);
+  expect(body.steps).toEqual([]);
+  expect(body.approved).toBe(false);
+});
+
+test("GET queue returns 404 for unknown session", async () => {
+  const { app } = harness();
+  const res = await app.fetch(new Request(`http://x/api/sessions/no-such-session/queue`));
+  expect(res.status).toBe(404);
+});
+
+// ── PUT /api/sessions/:id/queue ───────────────────────────────────────────────
+
+test("PUT queue replaces steps and returns the queue", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "Step A" }, { title: "Step B" }] }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.sessionId).toBe(session.id);
+  expect(body.steps).toHaveLength(2);
+  expect(body.steps[0].title).toBe("Step A");
+  expect(body.steps[1].title).toBe("Step B");
+});
+
+test("PUT queue emits queue:update event", async () => {
+  const { app, store, emitted } = harness();
+  const session = makeSession(store, repoDir);
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "Step A" }] }),
+    }),
+  );
+
+  const ev = emitted.find((e) => e.event === "queue:update");
+  expect(ev).toBeDefined();
+  const data = ev!.data as { sessionId: string; steps: unknown[] };
+  expect(data.sessionId).toBe(session.id);
+  expect(data.steps).toHaveLength(1);
+});
+
+test("PUT queue with bad body → 400", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "" }] }), // empty title
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+test("PUT queue with missing steps → 400", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+test("PUT queue without content-type → 415", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      body: JSON.stringify({ steps: [] }),
+    }),
+  );
+  expect(res.status).toBe(415);
+});
+
+test("PUT queue for unknown session → 404", async () => {
+  const { app } = harness();
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/no-such/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [] }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+// ── POST /api/sessions/:id/queue/steps/:stepId ───────────────────────────────
+
+test("POST queue/steps/:stepId sets status and returns queue", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  // First create a step via PUT
+  const putRes = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "Step A" }] }),
+    }),
+  );
+  const queue = await putRes.json();
+  const stepId = queue.steps[0].id;
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/${stepId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "active" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.steps[0].status).toBe("active");
+});
+
+test("POST queue/steps/:stepId emits queue:update", async () => {
+  const { app, store, emitted } = harness();
+  const session = makeSession(store, repoDir);
+
+  const putRes = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "S" }] }),
+    }),
+  );
+  const queue = await putRes.json();
+  const stepId = queue.steps[0].id;
+
+  emitted.length = 0; // clear prior events
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/${stepId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    }),
+  );
+
+  const ev = emitted.find((e) => e.event === "queue:update");
+  expect(ev).toBeDefined();
+});
+
+test("POST queue/steps with unknown stepId → 404", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/no-such-step`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("POST queue/steps with invalid status → 400", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  // PUT a step first
+  const putRes = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "S" }] }),
+    }),
+  );
+  const queue = await putRes.json();
+  const stepId = queue.steps[0].id;
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/${stepId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "bad-value" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+// ── POST /api/sessions/:id/queue/approve ─────────────────────────────────────
+
+test("POST queue/approve sets approved=true and returns queue", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.approved).toBe(true);
+  expect(store.getBuildQueue(session.id).approved).toBe(true);
+});
+
+test("POST queue/approve emits queue:update", async () => {
+  const { app, store, emitted } = harness();
+  const session = makeSession(store, repoDir);
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+
+  const ev = emitted.find((e) => e.event === "queue:update");
+  expect(ev).toBeDefined();
+  const data = ev!.data as { sessionId: string; approved: boolean };
+  expect(data.sessionId).toBe(session.id);
+  expect(data.approved).toBe(true);
+});
+
+test("POST queue/approve calls service.reply with APPROVE_STEER text", async () => {
+  const { app, store, replies } = harness();
+  const session = makeSession(store, repoDir);
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+
+  expect(replies).toHaveLength(1);
+  expect(replies.at(0)!.id).toBe(session.id);
+  expect(replies.at(0)!.text).toContain("Build queue approved");
+  expect(replies.at(0)!.text).toContain("work the steps in order");
+});
+
+test("POST queue/approve for unknown session → 404", async () => {
+  const { app } = harness();
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/no-such/queue/approve`, {
+      method: "POST",
+    }),
+  );
+  expect(res.status).toBe(404);
+});

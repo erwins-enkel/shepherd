@@ -4,6 +4,7 @@ import { toasts } from "./toasts.svelte";
 import type {
   AutoMergeStatus,
   BacklogPayload,
+  BuildQueue,
   DrainStatus,
   GitState,
   Session,
@@ -454,4 +455,44 @@ test("session:automerge updates the matching session's autoMergeEnabled", () => 
   // null = inherit repo default
   s.apply({ event: "session:automerge", data: { id: "s1", enabled: null } });
   expect(s.byId("s1")?.autoMergeEnabled).toBeNull();
+});
+
+// ---- build queue ----
+
+const QUEUE: BuildQueue = {
+  sessionId: "s1",
+  approved: false,
+  steps: [
+    { id: "step-1", title: "Install deps", status: "pending", position: 0 },
+    { id: "step-2", title: "Run tests", status: "pending", position: 1 },
+  ],
+};
+
+test("queue:update event populates buildQueues by sessionId", () => {
+  const s = new HerdStore();
+  s.apply({ event: "queue:update", data: QUEUE });
+  expect(s.buildQueues["s1"]).toEqual(QUEUE);
+});
+
+test("queue:update replaces an existing entry immutably", () => {
+  const s = new HerdStore();
+  s.apply({ event: "queue:update", data: QUEUE });
+  const updated: BuildQueue = { ...QUEUE, approved: true };
+  s.apply({ event: "queue:update", data: updated });
+  expect(s.buildQueues["s1"]?.approved).toBe(true);
+});
+
+test("setBuildQueue seeds the store for bootstrap", () => {
+  const s = new HerdStore();
+  s.setBuildQueue(QUEUE);
+  expect(s.buildQueues["s1"]).toEqual(QUEUE);
+});
+
+test("setBuildQueue does not clobber other sessions", () => {
+  const s = new HerdStore();
+  const other: BuildQueue = { sessionId: "s2", approved: false, steps: [] };
+  s.setBuildQueue(QUEUE);
+  s.setBuildQueue(other);
+  expect(s.buildQueues["s1"]).toEqual(QUEUE);
+  expect(s.buildQueues["s2"]).toEqual(other);
 });

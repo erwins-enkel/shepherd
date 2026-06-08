@@ -703,6 +703,8 @@
             connected={store.connected}
             limits={store.usageLimits}
             git={store.git[selected.id]}
+            buildQueue={store.buildQueues[selected.id] ?? null}
+            onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
@@ -765,6 +767,8 @@
             session={selected}
             touch={touch.current}
             git={store.git[selected.id]}
+            buildQueue={store.buildQueues[selected.id] ?? null}
+            onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}

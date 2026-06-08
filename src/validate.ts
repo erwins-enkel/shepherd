@@ -2,7 +2,14 @@ import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
-import { MODELS, type CreateSessionInput, type IssueRef, type Steer } from "./types";
+import {
+  MODELS,
+  type CreateSessionInput,
+  type IssueRef,
+  type Steer,
+  type BuildStepInput,
+  type BuildStepStatus,
+} from "./types";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 
@@ -342,6 +349,69 @@ export function validateIconPatch(body: unknown): { path: string; emoji: string 
     if (codePoints.some((c) => (c.codePointAt(0) ?? 0x20) < 0x20)) return null; // no control chars
   }
   return { path, emoji };
+}
+
+// ── build-queue validators ────────────────────────────────────────────────────
+
+export const BUILD_STEP_STATUSES = ["pending", "active", "done", "skipped"] as const;
+
+const STEP_TITLE_MAX = 200;
+const STEP_DETAIL_MAX = 4000;
+const STEP_ID_MAX = 200;
+const STEPS_MAX = 100;
+
+/** A trimmed string within [min,max] length, or null when not a string / out of range. */
+function boundedString(v: unknown, max: number, allowEmpty: boolean): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t.length > max || (!allowEmpty && t.length === 0)) return null;
+  return t;
+}
+
+/** Validate + normalize a single queue-step input. Returns null on any violation. */
+function validateBuildStepItem(it: unknown): BuildStepInput | null {
+  if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+  const s = it as Record<string, unknown>;
+  const title = boundedString(s.title, STEP_TITLE_MAX, false);
+  if (title === null) return null;
+  const step: BuildStepInput = { title };
+  if (s.detail !== undefined) {
+    const detail = boundedString(s.detail, STEP_DETAIL_MAX, true);
+    if (detail === null) return null;
+    step.detail = detail;
+  }
+  if (s.id !== undefined) {
+    const id = boundedString(s.id, STEP_ID_MAX, false);
+    if (id === null) return null;
+    step.id = id;
+  }
+  if (s.status !== undefined) {
+    if (!(BUILD_STEP_STATUSES as readonly string[]).includes(s.status as string)) return null;
+    step.status = s.status as BuildStepStatus;
+  }
+  return step;
+}
+
+/** Validate + normalize a PUT /api/sessions/:id/queue body. Returns null on any violation. */
+export function validateBuildSteps(body: unknown): BuildStepInput[] | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (!Array.isArray(o.steps) || o.steps.length > STEPS_MAX) return null;
+  const out: BuildStepInput[] = [];
+  for (const it of o.steps) {
+    const step = validateBuildStepItem(it);
+    if (step === null) return null;
+    out.push(step);
+  }
+  return out;
+}
+
+/** Validate a POST /api/sessions/:id/queue/steps/:stepId body. Returns null on any violation. */
+export function validateBuildStepStatus(body: unknown): BuildStepStatus | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (!(BUILD_STEP_STATUSES as readonly string[]).includes(o.status as string)) return null;
+  return o.status as BuildStepStatus;
 }
 
 /** Validate a POST /api/broadcast payload. Returns null on any violation. */

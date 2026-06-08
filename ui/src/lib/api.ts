@@ -33,6 +33,8 @@ import type {
   WorkflowRun,
   WorkflowJob,
   SessionActivity,
+  BuildQueue,
+  BuildStepStatus,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -682,5 +684,31 @@ export async function distillRepo(repoPath: string): Promise<void> {
 export async function promoteLearning(id: string): Promise<{ url: string }> {
   const r = await fetch(`/api/learnings/${id}/promote`, { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) throw await failed(r, "promote");
+  return r.json();
+}
+
+export async function getBuildQueue(sessionId: string): Promise<BuildQueue> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, "build-queue");
+}
+
+export async function putBuildQueue(
+  sessionId: string,
+  steps: { id?: string; title: string; detail?: string; status?: BuildStepStatus }[],
+): Promise<BuildQueue> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ steps }),
+  });
+  if (!r.ok) throw await failed(r, "build-queue put");
+  return r.json();
+}
+
+export async function approveBuildQueue(sessionId: string): Promise<BuildQueue> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/approve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "build-queue approve");
   return r.json();
 }

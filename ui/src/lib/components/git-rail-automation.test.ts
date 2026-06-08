@@ -13,6 +13,7 @@ const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   autopilot: false,
   autoDrain: false,
   autoMerge: false,
+  buildQueue: false,
   ...over,
 });
 
@@ -35,7 +36,7 @@ describe("automationCount", () => {
     expect(automationCount(flags({ critic: true, autoAddress: true }))).toBe(2);
   });
 
-  it("never exceeds 6", () => {
+  it("never exceeds 7", () => {
     expect(
       automationCount(
         flags({
@@ -45,19 +46,28 @@ describe("automationCount", () => {
           autopilot: true,
           autoDrain: true,
           autoMerge: true,
+          buildQueue: true,
         }),
       ),
-    ).toBe(6);
+    ).toBe(7);
   });
 });
 
 describe("AUTOMATION_GROUPS", () => {
-  it("lists all six automation keys exactly once", () => {
+  it("lists all seven automation keys exactly once", () => {
     const keys = AUTOMATION_GROUPS.flatMap((g) => g.items);
-    expect(keys).toHaveLength(6);
-    expect(new Set(keys).size).toBe(6);
+    expect(keys).toHaveLength(7);
+    expect(new Set(keys).size).toBe(7);
     expect(keys.sort()).toEqual(
-      ["autoAddress", "autoDrain", "autoMerge", "autopilot", "critic", "learnings"].sort(),
+      [
+        "autoAddress",
+        "autoDrain",
+        "autoMerge",
+        "autopilot",
+        "buildQueue",
+        "critic",
+        "learnings",
+      ].sort(),
     );
   });
 
@@ -65,13 +75,13 @@ describe("AUTOMATION_GROUPS", () => {
     expect(AUTOMATION_GROUPS.map((g) => g.id)).toEqual(["review", "behavior", "queue"]);
     expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress"]);
     expect(AUTOMATION_GROUPS[1].items).toEqual(["learnings", "autopilot"]);
-    expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain", "autoMerge"]);
+    expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain", "autoMerge", "buildQueue"]);
   });
 });
 
 describe("AUTOMATION_TOTAL", () => {
   it("is the item count across all groups (the pill denominator)", () => {
-    expect(AUTOMATION_TOTAL).toBe(6);
+    expect(AUTOMATION_TOTAL).toBe(7);
     expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

@@ -1,0 +1,159 @@
+import { test, expect } from "bun:test";
+import { SessionStore } from "../src/store";
+
+function mk() {
+  return new SessionStore(":memory:");
+}
+
+const base = {
+  name: "repo-flatten",
+  prompt: "flatten repo",
+  repoPath: "/r",
+  baseBranch: "main",
+  branch: "shepherd/repo-flatten",
+  worktreePath: "/r-wt",
+  isolated: true,
+  herdrSession: "default",
+  herdrAgentId: "term_1",
+};
+
+test("replaceBuildQueue inserts steps in array order, getBuildQueue returns ordered, approved defaults false", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A", detail: "do A" },
+    { title: "Step B" },
+    { title: "Step C", detail: "do C" },
+  ]);
+  expect(q.sessionId).toBe(sess.id);
+  expect(q.approved).toBe(false);
+  expect(q.steps).toHaveLength(3);
+  expect(q.steps[0]!.title).toBe("Step A");
+  expect(q.steps[0]!.position).toBe(0);
+  expect(q.steps[0]!.status).toBe("pending");
+  expect(q.steps[1]!.title).toBe("Step B");
+  expect(q.steps[1]!.position).toBe(1);
+  expect(q.steps[2]!.title).toBe("Step C");
+  expect(q.steps[2]!.position).toBe(2);
+  // re-read via getBuildQueue
+  const q2 = s.getBuildQueue(sess.id);
+  expect(q2.steps.map((x) => x.title)).toEqual(["Step A", "Step B", "Step C"]);
+});
+
+test("replaceBuildQueue preserves status for matching id, new entry defaults pending", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  const idA = q.steps[0]!.id;
+  const idB = q.steps[1]!.id;
+
+  // mark Step A done
+  s.setBuildStepStatus(sess.id, idA, "done");
+
+  // replace with same id for A (no explicit status), a new step C, and B by id
+  const q2 = s.replaceBuildQueue(sess.id, [
+    { id: idA, title: "Step A updated" },
+    { id: idB, title: "Step B" },
+    { title: "Step C (new)" },
+  ]);
+  expect(q2.steps[0]!.id).toBe(idA);
+  expect(q2.steps[0]!.status).toBe("done"); // preserved
+  expect(q2.steps[1]!.id).toBe(idB);
+  expect(q2.steps[1]!.status).toBe("pending"); // was pending, stays pending
+  expect(q2.steps[2]!.status).toBe("pending"); // brand new → pending
+});
+
+test("replaceBuildQueue: explicit input.status overrides the preserved status", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+  const idA = q.steps[0]!.id;
+  s.setBuildStepStatus(sess.id, idA, "done");
+  // re-replace with the same id but an explicit status — the explicit value wins
+  const q2 = s.replaceBuildQueue(sess.id, [{ id: idA, title: "Step A", status: "active" }]);
+  expect(q2.steps[0]!.status).toBe("active");
+});
+
+test("setBuildStepStatus: true on hit, false for unknown id, false for wrong sessionId", () => {
+  const s = mk();
+  const sess1 = s.create(base);
+  const sess2 = s.create({ ...base, herdrAgentId: "term_2" });
+  const q = s.replaceBuildQueue(sess1.id, [{ title: "Step A" }]);
+  const stepId = q.steps[0]!.id;
+
+  expect(s.setBuildStepStatus(sess1.id, stepId, "active")).toBe(true);
+  expect(s.getBuildQueue(sess1.id).steps[0]!.status).toBe("active");
+
+  // unknown id
+  expect(s.setBuildStepStatus(sess1.id, "no-such-id", "done")).toBe(false);
+
+  // step exists but belongs to sess1, not sess2
+  expect(s.setBuildStepStatus(sess2.id, stepId, "done")).toBe(false);
+  // sess1 step should remain "active" (not changed by the wrong-session call)
+  expect(s.getBuildQueue(sess1.id).steps[0]!.status).toBe("active");
+});
+
+test("replaceBuildQueue leaves approval untouched (self-revision must not re-gate)", () => {
+  const s = mk();
+  const sess = s.create(base);
+  s.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+  s.setBuildQueueApproved(sess.id, true);
+  // agent self-revises the queue mid-run — approval must survive
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B (added)" }]);
+  expect(q.approved).toBe(true);
+  expect(s.getBuildQueue(sess.id).approved).toBe(true);
+});
+
+test("setBuildQueueApproved flips approved in getBuildQueue", () => {
+  const s = mk();
+  const sess = s.create(base);
+  s.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+  expect(s.getBuildQueue(sess.id).approved).toBe(false);
+
+  s.setBuildQueueApproved(sess.id, true);
+  expect(s.getBuildQueue(sess.id).approved).toBe(true);
+
+  s.setBuildQueueApproved(sess.id, false);
+  expect(s.getBuildQueue(sess.id).approved).toBe(false);
+});
+
+test("create with pre-generated id uses that id", () => {
+  const s = mk();
+  const sess = s.create({ ...base, id: "fixed-id" });
+  expect(sess.id).toBe("fixed-id");
+  expect(s.get("fixed-id")?.id).toBe("fixed-id");
+});
+
+test("create without id still assigns a random id", () => {
+  const s = mk();
+  const sess = s.create(base);
+  expect(sess.id).toBeTruthy();
+  expect(sess.id).not.toBe("fixed-id");
+});
+
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("pruneArchivedSessions removes build_queue_steps and build_queue_state for pruned session", async () => {
+  const s = mk();
+  const victim = s.create({ ...base, herdrAgentId: "tv" });
+  s.replaceBuildQueue(victim.id, [{ title: "victim step" }]);
+  s.setBuildQueueApproved(victim.id, true);
+  s.archive(victim.id);
+
+  await sleep(2);
+  const keep = s.create({ ...base, herdrAgentId: "tk" });
+  s.replaceBuildQueue(keep.id, [{ title: "keep step" }]);
+  s.archive(keep.id);
+
+  const removed = s.pruneArchivedSessions({ maxAgeMs: YEAR_MS, keepNewest: 1 });
+  expect(removed).toBe(1);
+  expect(s.get(victim.id)).toBeNull();
+
+  // victim's queue rows gone
+  expect(s.getBuildQueue(victim.id).steps).toHaveLength(0);
+  expect(s.getBuildQueue(victim.id).approved).toBe(false);
+
+  // survivor's queue intact
+  expect(s.getBuildQueue(keep.id).steps).toHaveLength(1);
+});

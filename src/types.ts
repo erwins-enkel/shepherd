@@ -172,6 +172,35 @@ export interface AutopilotVerdict {
   summary: string;
 }
 
+// ── agent-authored build queue ───────────────────────────────────────────────
+export type BuildStepStatus = "pending" | "active" | "done" | "skipped";
+
+/** One ordered step in a session's agent-authored build queue. */
+export interface BuildStep {
+  id: string;
+  title: string;
+  detail: string;
+  status: BuildStepStatus;
+  position: number; // 0-based order
+}
+
+/** A session's full build queue plus its human-curation-gate flag. */
+export interface BuildQueue {
+  sessionId: string;
+  steps: BuildStep[];
+  approved: boolean;
+}
+
+/** Input shape for replacing a queue. `id` present + matching an existing step
+ *  preserves that step's status (unless `status` is given). New entries get a
+ *  fresh id and default to "pending". */
+export interface BuildStepInput {
+  id?: string;
+  title: string;
+  detail?: string;
+  status?: BuildStepStatus;
+}
+
 // ── learnings flywheel ────────────────────────────────────────────────────────
 export type SignalKind = "reply" | "critic" | "block" | "stall";
 

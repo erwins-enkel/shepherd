@@ -38,6 +38,8 @@
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
+  import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
+  import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
@@ -60,6 +62,8 @@
     limits = null,
     connected = true,
     git = null,
+    buildQueue = null,
+    onSeedBuildQueue,
   }: {
     session: Session;
     onnewtask?: (repoPath: string, issue: Issue) => void;
@@ -87,6 +91,10 @@
     // PR/git state for this session; once a PR exists the work is effectively done,
     // so the header promotes its decommission button into a "ready to clean up" nudge
     git?: GitState | null;
+    /** Current build queue for this session; updated live by WS queue:update events. */
+    buildQueue?: BuildQueue | null;
+    /** Called when the panel bootstrap-GETs or mutates a queue, to seed the store. */
+    onSeedBuildQueue?: (q: BuildQueue) => void;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -1257,6 +1265,14 @@
       />
     </div>
   {/if}
+
+  <!-- build queue panel: shown when the flag is on OR a queue already exists for this session -->
+  <BuildQueuePanel
+    sessionId={session.id}
+    enabled={repoConfig.flags(session.repoPath).buildQueue}
+    queue={buildQueue ?? null}
+    onbootstrap={(q) => onSeedBuildQueue?.(q)}
+  />
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body">

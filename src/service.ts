@@ -228,6 +228,13 @@ const PLAN_GATE_DIRECTIVE_AUTO =
   "are told the plan is approved.";
 export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
 
+/** Steered into a planning session when its plan is approved and the operator hits Go (or an
+ *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd. */
+const PLAN_GO_STEER =
+  "Plan approved. Execute `.shepherd-plan.md` now, autonomously — implement it fully, commit, push, " +
+  "and open a pull request (`gh pr create`). Don't re-litigate the plan; if you hit a genuine product " +
+  "decision that only the user can make, ask, otherwise keep going.";
+
 /**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
  * (the flag is last-wins, not repeatable, so all blocks must share one value).
@@ -715,6 +722,24 @@ export class SessionService {
   setReadyToMerge(id: string, ready: boolean): void {
     this.deps.store.update(id, { readyToMerge: ready });
     this.deps.events?.emit("session:ready", { id, ready });
+  }
+
+  /**
+   * The "Go" gate: release an APPROVED planning session into autonomous execution. Strict —
+   * only transitions when the session is in the planning phase AND its plan gate is approved
+   * (the reviewer signed off). Flips planPhase → "executing", steers the agent to implement the
+   * approved plan, and emits session:plangate so clients update. Returns false (no-op) when the
+   * session is unknown, not planning, or not yet approved. Used by the /go route (interactive)
+   * and by PlanGateService for an auto session's auto-release on approval.
+   */
+  releasePlanGate(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.planPhase !== "planning") return false;
+    if (!this.deps.store.getPlanGate(id)?.approved) return false;
+    this.deps.store.setPlanPhase(id, "executing");
+    this.reply(id, PLAN_GO_STEER);
+    this.deps.events?.emit("session:plangate", { id, planPhase: "executing" });
+    return true;
   }
 
   /**

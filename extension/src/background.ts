@@ -4,6 +4,7 @@ import { loadConfig } from "./lib/config";
 import {
   clearPickerToggles,
   getPickerToggles,
+  peekPendingCaptureTab,
   setPendingCapture,
   setPickerToggles,
 } from "./lib/picker-session";
@@ -396,6 +397,11 @@ async function onPickerPick(
     signals,
     signalErrors: errors.length ? errors : undefined,
   };
+  // The pending slot holds one capture. If this pick displaces an unconsumed one
+  // from another tab, clear that tab's now-defunct ✓ badge so it doesn't promise
+  // a capture we just dropped.
+  const displaced = await peekPendingCaptureTab();
+  if (displaced !== null && displaced !== tabId) await clearPendingBadge(displaced);
   await setPendingCapture(tabId, result);
   await clearPickerToggles();
   await setPendingBadge(tabId);

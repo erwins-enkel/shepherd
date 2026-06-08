@@ -25,7 +25,21 @@ interface PendingCapture {
   result: CaptureResult;
 }
 
-/** Stash the cropped element capture (tagged with its tab) for pickup on reopen. */
+/**
+ * Read the tab id of the currently-pending capture without consuming it (null if
+ * none). Lets the worker clear the badge of a capture it's about to overwrite.
+ */
+export async function peekPendingCaptureTab(): Promise<number | null> {
+  const got = await chrome.storage.session.get(CAPTURE_KEY);
+  const pending = got[CAPTURE_KEY] as PendingCapture | undefined;
+  return pending ? pending.tabId : null;
+}
+
+/**
+ * Stash the cropped element capture (tagged with its tab) for pickup on reopen.
+ * A single slot bounds session storage to one (potentially multi-MB) screenshot,
+ * so a newer pick displaces an unconsumed one — see `peekPendingCaptureTab`.
+ */
 export async function setPendingCapture(tabId: number, result: CaptureResult): Promise<void> {
   await chrome.storage.session.set({ [CAPTURE_KEY]: { tabId, result } satisfies PendingCapture });
 }

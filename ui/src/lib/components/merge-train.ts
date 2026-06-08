@@ -13,6 +13,7 @@ export function isMerging(s: Session, now: number = Date.now()): boolean {
 
 /** A ready-to-merge session's open PR, the unit a merge train works through. */
 export interface ReadyPr {
+  sessionId: string;
   number: number;
   title: string;
   url: string;
@@ -29,7 +30,13 @@ export function collectReadyPrs(sessions: Session[], git: Record<string, GitStat
     if (!s.readyToMerge) continue;
     const g = git[s.id];
     if (g?.state !== "open" || g.number == null) continue;
-    out.push({ number: g.number, title: g.title ?? "", url: g.url ?? "", repoPath: s.repoPath });
+    out.push({
+      sessionId: s.id,
+      number: g.number,
+      title: g.title ?? "",
+      url: g.url ?? "",
+      repoPath: s.repoPath,
+    });
   }
   return out;
 }

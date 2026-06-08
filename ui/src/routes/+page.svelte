@@ -259,14 +259,14 @@
       });
       selectedId = s.id;
       // Mark this repo's ready PR-sessions as "merging" so the list shows them
-      // in-flight. Fire-and-forget + fail-soft: a marking error must not abort
-      // the launch — the train (session s) is already running.
-      const ids = store.sessions
-        .filter(
-          (x) => x.repoPath === repoPath && x.readyToMerge && store.git[x.id]?.state === "open",
-        )
-        .map((x) => x.id);
-      startMergeTrain(ids, s.id).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
+      // in-flight. Derived from the same scoped `prs` array the train works
+      // through — single source of truth, no separate filter needed.
+      // Fire-and-forget + fail-soft: a marking error must not abort the launch —
+      // the train (session s) is already running.
+      startMergeTrain(
+        prs.map((p) => p.sessionId),
+        s.id,
+      ).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
       showBacklog = false;
       if (mobile.current) mobileScreen = "detail";
       if (otherRepoCount > 0)

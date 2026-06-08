@@ -2,12 +2,15 @@
   import { m } from "../lib/paraglide/messages";
   import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
+  import { hostKind, releaseStaleHost, requestHostPermission } from "../lib/remote-host";
   import type { CaptureConfig } from "../lib/types";
 
   let config = $state<CaptureConfig>({ ...DEFAULT_CONFIG });
   let saved = $state(false);
   let recorderOn = $state(false);
   let recorderDenied = $state(false);
+  let hostDenied = $state(false);
+  let hostUnsupported = $state(false);
 
   loadConfig().then((c) => (config = c));
   hasAllUrls().then((on) => (recorderOn = on));
@@ -47,9 +50,29 @@
     await saveSignals(config.signals);
   }
 
+  // A remote (ts.net) base URL needs the optional host permission before it can
+  // be reached. Request it FIRST — chrome.permissions.request requires a live
+  // user gesture, which an earlier await would break. localhost needs nothing;
+  // any other host is rejected (not declared in the manifest).
   async function onSave(e: Event) {
     e.preventDefault();
+    hostDenied = false;
+    hostUnsupported = false;
+    const kind = hostKind(config.baseUrl);
+    if (kind === "unsupported") {
+      hostUnsupported = true;
+      return;
+    }
+    // requestHostPermission MUST be the first await so the user gesture survives.
+    if (kind === "remote" && !(await requestHostPermission(config.baseUrl))) {
+      hostDenied = true;
+      return;
+    }
+    const prevBaseUrl = (await loadConfig()).baseUrl;
     await saveConfig(config);
+    // Release the previous remote host's grant if we've switched hosts (remove
+    // needs no gesture, so it can run after Save).
+    await releaseStaleHost(prevBaseUrl, config.baseUrl);
     saved = true;
     setTimeout(() => (saved = false), 1500);
   }
@@ -131,5 +154,11 @@
       </button>
       {#if saved}<span class="text-green-600">{m.options_saved()}</span>{/if}
     </div>
+    {#if hostUnsupported}
+      <span class="text-xs text-red-600">{m.options_host_unsupported()}</span>
+    {/if}
+    {#if hostDenied}
+      <span class="text-xs text-red-600">{m.options_host_denied()}</span>
+    {/if}
   </form>
 </main>

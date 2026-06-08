@@ -27,10 +27,12 @@ bun run check:i18n # EN+DE catalog parity
 
 Open the extension's **options** (right-click the icon → Options) and set:
 
-- **Base URL** — your Shepherd core. **Phase 1 supports `http://localhost:7330`
-  only** (the manifest grants that host). A remote/Tailscale `*.ts.net` URL needs
-  an optional-host-permission request flow that's deferred to a later phase — see
-  issue #308; until then a non-localhost base URL is blocked by the browser.
+- **Base URL** — your Shepherd core. Two forms are supported:
+  - **Local:** `http://localhost:7330` (granted statically by the manifest).
+  - **Remote (Tailscale):** `https://<host>.ts.net` — saving a ts.net URL prompts
+    the browser to grant access to that host (an optional host permission); accept
+    it once and captures file against your remote core. Revoke any time from
+    `chrome://extensions`. Any other host is rejected.
 - **Token** — required only if the server runs with `SHEPHERD_TOKEN` set.
 - **Repo path** — must resolve inside the server's `SHEPHERD_REPO_ROOT`
   (e.g. `~/Work/my-repo`).
@@ -102,8 +104,12 @@ If you skip this, spawn-now returns `403` and the popup shows the
 - [ ] Turning recording **off** in Options revokes the all-sites permission
       (popup console/network checkboxes go disabled again).
 - [ ] Switching the browser UI language to German translates the new chrome.
+- [ ] Setting the base URL to your `https://<host>.ts.net` core and clicking
+      **Save** shows Chrome's host-access prompt once; accepting saves, and a
+      capture files against the remote core. (Entering a non-localhost,
+      non-`ts.net` host shows the "unsupported host" message and doesn't save.)
 
 ## Out of scope (later phases — see issue #338)
 
 GitHub-issue delivery path, URL→repo rules, element picker, full-page stitch,
-keyboard shortcut, standalone remote-host (`ts.net`) support, toolbar icons.
+keyboard shortcut, toolbar icons.

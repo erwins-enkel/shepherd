@@ -1,16 +1,17 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 
-// Phase 1 MVP manifest.
+// Capture extension manifest.
 //
 // i18n: `name`/`default_title` are the untranslated product name (brand). The
 // `description` IS translatable chrome, so it's localized MV3-native via
 // `default_locale` + `__MSG_*__` resolved from `public/_locales/{en,de}/`. (The
 // popup/options chrome is localized separately through Paraglide.)
 //
-// host_permissions: Phase 1 talks to the LOCAL core only (`http://localhost:7330`).
-// Remote/Tailscale (`*.ts.net`) needs an optional-host-permission request flow
-// (`optional_host_permissions` + `chrome.permissions.request`) — deferred to a
-// later phase; the options UI + README are scoped to localhost accordingly.
+// host_permissions: the LOCAL core (`http://localhost:7330`) is granted
+// statically. A remote core reached over Tailscale (`https://*.ts.net`) is an
+// OPTIONAL host permission, requested on demand via `chrome.permissions.request`
+// from the options Save gesture (see src/lib/remote-host.ts) — so the shipped
+// capture phases can be exercised against a remote Shepherd over Tailscale.
 export default defineManifest({
   manifest_version: 3,
   name: "Shepherd Capture",
@@ -28,8 +29,10 @@ export default defineManifest({
   },
   permissions: ["activeTab", "scripting", "tabs", "storage"],
   host_permissions: ["http://localhost:7330/*"],
-  // Requested on demand (chrome.permissions.request) only when the user enables
-  // console/network capture, so the recorder content script can be registered on
-  // all sites. Default install does NOT include it.
-  optional_host_permissions: ["<all_urls>"],
+  // Requested on demand (chrome.permissions.request), never granted at install:
+  // - `https://*.ts.net/*` — the configured remote (Tailscale) Shepherd core,
+  //   requested from the options Save gesture when the base URL is a ts.net host.
+  // - `<all_urls>` — the console/network recorder content script, requested when
+  //   the user enables recording in options.
+  optional_host_permissions: ["https://*.ts.net/*", "<all_urls>"],
 });

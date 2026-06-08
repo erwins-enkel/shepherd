@@ -151,8 +151,10 @@
       <!-- score header -->
       <div class="score-head">
         <div class="score-ring {band}">
-          <span class="score-num">{report.score}</span>
-          <span class="score-pct">%</span>
+          <span class="score-figure">
+            <span class="score-num">{report.score}</span>
+            <span class="score-pct">%</span>
+          </span>
         </div>
         <div class="score-meta">
           <div class="score-label">{m.readiness_score_label()}</div>
@@ -281,13 +283,18 @@
   }
   .score-ring {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: center;
     min-width: 64px;
     height: 64px;
     border-radius: 50%;
     border: 2px solid var(--color-line-bright);
     color: var(--color-ink-bright);
+  }
+  /* Keep the % on the number's baseline while the group sits centered in the ring. */
+  .score-figure {
+    display: flex;
+    align-items: baseline;
   }
   .score-ring.low {
     border-color: var(--color-red);

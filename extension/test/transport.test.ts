@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fileIssue, spawnNow } from "../src/lib/transport";
+import { fileIssue, ping, spawnNow } from "../src/lib/transport";
 import { TransportError, type CaptureConfig, type PageMetadata } from "../src/lib/types";
 import type { CapturedSignals } from "../src/lib/signals";
 
@@ -240,5 +240,36 @@ describe("fileIssue", () => {
         metadata: META,
       }),
     ).rejects.toBeInstanceOf(TransportError);
+  });
+});
+
+describe("ping", () => {
+  it("POSTs to /api/ping with bearer auth and resolves on 200", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({}, 200));
+    await expect(ping(fetchFn, CONFIG)).resolves.toBeUndefined();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe("http://localhost:7330/api/ping");
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer secret");
+  });
+
+  it("omits Authorization when no token", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({}, 200));
+    await ping(fetchFn, { ...CONFIG, token: "" });
+    expect(fetchFn.mock.calls[0][1].headers.Authorization).toBeUndefined();
+  });
+
+  it.each([
+    [403, "origin"],
+    [401, "auth"],
+  ])("maps status %i to TransportError kind %s", async (status, kind) => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "no" }, status));
+    await expect(ping(fetchFn, CONFIG)).rejects.toMatchObject({ kind });
+  });
+
+  it("maps a network throw to 'unreachable'", async () => {
+    const fetchFn = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(ping(fetchFn, CONFIG)).rejects.toMatchObject({ kind: "unreachable" });
   });
 });

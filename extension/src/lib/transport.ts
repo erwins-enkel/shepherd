@@ -74,6 +74,26 @@ async function ensureOk(res: Response): Promise<void> {
   throw new TransportError(kindForStatus(res.status), res.status, detail || `HTTP ${res.status}`);
 }
 
+/**
+ * Probe POST /api/ping to verify the configured base URL + token reach a
+ * Shepherd core that accepts this origin. Resolves on 2xx; otherwise the
+ * response maps via the shared `kindForStatus` (403→origin, 401→auth, …) and a
+ * network failure becomes `unreachable` — the same classification the popup
+ * shows. Used by the options/popup connection-status UX.
+ */
+export async function ping(fetchFn: FetchFn, config: CaptureConfig): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetchFn(`${config.baseUrl}/api/ping`, {
+      method: "POST",
+      headers: authHeaders(config.token),
+    });
+  } catch {
+    throw new TransportError("unreachable", null, "could not reach Shepherd");
+  }
+  await ensureOk(res);
+}
+
 /** POST the PNG to /api/uploads; return the confined staging path. */
 async function uploadScreenshot(
   fetchFn: FetchFn,

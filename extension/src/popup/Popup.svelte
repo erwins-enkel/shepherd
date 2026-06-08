@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
   import { isConfigured, loadConfig } from "../lib/config";
+  import { localizeError } from "../lib/localize-error";
   import { hasAllUrls } from "../lib/recorder-control";
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import { resolveRepo } from "../lib/routing";
@@ -11,7 +12,6 @@
     CaptureMode,
     CaptureResult,
     DeliveryTarget,
-    TransportErrorKind,
     WorkerRequest,
     WorkerResponse,
   } from "../lib/types";
@@ -59,27 +59,6 @@
         void chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
       }
     });
-  }
-
-  function localizeError(kind: TransportErrorKind | "capture", message: string): string {
-    switch (kind) {
-      case "origin":
-        return m.err_origin();
-      case "auth":
-        return m.err_auth();
-      case "invalid":
-        return m.err_invalid({ message });
-      case "too_large":
-        return m.err_too_large();
-      case "unsupported":
-        return m.err_unsupported();
-      case "unreachable":
-        return m.err_unreachable({ baseUrl: config?.baseUrl ?? "" });
-      case "capture":
-        return m.popup_cant_capture();
-      default:
-        return m.err_unknown({ message });
-    }
   }
 
   async function init() {
@@ -160,7 +139,7 @@
       } else if (!res.ok) {
         // Injection failed (a restricted page — chrome://, the web store, …).
         // Surface it and keep the popup open instead of closing onto nothing.
-        errorMsg = localizeError(res.errorKind, res.message);
+        errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
         view = "error";
       }
       return;
@@ -189,7 +168,7 @@
       capture = res.result;
       view = "ready";
     } else if (!res.ok) {
-      errorMsg = localizeError(res.errorKind, res.message);
+      errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
       view = "error";
     }
   }
@@ -298,7 +277,7 @@
       doneKind = "issue";
       view = "done";
     } else if (!res.ok) {
-      errorMsg = localizeError(res.errorKind, res.message);
+      errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
       view = "error";
     }
   }

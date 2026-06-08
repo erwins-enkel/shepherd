@@ -1,9 +1,11 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
   import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
+  import { localizeError } from "../lib/localize-error";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
   import { hostKind, releaseStaleHost, requestHostPermission } from "../lib/remote-host";
-  import type { CaptureConfig } from "../lib/types";
+  import { ping } from "../lib/transport";
+  import { TransportError, type CaptureConfig } from "../lib/types";
 
   let config = $state<CaptureConfig>({ ...DEFAULT_CONFIG });
   let saved = $state(false);
@@ -11,6 +13,19 @@
   let recorderDenied = $state(false);
   let hostDenied = $state(false);
   let hostUnsupported = $state(false);
+
+  // Connection-test state. `testing` disables the button; exactly one of
+  // testOk / testError is set after a run (fail-closed: any failure becomes a
+  // visible testError, never a silent success).
+  let testing = $state(false);
+  let testOk = $state(false);
+  let testError = $state("");
+
+  // The extension's own ID — the value to add to SHEPHERD_ALLOWED_HOSTS. Read at
+  // runtime (the manifest key pins it) rather than hardcoded.
+  const extensionId = chrome.runtime.id;
+  const pairingCommand = `SHEPHERD_ALLOWED_HOSTS=${extensionId} bun run start`;
+  let copied = $state(false);
 
   loadConfig().then((c) => (config = c));
   hasAllUrls().then((on) => (recorderOn = on));
@@ -81,6 +96,49 @@
     await releaseStaleHost(prevBaseUrl, config.baseUrl);
     saved = true;
     setTimeout(() => (saved = false), 1500);
+  }
+
+  // Ping the configured core and show inline status. Mirrors onSave's gesture
+  // handling: for a remote host, requestHostPermission MUST be the first await
+  // (a prior await would void the user gesture). A denied/unsupported host stops
+  // BEFORE ping — otherwise Chrome blocks the fetch and it misclassifies as
+  // "unreachable". All failures route through the shared localizeError path.
+  async function onTest(e: Event) {
+    e.preventDefault();
+    testOk = false;
+    testError = "";
+    const kind = hostKind(config.baseUrl);
+    if (kind === "unsupported") {
+      testError = m.options_host_unsupported();
+      return;
+    }
+    testing = true;
+    try {
+      if (kind === "remote" && !(await requestHostPermission(config.baseUrl))) {
+        testError = m.options_host_denied();
+        return;
+      }
+      await ping(fetch, config);
+      testOk = true;
+    } catch (err) {
+      if (err instanceof TransportError) {
+        testError = localizeError(err.kind, err.message, config.baseUrl);
+      } else {
+        testError = localizeError(
+          "unknown",
+          err instanceof Error ? err.message : "",
+          config.baseUrl,
+        );
+      }
+    } finally {
+      testing = false;
+    }
+  }
+
+  async function copyExtensionId() {
+    await navigator.clipboard.writeText(extensionId);
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
   }
 </script>
 
@@ -197,13 +255,51 @@
       <button class="rounded bg-gray-900 px-3 py-1.5 text-white" type="submit">
         {m.options_save()}
       </button>
+      <button
+        type="button"
+        class="rounded border border-gray-300 px-3 py-1.5 disabled:opacity-50"
+        onclick={onTest}
+        disabled={testing}
+      >
+        {testing ? m.options_testing() : m.options_test_connection()}
+      </button>
       {#if saved}<span class="text-green-600">{m.options_saved()}</span>{/if}
     </div>
+    {#if testOk}
+      <span class="text-xs text-green-600">{m.options_conn_ok()}</span>
+    {/if}
+    {#if testError}
+      <span class="text-xs text-red-600">{testError}</span>
+    {/if}
     {#if hostUnsupported}
       <span class="text-xs text-red-600">{m.options_host_unsupported()}</span>
     {/if}
     {#if hostDenied}
       <span class="text-xs text-red-600">{m.options_host_denied()}</span>
     {/if}
+
+    <fieldset class="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-3">
+      <legend class="text-gray-600">{m.options_pairing_title()}</legend>
+      <span class="text-xs text-gray-500">{m.options_pairing_hint()}</span>
+
+      <span class="text-gray-600">{m.options_extension_id_label()}</span>
+      <div class="flex items-center gap-2">
+        <code class="min-w-0 flex-1 truncate rounded bg-gray-100 px-2 py-1 text-xs">
+          {extensionId}
+        </code>
+        <button
+          type="button"
+          class="shrink-0 rounded border border-gray-300 px-2 py-1"
+          onclick={copyExtensionId}
+        >
+          {copied ? m.options_copied() : m.options_copy()}
+        </button>
+      </div>
+
+      <span class="text-gray-600">{m.options_pairing_command_label()}</span>
+      <code class="block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs"
+        >{pairingCommand}</code
+      >
+    </fieldset>
   </form>
 </main>

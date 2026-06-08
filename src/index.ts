@@ -293,12 +293,24 @@ const autopilot = new AutopilotService({
       summary: question,
     });
   },
+  onComplete: (id, summary) => {
+    const s = store.get(id);
+    if (!s) return;
+    void push.notify({
+      kind: "autopilot-done",
+      sessionId: id,
+      tag: id,
+      name: s.name,
+      summary,
+    });
+  },
   onState: (id) => {
     const s = store.get(id);
     if (s)
       events.emit("session:autopilot", {
         id,
         paused: s.autopilotPaused,
+        complete: s.autopilotComplete,
         question: s.autopilotQuestion,
         enabled: s.autopilotEnabled,
       });

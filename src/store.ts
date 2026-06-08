@@ -78,6 +78,7 @@ type NewSession = Omit<
   | "autopilotEnabled"
   | "autopilotStepCount"
   | "autopilotPaused"
+  | "autopilotComplete"
   | "autopilotQuestion"
   | "auto"
   | "issueNumber"
@@ -90,7 +91,7 @@ type NewSession = Omit<
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
-  autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotQuestion,
+  autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
   auto, issueNumber,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
@@ -308,6 +309,7 @@ export class SessionStore implements CapStore {
       autopilotEnabled: null,
       autopilotStepCount: 0,
       autopilotPaused: false,
+      autopilotComplete: false,
       autopilotQuestion: null,
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
@@ -320,7 +322,7 @@ export class SessionStore implements CapStore {
       mergingTrainId: null,
     };
     this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         s.id,
         s.desig,
@@ -341,6 +343,7 @@ export class SessionStore implements CapStore {
         null, // autopilotEnabled — inherit repo default
         0, // autopilotStepCount
         0, // autopilotPaused
+        0, // autopilotComplete
         null, // autopilotQuestion
         s.auto ? 1 : 0,
         s.issueNumber,
@@ -409,6 +412,7 @@ export class SessionStore implements CapStore {
       enabled?: boolean | null;
       stepCount?: number;
       paused?: boolean;
+      complete?: boolean;
       question?: string | null;
     },
   ): void {
@@ -417,13 +421,15 @@ export class SessionStore implements CapStore {
     const enabled = patch.enabled === undefined ? cur.autopilotEnabled : patch.enabled;
     const stepCount = patch.stepCount ?? cur.autopilotStepCount;
     const paused = patch.paused ?? cur.autopilotPaused;
+    const complete = patch.complete ?? cur.autopilotComplete;
     const question = patch.question === undefined ? cur.autopilotQuestion : patch.question;
     this.db.run(
-      `UPDATE sessions SET autopilotEnabled=?, autopilotStepCount=?, autopilotPaused=?, autopilotQuestion=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET autopilotEnabled=?, autopilotStepCount=?, autopilotPaused=?, autopilotComplete=?, autopilotQuestion=?, updatedAt=? WHERE id=?`,
       [
         enabled === null ? null : enabled ? 1 : 0,
         stepCount,
         paused ? 1 : 0,
+        complete ? 1 : 0,
         question,
         Date.now(),
         id,
@@ -648,6 +654,7 @@ export class SessionStore implements CapStore {
     add("autopilotEnabled", `autopilotEnabled INTEGER`);
     add("autopilotStepCount", `autopilotStepCount INTEGER NOT NULL DEFAULT 0`);
     add("autopilotPaused", `autopilotPaused INTEGER NOT NULL DEFAULT 0`);
+    add("autopilotComplete", `autopilotComplete INTEGER NOT NULL DEFAULT 0`);
     add("autopilotQuestion", `autopilotQuestion TEXT`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
@@ -899,6 +906,7 @@ export class SessionStore implements CapStore {
           : !!r.autopilotEnabled,
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,
+      autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,

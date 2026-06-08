@@ -14,10 +14,20 @@
   >
     {m.session_autopilot_paused_label()}
   </span>
+{:else if session.autopilotComplete}
+  <span
+    class="ap-complete"
+    title={m.session_autopilot_complete_title({ summary: session.autopilotQuestion ?? "" })}
+    role="img"
+    aria-label={m.session_autopilot_complete_label()}
+  >
+    {m.session_autopilot_complete_label()}
+  </span>
 {/if}
 
 <style>
-  .ap-paused {
+  .ap-paused,
+  .ap-complete {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -27,5 +37,9 @@
     color: var(--color-amber);
     white-space: nowrap;
     font-weight: 600;
+  }
+  .ap-complete {
+    border-color: var(--color-green);
+    color: var(--color-green);
   }
 </style>

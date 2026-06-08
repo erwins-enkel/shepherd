@@ -142,6 +142,8 @@
   "feat_review_cycles_body": "Set how many times the critic re-reviews and steers an agent to address findings before escalating to you. Adjust the global cap in Settings → Session.",
   "feat_merge_in_progress_title": "Merge train shows progress",
   "feat_merge_in_progress_body": "When you start a merge train, the PRs it's working through move into a Merging group with an amber badge instead of staying in Ready to merge — and each clears as it lands.",
+  "feat_autopilot_complete_title": "Autopilot completes non-PR tasks",
+  "feat_autopilot_complete_body": "Research, issue-creation, and one-off answers now end in a clean Complete state instead of a misleading \"paused for input\" — autopilot only pauses loudly for a real decision.",
   "gitrail_send_review": "↩ Send review to agent",
   "gitrail_send_review_failed": "send failed",
   "gitrail_send_review_reviewing_title": "Critic is re-reviewing — these findings are being re-validated",
@@ -578,5 +580,7 @@
   "session_autopilot_off_label": "Autopilot off",
   "session_autopilot_paused_label": "Needs you",
   "session_autopilot_paused_title": "Autopilot handed this back for a decision: {question}",
+  "session_autopilot_complete_label": "Complete",
+  "session_autopilot_complete_title": "Autopilot finished — task complete, nothing to open as a PR: {summary}",
   "session_autopilot_toggle_failed": "Couldn't change autopilot for this session. Try again."
 }

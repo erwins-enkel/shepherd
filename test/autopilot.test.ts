@@ -24,6 +24,7 @@ function sess(over: Partial<Session> = {}): Session {
     autopilotEnabled: true,
     autopilotStepCount: 0,
     autopilotPaused: false,
+    autopilotComplete: false,
     autopilotQuestion: null,
     auto: false,
     issueNumber: null,
@@ -67,6 +68,7 @@ function harness(opts: {
           enabled?: boolean | null;
           stepCount?: number;
           paused?: boolean;
+          complete?: boolean;
           question?: string | null;
         },
       ) => {
@@ -75,6 +77,7 @@ function harness(opts: {
           autopilotEnabled: patch.enabled === undefined ? cur.autopilotEnabled : patch.enabled,
           autopilotStepCount: patch.stepCount ?? cur.autopilotStepCount,
           autopilotPaused: patch.paused ?? cur.autopilotPaused,
+          autopilotComplete: patch.complete ?? cur.autopilotComplete,
           autopilotQuestion: patch.question === undefined ? cur.autopilotQuestion : patch.question,
         };
       },
@@ -93,6 +96,7 @@ function harness(opts: {
     hasPr: () => opts.openPr ?? false,
     refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
+    onComplete: (id, summary) => events.push({ complete: id, summary }),
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
   });
@@ -112,6 +116,47 @@ test("finished verdict → open-PR steer", async () => {
   await h.svc.onBlock("s1", block(["I'm done."]));
   expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("complete verdict → markComplete + onComplete, no steer, not paused", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "complete", summary: "Created issue #345." },
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Created issue #345." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().autopilotQuestion).toBe("Created issue #345.");
+});
+
+test("complete verdict with empty summary → COMPLETE_MESSAGE fallback", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "complete", summary: "" },
+  });
+  await h.svc.onDone("s1");
+  const ev = h.events.find((e) => "complete" in e);
+  expect(ev.summary).toContain("task complete");
+  expect(h.state().autopilotComplete).toBe(true);
+});
+
+test("already complete → no re-classify (terminal)", async () => {
+  const h = harness({
+    session: sess({ autopilotComplete: true }),
+    verdict: { kind: "gate", summary: "x" },
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e || "complete" in e)).toBe(false);
+});
+
+test("onStatus running after complete clears it + resets steps", async () => {
+  const h = harness({ session: sess({ autopilotComplete: true, autopilotStepCount: 4 }) });
+  h.svc.onStatus("s1", "running");
+  expect(h.state().autopilotComplete).toBe(false);
+  expect(h.state().autopilotQuestion).toBeNull();
+  expect(h.state().autopilotStepCount).toBe(0);
 });
 
 test("question verdict → pause + onPause, no steer", async () => {

@@ -52,6 +52,8 @@ export interface AutopilotDeps {
   refreshPr?: (id: string) => void;
   /** Fired when autopilot hands a session back for a genuine question / step-cap. */
   onPause: (id: string, question: string) => void;
+  /** Fired when autopilot marks a session complete (non-PR deliverable done). */
+  onComplete?: (id: string, summary: string) => void;
   /** Fired after any autopilot-field mutation (pause / clear) so the wiring can emit a live event. */
   onState?: (id: string) => void;
   stepCap?: number;
@@ -62,6 +64,8 @@ const DEFAULT_STEP_CAP = 10;
 const CAP_MESSAGE = "Autopilot reached its step limit without opening a PR — over to you.";
 /** Generic hand-back text when a question/unknown verdict carries no summary of its own. */
 const SURFACE_MESSAGE = "Autopilot paused for your input.";
+/** Non-alarming hand-back text when a `complete` verdict carries no summary of its own. */
+const COMPLETE_MESSAGE = "Autopilot finished — task complete, nothing to open as a PR.";
 
 export class AutopilotService {
   // Re-entrancy guard: classify() is async, so a second event for the same session must
@@ -92,6 +96,7 @@ export class AutopilotService {
     if (!s || s.status === "archived") return null;
     if (!this.enabled(s)) return null;
     if (s.autopilotPaused) return null; // already handed back; waits for operator
+    if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive
     // A PR exists in ANY state → autopilot stands down: open is the critic loop's territory,
     // and merged/closed mean the pre-PR mission is over (work landed / human closed it) — never
     // steer such a session to open ANOTHER PR.
@@ -106,6 +111,15 @@ export class AutopilotService {
   private pause(s: Session, question: string): void {
     this.deps.store.setAutopilotState(s.id, { paused: true, question });
     this.deps.onPause(s.id, question);
+    this.deps.onState?.(s.id);
+  }
+
+  /** Mark the session complete — a clean terminal state for a non-PR deliverable. `summary`
+   *  is the resolved hand-back text (caller supplies COMPLETE_MESSAGE when the verdict has
+   *  none). Distinct from pause: it reads as "done", not "needs a decision". */
+  private markComplete(s: Session, summary: string): void {
+    this.deps.store.setAutopilotState(s.id, { complete: true, question: summary });
+    this.deps.onComplete?.(s.id, summary);
     this.deps.onState?.(s.id);
   }
 
@@ -131,6 +145,9 @@ export class AutopilotService {
         return;
       case "finished":
         this.driveSteer(s, OPEN_PR_STEER);
+        return;
+      case "complete":
+        this.markComplete(s, v.summary || COMPLETE_MESSAGE);
         return;
       default: // "question" | "unknown" → bias to surface
         this.pause(s, v.summary || SURFACE_MESSAGE);
@@ -182,9 +199,10 @@ export class AutopilotService {
     await this.consider(id, tail, `autopilot ${id}`);
   }
 
-  /** session:status "running" handler. A paused→running transition is the operator
-   *  answering: clear the pause and refresh the step budget. Non-paused running is a no-op
-   *  (autopilot's OWN gate-steers resume the agent — those must not reset the cap).
+  /** session:status "running" handler. A paused→running or complete→running transition is the
+   *  operator re-engaging the session: clear the hand-back and refresh the step budget. Running
+   *  while neither paused nor complete is a no-op (autopilot's OWN gate-steers resume the agent —
+   *  those must not reset the cap).
    *  Known limitation: a manual operator steer while the loop is active-but-NOT-paused also
    *  produces "running" and is indistinguishable from autopilot's own steer here, so it does
    *  NOT refresh the budget — a slight deviation from the design's "reset on manual intervene".
@@ -193,17 +211,27 @@ export class AutopilotService {
   onStatus(id: string, status: string): void {
     if (status !== "running") return;
     const s = this.deps.store.get(id);
-    if (!s || !s.autopilotPaused) return;
-    this.deps.store.setAutopilotState(id, { paused: false, question: null, stepCount: 0 });
+    if (!s || (!s.autopilotPaused && !s.autopilotComplete)) return;
+    this.deps.store.setAutopilotState(id, {
+      paused: false,
+      complete: false,
+      question: null,
+      stepCount: 0,
+    });
     this.deps.onState?.(id);
   }
 
-  /** The critic handoff: clear pause + reset the step budget. Invoked once per PR-open by
-   *  onGit (for a non-red PR) — the single place this transition is applied. */
+  /** The critic handoff: clear pause + complete + reset the step budget. Invoked once per PR-open
+   *  by onGit (for a non-red PR) — the single place this transition is applied. */
   onPrOpen(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;
-    this.deps.store.setAutopilotState(id, { paused: false, question: null, stepCount: 0 });
+    this.deps.store.setAutopilotState(id, {
+      paused: false,
+      complete: false,
+      question: null,
+      stepCount: 0,
+    });
     this.deps.onState?.(id);
   }
 

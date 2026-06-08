@@ -20,7 +20,20 @@ export async function loadConfig(): Promise<CaptureConfig> {
   return {
     ...DEFAULT_CONFIG,
     ...stored,
-    signals: { ...DEFAULT_CONFIG.signals, ...(stored.signals ?? {}) },
+    // Only spread a real object over the signal defaults; a stored non-object
+    // (corrupt/legacy data) can't throw but would spread garbage keys (e.g. a
+    // string → {0:"…"}). Symmetric with the routingRules coercion below.
+    signals: {
+      ...DEFAULT_CONFIG.signals,
+      ...(stored.signals && typeof stored.signals === "object" && !Array.isArray(stored.signals)
+        ? stored.signals
+        : {}),
+    },
+    // routingRules is the single source consumers iterate (resolveRepo, the
+    // options `{#each}`). A spread leaves a stored non-array (corrupt/legacy
+    // data) in place — `??` only catches null/undefined — which would crash the
+    // popup's effectiveRepo derived with "is not iterable". Coerce to an array.
+    routingRules: Array.isArray(stored.routingRules) ? stored.routingRules : [],
   };
 }
 

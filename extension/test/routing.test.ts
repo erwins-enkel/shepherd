@@ -46,4 +46,15 @@ describe("resolveRepo", () => {
     const rules = [rule("https://a.b/*", "~/Work/dot")];
     expect(resolveRepo("https://axb/whatever", rules, "~/fallback")).toBe("~/fallback");
   });
+
+  it("falls back (does not throw) when `rules` is not an array", () => {
+    // Corrupt/legacy storage can hand us a non-array; `for...of` would throw
+    // "is not iterable" and crash the popup's effectiveRepo derived. Treat a
+    // non-array as no rules and return the fallback instead.
+    const bad = { 0: rule("*", "~/Work/x") } as unknown as RoutingRule[];
+    expect(resolveRepo("https://github.com/acme/web", bad, "~/fallback")).toBe("~/fallback");
+    expect(resolveRepo("https://x", null as unknown as RoutingRule[], "~/fallback")).toBe(
+      "~/fallback",
+    );
+  });
 });

@@ -93,6 +93,30 @@ describe("config", () => {
     expect(cfg.signals).toEqual({ screenshot: true, console: false, network: false, a11y: true });
   });
 
+  it("coerces a non-array stored routingRules to an empty array", async () => {
+    // A stored non-array (corrupt/legacy data) must not reach consumers that
+    // iterate it (resolveRepo, the options `{#each}`) — `??` only catches
+    // null/undefined, so a truthy non-array would otherwise slip through.
+    installChromeStub({ captureConfig: { routingRules: { 0: { pattern: "*", repoPath: "x" } } } });
+    const cfg = await loadConfig();
+    expect(cfg.routingRules).toEqual([]);
+  });
+
+  it("ignores a non-object stored signals, falling back to the defaults", async () => {
+    // A non-object can't throw but would spread garbage keys (a string →
+    // {0:"…"}); coerce to {} so the toggles stay the clean default shape.
+    installChromeStub({ captureConfig: { signals: "screenshot" } });
+    const cfg = await loadConfig();
+    expect(cfg.signals).toEqual(DEFAULT_CONFIG.signals);
+  });
+
+  it("preserves a valid stored routingRules array", async () => {
+    const rules = [{ pattern: "https://github.com/*", repoPath: "~/Work/gh" }];
+    installChromeStub({ captureConfig: { routingRules: rules } });
+    const cfg = await loadConfig();
+    expect(cfg.routingRules).toEqual(rules);
+  });
+
   it("saveSignals persists signals only, leaving other stored fields untouched", async () => {
     await saveConfig({
       baseUrl: "http://localhost:7330",

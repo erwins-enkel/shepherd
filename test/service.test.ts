@@ -1883,3 +1883,197 @@ test("sweepStaleMerging clears marks older than the TTL, keeps fresh ones", asyn
   service.sweepStaleMerging(now + MERGE_STALE_MS + 1);
   expect(store.get(a.id)!.mergingSince).toBeNull();
 });
+
+// ── build queue ──────────────────────────────────────────────────────────────
+
+test("composeSystemPrompt includes <build-queue> block when directive is given", () => {
+  const sp = composeSystemPrompt(null, false, "directive text");
+  expect(sp).toContain("<build-queue>");
+  expect(sp).toContain("directive text");
+  expect(sp).toContain("</build-queue>");
+});
+
+test("composeSystemPrompt omits <build-queue> block when null (1-arg backward compat)", () => {
+  expect(composeSystemPrompt(null)).not.toContain("<build-queue>");
+  expect(composeSystemPrompt(null, false)).not.toContain("<build-queue>");
+  expect(composeSystemPrompt(null, true)).not.toContain("<build-queue>");
+});
+
+test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
+  const sp = composeSystemPrompt(null, true, "bq-text");
+  const autopilotPos = sp.indexOf("<autopilot-directive>");
+  const bqPos = sp.indexOf("<build-queue>");
+  expect(autopilotPos).toBeGreaterThan(-1);
+  expect(bqPos).toBeGreaterThan(autopilotPos);
+});
+
+test("composeSystemPrompt places <build-queue> after branch-rename-notice (no autopilot)", () => {
+  const sp = composeSystemPrompt(null, false, "bq-text");
+  const branchPos = sp.indexOf("<branch-rename-notice>");
+  const bqPos = sp.indexOf("<build-queue>");
+  expect(branchPos).toBeGreaterThan(-1);
+  expect(bqPos).toBeGreaterThan(branchPos);
+  expect(sp).not.toContain("<autopilot-directive>");
+});
+
+function buildQueueDeps(
+  store: SessionStore,
+  captured: { argv?: string[] },
+  repoConfig?: Partial<Parameters<SessionStore["setRepoConfig"]>[1]>,
+) {
+  if (repoConfig) {
+    store.setRepoConfig("/repo", {
+      criticEnabled: true,
+      autoAddressEnabled: false,
+      learningsEnabled: false,
+      autopilotEnabled: false,
+      autoDrainEnabled: false,
+      autoMergeEnabled: false,
+      buildQueueEnabled: false,
+      maxAuto: 1,
+      autoLabel: "shepherd:auto",
+      usageCeilingPct: 80,
+      ...repoConfig,
+    });
+  }
+  return {
+    store,
+    namer: async () => "repo-task",
+    worktree: {
+      create: () => ({
+        worktreePath: "/wt/repo-task",
+        branch: "shepherd/repo-task",
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        captured.argv = argv;
+        return { terminalId: "t1" };
+      },
+      list: () => [],
+    } as any,
+  };
+}
+
+test("create with buildQueueEnabled=true: system prompt contains <build-queue> block", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("<build-queue>");
+  expect(sp).toContain("</build-queue>");
+});
+
+test("create with buildQueueEnabled=true: system prompt contains the real session id and queue endpoint", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain(`/api/sessions/${s.id}/queue`);
+});
+
+test("create with buildQueueEnabled=false: system prompt has no <build-queue> block", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: false }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).not.toContain("<build-queue>");
+});
+
+test("create with buildQueueEnabled=true + autopilot on: directive contains auto-approve phrasing", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: true }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("auto-approved");
+  expect(sp).toContain("immediately begin");
+  expect(sp).not.toContain("STOP and wait");
+});
+
+test("create with buildQueueEnabled=true + autopilot off: directive contains stop-and-wait phrasing", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: false }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("STOP and wait");
+  expect(sp).not.toContain("immediately begin");
+});
+
+test("create with buildQueueEnabled=true + autopilot on: queue is auto-approved", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(store.getBuildQueue(s.id).approved).toBe(true);
+});
+
+test("create with buildQueueEnabled=true + autopilot off: queue is NOT auto-approved", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: false }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(store.getBuildQueue(s.id).approved).toBe(false);
+});

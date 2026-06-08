@@ -126,6 +126,77 @@ const AUTOPILOT_DIRECTIVE =
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
+ * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
+ *
+ * The build queue is a per-session, ordered, self-revising plan: the agent authors it via a
+ * local REST API right after reading the task, a human (or autopilot) approves it, then the
+ * agent executes it step-by-step IN THIS SAME SESSION so it retains full context throughout.
+ *
+ * Why bake the actual endpoint + session id at spawn time (rather than leaving the agent to
+ * discover them)? Two reasons:
+ *  1. Reliability: the agent doesn't have to guess the server address or its own session id
+ *     under an unattended run — a misread would silently produce an unreachable URL.
+ *  2. Curation gate: the autopilot/attended split is a policy decision that should be stated
+ *     up front, not inferred mid-run. The agent knows BEFORE starting whether it must wait
+ *     for human approval or may immediately execute after authoring.
+ *
+ * Token/auth: when `config.token` is set the server requires `Authorization: Bearer <token>`;
+ * when null it's open to loopback callers — the curl lines must match exactly.
+ *
+ * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
+ * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
+ */
+function buildQueueDirective(args: {
+  sessionId: string;
+  baseUrl: string;
+  token: string | null;
+  autopilot: boolean;
+}): string {
+  const { sessionId, baseUrl, token, autopilot } = args;
+  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const queueUrl = `${baseUrl}/api/sessions/${sessionId}/queue`;
+
+  const curationGate = autopilot
+    ? "No human will gate this run — the queue is auto-approved for visibility and curation. " +
+      "Author the queue, then immediately begin executing the steps in order without waiting."
+    : "After you author the queue, STOP and wait. A human will review, edit, and approve it " +
+      "in the UI; you will then receive a message telling you to begin. " +
+      "Do NOT start executing steps until you get that go-ahead.";
+
+  return (
+    "This session has a build queue: an ordered, curatable, self-revising plan that you author " +
+    "via the Shepherd API, then execute step-by-step IN THIS SAME SESSION. Each step builds on " +
+    "the previous one and you retain full context throughout — no context loss between steps.\n\n" +
+    "Build-queue API (use these exact curl commands):\n\n" +
+    "1. Author / replace the whole plan (do this first, before starting any work):\n" +
+    `   curl -s -X PUT${authHeader} \\\n` +
+    `     -H "Content-Type: application/json" \\\n` +
+    `     -d '{"steps":[{"title":"Step title","detail":"Optional detail"}]}' \\\n` +
+    `     ${queueUrl}\n` +
+    "   The response returns each step with a generated `id` and the queue's `approved` flag.\n\n" +
+    "2. Mark a step's progress (use the `id` values from the PUT/GET response):\n" +
+    `   curl -s -X POST${authHeader} \\\n` +
+    `     -H "Content-Type: application/json" \\\n` +
+    '     -d \'{"status":"active"}\' \\\n' +
+    `     ${queueUrl}/steps/{stepId}     # when you start a step\n` +
+    `   curl -s -X POST${authHeader} \\\n` +
+    `     -H "Content-Type: application/json" \\\n` +
+    '     -d \'{"status":"done"}\' \\\n' +
+    `     ${queueUrl}/steps/{stepId}     # when you finish a step\n` +
+    '   Use "skipped" if you decide to drop a step.\n\n' +
+    "3. Inspect the current queue at any time:\n" +
+    `   curl -s${authHeader} ${queueUrl}\n\n` +
+    "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
+    "Only add, change, or remove steps that are still PENDING. To preserve a completed step, " +
+    "include it with its existing `id` (its status is kept server-side).\n\n" +
+    "Runaway guard: keep the plan small and focused (a handful of steps). " +
+    "Do not let self-revision loop indefinitely — each PUT should reflect a genuine course correction, " +
+    "not iterative micro-adjustment.\n\n" +
+    curationGate
+  );
+}
+
+/**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
  * (the flag is last-wins, not repeatable, so all blocks must share one value).
  *
@@ -136,7 +207,11 @@ const AUTOPILOT_DIRECTIVE =
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
  * always ride. `autopilotActive` appends the autopilot directive (see above).
  */
-export function composeSystemPrompt(houseRules: string | null, autopilotActive = false): string {
+export function composeSystemPrompt(
+  houseRules: string | null,
+  autopilotActive = false,
+  buildQueue: string | null = null,
+): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
@@ -145,6 +220,7 @@ export function composeSystemPrompt(houseRules: string | null, autopilotActive =
     : [posture, research, branchNotice];
   if (autopilotActive)
     blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
+  if (buildQueue !== null) blocks.push(`<build-queue>\n${buildQueue}\n</build-queue>`);
   return blocks.join("\n\n");
 }
 
@@ -173,6 +249,9 @@ export class SessionService {
     // worktree with no session row. Roll it back so a failed create leaves nothing.
     try {
       const claudeSessionId = randomUUID();
+      // Pre-generate the session id so we can bake the exact queue endpoint into the spawn prompt
+      // before the store row exists — the store.create() call below receives this id explicitly.
+      const sessionId = randomUUID();
 
       let promptArg = input.prompt;
       if (input.images.length > 0) {
@@ -192,16 +271,35 @@ export class SessionService {
       // learned corrections without the rules bleeding into the task text. The autopilot
       // directive rides the same prompt when the repo has autopilot on, so the agent drives to a
       // PR without stopping for procedural gates instead of waiting for a reactive steer.
+      const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
       const houseRules = this.houseRules(input.repoPath);
-      const autopilotActive = this.deps.store.getRepoConfig(input.repoPath).autopilotEnabled;
+      const autopilotActive = repoConfig.autopilotEnabled;
+      const buildQueueEnabled = repoConfig.buildQueueEnabled;
+
+      // Build the base URL the agent will use to reach the queue API. When the server binds
+      // to 0.0.0.0 (all interfaces) the loopback address is still the right target for the
+      // agent — it's always running on the same machine and 0.0.0.0 isn't a valid call target.
+      const baseUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
+      const buildQueueDirectiveText = buildQueueEnabled
+        ? buildQueueDirective({
+            sessionId,
+            baseUrl,
+            token: config.token,
+            autopilot: autopilotActive,
+          })
+        : null;
 
       const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
       argv.push("--settings", spawnSettingsOverlay());
-      argv.push("--append-system-prompt", composeSystemPrompt(houseRules, autopilotActive));
+      argv.push(
+        "--append-system-prompt",
+        composeSystemPrompt(houseRules, autopilotActive, buildQueueDirectiveText),
+      );
       if (input.model) argv.push("--model", input.model);
       argv.push(promptArg);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
       const session = this.deps.store.create({
+        id: sessionId,
         name,
         prompt: input.prompt, // store the original user text, not the argv-augmented version
         repoPath: input.repoPath,
@@ -216,6 +314,11 @@ export class SessionService {
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
       });
+      // Attended sessions stay unapproved until a human clicks Approve in the UI.
+      // Autopilot sessions are pre-approved so the agent can begin executing immediately
+      // after authoring the queue without waiting for a human gate that will never come.
+      if (buildQueueEnabled && autopilotActive)
+        this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
       return session;
     } catch (e) {

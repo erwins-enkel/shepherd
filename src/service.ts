@@ -143,6 +143,14 @@ const AUTOPILOT_DIRECTIVE =
  * Token/auth: when `config.token` is set the server requires `Authorization: Bearer <token>`;
  * when null it's open to loopback callers — the curl lines must match exactly.
  *
+ * SECURITY NOTE: baking the bearer token into the spawn prompt means it is persisted into the
+ * agent's Claude Code transcript jsonl on disk (`~/.claude/projects/.../<session>.jsonl`). This
+ * is an accepted exposure, not an oversight: the token is Shepherd's own loopback control-plane
+ * secret, the transcript lives under the same user account on the same host, and the agent is
+ * already spawned with `--dangerously-skip-permissions` (it can read that token from the running
+ * server's env or config anyway). The exposure is also opt-in — most deployments leave
+ * `config.token` null, so nothing is written. It is NOT a credential that reaches any third party.
+ *
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
  */

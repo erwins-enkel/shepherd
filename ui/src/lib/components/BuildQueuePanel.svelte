@@ -280,7 +280,9 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-green);
+    /* In-progress, not complete — amber. Green is reserved by the design system for
+       actionable-complete/READY, which a running queue is not. */
+    color: var(--color-amber);
   }
 
   .bqp-empty {

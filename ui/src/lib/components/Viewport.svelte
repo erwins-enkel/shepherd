@@ -1261,6 +1261,7 @@
         ready={session.readyToMerge}
         status={session.status}
         showReady={compact}
+        planPhase={session.planPhase}
         mobile
       />
     </div>

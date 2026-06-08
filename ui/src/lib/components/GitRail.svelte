@@ -1,6 +1,6 @@
 <script lang="ts">
   import { gitState, openPr, mergePr, redeploy, replySession } from "$lib/api";
-  import type { GitState, SessionStatus } from "$lib/types";
+  import type { GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
@@ -22,6 +22,7 @@
     ready = false,
     status = "idle",
     showReady = true,
+    planPhase = null,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -31,6 +32,7 @@
     ready?: boolean;
     status?: SessionStatus;
     showReady?: boolean;
+    planPhase?: Session["planPhase"];
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -432,7 +434,7 @@
     {/if}
 
     {#if showAutomation}
-      <AutomationPanel {repoPath} {sessionId} />
+      <AutomationPanel {repoPath} {sessionId} {planPhase} />
     {/if}
 
     {#if armedEntry}

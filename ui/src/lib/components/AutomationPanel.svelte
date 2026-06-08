@@ -3,11 +3,27 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
+  import type { Session } from "$lib/types";
 
-  let { repoPath, sessionId }: { repoPath: string; sessionId: string } = $props();
+  let {
+    repoPath,
+    sessionId,
+    planPhase = null,
+  }: { repoPath: string; sessionId: string; planPhase?: Session["planPhase"] } = $props();
 
   const flags = $derived(repoConfig.flags(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
+
+  // The panel's switches are repo-level defaults; the plan gate is also a per-task
+  // one-shot set at creation. Surface THIS task's actual gate phase so a tick in
+  // New Task doesn't read as "off" just because the repo default is off. Shown only
+  // when the task is genuinely gated — an ungated task needs no line (the repo-wide
+  // subtitle already explains the switch is a default).
+  const planGateTaskLabel = $derived(
+    planPhase === "planning"
+      ? m.automation_plan_gate_task_planning()
+      : m.automation_plan_gate_task_executing(),
+  );
 
   // Drain config fields, seeded from stored config and re-seeded whenever the
   // section becomes visible (drain turned on) or the repo changes.
@@ -56,6 +72,7 @@
 
 <div class="auto-pop" role="dialog" aria-label={m.automation_panel_title()}>
   <div class="auto-head">{m.automation_panel_title()}</div>
+  <div class="auto-sub">{m.automation_panel_subtitle()}</div>
 
   <!-- Code review -->
   <div class="auto-group">{m.automation_group_review()}</div>
@@ -99,6 +116,9 @@
     <div class="auto-meta">
       <div class="auto-name">🪧 {m.automation_plan_gate_name()}</div>
       <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
+      {#if planPhase != null}
+        <div class="auto-task">{planGateTaskLabel}</div>
+      {/if}
     </div>
     <button
       class={["sw", { on: flags.planGate }]}
@@ -261,7 +281,12 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
-    padding: 10px 12px 4px;
+    padding: 10px 12px 2px;
+  }
+  .auto-sub {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    padding: 0 12px 6px;
   }
   .auto-group {
     font-size: var(--fs-micro);
@@ -293,6 +318,13 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
     margin-top: 2px;
+  }
+  /* per-task plan-gate reality: amber, shown only when this task is actually gated
+     — so a New Task tick reads as active even when the repo default is off */
+  .auto-task {
+    font-size: var(--fs-micro);
+    color: var(--color-amber);
+    margin-top: 3px;
   }
   /* switch: track + knob, green when on, amber pulse while reviewing */
   .sw {

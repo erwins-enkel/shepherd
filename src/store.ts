@@ -1,6 +1,17 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import type { Session, ReviewVerdict, Signal, SignalKind, Learning, LearningStatus } from "./types";
+import type {
+  Session,
+  ReviewVerdict,
+  Signal,
+  SignalKind,
+  Learning,
+  LearningStatus,
+  BuildStep,
+  BuildStepStatus,
+  BuildQueue,
+  BuildStepInput,
+} from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -88,6 +99,7 @@ type NewSession = Omit<
   | "auto"
   | "issueNumber"
 > & {
+  id?: string;
   model?: string | null;
   claudeSessionId?: string;
   auto?: boolean;
@@ -155,6 +167,16 @@ export class SessionStore implements CapStore {
   ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
     this.migrateLearningsColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
+      title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS build_queue_steps_session ON build_queue_steps (sessionId, position)`,
+    );
+    this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
+      sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -314,7 +336,7 @@ export class SessionStore implements CapStore {
       ...input,
       model: input.model ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       desig: `TASK-${String(n + 1).padStart(2, "0")}`,
       readyToMerge: false,
       autopilotEnabled: null,
@@ -670,6 +692,14 @@ export class SessionStore implements CapStore {
         `DELETE FROM reviews WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
+      this.db.run(
+        `DELETE FROM build_queue_steps WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM build_queue_state WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
@@ -931,6 +961,80 @@ export class SessionStore implements CapStore {
          WHERE id IN (${placeholders}) ORDER BY ts DESC, rowid DESC`,
       )
       .all(...ids) as Signal[];
+  }
+
+  // ── build queue ──────────────────────────────────────────────────────────────
+  getBuildQueue(sessionId: string): BuildQueue {
+    const rows = this.db
+      .query(
+        `SELECT id, position, title, detail, status
+         FROM build_queue_steps WHERE sessionId = ? ORDER BY position`,
+      )
+      .all(sessionId) as {
+      id: string;
+      position: number;
+      title: string;
+      detail: string;
+      status: string;
+    }[];
+    const state = this.db
+      .query(`SELECT approved FROM build_queue_state WHERE sessionId = ?`)
+      .get(sessionId) as { approved: number } | null;
+    const steps: BuildStep[] = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      detail: r.detail,
+      status: r.status as BuildStepStatus,
+      position: r.position,
+    }));
+    return { sessionId, steps, approved: state ? !!state.approved : false };
+  }
+
+  replaceBuildQueue(sessionId: string, steps: BuildStepInput[]): BuildQueue {
+    const now = Date.now();
+    this.db.transaction(() => {
+      // read existing rows (inside the txn) to preserve status + createdAt for id-matching entries
+      const existing = new Map<string, { status: BuildStepStatus; createdAt: number }>();
+      const existingRows = this.db
+        .query(`SELECT id, status, createdAt FROM build_queue_steps WHERE sessionId = ?`)
+        .all(sessionId) as { id: string; status: string; createdAt: number }[];
+      for (const r of existingRows) {
+        existing.set(r.id, { status: r.status as BuildStepStatus, createdAt: r.createdAt });
+      }
+      this.db.run(`DELETE FROM build_queue_steps WHERE sessionId = ?`, [sessionId]);
+      for (let i = 0; i < steps.length; i++) {
+        const input = steps[i]!;
+        const matchId = input.id && existing.has(input.id) ? input.id : null;
+        const prior = matchId ? existing.get(matchId)! : null;
+        const id = matchId ?? randomUUID();
+        const status = input.status ?? prior?.status ?? "pending";
+        const createdAt = prior?.createdAt ?? now;
+        this.db.run(
+          `INSERT INTO build_queue_steps (id, sessionId, position, title, detail, status, createdAt, updatedAt)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [id, sessionId, i, input.title, input.detail ?? "", status, createdAt, now],
+        );
+      }
+    })();
+    return this.getBuildQueue(sessionId);
+  }
+
+  /** Update the status of a single step. Returns true when a row was actually changed. */
+  setBuildStepStatus(sessionId: string, stepId: string, status: BuildStepStatus): boolean {
+    const { changes } = this.db.run(
+      `UPDATE build_queue_steps SET status = ?, updatedAt = ? WHERE id = ? AND sessionId = ?`,
+      [status, Date.now(), stepId, sessionId],
+    );
+    return changes > 0;
+  }
+
+  /** Flip the human-curation gate for a session's queue. */
+  setBuildQueueApproved(sessionId: string, approved: boolean): void {
+    this.db.run(
+      `INSERT INTO build_queue_state (sessionId, approved, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET approved = excluded.approved, updatedAt = excluded.updatedAt`,
+      [sessionId, approved ? 1 : 0, Date.now()],
+    );
   }
 
   private hydrate(r: any): Session {

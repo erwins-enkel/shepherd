@@ -1,7 +1,7 @@
 import { summarizeAxeResults, type AxeResults } from "./lib/a11y";
 import { buildMetadata, dataUrlToBlob, type PageInfo } from "./lib/capture";
 import { loadConfig } from "./lib/config";
-import { spawnNow } from "./lib/transport";
+import { fileIssue, spawnNow } from "./lib/transport";
 import {
   TransportError,
   type CaptureResult,
@@ -160,8 +160,15 @@ chrome.runtime.onMessage.addListener(
               ? dataUrlToBlob(req.payload.screenshotDataUrl)
               : undefined,
             signals: req.payload.signals,
+            repoPath: req.payload.repoPath,
           });
           sendResponse({ ok: true, type: "spawn", desig });
+          return;
+        }
+        if (req.type === "file-issue") {
+          const config = await loadConfig();
+          const { number, url } = await fileIssue((u, init) => fetch(u, init), config, req.payload);
+          sendResponse({ ok: true, type: "issue", number, url });
           return;
         }
       } catch (err) {

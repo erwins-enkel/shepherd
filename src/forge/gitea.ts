@@ -272,6 +272,14 @@ export class GiteaForge implements GitForge {
     return this.toStatus(pr);
   }
 
+  async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
+    const issue = (await this.req("POST", `/api/v1/repos/${this.slug}/issues`, {
+      title: o.title,
+      body: o.body,
+    })) as { number: number; html_url: string };
+    return { number: issue.number, url: issue.html_url };
+  }
+
   async merge(prNumber: number, o: MergeInput): Promise<void> {
     await this.req("POST", `/api/v1/repos/${this.slug}/pulls/${prNumber}/merge`, {
       Do: o.method,

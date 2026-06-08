@@ -95,3 +95,102 @@ test("GET /api/issues?repo outside root → 400", async () => {
   const res = await app.fetch(req("/etc"));
   expect(res.status).toBe(400);
 });
+
+// ── POST /api/issues (handleIssueCreate) ─────────────────────────────────────
+
+function postIssue(
+  app: ReturnType<typeof makeApp>,
+  body: unknown,
+  headers?: HeadersInit,
+): Promise<Response> {
+  return app.fetch(
+    new Request("http://localhost/api/issues", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("POST /api/issues 201 happy path returns number, url, slug", async () => {
+  const created = { number: 7, url: "https://github.com/o/r/issues/7" };
+  const forge = fakeForge({ slug: "o/r", createIssue: async () => created });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: repoDir, title: "Hello", body: "world" });
+  expect(res.status).toBe(201);
+  const out = await res.json();
+  expect(out.number).toBe(7);
+  expect(out.url).toBe(created.url);
+  expect(out.slug).toBe("o/r");
+});
+
+test("POST /api/issues passes trimmed title + body to the forge", async () => {
+  const calls: { title: string; body: string }[] = [];
+  const forge = fakeForge({
+    createIssue: async (o) => {
+      calls.push(o);
+      return { number: 1, url: "u" };
+    },
+  });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  await postIssue(app, { repo: repoDir, title: "  spaced  ", body: "ctx" });
+  expect(calls[0]).toEqual({ title: "spaced", body: "ctx" });
+});
+
+test("POST /api/issues out-of-root repo → 400 invalid repo", async () => {
+  const forge = fakeForge({ createIssue: async () => ({ number: 1, url: "u" }) });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: "/etc/passwd", title: "x", body: "" });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("invalid repo");
+});
+
+test("POST /api/issues unknown repo (resolveForge null) → 400", async () => {
+  const app = makeApp(makeDeps(() => null));
+  const res = await postIssue(app, { repo: repoDir, title: "x", body: "" });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("issues unavailable for repo");
+});
+
+test("POST /api/issues blank title → 400", async () => {
+  const forge = fakeForge({ createIssue: async () => ({ number: 1, url: "u" }) });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: repoDir, title: "   ", body: "" });
+  expect(res.status).toBe(400);
+});
+
+test("POST /api/issues missing title → 400", async () => {
+  const forge = fakeForge({ createIssue: async () => ({ number: 1, url: "u" }) });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: repoDir, body: "" });
+  expect(res.status).toBe(400);
+});
+
+test("POST /api/issues forge without createIssue → 400", async () => {
+  const forge = fakeForge(); // no createIssue
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: repoDir, title: "x", body: "" });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("issues unavailable for repo");
+});
+
+test("POST /api/issues createIssue throws → 502 with message", async () => {
+  const forge = fakeForge({
+    createIssue: async () => {
+      throw new Error("boom");
+    },
+  });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await postIssue(app, { repo: repoDir, title: "x", body: "" });
+  expect(res.status).toBe(502);
+  expect((await res.json()).error).toBe("boom");
+});
+
+test("POST /api/issues without JSON content type → 415", async () => {
+  const forge = fakeForge({ createIssue: async () => ({ number: 1, url: "u" }) });
+  const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
+  const res = await app.fetch(
+    new Request("http://localhost/api/issues", { method: "POST", body: "{}" }),
+  );
+  expect(res.status).toBe(415);
+});

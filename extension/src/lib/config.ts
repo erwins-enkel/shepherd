@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG: CaptureConfig = {
   baseBranch: "main",
   model: "default",
   signals: { screenshot: true, console: false, network: false, a11y: false },
+  routingRules: [],
 };
 
 /** Load config from chrome.storage.local, merged over defaults (signals deep-merged). */

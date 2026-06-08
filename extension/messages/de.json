@@ -52,5 +52,21 @@
   "options_signals_a11y_label": "Bei der Erfassung einen Barrierefreiheits-Audit (axe-core) ausführen",
   "options_recorder_label": "Konsolenfehler & fehlgeschlagene Netzwerkanfragen aufzeichnen",
   "options_recorder_allsites_note": "Die Aufzeichnung liest Konsolenausgaben und Netzwerkfehler auf jeder besuchten Seite – einschließlich vollständiger Anfrage-URLs (Query-Strings können Tokens enthalten) – und übermittelt sie mit der Aufgabe an Shepherd. Aktiviere sie nur bei Bedarf; beim Ausschalten wird die Alle-Seiten-Berechtigung entzogen.",
-  "options_recorder_denied": "Berechtigung verweigert – Aufzeichnung bleibt aus."
+  "options_recorder_denied": "Berechtigung verweigert – Aufzeichnung bleibt aus.",
+  "popup_target_label": "Ausliefern als",
+  "popup_target_session": "Sitzung starten",
+  "popup_target_issue": "Issue",
+  "popup_repo_routed": "(geroutet)",
+  "popup_issue_title_label": "Issue-Titel",
+  "popup_issue_no_screenshot": "Screenshots werden nicht in Issues eingebettet – Metadaten & Signale stehen im Issue-Text.",
+  "popup_issue_empty_title": "Gib einen Issue-Titel ein.",
+  "popup_issue_title_too_long": "Der Issue-Titel darf höchstens 200 Zeichen lang sein.",
+  "popup_issue_body_too_long": "Das Issue ist zu lang – kürze den Prompt oder deaktiviere einige Signale.",
+  "popup_issue_success": "Issue #{number} angelegt.",
+  "options_routing_title": "Routing-Regeln",
+  "options_routing_hint": "Ordne die URL eines erfassten Tabs einem Ziel-Repository zu. Muster sind Globs (*-Platzhalter), die gegen die vollständige URL geprüft werden; der erste Treffer gewinnt, sonst wird das Repository oben verwendet.",
+  "options_routing_pattern_ph": "https://app.example.com/*",
+  "options_routing_repo_ph": "~/Work/my-repo",
+  "options_routing_add": "Regel hinzufügen",
+  "options_routing_remove": "Entfernen"
 }

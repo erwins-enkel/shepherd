@@ -68,6 +68,12 @@
       hostDenied = true;
       return;
     }
+    // Drop incomplete routing rows (either field blank). resolveRepo skips a rule
+    // missing a pattern or a repoPath anyway, so persisting a half-filled row would
+    // be a silently-dead rule — require both fields to keep one.
+    config.routingRules = config.routingRules.filter(
+      (r) => r.pattern.trim() !== "" && r.repoPath.trim() !== "",
+    );
     const prevBaseUrl = (await loadConfig()).baseUrl;
     await saveConfig(config);
     // Release the previous remote host's grant if we've switched hosts (remove
@@ -146,6 +152,45 @@
         <input type="checkbox" checked={config.signals.a11y} onchange={toggleA11y} />
         <span>{m.options_signals_a11y_label()}</span>
       </label>
+    </fieldset>
+
+    <fieldset class="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-3">
+      <legend class="text-gray-600">{m.options_routing_title()}</legend>
+      <span class="text-xs text-gray-500">{m.options_routing_hint()}</span>
+
+      {#each config.routingRules as rule (rule)}
+        <div class="flex items-center gap-2">
+          <input
+            class="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1"
+            type="text"
+            bind:value={rule.pattern}
+            placeholder={m.options_routing_pattern_ph()}
+          />
+          <input
+            class="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1"
+            type="text"
+            bind:value={rule.repoPath}
+            placeholder={m.options_routing_repo_ph()}
+          />
+          <button
+            type="button"
+            class="shrink-0 text-red-600"
+            aria-label={m.options_routing_remove()}
+            onclick={() => (config.routingRules = config.routingRules.filter((r) => r !== rule))}
+          >
+            {m.options_routing_remove()}
+          </button>
+        </div>
+      {/each}
+
+      <button
+        type="button"
+        class="self-start text-blue-600 underline"
+        onclick={() =>
+          (config.routingRules = [...config.routingRules, { pattern: "", repoPath: "" }])}
+      >
+        {m.options_routing_add()}
+      </button>
     </fieldset>
 
     <div class="mt-2 flex items-center gap-3">

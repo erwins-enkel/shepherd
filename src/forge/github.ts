@@ -364,6 +364,23 @@ export class GithubForge implements GitForge {
     return this.prStatus(o.head);
   }
 
+  async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
+    // `gh issue create` echoes the new issue's URL on stdout (…/issues/<n>).
+    const url = this.run([
+      "issue",
+      "create",
+      "--repo",
+      this.slug,
+      "--title",
+      o.title,
+      "--body",
+      o.body,
+    ]).trim();
+    const n = Number(url.match(/\/(\d+)\s*$/)?.[1]);
+    if (!Number.isInteger(n)) throw new Error(`could not parse issue number from URL: ${url}`);
+    return { number: n, url };
+  }
+
   async renameBranch(oldBranch: string, newBranch: string): Promise<void> {
     // GitHub's rename-branch endpoint moves the ref AND retargets every open PR and
     // branch-protection rule onto the new name, so a session's open PR follows along.

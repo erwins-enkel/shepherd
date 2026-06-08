@@ -3,9 +3,12 @@
   import { isConfigured, loadConfig } from "../lib/config";
   import { hasAllUrls } from "../lib/recorder-control";
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
+  import { resolveRepo } from "../lib/routing";
+  import { composeIssueBody, MAX_ISSUE_BODY_LEN, MAX_ISSUE_TITLE_LEN } from "../lib/transport";
   import type {
     CaptureConfig,
     CaptureResult,
+    DeliveryTarget,
     TransportErrorKind,
     WorkerRequest,
     WorkerResponse,
@@ -20,6 +23,12 @@
   let prompt = $state("");
   let desig = $state("");
   let errorMsg = $state("");
+  let target = $state<DeliveryTarget>("session");
+  let issueTitle = $state("");
+  let titlePrefilled = $state(false);
+  let issueUrl = $state("");
+  let issueNumber = $state(0);
+  let doneKind = $state<"session" | "issue">("session");
   let toggles = $state<SignalToggles>({
     screenshot: true,
     console: false,
@@ -119,6 +128,24 @@
 
   let summary = $derived(signalSummary(capture?.signals));
 
+  // Routing-resolved effective repo: a matching rule overrides the configured
+  // repoPath; with no capture or no match it falls back to the configured repo.
+  let effectiveRepo = $derived(
+    capture
+      ? resolveRepo(capture.metadata.url, config?.routingRules ?? [], config?.repoPath ?? "")
+      : (config?.repoPath ?? ""),
+  );
+
+  // Prefill the issue title from the page title once, the first time a capture is
+  // available. A one-shot flag (not an `=== ""` guard) so a user who deliberately
+  // clears the field isn't refilled on the next reactive tick.
+  $effect(() => {
+    if (!titlePrefilled && capture?.metadata.title) {
+      issueTitle = capture.metadata.title;
+      titlePrefilled = true;
+    }
+  });
+
   async function submit() {
     if (!capture) return;
     if (prompt.trim() === "") {
@@ -126,19 +153,61 @@
       view = "error";
       return;
     }
+    if (target === "issue" && issueTitle.trim() === "") {
+      errorMsg = m.popup_issue_empty_title();
+      view = "error";
+      return;
+    }
+    // Mirror the server's POST /api/issues caps so an over-long title or body
+    // gets a clear inline message instead of a generic 'invalid' rejection. The
+    // body is prompt + the fenced context block, so large signals can blow the
+    // cap even with a short prompt — validate the exact string fileIssue() sends.
+    if (target === "issue" && issueTitle.trim().length > MAX_ISSUE_TITLE_LEN) {
+      errorMsg = m.popup_issue_title_too_long();
+      view = "error";
+      return;
+    }
+    if (
+      target === "issue" &&
+      composeIssueBody(prompt, capture.metadata, capture.signals).length > MAX_ISSUE_BODY_LEN
+    ) {
+      errorMsg = m.popup_issue_body_too_long();
+      view = "error";
+      return;
+    }
     view = "submitting";
-    const res = await send({
-      type: "spawn",
-      payload: {
-        prompt,
-        metadata: capture.metadata,
-        screenshotDataUrl: capture.screenshotDataUrl,
-        attachScreenshot: toggles.screenshot,
-        signals: capture.signals,
-      },
-    });
+    const req: WorkerRequest =
+      target === "issue"
+        ? {
+            type: "file-issue",
+            payload: {
+              repoPath: effectiveRepo,
+              title: issueTitle,
+              prompt,
+              metadata: capture.metadata,
+              signals: capture.signals,
+            },
+          }
+        : {
+            type: "spawn",
+            payload: {
+              prompt,
+              metadata: capture.metadata,
+              screenshotDataUrl: capture.screenshotDataUrl,
+              attachScreenshot: toggles.screenshot,
+              signals: capture.signals,
+              repoPath: effectiveRepo,
+            },
+          };
+    const res = await send(req);
     if (res.ok && res.type === "spawn") {
       desig = res.desig;
+      doneKind = "session";
+      view = "done";
+    } else if (res.ok && res.type === "issue") {
+      issueNumber = res.number;
+      issueUrl = res.url;
+      doneKind = "issue";
       view = "done";
     } else if (!res.ok) {
       errorMsg = localizeError(res.errorKind, res.message);
@@ -168,7 +237,15 @@
       {m.popup_grant_host()}
     </button>
   {:else if view === "done"}
-    <p class="rounded bg-green-50 px-3 py-2 text-green-700">{m.popup_success({ desig })}</p>
+    {#if doneKind === "issue"}
+      <p class="rounded bg-green-50 px-3 py-2 text-green-700">
+        <a class="underline" href={issueUrl} target="_blank" rel="noreferrer">
+          {m.popup_issue_success({ number: issueNumber })}
+        </a>
+      </p>
+    {:else}
+      <p class="rounded bg-green-50 px-3 py-2 text-green-700">{m.popup_success({ desig })}</p>
+    {/if}
   {:else if capture}
     <img
       class="w-full rounded border border-gray-200"
@@ -183,12 +260,34 @@
       <span>{capture.metadata.viewportW}×{capture.metadata.viewportH}</span>
     </div>
 
+    <label class="flex flex-col gap-1 text-xs text-gray-600">
+      <span>{m.popup_target_label()}</span>
+      <select class="rounded border border-gray-300 px-2 py-1 text-gray-900" bind:value={target}>
+        <option value="session">{m.popup_target_session()}</option>
+        <option value="issue">{m.popup_target_issue()}</option>
+      </select>
+    </label>
+
+    {#if target === "issue"}
+      <label class="flex flex-col gap-1 text-xs text-gray-600">
+        <span>{m.popup_issue_title_label()}</span>
+        <input
+          class="rounded border border-gray-300 px-2 py-1 text-gray-900"
+          type="text"
+          bind:value={issueTitle}
+        />
+      </label>
+    {/if}
+
     <fieldset class="flex flex-col gap-1 text-xs text-gray-600">
       <span>{m.popup_attach_label()}</span>
-      <label class="flex items-center gap-2">
-        <input type="checkbox" bind:checked={toggles.screenshot} />
+      <label class="flex items-center gap-2" class:opacity-50={target === "issue"}>
+        <input type="checkbox" bind:checked={toggles.screenshot} disabled={target === "issue"} />
         <span>{m.signal_screenshot()}</span>
       </label>
+      {#if target === "issue"}
+        <span class="text-gray-500">{m.popup_issue_no_screenshot()}</span>
+      {/if}
       <label class="flex items-center gap-2">
         <input
           type="checkbox"
@@ -245,7 +344,10 @@
     </label>
 
     <p class="text-xs text-gray-500">
-      {m.popup_repo_label()}: <span class="font-mono">{config?.repoPath}</span>
+      {m.popup_repo_label()}: <span class="font-mono">{effectiveRepo}</span>
+      {#if effectiveRepo !== config?.repoPath}
+        <span class="text-gray-400">{m.popup_repo_routed()}</span>
+      {/if}
     </p>
 
     {#if view === "error"}

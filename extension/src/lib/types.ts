@@ -28,6 +28,16 @@ export interface CaptureResult {
   signalErrors?: GatherSignal[];
 }
 
+/** One URL→repo routing rule. `pattern` is a glob (`*` wildcards) matched
+ *  case-insensitively against the captured tab's full URL; first match wins. */
+export interface RoutingRule {
+  pattern: string;
+  repoPath: string;
+}
+
+/** Where a capture is delivered. */
+export type DeliveryTarget = "session" | "issue";
+
 /** Persisted extension config (chrome.storage.local; never synced). */
 export interface CaptureConfig {
   baseUrl: string;
@@ -37,6 +47,8 @@ export interface CaptureConfig {
   model: "opus" | "sonnet" | "haiku" | "default";
   /** Per-signal toggles; persisted defaults, overridable per-capture in the popup. */
   signals: SignalToggles;
+  /** URL→repo rules; first match overrides `repoPath`. Empty = always fall back. */
+  routingRules: RoutingRule[];
 }
 
 /** What the popup sends the background worker to spawn a session. */
@@ -47,6 +59,8 @@ export interface SpawnPayload {
   /** Whether to upload + attach the screenshot. */
   attachScreenshot: boolean;
   signals?: CapturedSignals;
+  /** Routing-resolved effective repo (overrides `config.repoPath` at spawn). */
+  repoPath: string;
 }
 
 /**
@@ -78,9 +92,20 @@ export class TransportError extends Error {
 /** Discriminated message envelope: popup/options <-> background worker. */
 export type WorkerRequest =
   | { type: "capture"; toggles: SignalToggles }
-  | { type: "spawn"; payload: SpawnPayload };
+  | { type: "spawn"; payload: SpawnPayload }
+  | {
+      type: "file-issue";
+      payload: {
+        repoPath: string;
+        title: string;
+        prompt: string;
+        metadata: PageMetadata;
+        signals?: CapturedSignals;
+      };
+    };
 
 export type WorkerResponse =
   | { ok: true; type: "capture"; result: CaptureResult }
   | { ok: true; type: "spawn"; desig: string }
+  | { ok: true; type: "issue"; number: number; url: string }
   | { ok: false; errorKind: TransportErrorKind | "capture"; message: string };

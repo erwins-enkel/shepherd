@@ -34,9 +34,10 @@ Open the extension's **options** (right-click the icon → Options) and set:
     it once and captures file against your remote core. Revoke any time from
     `chrome://extensions`. Any other host is rejected.
 - **Token** — required only if the server runs with `SHEPHERD_TOKEN` set.
-- **Repo path** — must resolve inside the server's `SHEPHERD_REPO_ROOT`
-  (e.g. `~/Work/my-repo`).
+- **Repo path** — the default target repo; must resolve inside the server's
+  `SHEPHERD_REPO_ROOT` (e.g. `~/Work/my-repo`).
 - **Base branch**, **Model** (optional).
+- **Routing rules** (optional) — see [Delivery & routing](#delivery--routing).
 
 ## Signals
 
@@ -57,6 +58,32 @@ popup; set defaults in **Options**:
 
 All page-derived strings are sanitized (newline/backtick-neutralized) before they
 enter the fenced context block, so a crafted page can't break out of the fence.
+
+## Delivery & routing
+
+**Delivery target** (picked per-capture in the popup):
+
+- **Spawn session** (default) — the Phase-1 path: uploads the screenshot (when
+  attached) and spawns a live Shepherd session whose prompt is your text plus the
+  fenced context block.
+- **Issue** — files the capture as an issue (title + body) on the target
+  repo's forge (GitHub via `gh`, Gitea via its API) instead of spawning. The issue
+  body is your prompt plus the same fenced metadata/signals block. The popup shows
+  an **Issue title** field (prefilled from the page title; required). A screenshot
+  is **not** embedded — a remote issue can't reference the confined local upload
+  path — so the attach checkbox is disabled in issue mode; the metadata and signals
+  still ride in the body.
+
+**URL→repo rules** (optional, in **Options**): map a captured tab's URL to a target
+repo so a capture files against the right project automatically instead of the
+single default **Repo path**. Each rule is a `pattern → repo path` pair:
+
+- The **pattern** is a glob (`*` wildcards) matched case-insensitively against the
+  tab's full URL, e.g. `https://app.example.com/*` or `*staging.example.com*`.
+- Rules are evaluated top-to-bottom; the **first match wins**. No match falls back
+  to the default **Repo path**.
+- The popup shows the resolved repo and a **(routed)** hint when a rule overrode the
+  default. Routing applies to both delivery targets.
 
 ## Server setup (one-time)
 
@@ -108,8 +135,16 @@ If you skip this, spawn-now returns `403` and the popup shows the
       **Save** shows Chrome's host-access prompt once; accepting saves, and a
       capture files against the remote core. (Entering a non-localhost,
       non-`ts.net` host shows the "unsupported host" message and doesn't save.)
+- [ ] Selecting **GitHub issue** as the delivery target shows the title field
+      (prefilled from the page title) and disables the screenshot checkbox; filing
+      with a non-empty title opens an issue on the target repo and the popup shows
+      `Filed issue #N` linking to it. Clearing the title and filing shows the
+      "enter an issue title" message instead.
+- [ ] Adding a routing rule whose pattern matches the current tab (e.g.
+      `https://github.com/*` → a different repo) makes the popup show that repo with
+      a **(routed)** hint, and the capture files against it; a non-matching tab falls
+      back to the default repo.
 
 ## Out of scope (later phases — see issue #338)
 
-GitHub-issue delivery path, URL→repo rules, element picker, full-page stitch,
-keyboard shortcut, toolbar icons.
+Element picker, full-page stitch (#342); keyboard shortcut, toolbar icons (#343).

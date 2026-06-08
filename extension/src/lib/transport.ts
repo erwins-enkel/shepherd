@@ -9,6 +9,25 @@ import type { CapturedSignals } from "./signals";
 
 export type FetchFn = (input: string, init: any) => Promise<Response>;
 
+/** Issue title / body caps — mirror the server's POST /api/issues limits so the
+ *  popup can pre-validate and show a clear message instead of a generic 'invalid'.
+ *  The server stays the authority; these only drive client-side UX. */
+export const MAX_ISSUE_TITLE_LEN = 200;
+export const MAX_ISSUE_BODY_LEN = 16000;
+
+/**
+ * Compose the issue body sent to POST /api/issues: the user's prompt plus the
+ * fenced metadata/signals context block. Exported so the popup pre-validates the
+ * exact string fileIssue() sends — one source of truth, no length-check drift.
+ */
+export function composeIssueBody(
+  prompt: string,
+  metadata: PageMetadata,
+  signals?: CapturedSignals,
+): string {
+  return `${prompt}\n\n${formatContextBlock(metadata, signals)}`;
+}
+
 interface SpawnInput {
   prompt: string;
   metadata: PageMetadata;
@@ -17,6 +36,8 @@ interface SpawnInput {
   /** When false (or no screenshot), skip /api/uploads and send images:[]. */
   attachScreenshot: boolean;
   signals?: CapturedSignals;
+  /** Routing-resolved effective repo; overrides `config.repoPath` at spawn. */
+  repoPath: string;
 }
 
 function kindForStatus(status: number): TransportErrorKind {
@@ -81,11 +102,12 @@ async function uploadScreenshot(
 async function createSession(
   fetchFn: FetchFn,
   config: CaptureConfig,
+  repoPath: string,
   prompt: string,
   images: string[],
 ): Promise<string> {
   const payload: Record<string, unknown> = {
-    repoPath: config.repoPath,
+    repoPath,
     baseBranch: config.baseBranch,
     prompt,
     images,
@@ -126,5 +148,39 @@ export async function spawnNow(
     images.push(await uploadScreenshot(fetchFn, config, input.screenshot));
   }
   const prompt = `${input.prompt}\n\n${formatContextBlock(input.metadata, input.signals)}`;
-  return createSession(fetchFn, config, prompt, images);
+  return createSession(fetchFn, config, input.repoPath, prompt, images);
+}
+
+/** File the capture as a GitHub/Gitea issue: title + (prompt + context block) body.
+ *  No screenshot upload — a remote issue can't reference the confined local path. */
+export async function fileIssue(
+  fetchFn: FetchFn,
+  config: CaptureConfig,
+  input: {
+    repoPath: string;
+    title: string;
+    prompt: string;
+    metadata: PageMetadata;
+    signals?: CapturedSignals;
+  },
+): Promise<{ number: number; url: string }> {
+  const body = composeIssueBody(input.prompt, input.metadata, input.signals);
+
+  let res: Response;
+  try {
+    res = await fetchFn(`${config.baseUrl}/api/issues`, {
+      method: "POST",
+      // Same fixed application/json as createSession — see the 415 note there.
+      headers: { "Content-Type": "application/json", ...authHeaders(config.token) },
+      body: JSON.stringify({ repo: input.repoPath, title: input.title, body }),
+    });
+  } catch {
+    throw new TransportError("unreachable", null, "could not reach Shepherd");
+  }
+  await ensureOk(res);
+  const parsed = (await res.json()) as { number?: number; url?: string };
+  if (parsed.number === undefined || !parsed.url) {
+    throw new TransportError("unknown", res.status, "issue returned no number/url");
+  }
+  return { number: parsed.number, url: parsed.url };
 }

@@ -44,10 +44,21 @@ describe("config", () => {
       baseBranch: "main",
       model: "sonnet",
       signals: { screenshot: true, console: true, network: false, a11y: true },
+      routingRules: [],
     });
     const cfg = await loadConfig();
     expect(cfg.repoPath).toBe("~/Work/x");
     expect(cfg.model).toBe("sonnet");
+  });
+
+  it("defaults routingRules to an empty array and round-trips stored rules", async () => {
+    expect((await loadConfig()).routingRules).toEqual([]);
+    installChromeStub({
+      captureConfig: { routingRules: [{ pattern: "https://x/*", repoPath: "~/Work/x" }] },
+    });
+    expect((await loadConfig()).routingRules).toEqual([
+      { pattern: "https://x/*", repoPath: "~/Work/x" },
+    ]);
   });
 
   it("isConfigured is false until baseUrl + repoPath are set", async () => {
@@ -90,6 +101,7 @@ describe("config", () => {
       baseBranch: "dev",
       model: "opus",
       signals: { screenshot: true, console: false, network: false, a11y: false },
+      routingRules: [],
     });
     await saveSignals({ screenshot: false, console: true, network: true, a11y: true });
     const cfg = await loadConfig();

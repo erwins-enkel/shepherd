@@ -582,6 +582,9 @@
   "backlog_loading": "Loading backlog…",
   "backlog_no_forge_repos": "No forge-backed projects",
   "backlog_select_a_project": "Select a project",
+  "backlog_filter_has_issues": "Has issues",
+  "backlog_filter_has_prs": "Has PRs",
+  "backlog_filter_none_match": "No repos match the filter",
   "a11y_skip_to_main": "Skip to main content",
   "todopanel_add_aria": "New to-do item",
   "todopanel_item_aria": "Toggle done: {item}",
@@ -675,5 +678,7 @@
   "feat_buildqueue_title": "Agent-authored build queue",
   "feat_buildqueue_body": "Enable the build queue flag on a repo to let the agent author an ordered step list before it runs. You curate the steps — edit, reorder, delete, add — then click Approve & run. Under autopilot the queue is auto-approved.",
   "feat_plan_gate_title": "Plan gate",
-  "feat_plan_gate_body": "Turn on the plan gate to align before the night starts: the agent grills you and writes a plan, then a second Claude adversarially reviews it until it holds up — only an approved plan runs. Enable it per task in New Task or per repo in the automation panel."
+  "feat_plan_gate_body": "Turn on the plan gate to align before the night starts: the agent grills you and writes a plan, then a second Claude adversarially reviews it until it holds up — only an approved plan runs. Enable it per task in New Task or per repo in the automation panel.",
+  "feat_backlog_repo_filter_title": "Filter the repo list",
+  "feat_backlog_repo_filter_body": "Narrow the backlog's repo list to repos with open issues and/or open PRs using the new toggle chips."
 }

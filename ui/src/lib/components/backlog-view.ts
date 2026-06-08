@@ -88,3 +88,22 @@ export function actionsTabLabel(sel: BacklogProject | null): string {
       return "Actions";
   }
 }
+
+/**
+ * Narrow the repo list by activity. Each active flag is a *required* predicate
+ * (AND semantics): `hasIssues` keeps only repos with open issues, `hasPRs` only
+ * repos with open PRs, and both together keep only their intersection. With
+ * both off, every project passes (an identity filter).
+ *
+ * Counts fail closed: `?? 0` maps an unknown count (`null`, e.g. a non-github
+ * forge or a not-yet-fetched repo) to 0, so only a count strictly `> 0`
+ * satisfies a flag — `null` and `0` are both excluded.
+ */
+export function filterProjects(
+  projects: readonly BacklogProject[],
+  opts: { hasIssues: boolean; hasPRs: boolean },
+): BacklogProject[] {
+  return projects.filter(
+    (p) => (!opts.hasIssues || (p.openIssues ?? 0) > 0) && (!opts.hasPRs || (p.openPRs ?? 0) > 0),
+  );
+}

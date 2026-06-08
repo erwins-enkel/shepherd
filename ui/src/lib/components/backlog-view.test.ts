@@ -20,6 +20,7 @@ import {
   prsTabLabel,
   actionsTabLabel,
   actionsTabState,
+  filterProjects,
 } from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
@@ -187,6 +188,60 @@ describe("actionsTabState (shared source of truth for tab + label)", () => {
 
   it("returns bare when workflows is null (non-github) and CI not failing", () => {
     expect(actionsTabState(project("/repos/a", 0, 0, null, null))).toEqual({ kind: "bare" });
+  });
+});
+
+describe("filterProjects", () => {
+  // Fixed corpus spanning every issues/PRs combination, incl. null and 0 counts.
+  const both = project("/repos/both", 3, 2); // issues>0 AND prs>0
+  const issuesOnly = project("/repos/issues-only", 5, 0); // issues>0, prs=0
+  const prsOnly = project("/repos/prs-only", 0, 4); // issues=0, prs>0
+  const neither = project("/repos/neither", 0, 0); // both 0
+  const nullIssues = project("/repos/null-issues", null, 6); // issues null, prs>0
+  const nullPRs = project("/repos/null-prs", 7, null); // issues>0, prs null
+  const projects = [both, issuesOnly, prsOnly, neither, nullIssues, nullPRs];
+
+  it("returns all projects unchanged when both flags are off", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false })).toEqual(projects);
+  });
+
+  it("keeps only projects with openIssues > 0 when hasIssues is on", () => {
+    expect(filterProjects(projects, { hasIssues: true, hasPRs: false })).toEqual([
+      both,
+      issuesOnly,
+      nullPRs,
+    ]);
+  });
+
+  it("keeps only projects with openPRs > 0 when hasPRs is on", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: true })).toEqual([
+      both,
+      prsOnly,
+      nullIssues,
+    ]);
+  });
+
+  it("intersects (AND) when both flags are on — needs issues>0 AND prs>0", () => {
+    expect(filterProjects(projects, { hasIssues: true, hasPRs: true })).toEqual([both]);
+  });
+
+  it("fails closed on null/0 counts: null openIssues is excluded when hasIssues is on", () => {
+    const result = filterProjects(projects, { hasIssues: true, hasPRs: false });
+    expect(result).not.toContain(nullIssues); // null fails closed
+    expect(result).not.toContain(prsOnly); // 0 is not > 0
+    expect(result).not.toContain(neither);
+  });
+
+  it("fails closed on null/0 counts: null openPRs is excluded when hasPRs is on", () => {
+    const result = filterProjects(projects, { hasIssues: false, hasPRs: true });
+    expect(result).not.toContain(nullPRs); // null fails closed
+    expect(result).not.toContain(issuesOnly); // 0 is not > 0
+    expect(result).not.toContain(neither);
+  });
+
+  it("returns an empty array when every project is excluded", () => {
+    const allEmpty = [project("/repos/a", 0, 0), project("/repos/b", null, null)];
+    expect(filterProjects(allEmpty, { hasIssues: true, hasPRs: true })).toEqual([]);
   });
 });
 

@@ -12,10 +12,9 @@
   // marks a dev-only styleguide as exempt. Swatches/type rows render straight
   // off the live `var(--color-*)` / `var(--fs-*)` tokens, so this page can never
   // drift from the real theme: change app.css and this updates with it.
-  import { onMount } from "svelte";
+  // +layout.svelte already inits the theme globally for every route; the toggles
+  // below just read/drive the shared controller.
   import { theme } from "$lib/theme.svelte";
-
-  onMount(() => theme.init());
 
   type Token = { name: string; note: string };
 

@@ -101,4 +101,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_buildqueue_title",
     bodyKey: "feat_buildqueue_body",
   },
+  {
+    id: "plan-gate",
+    sinceVersion: "1.19.0",
+    titleKey: "feat_plan_gate_title",
+    bodyKey: "feat_plan_gate_body",
+    targetId: "plan-gate",
+  },
+
 ];

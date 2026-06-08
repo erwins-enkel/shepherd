@@ -6,24 +6,23 @@
 export type AutomationKey =
   | "critic"
   | "autoAddress"
+  | "planGate"
   | "learnings"
   | "autopilot"
   | "autoDrain"
   | "autoMerge"
   | "buildQueue";
 
-/** On/off state for each automation, as read from repoConfig in the component.
- *  `planGate` is carried for the pre-execution plan-gate toggle but is NOT yet part
- *  of AUTOMATION_GROUPS / the pill count — its row lands with the plan-gate UI task. */
+/** On/off state for each automation, as read from repoConfig in the component. */
 export interface AutomationFlags {
   critic: boolean;
   autoAddress: boolean;
+  planGate: boolean;
   learnings: boolean;
   autopilot: boolean;
   autoDrain: boolean;
   autoMerge: boolean;
   buildQueue: boolean;
-  planGate: boolean;
 }
 
 /** A themed group of automation rows shown in the panel. */
@@ -34,7 +33,7 @@ export interface AutomationGroup {
 
 /** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
-  { id: "review", items: ["critic", "autoAddress"] },
+  { id: "review", items: ["critic", "autoAddress", "planGate"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
   { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue"] },
 ];
@@ -49,6 +48,7 @@ export function automationCount(flags: AutomationFlags): number {
   return [
     flags.critic,
     flags.autoAddress && flags.critic,
+    flags.planGate,
     flags.learnings,
     flags.autopilot,
     flags.autoDrain,

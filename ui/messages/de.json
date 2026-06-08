@@ -670,5 +670,7 @@
   "buildqueue_step_detail_aria": "Schrittdetail",
   "buildqueue_step_detail_placeholder": "Detail (optional)",
   "feat_buildqueue_title": "Agent-erstellte Build-Queue",
-  "feat_buildqueue_body": "Aktiviere das Build-Queue-Flag für ein Repo, damit der Agent eine geordnete Schritt-Liste erstellt, bevor er startet. Du kuratierst die Schritte — bearbeiten, neu anordnen, löschen, hinzufügen — und klickst auf Freigeben & ausführen. Im Autopilot-Modus wird die Queue automatisch freigegeben."
+  "feat_buildqueue_body": "Aktiviere das Build-Queue-Flag für ein Repo, damit der Agent eine geordnete Schritt-Liste erstellt, bevor er startet. Du kuratierst die Schritte — bearbeiten, neu anordnen, löschen, hinzufügen — und klickst auf Freigeben & ausführen. Im Autopilot-Modus wird die Queue automatisch freigegeben.",
+  "feat_plan_gate_title": "Plan-Gate",
+  "feat_plan_gate_body": "Aktiviere das Plan-Gate, um dich vor dem Start abzustimmen: Der Agent befragt dich und schreibt einen Plan, dann prüft ein zweiter Claude diesen kritisch, bis er standhält — nur ein freigegebener Plan läuft. Pro Aufgabe im Neue-Aufgabe-Dialog oder pro Repo im Automatisierungs-Panel einschaltbar."
 }

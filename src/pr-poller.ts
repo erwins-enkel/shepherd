@@ -10,6 +10,34 @@ export interface PrCache {
   drop(id: string): void;
 }
 
+/** `gh pr list --head <branch>` matches by branch NAME only and `--state all`
+ *  includes history, so a prior, already-merged PR that reused this branch name
+ *  surfaces as a terminal hit even though the session opened no PR. Trust a
+ *  merged/closed PR only when its head commit is reachable from the session's
+ *  branch tip (`owns(headSha)` — true/false/null when unknowable); otherwise it's
+ *  a name collision, so drop it to "none" rather than flip the row to a false
+ *  MERGED. Open PRs are the inherently-current one and pass through untouched.
+ *  Pure + shared so the background poller and the on-demand GET endpoint guard
+ *  identically — the list overview and GitRail can't disagree. */
+export function guardStaleTerminal(
+  git: GitState,
+  owns: (headSha: string) => boolean | null,
+): GitState {
+  if (
+    (git.state === "merged" || git.state === "closed") &&
+    git.headSha &&
+    owns(git.headSha) === false
+  ) {
+    return {
+      kind: git.kind,
+      state: "none",
+      checks: "none",
+      deployConfigured: git.deployConfigured,
+    };
+  }
+  return git;
+}
+
 /**
  * Polls PR status for active sessions and caches it in memory. One `gh` process
  * runs at a time (sequential awaits) to bound the synchronous `execFileSync`
@@ -72,6 +100,11 @@ export class PrPoller implements PrCache {
     private fastIntervalMs = 15_000,
     /** Max open PRs polled per fast tick; the rest rotate in on later ticks. */
     private fastBatch = 8,
+    /** Whether a name-matched terminal (merged/closed) PR's head commit actually
+     *  belongs to the session's branch. Guards against `gh pr list --head <name>`
+     *  returning a prior, already-merged PR that merely reused this branch name.
+     *  `false` → discard the stale PR; `true`/`null` → trust it. */
+    private ownsPr: (s: Session, headSha: string) => boolean | null = () => true,
   ) {}
 
   async tick(): Promise<void> {
@@ -126,6 +159,12 @@ export class PrPoller implements PrCache {
     }
   }
 
+  /** Reject a reused-name terminal PR for `s` via the shared `guardStaleTerminal`.
+   *  Applied to every poll result (stored and adopted-live branch alike). */
+  private rejectStaleTerminal(s: Session, git: GitState): GitState {
+    return guardStaleTerminal(git, (headSha) => this.ownsPr(s, headSha));
+  }
+
   /** Poll one session and emit `session:git` if its PR state moved. Shared by
    *  the full sweep and the targeted `pollSession` path. */
   private async refresh(s: Session): Promise<void> {
@@ -133,17 +172,19 @@ export class PrPoller implements PrCache {
     if (!forge || !s.branch) return; // no PR possible — leave uncached
     let git: GitState;
     try {
-      git = { kind: forge.kind, ...(await forge.prStatus(s.branch)) };
+      git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(s.branch)) });
     } catch {
       return; // transient gh failure → keep last cached value
     }
     // No PR for the stored branch — the agent may have renamed the worktree's
-    // branch out from under us. Adopt the live branch and retry against it.
+    // branch out from under us. Adopt the live branch and retry against it. The
+    // adopted branch is just as susceptible to a reused-name terminal hit, so run
+    // the same ownership guard over its status too.
     if (git.state === "none") {
       const live = this.reconcileBranch(s);
       if (live) {
         try {
-          git = { kind: forge.kind, ...(await forge.prStatus(live)) };
+          git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(live)) });
         } catch {
           return;
         }

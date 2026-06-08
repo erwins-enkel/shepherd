@@ -7,6 +7,7 @@ import {
   clampReviewCyclesCap,
 } from "./config";
 import { SessionStore } from "./store";
+import type { Session } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
@@ -157,6 +158,10 @@ attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.
+// reject a merged/closed PR that `gh pr list --head <name>` matched only by a
+// reused branch name — its head commit won't be reachable from this branch's tip.
+// Shared by the background poller and the on-demand git endpoint so they agree.
+const ownsPr = (s: Session, headSha: string) => worktree.containsCommit(s.worktreePath, headSha);
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -166,6 +171,9 @@ const prPoller = new PrPoller(
   // on a "no PR" miss, adopt the agent's renamed worktree branch so its open PR
   // is recognized instead of staying invisible against the stale stored branch
   (s) => service.syncWorktreeBranch(s.id),
+  undefined,
+  undefined,
+  ownsPr,
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
@@ -567,6 +575,7 @@ const server = serve(
     herdr,
     resolveForge,
     prCache: prPoller,
+    ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
     push,
     presence,

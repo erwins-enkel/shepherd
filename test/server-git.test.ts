@@ -127,6 +127,45 @@ test("GET /api/sessions/:id/git → kind + PrStatus", async () => {
   expect(f.log).toContain("status:shepherd/add-feature");
 });
 
+test("GET git drops a merged PR whose head isn't on the session's branch (name collision)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 344,
+      checks: "success",
+      headSha: "deadbee",
+      deployConfigured: true,
+    }),
+  });
+  // ownsPr says the merged head doesn't belong to this branch → guard to none, so
+  // GitRail matches the (guarded) list overview instead of flashing a false MERGED.
+  const deps = Object.assign(makeDeps(f), { ownsPr: () => false });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("none");
+  expect(body.number).toBeUndefined();
+});
+
+test("GET git keeps a merged PR owned by the session's branch", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 5,
+      checks: "success",
+      headSha: "deadbee",
+      deployConfigured: true,
+    }),
+  });
+  const deps = Object.assign(makeDeps(f), { ownsPr: () => true });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(5);
+});
+
 test("GET git → 404 when no forge for repo", async () => {
   const app = makeApp(makeDeps(null));
   const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));

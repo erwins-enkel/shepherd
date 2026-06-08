@@ -44,7 +44,7 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
-import type { PrCache } from "./pr-poller";
+import { type PrCache, guardStaleTerminal } from "./pr-poller";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
@@ -95,6 +95,11 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** Whether a name-matched terminal PR's head commit belongs to the session's
+   *  branch — same guard the poller injects, so the on-demand git endpoint can't
+   *  flip GitRail to a false MERGED on a reused-name collision. Absent → unguarded
+   *  (tests). */
+  ownsPr?: (s: Session, headSha: string) => boolean | null;
   /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
   activity?: { snapshot(): Record<string, SessionActivity> };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
@@ -1104,8 +1109,12 @@ async function dispatchForgeAction(
 ): Promise<Response | null> {
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
-    if (!parts[4])
-      return json({ kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) });
+    if (!parts[4]) {
+      const git: GitState = { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) };
+      // Same guard as the background poller: a merged/closed PR matched only by a
+      // reused branch name is dropped to "none" so GitRail and the list agree.
+      return json(guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null));
+    }
     return null;
   }
   if (req.method === "POST") {

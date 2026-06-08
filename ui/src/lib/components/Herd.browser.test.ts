@@ -56,6 +56,30 @@ const base = {
   activity: {},
 };
 
+describe("Herd merging group", () => {
+  it("renders a Merging group for in-train sessions", async () => {
+    const merging = session({
+      id: "m1",
+      readyToMerge: true,
+      mergingSince: Date.now(),
+      mergingTrainId: "t",
+    });
+    render(Herd, {
+      ...base,
+      sessions: [merging],
+      git: {
+        m1: {
+          kind: "github",
+          state: "open",
+          checks: "success",
+          deployConfigured: false,
+        } as GitState,
+      },
+    });
+    await expect.element(page.getByText(/Merging \(1\)/i)).toBeInTheDocument();
+  });
+});
+
 describe("Herd merge-train link", () => {
   it("shows the Merge train link when a ready-to-merge session has an open PR", async () => {
     render(Herd, {

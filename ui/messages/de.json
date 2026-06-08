@@ -163,6 +163,7 @@
   "herd_ci_failed_group": "CI fehlgeschlagen ({count})",
   "herd_reviewer_running_group": "Review läuft ({count})",
   "herd_awaiting_merge_group": "Du bist dran ({count})",
+  "herd_merging_group": "Merge läuft ({count})",
   "herd_ready_group": "Bereit zum Mergen ({count})",
   "herd_merged_group": "Gemergt ({count})",
   "herd_clear_merged_action": "Alle räumen",

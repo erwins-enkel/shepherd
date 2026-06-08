@@ -90,7 +90,7 @@ export class AutopilotService {
 
   /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
   private enabled(s: Session): boolean {
-    return effectiveAutopilot(s, (rp) => this.deps.store.getRepoConfig(rp));
+    return effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
   }
 
   /** Shared eligibility gate. Returns the session when autopilot should act, else null. A

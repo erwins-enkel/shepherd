@@ -264,7 +264,10 @@ export class PlanGateService {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
     const s = this.deps.store.get(f.sessionId);
-    if (s && (s.auto || effectiveAutopilot(s, (rp) => this.deps.store.getRepoConfig(rp))))
+    if (
+      s &&
+      (s.auto || effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled))
+    )
       this.deps.release(f.sessionId);
   }
 

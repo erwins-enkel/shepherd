@@ -2,14 +2,14 @@ import type { Session } from "./types";
 
 /**
  * A session's effective autopilot opt-in: an explicit per-session override wins; a null override
- * inherits the repo default. Single source of truth shared by AutopilotService (eligibility) and
- * PlanGateService (auto-release on plan approval) so the two can't drift. Takes `getRepoConfig`
- * rather than the whole store, so it stays decoupled and trivially testable.
+ * falls back to the repo default. Single source of truth shared by AutopilotService (eligibility),
+ * PlanGateService (auto-release on plan approval) and isFullAuto (the merge-train leg), so the
+ * override-vs-default rule can't drift across them. Takes the already-resolved repo default rather
+ * than the store, so it stays decoupled and trivially testable.
  */
 export function effectiveAutopilot(
-  s: Pick<Session, "autopilotEnabled" | "repoPath">,
-  getRepoConfig: (repoPath: string) => { autopilotEnabled: boolean },
+  s: Pick<Session, "autopilotEnabled">,
+  repoDefault: boolean,
 ): boolean {
-  if (s.autopilotEnabled !== null) return s.autopilotEnabled;
-  return getRepoConfig(s.repoPath).autopilotEnabled;
+  return s.autopilotEnabled ?? repoDefault;
 }

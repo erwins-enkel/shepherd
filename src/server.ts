@@ -24,6 +24,7 @@ import {
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
 import { listRepos, readTodo, writeTodo, cloneRepo } from "./repos";
+import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { loadSteers, saveSteers } from "./steers";
@@ -1646,6 +1647,16 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   return { pinnedPath, projects, totals: { openIssues: totalIssues, openPRs: totalPRs } };
 }
 
+// AI-readiness scorecard for one repo (Backlog "Readiness" mode). Deterministic
+// guardrail scan only — never executes the target repo's code.
+async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "readiness" || parts[2])
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  return json(analyzeReadiness(dir));
+}
+
 async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
   if (!deps.backlog) return json(EMPTY_BACKLOG);
@@ -1728,6 +1739,7 @@ const ROUTE_HANDLERS = [
   handleActionsRunJobs,
   handlePrMerge,
   handleDependabotRebase,
+  handleReadiness,
   handleBacklog,
   handleTodo,
   handleCommands,

@@ -200,6 +200,16 @@
     showBacklog = false;
   }
 
+  // Readiness tab → seed a New Task with the AI-readiness install prescription
+  // (the generated CLAUDE.md rides along in the prompt). Mirrors onpr's seeding.
+  function onadopt(repoPath: string, prompt: string) {
+    composeRepoPath = repoPath;
+    composeIssue = null;
+    composePrompt = prompt;
+    showNew = true;
+    showBacklog = false;
+  }
+
   // Quick-launch: spawn a session straight from a backlog issue with the configured
   // standard command, skipping the New Task dialog. We re-read settings on click so a
   // just-saved command takes effect, and resolve the repo's current branch the same
@@ -666,7 +676,14 @@
             onsettings={() => (showSettings = true)}
           />
           {#if store.sessions.length === 0}
-            <BacklogView payload={backlog} mobile={true} {onissue} onquick={onquickissue} {onpr} />
+            <BacklogView
+              payload={backlog}
+              mobile={true}
+              {onissue}
+              onquick={onquickissue}
+              {onpr}
+              {onadopt}
+            />
           {/if}
         </div>
         <ActionBar
@@ -731,7 +748,14 @@
           onsettings={() => (showSettings = true)}
         />
         {#if store.sessions.length === 0}
-          <BacklogView payload={backlog} mobile={false} {onissue} onquick={onquickissue} {onpr} />
+          <BacklogView
+            payload={backlog}
+            mobile={false}
+            {onissue}
+            onquick={onquickissue}
+            {onpr}
+            {onadopt}
+          />
         {:else if selected}
           <Viewport
             session={selected}
@@ -922,6 +946,7 @@
     {onissue}
     onquick={onquickissue}
     {onpr}
+    {onadopt}
     onclose={() => (showBacklog = false)}
   />
 {/if}

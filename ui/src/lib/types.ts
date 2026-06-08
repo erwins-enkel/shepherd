@@ -324,6 +324,38 @@ export interface BacklogPayload {
   totals: { openIssues: number; openPRs: number };
 }
 
+// ── readiness (AI-readiness analyzer, Backlog "Readiness" mode) ──────────────
+export type GuardrailId =
+  | "formatter"
+  | "linter"
+  | "type_checker"
+  | "commit_lint"
+  | "git_hooks"
+  | "pre_push_ci"
+  | "lint_staged"
+  | "test_runner"
+  | "dead_code_audit"
+  | "ci"
+  | "agent_instructions";
+export interface GuardrailCheck {
+  id: GuardrailId;
+  present: boolean;
+  /** Leverage-to-cut-AI-churn; higher = more human↔AI back-and-forth removed. */
+  weight: number;
+  /** Matched markers (file names / package fields) — verbatim, not translated. */
+  evidence: string[];
+}
+export interface ReadinessReport {
+  /** False when not a JS/TS repo (no package.json) — the baseline is N/A. */
+  applicable: boolean;
+  /** Weighted 0–100 score derived from `checks`. */
+  score: number;
+  checks: GuardrailCheck[];
+  hasAgentInstructions: boolean;
+  /** Generated house-rules snippet — verbatim artifact, exempt from i18n. */
+  claudeMd: string;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }

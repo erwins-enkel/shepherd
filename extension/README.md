@@ -39,6 +39,20 @@ Open the extension's **options** (right-click the icon → Options) and set:
 - **Base branch**, **Model** (optional).
 - **Routing rules** (optional) — see [Delivery & routing](#delivery--routing).
 
+## Capture modes
+
+The **Capture** selector in the popup chooses how the screenshot is produced:
+
+- **Visible area** (default) — the current viewport (`chrome.tabs.captureVisibleTab`).
+- **Full page** — scrolls the page in viewport-height slices, captures each, and
+  stitches them into one tall PNG (worker-side `OffscreenCanvas`). Bounded to keep
+  capture quick; a page taller than the cap is captured from the top and the popup
+  says so.
+- **Pick element…** — arms an in-page hover overlay; click an element to crop the
+  capture to its bounds (Esc / right-click cancels). The popup closes for the click
+  and the toolbar icon shows a **✓** badge when the cropped capture is ready —
+  reopen the popup to review and file it.
+
 ## Signals
 
 A capture can attach optional, page-derived context. Toggle per-capture in the
@@ -147,4 +161,4 @@ If you skip this, spawn-now returns `403` and the popup shows the
 
 ## Out of scope (later phases — see issue #338)
 
-Element picker, full-page stitch (#342); keyboard shortcut, toolbar icons (#343).
+Keyboard shortcut, toolbar icons (#343); horizontal full-page stitch.

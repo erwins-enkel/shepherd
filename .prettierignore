@@ -10,9 +10,10 @@ node_modules
 build
 dist
 
-# Extension build artifacts copied into public/ (axe-core bundle + esbuild-built recorder)
+# Extension build artifacts copied into public/ (axe-core bundle + esbuild-built recorder/picker)
 extension/public/axe.min.js
 extension/public/recorder.js
+extension/public/picker.js
 
 # Transient agent worktrees (nested checkouts; not project source)
 .claude/worktrees

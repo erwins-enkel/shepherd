@@ -4,9 +4,11 @@
   import { hasAllUrls } from "../lib/recorder-control";
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import { resolveRepo } from "../lib/routing";
+  import { takePendingCapture } from "../lib/picker-session";
   import { composeIssueBody, MAX_ISSUE_BODY_LEN, MAX_ISSUE_TITLE_LEN } from "../lib/transport";
   import type {
     CaptureConfig,
+    CaptureMode,
     CaptureResult,
     DeliveryTarget,
     TransportErrorKind,
@@ -36,6 +38,12 @@
     a11y: false,
   });
   let recorderAvailable = $state(false);
+  let mode = $state<CaptureMode>("visible");
+
+  // Element captures arrive pre-gathered (signals run at pick time), so the
+  // gather toggles are read-only — re-running them would replace the cropped
+  // element with a fresh visible capture.
+  let gatherLocked = $derived(capture?.mode === "element");
 
   function send(req: WorkerRequest): Promise<WorkerResponse> {
     return chrome.runtime.sendMessage(req) as Promise<WorkerResponse>;
@@ -83,6 +91,53 @@
       toggles.console = false;
       toggles.network = false;
     }
+
+    // A pending element capture (from a prior "Pick element" gesture that closed
+    // the popup) takes precedence over a fresh visible capture. MV3 can't reopen
+    // the popup, so the worker stashed the result + flagged the toolbar badge;
+    // consume both here.
+    const pending = await takePendingCapture();
+    if (pending) {
+      capture = pending;
+      mode = "element";
+      toggles = derivedTogglesFor(pending);
+      await clearActiveBadge();
+      view = "ready";
+      return;
+    }
+
+    await runCapture();
+  }
+
+  // Reflect which signals the worker actually gathered for an element capture, so
+  // the (read-only) checkboxes match the result. Screenshot stays on — it's the
+  // cropped element image, attached on spawn.
+  function derivedTogglesFor(result: CaptureResult): SignalToggles {
+    return {
+      screenshot: true,
+      console: result.signals?.console !== undefined,
+      network: result.signals?.network !== undefined,
+      a11y: result.signals?.a11y !== undefined,
+    };
+  }
+
+  async function clearActiveBadge() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id !== undefined) await chrome.action.setBadgeText({ text: "", tabId: tab.id });
+  }
+
+  // Mode selector: visible/full-page recapture in place; "element" arms the
+  // in-page picker and closes the popup (the picker needs the page click, and
+  // the popup would close on that click regardless).
+  async function selectMode(next: CaptureMode) {
+    mode = next;
+    if (next === "element") {
+      // Resolve the overlay label here (popup locale) so the picker content
+      // script needn't bundle Paraglide just for one string.
+      await send({ type: "start-picker", toggles, instructions: m.picker_instructions() });
+      window.close();
+      return;
+    }
     await runCapture();
   }
 
@@ -96,7 +151,13 @@
 
   async function runCapture() {
     view = "loading";
-    const res = await send({ type: "capture", toggles });
+    // Only visible/full-page are captured synchronously; element goes through the
+    // picker (selectMode), so map it to a visible recapture here as a safety net.
+    const res = await send({
+      type: "capture",
+      toggles,
+      mode: mode === "fullpage" ? "fullpage" : "visible",
+    });
     if (res.ok && res.type === "capture") {
       capture = res.result;
       view = "ready";
@@ -248,10 +309,16 @@
     {/if}
   {:else if capture}
     <img
-      class="w-full rounded border border-gray-200"
+      class="max-h-72 w-full rounded border border-gray-200 object-contain"
       src={capture.screenshotDataUrl}
       alt={m.popup_screenshot_alt()}
     />
+    {#if capture.mode === "element"}
+      <span class="text-xs text-gray-500">{m.popup_element_hint()}</span>
+    {/if}
+    {#if capture.fullPageTruncated}
+      <span class="text-xs text-amber-600">{m.popup_fullpage_truncated()}</span>
+    {/if}
 
     <div class="flex flex-col gap-0.5 text-xs text-gray-500">
       <span class="text-gray-600">{m.popup_metadata_label()}</span>
@@ -259,6 +326,20 @@
       <span class="truncate">{capture.metadata.title}</span>
       <span>{capture.metadata.viewportW}×{capture.metadata.viewportH}</span>
     </div>
+
+    <label class="flex flex-col gap-1 text-xs text-gray-600">
+      <span>{m.popup_mode_label()}</span>
+      <select
+        class="rounded border border-gray-300 px-2 py-1 text-gray-900 disabled:opacity-50"
+        value={mode}
+        disabled={view === "submitting"}
+        onchange={(e) => selectMode(e.currentTarget.value as CaptureMode)}
+      >
+        <option value="visible">{m.popup_mode_visible()}</option>
+        <option value="fullpage">{m.popup_mode_fullpage()}</option>
+        <option value="element">{m.popup_mode_element()}</option>
+      </select>
+    </label>
 
     <label class="flex flex-col gap-1 text-xs text-gray-600">
       <span>{m.popup_target_label()}</span>
@@ -288,28 +369,29 @@
       {#if target === "issue"}
         <span class="text-gray-500">{m.popup_issue_no_screenshot()}</span>
       {/if}
-      <label class="flex items-center gap-2">
+      <label class="flex items-center gap-2" class:opacity-50={gatherLocked}>
         <input
           type="checkbox"
           checked={toggles.a11y}
+          disabled={gatherLocked}
           onchange={(e) => setGather("a11y", e.currentTarget.checked)}
         />
         <span>{m.signal_a11y()}</span>
       </label>
-      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable}>
+      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable || gatherLocked}>
         <input
           type="checkbox"
           checked={toggles.console}
-          disabled={!recorderAvailable}
+          disabled={!recorderAvailable || gatherLocked}
           onchange={(e) => setGather("console", e.currentTarget.checked)}
         />
         <span>{m.signal_console()}</span>
       </label>
-      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable}>
+      <label class="flex items-center gap-2" class:opacity-50={!recorderAvailable || gatherLocked}>
         <input
           type="checkbox"
           checked={toggles.network}
-          disabled={!recorderAvailable}
+          disabled={!recorderAvailable || gatherLocked}
           onchange={(e) => setGather("network", e.currentTarget.checked)}
         />
         <span>{m.signal_network()}</span>

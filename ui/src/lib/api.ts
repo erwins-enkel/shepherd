@@ -19,6 +19,7 @@ import type {
   DiffResult,
   ProjectIcons,
   ReviewVerdict,
+  PlanGate,
   RepoConfig,
   ReadinessReport,
   DrainStatus,
@@ -577,6 +578,28 @@ export async function getReviewingIds(): Promise<string[]> {
   return getJson("/api/reviews/inflight", "reviewing");
 }
 
+/** Snapshot of every session's plan-gate verdict, keyed by session id (bootstrap). */
+export async function getPlanGates(): Promise<Record<string, PlanGate>> {
+  return getJson("/api/plan-gates", "plan-gates");
+}
+
+/** Session ids with a plan review currently in flight (bootstrap for the reviewing indicator). */
+export async function getPlanGatesInflight(): Promise<string[]> {
+  return getJson("/api/plan-gates/inflight", "plan-gates inflight");
+}
+
+/** Release an approved plan gate so the agent executes. Returns false on 409 (not approved). */
+export async function releasePlanGate(id: string): Promise<boolean> {
+  const r = await fetch(`/api/sessions/${id}/go`, JSON_POST());
+  return r.ok;
+}
+
+/** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS. */
+export async function reviewPlan(id: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/review-plan`, JSON_POST());
+  if (!r.ok) throw await failed(r, "review-plan");
+}
+
 export async function getBacklog(): Promise<BacklogPayload> {
   const r = await fetch("/api/backlog");
   if (!r.ok) throw await failed(r, "backlog");
@@ -602,6 +625,7 @@ export async function putRepoConfig(
       | "autopilotEnabled"
       | "autoDrainEnabled"
       | "autoMergeEnabled"
+      | "planGateEnabled"
       | "maxAuto"
       | "autoLabel"
       | "usageCeilingPct"

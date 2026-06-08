@@ -26,6 +26,8 @@ function sess(over: Partial<Session> = {}): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    planGateEnabled: null,
+    planPhase: null,
     autoMergeEnabled: null,
     autoMergeRebaseCount: 0,
     autoMergeRebaseHead: null,
@@ -551,4 +553,22 @@ test("PR closing/merging clears CI dedup so a reopened red head can re-steer", (
   h.svc.onGit("s1", git({ state: "merged", checks: "success" })); // clears dedup + openSeen
   h.svc.onGit("s1", git({ headSha: "sha1" })); // open again, same head → steer 2
   expect(h.events.filter((e) => "steer" in e).length).toBe(2);
+});
+
+test("eligible() returns null while planPhase === 'planning' (autopilot suppressed)", async () => {
+  // A grilling/planning session: autopilot enabled, not paused/complete, no PR. The plan gate
+  // owns it until released into execution — autopilot must NOT classify its stop or steer it.
+  let classified = false;
+  const h = harness({
+    session: sess({ planPhase: "planning", status: "done" }),
+    repoEnabled: true,
+    verdict: { kind: "finished", summary: "x" },
+  });
+  (h.svc as any).deps.classify = async () => {
+    classified = true;
+    return { kind: "finished", summary: "x" };
+  };
+  await h.svc.onDone("s1");
+  expect(classified).toBe(false); // never classified
+  expect(h.events.some((e) => "steer" in e)).toBe(false); // never steered
 });

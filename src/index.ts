@@ -30,6 +30,7 @@ import { HerdrUpdateService } from "./herdr-update";
 import { PushService, attachPush, attachReviewPush, attachGitPush, attachMergePush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
+import { PlanGateService } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
 import { AutoMergeService } from "./automerge";
@@ -234,6 +235,23 @@ const reviewService = new ReviewService({
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.reviewCyclesCap,
 });
+
+// Pre-execution plan gate (#348): the planning-phase twin of the PR critic. An
+// adversarial reviewer reads the agent's `.shepherd-plan.md` BEFORE it writes code;
+// request-changes steers findings back into the planning PTY (same auto-address loop
+// as the critic), approve clears the gate (auto sessions release straight into
+// execution; interactive ones wait for the operator's explicit Go). Mirrors
+// reviewService's deps, cap thunk, and model source.
+const planGate = new PlanGateService({
+  store,
+  herdr,
+  worktree,
+  reply: (id, text) => service.reply(id, text),
+  release: (id) => service.releasePlanGate(id),
+  onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
+  onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
+  cap: () => config.reviewCyclesCap,
+});
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);
@@ -252,10 +270,16 @@ events.subscribe((event, data) => {
 setInterval(() => {
   if (maintenance.active) return;
   void reviewService.tick();
+  void planGate.tick();
 }, 15_000);
-// archived sessions: reap any in-flight critic + drop the verdict
+// archived sessions: reap any in-flight critic + drop the verdict, and reap any
+// in-flight plan reviewer + drop its gate (forget() does both).
 events.subscribe((event, data) => {
-  if (event === "session:archived") reviewService.forget((data as { id: string }).id);
+  if (event === "session:archived") {
+    const id = (data as { id: string }).id;
+    reviewService.forget(id);
+    planGate.forget(id);
+  }
 });
 
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
@@ -333,8 +357,15 @@ events.subscribe((event, data) => {
   } else if (event === "session:status") {
     const { id, status } = data as { id: string; status: string };
     autopilot.onStatus(id, status); // clears a pause when the operator replies
-    if (status === "done")
+    if (status === "done") {
       void autopilot.onDone(id).catch((err) => console.warn("[autopilot] onDone:", err));
+      // A planning-phase session that just settled has likely finished writing
+      // `.shepherd-plan.md` — kick off the adversarial plan review (no-op unless it's
+      // in the planning phase with a fresh, un-reviewed plan).
+      const sess = store.get(id);
+      if (sess?.planPhase === "planning")
+        void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));
+    }
   } else if (event === "session:git") {
     const { id, git } = data as { id: string; git: import("./forge/types").GitState };
     // PR-open handoff to the critic loop AND red-CI recovery (the critic skips a red PR, so
@@ -544,6 +575,11 @@ const server = serve(
       snapshot: () => reviewService.snapshot(),
       reviewing: () => reviewService.reviewingIds(),
     },
+    planGateCache: {
+      snapshot: () => planGate.snapshot(),
+      reviewing: () => planGate.reviewingIds(),
+    },
+    planGate: { consider: (s) => planGate.consider(s) },
     backlog,
     // After a backlog merge, force-refresh the repo's counts past the read-TTL and
     // re-broadcast the overview so the merged PR (and any auto-closed linked issue)

@@ -1,6 +1,13 @@
-import type { ReviewVerdict, RepoConfig } from "./types";
+import type { ReviewVerdict, PlanGate, RepoConfig } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
-import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api";
+import {
+  getReviews,
+  getReviewingIds,
+  getPlanGates,
+  getPlanGatesInflight,
+  getRepoConfig,
+  putRepoConfig,
+} from "./api";
 
 /** Client cache of critic verdicts keyed by session id. Loaded once on app start;
  *  live updates arrive via the `session:review` WS event (see store.svelte.ts). */
@@ -58,7 +65,70 @@ class ReviewsStore {
 }
 export const reviews = new ReviewsStore();
 
-/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue on/off, cached lazily by repoPath. */
+/** Client cache of pre-execution plan-gate verdicts keyed by session id. Bootstrapped
+ *  once on app start; live updates arrive via the `session:plangate` WS event, and the
+ *  in-flight indicator via `session:plangate-reviewing` (see store.svelte.ts). Mirrors
+ *  ReviewsStore — a landing verdict clears the reviewing flag for that id. */
+export class PlanGateStore {
+  map = $state<Record<string, PlanGate>>({});
+  // session ids whose plan reviewer is currently in flight; driven by `session:plangate-reviewing`
+  reviewing = $state<Record<string, boolean>>({});
+
+  /** Bootstrap from a GET /api/plan-gates snapshot + GET /api/plan-gates/inflight ids,
+   *  so a reload mid-review still shows verdicts and the in-flight indicator. */
+  bootstrap(map: Record<string, PlanGate>, inflightIds: string[]) {
+    this.map = map;
+    this.reviewing = Object.fromEntries(inflightIds.map((id) => [id, true]));
+  }
+
+  /** Re-fetch the snapshot + in-flight ids from the server (best-effort). */
+  async load() {
+    let map: Record<string, PlanGate> = {};
+    let inflight: string[] = [];
+    try {
+      map = await getPlanGates();
+    } catch {
+      /* best-effort; live events still populate it */
+    }
+    try {
+      inflight = await getPlanGatesInflight();
+    } catch {
+      /* best-effort; `session:plangate-reviewing` events still populate it */
+    }
+    this.bootstrap(map, inflight);
+  }
+
+  apply(id: string, gate: PlanGate) {
+    this.map = { ...this.map, [id]: gate };
+    // a landing verdict means the review is no longer in flight
+    this.applyReviewing(id, false);
+  }
+
+  applyReviewing(id: string, on: boolean) {
+    if (!!this.reviewing[id] === on) return;
+    if (on) this.reviewing = { ...this.reviewing, [id]: true };
+    else {
+      const copy = { ...this.reviewing };
+      delete copy[id];
+      this.reviewing = copy;
+    }
+  }
+
+  isReviewing(id: string): boolean {
+    return !!this.reviewing[id];
+  }
+
+  drop(id: string) {
+    this.applyReviewing(id, false);
+    if (!(id in this.map)) return;
+    const copy = { ...this.map };
+    delete copy[id];
+    this.map = copy;
+  }
+}
+export const planGates = new PlanGateStore();
+
+/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue + plan-gate on/off, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
@@ -67,6 +137,7 @@ class RepoConfigStore {
   autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
   autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
+  planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
@@ -82,6 +153,7 @@ class RepoConfigStore {
       this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
       this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
+      this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -103,6 +175,7 @@ class RepoConfigStore {
         | "autoDrainEnabled"
         | "autoMergeEnabled"
         | "buildQueueEnabled"
+        | "planGateEnabled"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -119,6 +192,7 @@ class RepoConfigStore {
       this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
       this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
+      this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -190,6 +264,15 @@ class RepoConfigStore {
     });
   }
 
+  async togglePlanGate(repoPath: string) {
+    const prev = this.planGate[repoPath];
+    const next = !this.isPlanGateEnabled(repoPath);
+    this.planGate = { ...this.planGate, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { planGateEnabled: next }, () => {
+      this.planGate = { ...this.planGate, [repoPath]: prev };
+    });
+  }
+
   async setMaxAuto(repoPath: string, n: number) {
     const prev = this.maxAuto[repoPath];
     this.maxAuto = { ...this.maxAuto, [repoPath]: n }; // optimistic
@@ -242,6 +325,10 @@ class RepoConfigStore {
     return this.buildQueue[repoPath] ?? false;
   }
 
+  isPlanGateEnabled(repoPath: string): boolean {
+    return this.planGate[repoPath] ?? false;
+  }
+
   /** All automation on/off flags for a repo, in one read — shared by the pill's
    *  count (GitRail) and the panel's switch rows (AutomationPanel). */
   flags(repoPath: string): AutomationFlags {
@@ -253,6 +340,7 @@ class RepoConfigStore {
       autoDrain: this.isAutoDrainEnabled(repoPath),
       autoMerge: this.isAutoMergeEnabled(repoPath),
       buildQueue: this.isBuildQueueEnabled(repoPath),
+      planGate: this.isPlanGateEnabled(repoPath),
     };
   }
 

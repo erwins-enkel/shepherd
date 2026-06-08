@@ -205,6 +205,37 @@ function buildQueueDirective(args: {
 }
 
 /**
+ * Pre-execution PLAN GATE directives. When the plan gate is on for a session, one of these
+ * REPLACES the autopilot directive during the planning phase — planning deliberately suppresses
+ * autopilot so the agent stops to plan/grill instead of rushing to a PR. The interactive variant
+ * grills a present human; the auto variant runs unattended (drain) and just writes the plan.
+ * English, not i18n'd — agent-facing prompt text, same precedent as AUTOPILOT_DIRECTIVE.
+ */
+const PLAN_GATE_DIRECTIVE_INTERACTIVE =
+  "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
+  "1. Research the codebase enough to plan confidently.\n" +
+  "2. Grill the user: ask sharp, specific clarifying questions until you and the user are genuinely " +
+  "aligned on scope, approach, and success criteria. Misalignment now is the costliest failure.\n" +
+  "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, files, " +
+  "steps, risks, success criteria) and tell the user it's ready for review.\n" +
+  "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
+  "Begin implementing ONLY after the plan is approved and you are told to execute.";
+const PLAN_GATE_DIRECTIVE_AUTO =
+  "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
+  "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
+  "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
+  "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
+  "are told the plan is approved.";
+export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
+
+/** Steered into a planning session when its plan is approved and the operator hits Go (or an
+ *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd. */
+const PLAN_GO_STEER =
+  "Plan approved. Execute `.shepherd-plan.md` now, autonomously — implement it fully, commit, push, " +
+  "and open a pull request (`gh pr create`). Don't re-litigate the plan; if you hit a genuine product " +
+  "decision that only the user can make, ask, otherwise keep going.";
+
+/**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
  * (the flag is last-wins, not repeatable, so all blocks must share one value).
  *
@@ -213,12 +244,17 @@ function buildQueueDirective(args: {
  * so the agent can cleanly separate persistent guidance from the task in its human turn.
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
- * always ride. `autopilotActive` appends the autopilot directive (see above).
+ * always ride. `autopilotActive` appends the autopilot directive (see above), UNLESS `opts.planGate`
+ * is set: the plan gate and autopilot are mutually exclusive. During the planning phase the matching
+ * plan-gate directive (interactive/auto) is appended INSTEAD of the autopilot directive, even when
+ * `autopilotActive` is true — planning must suppress autopilot so the agent stops to plan/grill
+ * rather than driving straight to a PR. `opts.buildQueue`, when set, appends the build-queue
+ * directive — orthogonal to the plan-gate/autopilot choice, so it always rides.
  */
 export function composeSystemPrompt(
   houseRules: string | null,
   autopilotActive = false,
-  buildQueue: string | null = null,
+  opts: { planGate?: "interactive" | "auto"; buildQueue?: string | null } = {},
 ): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
@@ -226,9 +262,15 @@ export function composeSystemPrompt(
   const blocks = houseRules
     ? [posture, research, houseRules, branchNotice]
     : [posture, research, branchNotice];
-  if (autopilotActive)
+  if (opts.planGate) {
+    const variant =
+      opts.planGate === "auto" ? PLAN_GATE_DIRECTIVE_AUTO : PLAN_GATE_DIRECTIVE_INTERACTIVE;
+    blocks.push(`<plan-gate-directive>\n${variant}\n</plan-gate-directive>`);
+  } else if (autopilotActive) {
     blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
-  if (buildQueue !== null) blocks.push(`<build-queue>\n${buildQueue}\n</build-queue>`);
+  }
+  // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config).
+  if (opts.buildQueue != null) blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
   return blocks.join("\n\n");
 }
 
@@ -276,6 +318,41 @@ export class SessionService {
     return renderHouseRulesBlock(injected);
   }
 
+  /** Assemble the spawn argv. Shepherd-curated house rules go into the system prompt (not the human
+   *  turn) so every spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the
+   *  repo's learned corrections without bleeding into the task text. The autopilot directive rides
+   *  the same prompt when the repo has autopilot on; the plan-gate directive when planGateOn; the
+   *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled. */
+  private buildSpawnArgv(
+    input: CreateSessionInput,
+    claudeSessionId: string,
+    sessionId: string,
+    promptArg: string,
+    planGateOn: boolean | undefined,
+  ): string[] {
+    const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    const houseRules = this.houseRules(input.repoPath);
+    const autopilotActive = repoConfig.autopilotEnabled;
+    const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
+    const buildQueue = repoConfig.buildQueueEnabled
+      ? buildQueueDirective({
+          sessionId,
+          baseUrl: agentBaseUrl(),
+          token: config.token,
+          autopilot: autopilotActive,
+        })
+      : null;
+    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
+    argv.push("--settings", spawnSettingsOverlay());
+    argv.push(
+      "--append-system-prompt",
+      composeSystemPrompt(houseRules, autopilotActive, { planGate, buildQueue }),
+    );
+    if (input.model) argv.push("--model", input.model);
+    argv.push(promptArg);
+    return argv;
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
     const basename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = basename ? slugifyManual(basename) : undefined;
@@ -291,33 +368,12 @@ export class SessionService {
       const sessionId = randomUUID();
 
       const promptArg = this.composePromptArg(input, wt.worktreePath);
-
-      // Shepherd-curated house rules go into the system prompt (not the human turn) so every
-      // spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the repo's
-      // learned corrections without the rules bleeding into the task text. The autopilot
-      // directive rides the same prompt when the repo has autopilot on, so the agent drives to a
-      // PR without stopping for procedural gates instead of waiting for a reactive steer.
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-      const houseRules = this.houseRules(input.repoPath);
-      const autopilotActive = repoConfig.autopilotEnabled;
-      const buildQueueEnabled = repoConfig.buildQueueEnabled;
-      const buildQueueDirectiveText = buildQueueEnabled
-        ? buildQueueDirective({
-            sessionId,
-            baseUrl: agentBaseUrl(),
-            token: config.token,
-            autopilot: autopilotActive,
-          })
-        : null;
-
-      const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
-      argv.push("--settings", spawnSettingsOverlay());
-      argv.push(
-        "--append-system-prompt",
-        composeSystemPrompt(houseRules, autopilotActive, buildQueueDirectiveText),
-      );
-      if (input.model) argv.push("--model", input.model);
-      argv.push(promptArg);
+      // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
+      // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
+      // plan. Session-level override wins over the repo default.
+      const planGateOn = input.planGateEnabled ?? repoConfig.planGateEnabled;
+      const argv = this.buildSpawnArgv(input, claudeSessionId, sessionId, promptArg, planGateOn);
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
       const session = this.deps.store.create({
         id: sessionId,
@@ -334,11 +390,13 @@ export class SessionService {
         model: input.model,
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
+        planGateEnabled: input.planGateEnabled ?? null,
+        planPhase: planGateOn ? "planning" : null,
       });
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
-      if (buildQueueEnabled && autopilotActive)
+      if (repoConfig.buildQueueEnabled && repoConfig.autopilotEnabled)
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
       return session;
@@ -669,6 +727,24 @@ export class SessionService {
   setReadyToMerge(id: string, ready: boolean): void {
     this.deps.store.update(id, { readyToMerge: ready });
     this.deps.events?.emit("session:ready", { id, ready });
+  }
+
+  /**
+   * The "Go" gate: release an APPROVED planning session into autonomous execution. Strict —
+   * only transitions when the session is in the planning phase AND its plan gate is approved
+   * (the reviewer signed off). Flips planPhase → "executing", steers the agent to implement the
+   * approved plan, and emits session:plangate so clients update. Returns false (no-op) when the
+   * session is unknown, not planning, or not yet approved. Used by the /go route (interactive)
+   * and by PlanGateService for an auto session's auto-release on approval.
+   */
+  releasePlanGate(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.planPhase !== "planning") return false;
+    if (!this.deps.store.getPlanGate(id)?.approved) return false;
+    this.deps.store.setPlanPhase(id, "executing");
+    this.reply(id, PLAN_GO_STEER);
+    this.deps.events?.emit("session:plangate", { id, planPhase: "executing" });
+    return true;
   }
 
   /**

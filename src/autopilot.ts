@@ -93,10 +93,14 @@ export class AutopilotService {
     return this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled;
   }
 
-  /** Shared eligibility gate. Returns the session when autopilot should act, else null. */
+  /** Shared eligibility gate. Returns the session when autopilot should act, else null. A
+   *  session still in its pre-execution planning phase is suppressed: the plan gate owns it
+   *  (grill/plan), and autopilot must not classify its stop or drive it to a PR until the gate
+   *  releases it into execution. */
   private eligible(id: string): Session | null {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") return null;
+    if (s.planPhase === "planning") return null; // plan gate owns a planning session; autopilot stands down until it's released into execution
     if (!this.enabled(s)) return null;
     if (s.autopilotPaused) return null; // already handed back; waits for operator
     if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive

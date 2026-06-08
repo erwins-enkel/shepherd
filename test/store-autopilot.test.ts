@@ -77,6 +77,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: true,
+    planGateEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
     buildQueueEnabled: false,

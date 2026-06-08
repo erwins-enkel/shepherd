@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   Session,
   ReviewVerdict,
+  PlanGate,
   Signal,
   SignalKind,
   Learning,
@@ -40,6 +41,8 @@ export interface RepoConfig {
   learningsEnabled: boolean;
   /** Pre-PR autopilot loop: drive procedural gates, surface real questions, lead to a PR. */
   autopilotEnabled: boolean;
+  /** Pre-execution plan gate: grill + adversarial plan review before autonomous execution (default OFF). */
+  planGateEnabled: boolean;
   /** Per-repo master switch for the self-draining work queue (default OFF). */
   autoDrainEnabled: boolean;
   /** Full-auto: when on, the merge train lands ready PRs instead of handing off. */
@@ -95,6 +98,8 @@ type NewSession = Omit<
   | "autopilotPaused"
   | "autopilotComplete"
   | "autopilotQuestion"
+  | "planGateEnabled"
+  | "planPhase"
   | "autoMergeEnabled"
   | "autoMergeRebaseCount"
   | "autoMergeRebaseHead"
@@ -106,11 +111,14 @@ type NewSession = Omit<
   claudeSessionId?: string;
   auto?: boolean;
   issueNumber?: number | null;
+  planGateEnabled?: boolean | null;
+  planPhase?: Session["planPhase"];
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
+  planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
@@ -156,6 +164,12 @@ export class SessionStore implements CapStore {
       finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000,
       url TEXT, updatedAt INTEGER NOT NULL)`);
     this.migrateReviewColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS plan_gates (
+      sessionId TEXT PRIMARY KEY, planHash TEXT NOT NULL DEFAULT '',
+      decision TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
+      cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
+      plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
@@ -221,7 +235,7 @@ export class SessionStore implements CapStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
+        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -230,6 +244,7 @@ export class SessionStore implements CapStore {
       autoAddressEnabled: number;
       learningsEnabled: number;
       autopilotEnabled: number;
+      planGateEnabled: number;
       autoDrainEnabled: number;
       autoMergeEnabled: number;
       buildQueueEnabled: number;
@@ -244,6 +259,7 @@ export class SessionStore implements CapStore {
       autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
       learningsEnabled: r ? !!r.learningsEnabled : true,
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
+      planGateEnabled: r ? !!r.planGateEnabled : false,
       autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
       autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
       buildQueueEnabled: r ? !!r.buildQueueEnabled : false,
@@ -256,13 +272,14 @@ export class SessionStore implements CapStore {
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
       `INSERT INTO repo_config
-         (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
+         (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
+         planGateEnabled = excluded.planGateEnabled,
          autoDrainEnabled = excluded.autoDrainEnabled,
          autoMergeEnabled = excluded.autoMergeEnabled,
          buildQueueEnabled = excluded.buildQueueEnabled,
@@ -276,6 +293,7 @@ export class SessionStore implements CapStore {
         cfg.autoAddressEnabled ? 1 : 0,
         cfg.learningsEnabled ? 1 : 0,
         cfg.autopilotEnabled ? 1 : 0,
+        cfg.planGateEnabled ? 1 : 0,
         cfg.autoDrainEnabled ? 1 : 0,
         cfg.autoMergeEnabled ? 1 : 0,
         cfg.buildQueueEnabled ? 1 : 0,
@@ -350,6 +368,8 @@ export class SessionStore implements CapStore {
       autopilotPaused: false,
       autopilotComplete: false,
       autopilotQuestion: null,
+      planGateEnabled: input.planGateEnabled ?? null,
+      planPhase: input.planPhase ?? null,
       autoMergeEnabled: null,
       autoMergeRebaseCount: 0,
       autoMergeRebaseHead: null,
@@ -364,7 +384,7 @@ export class SessionStore implements CapStore {
       mergingTrainId: null,
     };
     this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         s.id,
         s.desig,
@@ -387,6 +407,8 @@ export class SessionStore implements CapStore {
         0, // autopilotPaused
         0, // autopilotComplete
         null, // autopilotQuestion
+        s.planGateEnabled === null ? null : s.planGateEnabled ? 1 : 0, // planGateEnabled — inherit repo default
+        s.planPhase, // planPhase — null = gate off
         null, // autoMergeEnabled — inherit repo default
         0, // autoMergeRebaseCount
         null, // autoMergeRebaseHead — none outstanding
@@ -621,6 +643,80 @@ export class SessionStore implements CapStore {
     return out;
   }
 
+  // ── pre-execution plan gates ─────────────────────────────────────────────────
+  private hydratePlanGate(r: any): PlanGate {
+    return {
+      sessionId: r.sessionId,
+      planHash: r.planHash ?? "",
+      decision: r.decision,
+      summary: r.summary ?? "",
+      body: r.body ?? "",
+      findings: parseFindings(r.findings),
+      round: r.round ?? 0,
+      cap: r.cap ?? 3,
+      approved: !!r.approved,
+      plan: r.plan ?? "",
+      updatedAt: r.updatedAt,
+    } as PlanGate;
+  }
+
+  getPlanGate(sessionId: string): PlanGate | null {
+    const r = this.db
+      .query(
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt
+              FROM plan_gates WHERE sessionId = ?`,
+      )
+      .get(sessionId) as any;
+    return r ? this.hydratePlanGate(r) : null;
+  }
+
+  putPlanGate(g: PlanGate): void {
+    this.db.run(
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
+         summary=excluded.summary, body=excluded.body, findings=excluded.findings,
+         round=excluded.round, cap=excluded.cap, approved=excluded.approved,
+         plan=excluded.plan, updatedAt=excluded.updatedAt`,
+      [
+        g.sessionId,
+        g.planHash ?? "",
+        g.decision,
+        g.summary,
+        g.body,
+        JSON.stringify(g.findings ?? []),
+        g.round ?? 0,
+        g.cap ?? 3,
+        g.approved ? 1 : 0,
+        g.plan ?? "",
+        g.updatedAt,
+      ],
+    );
+  }
+
+  dropPlanGate(sessionId: string): void {
+    this.db.run(`DELETE FROM plan_gates WHERE sessionId = ?`, [sessionId]);
+  }
+
+  snapshotPlanGates(): Record<string, PlanGate> {
+    const rows = this.db
+      .query(
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt FROM plan_gates`,
+      )
+      .all() as any[];
+    const out: Record<string, PlanGate> = {};
+    for (const r of rows) out[r.sessionId] = this.hydratePlanGate(r);
+    return out;
+  }
+
+  setPlanPhase(id: string, phase: Session["planPhase"]): void {
+    this.db.run(`UPDATE sessions SET planPhase = ?, updatedAt = ? WHERE id = ?`, [
+      phase,
+      Date.now(),
+      id,
+    ]);
+  }
+
   // ── learning signals ─────────────────────────────────────────────────────────
   addSignal(input: {
     repoPath: string;
@@ -706,6 +802,10 @@ export class SessionStore implements CapStore {
         `DELETE FROM build_queue_state WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
+      this.db.run(
+        `DELETE FROM plan_gates WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
@@ -727,6 +827,9 @@ export class SessionStore implements CapStore {
     add("autopilotPaused", `autopilotPaused INTEGER NOT NULL DEFAULT 0`);
     add("autopilotComplete", `autopilotComplete INTEGER NOT NULL DEFAULT 0`);
     add("autopilotQuestion", `autopilotQuestion TEXT`);
+    // nullable: NULL = inherit / gate off, 0/1 = explicit per-session override
+    add("planGateEnabled", `planGateEnabled INTEGER`);
+    add("planPhase", `planPhase TEXT`);
     add("autoMergeEnabled", `autoMergeEnabled INTEGER`);
     add("autoMergeRebaseCount", `autoMergeRebaseCount INTEGER NOT NULL DEFAULT 0`);
     add("autoMergeRebaseHead", `autoMergeRebaseHead TEXT`);
@@ -747,6 +850,7 @@ export class SessionStore implements CapStore {
     add("autoAddressEnabled", `autoAddressEnabled INTEGER NOT NULL DEFAULT 0`);
     add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("planGateEnabled", `planGateEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoMergeEnabled", `autoMergeEnabled INTEGER NOT NULL DEFAULT 0`);
     add("buildQueueEnabled", `buildQueueEnabled INTEGER NOT NULL DEFAULT 0`);
@@ -1058,6 +1162,9 @@ export class SessionStore implements CapStore {
       autopilotPaused: !!r.autopilotPaused,
       autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
+      planGateEnabled:
+        r.planGateEnabled === null || r.planGateEnabled === undefined ? null : !!r.planGateEnabled,
+      planPhase: r.planPhase ?? null,
       autoMergeEnabled:
         r.autoMergeEnabled === null || r.autoMergeEnabled === undefined
           ? null

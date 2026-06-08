@@ -155,6 +155,23 @@ export interface WorkflowRun {
   jobs: WorkflowJob[];
 }
 
+// ── pre-execution plan gate ─────────────────────────────────────────────────
+export type PlanDecision = "approved" | "changes_requested" | "error";
+/** A plan-gate verdict (mirrors server `PlanGate`), keyed client-side by session id. */
+export interface PlanGate {
+  sessionId: string;
+  planHash: string; // sha256 of the reviewed plan; dedups re-reviews of an unchanged plan
+  decision: PlanDecision;
+  summary: string; // <=100 char one-liner for the badge tooltip
+  body: string; // full markdown reviewer write-up
+  findings: string[]; // discrete actionable items; [] = nothing to address
+  round: number; // adversarial rounds spent on the current plan streak (0 = reset)
+  cap: number; // the round cap this run used — the badge reads it instead of mirroring
+  approved: boolean; // load-bearing gate flag: execution allowed only when true
+  plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  updatedAt: number;
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;
@@ -178,6 +195,8 @@ export interface RepoConfig {
   autoDrainEnabled: boolean;
   autoMergeEnabled: boolean;
   buildQueueEnabled: boolean;
+  /** Pre-execution plan gate: grill + adversarial plan review before execution (default off). */
+  planGateEnabled: boolean;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
@@ -259,6 +278,10 @@ export interface Session {
    *  creation / one-off answer) — a clean "completed", distinct from a pause. */
   autopilotComplete: boolean;
   autopilotQuestion: string | null;
+  /** Plan-gate opt-in: true/false override, or null to inherit the repo default. */
+  planGateEnabled: boolean | null;
+  /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */
+  planPhase: "planning" | "executing" | null;
   autoMergeEnabled: boolean | null;
   autoMergeRebaseCount: number;
   /** Whether this session was launched by the auto-drain queue. */
@@ -422,6 +445,12 @@ export type WsEvent =
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
+  | {
+      event: "session:plangate";
+      // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
+      data: { id: string; gate?: PlanGate; planPhase?: "planning" | "executing" };
+    }
+  | { event: "session:plangate-reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "learnings:update"; data: { pending: number } }
   | { event: "backlog:update"; data: BacklogPayload }
   | { event: "drain:status"; data: DrainStatus }
@@ -437,6 +466,7 @@ export interface CreateInput {
   model: string | null;
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
+  planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

@@ -14,6 +14,7 @@ const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   autoDrain: false,
   autoMerge: false,
   buildQueue: false,
+  planGate: false,
   ...over,
 });
 
@@ -29,6 +30,7 @@ describe("automationCount", () => {
       automationCount(flags({ critic: true, learnings: true, autopilot: true, autoDrain: true })),
     ).toBe(4);
     expect(automationCount(flags({ autoMerge: true }))).toBe(1);
+    expect(automationCount(flags({ planGate: true }))).toBe(1);
   });
 
   it("does NOT count auto-address unless the critic is on (dependency)", () => {
@@ -36,12 +38,13 @@ describe("automationCount", () => {
     expect(automationCount(flags({ critic: true, autoAddress: true }))).toBe(2);
   });
 
-  it("never exceeds 7", () => {
+  it("never exceeds 8", () => {
     expect(
       automationCount(
         flags({
           critic: true,
           autoAddress: true,
+          planGate: true,
           learnings: true,
           autopilot: true,
           autoDrain: true,
@@ -49,15 +52,15 @@ describe("automationCount", () => {
           buildQueue: true,
         }),
       ),
-    ).toBe(7);
+    ).toBe(8);
   });
 });
 
 describe("AUTOMATION_GROUPS", () => {
-  it("lists all seven automation keys exactly once", () => {
+  it("lists all eight automation keys exactly once", () => {
     const keys = AUTOMATION_GROUPS.flatMap((g) => g.items);
-    expect(keys).toHaveLength(7);
-    expect(new Set(keys).size).toBe(7);
+    expect(keys).toHaveLength(8);
+    expect(new Set(keys).size).toBe(8);
     expect(keys.sort()).toEqual(
       [
         "autoAddress",
@@ -67,13 +70,14 @@ describe("AUTOMATION_GROUPS", () => {
         "buildQueue",
         "critic",
         "learnings",
+        "planGate",
       ].sort(),
     );
   });
 
   it("groups review / behavior / queue in order", () => {
     expect(AUTOMATION_GROUPS.map((g) => g.id)).toEqual(["review", "behavior", "queue"]);
-    expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress"]);
+    expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress", "planGate"]);
     expect(AUTOMATION_GROUPS[1].items).toEqual(["learnings", "autopilot"]);
     expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain", "autoMerge", "buildQueue"]);
   });
@@ -81,7 +85,7 @@ describe("AUTOMATION_GROUPS", () => {
 
 describe("AUTOMATION_TOTAL", () => {
   it("is the item count across all groups (the pill denominator)", () => {
-    expect(AUTOMATION_TOTAL).toBe(7);
+    expect(AUTOMATION_TOTAL).toBe(8);
     expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

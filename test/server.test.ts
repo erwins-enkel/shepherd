@@ -1092,6 +1092,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
+    planGateEnabled: false,
     autoDrainEnabled: false,
     autoMergeEnabled: false,
     buildQueueEnabled: false,

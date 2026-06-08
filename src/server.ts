@@ -108,6 +108,17 @@ export interface AppDeps {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
     reviewing?(): string[];
   };
+  /** Snapshot of plan-gate verdicts keyed by session id (+ in-flight reviewer ids); absent in
+   *  tests that skip it. The parallel of reviewCache for the pre-execution plan gate. */
+  planGateCache?: {
+    snapshot(): Record<string, import("./types").PlanGate>;
+    reviewing?(): string[];
+  };
+  /** Trigger an adversarial plan review for a session on demand (the /review-plan route).
+   *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */
+  planGate?: {
+    consider(session: Session): Promise<void>;
+  };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
@@ -196,6 +207,17 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
+// GET /api/plan-gates[/inflight] — the pre-execution plan gate's bootstrap snapshot,
+// the parallel of /api/reviews. `/plan-gates` → verdicts keyed by session id;
+// `/plan-gates/inflight` → session ids whose plan reviewer is mid-flight.
+function handlePlanGates({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "plan-gates") {
+    if (!parts[2]) return json(deps.planGateCache?.snapshot() ?? {});
+    if (parts[2] === "inflight") return json(deps.planGateCache?.reviewing?.() ?? []);
+  }
+  return null;
+}
+
 async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "drain")) return null;
   // GET /api/drain/queue?repo= — the backlog issues behind a repo's `queued` count
@@ -247,6 +269,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoAddressEnabled",
   "learningsEnabled",
   "autopilotEnabled",
+  "planGateEnabled",
   "autoDrainEnabled",
   "autoMergeEnabled",
   "buildQueueEnabled",
@@ -257,6 +280,7 @@ type RepoCfgBody = {
   autoAddressEnabled?: unknown;
   learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
+  planGateEnabled?: unknown;
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
@@ -281,6 +305,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoAddressEnabled?: boolean;
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
+      planGateEnabled?: boolean;
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
       buildQueueEnabled?: boolean;
@@ -337,6 +362,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
+    planGateEnabled: body.planGateEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
@@ -356,6 +382,7 @@ function mergeRepoConfig(
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
+    planGateEnabled: patch.planGateEnabled ?? cur.planGateEnabled,
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
     buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
@@ -753,6 +780,25 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 
+// POST /api/sessions/:id/go — release an APPROVED planning session into execution.
+// 200 when the plan-gate transition fires (planning + approved); 409 otherwise.
+function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "go")) return null;
+  return deps.service.releasePlanGate(parts[2])
+    ? json({ ok: true })
+    : json({ error: "plan not approved or not in planning phase" }, 409);
+}
+
+// POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
+// 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
+async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "review-plan")) return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  await deps.planGate?.consider(s);
+  return json({ ok: true }, 202);
+}
+
 // Validate the rename body, returning the typed name or the error Response to send.
 async function parseRenameName(req: Request): Promise<string | Response> {
   const ctErr = requireJsonContentType(req);
@@ -981,6 +1027,8 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReads,
     handleSessionDelete,
     handleSessionReply,
+    handleSessionGo,
+    handleSessionReviewPlan,
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,
@@ -1822,6 +1870,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleActivitySnapshot,
   handleReviews,
+  handlePlanGates,
   handleDrain,
   handleAutoMerge,
   handleRepoConfig,

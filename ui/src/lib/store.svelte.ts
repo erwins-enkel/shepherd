@@ -14,7 +14,7 @@ import type {
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
-import { reviews } from "./reviews.svelte";
+import { reviews, planGates } from "./reviews.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -178,6 +178,7 @@ export class HerdStore {
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
         reviews.drop(ev.data.id);
+        planGates.drop(ev.data.id);
         break;
       case "session:git":
         this.git = { ...this.git, [ev.data.id]: ev.data.git };
@@ -193,6 +194,17 @@ export class HerdStore {
         break;
       case "session:reviewing":
         reviews.setReviewing(ev.data.id, ev.data.reviewing);
+        break;
+      case "session:plangate":
+        // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
+        if (ev.data.gate) planGates.apply(ev.data.id, ev.data.gate);
+        if (ev.data.planPhase)
+          this.sessions = this.sessions.map((s) =>
+            s.id === ev.data.id ? { ...s, planPhase: ev.data.planPhase! } : s,
+          );
+        break;
+      case "session:plangate-reviewing":
+        planGates.applyReviewing(ev.data.id, ev.data.reviewing);
         break;
       default:
         // App-global (non-per-session-row) events are handled out of line to keep

@@ -6,6 +6,7 @@
 export type AutomationKey =
   | "critic"
   | "autoAddress"
+  | "planGate"
   | "learnings"
   | "autopilot"
   | "autoDrain"
@@ -16,6 +17,7 @@ export type AutomationKey =
 export interface AutomationFlags {
   critic: boolean;
   autoAddress: boolean;
+  planGate: boolean;
   learnings: boolean;
   autopilot: boolean;
   autoDrain: boolean;
@@ -31,7 +33,7 @@ export interface AutomationGroup {
 
 /** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
-  { id: "review", items: ["critic", "autoAddress"] },
+  { id: "review", items: ["critic", "autoAddress", "planGate"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
   { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue"] },
 ];
@@ -46,6 +48,7 @@ export function automationCount(flags: AutomationFlags): number {
   return [
     flags.critic,
     flags.autoAddress && flags.critic,
+    flags.planGate,
     flags.learnings,
     flags.autopilot,
     flags.autoDrain,

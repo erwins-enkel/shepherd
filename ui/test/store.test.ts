@@ -25,6 +25,8 @@ const s = (id: string, status: any = "running"): Session => ({
   autopilotPaused: false,
   autopilotComplete: false,
   autopilotQuestion: null,
+  planGateEnabled: null,
+  planPhase: null,
   autoMergeEnabled: null,
   autoMergeRebaseCount: 0,
   auto: false,

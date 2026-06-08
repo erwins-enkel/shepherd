@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { config, SESSION_RETENTION_MS, SESSION_RETENTION_KEEP } from "./config";
 import { SessionStore } from "./store";
@@ -453,8 +453,27 @@ const server = serve(
     // After a backlog merge, force-refresh the repo's counts past the read-TTL and
     // re-broadcast the overview so the merged PR (and any auto-closed linked issue)
     // leaves the counters + headline at once, not on the next ~45s warm tick.
+    //
+    // `dir` is safeRepoDir's realpath-resolved form, but the warmer +
+    // buildBacklogPayload key the counts cache by listRepos' raw join(repoRoot,
+    // name) path. Under a symlinked repoRoot/repo those diverge, so refreshing by
+    // `dir` would write a phantom key and the broadcast would re-read stale counts.
+    // Match the repo back to its listRepos entry by realpath and refresh that exact
+    // key (falling back to `dir` for a repo not under the enumerated root).
+    //
+    // Opportunistic: CountsService.load single-flights, so this refresh can
+    // piggyback on an in-flight pre-merge warm fetch and broadcast slightly stale
+    // counts; the next warm tick reconciles. Acceptable for a freshness nudge.
     refreshBacklog: async (dir) => {
-      await backlog.refresh(dir);
+      const realpathOr = (p: string) => {
+        try {
+          return realpathSync(p);
+        } catch {
+          return p;
+        }
+      };
+      const match = listRepos(config.repoRoot).find((r) => realpathOr(r.path) === dir);
+      await backlog.refresh(match?.path ?? dir);
       await broadcastBacklog();
     },
     distiller,

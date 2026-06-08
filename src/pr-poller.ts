@@ -72,6 +72,11 @@ export class PrPoller implements PrCache {
     private fastIntervalMs = 15_000,
     /** Max open PRs polled per fast tick; the rest rotate in on later ticks. */
     private fastBatch = 8,
+    /** Whether a name-matched terminal (merged/closed) PR's head commit actually
+     *  belongs to the session's branch. Guards against `gh pr list --head <name>`
+     *  returning a prior, already-merged PR that merely reused this branch name.
+     *  `false` → discard the stale PR; `true`/`null` → trust it. */
+    private ownsPr: (s: Session, headSha: string) => boolean | null = () => true,
   ) {}
 
   async tick(): Promise<void> {
@@ -136,6 +141,24 @@ export class PrPoller implements PrCache {
       git = { kind: forge.kind, ...(await forge.prStatus(s.branch)) };
     } catch {
       return; // transient gh failure → keep last cached value
+    }
+    // `gh pr list --head <branch>` matches by branch NAME only and `--state all`
+    // includes history, so a prior, already-merged PR that reused this branch name
+    // surfaces as a terminal hit even though this session opened no PR. Trust a
+    // merged/closed PR only when its head commit is reachable from the session's
+    // branch tip; otherwise it's a name collision — drop it back to "none" so the
+    // reconcile path below runs and the row doesn't flip to a false MERGED.
+    if (
+      (git.state === "merged" || git.state === "closed") &&
+      git.headSha &&
+      this.ownsPr(s, git.headSha) === false
+    ) {
+      git = {
+        kind: forge.kind,
+        state: "none",
+        checks: "none",
+        deployConfigured: git.deployConfigured,
+      };
     }
     // No PR for the stored branch — the agent may have renamed the worktree's
     // branch out from under us. Adopt the live branch and retry against it.

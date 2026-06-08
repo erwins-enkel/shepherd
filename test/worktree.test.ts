@@ -57,6 +57,39 @@ test("currentBranch returns null on a detached HEAD", () => {
   wt.remove(r.worktreePath);
 });
 
+test("containsCommit distinguishes this branch's commits from a foreign (name-collision) head", () => {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  const wt = new WorktreeMgr();
+
+  // A "foreign" commit on a branch that this session's branch will NOT contain —
+  // stand-in for a prior, already-merged PR's head that reused the branch name.
+  execFileSync("git", ["checkout", "-q", "-b", "old-feature"], { cwd: repo });
+  writeFileSync(join(repo, "old.txt"), "old");
+  execFileSync("git", ["add", "old.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "old work"], { cwd: repo, env: gitEnv });
+  const foreignSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+  execFileSync("git", ["checkout", "-q", "main"], { cwd: repo });
+
+  // Fresh session worktree cut from main — it never contained `foreignSha`.
+  const r = wt.create(repo, "main", "capture-signals");
+  const ownSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: r.worktreePath })
+    .toString()
+    .trim();
+
+  expect(wt.containsCommit(r.worktreePath, ownSha)).toBe(true); // own branch tip
+  expect(wt.containsCommit(r.worktreePath, foreignSha)).toBe(false); // foreign PR head
+  expect(wt.containsCommit(r.worktreePath, "0".repeat(40))).toBe(false); // absent object
+  expect(wt.containsCommit(r.worktreePath, "nonsense!")).toBeNull(); // malformed → unknown
+
+  wt.remove(r.worktreePath);
+});
+
 test("remove force-deletes the workspace even when git worktree remove refuses", () => {
   const wt = new WorktreeMgr();
   // a populated dir inside the repo that git does NOT track as a worktree:

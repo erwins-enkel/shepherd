@@ -166,6 +166,11 @@ const prPoller = new PrPoller(
   // on a "no PR" miss, adopt the agent's renamed worktree branch so its open PR
   // is recognized instead of staying invisible against the stale stored branch
   (s) => service.syncWorktreeBranch(s.id),
+  undefined,
+  undefined,
+  // reject a merged/closed PR that `gh pr list --head <name>` matched only by a
+  // reused branch name — its head commit won't be reachable from this branch's tip
+  (s, headSha) => worktree.containsCommit(s.worktreePath, headSha),
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();

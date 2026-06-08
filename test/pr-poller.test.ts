@@ -312,6 +312,99 @@ const OPEN_PENDING: PrStatus = {
   deployConfigured: false,
 };
 
+const MERGED: PrStatus = {
+  state: "merged",
+  number: 344,
+  checks: "success",
+  headSha: "deadbee",
+  deployConfigured: false,
+};
+
+test("discards a merged PR whose head commit isn't on this session's branch (name collision)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => MERGED), // a stale, name-matched merged PR
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null, // no other branch to adopt
+    15_000,
+    8,
+    () => false, // head commit does NOT belong to this session's branch
+  );
+
+  await poller.tick();
+  // the false MERGED is dropped to none — the row stays in "active", not "merged"
+  expect(emitted).toEqual([{ state: "none", number: undefined }]);
+  expect(poller.snapshot()[s.id]?.state).toBe("none");
+});
+
+test("keeps a merged PR whose head commit is on this session's branch", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => MERGED),
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true, // genuinely this session's own merged PR
+  );
+
+  await poller.tick();
+  expect(emitted).toEqual([{ state: "merged", number: 344 }]);
+});
+
+test("keeps a merged PR when ownership is unknowable (null) rather than hiding it", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => MERGED),
+    (_id, git) => emitted.push({ state: git.state }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => null, // bad worktree / git error → don't mask a real merge
+  );
+
+  await poller.tick();
+  expect(emitted).toEqual([{ state: "merged" }]);
+});
+
+test("never runs the ownership check for an open PR (name match is current)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let ownsCalls = 0;
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => {
+      ownsCalls++;
+      return false;
+    },
+  );
+
+  await poller.tick();
+  expect(ownsCalls).toBe(0); // open PRs are inherently the live one — no guard needed
+});
+
 test("fast tick re-polls only open PRs — accelerating in-flight CI", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: "shepherd/a" }); // open PR (CI running)

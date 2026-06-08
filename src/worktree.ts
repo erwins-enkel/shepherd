@@ -147,6 +147,39 @@ export class WorktreeMgr {
     return null; // no usable base ref → unknown
   }
 
+  /** Whether `sha` is reachable from the branch tip checked out at `worktreePath`
+   *  — i.e. the commit genuinely belongs to this session's branch. Used to reject
+   *  a PR that `gh pr list --head <name>` matched purely on branch NAME: a prior,
+   *  already-merged PR that reused this branch name reports a head commit that this
+   *  freshly-cut branch does not contain. Returns:
+   *    true  → `sha` is HEAD or an ancestor of it (this branch's own commit)
+   *    false → `sha` is absent locally OR not an ancestor (a foreign / stale PR)
+   *    null  → unknowable (bad worktree / git error) → caller keeps the PR as-is
+   */
+  containsCommit(worktreePath: string, sha: string): boolean | null {
+    if (!/^[0-9a-fA-F]{7,64}$/.test(sha)) return null;
+    try {
+      execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+        cwd: worktreePath,
+        stdio: "pipe",
+      });
+    } catch {
+      return false; // object not in this worktree's store → not our branch's commit
+    }
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+        cwd: worktreePath,
+        stdio: "pipe",
+      });
+      return true; // reachable from HEAD → this session's own commit
+    } catch (err) {
+      // exit 1 = "not an ancestor" → foreign commit; any other exit (e.g. 128, a
+      // bad worktree) is unknowable → null (caller leaves the PR untouched).
+      if ((err as { status?: number }).status === 1) return false;
+      return null;
+    }
+  }
+
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {

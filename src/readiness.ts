@@ -132,8 +132,7 @@ export const GUARDRAILS: GuardrailDef[] = [
     weight: 8,
     detect: (s) => {
       const ev: string[] = [];
-      if (s.has(".prettierrc") || s.glob(".", (n) => n.startsWith(".prettierrc")).length)
-        ev.push("prettier config");
+      if (s.glob(".", (n) => n.startsWith(".prettierrc")).length) ev.push("prettier config");
       if (dep(s, "prettier")) ev.push("prettier");
       if (s.scripts.format) ev.push("format script");
       return ev;

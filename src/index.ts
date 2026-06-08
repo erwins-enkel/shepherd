@@ -450,6 +450,13 @@ const server = serve(
       reviewing: () => reviewService.reviewingIds(),
     },
     backlog,
+    // After a backlog merge, force-refresh the repo's counts past the read-TTL and
+    // re-broadcast the overview so the merged PR (and any auto-closed linked issue)
+    // leaves the counters + headline at once, not on the next ~45s warm tick.
+    refreshBacklog: async (dir) => {
+      await backlog.refresh(dir);
+      await broadcastBacklog();
+    },
     distiller,
     promoter,
     drain: { snapshot: () => drain.snapshot(), queue: (repoPath) => drain.queue(repoPath) },

@@ -133,6 +133,30 @@ test("POST /api/prs/merge merges the PR by number, defaulting method + deleteBra
   expect(merged!.opts).toEqual({ method: "squash", deleteBranch: true });
 });
 
+test("POST /api/prs/merge refreshes the backlog for the repo so counters/headline drop the PR", async () => {
+  const refreshed: string[] = [];
+  const deps = makeDeps(() => fakeForge());
+  deps.refreshBacklog = async (dir) => {
+    refreshed.push(dir);
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(200);
+  // Fired synchronously before the response resolves (detached refetch).
+  expect(refreshed).toEqual([repoDir]);
+});
+
+test("POST /api/prs/merge still succeeds when a backlog refresh rejects", async () => {
+  const deps = makeDeps(() => fakeForge());
+  deps.refreshBacklog = async () => {
+    throw new Error("gh graphql flaked");
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+});
+
 test("POST /api/prs/merge without a number → 400", async () => {
   const app = makeApp(makeDeps(() => fakeForge()));
   const res = await app.fetch(mergeReq({ repo: repoDir }));

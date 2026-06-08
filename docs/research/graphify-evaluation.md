@@ -28,7 +28,7 @@ This was an evidence-gathering spike, not implementation. The method, question s
 > **ADOPT (AST-only, opt-in)** iff ALL: median ratio **≥ 3×** AND accuracy **≥ 3/4** on A+B AND zero confidently-wrong Category-C answers (a miss is fine; a confident wrong answer is not) AND staleness = PASS.
 > **PARK** if ANY: median **< 3×**, OR accuracy **< 3/4**, OR ≥1 confidently-wrong Category-C answer, OR staleness = FAIL, OR the graph is unbuildable even with `--python 3.12` (→ "insufficient evidence / park pending buildable env", never a desk estimate dressed up as the measurement).
 
-The 3× bar (not the published 79×) is deliberate: the headline numbers are multi-modal and lean on the semantic pass we skip; a realistic mixed pure-code set including edit + hostile questions is expected far lower, and 3× median would still be a material, opt-in-worthy win.
+The 3× bar (not the published 71–79×) is deliberate: the headline numbers are multi-modal and lean on the semantic pass we skip; a realistic mixed pure-code set including edit + hostile questions is expected far lower, and 3× median would still be a material, opt-in-worthy win.
 
 ## What was tested
 

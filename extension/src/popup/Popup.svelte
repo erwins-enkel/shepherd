@@ -95,13 +95,18 @@
     // A pending element capture (from a prior "Pick element" gesture that closed
     // the popup) takes precedence over a fresh visible capture. MV3 can't reopen
     // the popup, so the worker stashed the result + flagged the toolbar badge;
-    // consume both here.
-    const pending = await takePendingCapture();
+    // consume both here — but only the capture that belongs to *this* tab, so a
+    // capture made on another tab isn't hijacked (and its badge stays put).
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTabId = activeTab?.id;
+    const pending = activeTabId !== undefined ? await takePendingCapture(activeTabId) : null;
     if (pending) {
       capture = pending;
       mode = "element";
       toggles = derivedTogglesFor(pending);
-      await clearActiveBadge();
+      if (activeTabId !== undefined) {
+        await chrome.action.setBadgeText({ text: "", tabId: activeTabId });
+      }
       view = "ready";
       return;
     }
@@ -123,11 +128,6 @@
       network: requested("network"),
       a11y: requested("a11y"),
     };
-  }
-
-  async function clearActiveBadge() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id !== undefined) await chrome.action.setBadgeText({ text: "", tabId: tab.id });
   }
 
   // Mode selector: visible/full-page recapture in place; "element" arms the

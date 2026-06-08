@@ -19,17 +19,28 @@ export async function getPickerToggles(): Promise<SignalToggles | null> {
   return (got[TOGGLES_KEY] as SignalToggles | undefined) ?? null;
 }
 
-/** Stash the cropped element capture for the popup to pick up on next open. */
-export async function setPendingCapture(result: CaptureResult): Promise<void> {
-  await chrome.storage.session.set({ [CAPTURE_KEY]: result });
+/** A cropped element capture awaiting pickup, tagged with the tab it came from. */
+interface PendingCapture {
+  tabId: number;
+  result: CaptureResult;
 }
 
-/** Consume (read + clear) the pending element capture, if any. */
-export async function takePendingCapture(): Promise<CaptureResult | null> {
+/** Stash the cropped element capture (tagged with its tab) for pickup on reopen. */
+export async function setPendingCapture(tabId: number, result: CaptureResult): Promise<void> {
+  await chrome.storage.session.set({ [CAPTURE_KEY]: { tabId, result } satisfies PendingCapture });
+}
+
+/**
+ * Consume (read + clear) the pending element capture, but only if it belongs to
+ * `tabId`. A capture taken on another tab stays put — and its ✓ badge stays on
+ * that tab — until the popup is opened back on its origin tab.
+ */
+export async function takePendingCapture(tabId: number): Promise<CaptureResult | null> {
   const got = await chrome.storage.session.get(CAPTURE_KEY);
-  const result = (got[CAPTURE_KEY] as CaptureResult | undefined) ?? null;
-  if (result) await chrome.storage.session.remove(CAPTURE_KEY);
-  return result;
+  const pending = got[CAPTURE_KEY] as PendingCapture | undefined;
+  if (!pending || pending.tabId !== tabId) return null;
+  await chrome.storage.session.remove(CAPTURE_KEY);
+  return pending.result;
 }
 
 /** Clear all picker hand-off state (on cancel, or after a capture is consumed). */

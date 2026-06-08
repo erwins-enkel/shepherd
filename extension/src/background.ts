@@ -396,7 +396,7 @@ async function onPickerPick(
     signals,
     signalErrors: errors.length ? errors : undefined,
   };
-  await setPendingCapture(result);
+  await setPendingCapture(tabId, result);
   await clearPickerToggles();
   await setPendingBadge(tabId);
 }

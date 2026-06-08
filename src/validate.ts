@@ -27,7 +27,15 @@ type Result = Ok | Err;
 const err = (error: string): Err => ({ ok: false, error });
 
 const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
-const ALLOWED_KEYS = new Set(["repoPath", "baseBranch", "prompt", "model", "images", "issueRef"]);
+const ALLOWED_KEYS = new Set([
+  "repoPath",
+  "baseBranch",
+  "prompt",
+  "model",
+  "images",
+  "issueRef",
+  "planGateEnabled",
+]);
 
 // The issue body rides out-of-band into the agent prompt — generous cap, separate
 // from the 8000-char human-prompt guard. Title/URL bounded to sane sizes.
@@ -221,6 +229,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const issueRef = validateIssueRef(obj.issueRef);
   if (!issueRef.ok) return issueRef;
 
+  const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
+  if (!planGateEnabled.ok) return planGateEnabled;
+
   return {
     ok: true,
     value: {
@@ -230,8 +241,16 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       model: model.value,
       images: images.value,
       issueRef: issueRef.value,
+      planGateEnabled: planGateEnabled.value,
     },
   };
+}
+
+/** planGateEnabled — optional per-task override; absent/null → inherit the repo default. */
+function validatePlanGateEnabled(value: unknown): Field<boolean | null | undefined> {
+  if (value === undefined) return field(undefined);
+  if (value === null || typeof value === "boolean") return field(value);
+  return err("planGateEnabled must be a boolean, null, or absent");
 }
 
 /**

@@ -20,6 +20,8 @@ function session(over: Partial<Session> = {}): Session {
     claudeSessionId: "c",
     model: null,
     readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

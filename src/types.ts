@@ -17,6 +17,13 @@ export interface Session {
 
   model: string | null; // claude --model alias; null = claude's own default (no flag)
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
+  /** Epoch ms when a launched merge train marked this PR-session as in-flight;
+   *  null when not in a train. Transient: cleared on merge/close, train archive,
+   *  or the TTL sweep. */
+  mergingSince: number | null;
+  /** Id of the merge-train session that owns this mark (clears the whole set when
+   *  that session is archived). Null when not merging. */
+  mergingTrainId: string | null;
   /** Autopilot opt-in: true/false override, or null to inherit the repo default. */
   autopilotEnabled: boolean | null;
   /** Count of auto-steers autopilot has spent on this session (runaway guard; reset on PR-open / operator reply). */

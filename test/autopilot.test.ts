@@ -19,6 +19,8 @@ function sess(over: Partial<Session> = {}): Session {
     claudeSessionId: "cs",
     model: null,
     readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
     autopilotEnabled: true,
     autopilotStepCount: 0,
     autopilotPaused: false,

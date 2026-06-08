@@ -41,10 +41,11 @@ how `ui/` is a separate package.
   `default_title: "Shepherd Capture"` (product name — untranslated) and
   `default_popup`.
 - **Permissions:** `activeTab`, `scripting`, `tabs`, `storage`.
-- **`host_permissions`:** `http://localhost:7330/*` only. **Phase 1 is
-  localhost-only.** Remote/Tailscale (`*.ts.net`) requires an
-  `optional_host_permissions` + `chrome.permissions.request` flow, deferred to a
-  later phase (the options UI + README are scoped to localhost to match).
+- **`host_permissions`:** `http://localhost:7330/*` (the local core, granted
+  statically). Remote/Tailscale (`https://*.ts.net/*`) is an
+  `optional_host_permissions` entry, requested on demand via
+  `chrome.permissions.request` from the options Save gesture (now implemented —
+  see `src/lib/remote-host.ts`).
 - **No** `debugger`, **no** `api.github.com`, **no** `commands` shortcut yet
   (Phases 2–4).
 
@@ -127,11 +128,12 @@ Phase 3; the formatter is structured to take optional sections.)
 - **Auth token:** if configured, send `Authorization: Bearer <token>`. Stored in
   `chrome.storage.local` (never synced). A `401` surfaces a "check token"
   message.
-- **Base URL:** configurable, **Phase 1 localhost-only** (`http://localhost:7330`;
-  the manifest grants only that host). Remote `ts.net` is deferred (needs the
-  optional-host-permission flow above). Never hardcoded; drives `host_permissions`
-  guidance in the
-  README.
+- **Base URL:** configurable. `http://localhost:7330` is granted statically;
+  remote Tailscale (`https://<host>.ts.net`) is supported via the
+  optional-host-permission flow above (`optional_host_permissions` +
+  `chrome.permissions.request` from the options Save gesture — see
+  `src/lib/remote-host.ts`). Any other host is rejected. Never hardcoded; drives
+  `host_permissions` guidance in the README.
 - **Repo confinement:** `repoPath` must resolve inside `SHEPHERD_REPO_ROOT` or
   the API rejects `400`. Since `400` covers any validation failure (not just
   confinement), the popup surfaces the server's own `detail` rather than a fixed

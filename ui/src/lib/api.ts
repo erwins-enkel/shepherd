@@ -20,6 +20,7 @@ import type {
   ProjectIcons,
   ReviewVerdict,
   RepoConfig,
+  ReadinessReport,
   DrainStatus,
   QueuedItem,
   BacklogPayload,
@@ -577,6 +578,10 @@ export async function getBacklog(): Promise<BacklogPayload> {
   const r = await fetch("/api/backlog");
   if (!r.ok) throw await failed(r, "backlog");
   return r.json();
+}
+
+export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
+  return getJson(`/api/readiness?repo=${encodeURIComponent(repoPath)}`, "readiness");
 }
 
 export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {

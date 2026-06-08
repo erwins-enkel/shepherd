@@ -6,6 +6,7 @@
   import IssuesPanel from "./IssuesPanel.svelte";
   import PrsPanel from "./PrsPanel.svelte";
   import ActionsPanel from "./ActionsPanel.svelte";
+  import ReadinessPanel from "./ReadinessPanel.svelte";
   import { actionsTabState } from "./backlog-view";
 
   let {
@@ -14,6 +15,7 @@
     onissue,
     onquick = undefined,
     onpr,
+    onadopt,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -23,9 +25,11 @@
     onquick?: (repoPath: string, issue: Issue) => void;
     /** Open a review task seeded with a PR (PRs tab → New Task). */
     onpr: (repoPath: string, pr: PullRequest) => void;
+    /** Seed a New Task with the AI-readiness install prescription (Readiness tab). */
+    onadopt: (repoPath: string, prompt: string) => void;
   } = $props();
 
-  type Tab = "issues" | "prs" | "actions";
+  type Tab = "issues" | "prs" | "actions" | "readiness";
   let activeTab = $state<Tab>("issues");
 
   // selectedPath: initialized from pinnedPath once payload arrives;
@@ -139,6 +143,14 @@
                 {m.backlog_tab_actions()}
               {/if}
             </button>
+            <button
+              class="tab-btn"
+              class:active={activeTab === "readiness"}
+              type="button"
+              onclick={() => (activeTab = "readiness")}
+            >
+              {m.backlog_tab_readiness()}
+            </button>
           </div>
         </div>
         <div class="overlay-body">
@@ -154,8 +166,10 @@
             />
           {:else if activeTab === "prs"}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
-          {:else}
+          {:else if activeTab === "actions"}
             <ActionsPanel repoPath={selectedPath} />
+          {:else}
+            <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
           {/if}
         </div>
       </div>
@@ -199,6 +213,14 @@
           {m.backlog_tab_actions()}
         {/if}
       </button>
+      <button
+        class="tab-btn"
+        class:active={activeTab === "readiness"}
+        type="button"
+        onclick={() => (activeTab = "readiness")}
+      >
+        {m.backlog_tab_readiness()}
+      </button>
     </div>
 
     <div class="desktop-split">
@@ -224,8 +246,10 @@
             />
           {:else if activeTab === "prs"}
             <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
-          {:else}
+          {:else if activeTab === "actions"}
             <ActionsPanel repoPath={selectedPath} />
+          {:else}
+            <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
           {/if}
         {:else}
           <div class="detail-empty">

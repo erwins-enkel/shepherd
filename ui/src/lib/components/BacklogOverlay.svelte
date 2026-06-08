@@ -10,6 +10,7 @@
     onissue,
     onquick = undefined,
     onpr,
+    onadopt,
     onclose,
   }: {
     payload: BacklogPayload | null;
@@ -17,6 +18,7 @@
     onissue: (repoPath: string, issue: Issue) => void;
     onquick?: (repoPath: string, issue: Issue) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
+    onadopt: (repoPath: string, prompt: string) => void;
     onclose: () => void;
   } = $props();
 </script>
@@ -42,7 +44,7 @@
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
     <div class="body">
-      <BacklogView {payload} {mobile} {onissue} {onquick} {onpr} />
+      <BacklogView {payload} {mobile} {onissue} {onquick} {onpr} {onadopt} />
     </div>
   </div>
 </div>

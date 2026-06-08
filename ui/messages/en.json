@@ -485,6 +485,7 @@
   "toast_merge_train_no_prs": "No ready-to-merge PRs to run a merge train on",
   "toast_merge_train_other_repos": "{count} ready-to-merge PRs in other repos were left out — run a separate merge train there",
   "toast_merge_train_failed": "Couldn't start the merge train",
+  "toast_merge_train_mark_failed": "Merge train started, but marking its PRs failed.",
   "toast_merged": "Merged {name}",
   "toast_renamed": "Renamed to {name}",
   "emojipicker_search": "search emoji…",

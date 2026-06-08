@@ -229,6 +229,17 @@ body {
     transform: translateY(100%);
   }
 }
+/* in-flight MERGING text pulse — dims and restores amber opacity; clip-proof
+   (no box-shadow halo), so it never bleeds into adjacent badges. */
+@keyframes merge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
 /* Blanket-disable decorative motion under reduced-motion. Functional status
    indicators ("work happening": CI dot-pulse, pip-pulse, critic rev-pulse,
    in-progress blink) intentionally override this with `animation: ... !important`

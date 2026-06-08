@@ -391,8 +391,9 @@ test("CI-fix recovery resumes a dead pane before steering", () => {
 
 test("step cap stops CI-fix thrash and pauses to the operator", () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
-  // The first call is the open transition (resets the budget); each distinct red head then
-  // burns one step. With stepCap 10, the 11th distinct failing head surfaces instead of steering.
+  // The session starts at step 0; each distinct red head burns one step (the red CI skips the
+  // onPrOpen handoff, so there's no budget reset). With stepCap 10, the 11th distinct failing
+  // head surfaces (pauses) instead of steering.
   for (let i = 0; i <= 10; i++) h.svc.onGit("s1", git({ headSha: "sha" + i }));
   expect(h.events.filter((e) => "steer" in e).length).toBe(10);
   expect(h.state().autopilotPaused).toBe(true);

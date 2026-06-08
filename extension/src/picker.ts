@@ -104,13 +104,17 @@ declare global {
       return;
     }
     const r = el.getBoundingClientRect();
-    send({
+    const pick: PickerMessage = {
       type: "picker-pick",
       rect: { x: r.x, y: r.y, width: r.width, height: r.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },
       dpr: window.devicePixelRatio || 1,
-    });
+    };
+    // Tear the overlay down first, then defer the message two frames so the
+    // outline's removal has actually painted before the worker captures the tab —
+    // otherwise the blue highlight could bleed into the cropped screenshot.
     teardown();
+    requestAnimationFrame(() => requestAnimationFrame(() => send(pick)));
   }
 
   function onKey(e: KeyboardEvent): void {

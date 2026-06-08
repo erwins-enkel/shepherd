@@ -47,7 +47,10 @@ The **Capture** selector in the popup chooses how the screenshot is produced:
 - **Full page** — scrolls the page in viewport-height slices, captures each, and
   stitches them into one tall PNG (worker-side `OffscreenCanvas`). Bounded to keep
   capture quick; a page taller than the cap is captured from the top and the popup
-  says so.
+  says so. `fixed`/`sticky` elements (pinned headers, cookie banners) are hidden
+  after the first slice so they appear once at the top instead of repeating down
+  every slice — a genuinely sticky in-content element is therefore absent below the
+  fold in the stitched image.
 - **Pick element…** — arms an in-page hover overlay; click an element to crop the
   capture to its bounds (Esc / right-click cancels). The popup closes for the click
   and the toolbar icon shows a **✓** badge when the cropped capture is ready —

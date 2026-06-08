@@ -190,6 +190,45 @@ async function scrollPageTo(tabId: number, top: number): Promise<void> {
   });
 }
 
+type HiddenOverlay = { el: HTMLElement; prev: string };
+type OverlayStore = { __shepherdStitchHidden?: HiddenOverlay[] };
+
+/** Injected: hide `fixed`/`sticky` elements, remembering their prior inline visibility. */
+function hideStitchOverlays(): void {
+  const store = window as unknown as OverlayStore;
+  const hidden: HiddenOverlay[] = [];
+  for (const el of document.body?.querySelectorAll<HTMLElement>("*") ?? []) {
+    const pos = getComputedStyle(el).position;
+    if (pos === "fixed" || pos === "sticky") {
+      hidden.push({ el, prev: el.style.visibility });
+      el.style.setProperty("visibility", "hidden", "important");
+    }
+  }
+  store.__shepherdStitchHidden = hidden;
+}
+
+/** Injected: restore whatever `hideStitchOverlays` hid (no-op if nothing was hidden). */
+function restoreStitchOverlays(): void {
+  const store = window as unknown as OverlayStore;
+  for (const { el, prev } of store.__shepherdStitchHidden ?? []) {
+    if (prev) el.style.setProperty("visibility", prev);
+    else el.style.removeProperty("visibility");
+  }
+  store.__shepherdStitchHidden = undefined;
+}
+
+/**
+ * Hide/restore `fixed` & `sticky` elements so a pinned header/banner is captured
+ * once (in the top slice) instead of repeating down every stitched slice. Restore
+ * is a no-op if nothing was hidden, so it's safe to call unconditionally.
+ */
+async function setStitchOverlays(tabId: number, hide: boolean): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: hide ? hideStitchOverlays : restoreStitchOverlays,
+  });
+}
+
 /**
  * Stitch a full-page screenshot: measure the page, scroll through it in
  * viewport-height slices, capture each, and compose them onto one tall canvas.
@@ -229,14 +268,18 @@ async function captureFullPage(
       const step = plan.steps[i];
       await scrollPageTo(tabId, step);
       // Throttle to stay under the captureVisibleTab quota; the wait also lets the
-      // page paint after the scroll (sticky headers, lazy images settling).
+      // page paint after the scroll (lazy images settling, overlays hidden below).
       await delay(i === 0 ? 80 : CAPTURE_THROTTLE_MS);
       const tileUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
       const bitmap = await createImageBitmap(dataUrlToBlob(tileUrl));
       ctx.drawImage(bitmap, 0, Math.round(step * dims.dpr));
       bitmap.close();
+      // After the top slice, hide pinned overlays so they aren't repeated in the
+      // slices below. The next slice's throttle delay covers the repaint.
+      if (i === 0) await setStitchOverlays(tabId, true);
     }
   } finally {
+    await setStitchOverlays(tabId, false);
     await scrollPageTo(tabId, dims.scrollY);
   }
 

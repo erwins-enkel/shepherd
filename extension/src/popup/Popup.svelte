@@ -109,15 +109,19 @@
     await runCapture();
   }
 
-  // Reflect which signals the worker actually gathered for an element capture, so
-  // the (read-only) checkboxes match the result. Screenshot stays on — it's the
+  // Reflect which signals the user asked for in an element capture, so the
+  // (read-only) checkboxes match their intent. A signal counts as requested
+  // whether it succeeded (present in `signals`) or failed (in `signalErrors`) —
+  // a failed gather shouldn't flip the box off. Screenshot stays on — it's the
   // cropped element image, attached on spawn.
   function derivedTogglesFor(result: CaptureResult): SignalToggles {
+    const requested = (signal: GatherSignal) =>
+      result.signals?.[signal] !== undefined || (result.signalErrors?.includes(signal) ?? false);
     return {
       screenshot: true,
-      console: result.signals?.console !== undefined,
-      network: result.signals?.network !== undefined,
-      a11y: result.signals?.a11y !== undefined,
+      console: requested("console"),
+      network: requested("network"),
+      a11y: requested("a11y"),
     };
   }
 
@@ -134,8 +138,19 @@
     if (next === "element") {
       // Resolve the overlay label here (popup locale) so the picker content
       // script needn't bundle Paraglide just for one string.
-      await send({ type: "start-picker", toggles, instructions: m.picker_instructions() });
-      window.close();
+      const res = await send({
+        type: "start-picker",
+        toggles,
+        instructions: m.picker_instructions(),
+      });
+      if (res.ok && res.type === "picker-started") {
+        window.close();
+      } else if (!res.ok) {
+        // Injection failed (a restricted page — chrome://, the web store, …).
+        // Surface it and keep the popup open instead of closing onto nothing.
+        errorMsg = localizeError(res.errorKind, res.message);
+        view = "error";
+      }
       return;
     }
     await runCapture();

@@ -90,6 +90,14 @@ test("containsCommit distinguishes this branch's commits from a foreign (name-co
   wt.remove(r.worktreePath);
 });
 
+test("containsCommit returns null (not false) when the worktree path is unusable", () => {
+  const wt = new WorktreeMgr();
+  // git can't run against a non-existent cwd → spawn failure, no exit code. This
+  // must be unknowable (null), not a clean miss (false): a broken worktree is not
+  // evidence the commit is foreign.
+  expect(wt.containsCommit(join(repo, "does-not-exist"), "a".repeat(40))).toBeNull();
+});
+
 test("remove force-deletes the workspace even when git worktree remove refuses", () => {
   const wt = new WorktreeMgr();
   // a populated dir inside the repo that git does NOT track as a worktree:

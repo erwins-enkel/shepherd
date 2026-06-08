@@ -154,7 +154,20 @@ export class WorktreeMgr {
    *  freshly-cut branch does not contain. Returns:
    *    true  → `sha` is HEAD or an ancestor of it (this branch's own commit)
    *    false → `sha` is absent locally OR not an ancestor (a foreign / stale PR)
-   *    null  → unknowable (bad worktree / git error) → caller keeps the PR as-is
+   *    null  → unknowable (worktree unusable / git couldn't run) → caller keeps the PR
+   *
+   *  Two known limitations of the reachability test:
+   *  - **Assumes squash/rebase merges** (this repo's policy — merge commits are
+   *    disabled). Under those, a merged feature commit is NOT an ancestor of main,
+   *    so a reused-name branch cut from main fails to reach the old PR head → the
+   *    collision is caught. On a repo using plain *merge commits*, the old PR's
+   *    head stays reachable from main, so a fresh same-name branch would still
+   *    "own" it and the collision would slip through.
+   *  - **Transient false-negative after a self-rebase.** If a session's own PR
+   *    merges and the still-active branch is then rebased/reset, the PR head is no
+   *    longer an ancestor of HEAD, so a genuine MERGED is dropped to `none`. Rare
+   *    (a session usually archives once its PR lands) and self-heals once the PR
+   *    head returns to the history; acceptable versus the false-MERGED it prevents.
    */
   containsCommit(worktreePath: string, sha: string): boolean | null {
     if (!/^[0-9a-fA-F]{7,64}$/.test(sha)) return null;
@@ -163,8 +176,12 @@ export class WorktreeMgr {
         cwd: worktreePath,
         stdio: "pipe",
       });
-    } catch {
-      return false; // object not in this worktree's store → not our branch's commit
+    } catch (err) {
+      // git ran and reported the object missing (numeric exit) → a clean miss, the
+      // commit isn't in this branch's store → false. No exit code means git never
+      // ran (e.g. ENOENT on an unusable worktree cwd) → unknowable → null, so the
+      // caller doesn't mistake a broken worktree for a foreign PR.
+      return typeof (err as { status?: number }).status === "number" ? false : null;
     }
     try {
       execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
@@ -173,10 +190,9 @@ export class WorktreeMgr {
       });
       return true; // reachable from HEAD → this session's own commit
     } catch (err) {
-      // exit 1 = "not an ancestor" → foreign commit; any other exit (e.g. 128, a
-      // bad worktree) is unknowable → null (caller leaves the PR untouched).
-      if ((err as { status?: number }).status === 1) return false;
-      return null;
+      // exit 1 = "not an ancestor" → foreign commit; any other exit (e.g. 128) or a
+      // spawn failure is unknowable → null (caller leaves the PR untouched).
+      return (err as { status?: number }).status === 1 ? false : null;
     }
   }
 

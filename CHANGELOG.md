@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.17.0](https://github.com/erwins-enkel/shepherd/compare/v1.16.0...v1.17.0) (2026-06-08)
+
+
+### Features
+
+* **autopilot:** complete verdict for non-PR tasks ([#358](https://github.com/erwins-enkel/shepherd/issues/358)) ([#363](https://github.com/erwins-enkel/shepherd/issues/363)) ([1c131f6](https://github.com/erwins-enkel/shepherd/commit/1c131f6bc8cb059d585fc31ba83acda01843b310))
+* **extension:** remote (Tailscale) base URL via optional host permission ([#373](https://github.com/erwins-enkel/shepherd/issues/373)) ([82af33b](https://github.com/erwins-enkel/shepherd/commit/82af33be6501d360df1c73a64f27e05dde96c0de))
+* **extension:** Shepherd Capture Phase 2 — capture signals (console/network/a11y) + per-signal toggles ([#344](https://github.com/erwins-enkel/shepherd/issues/344)) ([2ce8bff](https://github.com/erwins-enkel/shepherd/commit/2ce8bff78fe3ac4605e030071208ff8ea3c5917b))
+* full-auto merge mode (optional, per-repo + per-session) ([#362](https://github.com/erwins-enkel/shepherd/issues/362)) ([2a161e3](https://github.com/erwins-enkel/shepherd/commit/2a161e3f7c20946186730f45169c029b416e6c75))
+* **service:** inject Karpathy engineering posture into every spawn ([#353](https://github.com/erwins-enkel/shepherd/issues/353)) ([34cbebc](https://github.com/erwins-enkel/shepherd/commit/34cbebc06e579002b76e9a6f93bf963535f07c47))
+* **spawn:** research-first notice in unattended system prompt ([#366](https://github.com/erwins-enkel/shepherd/issues/366)) ([991bfda](https://github.com/erwins-enkel/shepherd/commit/991bfda580b6d9aeaadf1f21d6d22c0b843692e1))
+* **ui:** add AI-readiness analyzer Backlog mode ([#361](https://github.com/erwins-enkel/shepherd/issues/361)) ([#364](https://github.com/erwins-enkel/shepherd/issues/364)) ([dd34876](https://github.com/erwins-enkel/shepherd/commit/dd3487631fcb6b1c2393b162b38f0a753a11b358))
+* **ui:** design-system reference page + agent directive vs UI drift ([#369](https://github.com/erwins-enkel/shepherd/issues/369)) ([e0c0a01](https://github.com/erwins-enkel/shepherd/commit/e0c0a012c27406e1d5d331842c3b7f4bca11d171))
+* **ui:** make review-cycles cap a global setting ([#360](https://github.com/erwins-enkel/shepherd/issues/360)) ([1aafd43](https://github.com/erwins-enkel/shepherd/commit/1aafd4379396d10c746324938d510be78584d19e))
+* **ui:** merge-train shortcut in Ready-to-merge section ([#359](https://github.com/erwins-enkel/shepherd/issues/359)) ([4e28190](https://github.com/erwins-enkel/shepherd/commit/4e28190b21f2e3d3de40d492ccd44064b2a5fb53))
+* **ui:** show merge-train PRs as Merging in the session list ([#365](https://github.com/erwins-enkel/shepherd/issues/365)) ([1688796](https://github.com/erwins-enkel/shepherd/commit/1688796ceb4e01cc9995044d9f9e4ef710e3683f))
+
+
+### Bug Fixes
+
+* **autopilot:** recover red-CI PRs + seed directive so agents don't halt to ask ([#357](https://github.com/erwins-enkel/shepherd/issues/357)) ([5f904ac](https://github.com/erwins-enkel/shepherd/commit/5f904ac71ee01df2f8fcdb848b1e24423fe16af5))
+* **backlog:** refresh counters + headline after merging a PR ([#354](https://github.com/erwins-enkel/shepherd/issues/354)) ([5b06e50](https://github.com/erwins-enkel/shepherd/commit/5b06e50d596f5be383f909a43e0bc847e525a35b))
+* **hooks:** auto-install extension/ deps in fresh worktrees ([#355](https://github.com/erwins-enkel/shepherd/issues/355)) ([97f44c8](https://github.com/erwins-enkel/shepherd/commit/97f44c83ac1d1c1032f32dafd504bc09896f664f))
+* **poller:** gate stall on live-terminal liveness, not transcript-silence alone ([#370](https://github.com/erwins-enkel/shepherd/issues/370)) ([3a65181](https://github.com/erwins-enkel/shepherd/commit/3a65181da73fbd142837871e535b99f53a90cac5))
+* **ui:** center-align readiness score in ring ([#368](https://github.com/erwins-enkel/shepherd/issues/368)) ([472aaa7](https://github.com/erwins-enkel/shepherd/commit/472aaa7a1363846c7b7fdd6876485d78de8cfa55))
+* **ui:** drop per-session full-auto merge toggle from session header ([#367](https://github.com/erwins-enkel/shepherd/issues/367)) ([b900027](https://github.com/erwins-enkel/shepherd/commit/b900027c6255fb6e1ac08a3d43caf0f6e3606280))
+* **ui:** gear pip amber while working, red only when blocked ([#339](https://github.com/erwins-enkel/shepherd/issues/339)) ([4c4ea20](https://github.com/erwins-enkel/shepherd/commit/4c4ea2047be13aa2992b8faea8e3e89cd5be9c27))
+* **ui:** let automation drain label field grow on narrow screens ([#356](https://github.com/erwins-enkel/shepherd/issues/356)) ([c645275](https://github.com/erwins-enkel/shepherd/commit/c6452755c7d0bee0f8cd08e2dc741e2985a3c596))
+* **ui:** move backlog tab bar above detail pane on desktop ([#371](https://github.com/erwins-enkel/shepherd/issues/371)) ([3934627](https://github.com/erwins-enkel/shepherd/commit/3934627a86faef414ee2a3c07a68c07df91e5a2b))
+* **ui:** scale session elapsed timer for multi-day runs ([#351](https://github.com/erwins-enkel/shepherd/issues/351)) ([555c378](https://github.com/erwins-enkel/shepherd/commit/555c378177da64fdf6b9d2a30ed9de84c263ab27))
+* **ui:** show jump-to-bottom when agent output lands below a hair-scrolled pane ([#372](https://github.com/erwins-enkel/shepherd/issues/372)) ([7f1fc0e](https://github.com/erwins-enkel/shepherd/commit/7f1fc0e87311838ac408d662d9ea8b1880f64415))
+
 ## [1.16.0](https://github.com/erwins-enkel/shepherd/compare/v1.15.0...v1.16.0) (2026-06-04)
 
 

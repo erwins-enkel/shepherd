@@ -119,7 +119,6 @@ export interface PlanGateServiceDeps {
     | "snapshotPlanGates"
     | "getRepoConfig"
     | "addSignal"
-    | "setPlanPhase"
     | "get"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
@@ -390,9 +389,10 @@ export class PlanGateService {
   }
 
   forget(sessionId: string): void {
-    // Clear any mid-spawn claim: a begin() suspended on its plan hash checks this is
-    // implicit via inflight, but the `starting` set must be cleared so an archived
-    // session can't get a review after forget().
+    // Clear the `starting` tombstone so an archived session can't get a review after
+    // forget(). Unlike ReviewService.begin (which awaits a network gh fetch and re-checks
+    // `starting` to abort mid-spawn), our begin() has no post-await step that allocates a
+    // worktree — its only await is the pure-CPU plan hash — so no abort re-check is needed.
     this.starting.delete(sessionId);
     const f = this.inflight.get(sessionId);
     if (f) {

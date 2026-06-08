@@ -166,7 +166,7 @@
       <label class="drain-field">
         <span class="drain-label">{m.drain_label_label()}</span>
         <input
-          class="num"
+          class="num txt"
           type="text"
           bind:value={drainLabel}
           aria-label={m.drain_label_label()}
@@ -326,5 +326,14 @@
     font-size: var(--fs-base);
     padding: 3px 6px;
     text-align: right;
+  }
+  /* The label is free text (e.g. "shepherd:auto") that overflows the fixed
+     numeric width on narrow screens — let it grow with the row and read from
+     the start instead of clipping the left side under right-alignment. */
+  .num.txt {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    text-align: left;
   }
 </style>

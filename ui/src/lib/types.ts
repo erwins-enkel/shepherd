@@ -1,5 +1,21 @@
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
 
+export type BuildStepStatus = "pending" | "active" | "done" | "skipped";
+
+export interface BuildStep {
+  id: string;
+  title: string;
+  detail?: string;
+  status: BuildStepStatus;
+  position: number;
+}
+
+export interface BuildQueue {
+  sessionId: string;
+  steps: BuildStep[];
+  approved: boolean;
+}
+
 export interface RepoEntry {
   name: string;
   path: string;
@@ -411,6 +427,7 @@ export type WsEvent =
   | { event: "drain:status"; data: DrainStatus }
   | { event: "automerge:status"; data: AutoMergeStatus }
   | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }
+  | { event: "queue:update"; data: BuildQueue }
   | { event: "halt:done"; data: { halted: number } };
 
 export interface CreateInput {

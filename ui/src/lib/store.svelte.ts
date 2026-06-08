@@ -10,6 +10,7 @@ import type {
   BlockReason,
   DrainStatus,
   AutoMergeStatus,
+  BuildQueue,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -47,6 +48,9 @@ export class HerdStore {
   /** Live automerge status keyed by repoPath; bootstrapped via GET /api/automerge,
    *  updated in real-time by the `automerge:status` WS event. */
   autoMerge = $state<Record<string, AutoMergeStatus>>({});
+  /** Live build queue keyed by sessionId; bootstrapped via GET /api/sessions/:id/queue,
+   *  updated in real-time by the `queue:update` WS event. */
+  buildQueues = $state<Record<string, BuildQueue>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -66,6 +70,10 @@ export class HerdStore {
   }
   setAutoMerge(list: AutoMergeStatus[]) {
     this.autoMerge = Object.fromEntries(list.map((s) => [s.repoPath, s]));
+  }
+  /** Seed (or replace) the build queue for a session — called after a bootstrap GET. */
+  setBuildQueue(q: BuildQueue) {
+    this.buildQueues = { ...this.buildQueues, [q.sessionId]: q };
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -233,6 +241,9 @@ export class HerdStore {
         break;
       case "automerge:status":
         this.autoMerge = { ...this.autoMerge, [ev.data.repoPath]: ev.data };
+        break;
+      case "queue:update":
+        this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         break;
       case "halt:done":
         // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the

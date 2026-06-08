@@ -52,5 +52,19 @@
   "options_signals_a11y_label": "Run an accessibility (axe-core) audit on capture",
   "options_recorder_label": "Record console errors & failed network requests",
   "options_recorder_allsites_note": "Recording reads console output and network failures on every site you visit, including full request URLs (query strings may contain tokens), and forwards them to Shepherd in the task. Enable only while you need it; turn it off to revoke the all-sites permission.",
-  "options_recorder_denied": "Permission denied — recording stays off."
+  "options_recorder_denied": "Permission denied — recording stays off.",
+  "popup_target_label": "Deliver as",
+  "popup_target_session": "Spawn session",
+  "popup_target_issue": "GitHub issue",
+  "popup_repo_routed": "(routed)",
+  "popup_issue_title_label": "Issue title",
+  "popup_issue_no_screenshot": "Screenshots aren't embedded in issues — the metadata & signals go in the issue body.",
+  "popup_issue_empty_title": "Enter an issue title.",
+  "popup_issue_success": "Filed issue #{number}.",
+  "options_routing_title": "Routing rules",
+  "options_routing_hint": "Map a captured tab's URL to a target repo. Patterns are globs (* wildcards) matched against the full URL; first match wins, otherwise the repo above is used.",
+  "options_routing_pattern_ph": "https://app.example.com/*",
+  "options_routing_repo_ph": "~/Work/my-repo",
+  "options_routing_add": "Add rule",
+  "options_routing_remove": "Remove"
 }

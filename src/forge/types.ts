@@ -206,6 +206,10 @@ export interface GitForge {
   /** Remove a label from an issue (best-effort; releases the drain's claim when an
    *  auto session is abandoned, returning the issue to the pool). Optional. */
   removeIssueLabel?(issueNumber: number, label: string): Promise<void>;
+  /** Open a new issue (capture-extension delivery path). Returns the created
+   *  issue's number + URL. Optional: hosts without an issue-create API omit it
+   *  and POST /api/issues 400s. */
+  createIssue?(o: { title: string; body: string }): Promise<{ number: number; url: string }>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { spawnNow } from "../src/lib/transport";
+import { fileIssue, spawnNow } from "../src/lib/transport";
 import { TransportError, type CaptureConfig, type PageMetadata } from "../src/lib/types";
 import type { CapturedSignals } from "../src/lib/signals";
 
@@ -10,6 +10,7 @@ const CONFIG: CaptureConfig = {
   baseBranch: "main",
   model: "opus",
   signals: { screenshot: true, console: false, network: false, a11y: false },
+  routingRules: [],
 };
 
 const META: PageMetadata = {
@@ -44,6 +45,7 @@ describe("spawnNow", () => {
       metadata: META,
       screenshot: blob(),
       attachScreenshot: true,
+      repoPath: "~/Work/foo",
     });
 
     expect(desig).toBe("TASK-42");
@@ -82,6 +84,7 @@ describe("spawnNow", () => {
         metadata: META,
         screenshot: blob(),
         attachScreenshot: true,
+        repoPath: "~/Work/foo",
       },
     );
 
@@ -104,6 +107,7 @@ describe("spawnNow", () => {
         metadata: META,
         screenshot: blob(),
         attachScreenshot: true,
+        repoPath: "~/Work/foo",
       }),
     ).rejects.toMatchObject({ kind });
     expect(fetchFn).toHaveBeenCalledTimes(1); // never reaches session create
@@ -117,6 +121,7 @@ describe("spawnNow", () => {
         metadata: META,
         screenshot: blob(),
         attachScreenshot: true,
+        repoPath: "~/Work/foo",
       }),
     ).rejects.toMatchObject({ kind: "unreachable" });
   });
@@ -132,6 +137,7 @@ describe("spawnNow", () => {
         metadata: META,
         screenshot: blob(),
         attachScreenshot: true,
+        repoPath: "~/Work/foo",
       }),
     ).rejects.toBeInstanceOf(TransportError);
   });
@@ -146,6 +152,7 @@ describe("spawnNow", () => {
       metadata: META,
       attachScreenshot: false,
       signals,
+      repoPath: "~/Work/foo",
     });
     expect(desig).toBe("TASK-9");
     expect(fetchFn).toHaveBeenCalledTimes(1); // sessions only — no /api/uploads
@@ -155,5 +162,83 @@ describe("spawnNow", () => {
     expect(sent.images).toEqual([]);
     expect(sent.prompt).toContain("Console (1):"); // signals reached the prompt
     expect(sent.prompt).toContain("boom");
+  });
+
+  it("sends the routing-resolved repoPath, not config.repoPath", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ desig: "TASK-3" }, 201));
+    await spawnNow(fetchFn, CONFIG, {
+      prompt: "p",
+      metadata: META,
+      attachScreenshot: false,
+      repoPath: "~/Work/routed",
+    });
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body).repoPath).toBe("~/Work/routed");
+  });
+});
+
+describe("fileIssue", () => {
+  it("posts to /api/issues with repo+title+context body and returns {number,url}", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonRes({ number: 7, url: "https://github.com/acme/web/issues/7" }, 201),
+      );
+
+    const result = await fileIssue(fetchFn, CONFIG, {
+      repoPath: "~/Work/routed",
+      title: "Button is broken",
+      prompt: "Fix the button",
+      metadata: META,
+    });
+
+    expect(result).toEqual({ number: 7, url: "https://github.com/acme/web/issues/7" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe("http://localhost:7330/api/issues");
+    expect(init.method).toBe("POST");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers.Authorization).toBe("Bearer secret");
+    const sent = JSON.parse(init.body);
+    expect(sent.repo).toBe("~/Work/routed");
+    expect(sent.title).toBe("Button is broken");
+    expect(sent.body).toContain("Fix the button");
+    expect(sent.body).toContain("```text");
+    expect(sent.body).toContain("URL: https://example.com");
+  });
+
+  it("maps a 400 to TransportError kind 'invalid'", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "invalid repo" }, 400));
+    await expect(
+      fileIssue(fetchFn, CONFIG, {
+        repoPath: "~/Work/x",
+        title: "t",
+        prompt: "p",
+        metadata: META,
+      }),
+    ).rejects.toMatchObject({ kind: "invalid" });
+  });
+
+  it("maps an unreachable fetch to kind 'unreachable'", async () => {
+    const fetchFn = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(
+      fileIssue(fetchFn, CONFIG, {
+        repoPath: "~/Work/x",
+        title: "t",
+        prompt: "p",
+        metadata: META,
+      }),
+    ).rejects.toMatchObject({ kind: "unreachable" });
+  });
+
+  it("throws when the response is missing number or url", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ number: 7 }, 201));
+    await expect(
+      fileIssue(fetchFn, CONFIG, {
+        repoPath: "~/Work/x",
+        title: "t",
+        prompt: "p",
+        metadata: META,
+      }),
+    ).rejects.toBeInstanceOf(TransportError);
   });
 });

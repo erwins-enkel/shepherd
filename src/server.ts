@@ -1468,6 +1468,38 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+// POST /api/issues — open a new issue on a repo's forge (capture-extension
+// delivery path). Coexists with handleIssues' GET on the same path.
+async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "issues" || parts[2]) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as {
+    repo?: string;
+    title?: string;
+    body?: string;
+  } | null;
+  if (!body) return json({ error: "invalid json" }, 400);
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const title = body.title;
+  if (typeof title !== "string" || !title.trim() || title.length > 200) {
+    return json({ error: "title must be a non-empty string ≤ 200 chars" }, 400);
+  }
+  const issueBody = body.body;
+  if (typeof issueBody !== "string" || issueBody.length > 16000) {
+    return json({ error: "body must be a string ≤ 16000 chars" }, 400);
+  }
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.createIssue) return json({ error: "issues unavailable for repo" }, 400);
+  try {
+    const issue = await forge.createIssue({ title: title.trim(), body: issueBody });
+    return json({ ...issue, slug: forge.slug }, 201);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "issue create failed" }, 502);
+  }
+}
+
 /**
  * Collapse worktrees / multiple clones of the same repo: dedupe by forge identity
  * (kind + owner/repo slug) so each repo appears once, not once per directory.
@@ -1902,6 +1934,7 @@ const ROUTE_HANDLERS = [
   handleFsDirs,
   handleBranches,
   handleIssues,
+  handleIssueCreate,
   handlePrsList,
   handleActionsList,
   handleActionsRerun,

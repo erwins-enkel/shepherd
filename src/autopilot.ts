@@ -198,7 +198,8 @@ export class AutopilotService {
     this.deps.onState?.(id);
   }
 
-  /** A PR opened → hand off to the critic loop. Clear pause + reset the step budget. */
+  /** The critic handoff: clear pause + reset the step budget. Invoked once per PR-open by
+   *  onGit (for a non-red PR) — the single place this transition is applied. */
   onPrOpen(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;
@@ -223,36 +224,30 @@ export class AutopilotService {
     if (!s || s.status === "archived" || !this.enabled(s)) return;
     if (!this.openSeen.has(id)) {
       this.openSeen.add(id);
-      // Handoff, once per PR-open. Reset the step budget so the post-PR CI-fix loop starts fresh
-      // (it must not inherit the pre-PR gate loop's spend). Clear a pre-PR pause ONLY when CI is
-      // not red: a red PR that's already paused was handed to the operator (e.g. a CI-fix cap
-      // pause that survived a restart) — don't silently re-engage it.
-      const clearPause = git.checks !== "failure";
-      this.deps.store.setAutopilotState(id, {
-        stepCount: 0,
-        ...(clearPause ? { paused: false, question: null } : {}),
-      });
-      this.deps.onState?.(id);
+      // Critic handoff (the single handoff path: onPrOpen), once per PR-open — clear a pre-PR
+      // pause + reset the step budget for the post-PR phase. Skip it when CI is already red: a
+      // red PR that's paused was handed to the operator (e.g. a CI-fix cap pause that survived a
+      // restart), and re-engaging it would resume the thrash the cap stopped. The CI-fix loop
+      // below keeps the persisted budget in that case.
+      if (git.checks !== "failure") this.onPrOpen(id);
     }
-    if (git.checks === "failure") this.considerCi(id, git);
+    if (git.checks === "failure") this.considerCi(s, git);
   }
 
   /** Open PR + red CI → steer the task agent to fix it. Synchronous (no classify needed: a red
-   *  rollup is already an actionable verdict). Deduped per head SHA, gated by autopilot
-   *  enablement / pause / archive, and bounded by the same step cap as the gate loop. */
-  private considerCi(id: string, git: GitState): void {
-    const s = this.deps.store.get(id);
-    if (!s || s.status === "archived") return;
-    if (!this.enabled(s)) return;
+   *  rollup is already an actionable verdict). The caller (onGit) has already checked
+   *  existence / archive / enablement; here we gate on pause + per-head dedup and bound it by
+   *  the same step cap as the gate loop. */
+  private considerCi(s: Session, git: GitState): void {
     if (s.autopilotPaused) return; // already handed back; waits for operator
-    if (this.pending.has(id)) return; // a classify (gate/done path) is mid-flight
+    if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
     if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
-    if (this.ciNudged.get(id) === git.headSha) return; // already nudged this exact red head
+    if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
     if (s.autopilotStepCount >= this.stepCap) {
       this.pause(s, CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
       return;
     }
-    this.ciNudged.set(id, git.headSha);
+    this.ciNudged.set(s.id, git.headSha);
     this.driveSteer(s, CI_FIX_STEER);
   }
 }

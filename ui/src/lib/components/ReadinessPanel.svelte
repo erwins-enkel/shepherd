@@ -16,6 +16,9 @@
   // Large response that is only ever reassigned → raw, no deep proxy.
   let report = $state.raw<ReadinessReport | null>(null);
   let loading = $state(true);
+  // A failed fetch is distinct from a non-applicable repo: fail loud rather than
+  // letting a load error read as "not a JS/TS repo".
+  let loadError = $state(false);
   let copied = $state(false);
 
   // Reload whenever the selected repo changes; ignore a stale response that lands
@@ -23,6 +26,7 @@
   $effect(() => {
     const rp = repoPath;
     loading = true;
+    loadError = false;
     report = null;
     copied = false;
     getReadiness(rp)
@@ -33,6 +37,7 @@
       })
       .catch(() => {
         if (rp !== repoPath) return;
+        loadError = true;
         loading = false;
       });
   });
@@ -134,9 +139,9 @@
 <div class="readiness-panel">
   {#if loading}
     <div class="muted">{m.common_loading()}</div>
-  {:else if !report}
-    <div class="muted">{m.readiness_not_applicable_body()}</div>
-  {:else if !report.applicable}
+  {:else if loadError}
+    <div class="muted error">{m.readiness_load_error()}</div>
+  {:else if !report || !report.applicable}
     <div class="na">
       <div class="na-title">{m.readiness_not_applicable_title()}</div>
       <div class="na-body">{m.readiness_not_applicable_body()}</div>
@@ -232,6 +237,9 @@
     font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 12px;
+  }
+  .muted.error {
+    color: var(--color-red);
   }
 
   .na {

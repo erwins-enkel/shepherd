@@ -584,7 +584,7 @@
   "session_autopilot_complete_title": "Autopilot finished — task complete, nothing to open as a PR: {summary}",
   "session_autopilot_toggle_failed": "Couldn't change autopilot for this session. Try again.",
   "backlog_tab_readiness": "Readiness",
-  "backlog_tab_readiness_score": "Readiness · {score}%",
+  "readiness_load_error": "Couldn't load the readiness scorecard. Try again.",
   "readiness_not_applicable_title": "Not a JS/TS repo",
   "readiness_not_applicable_body": "The readiness baseline currently covers JavaScript / TypeScript repositories. Support for other stacks is on the way.",
   "readiness_score_label": "AI-readiness",

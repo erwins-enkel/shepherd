@@ -584,7 +584,7 @@
   "session_autopilot_complete_title": "Autopilot fertig — Aufgabe erledigt, kein PR zu öffnen: {summary}",
   "session_autopilot_toggle_failed": "Autopilot für diese Session konnte nicht geändert werden. Erneut versuchen.",
   "backlog_tab_readiness": "Reife",
-  "backlog_tab_readiness_score": "Reife · {score}%",
+  "readiness_load_error": "Reife-Scorecard konnte nicht geladen werden. Erneut versuchen.",
   "readiness_not_applicable_title": "Kein JS/TS-Repo",
   "readiness_not_applicable_body": "Die Reife-Baseline deckt derzeit JavaScript-/TypeScript-Repositories ab. Unterstützung für weitere Stacks folgt.",
   "readiness_score_label": "KI-Reife",

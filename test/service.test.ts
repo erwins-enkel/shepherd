@@ -58,7 +58,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    composeSystemPrompt(null), // no learnings → branch-rename notice only
+    composeSystemPrompt(null), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -439,7 +439,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    composeSystemPrompt(null), // no learnings → branch-rename notice only
+    composeSystemPrompt(null), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "--model",
     "opus",
     "go",
@@ -1559,7 +1559,7 @@ test("create omits the house-rules block when no active rules exist", async () =
     images: [],
   });
   expect(captured.argv!.at(-1)).toBe("do the thing");
-  // System prompt carries only the branch-rename notice, no house-rules tag.
+  // System prompt carries posture + branch-rename notice, no house-rules tag.
   expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
 });
 

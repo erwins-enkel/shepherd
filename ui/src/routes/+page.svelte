@@ -633,33 +633,39 @@
 
 <svelte:window onkeydown={onShortcut} />
 
-<div class="shell" class:mobile={mobile.current}>
+<div
+  class="shell"
+  class:mobile={mobile.current}
+  class:list={mobile.current && mobileScreen === "list"}
+>
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
        viewport's merged header (repo · session + back + status tint), so it's
        hidden there; settings + global chrome stay on the herd overview. -->
   {#if !(mobile.current && mobileScreen === "detail")}
-    <TopBar
-      sessions={store.sessions}
-      {nowMs}
-      connected={store.connected}
-      mobile={mobile.current}
-      touch={touch.current}
-      limits={store.usageLimits}
-      onsettings={() => (showSettings = true)}
-      onhalt={haltHerd}
-      needsYou={blockedEntries.length}
-      ontriage={() => (showTriage = true)}
-      learnings={learnings.items.length}
-      overBudget={overBudgetRules}
-      onlearnings={() => (showLearnings = true)}
-      update={store.update}
-      onupdate={() => (showUpdate = true)}
-      herdrUpdate={store.herdrUpdate}
-      onherdrupdate={() => (showHerdrUpdate = true)}
-      whatsNew={whatsNewDotOn}
-      onwhatsnew={() => (showWhatsNew = true)}
-    />
-    <QueueStrip drain={store.drain} autoMerge={store.autoMerge} />
+    <div class="chrome">
+      <TopBar
+        sessions={store.sessions}
+        {nowMs}
+        connected={store.connected}
+        mobile={mobile.current}
+        touch={touch.current}
+        limits={store.usageLimits}
+        onsettings={() => (showSettings = true)}
+        onhalt={haltHerd}
+        needsYou={blockedEntries.length}
+        ontriage={() => (showTriage = true)}
+        learnings={learnings.items.length}
+        overBudget={overBudgetRules}
+        onlearnings={() => (showLearnings = true)}
+        update={store.update}
+        onupdate={() => (showUpdate = true)}
+        herdrUpdate={store.herdrUpdate}
+        onherdrupdate={() => (showHerdrUpdate = true)}
+        whatsNew={whatsNewDotOn}
+        onwhatsnew={() => (showWhatsNew = true)}
+      />
+      <QueueStrip drain={store.drain} autoMerge={store.autoMerge} />
+    </div>
   {/if}
 
   <main id="main-content" class="main-region">
@@ -679,6 +685,7 @@
             {onmergetrain}
             {standardCommandUnset}
             onsettings={() => (showSettings = true)}
+            flow={true}
           />
           {#if store.sessions.length === 0}
             <BacklogView
@@ -688,6 +695,7 @@
               onquick={onquickissue}
               {onpr}
               {onadopt}
+              flow={true}
             />
           {/if}
         </div>
@@ -1039,5 +1047,38 @@
     padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
       max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
     gap: 10px;
+  }
+
+  .chrome {
+    display: flex;
+    flex-direction: column;
+    gap: inherit;
+  }
+
+  /* Mobile list screen becomes a document-scroll app-shell: the shell grows with
+     content (min-height floor = one viewport), the middle flows at natural height
+     so the whole page scrolls, and the chrome/ActionBar are pinned. This keeps the
+     ActionBar reachable even if 100dvh is mis-measured taller than the real window. */
+  .shell.mobile.list {
+    height: auto;
+    min-height: 100dvh;
+    /* the sticky ActionBar owns the bottom safe-area inset, so drop the shell's
+       bottom padding to avoid a blank gap below the pinned bar */
+    padding-bottom: 0;
+  }
+  .shell.mobile.list .chrome {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    /* opaque base surface so list content scrolling underneath doesn't show
+       through the gap between TopBar and QueueStrip */
+    background: var(--color-bg);
+  }
+  .shell.mobile.list .main-region,
+  .shell.mobile.list .col {
+    /* min-height:auto (not 0): flex children still grow to fill the viewport when
+       the list is short, but are no longer capped — tall content overflows and the
+       document scrolls instead of trapping it in an inner scroller */
+    min-height: auto;
   }
 </style>

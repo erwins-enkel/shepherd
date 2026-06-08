@@ -187,7 +187,7 @@ body {
   color: var(--color-ink);
   font-family: var(--font-mono);
   margin: 0;
-  height: 100%;
+  min-height: 100%;
   font-size: var(--fs-base);
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;

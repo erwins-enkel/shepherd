@@ -1309,3 +1309,43 @@ test("POST /api/repos with foreign Origin → 403", async () => {
   );
   expect(res.status).toBe(403);
 });
+
+// ── POST /api/merge-train/start ───────────────────────────────────────────────
+
+test("POST /api/merge-train/start marks sessions as merging", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = deps.store.create({
+    name: "x",
+    prompt: "go",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await app.fetch(
+    new Request("http://x/api/merge-train/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: [s.id], trainId: "train-7" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(deps.store.get(s.id)!.mergingTrainId).toBe("train-7");
+});
+
+test("POST /api/merge-train/start with invalid body → 400", async () => {
+  const app = harness();
+  const res = await app.fetch(
+    new Request("http://x/api/merge-train/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: "nope" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+});

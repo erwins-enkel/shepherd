@@ -1232,6 +1232,28 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
   return null;
 }
 
+// POST /api/merge-train/start — mark a launched train's ready PRs as "merging".
+// The train itself runs client-side as an agent session; this only flags the
+// scoped PR-sessions so the list shows them in-flight. Body: {ids, trainId}.
+async function handleMergeTrain({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "merge-train" && parts[2] === "start" && !parts[3]))
+    return null;
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { ids?: unknown; trainId?: unknown } | null;
+  if (
+    !body ||
+    !Array.isArray(body.ids) ||
+    !body.ids.every((x) => typeof x === "string") ||
+    typeof body.trainId !== "string"
+  ) {
+    return json({ error: "body must be {ids: string[], trainId: string}" }, 400);
+  }
+  deps.service.setMerging(body.ids as string[], body.trainId);
+  return json({ ok: true });
+}
+
 // ── halt the herd: interrupt every live working agent at once ──
 function handleHalt({ req, parts, deps }: Ctx): Response | null {
   if (parts[0] !== "api" || parts[1] !== "halt" || parts[2]) return null;
@@ -1692,6 +1714,7 @@ const ROUTE_HANDLERS = [
   handleSteers,
   handleProjectIcons,
   handleBroadcast,
+  handleMergeTrain,
   handleHalt,
   handleFsDirs,
   handleBranches,

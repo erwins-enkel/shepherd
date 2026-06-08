@@ -247,6 +247,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoAddressEnabled",
   "learningsEnabled",
   "autopilotEnabled",
+  "planGateEnabled",
   "autoDrainEnabled",
   "autoMergeEnabled",
   "buildQueueEnabled",
@@ -257,6 +258,7 @@ type RepoCfgBody = {
   autoAddressEnabled?: unknown;
   learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
+  planGateEnabled?: unknown;
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
@@ -281,6 +283,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoAddressEnabled?: boolean;
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
+      planGateEnabled?: boolean;
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
       buildQueueEnabled?: boolean;
@@ -337,6 +340,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
+    planGateEnabled: body.planGateEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
@@ -356,6 +360,7 @@ function mergeRepoConfig(
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
+    planGateEnabled: patch.planGateEnabled ?? cur.planGateEnabled,
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
     buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,

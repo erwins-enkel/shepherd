@@ -253,9 +253,13 @@ setInterval(() => {
   if (maintenance.active) return;
   void reviewService.tick();
 }, 15_000);
-// archived sessions: reap any in-flight critic + drop the verdict
+// archived sessions: reap any in-flight critic + drop the verdict + drop any plan-gate verdict
 events.subscribe((event, data) => {
-  if (event === "session:archived") reviewService.forget((data as { id: string }).id);
+  if (event === "session:archived") {
+    const id = (data as { id: string }).id;
+    reviewService.forget(id);
+    store.dropPlanGate(id);
+  }
 });
 
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled

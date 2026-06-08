@@ -1623,6 +1623,30 @@ test("create injects only the planned house rules and drops the over-budget ones
   expect(injectedCount).toBeLessThan(40);
 });
 
+test("composeSystemPrompt always injects the engineering-posture block, with or without house rules", () => {
+  // Posture is universal standing guidance (not a per-repo learning), so it must ride every
+  // spawn regardless of the learnings toggle / house-rules state — i.e. even when houseRules is null.
+  const withoutRules = composeSystemPrompt(null);
+  const withRules = composeSystemPrompt(
+    `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`,
+  );
+
+  for (const sp of [withoutRules, withRules]) {
+    expect(sp).toContain("<engineering-posture>");
+    expect(sp).toContain("</engineering-posture>");
+    // The four Karpathy principles, by their distinguishing wording.
+    expect(sp).toContain("Think before coding");
+    expect(sp).toContain("Simplicity first");
+    expect(sp).toContain("Surgical changes");
+    expect(sp).toContain("Goal-driven execution");
+    // Branch-rename notice still rides alongside.
+    expect(sp).toContain("<branch-rename-notice>");
+  }
+  // Repo house rules still appear when present, distinct from posture.
+  expect(withRules).toContain(`<${HOUSE_RULES_TAG}>`);
+  expect(withoutRules).not.toContain(`<${HOUSE_RULES_TAG}>`);
+});
+
 test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", () => {
   const store = new SessionStore(":memory:");
   let startCalls = 0;

@@ -1,13 +1,24 @@
 <script lang="ts">
-  import type { DrainStatus, QueuedItem } from "$lib/types";
+  import type { AutoMergeStatus, DrainStatus, QueuedItem } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { getDrainQueue } from "$lib/api";
   import { basename } from "./learnings-drawer";
-  import { enabledDrains, pausedText, queueOpenable } from "./queue-strip";
+  import {
+    activeMergeTrain,
+    enabledDrains,
+    mergeTrainIsAttention,
+    mergeTrainLabel,
+    pausedText,
+    queueOpenable,
+  } from "./queue-strip";
 
-  let { drain }: { drain: Record<string, DrainStatus> } = $props();
+  let {
+    drain,
+    autoMerge = {},
+  }: { drain: Record<string, DrainStatus>; autoMerge?: Record<string, AutoMergeStatus> } = $props();
 
   const rows = $derived(enabledDrains(drain));
+  const mergeRows = $derived(activeMergeTrain(autoMerge));
 
   // Lazy queue popover: at most one open at a time, fetched fresh on open.
   let openRepo = $state<string | null>(null);
@@ -113,6 +124,24 @@
   </div>
 {/if}
 
+{#if mergeRows.length > 0}
+  <div class="queue-strip" role="status" aria-label={m.automation_automerge_name()}>
+    <span class="qs-label">🚀 {m.automation_automerge_name()}</span>
+    <ul class="qs-rows">
+      {#each mergeRows as s (s.repoPath)}
+        {@const label = mergeTrainLabel(s.state)}
+        {@const attention = mergeTrainIsAttention(s.state!)}
+        <li class="qs-row" class:paused={attention}>
+          <span class="qs-repo">{basename(s.repoPath)}</span>
+          <span class={["qs-mt-state", { "qs-pause": attention }]}
+            >{s.detail ? `${label} (${s.detail})` : label}</span
+          >
+        </li>
+      {/each}
+    </ul>
+  </div>
+{/if}
+
 <style>
   .queue-strip {
     display: flex;
@@ -184,6 +213,11 @@
   .qs-queued-btn:focus-visible {
     color: var(--color-ink-bright);
   }
+  /* merge-train state: active tone (merging/rebasing) matches inflight color */
+  .qs-mt-state {
+    color: var(--color-ink);
+  }
+
   /* a paused drain is the loud thing in the band: red, with its reason inline */
   .qs-pause {
     color: var(--color-red);

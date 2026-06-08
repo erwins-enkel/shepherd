@@ -149,6 +149,22 @@
       <span class="knob"></span>
     </button>
   </div>
+  <div class="auto-row">
+    <div class="auto-meta">
+      <div class="auto-name">🚀 {m.automation_automerge_name()}</div>
+      <div class="auto-desc">{m.automation_automerge_desc()}</div>
+    </div>
+    <button
+      class={["sw", { on: flags.autoMerge }]}
+      type="button"
+      role="switch"
+      aria-checked={flags.autoMerge}
+      aria-label={m.automation_automerge_name()}
+      onclick={() => repoConfig.toggleAutoMerge(repoPath)}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
   {#if flags.autoDrain}
     <div class="drain-fields">
       <label class="drain-field">

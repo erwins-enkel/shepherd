@@ -160,9 +160,22 @@ export interface RepoConfig {
   learningsEnabled: boolean;
   autopilotEnabled: boolean;
   autoDrainEnabled: boolean;
+  autoMergeEnabled: boolean;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
+}
+
+/** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
+export interface AutoMergeStatus {
+  repoPath: string;
+  enabled: boolean;
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" while acting/paused; null when idle. */
+  state: string | null;
+  /** A desig for the operator banner, when relevant. */
+  detail: string | null;
+  /** The affected session's id, so a deep-link selects it; null when none. */
+  sessionId: string | null;
 }
 
 export interface DrainStatus {
@@ -229,6 +242,8 @@ export interface Session {
    *  creation / one-off answer) — a clean "completed", distinct from a pause. */
   autopilotComplete: boolean;
   autopilotQuestion: string | null;
+  autoMergeEnabled: boolean | null;
+  autoMergeRebaseCount: number;
   /** Whether this session was launched by the auto-drain queue. */
   auto: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
@@ -393,6 +408,8 @@ export type WsEvent =
   | { event: "learnings:update"; data: { pending: number } }
   | { event: "backlog:update"; data: BacklogPayload }
   | { event: "drain:status"; data: DrainStatus }
+  | { event: "automerge:status"; data: AutoMergeStatus }
+  | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }
   | { event: "halt:done"; data: { halted: number } };
 
 export interface CreateInput {

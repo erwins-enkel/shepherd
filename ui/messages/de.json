@@ -111,6 +111,9 @@
   "automation_autopilot_desc": "Automatisch durch Stopps Richtung PR fortfahren",
   "automation_autodrain_name": "Auto-Abarbeitung",
   "automation_autodrain_desc": "Agenten für gelabelte Issues automatisch starten",
+  "automation_automerge_name": "Voll-Auto-Merge",
+  "automation_automerge_desc": "Fertige PRs automatisch mergen (vorher rebasen & erneut prüfen).",
+  "session_automerge_label": "Voll-Auto-Merge",
   "drain_strip_label": "Queue",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} in Warteschlange",
@@ -626,5 +629,12 @@
   "readiness_g_dead_code_audit_title": "Tot-Code-Audit",
   "readiness_g_dead_code_audit_removes": "Ohne es sammeln sich tote Exports und ungenutzte Abhängigkeiten an, und du entdeckst sie per Auge.",
   "feat_readiness_title": "KI-Reife-Analyse",
-  "feat_readiness_body": "Die Backlog-Seite hat einen neuen Reife-Tab: Er bewertet die Leitplanken eines Repos anhand von Shepherds dogfooded Baseline, empfiehlt das Tooling, das das meiste Hin und Her zwischen Mensch und KI beseitigt, und generiert eine maßgeschneiderte CLAUDE.md, die du direkt an eine Aufgabe senden kannst."
+  "feat_readiness_body": "Die Backlog-Seite hat einen neuen Reife-Tab: Er bewertet die Leitplanken eines Repos anhand von Shepherds dogfooded Baseline, empfiehlt das Tooling, das das meiste Hin und Her zwischen Mensch und KI beseitigt, und generiert eine maßgeschneiderte CLAUDE.md, die du direkt an eine Aufgabe senden kannst.",
+  "session_automerge_toggle_failed": "Voll-Auto-Merge für diese Session konnte nicht geändert werden. Erneut versuchen.",
+  "automerge_state_merging": "Wird gemergt…",
+  "automerge_state_rebasing": "Rebase auf main…",
+  "automerge_state_merge_error": "Merge fehlgeschlagen — Eingriff nötig",
+  "automerge_state_rebase_cap": "Rebase-Limit erreicht — Eingriff nötig",
+  "feat_automerge_title": "Voll-Auto-Merge",
+  "feat_automerge_body": "Aktiviere Voll-Auto, damit Shepherd fertige PRs für dich mergt — vor jedem Merge wird auf main rebased und erneut geprüft, damit parallele Aufgaben sicher bleiben."
 }

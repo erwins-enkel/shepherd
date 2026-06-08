@@ -1,4 +1,4 @@
-import type { SessionStore } from "./store";
+import type { SessionStore, RepoConfig } from "./store";
 import type { SessionService } from "./service";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
@@ -124,6 +124,8 @@ export interface AppDeps {
     snapshot(): Promise<DrainStatus[]>;
     queue(repoPath: string): Promise<QueuedItem[]>;
   };
+  /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
+  autoMerge?: { snapshot(): import("./automerge").AutoMergeStatus[] };
 }
 
 const sessionUsage = (s: Session) =>
@@ -205,6 +207,14 @@ async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | n
   return null;
 }
 
+// GET /api/automerge — a status per auto-merge-enabled repo (client bootstrap).
+function handleAutoMerge({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "automerge" && !parts[2])) {
+    return null;
+  }
+  return json(deps.autoMerge?.snapshot() ?? []);
+}
+
 // maxAuto: finite integer ≥ 1; clamp > 20 to 20
 function parseMaxAuto(v: unknown): number | { error: string } {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || !Number.isInteger(v)) {
@@ -236,6 +246,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "learningsEnabled",
   "autopilotEnabled",
   "autoDrainEnabled",
+  "autoMergeEnabled",
 ] as const;
 
 type RepoCfgBody = {
@@ -244,6 +255,7 @@ type RepoCfgBody = {
   learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
   autoDrainEnabled?: unknown;
+  autoMergeEnabled?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -266,6 +278,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
       autoDrainEnabled?: boolean;
+      autoMergeEnabled?: boolean;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -277,7 +290,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled) must be booleans",
       },
       400,
     );
@@ -309,7 +322,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -320,9 +333,28 @@ async function parseRepoConfigPatch(req: Request): Promise<
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
+    autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     maxAuto,
     autoLabel,
     usageCeilingPct,
+  };
+}
+
+/** Merge a validated patch onto the current repo config, returning the new full config. */
+function mergeRepoConfig(
+  cur: RepoConfig,
+  patch: Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
+): RepoConfig {
+  return {
+    criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
+    autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
+    learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
+    autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
+    autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
+    autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
+    maxAuto: patch.maxAuto ?? cur.maxAuto,
+    autoLabel: patch.autoLabel ?? cur.autoLabel,
+    usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
   };
 }
 
@@ -335,17 +367,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
-  const cur = deps.store.getRepoConfig(dir);
-  deps.store.setRepoConfig(dir, {
-    criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
-    autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
-    learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
-    autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
-    autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
-    maxAuto: patch.maxAuto ?? cur.maxAuto,
-    autoLabel: patch.autoLabel ?? cur.autoLabel,
-    usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
-  });
+  deps.store.setRepoConfig(dir, mergeRepoConfig(deps.store.getRepoConfig(dir), patch));
   return json(deps.store.getRepoConfig(dir));
 }
 
@@ -859,6 +881,27 @@ async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Respon
   return json(updated);
 }
 
+// PUT /api/sessions/:id/automerge — set the per-session full-auto-merge override.
+// Body: { enabled: boolean | null }  (null = inherit the repo default)
+async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "PUT" && parts[2] && parts[3] === "automerge")) return null;
+  const body = (await req.json().catch(() => ({}))) as { enabled?: unknown };
+  const e = body.enabled;
+  if (!(e === true || e === false || e === null)) {
+    return json({ error: "enabled must be true, false, or null" }, 400);
+  }
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "no session" }, 404);
+  deps.store.setAutoMergeState(parts[2], { enabled: e });
+  const updated = deps.store.get(parts[2]);
+  if (updated)
+    deps.events.emit("session:automerge", {
+      id: parts[2],
+      enabled: updated.autoMergeEnabled,
+    });
+  return json(updated);
+}
+
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
 // preserving the original inner guard order. Returns null for anything those
 // don't claim (e.g. `…/git` sub-routes), so handleSessionGit can pick it up.
@@ -876,6 +919,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReady,
     handleSessionDismissStall,
     handleSessionAutopilot,
+    handleSessionAutoMerge,
   ]) {
     const res = await sub(ctx);
     if (res) return res;
@@ -1712,6 +1756,7 @@ const ROUTE_HANDLERS = [
   handleActivitySnapshot,
   handleReviews,
   handleDrain,
+  handleAutoMerge,
   handleRepoConfig,
   handleLearnings,
   handlePush,

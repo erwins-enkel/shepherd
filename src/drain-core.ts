@@ -50,6 +50,11 @@ export interface AutoSessionView {
   reviewDecision: ReviewDecision | null;
   /** The head SHA the latest verdict applies to, or null when no verdict. */
   reviewHeadSha: string | null;
+  /** Effective full-auto (autopilot ∧ auto-merge). When true the merge train lands this
+   *  session, so the drain must NOT retire it (that would foreclose rebase recovery). When
+   *  false the drain retires it normally — even in an auto-merge repo — so it can't sit
+   *  un-retired-and-un-merged holding a maxAuto slot (which would deadlock the drain). */
+  fullAuto: boolean;
 }
 
 /** Everything `computeNext` needs about ONE repo, assembled by the side-effect harness. */
@@ -99,8 +104,14 @@ function readyToRetire(s: AutoSessionView, criticEnabled: boolean): boolean {
 export function computeNext(state: DrainRepoState): DrainDecision {
   if (!state.enabled) return { kind: "hold", reason: { code: "disabled" } };
 
-  // 1. Retire gate — first retire-ready session wins (hand-off before we consider trouble).
-  const toRetire = state.autoSessions.find((s) => readyToRetire(s, state.criticEnabled));
+  // 1. Retire gate — a ready NON-full-auto session is handed off for a human to merge.
+  // Full-auto sessions are left for the merge train (it lands them; retiring would remove the
+  // worktree/pane and foreclose rebase recovery). Gating per-session (not on the repo flag)
+  // ensures a non-full-auto session in an auto-merge repo still retires instead of sitting
+  // un-retired-and-un-merged on a maxAuto slot and deadlocking the drain.
+  const toRetire = state.autoSessions.find(
+    (s) => !s.fullAuto && readyToRetire(s, state.criticEnabled),
+  );
   if (toRetire) {
     return { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! };
   }

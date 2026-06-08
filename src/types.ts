@@ -36,6 +36,14 @@ export interface Session {
   /** The classifier's 1–2 sentence hand-back summary — what the agent is waiting for (paused)
    *  or what it delivered (complete); null in neither state. */
   autopilotQuestion: string | null;
+  /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
+  autoMergeEnabled: boolean | null;
+  /** Consecutive auto-rebase attempts the merge train has spent on this session
+   *  (runaway guard; reset on operator reply). */
+  autoMergeRebaseCount: number;
+  /** The head SHA the merge train last steered a rebase for; null when none outstanding.
+   *  Guards against re-steering / re-bumping while a rebase for the same head is in flight. */
+  autoMergeRebaseHead: string | null;
   /** True when this session was auto-spawned by the drain queue. */
   auto: boolean;
   /** Backlog issue number this session was spawned for; null for manual/non-issue sessions. */

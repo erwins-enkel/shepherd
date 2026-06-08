@@ -1093,6 +1093,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     learningsEnabled: false,
     autopilotEnabled: false,
     autoDrainEnabled: false,
+    autoMergeEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -1348,4 +1349,118 @@ test("POST /api/merge-train/start with invalid body → 400", async () => {
     }),
   );
   expect(res.status).toBe(400);
+});
+
+// ── autoMergeEnabled repo-config + per-session override ─────────────────────
+
+function putRepoConfig(app: ReturnType<typeof makeApp>, repo: string, body: unknown) {
+  return app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(repo)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+function putSessionAutoMerge(app: ReturnType<typeof makeApp>, id: string, body: unknown) {
+  return app.fetch(
+    new Request(`http://x/api/sessions/${id}/automerge`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("PUT /api/repo-config accepts autoMergeEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { autoMergeEnabled: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).autoMergeEnabled).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean autoMergeEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { autoMergeEnabled: "yes" });
+  expect(res.status).toBe(400);
+});
+
+test("PUT /api/repo-config error message includes autoMergeEnabled in boolean fields list", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { autoMergeEnabled: 1 });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("autoMergeEnabled");
+});
+
+test("PUT /api/repo-config empty body error message includes autoMergeEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {});
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("autoMergeEnabled");
+});
+
+test("PUT /api/sessions/:id/automerge sets the override", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const id = created.id;
+
+  const res = await putSessionAutoMerge(app, id, { enabled: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.get(id)!.autoMergeEnabled).toBe(true);
+
+  const res2 = await putSessionAutoMerge(app, id, { enabled: null });
+  expect(res2.status).toBe(200);
+  expect(deps.store.get(id)!.autoMergeEnabled).toBeNull();
+});
+
+test("PUT /api/sessions/:id/automerge rejects non-boolean/non-null enabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const res = await putSessionAutoMerge(app, created.id, { enabled: "yes" });
+  expect(res.status).toBe(400);
+});
+
+test("PUT /api/sessions/:id/automerge 404s for unknown session", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putSessionAutoMerge(app, "does-not-exist", { enabled: true });
+  expect(res.status).toBe(404);
+});
+
+test("GET /api/automerge returns empty array when dep absent", async () => {
+  const res = await harness().fetch(new Request("http://x/api/automerge"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
+test("PUT /api/sessions/:id/automerge emits session:automerge with the new override", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const id = created.id;
+
+  const emitted: { event: string; data: unknown }[] = [];
+  deps.events.subscribe((event, data) => emitted.push({ event, data }));
+
+  const res = await putSessionAutoMerge(app, id, { enabled: true });
+  expect(res.status).toBe(200);
+  expect(emitted).toContainEqual({
+    event: "session:automerge",
+    data: { id, enabled: true },
+  });
 });

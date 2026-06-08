@@ -12,6 +12,7 @@ const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   learnings: false,
   autopilot: false,
   autoDrain: false,
+  autoMerge: false,
   ...over,
 });
 
@@ -26,6 +27,7 @@ describe("automationCount", () => {
     expect(
       automationCount(flags({ critic: true, learnings: true, autopilot: true, autoDrain: true })),
     ).toBe(4);
+    expect(automationCount(flags({ autoMerge: true }))).toBe(1);
   });
 
   it("does NOT count auto-address unless the critic is on (dependency)", () => {
@@ -33,7 +35,7 @@ describe("automationCount", () => {
     expect(automationCount(flags({ critic: true, autoAddress: true }))).toBe(2);
   });
 
-  it("never exceeds 5", () => {
+  it("never exceeds 6", () => {
     expect(
       automationCount(
         flags({
@@ -42,19 +44,20 @@ describe("automationCount", () => {
           learnings: true,
           autopilot: true,
           autoDrain: true,
+          autoMerge: true,
         }),
       ),
-    ).toBe(5);
+    ).toBe(6);
   });
 });
 
 describe("AUTOMATION_GROUPS", () => {
-  it("lists all five automation keys exactly once", () => {
+  it("lists all six automation keys exactly once", () => {
     const keys = AUTOMATION_GROUPS.flatMap((g) => g.items);
-    expect(keys).toHaveLength(5);
-    expect(new Set(keys).size).toBe(5);
+    expect(keys).toHaveLength(6);
+    expect(new Set(keys).size).toBe(6);
     expect(keys.sort()).toEqual(
-      ["autoAddress", "autoDrain", "autopilot", "critic", "learnings"].sort(),
+      ["autoAddress", "autoDrain", "autoMerge", "autopilot", "critic", "learnings"].sort(),
     );
   });
 
@@ -62,13 +65,13 @@ describe("AUTOMATION_GROUPS", () => {
     expect(AUTOMATION_GROUPS.map((g) => g.id)).toEqual(["review", "behavior", "queue"]);
     expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress"]);
     expect(AUTOMATION_GROUPS[1].items).toEqual(["learnings", "autopilot"]);
-    expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain"]);
+    expect(AUTOMATION_GROUPS[2].items).toEqual(["autoDrain", "autoMerge"]);
   });
 });
 
 describe("AUTOMATION_TOTAL", () => {
   it("is the item count across all groups (the pill denominator)", () => {
-    expect(AUTOMATION_TOTAL).toBe(5);
+    expect(AUTOMATION_TOTAL).toBe(6);
     expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

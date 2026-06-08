@@ -32,7 +32,7 @@ export const CI_FIX_STEER = [
 const STEERABLE_SHAPES = new Set(["awaiting-input", "yes-no"]);
 
 export interface AutopilotDeps {
-  store: Pick<SessionStore, "get" | "getRepoConfig" | "setAutopilotState">;
+  store: Pick<SessionStore, "get" | "getRepoConfig" | "setAutopilotState" | "setAutoMergeState">;
   /** Classify why an agent stopped (src/autopilot-llm.classifyStop, pre-bound to herdr+model). */
   classify: (tail: string[], taskPrompt: string, label: string) => Promise<AutopilotVerdict>;
   /** Steer text into the session's live PTY (SessionService.reply). false = didn't land. */
@@ -46,6 +46,9 @@ export interface AutopilotDeps {
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
+  /** Whether this session is in full-auto (autopilot ∧ auto-merge). When true, autopilot does
+   *  NOT stand down at PR-open — it keeps unblocking procedural gates so a rebase can finish. */
+  fullAuto: (id: string) => boolean;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
@@ -97,10 +100,10 @@ export class AutopilotService {
     if (!this.enabled(s)) return null;
     if (s.autopilotPaused) return null; // already handed back; waits for operator
     if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive
-    // A PR exists in ANY state → autopilot stands down: open is the critic loop's territory,
-    // and merged/closed mean the pre-PR mission is over (work landed / human closed it) — never
-    // steer such a session to open ANOTHER PR.
-    if (this.deps.hasPr(id)) return null;
+    // A PR exists → autopilot normally stands down (critic territory). EXCEPTION: a full-auto
+    // session keeps going past the PR so the merge train's rebase steers get unblocked. The
+    // open-a-PR steer is still suppressed for any PR (see dispatch), so we never double-open.
+    if (this.deps.hasPr(id) && !this.deps.fullAuto(id)) return null;
     if (this.pending.has(id)) return null; // a classify is already in flight
     return s;
   }
@@ -144,6 +147,7 @@ export class AutopilotService {
         this.driveSteer(s, PROCEED_STEER);
         return;
       case "finished":
+        if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
         this.driveSteer(s, OPEN_PR_STEER);
         return;
       case "complete":
@@ -218,6 +222,7 @@ export class AutopilotService {
       question: null,
       stepCount: 0,
     });
+    this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
     this.deps.onState?.(id);
   }
 

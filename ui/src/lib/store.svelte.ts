@@ -9,6 +9,7 @@ import type {
   BacklogPayload,
   BlockReason,
   DrainStatus,
+  AutoMergeStatus,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -43,6 +44,9 @@ export class HerdStore {
   /** Live drain status keyed by repoPath; bootstrapped via GET /api/drain,
    *  updated in real-time by the `drain:status` WS event. */
   drain = $state<Record<string, DrainStatus>>({});
+  /** Live automerge status keyed by repoPath; bootstrapped via GET /api/automerge,
+   *  updated in real-time by the `automerge:status` WS event. */
+  autoMerge = $state<Record<string, AutoMergeStatus>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -59,6 +63,9 @@ export class HerdStore {
   }
   setDrain(list: DrainStatus[]) {
     this.drain = Object.fromEntries(list.map((d) => [d.repoPath, d]));
+  }
+  setAutoMerge(list: AutoMergeStatus[]) {
+    this.autoMerge = Object.fromEntries(list.map((s) => [s.repoPath, s]));
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -152,6 +159,11 @@ export class HerdStore {
             : s,
         );
         break;
+      case "session:automerge":
+        this.sessions = this.sessions.map((s) =>
+          s.id === ev.data.id ? { ...s, autoMergeEnabled: ev.data.enabled } : s,
+        );
+        break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);
@@ -218,6 +230,9 @@ export class HerdStore {
         break;
       case "drain:status":
         this.drain = { ...this.drain, [ev.data.repoPath]: ev.data };
+        break;
+      case "automerge:status":
+        this.autoMerge = { ...this.autoMerge, [ev.data.repoPath]: ev.data };
         break;
       case "halt:done":
         // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the

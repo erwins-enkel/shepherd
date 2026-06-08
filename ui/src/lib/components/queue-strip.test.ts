@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { enabledDrains, pausedText, queueOpenable } from "./queue-strip";
-import type { DrainStatus } from "../types";
+import {
+  activeMergeTrain,
+  enabledDrains,
+  mergeTrainIsAttention,
+  mergeTrainLabel,
+  pausedText,
+  queueOpenable,
+} from "./queue-strip";
+import type { AutoMergeStatus, DrainStatus } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -72,5 +79,76 @@ describe("pausedText", () => {
     expect(
       pausedText(drain({ paused: true, reason: "blocked", detail: null })).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+// ─── merge-train helpers ───────────────────────────────────────────────────
+
+function am(over: Partial<AutoMergeStatus>): AutoMergeStatus {
+  return {
+    repoPath: "/repos/a",
+    enabled: true,
+    state: null,
+    detail: null,
+    sessionId: null,
+    ...over,
+  };
+}
+
+describe("activeMergeTrain", () => {
+  it("drops idle (null-state) entries", () => {
+    expect(activeMergeTrain({ a: am({ state: null }) })).toEqual([]);
+  });
+
+  it("keeps non-null states and sorts by path", () => {
+    const rows = activeMergeTrain({
+      z: am({ repoPath: "/repos/z", state: "merging" }),
+      a: am({ repoPath: "/repos/a", state: "rebasing" }),
+      idle: am({ repoPath: "/repos/idle", state: null }),
+    });
+    expect(rows.map((r) => r.repoPath)).toEqual(["/repos/a", "/repos/z"]);
+  });
+
+  it("returns empty list for empty record", () => {
+    expect(activeMergeTrain({})).toEqual([]);
+  });
+});
+
+describe("mergeTrainIsAttention", () => {
+  it("flags merge_error as attention", () => {
+    expect(mergeTrainIsAttention("merge_error")).toBe(true);
+  });
+  it("flags rebase_cap as attention", () => {
+    expect(mergeTrainIsAttention("rebase_cap")).toBe(true);
+  });
+  it("does not flag merging as attention", () => {
+    expect(mergeTrainIsAttention("merging")).toBe(false);
+  });
+  it("does not flag rebasing as attention", () => {
+    expect(mergeTrainIsAttention("rebasing")).toBe(false);
+  });
+});
+
+describe("mergeTrainLabel", () => {
+  it("returns non-empty string for merging", () => {
+    expect(mergeTrainLabel("merging").length).toBeGreaterThan(0);
+  });
+  it("returns non-empty string for rebasing", () => {
+    expect(mergeTrainLabel("rebasing").length).toBeGreaterThan(0);
+  });
+  it("returns non-empty string for merge_error", () => {
+    expect(mergeTrainLabel("merge_error").length).toBeGreaterThan(0);
+  });
+  it("returns non-empty string for rebase_cap", () => {
+    expect(mergeTrainLabel("rebase_cap").length).toBeGreaterThan(0);
+  });
+  it("returns empty string for null (idle)", () => {
+    expect(mergeTrainLabel(null)).toBe("");
+  });
+  it("returns empty string for unknown state", () => {
+    expect(mergeTrainLabel("something-else")).toBe("");
+  });
+  it("merge_error label differs from merging label", () => {
+    expect(mergeTrainLabel("merge_error")).not.toBe(mergeTrainLabel("merging"));
   });
 });

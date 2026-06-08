@@ -1,7 +1,14 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
-import type { BacklogPayload, DrainStatus, GitState, Session, SessionActivity } from "./types";
+import type {
+  AutoMergeStatus,
+  BacklogPayload,
+  DrainStatus,
+  GitState,
+  Session,
+  SessionActivity,
+} from "./types";
 
 const GIT: GitState = {
   kind: "github",
@@ -35,6 +42,8 @@ function session(id: string): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
     auto: false,
     issueNumber: null,
     lastState: "working",
@@ -403,4 +412,46 @@ test("session:archived drops the activity entry for that session", () => {
   expect(s.activity["s1"]).toBeDefined();
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.activity["s1"]).toBeUndefined();
+});
+
+// ── automerge state ────────────────────────────────────────────────────────
+
+const AUTOMERGE_STATUS: AutoMergeStatus = {
+  repoPath: "/r",
+  enabled: true,
+  state: "merging",
+  detail: "TASK-01",
+  sessionId: "s1",
+};
+
+test("setAutoMerge hydrates the automerge map from a list", () => {
+  const s = new HerdStore();
+  s.setAutoMerge([AUTOMERGE_STATUS]);
+  expect(s.autoMerge["/r"]?.state).toBe("merging");
+  expect(s.autoMerge["/r"]?.detail).toBe("TASK-01");
+});
+
+test("automerge:status merges into the automerge map", () => {
+  const s = new HerdStore();
+  s.apply({ event: "automerge:status", data: AUTOMERGE_STATUS });
+  expect(s.autoMerge["/r"]?.enabled).toBe(true);
+  expect(s.autoMerge["/r"]?.state).toBe("merging");
+});
+
+test("automerge:status overwrites a previous entry for the same repoPath", () => {
+  const s = new HerdStore();
+  s.setAutoMerge([AUTOMERGE_STATUS]);
+  s.apply({ event: "automerge:status", data: { ...AUTOMERGE_STATUS, state: null, detail: null } });
+  expect(s.autoMerge["/r"]?.state).toBeNull();
+});
+
+test("session:automerge updates the matching session's autoMergeEnabled", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({ event: "session:automerge", data: { id: "s1", enabled: true } });
+  expect(s.byId("s1")?.autoMergeEnabled).toBe(true);
+  expect(s.byId("s2")?.autoMergeEnabled).toBeNull(); // other sessions untouched
+  // null = inherit repo default
+  s.apply({ event: "session:automerge", data: { id: "s1", enabled: null } });
+  expect(s.byId("s1")?.autoMergeEnabled).toBeNull();
 });

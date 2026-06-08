@@ -212,3 +212,28 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
 
   mgr.remove(second.worktreePath);
 });
+
+test("behindBase: false when up-to-date, true when base advanced", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wt-"));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.name", "t"], { cwd: dir, stdio: "pipe" });
+  writeFileSync(join(dir, "a"), "1");
+  execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["checkout", "-q", "-b", "feat"], { cwd: dir, stdio: "pipe" });
+  writeFileSync(join(dir, "b"), "1");
+  execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["commit", "-qm", "feat"], { cwd: dir, stdio: "pipe" });
+  const wt = new WorktreeMgr();
+  // feat contains main's tip → up-to-date
+  expect(wt.behindBase(dir, "main")).toBe(false);
+  // advance main beyond feat
+  execFileSync("git", ["checkout", "-q", "main"], { cwd: dir, stdio: "pipe" });
+  writeFileSync(join(dir, "c"), "1");
+  execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["commit", "-qm", "main2"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["checkout", "-q", "feat"], { cwd: dir, stdio: "pipe" });
+  expect(wt.behindBase(dir, "main")).toBe(true);
+  rmSync(dir, { recursive: true, force: true });
+});

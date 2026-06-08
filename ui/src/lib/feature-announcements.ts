@@ -86,4 +86,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_readiness_title",
     bodyKey: "feat_readiness_body",
   },
+  {
+    id: "auto-merge",
+    sinceVersion: "1.17.0",
+    titleKey: "feat_automerge_title",
+    bodyKey: "feat_automerge_body",
+  },
 ];

@@ -31,6 +31,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
     auto: false,
     issueNumber: null,
     lastState: "",

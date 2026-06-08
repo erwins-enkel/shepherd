@@ -31,6 +31,8 @@ export interface RepoConfig {
   autopilotEnabled: boolean;
   /** Per-repo master switch for the self-draining work queue (default OFF). */
   autoDrainEnabled: boolean;
+  /** Full-auto: when on, the merge train lands ready PRs instead of handing off. */
+  autoMergeEnabled: boolean;
   /** Concurrency cap on auto-spawned agents for this repo (default 1). */
   maxAuto: number;
   /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
@@ -80,6 +82,9 @@ type NewSession = Omit<
   | "autopilotPaused"
   | "autopilotComplete"
   | "autopilotQuestion"
+  | "autoMergeEnabled"
+  | "autoMergeRebaseCount"
+  | "autoMergeRebaseHead"
   | "auto"
   | "issueNumber"
 > & {
@@ -92,6 +97,7 @@ type NewSession = Omit<
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
+  autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
@@ -119,6 +125,7 @@ export class SessionStore implements CapStore {
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       learningsEnabled INTEGER NOT NULL DEFAULT 1,
       autoDrainEnabled INTEGER NOT NULL DEFAULT 0,
+      autoMergeEnabled INTEGER NOT NULL DEFAULT 0,
       maxAuto INTEGER NOT NULL DEFAULT 1,
       autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto',
       usageCeilingPct INTEGER NOT NULL DEFAULT 80,
@@ -191,7 +198,7 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-                autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct
+                autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -200,6 +207,7 @@ export class SessionStore implements CapStore {
       learningsEnabled: number;
       autopilotEnabled: number;
       autoDrainEnabled: number;
+      autoMergeEnabled: number;
       maxAuto: number;
       autoLabel: string;
       usageCeilingPct: number;
@@ -212,6 +220,7 @@ export class SessionStore implements CapStore {
       learningsEnabled: r ? !!r.learningsEnabled : true,
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
       autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
+      autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
       maxAuto: r ? r.maxAuto : 1,
       autoLabel: r ? r.autoLabel : "shepherd:auto",
       usageCeilingPct: r ? r.usageCeilingPct : 80,
@@ -222,13 +231,14 @@ export class SessionStore implements CapStore {
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled,
-          autoDrainEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?)
+          autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
          autoDrainEnabled = excluded.autoDrainEnabled,
+         autoMergeEnabled = excluded.autoMergeEnabled,
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
@@ -240,6 +250,7 @@ export class SessionStore implements CapStore {
         cfg.learningsEnabled ? 1 : 0,
         cfg.autopilotEnabled ? 1 : 0,
         cfg.autoDrainEnabled ? 1 : 0,
+        cfg.autoMergeEnabled ? 1 : 0,
         cfg.maxAuto,
         cfg.autoLabel,
         cfg.usageCeilingPct,
@@ -311,6 +322,9 @@ export class SessionStore implements CapStore {
       autopilotPaused: false,
       autopilotComplete: false,
       autopilotQuestion: null,
+      autoMergeEnabled: null,
+      autoMergeRebaseCount: 0,
+      autoMergeRebaseHead: null,
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
       status: "running",
@@ -322,7 +336,7 @@ export class SessionStore implements CapStore {
       mergingTrainId: null,
     };
     this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         s.id,
         s.desig,
@@ -345,6 +359,9 @@ export class SessionStore implements CapStore {
         0, // autopilotPaused
         0, // autopilotComplete
         null, // autopilotQuestion
+        null, // autoMergeEnabled — inherit repo default
+        0, // autoMergeRebaseCount
+        null, // autoMergeRebaseHead — none outstanding
         s.auto ? 1 : 0,
         s.issueNumber,
         s.createdAt,
@@ -434,6 +451,24 @@ export class SessionStore implements CapStore {
         Date.now(),
         id,
       ],
+    );
+  }
+
+  /** Update full-auto merge fields. `enabled`: override (boolean|null). `rebaseCount`: absolute.
+   *  `rebaseHead`: the head SHA last steered for (string), or null to clear. */
+  setAutoMergeState(
+    id: string,
+    patch: { enabled?: boolean | null; rebaseCount?: number; rebaseHead?: string | null },
+  ): void {
+    const cur = this.get(id);
+    if (!cur) return;
+    const enabled = patch.enabled === undefined ? cur.autoMergeEnabled : patch.enabled;
+    const rebaseCount =
+      patch.rebaseCount === undefined ? cur.autoMergeRebaseCount : patch.rebaseCount;
+    const rebaseHead = patch.rebaseHead === undefined ? cur.autoMergeRebaseHead : patch.rebaseHead;
+    this.db.run(
+      `UPDATE sessions SET autoMergeEnabled=?, autoMergeRebaseCount=?, autoMergeRebaseHead=?, updatedAt=? WHERE id=?`,
+      [enabled === null ? null : enabled ? 1 : 0, rebaseCount, rebaseHead, Date.now(), id],
     );
   }
 
@@ -656,6 +691,9 @@ export class SessionStore implements CapStore {
     add("autopilotPaused", `autopilotPaused INTEGER NOT NULL DEFAULT 0`);
     add("autopilotComplete", `autopilotComplete INTEGER NOT NULL DEFAULT 0`);
     add("autopilotQuestion", `autopilotQuestion TEXT`);
+    add("autoMergeEnabled", `autoMergeEnabled INTEGER`);
+    add("autoMergeRebaseCount", `autoMergeRebaseCount INTEGER NOT NULL DEFAULT 0`);
+    add("autoMergeRebaseHead", `autoMergeRebaseHead TEXT`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
     add("mergingSince", `mergingSince INTEGER`);
@@ -674,6 +712,7 @@ export class SessionStore implements CapStore {
     add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("autoMergeEnabled", `autoMergeEnabled INTEGER NOT NULL DEFAULT 0`);
     add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
     add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
@@ -908,6 +947,12 @@ export class SessionStore implements CapStore {
       autopilotPaused: !!r.autopilotPaused,
       autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
+      autoMergeEnabled:
+        r.autoMergeEnabled === null || r.autoMergeEnabled === undefined
+          ? null
+          : !!r.autoMergeEnabled,
+      autoMergeRebaseCount: r.autoMergeRebaseCount ?? 0,
+      autoMergeRebaseHead: r.autoMergeRebaseHead ?? null,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
       mergingSince: r.mergingSince ?? null,

@@ -2,6 +2,8 @@ import type { SessionStore } from "./store";
 import type { GitForge, GitState, Issue } from "./forge/types";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
+import { settleMergedSession } from "./merge-teardown";
+import { isFullAuto } from "./full-auto";
 import {
   ACTIVE_LABEL,
   computeNext,
@@ -108,6 +110,7 @@ export class DrainService {
         git: snapshot[s.id] ?? null,
         reviewDecision: this.deps.store.getReview(s.id)?.decision ?? null,
         reviewHeadSha: this.deps.store.getReview(s.id)?.headSha ?? null,
+        fullAuto: isFullAuto(s, cfg),
       }));
     const mappedIssueNumbers = new Set(
       allRepoSessions.map((s) => s.issueNumber).filter((n): n is number => n != null),
@@ -310,7 +313,7 @@ export class DrainService {
     const s = this.deps.store.get(id);
     if (!s || !s.auto) return; // drain only manages auto sessions
     if (git.state === "merged") {
-      await this.reapMerged(s, id);
+      await this.reapMerged(s);
       return;
     }
     // open/green/other → the retire gate may now fire (e.g. CI just went green).
@@ -324,29 +327,14 @@ export class DrainService {
    *  and settles its claim, then archives. Does NOT pump — the emitted
    *  session:archived routes to onArchived, the single advance path. Best-effort:
    *  the merge is done, so a close failure must not block teardown. */
-  private async reapMerged(s: Session, id: string): Promise<void> {
-    let closed = false; // true ONLY after a closeIssue actually lands
-    if (s.issueNumber != null) {
-      const forge = this.deps.resolveForge(s.repoPath);
-      // Gate on the method existing: a forge without closeIssue leaves the issue
-      // OPEN, so we must not treat it as closed (see the claim-retain note below).
-      if (forge?.closeIssue) {
-        try {
-          await forge.closeIssue(s.issueNumber);
-          closed = true;
-        } catch (err) {
-          console.warn(`[drain] closeIssue #${s.issueNumber} failed for ${id}:`, err);
-        }
-      }
-      // The issue closed → its claim is moot, so let onArchived drop the now-stale
-      // label. If it did NOT close (close failed, or no closeIssue method), retain
-      // the claim: the issue is still open and merged, so the label is what stops
-      // any instance re-spawning already-merged work.
-      if (!closed) this.retainClaimOnArchive.add(id);
-    }
-    this.deps.service.archive(id);
-    this.deps.dropPrCache(id);
-    this.deps.emitArchived(id);
+  private async reapMerged(s: Session): Promise<void> {
+    await settleMergedSession(s, {
+      resolveForge: this.deps.resolveForge,
+      archive: (sid) => this.deps.service.archive(sid),
+      dropPrCache: this.deps.dropPrCache,
+      emitArchived: this.deps.emitArchived,
+      retainClaim: (sid) => this.retainClaimOnArchive.add(sid),
+    });
   }
 
   /** A session was archived (retired auto session, or a manual archive). The
@@ -383,6 +371,11 @@ export class DrainService {
   /** A session's status changed. Pump its repo, skipping drain-disabled repos. */
   async onStatus(id: string): Promise<void> {
     await this.pumpForSession(id);
+  }
+
+  /** Used by the merge train: a merge whose closeIssue failed keeps the claim (issue still open). */
+  retainClaim(id: string): void {
+    this.retainClaimOnArchive.add(id);
   }
 
   /** A critic verdict landed for a session. A clean verdict for the current head

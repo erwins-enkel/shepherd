@@ -6,6 +6,7 @@ import {
   attachPush,
   attachReviewPush,
   attachGitPush,
+  attachMergePush,
   blockSummary,
   buildPayload,
   type NotifyInput,
@@ -442,4 +443,136 @@ test("buildPayload localizes ci + review-human kinds", () => {
   };
   expect(buildPayload(hr, "en").body).toBe("A reviewer approved your PR.");
   expect(buildPayload(hr, "de").body).toBe("Ein Reviewer hat deinen PR genehmigt.");
+});
+
+test("buildPayload merge_attention localizes merge_error EN+DE", () => {
+  const mergeErr: NotifyInput = {
+    kind: "merge_attention",
+    sessionId: "s",
+    tag: "t",
+    name: "TASK-07",
+    mergeState: "merge_error",
+    desig: "TASK-07",
+  };
+  expect(buildPayload(mergeErr, "en")).toMatchObject({
+    title: "Merge failed",
+    body: "TASK-07: the merge train needs your help",
+  });
+  expect(buildPayload(mergeErr, "de")).toMatchObject({
+    title: "Merge fehlgeschlagen",
+    body: "TASK-07: der Merge-Train braucht deine Hilfe",
+  });
+});
+
+test("buildPayload merge_attention localizes rebase_cap EN+DE", () => {
+  const rebaseCap: NotifyInput = {
+    kind: "merge_attention",
+    sessionId: "s",
+    tag: "t",
+    name: "TASK-08",
+    mergeState: "rebase_cap",
+    desig: "TASK-08",
+  };
+  expect(buildPayload(rebaseCap, "en")).toMatchObject({
+    title: "Rebase limit reached",
+    body: "TASK-08: too many rebase attempts — over to you",
+  });
+  expect(buildPayload(rebaseCap, "de")).toMatchObject({
+    title: "Rebase-Limit erreicht",
+    body: "TASK-08: zu viele Rebase-Versuche — du bist dran",
+  });
+});
+
+test("merge_attention routes to ci category", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("only-ci"), "");
+  store.setPushPrefs("only-ci", { agent: false, reviews: false, ci: true });
+  await push.notify({
+    kind: "merge_attention",
+    sessionId: "s1",
+    tag: "t1",
+    name: "TASK-07",
+    mergeState: "merge_error",
+    desig: "TASK-07",
+  });
+  expect(sent).toEqual(["only-ci"]);
+});
+
+test("attachMergePush notifies on merge_error and rebase_cap, ignores other states", async () => {
+  const calls: any[] = [];
+  const { push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachMergePush(events, push);
+
+  events.emit("automerge:status", {
+    repoPath: "/repo/a",
+    enabled: true,
+    state: "merge_error",
+    detail: "TASK-07",
+    sessionId: "sess-a",
+  });
+  events.emit("automerge:status", {
+    repoPath: "/repo/b",
+    enabled: true,
+    state: "rebase_cap",
+    detail: "TASK-08",
+    sessionId: "sess-b",
+  });
+  // Second session in the SAME repo, same attention state: must surface independently
+  // (distinct tag + cooldownKey keyed by session, not collapsed/suppressed by repo).
+  events.emit("automerge:status", {
+    repoPath: "/repo/a",
+    enabled: true,
+    state: "merge_error",
+    detail: "TASK-09",
+    sessionId: "sess-c",
+  });
+  events.emit("automerge:status", {
+    repoPath: "/repo/c",
+    enabled: true,
+    state: "merging",
+    detail: null,
+    sessionId: "sess-d",
+  }); // not an attention state → no notify
+  events.emit("automerge:status", {
+    repoPath: "/repo/d",
+    enabled: true,
+    state: null,
+    detail: null,
+    sessionId: null,
+  }); // idle → no notify
+  await Promise.resolve();
+
+  expect(calls.length).toBe(3);
+  expect(calls[0]).toMatchObject({
+    kind: "merge_attention",
+    sessionId: "sess-a",
+    mergeState: "merge_error",
+    desig: "TASK-07",
+    tag: "merge_attention:sess-a",
+    cooldownKey: "merge_error:sess-a",
+  });
+  expect(calls[1]).toMatchObject({
+    kind: "merge_attention",
+    sessionId: "sess-b",
+    mergeState: "rebase_cap",
+    desig: "TASK-08",
+    tag: "merge_attention:sess-b",
+    cooldownKey: "rebase_cap:sess-b",
+  });
+  // Same repo + same state as calls[0], different session → distinct keys, not suppressed.
+  expect(calls[2]).toMatchObject({
+    kind: "merge_attention",
+    sessionId: "sess-c",
+    mergeState: "merge_error",
+    desig: "TASK-09",
+    tag: "merge_attention:sess-c",
+    cooldownKey: "merge_error:sess-c",
+  });
 });

@@ -111,6 +111,9 @@
   "automation_autopilot_desc": "Auto-proceed through stops toward a PR",
   "automation_autodrain_name": "Auto-Drain",
   "automation_autodrain_desc": "Auto-spawn agents for labeled issues",
+  "automation_automerge_name": "Full-auto merge",
+  "automation_automerge_desc": "Land ready PRs automatically (rebases & re-verifies first).",
+  "session_automerge_label": "Full-auto merge",
   "drain_strip_label": "Drain",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} queued",
@@ -626,5 +629,12 @@
   "readiness_g_dead_code_audit_title": "Dead-code audit",
   "readiness_g_dead_code_audit_removes": "Without it, dead exports and unused deps accrete and you spot them by eye.",
   "feat_readiness_title": "AI-readiness analyzer",
-  "feat_readiness_body": "The Backlog page has a new Readiness tab: it scores a repo's guardrails against Shepherd's dogfooded baseline, prescribes the tooling that removes the most human↔AI back-and-forth, and generates a tailored CLAUDE.md you can send straight to a task."
+  "feat_readiness_body": "The Backlog page has a new Readiness tab: it scores a repo's guardrails against Shepherd's dogfooded baseline, prescribes the tooling that removes the most human↔AI back-and-forth, and generates a tailored CLAUDE.md you can send straight to a task.",
+  "session_automerge_toggle_failed": "Couldn't change full-auto merge for this session. Try again.",
+  "automerge_state_merging": "Merging…",
+  "automerge_state_rebasing": "Rebasing onto main…",
+  "automerge_state_merge_error": "Merge failed — needs attention",
+  "automerge_state_rebase_cap": "Rebase limit reached — needs attention",
+  "feat_automerge_title": "Full-auto merge",
+  "feat_automerge_body": "Turn on full-auto to let Shepherd land ready PRs for you — it rebases onto main and re-verifies before every merge, so parallel tasks stay safe."
 }

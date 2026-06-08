@@ -47,7 +47,11 @@
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
-  import { collectReadyPrs, formatReadyPrs, pickTrainRepo } from "$lib/components/merge-train";
+  import {
+    collectReadyPrs,
+    mergeTrainCreateInput,
+    pickTrainRepo,
+  } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
@@ -262,12 +266,7 @@
     const br = await listBranches(repoPath).catch(() => null);
     const baseBranch = br?.current ?? br?.branches[0] ?? "main";
     try {
-      const s = await createSession({
-        repoPath,
-        baseBranch,
-        prompt: m.herd_merge_train_prompt({ prs: formatReadyPrs(prs) }),
-        model: null,
-      });
+      const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
       selectedId = s.id;
       // Mark this repo's ready PR-sessions as "merging" so the list shows them
       // in-flight. Derived from the same scoped `prs` array the train works

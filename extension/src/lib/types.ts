@@ -13,11 +13,22 @@ export interface PageMetadata {
   timestamp: string;
 }
 
+/**
+ * How the screenshot is produced.
+ * - `visible` — the current viewport (`chrome.tabs.captureVisibleTab`).
+ * - `fullpage` — scroll + capture + stitch the whole page into one tall PNG.
+ * - `element` — crop to a user-picked element (a separate async picker flow, not
+ *   a value the synchronous `capture` message accepts).
+ */
+export type CaptureMode = "visible" | "fullpage" | "element";
+
 /** Result of capturing the active tab. */
 export interface CaptureResult {
-  /** PNG data URL from chrome.tabs.captureVisibleTab. */
+  /** PNG data URL (visible capture, stitched full page, or cropped element). */
   screenshotDataUrl: string;
   metadata: PageMetadata;
+  /** Which mode produced `screenshotDataUrl` (drives the popup's mode-aware hints). */
+  mode: CaptureMode;
   /** Gathered signals (only the toggles that were on, that succeeded). */
   signals?: CapturedSignals;
   /**
@@ -26,6 +37,12 @@ export interface CaptureResult {
    * result — present only when non-empty.
    */
   signalErrors?: GatherSignal[];
+  /**
+   * Full-page only: the page exceeded the tile cap, so the bottom was left
+   * uncaptured. Present (true) only when truncated — the popup warns explicitly
+   * rather than passing a partial page off as the whole thing.
+   */
+  fullPageTruncated?: boolean;
 }
 
 /** One URL→repo routing rule. `pattern` is a glob (`*` wildcards) matched
@@ -91,7 +108,8 @@ export class TransportError extends Error {
 
 /** Discriminated message envelope: popup/options <-> background worker. */
 export type WorkerRequest =
-  | { type: "capture"; toggles: SignalToggles }
+  | { type: "capture"; toggles: SignalToggles; mode: Exclude<CaptureMode, "element"> }
+  | { type: "start-picker"; toggles: SignalToggles; instructions: string }
   | { type: "spawn"; payload: SpawnPayload }
   | {
       type: "file-issue";
@@ -106,6 +124,22 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { ok: true; type: "capture"; result: CaptureResult }
+  | { ok: true; type: "picker-started" }
   | { ok: true; type: "spawn"; desig: string }
   | { ok: true; type: "issue"; number: number; url: string }
   | { ok: false; errorKind: TransportErrorKind | "capture"; message: string };
+
+/**
+ * Messages the injected element picker (`picker.ts`, page content script) sends
+ * the background worker. `picker-pick` carries the clicked element's
+ * viewport-relative CSS rect plus the viewport size + dpr needed to crop the
+ * capture; `picker-cancel` is sent on Esc / right-click.
+ */
+export type PickerMessage =
+  | {
+      type: "picker-pick";
+      rect: { x: number; y: number; width: number; height: number };
+      viewport: { width: number; height: number };
+      dpr: number;
+    }
+  | { type: "picker-cancel" };

@@ -54,18 +54,51 @@ const BRANCH_RENAME_NOTICE =
   "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
 
 /**
+ * Universal engineering posture injected into every spawn (issue #349, adapted from the
+ * MIT-licensed Karpathy-style Claude Code skills). Unlike the `<shepherd-house-rules>` block
+ * — per-repo, learned, budget-limited and toggle-gated — this is fixed, repo-independent
+ * standing posture, so it lives in source and rides every spawn unconditionally.
+ *
+ * It biases the agent *against over-building*, the classic unattended-overnight failure mode
+ * the curated (defect-prevention) house rules don't cover. Scope notes baked into the wording:
+ *  - "Think before coding" is deliberately scoped to PRE-EXECUTION. Once running autonomously,
+ *    the autopilot don't-pause-to-ask rule still wins — the agent proceeds on stated assumptions.
+ *  - The dead-code clause harmonizes with the curated "don't ship dead code" rule: remove only
+ *    what YOUR change orphaned; surface (don't silently delete) pre-existing unrelated dead code.
+ * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
+ * BRANCH_RENAME_NOTICE and the distiller/critic spawn prompts.
+ */
+const ENGINEERING_POSTURE =
+  "Standing engineering posture for every change — adopt it regardless of the task.\n" +
+  "- Think before coding (pre-execution only): before you start, state your key assumptions, " +
+  "surface genuine ambiguity and any clearly simpler approach, and name what's unclear. Resolve " +
+  "this up front — once you are executing autonomously, do NOT pause to ask; proceed on your stated assumptions.\n" +
+  "- Simplicity first: write the minimum code that solves the stated problem, nothing speculative. " +
+  "No features beyond what was asked, no abstractions for single-use code, no unrequested " +
+  "flexibility/config, no error handling for genuinely impossible cases. Test: would a senior " +
+  "engineer call this overcomplicated?\n" +
+  "- Surgical changes: touch only what the task requires — every changed line should trace to the " +
+  "request. Don't refactor working code, reformat, or polish adjacent code/comments; match existing " +
+  "style. Delete only the imports/vars/functions YOUR change orphaned; for pre-existing unrelated " +
+  "dead code, surface it rather than silently expanding the diff.\n" +
+  "- Goal-driven execution: turn the task into explicit, verifiable success criteria up front, then " +
+  "loop until they actually pass — never declare work done before verifying against them.";
+
+/**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
- * (the flag is last-wins, not repeatable, so both notices must share one value).
+ * (the flag is last-wins, not repeatable, so all blocks must share one value).
  *
  * House rules used to be prepended to the human prompt, which let standing guidance bleed
- * into the task on every spawn. They now live in the system prompt, each notice XML-wrapped
- * so the agent can cleanly separate persistent repo guidance from the task in its human turn.
+ * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
+ * so the agent can cleanly separate persistent guidance from the task in its human turn.
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
- * none / learnings are disabled.
+ * none / learnings are disabled; the engineering-posture and branch-rename blocks always ride.
  */
 export function composeSystemPrompt(houseRules: string | null): string {
+  const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
-  return houseRules ? `${houseRules}\n\n${branchNotice}` : branchNotice;
+  const blocks = houseRules ? [posture, houseRules, branchNotice] : [posture, branchNotice];
+  return blocks.join("\n\n");
 }
 
 export class SessionService {

@@ -2,7 +2,33 @@
 
 **Verdict: PARK** (do not adopt now). Decided by the pre-registered rule: median token win **1.15×** across a realistic mixed question set vs a required **≥3×**. Re-visit conditions are listed at the end.
 
-This was an evidence-gathering spike, not implementation. Method and thresholds were frozen _before_ building the graph (see `.shepherd-plan.md`) to kill selection bias.
+This was an evidence-gathering spike, not implementation. The method, question set, and thresholds below were frozen _before_ the graph was built or inspected (reviewed and approved at the plan gate) to kill selection bias; results are reported against them as-frozen.
+
+## Pre-registration (frozen before build)
+
+**Token-accounting convention.** Per-question ratio = **baseline tokens ÷ graph-path tokens** (3× = the graph path costs ⅓ of grep+read). Recorded **literally, never floored** — an adverse result where the graph path costs _more_ records as a fraction (<1×) and drags the median down. Graph answers → graph-path tokens = the `graphify` payload. Graph misses → the agent must fall back to grep+read anyway, so graph-path tokens = payload **+ the full baseline fallback** (ratio <1×, recorded as that fraction, not 1× or 0). Tokens ≈ chars/4, applied identically to both sides. The reported statistic is the **median** of all 6 literal ratios (robust to the structural-navigation outliers; the mean is reported only for contrast).
+
+**The 6 questions, baseline retrieval path, and category** (2 discovery / 2 edit-flow / 2 graph-hostile — the last targets non-AST relationships, where misses count as negatives, not dropped):
+
+| #    | Category                | Question                                                              | Frozen baseline (grep + reads an agent would do)                                               |
+| ---- | ----------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Q-D1 | discovery (AST-native)  | callers + callees of `ReviewService`                                  | `rg ReviewService` for callers; read `src/review.ts` for callees                               |
+| Q-D2 | discovery (AST-native)  | shortest dependency path `AutoMergeService` ↔ drain loop              | grep both symbols; read intervening modules to trace                                           |
+| Q-E1 | edit flow               | add a field to the build-queue item type + thread through consumers   | grep type + consumers, **read each to edit** (residual read counts against the graph path too) |
+| Q-E2 | edit flow               | change dedupe-key namespacing on a persistent failure toast           | grep toast store + call sites, read `toasts.svelte.ts` to edit                                 |
+| Q-H1 | graph-hostile (non-AST) | is an i18n key present in **both** `ui/messages/en.json` + `de.json`? | grep both catalogs (cross-file JSON parity — no code AST edge)                                 |
+| Q-H2 | graph-hostile (non-AST) | trace a toast from store dispatch → Svelte component render           | grep store + `.svelte` components (reactive `$store`→template, not a call-graph edge)          |
+
+**Frozen decision rule** (three axes, all evaluated against the set above):
+
+- **Token delta** = median of all 6 literal ratios (no cherry-picking the discovery wins).
+- **Accuracy** = # of the **A+B answerable set (n=4)** where the graph answer is correct AND complete (truth present, not buried under noise). Category C is **not** in this denominator — its questions are _expected_ misses (counting an honest "no AST edge" miss as wrong would conflate "graph correctly has nothing" with "graph wrong"); C instead serves only as the zero-confidently-wrong guardrail + a qualitative boundary write-up.
+- **Staleness** = a pass/fail axis (graph reflects last commit; agents edit uncommitted code) that can force PARK on its own.
+
+> **ADOPT (AST-only, opt-in)** iff ALL: median ratio **≥ 3×** AND accuracy **≥ 3/4** on A+B AND zero confidently-wrong Category-C answers (a miss is fine; a confident wrong answer is not) AND staleness = PASS.
+> **PARK** if ANY: median **< 3×**, OR accuracy **< 3/4**, OR ≥1 confidently-wrong Category-C answer, OR staleness = FAIL, OR the graph is unbuildable even with `--python 3.12` (→ "insufficient evidence / park pending buildable env", never a desk estimate dressed up as the measurement).
+
+The 3× bar (not the published 79×) is deliberate: the headline numbers are multi-modal and lean on the semantic pass we skip; a realistic mixed pure-code set including edit + hostile questions is expected far lower, and 3× median would still be a material, opt-in-worthy win.
 
 ## What was tested
 
@@ -65,4 +91,4 @@ For Shepherd's AST-only, spawn-in-worktree model the measured benefit (median ~1
 2. Graphify ships a **stable MCP server** with **exact-id** addressing (kills the fuzzy-resolver failure mode).
 3. We're willing to spend on the **semantic pass** (the published 71–79× numbers are multi-modal and depend on it; AST-only on a mostly-TS repo does not reproduce them).
 
-No follow-up implementation issue is filed (verdict is park). Evidence is reproducible from this note + `.shepherd-plan.md`.
+No follow-up implementation issue is filed (verdict is park). Evidence is reproducible from this note alone: the frozen method/question-set/thresholds are in **Pre-registration** above, and the build is `uv tool install graphifyy` → `graphify extract . --no-cluster --exclude '*.md' '*.yaml' '*.svg' …` (exclude non-code) → the `query`/`path`/`explain` invocations per question.

@@ -40,6 +40,7 @@
   "status_done": "WARTET",
   "status_archived": "ARCHIVIERT",
   "status_ready_to_merge": "BEREIT",
+  "status_merging": "MERGE LÄUFT",
   "theme_dark": "Dunkel",
   "theme_light": "Hell",
   "theme_system": "System",

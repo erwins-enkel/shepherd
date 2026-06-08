@@ -2,12 +2,19 @@
   import type { SessionStatus } from "$lib/types";
   import { STATUS_COLOR, statusLabel } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
-  let { status, ready = false }: { status: SessionStatus; ready?: boolean } = $props();
+  let {
+    status,
+    ready = false,
+    merging = false,
+  }: { status: SessionStatus; ready?: boolean; merging?: boolean } = $props();
   // ready overrides status: a green ✓ reads as "parked, actionable-complete".
   // The check (green) is reserved for readyToMerge; a `done`/WAITING session is
   // NOT complete (it's parked for the operator's next steer), so its pip is the
   // quiet idle slate (--status-done === --color-slate), not green.
-  const color = $derived(ready ? "var(--color-green)" : STATUS_COLOR[status]);
+  // merging takes priority over ready: amber pulse signals in-flight merge train.
+  const color = $derived(
+    merging ? "var(--color-amber)" : ready ? "var(--color-green)" : STATUS_COLOR[status],
+  );
   // done (WAITING) and idle share slate, so hue alone can't separate them.
   // Give done a hollow ring (a parked marker) vs idle's solid dot — a non-color
   // cue on top of the distinct WAITING/IDLE label.
@@ -17,7 +24,9 @@
   const label = $derived(m.statuspip_status_aria({ status: statusLabel(status) }));
 </script>
 
-{#if ready}
+{#if merging}
+  <span class="pip pulse" style="--c:{color}" role="img" aria-label={label} title={label}></span>
+{:else if ready}
   <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
 {:else if status === "blocked"}
   <!-- blocked: a filled red alarm badge — loud enough to catch the eye in a long

@@ -1595,6 +1595,56 @@ test("create omits house rules when learnings disabled for the repo", async () =
   expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
 });
 
+test("composeSystemPrompt adds the autopilot directive only when active", () => {
+  expect(composeSystemPrompt(null)).not.toContain("<autopilot-directive>");
+  expect(composeSystemPrompt(null, false)).not.toContain("<autopilot-directive>");
+  const on = composeSystemPrompt(null, true);
+  expect(on).toContain("<autopilot-directive>");
+  expect(on).toContain("Shepherd autopilot");
+  expect(on).toContain("<branch-rename-notice>"); // still present alongside
+});
+
+test("create seeds the autopilot directive when the repo has autopilot on", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: true,
+    autoDrainEnabled: false,
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+  });
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  // The agent learns up front it's unattended, so it won't stop to ask "commit + open a PR?".
+  expect(sysPrompt(captured.argv!)).toContain("<autopilot-directive>");
+  // The human turn stays exactly the user's task — the directive rides the system prompt.
+  expect(captured.argv!.at(-1)).toBe("do the thing");
+});
+
+test("create omits the autopilot directive when the repo has autopilot off", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  expect(sysPrompt(captured.argv!)).not.toContain("<autopilot-directive>");
+});
+
 test("create injects only the planned house rules and drops the over-budget ones", async () => {
   const store = new SessionStore(":memory:");
   // Many 160-char rules so the combined block blows past the default 4000-char budget

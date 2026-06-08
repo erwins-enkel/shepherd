@@ -318,7 +318,9 @@ events.subscribe((event, data) => {
       void autopilot.onDone(id).catch((err) => console.warn("[autopilot] onDone:", err));
   } else if (event === "session:git") {
     const { id, git } = data as { id: string; git: import("./forge/types").GitState };
-    if (git.state === "open") autopilot.onPrOpen(id); // handoff to the critic loop
+    // PR-open handoff to the critic loop AND red-CI recovery (the critic skips a red PR, so
+    // autopilot drives the agent to fix its own failing checks).
+    autopilot.onGit(id, git);
   }
 });
 

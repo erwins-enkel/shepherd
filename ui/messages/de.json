@@ -140,6 +140,8 @@
   "feat_merge_train_body": "Die Gruppe „Bereit zum Mergen“ hat jetzt einen Merge-Train-Link, der eine Session startet, die die dort geparkten PRs abarbeitet, eine sichere Merge-Reihenfolge vorschlägt und nach deiner Freigabe merged.",
   "feat_review_cycles_title": "Review-Zyklen anpassen",
   "feat_review_cycles_body": "Lege fest, wie oft der Kritiker erneut prüft und einen Agenten anweist, Befunde zu beheben, bevor an dich eskaliert wird. Passe das globale Limit unter Einstellungen → Sitzung an.",
+  "feat_merge_in_progress_title": "Merge-Train zeigt Fortschritt",
+  "feat_merge_in_progress_body": "Wenn du einen Merge-Train startest, wandern die PRs, die er abarbeitet, mit einem bernsteinfarbenen Badge in eine Merge-läuft-Gruppe, statt in „Bereit zum Mergen“ zu bleiben — und jeder verschwindet, sobald er gemergt ist.",
   "gitrail_send_review": "↩ Review an Agent",
   "gitrail_send_review_failed": "Senden fehlgeschlagen",
   "gitrail_send_review_reviewing_title": "Critic prüft erneut — diese Anmerkungen werden gerade neu validiert",

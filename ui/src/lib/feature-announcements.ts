@@ -63,4 +63,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_review_cycles_title",
     bodyKey: "feat_review_cycles_body",
   },
+  {
+    id: "merge-train-in-progress",
+    sinceVersion: "1.17.0",
+    titleKey: "feat_merge_in_progress_title",
+    bodyKey: "feat_merge_in_progress_body",
+  },
 ];

@@ -81,7 +81,7 @@ export interface PlanGateServiceDeps {
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
   /** Steer reviewer findings into the live planning agent's PTY (SessionService.reply). */
   reply: (sessionId: string, text: string) => boolean;
-  /** Release an APPROVED auto session into execution (SessionService.releasePlanGate). */
+  /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate). */
   release: (sessionId: string) => void;
   onChange: (id: string, gate: PlanGate) => void;
   /** Fired when a plan review starts (true) and when it ends (false) for a session. */
@@ -256,12 +256,21 @@ export class PlanGateService {
     }
   }
 
-  /** Persist an approved gate; auto sessions clear straight into execution, interactive ones
-   *  wait for the human's explicit Go (so we do NOT release them here). */
+  /** Effective autopilot opt-in for a session: explicit override wins, else the repo default.
+   *  Mirrors AutopilotService.enabled so the plan gate and autopilot agree on "runs hands-free". */
+  private autopilotEffective(s: Session): boolean {
+    if (s.autopilotEnabled !== null) return s.autopilotEnabled;
+    return this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled;
+  }
+
+  /** Persist an approved gate. A session meant to run hands-free — drain-spawned (auto) OR
+   *  autopilot-enabled — clears straight into execution; a purely interactive (autopilot-off)
+   *  session waits for the operator's explicit Go (so we do NOT release it here). */
   private applyApproved(f: PlanInFlight, gate: PlanGate): void {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
-    if (this.deps.store.get(f.sessionId)?.auto === true) this.deps.release(f.sessionId);
+    const s = this.deps.store.get(f.sessionId);
+    if (s && (s.auto || this.autopilotEffective(s))) this.deps.release(f.sessionId);
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop

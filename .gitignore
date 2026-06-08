@@ -19,3 +19,7 @@ dist/
 
 # Runtime upload staging (New-Task attachments, screenshots)
 .shepherd-uploads/
+
+# Plan-gate working artifacts written into the live worktree (never committed)
+.shepherd-plan.md
+.shepherd-plan-review.json

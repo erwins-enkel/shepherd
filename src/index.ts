@@ -34,6 +34,7 @@ import { sweepStaging } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
+import { StarPromptService } from "./star-prompt";
 import { PushService, attachPush, attachReviewPush, attachGitPush, attachMergePush } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
@@ -620,6 +621,15 @@ const ghRunnerAsync = async (args: string[]): Promise<string> => {
   return stdout.toString();
 };
 const backlog = new CountsService(config.forges, ghRunnerAsync);
+
+// gentle "star us on GitHub?" nudge — surfaces once the operator has used Shepherd
+// for a few days, stars erwins-enkel/shepherd through their existing gh auth. The
+// onChange push closes the prompt on every connected client the moment it's resolved.
+const starPrompt = new StarPromptService({
+  store,
+  gh: ghRunnerAsync,
+  onChange: (status) => events.emit("star-prompt:status", status),
+});
 // keep the backlog counts cache warm so the overview's first paint is instant
 // instead of blocking on per-repo gh/Gitea calls. Warm shortly after boot, then
 // on a cadence below the cache's 60s TTL so the request path always hits warm.
@@ -655,6 +665,7 @@ const server = serve(
     usageLimits,
     updates,
     herdrUpdates,
+    starPrompt,
     herdr,
     resolveForge,
     prCache: prPoller,

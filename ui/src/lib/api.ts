@@ -15,6 +15,7 @@ import type {
   UpdateStatus,
   DeployState,
   HerdrUpdateStatus,
+  StarPromptStatus,
   Steer,
   DiffResult,
   ProjectIcons,
@@ -810,5 +811,26 @@ export async function approveBuildQueue(sessionId: string): Promise<BuildQueue> 
     headers: JSON_HEADERS,
   });
   if (!r.ok) throw await failed(r, "build-queue approve");
+  return r.json();
+}
+
+/** Current "star us on GitHub?" nudge status. */
+export async function getStarPrompt(): Promise<StarPromptStatus> {
+  const r = await fetch("/api/star-prompt");
+  if (!r.ok) throw await failed(r, "star prompt status");
+  return r.json();
+}
+
+/** Resolve the star nudge: dismiss for good, snooze 3 days, or star the repo with
+ *  the operator's gh account. Returns the fresh status (also pushed over the WS). */
+export async function actStarPrompt(
+  action: "dismiss" | "snooze" | "star",
+): Promise<StarPromptStatus> {
+  const r = await fetch("/api/star-prompt", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ action }),
+  });
+  if (!r.ok) throw await failed(r, "star prompt");
   return r.json();
 }

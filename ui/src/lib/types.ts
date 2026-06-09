@@ -381,6 +381,14 @@ export interface HerdrUpdateStatus {
   error?: string;
 }
 
+/** State of the "star us on GitHub?" nudge (see src/star-prompt.ts). */
+export interface StarPromptStatus {
+  /** Render the nudge now? False once dismissed/starred/snoozed or still in the grace window. */
+  shouldPrompt: boolean;
+  /** Repo already starred — used to show a one-time thank-you. */
+  starred: boolean;
+}
+
 /** repoPath → emoji map for per-project icons. */
 export type ProjectIcons = Record<string, string>;
 
@@ -463,6 +471,7 @@ export type WsEvent =
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
+  | { event: "star-prompt:status"; data: StarPromptStatus }
   | { event: "herdr-update:log"; data: { line: string } }
   | {
       event: "herdr-update:done";

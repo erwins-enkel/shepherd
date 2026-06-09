@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseRemote } from "./forge/remote";

@@ -29,7 +29,7 @@ function harness(over: any = {}) {
       stop() {},
     },
     worktree: {
-      createDetached: () => ({ worktreePath: "/wt-detached", branch: "main" }),
+      createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
       remove: (p: string) => removed.push(p),
     },
     reply: () => true,

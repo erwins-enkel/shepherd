@@ -11,7 +11,7 @@ function freshLog(): string {
 
 /** Build a git runner from a map of "joined args" → stdout. */
 function fakeGit(responses: Record<string, string>): GitRunner {
-  return (args) => {
+  return async (args) => {
     const key = args.join(" ");
     if (!(key in responses)) throw new Error(`unexpected git: ${key}`);
     return responses[key]!;
@@ -34,9 +34,9 @@ const BEHIND_TWO = {
     "def5678\tfeat(ui): add update badge\nbbb2222\tfix(server): guard route\n",
 };
 
-test("up to date → behind 0, no commits", () => {
+test("up to date → behind 0, no commits", async () => {
   const svc = new UpdateService({ git: fakeGit(UP_TO_DATE), launch: () => {} });
-  const s = svc.check(1000);
+  const s = await svc.check(1000);
   expect(s.behind).toBe(0);
   expect(s.commits).toEqual([]);
   expect(s.current).toBe("abc1234");
@@ -44,9 +44,9 @@ test("up to date → behind 0, no commits", () => {
   expect(s.error).toBeUndefined();
 });
 
-test("behind main → behind count + parsed commit list (newest first)", () => {
+test("behind main → behind count + parsed commit list (newest first)", async () => {
   const svc = new UpdateService({ git: fakeGit(BEHIND_TWO), launch: () => {} });
-  const s = svc.check(2000);
+  const s = await svc.check(2000);
   expect(s.behind).toBe(2);
   expect(s.current).toBe("abc1234");
   expect(s.latest).toBe("def5678");
@@ -56,7 +56,7 @@ test("behind main → behind count + parsed commit list (newest first)", () => {
   ]);
 });
 
-test("subjects containing tabs survive parsing", () => {
+test("subjects containing tabs survive parsing", async () => {
   const svc = new UpdateService({
     git: fakeGit({
       ...BEHIND_TWO,
@@ -65,27 +65,47 @@ test("subjects containing tabs survive parsing", () => {
     }),
     launch: () => {},
   });
-  const s = svc.check(3000);
+  const s = await svc.check(3000);
   expect(s.commits).toEqual([{ sha: "def5678", subject: "fix: a\tb\tc" }]);
 });
 
-test("git failure fails safe to behind 0 with an error", () => {
+test("git failure fails safe to behind 0 with an error", async () => {
   const svc = new UpdateService({
-    git: () => {
+    git: async () => {
       throw new Error("network down");
     },
     launch: () => {},
   });
-  const s = svc.check(4000);
+  const s = await svc.check(4000);
   expect(s.behind).toBe(0);
   expect(s.error).toContain("network down");
 });
 
-test("current() caches the last check", () => {
+test("current() caches the last check", async () => {
   const svc = new UpdateService({ git: fakeGit(BEHIND_TWO), launch: () => {} });
   expect(svc.current()).toBeNull();
-  svc.check(5000);
+  await svc.check(5000);
   expect(svc.current()?.behind).toBe(2);
+});
+
+test("rejecting async git runner fails safe: behind 0, error set, current preserved", async () => {
+  // First check succeeds so `current` is populated; second rejects so we can verify
+  // the fail-safe preserves the prior `current` value instead of wiping it.
+  let callCount = 0;
+  const svc = new UpdateService({
+    git: async (args) => {
+      if (callCount++ < 4) return fakeGit(UP_TO_DATE)(args); // first check succeeds
+      throw new Error("network timeout");
+    },
+    launch: () => {},
+  });
+  const first = await svc.check(1000);
+  expect(first.behind).toBe(0);
+  expect(first.current).toBe("abc1234");
+  const second = await svc.check(2000);
+  expect(second.behind).toBe(0);
+  expect(second.error).toContain("network timeout");
+  expect(second.current).toBe("abc1234"); // preserved from prior check
 });
 
 test("apply() launches once and guards double-launch with a reason", () => {

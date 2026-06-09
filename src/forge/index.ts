@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../instrument";
 import { GithubForge } from "./github";
 import { GiteaForge } from "./gitea";
 import { parseRemote } from "./remote";

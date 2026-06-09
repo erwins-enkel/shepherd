@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, timedAsync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -8,6 +10,8 @@ import type { GitForge, GitState } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+
+const execFileAsync = promisify(execFile);
 
 /** Self-contained instructions for the critic agent. NOT UI chrome — never i18n'd. */
 export function reviewPrompt(
@@ -129,7 +133,7 @@ export interface ReviewServiceDeps {
   readVerdict?: (worktreePath: string) => RawVerdict | null;
   /** Injectable content fingerprint of `git diff base...HEAD` in the worktree (default:
    *  real `git patch-id`). Returns null when there's no diff or git fails → never skips. */
-  computePatchId?: (worktreePath: string, base: string) => string | null;
+  computePatchId?: (worktreePath: string, base: string) => Promise<string | null>;
 }
 
 interface RawVerdict {
@@ -155,7 +159,7 @@ export class ReviewService {
     return this.capFn();
   }
   private readVerdict: (worktreePath: string) => RawVerdict | null;
-  private computePatchId: (worktreePath: string, base: string) => string | null;
+  private computePatchId: (worktreePath: string, base: string) => Promise<string | null>;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -194,13 +198,13 @@ export class ReviewService {
     // it's checked out), and it's exactly the tree the critic would review.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
+      wt = await this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
     } catch (err) {
       console.warn(`[review] worktree failed for ${session.id}:`, err);
       return;
     }
 
-    const { patchId, skipped } = this.rebaseSkip(session, git, prior, wt.worktreePath);
+    const { patchId, skipped } = await this.rebaseSkip(session, git, prior, wt.worktreePath);
     if (skipped) return;
 
     // Notes are fetched lazily (only a re-review under auto-address needs them) so a first
@@ -268,13 +272,13 @@ export class ReviewService {
    * though buildVerdict no longer fingerprints error verdicts: this also covers error rows
    * persisted before that change.)
    */
-  private rebaseSkip(
+  private async rebaseSkip(
     session: Session,
     git: GitState,
     prior: ReviewVerdict | null,
     worktreePath: string,
-  ): { patchId: string; skipped: boolean } {
-    const patchId = this.computePatchId(worktreePath, session.baseBranch) ?? "";
+  ): Promise<{ patchId: string; skipped: boolean }> {
+    const patchId = (await this.computePatchId(worktreePath, session.baseBranch)) ?? "";
     if (patchId && prior?.patchId && prior.decision !== "error" && prior.patchId === patchId) {
       this.deps.store.bumpReviewHead(session.id, git.headSha!, this.now());
       this.deps.worktree.remove(worktreePath);
@@ -555,7 +559,7 @@ export class ReviewService {
  *  no-op. patch-id ignores line numbers, so it stays stable when the rebased-onto base
  *  shifts hunks elsewhere; it changes only when the branch's own changed lines or their
  *  context change. Null on no diff or any git failure → caller never skips (reviews). */
-function defaultComputePatchId(worktreePath: string, base: string): string | null {
+async function defaultComputePatchId(worktreePath: string, base: string): Promise<string | null> {
   try {
     // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
     // only the head branch, so local `main` can lag behind origin; on a rebase onto newer
@@ -568,19 +572,32 @@ function defaultComputePatchId(worktreePath: string, base: string): string | nul
     let ref = base;
     try {
       // `--` blocks flag-smuggling via a hostile branch name (mirrors createDetached).
-      execFileSync("git", ["fetch", "origin", "--", base], { cwd: worktreePath, stdio: "pipe" });
+      // Async so the fetch doesn't block the Bun event loop (and freeze the web terminal).
+      await timedAsync("git fetch", () =>
+        execFileAsync("git", ["fetch", "origin", "--", base], { cwd: worktreePath }),
+      );
       ref = "FETCH_HEAD";
     } catch {
       /* offline or no origin remote — fall through to the local base ref */
     }
     // 64 MiB ceiling: a real branch diff won't approach it; a runaway one just falls back
     // to null (review) rather than throwing.
-    const diff = execFileSync("git", ["diff", `${ref}...HEAD`], {
-      cwd: worktreePath,
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    // Local but can read up to 64 MiB, so run it async too (mirrors computeDiff) to keep
+    // the critic poll off the Bun event loop. (patch-id below stays sync — see its note.)
+    const { stdout: diff } = await timedAsync("git diff", () =>
+      execFileAsync("git", ["diff", `${ref}...HEAD`], {
+        cwd: worktreePath,
+        maxBuffer: 64 * 1024 * 1024,
+        encoding: "utf8",
+      }),
+    );
     if (!diff.length) return null; // no diff → nothing to fingerprint
+    // patch-id stays sync: it pipes the diff via the `input:` stdin option, which only
+    // execFileSync supports (promisify(execFile) has none). The sync stdin write is bounded
+    // by `diff` (capped at 64 MiB above) and is negligible for real PRs; only a pathological
+    // multi-MB diff would block the loop here. It's routed through the ./instrument timed
+    // wrapper, so if loop-lag profiling ever flags "git patch-id", convert it to a spawn with
+    // an async stdin write at that point — not worth the extra plumbing speculatively.
     const out = execFileSync("git", ["patch-id", "--stable"], {
       cwd: worktreePath,
       input: diff,

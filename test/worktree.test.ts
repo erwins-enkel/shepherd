@@ -49,10 +49,10 @@ test("currentBranch reports the worktree's checked-out branch and follows a rena
   wt.remove(r.worktreePath);
 });
 
-test("currentBranch returns null on a detached HEAD", () => {
+test("currentBranch returns null on a detached HEAD", async () => {
   const wt = new WorktreeMgr();
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
-  const r = wt.createDetached(repo, "main", sha);
+  const r = await wt.createDetached(repo, "main", sha);
   expect(wt.currentBranch(r.worktreePath)).toBeNull();
   wt.remove(r.worktreePath);
 });
@@ -170,7 +170,7 @@ test("create with semicolon in baseBranch throws", () => {
   expect(() => wt.create(repo, "feat;rm -rf /", "x")).toThrow("invalid baseBranch");
 });
 
-test("createDetached: checks out a detached worktree at the given sha", () => {
+test("createDetached: checks out a detached worktree at the given sha", async () => {
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "t",
@@ -186,7 +186,7 @@ test("createDetached: checks out a detached worktree at the given sha", () => {
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
 
   const mgr = new WorktreeMgr();
-  const wt = mgr.createDetached(repo, "feat/x", sha);
+  const wt = await mgr.createDetached(repo, "feat/x", sha);
 
   expect(existsSync(wt.worktreePath)).toBe(true);
   expect(wt.branch).toBeNull();
@@ -200,14 +200,16 @@ test("createDetached: checks out a detached worktree at the given sha", () => {
   expect(existsSync(wt.worktreePath)).toBe(false);
 });
 
-test("createDetached: rejects a branch that could smuggle a git flag", () => {
+test("createDetached: rejects a branch that could smuggle a git flag", async () => {
   const mgr = new WorktreeMgr();
   const sha = "0".repeat(40);
-  expect(() => mgr.createDetached(repo, "--upload-pack=evil", sha)).toThrow("invalid branch");
-  expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
+  await expect(mgr.createDetached(repo, "--upload-pack=evil", sha)).rejects.toThrow(
+    "invalid branch",
+  );
+  await expect(mgr.createDetached(repo, "-x", sha)).rejects.toThrow("invalid branch");
 });
 
-test("createDetached: distinct slugs at the SAME sha get distinct worktrees (no plan-review collision)", () => {
+test("createDetached: distinct slugs at the SAME sha get distinct worktrees (no plan-review collision)", async () => {
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "t",
@@ -224,13 +226,13 @@ test("createDetached: distinct slugs at the SAME sha get distinct worktrees (no 
   const mgr = new WorktreeMgr();
   // Two sessions' plan reviews both detach at the same base sha — they must NOT share a path,
   // else a second begin() destroys the first's worktree and both read one verdict file.
-  const a = mgr.createDetached(repo, "feat/x", sha, "session-aaaa");
-  const b = mgr.createDetached(repo, "feat/x", sha, "session-bbbb");
+  const a = await mgr.createDetached(repo, "feat/x", sha, "session-aaaa");
+  const b = await mgr.createDetached(repo, "feat/x", sha, "session-bbbb");
   expect(a.worktreePath).not.toBe(b.worktreePath);
   expect(existsSync(a.worktreePath)).toBe(true);
   expect(existsSync(b.worktreePath)).toBe(true);
   // a slugless detach (the PR critic) stays distinct from the slugged ones too
-  const c = mgr.createDetached(repo, "feat/x", sha);
+  const c = await mgr.createDetached(repo, "feat/x", sha);
   expect(c.worktreePath).not.toBe(a.worktreePath);
   expect(c.worktreePath).not.toBe(b.worktreePath);
 
@@ -239,11 +241,11 @@ test("createDetached: distinct slugs at the SAME sha get distinct worktrees (no 
   mgr.remove(c.worktreePath);
 });
 
-test("createDetached: rejects a slug that could escape the worktree dir", () => {
+test("createDetached: rejects a slug that could escape the worktree dir", async () => {
   const mgr = new WorktreeMgr();
   const sha = "0".repeat(40);
-  expect(() => mgr.createDetached(repo, "main", sha, "../escape")).toThrow("invalid slug");
-  expect(() => mgr.createDetached(repo, "main", sha, "a/b")).toThrow("invalid slug");
+  await expect(mgr.createDetached(repo, "main", sha, "../escape")).rejects.toThrow("invalid slug");
+  await expect(mgr.createDetached(repo, "main", sha, "a/b")).rejects.toThrow("invalid slug");
 });
 
 test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
@@ -264,7 +266,7 @@ test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
   expect(wt.commitsAhead(repo, "main", "feat")).toBe(1);
 });
 
-test("createDetached: reclaims a stale worktree path left by an interrupted run", () => {
+test("createDetached: reclaims a stale worktree path left by an interrupted run", async () => {
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "t",
@@ -279,10 +281,10 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
 
   const mgr = new WorktreeMgr();
-  const first = mgr.createDetached(repo, "feat/x", sha);
+  const first = await mgr.createDetached(repo, "feat/x", sha);
   // simulate a restart: the in-memory inflight record is gone but the worktree
   // dir + registration remain. A re-spawn for the same head must still succeed.
-  const second = mgr.createDetached(repo, "feat/x", sha);
+  const second = await mgr.createDetached(repo, "feat/x", sha);
   expect(second.worktreePath).toBe(first.worktreePath);
   expect(existsSync(second.worktreePath)).toBe(true);
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: second.worktreePath })
@@ -293,7 +295,7 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
   mgr.remove(second.worktreePath);
 });
 
-test("behindBase: false when up-to-date, true when base advanced", () => {
+test("behindBase: false when up-to-date, true when base advanced", async () => {
   const dir = mkdtempSync(join(tmpdir(), "wt-"));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir, stdio: "pipe" });
@@ -307,13 +309,13 @@ test("behindBase: false when up-to-date, true when base advanced", () => {
   execFileSync("git", ["commit", "-qm", "feat"], { cwd: dir, stdio: "pipe" });
   const wt = new WorktreeMgr();
   // feat contains main's tip → up-to-date
-  expect(wt.behindBase(dir, "main")).toBe(false);
+  expect(await wt.behindBase(dir, "main")).toBe(false);
   // advance main beyond feat
   execFileSync("git", ["checkout", "-q", "main"], { cwd: dir, stdio: "pipe" });
   writeFileSync(join(dir, "c"), "1");
   execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["commit", "-qm", "main2"], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["checkout", "-q", "feat"], { cwd: dir, stdio: "pipe" });
-  expect(wt.behindBase(dir, "main")).toBe(true);
+  expect(await wt.behindBase(dir, "main")).toBe(true);
   rmSync(dir, { recursive: true, force: true });
 });

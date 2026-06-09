@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -202,7 +202,12 @@ export class PlanGateService {
     // verdict file (cross-session findings). See createDetached's `slug` doc.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha, session.id);
+      wt = await this.deps.worktree.createDetached(
+        session.repoPath,
+        session.baseBranch,
+        sha,
+        session.id,
+      );
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return "error";

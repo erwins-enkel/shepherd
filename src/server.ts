@@ -58,6 +58,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
+import { markPtyEvent } from "./instrument";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -147,7 +148,7 @@ export interface AppDeps {
     queue(repoPath: string): Promise<QueuedItem[]>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
-  autoMerge?: { snapshot(): import("./automerge").AutoMergeStatus[] };
+  autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
 }
 
 const sessionUsage = (s: Session) =>
@@ -241,11 +242,11 @@ async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | n
 }
 
 // GET /api/automerge — a status per auto-merge-enabled repo (client bootstrap).
-function handleAutoMerge({ req, parts, deps }: Ctx): Response | null {
+async function handleAutoMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "automerge" && !parts[2])) {
     return null;
   }
-  return json(deps.autoMerge?.snapshot() ?? []);
+  return json((await deps.autoMerge?.snapshot()) ?? []);
 }
 
 // maxAuto: finite integer ≥ 1; clamp > 20 to 20
@@ -709,11 +710,11 @@ async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response>
   return json(path ? await sessionActivity(path) : []);
 }
 
-function sessionDiffRead(id: string, deps: AppDeps): Response {
+async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
   try {
-    return json(computeDiff(s.worktreePath, s.baseBranch, s.branch));
+    return json(await computeDiff(s.worktreePath, s.baseBranch, s.branch));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
   }
@@ -2207,6 +2208,7 @@ export function serve(deps: AppDeps, port: number) {
           }
           return;
         }
+        markPtyEvent("in");
         ws.data.bridge?.write(typeof msg === "string" ? msg : msg.toString());
       },
       close(ws) {

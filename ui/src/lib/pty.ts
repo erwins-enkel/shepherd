@@ -1,5 +1,17 @@
 import { wsUrl } from "./store.svelte";
 
+// ── browser-side echo RTT profiling ──────────────────────────────────────────
+// Enabled by setting localStorage key "shepherd:profile" = "1".
+// Logs `[profile] echo-rtt <N>ms` to console.warn when RTT > 150ms.
+// All cost is skipped when the flag is off.
+const ECHO_RTT_THRESHOLD_MS = 150;
+let _profileEnabled = false;
+try {
+  _profileEnabled = localStorage.getItem("shepherd:profile") === "1";
+} catch {
+  /* localStorage unavailable (e.g. SSR or sandboxed context) */
+}
+
 // Server closes a pty WS with this code when a newer client takes over the
 // terminal. We park instead of reconnecting, so two devices on the same session
 // don't ping-pong the attach. Keep in sync with PTY_SUPERSEDED_CODE in src/server.ts.
@@ -65,6 +77,12 @@ export function connectPty(
   let fastFails = 0;
   const FAST_FAIL_MS = 4000;
   const MAX_FAST_FAILS = 8;
+  // echo RTT: timestamp of the last real input send (0 = none pending).
+  // Cleared by the first server message after a send, so measurement is
+  // send→first-server-message, not send→echo. A concurrent unsolicited server
+  // push (e.g. a running process emitting output) may clear it early —
+  // the measured RTT is approximate.
+  let _pendingSendTime = 0;
 
   const open = () => {
     parked = false;
@@ -75,8 +93,16 @@ export function connectPty(
     }
     ws = makeWs(`/pty/${id}?cols=${lastCols}&rows=${lastRows}`);
     ws.binaryType = "arraybuffer";
-    ws.onmessage = (e) =>
+    ws.onmessage = (e) => {
+      if (_profileEnabled && _pendingSendTime !== 0) {
+        const rtt = Date.now() - _pendingSendTime;
+        _pendingSendTime = 0; // fast path — not logged; intentional: sub-threshold RTT clears pending state without noise
+        if (rtt > ECHO_RTT_THRESHOLD_MS) {
+          console.warn(`[profile] echo-rtt ${rtt}ms`);
+        }
+      }
       onData(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data));
+    };
     ws.onopen = () => {
       openedAt = Date.now();
       if (everOpened) onReconnect();
@@ -117,7 +143,11 @@ export function connectPty(
   open();
 
   return {
-    send: (d) => ws.readyState === ws.OPEN && ws.send(d),
+    send: (d) => {
+      if (ws.readyState !== ws.OPEN) return;
+      ws.send(d);
+      if (_profileEnabled) _pendingSendTime = Date.now();
+    },
     resize: (c, r) => {
       lastCols = c;
       lastRows = r;

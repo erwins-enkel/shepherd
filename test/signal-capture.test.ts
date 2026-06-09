@@ -64,13 +64,21 @@ test("critic changes_requested records a 'critic' signal", async () => {
   const svc = new ReviewService({
     store,
     herdr: { start: () => ({ terminalId: "rev1" }), stop: () => {} } as any,
-    worktree: { createDetached: () => ({ worktreePath: "/rev-wt" }), remove: () => {} } as any,
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/rev-wt" }),
+      remove: () => {},
+    } as any,
     resolveForge: () => fakeForge,
     onChange: () => {},
     now: () => 1,
     readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
   });
-  svc.consider(session, { state: "open", checks: "success", headSha: "abc", number: 7 } as any);
+  await svc.consider(session, {
+    state: "open",
+    checks: "success",
+    headSha: "abc",
+    number: 7,
+  } as any);
   await svc.tick();
   const sigs = store.listSignals("/repo");
   expect(sigs.length).toBe(1);

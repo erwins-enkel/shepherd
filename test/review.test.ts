@@ -128,7 +128,7 @@ function makeDeps(
       stop: (t: string) => stopped.push(t),
     },
     worktree: {
-      createDetached: () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
+      createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
       remove: (p: string) => removed.push(p),
     },
     resolveForge: () => fakeForge(rec, opts.comments ?? [], commentCalls, opts.prStatus),
@@ -166,7 +166,7 @@ test("reviewPrompt embeds base + task and asks for the verdict file", () => {
 test("consider → tick: posts request-changes, persists, reaps", async () => {
   const { deps: d, reviews, started, stopped, removed, rec } = makeDeps({});
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   expect(started).toHaveLength(1);
   expect(started[0]!.name).toBe("review TASK-01");
   await svc.tick();
@@ -187,7 +187,7 @@ test("onReviewing fires true on spawn and false on finalize", async () => {
     onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
   });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   expect(events).toEqual([{ id: "s1", reviewing: true }]);
   await svc.tick();
   expect(events).toEqual([
@@ -196,13 +196,13 @@ test("onReviewing fires true on spawn and false on finalize", async () => {
   ]);
 });
 
-test("onReviewing fires false when an in-flight critic is forgotten", () => {
+test("onReviewing fires false when an in-flight critic is forgotten", async () => {
   const events: { id: string; reviewing: boolean }[] = [];
   const { deps: d } = makeDeps({
     onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
   });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   svc.forget("s1");
   expect(events).toEqual([
     { id: "s1", reviewing: true },
@@ -210,9 +210,9 @@ test("onReviewing fires false when an in-flight critic is forgotten", () => {
   ]);
 });
 
-test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist", () => {
+test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist", async () => {
   const { deps: d, started } = makeDeps({});
-  new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   const argv = started[0]!.argv;
   // an untrusted PR diff must not be able to escalate to command execution
   expect(argv).not.toContain("--dangerously-skip-permissions");
@@ -233,9 +233,9 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   expect(argv).toContain("--safe-mode");
 });
 
-test("task prompt survives the variadic allowlist (not swallowed → no task → timeout)", () => {
+test("task prompt survives the variadic allowlist (not swallowed → no task → timeout)", async () => {
   const { deps: d, started } = makeDeps({});
-  new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   const argv = started[0]!.argv;
   // `--allowedTools <tools...>` is variadic: it greedily eats every following
   // token until the next flag. The task prompt is the trailing positional, so a
@@ -255,9 +255,9 @@ test("task prompt survives the variadic allowlist (not swallowed → no task →
 test("does not review the same head twice", async () => {
   const { deps: d, started } = makeDeps({});
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
-  svc.consider(session(), OPEN_GREEN); // same headSha already reviewed
+  await svc.consider(session(), OPEN_GREEN); // same headSha already reviewed
   expect(started).toHaveLength(1);
 });
 
@@ -297,7 +297,7 @@ test("timeout with no verdict → error verdict, still reaps", async () => {
     timeoutMs: 5000,
   });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   t = 1000 + 6000;
   await svc.tick();
   expect(reviews["s1"]?.decision).toBe("error");
@@ -310,15 +310,15 @@ test("comment decision maps to COMMENT and never approves", async () => {
     readVerdict: () => ({ decision: "comment", summary: "ok", body: "lgtm-ish" }),
   });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(rec.event).toBe("COMMENT");
 });
 
-test("forget reaps an in-flight critic and drops the stored review", () => {
+test("forget reaps an in-flight critic and drops the stored review", async () => {
   const { deps: d, reviews, stopped, removed } = makeDeps({});
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN); // now in-flight
+  await svc.consider(session(), OPEN_GREEN); // now in-flight
   reviews["s1"] = {
     sessionId: "s1",
     headSha: "abc",
@@ -351,7 +351,7 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
     removed,
     bumped,
   } = makeDeps({
-    computePatchId: () => "pid-same",
+    computePatchId: async () => "pid-same",
   });
   // prior verdict was for head "old"; the branch is force-pushed/rebased to "newsha"
   // but its diff is identical → same patch-id.
@@ -367,7 +367,7 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
 });
 
 test("new commit (different diff): reviews and records the new fingerprint", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => "pid-new" });
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => "pid-new" });
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
@@ -378,7 +378,7 @@ test("new commit (different diff): reviews and records the new fingerprint", asy
 });
 
 test("first review records the fingerprint for later rebase-skip", async () => {
-  const { deps: d, reviews, started } = makeDeps({ computePatchId: () => "pid-first" });
+  const { deps: d, reviews, started } = makeDeps({ computePatchId: async () => "pid-first" });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN); // no prior
   expect(started).toHaveLength(1);
@@ -387,7 +387,7 @@ test("first review records the fingerprint for later rebase-skip", async () => {
 });
 
 test("unresolvable fingerprint never skips: reviews even with a prior verdict", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => null });
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => null });
   // prior has a real patch-id, but this run can't fingerprint (git failed / empty diff)
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
@@ -397,7 +397,12 @@ test("unresolvable fingerprint never skips: reviews even with a prior verdict", 
 });
 
 test("prior error verdict never rebase-skips (retries the transient failure)", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: () => "pid-same" });
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({ computePatchId: async () => "pid-same" });
   // an errored prior that (legacy row / defensive) still carries a matching fingerprint
   reviews["s1"] = priorReview({ decision: "error", patchId: "pid-same", headSha: "old" });
   const svc = new ReviewService(d as any);
@@ -408,7 +413,7 @@ test("prior error verdict never rebase-skips (retries the transient failure)", a
 
 test("error verdict records no fingerprint (so a later head always re-reviews)", async () => {
   const { deps: d, reviews } = makeDeps({
-    computePatchId: () => "pid-x",
+    computePatchId: async () => "pid-x",
     readVerdict: () => ({ decision: "bogus", summary: "?", body: "" }), // unparseable → error
   });
   const svc = new ReviewService(d as any);
@@ -424,7 +429,7 @@ test("rebase-skip short-circuits before any forge call (no author-notes fetch)",
     reviews,
     started,
     commentCalls,
-  } = makeDeps({ computePatchId: () => "pid-same" }, { autoAddressEnabled: true });
+  } = makeDeps({ computePatchId: async () => "pid-same" }, { autoAddressEnabled: true });
   reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" }); // has findings
   const svc = new ReviewService(d as any);
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
@@ -472,7 +477,7 @@ test("auto-address on: feeds findings back to the agent and advances the round",
     { autoAddressEnabled: true },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   // even a NON-blocking comment is steered back — "shouldn't get off easily"
   expect(steers).toHaveLength(1);
@@ -502,7 +507,7 @@ test("auto-address off: never steers even with findings", async () => {
     { autoAddressEnabled: false },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(steers).toHaveLength(0);
 });
@@ -603,7 +608,7 @@ test("PR merged before finalize: verdict is moot — no review posted, no steer,
     { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "merged" }) },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
+  await svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
   await svc.tick(); // finalize: live recheck sees "merged" → fully inert
   expect(steers).toHaveLength(0); // no churn steered onto a merged branch
   expect(rec.event).toBeUndefined(); // moot: no review posted on a merged PR
@@ -628,7 +633,7 @@ test("PR-state recheck throws: fail-closed — fully inert", async () => {
     },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick(); // must NOT reject
   expect(steers).toHaveLength(0); // can't confirm open → don't steer
   expect(rec.event).toBeUndefined(); // …and don't post the review
@@ -645,7 +650,7 @@ test("PR closed (not merged) before finalize: also fully inert", async () => {
     { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "closed" }) },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(steers).toHaveLength(0); // guard is state !== "open", not just merged
   expect(rec.event).toBeUndefined(); // closed PR → review not posted
@@ -715,7 +720,7 @@ test("dead agent pane: steer attempted but the round does not advance", async ()
     { autoAddressEnabled: true, autoAddressReturns: false }, // reply() → false (pane gone)
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(steers).toHaveLength(1); // attempted
   expect(reviews["s1"]?.addressRound).toBe(0); // but no progress was made
@@ -757,7 +762,7 @@ test("the steer tells the agent to post a declined finding as a PR comment", asy
     { autoAddressEnabled: true },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN); // first review (no prior) → sync spawn
+  await svc.consider(session(), OPEN_GREEN); // first review
   await svc.tick();
   expect(steers[0]!.text).toContain("gh pr comment 7"); // PR number from OPEN_GREEN.number
   expect(steers[0]!.text).toContain(AUTHOR_RESPONSE_MARKER);
@@ -794,9 +799,9 @@ test("re-review fetches the author's PR notes and injects them into the prompt",
   expect(prompt).not.toContain("unrelated chatter"); // unmarked comment ignored
 });
 
-test("first review does NOT fetch author notes", () => {
+test("first review does NOT fetch author notes", async () => {
   const { deps: d, commentCalls } = makeDeps({}, { autoAddressEnabled: true });
-  new ReviewService(d as any).consider(session(), OPEN_GREEN); // no prior → first review
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN); // no prior → first review
   expect(commentCalls).toEqual([]);
 });
 
@@ -825,7 +830,7 @@ test("steer that throws (dead pane) is not-delivered and still finalizes + reaps
     { autoAddressEnabled: true },
   );
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN); // first review (no prior) → sync spawn
+  await svc.consider(session(), OPEN_GREEN); // first review
   await svc.tick(); // must NOT reject
   expect(reviews["s1"]?.decision).toBe("commented"); // verdict persisted
   expect(reviews["s1"]?.addressRound).toBe(0); // throw = not delivered → round held
@@ -859,7 +864,7 @@ test("forget() during the re-review await aborts the spawn (no critic for an arc
 test("verdict surfaces the configured cap so the UI need not mirror it", async () => {
   const { deps: d, reviews } = makeDeps({ cap: 5 });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(reviews["s1"]?.addressCap).toBe(5); // ReviewService({cap}) → verdict payload
 });
@@ -868,12 +873,12 @@ test("a cap thunk is resolved live so a settings change applies without a restar
   let live = 3; // stands in for config.prReviewCyclesCap
   const { deps: d, reviews } = makeDeps({ cap: () => live });
   const svc = new ReviewService(d as any);
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(reviews["s1"]?.addressCap).toBe(3); // first run reads the thunk's current value
   live = 7; // operator bumps the global setting mid-run
   delete reviews["s1"]; // force a fresh verdict on the next run
-  svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(reviews["s1"]?.addressCap).toBe(7); // new cap takes effect, no reconstruction
 });

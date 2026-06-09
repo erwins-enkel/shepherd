@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { parseActivity, sessionActivity } from "../src/activity";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { parseActivity, readTranscriptTail, sessionActivity } from "../src/activity";
 
 function toolUse(name: string, input: unknown, id = "t1", ts = "2026-05-31T10:00:00.000Z"): string {
   return JSON.stringify({
@@ -118,4 +121,45 @@ test("skips malformed lines and blanks", () => {
 
 test("sessionActivity returns [] for a missing file", async () => {
   expect(await sessionActivity("/nonexistent/definitely-not-here.jsonl")).toEqual([]);
+});
+
+// ── readTranscriptTail ────────────────────────────────────────────────────────
+
+test("readTranscriptTail: file smaller than cap → whole content returned", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tail-"));
+  const path = join(dir, "small.jsonl");
+  try {
+    const content = "line1\nline2\nline3";
+    writeFileSync(path, content);
+    expect(readTranscriptTail(path, 1024)).toBe(content);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readTranscriptTail: file larger than cap → only tail returned, leading partial line dropped", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tail-"));
+  const path = join(dir, "big.jsonl");
+  try {
+    // build content: 10 full lines, each ~20 bytes
+    const lines = Array.from({ length: 10 }, (_, i) => `{"n":${i},"pad":"xxxxxxxxxx"}`);
+    const content = lines.join("\n") + "\n";
+    // cap at 60 bytes — starts mid-file; first partial line must be dropped
+    const cap = 60;
+    writeFileSync(path, content);
+    const tail = readTranscriptTail(path, cap);
+    // length is bounded: at most cap bytes (minus leading partial line)
+    expect(tail.length).toBeLessThanOrEqual(cap);
+    // must not start with a partial record — first char is '{' of a whole line
+    const firstLine = tail.split("\n")[0]!;
+    expect(() => JSON.parse(firstLine)).not.toThrow();
+    // must end with full content (last line present)
+    expect(tail).toContain(`{"n":9,"pad":"xxxxxxxxxx"}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readTranscriptTail: missing file throws", () => {
+  expect(() => readTranscriptTail(join(tmpdir(), "does-not-exist-tail-test.jsonl"))).toThrow();
 });

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
 import type { HerdrState, SessionStatus } from "./types";

@@ -1,3 +1,5 @@
+import { openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { timed } from "./instrument";
 import { eachJsonlObject } from "./jsonl";
 
 export interface ActivityEntry {
@@ -121,6 +123,58 @@ function collectEntries(records: ParsedRecord[], errored: Map<string, boolean>):
     }
   }
   return entries;
+}
+
+/**
+ * 512 KB is far larger than the stall window's worth of JSONL records (a few
+ * hundred bytes each × the last few hundred turns), so signal accuracy is fully
+ * preserved while bounding the bytes fed to JSON.parse on every poll tick.
+ *
+ * Scope note: this bounds the per-call cost, but the read+parse is still
+ * SYNCHRONOUS and runs once per poll tick per *running* session, so total
+ * on-loop cost still scales with the number of concurrent running sessions. It's
+ * a bounded mitigation (each call is small + fast), not a full off-loop move; if
+ * session counts ever make even the bounded parses add up, move the probe to an
+ * async read + worker/streamed parse.
+ */
+export const MAX_TAIL_BYTES = 512 * 1024;
+
+/**
+ * Read only the last `maxBytes` bytes of a JSONL transcript file.
+ *
+ * When the file is larger than `maxBytes` the read starts mid-file; the leading
+ * partial line (up to and including the first `\n`) is dropped so a truncated
+ * record is never fed to the parser. When the whole file fits, the content is
+ * returned intact. Throws on read errors (e.g. missing file) so callers can
+ * handle with their existing try/catch → null patterns.
+ *
+ * Degradation edge: if the tail window contains NO newline — a single JSONL
+ * record larger than `maxBytes` (pathological; a multi-hundred-KB tool result) —
+ * the leading-partial drop yields "" and the caller gets a null signal for this
+ * tick. This is acceptable and transient: it self-heals as soon as a newer
+ * complete record lands (the next record's bytes bring a `\n` into the window).
+ */
+export function readTranscriptTail(path: string, maxBytes = MAX_TAIL_BYTES): string {
+  return timed(`transcript-tail ${basename(path)}`, () => {
+    const fd = openSync(path, "r");
+    try {
+      const { size } = fstatSync(fd);
+      const readBytes = Math.min(size, maxBytes);
+      const buf = Buffer.allocUnsafe(readBytes);
+      const n = readSync(fd, buf, 0, readBytes, size - readBytes);
+      const text = buf.subarray(0, n).toString("utf8");
+      // started mid-file → drop the leading partial line. nl === -1 means the
+      // whole window is one partial record (a single record > maxBytes): yield ""
+      // → null signal this tick, self-healing once a newer complete record lands.
+      if (size > maxBytes) {
+        const nl = text.indexOf("\n");
+        return nl === -1 ? "" : text.slice(nl + 1);
+      }
+      return text;
+    } finally {
+      closeSync(fd);
+    }
+  });
 }
 
 /**

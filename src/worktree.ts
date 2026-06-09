@@ -1,6 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
+import { promisify } from "node:util";
+import { timedAsync } from "./instrument";
+
+const execFileAsync = promisify(execFile);
 
 export interface WorktreeResult {
   worktreePath: string;
@@ -110,13 +115,12 @@ export class WorktreeMgr {
    *    true  → base has commits HEAD lacks (stale, rebase needed)
    *    null  → unknowable (bad worktree / git error) → caller treats as "do not merge"
    */
-  behindBase(worktreePath: string, baseBranch: string): boolean | null {
+  async behindBase(worktreePath: string, baseBranch: string): Promise<boolean | null> {
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return null;
     try {
-      execFileSync("git", ["fetch", "origin", "--", baseBranch], {
-        cwd: worktreePath,
-        stdio: "pipe",
-      });
+      await timedAsync("git fetch", () =>
+        execFileAsync("git", ["fetch", "origin", "--", baseBranch], { cwd: worktreePath }),
+      );
     } catch {
       /* offline / no origin — compare against whatever base ref is local */
     }
@@ -245,7 +249,12 @@ export class WorktreeMgr {
    *  would blow away the first's live worktree, and both inflight records would then read the
    *  same `.shepherd-plan-review.json` — delivering one session's plan findings to another.
    *  Passing the session id as `slug` gives each its own path. */
-  createDetached(repoPath: string, branch: string, sha: string, slug?: string): WorktreeResult {
+  async createDetached(
+    repoPath: string,
+    branch: string,
+    sha: string,
+    slug?: string,
+  ): Promise<WorktreeResult> {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
     // same refname grammar as create(); rejecting a leading "-" also blocks argv
     // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
@@ -259,7 +268,9 @@ export class WorktreeMgr {
     mkdirSync(parent, { recursive: true });
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)
-      execFileSync("git", ["fetch", "origin", "--", branch], { cwd: repoPath, stdio: "pipe" });
+      await timedAsync("git fetch", () =>
+        execFileAsync("git", ["fetch", "origin", "--", branch], { cwd: repoPath }),
+      );
     } catch {
       /* offline / no origin — the sha may already be local; let worktree add decide */
     }
@@ -268,10 +279,13 @@ export class WorktreeMgr {
     // the same head isn't permanently blocked by `worktree add` hitting an
     // occupied directory.
     if (existsSync(worktreePath)) this.remove(worktreePath);
-    execFileSync("git", ["worktree", "add", "--detach", worktreePath, sha], {
-      cwd: repoPath,
-      stdio: "pipe",
-    });
+    // `worktree add --detach` is a full working-tree checkout — the heaviest local git op
+    // here — and createDetached runs on the plan-gate / critic background-poll path, so run
+    // it async to keep the checkout off the Bun event loop. (No stdin constraint, unlike
+    // patch-id, so execFileAsync works directly.)
+    await timedAsync("git worktree add", () =>
+      execFileAsync("git", ["worktree", "add", "--detach", worktreePath, sha], { cwd: repoPath }),
+    );
     return { worktreePath, branch: null, isolated: true };
   }
 

@@ -7,7 +7,7 @@ import {
   lstatSync,
   realpathSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";

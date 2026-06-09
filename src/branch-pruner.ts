@@ -1,5 +1,5 @@
 // src/branch-pruner.ts
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { GitForge } from "./forge/types";
 
@@ -35,13 +35,11 @@ export class BranchPruner {
      *  again. Defaults to none (tests / callers that don't wire it). */
     private extraRepos: () => string[] = () => [],
     private intervalMs = 60 * 60 * 1000,
-    /** Max forge lookups per sweep. Each `forge.prStatus` is a blocking
-     *  `execFileSync("gh")` (see github.ts), so an unbounded first sweep over a
-     *  large accumulated backlog would stall the event loop; capping bounds the
-     *  blocking and lets the backlog drain across subsequent hourly ticks.
-     *  Residual: even capped, up to this many sequential `gh` calls still run per
-     *  tick, so under high gh latency the loop can briefly block for their sum —
-     *  lower this to trade slower backlog drain for shorter stalls. */
+    /** Max forge lookups per sweep. Each `forge.prStatus` is an async `gh`
+     *  subprocess (non-blocking). This cap bounds the number of concurrent/
+     *  sequential `gh` calls per tick (and associated GitHub API load), not
+     *  event-loop stall time. Raise to drain faster, lower to reduce API pressure;
+     *  the backlog drains across subsequent hourly ticks regardless. */
     private maxChecksPerTick = 20,
   ) {}
 

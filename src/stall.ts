@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { latestRecordTs, parseActivity, type ActivityEntry } from "./activity";
+import { latestRecordTs, parseActivity, readTranscriptTail, type ActivityEntry } from "./activity";
 
 /** A minimal read of a session's most-recent tool activity, for stall detection. */
 export interface ActivitySnapshot {
@@ -65,11 +64,13 @@ export function snapshotFromText(text: string): ActivitySnapshot | null {
 /**
  * Synchronously derive a snapshot from a session JSONL. Missing/unreadable
  * (e.g. a just-spawned session with no transcript) → null, treated as "no signal".
+ * Reads only the tail of the file (bounded by MAX_TAIL_BYTES) to avoid blocking
+ * the event loop on large transcripts.
  */
 export function readSnapshot(path: string): ActivitySnapshot | null {
   let text: string;
   try {
-    text = readFileSync(path, "utf8");
+    text = readTranscriptTail(path);
   } catch {
     return null;
   }

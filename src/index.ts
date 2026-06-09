@@ -52,8 +52,12 @@ import { attachSignalCapture } from "./signals";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 
 const execFileAsync = promisify(execFile);
+
+startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
+logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync calls
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
@@ -546,7 +550,7 @@ setInterval(calibrate, 24 * 60 * 60 * 1000);
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.
 const updates = new UpdateService();
-const checkUpdates = () => events.emit("update:status", updates.check(Date.now()));
+const checkUpdates = async () => events.emit("update:status", await updates.check(Date.now()));
 setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
 

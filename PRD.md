@@ -31,9 +31,10 @@ the whole ecosystem, not just a dashboard.
   the building except Anthropic calls.
 - Reuse the ecosystem brain (`kanban-api` task store, gitea, searxng); add only the thin parts.
 - Enforce engineering best practices across the herd, automated per repo: Plan gate (adversarial
-  plan review before an autonomous run) → Critic (adversarial PR review on CI-green) → Merge
-  train (a PR behind its base is rebased + re-verified before merge), plus Learnings (approved
-  house rules injected into new sessions) and hygiene gates.
+  plan review before an autonomous run) → Critic (PR review on CI-green) → Merge train (a PR
+  behind its base is rebased + re-verified before merge), plus Readiness (guardrail scoring
+  before agents are pointed at a repo), Learnings (approved house rules injected into new
+  sessions) and hygiene gates.
 
 **Non-goals (v1)**
 

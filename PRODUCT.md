@@ -16,7 +16,7 @@ Shepherd is self-hosted mission control for **interactive** Claude Code. It spaw
 
 The defining constraint is the ToS-compliance model, not a footnote: Shepherd only **observes** (reads the terminal and agent status) and **steers** (injects keystrokes into the live pane). It never uses the Agent SDK or `claude -p`. If a feature cannot be done by typing into a real terminal, it does not ship. This constraint shapes the product's soul, and the UI should make that interactive-terminal reality felt, not hidden behind abstraction.
 
-The second pillar is co-equal: Shepherd is opinionated about how agent-built software ships. Parallel agent work erodes engineering discipline unless something institutionalizes it, so Shepherd builds the discipline in as product: Readiness scores a JS/TS repo's guardrails before agents are pointed at it, the Plan gate puts every autonomous run's plan through adversarial review first, the Critic reviews every CI-green PR the same way, Learnings distill past sessions into house rules that are injected into new ones, the Merge train rebases and re-verifies any PR that has fallen behind its base before it lands, and hygiene gates enforce linear branches, locale parity, feature-catalog completeness, and a dead-code/complexity audit.
+The second pillar carries equal weight: Shepherd is opinionated about how agent-built software ships. Parallel agent work erodes engineering discipline unless something institutionalizes it, so Shepherd builds the discipline in. The pipeline itself is gated: the Plan gate puts every autonomous run's plan through adversarial review first, the Critic reviews every CI-green PR the same way, and the Merge train rebases and re-verifies any PR that has fallen behind its base before it lands. The discipline is ambient too: Readiness scores a JS/TS repo's guardrails before agents are pointed at it, Learnings distill past sessions into house rules that are injected into new ones, and hygiene gates enforce linear branches, locale parity, feature-catalog completeness, and a dead-code/complexity audit.
 
 Success looks like: one operator confidently running many agents, knowing at a glance who is working, who is idle, and who is blocked and needs them; reaching the right session and steering it in seconds; and trusting the tool enough to leave it running.
 
@@ -24,7 +24,7 @@ Success looks like: one operator confidently running many agents, knowing at a g
 
 Terminal-native instrument. Three words: **technical, composed, earned.**
 
-Voice and tone are spare and precise, the register of an operator talking to an operator. No marketing warmth, no hand-holding, no exclamation. Labels are short and literal; the interface assumes competence. It reads like mission telemetry or aircraft instrumentation: monospace, dense, phosphor-green, status pips and gauges that mean something. Personality comes from restraint and fitness for purpose, not from decoration. The product earns trust by being quiet until something needs attention, then making that signal unmistakable. The voice is also prescriptive: the product has opinions about how software ships, and it states them plainly.
+Voice and tone are spare and precise, the register of an operator talking to an operator. No marketing warmth, no hand-holding, no exclamation. Labels are short and literal; the interface assumes competence. It reads like mission telemetry or aircraft instrumentation: monospace, dense, phosphor-green, status pips and gauges that mean something. Personality comes from restraint and fitness for purpose, not from decoration. The voice is also prescriptive: the product has opinions about how agent-built software ships, and it states them plainly. The product earns trust by being quiet until something needs attention, then making that signal unmistakable.
 
 ## Anti-references
 
@@ -44,7 +44,7 @@ The throughline: every pixel is telemetry. Nothing decorative, nothing that make
 3. **Steer like a human at a terminal.** The ToS model is the product, not a limitation to abstract away. The UI mirrors genuine interactive terminal use (observe the real pane, type to steer) and should make that reality legible rather than papering over it.
 4. **Density with legibility.** Pack many agents into one pane without sacrificing per-agent readability. It has to work at 2am in a dim room and on a phone with one thumb. Contrast and hierarchy carry the load, not size.
 5. **Remove the operator as bottleneck.** One operator, many agents, no choke point. Design for parallel oversight at a glance and fast routing to the one session that needs a human now.
-6. **Opinionated pipeline, visible guardrails.** The discipline features (Plan gate, Critic, Learnings, Merge train, hygiene gates) are product, not plumbing. Surface what each gate enforces and why, and let the operator see a gate doing its job rather than hiding it behind background machinery.
+6. **Opinionated pipeline, visible guardrails.** The discipline features (Readiness, Plan gate, Critic, Learnings, Merge train, hygiene gates) are product, not plumbing. Surface what each gate enforces and why, and let the operator see a gate doing its job rather than hide it behind background machinery.
 
 ## Accessibility & Inclusion
 

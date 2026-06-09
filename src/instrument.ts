@@ -127,6 +127,12 @@ let _lastPtyEventTime = 0;
  * Logs `[profile] pty-gap <label> <N>ms` when the gap exceeds 150ms.
  * No-op when profiling is off. Input and output events share one timeline so
  * a large gap pinpoints where the loop was blocked.
+ *
+ * NOTE: `_lastPtyEventTime` is a single shared timestamp across **all**
+ * concurrent PtyBridge instances (one per open terminal). That's intentional —
+ * it gives a loop-wide view good enough to spot broad stalls. The trade-off is
+ * that activity on terminal A resets the clock and can mask a gap on terminal B;
+ * for per-terminal accuracy you'd need a per-instance marker.
  */
 export function markPtyEvent(label: string): void {
   if (!isProfiling()) return;

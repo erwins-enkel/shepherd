@@ -77,9 +77,11 @@ export function connectPty(
   let fastFails = 0;
   const FAST_FAIL_MS = 4000;
   const MAX_FAST_FAILS = 8;
-  // echo RTT: timestamp of the last real input send (0 = none pending). First
-  // server message clears it, so an unsolicited server push (running process
-  // output) may clear it early — send→first-echo is approximate.
+  // echo RTT: timestamp of the last real input send (0 = none pending).
+  // Cleared by the first server message after a send, so measurement is
+  // send→first-server-message, not send→echo. A concurrent unsolicited server
+  // push (e.g. a running process emitting output) may clear it early —
+  // the measured RTT is approximate.
   let _pendingSendTime = 0;
 
   const open = () => {
@@ -94,7 +96,7 @@ export function connectPty(
     ws.onmessage = (e) => {
       if (_profileEnabled && _pendingSendTime !== 0) {
         const rtt = Date.now() - _pendingSendTime;
-        _pendingSendTime = 0;
+        _pendingSendTime = 0; // fast path — not logged; intentional: sub-threshold RTT clears pending state without noise
         if (rtt > ECHO_RTT_THRESHOLD_MS) {
           console.warn(`[profile] echo-rtt ${rtt}ms`);
         }

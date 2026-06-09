@@ -38,8 +38,27 @@
     const left = Math.min(x, window.innerWidth - r.width - margin);
     const top = Math.min(y, window.innerHeight - r.height - margin);
     pos = { left: Math.max(margin, left), top: Math.max(margin, top) };
-    node.focus();
+    items()[0]?.focus(); // open with the first item focused, per the menu pattern
   });
+
+  // The menu items, in DOM order (only the ones actually rendered).
+  function items(): HTMLButtonElement[] {
+    return el ? Array.from(el.querySelectorAll<HTMLButtonElement>(".cm-item")) : [];
+  }
+  // Arrow / Home / End roving focus, as a role="menu" is expected to support.
+  function onNav(e: KeyboardEvent) {
+    const list = items();
+    if (list.length === 0) return;
+    const i = list.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    if (e.key === "ArrowDown") next = (i + 1) % list.length;
+    else if (e.key === "ArrowUp") next = (i - 1 + list.length) % list.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = list.length - 1;
+    else return;
+    e.preventDefault();
+    list[next]!.focus();
+  }
 
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
@@ -67,14 +86,21 @@
   tabindex="-1"
   aria-label={m.cardmenu_label()}
   style="left:{pos?.left ?? x}px;top:{pos?.top ?? y}px"
+  onkeydown={onNav}
 >
   {#if resumable && onresume}
-    <button class="cm-item" type="button" role="menuitem" onclick={onresume}>
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onresume}>
       <span class="cm-icon" aria-hidden="true">↻</span>{m.cardmenu_resume()}
     </button>
   {/if}
   {#if ondecommission}
-    <button class="cm-item danger" type="button" role="menuitem" onclick={ondecommission}>
+    <button
+      class="cm-item danger"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={ondecommission}
+    >
       <span class="cm-icon" aria-hidden="true">✕</span>{m.cardmenu_decommission()}
     </button>
   {/if}

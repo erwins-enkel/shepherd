@@ -1,6 +1,9 @@
 // Relative per-million-token weights used ONLY for the limit-% math — never displayed.
 // Absolute scale is irrelevant: the daily /usage calibration backs out the cap against these,
-// so only the ratios between models/kinds matter. Values track public API list prices.
+// so only the ratios between models/kinds matter. Values track current public API list prices
+// ($/Mtok): Fable 5 10/50, Opus 4.8 5/25, Sonnet 4.6 3/15, Haiku 4.5 1/5 (input/output), with
+// cache kinds derived at the fixed 0.1× / 1.25× / 2× ratios. Keep the rows in price order so
+// Fable stays the heaviest tier — its weight must exceed Opus's, matching the cost copy.
 
 interface ModelWeights {
   input: number;
@@ -12,8 +15,11 @@ interface ModelWeights {
 
 const TABLE: { match: RegExp; w: ModelWeights }[] = [
   {
+    // Opus 4.8 — $5/$25 per Mtok. (Was 15/75, the retired Claude 3 Opus price;
+    // that stale value made the premium Fable tier look cheaper than Opus and
+    // undercounted Opus consumption relative to Sonnet/Haiku.)
     match: /opus/i,
-    w: { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 },
+    w: { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10 },
   },
   {
     match: /sonnet/i,

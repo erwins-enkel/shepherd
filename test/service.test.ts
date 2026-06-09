@@ -1991,31 +1991,27 @@ test("sweep eviction: stale awaiting entry evicted with no emit; fresh entry unt
   service.resolveMerging(a.id, true);
   expect(landed(emitted)).toHaveLength(0);
 
-  // fresh entry is untouched by a sweep at the same `now`
+  // a LIVE (un-archived) entry is never swept — even by a sweep far past launch+TTL
   const b = await mkSession(service);
   service.setMerging([b.id], "train-F");
-  service.sweepStaleMerging(Date.now()); // fresh, well within TTL
+  service.sweepStaleMerging(Date.now() + 10 * MERGE_STALE_MS); // live → not evicted
   service.clearMergingForTrain("train-F"); // would only fire if entry survived
   // merged false so still no emit, but entry must still exist (not evicted):
   service.resolveMerging(b.id, true);
   expect(landed(emitted)).toHaveLength(1);
 });
 
-test("long active run: member activity refreshes the TTL clock, so a >TTL run isn't evicted mid-run", async () => {
+test("slow/long run: a still-running train is never swept, however long it takes (no activity, no archive)", async () => {
   const { service, emitted } = mergeSvc();
   const a = await mkSession(service);
-  const b = await mkSession(service);
-  service.setMerging([a.id, b.id], "train-L"); // lastTouch ≈ launch (t0)
+  service.setMerging([a.id], "train-Slow"); // live; first PR's CI is slow — no member has resolved yet
   const t0 = Date.now();
-  // The run outlives MERGE_STALE_MS, but a member lands just before the window
-  // elapses → refreshes lastTouch (and credits the merge).
-  service.resolveMerging(a.id, true, t0 + MERGE_STALE_MS - 1);
-  // A sweep past launch+TTL would have evicted a launch-time entry; lastTouch was
-  // refreshed, so it survives (the bug the PR critic flagged).
-  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
-  expect(landed(emitted)).toHaveLength(0); // still live, not yet archived
-  // The train finally archives long after launch → the entry is intact and fires.
-  service.clearMergingForTrain("train-L", t0 + MERGE_STALE_MS + 2);
+  // The critic's case: no member activity and no archive for well past MERGE_STALE_MS.
+  // A live entry must NOT be reclaimed (a launch-/activity-keyed TTL would drop it here).
+  service.sweepStaleMerging(t0 + 5 * MERGE_STALE_MS);
+  // The first PR finally lands, then the train archives → entry intact, fires once.
+  service.resolveMerging(a.id, true);
+  service.clearMergingForTrain("train-Slow", t0 + 5 * MERGE_STALE_MS + 1);
   expect(landed(emitted)).toHaveLength(1);
 });
 

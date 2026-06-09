@@ -309,11 +309,11 @@ export class SessionService {
       repoPath: string;
       merged: boolean;
       archived: boolean;
-      // Last activity (launch, a member resolving, or archive) — NOT launch time.
-      // The TTL sweep evicts on inactivity off this, so a long train that keeps
-      // landing PRs (or has just archived awaiting a late credit) is never dropped
-      // mid-run; only a genuinely stuck/abandoned train is reclaimed.
-      lastTouch: number;
+      // null while the train is still running — a LIVE entry is never swept (however
+      // long the run / a slow first CI takes), only cleaned when the train archives.
+      // Set to archive time when the train archives awaiting a late credit; the TTL
+      // sweep then reclaims it once that post-archive window lapses.
+      awaitingSince: number | null;
       members: Set<string>;
     }
   >();
@@ -839,7 +839,7 @@ export class SessionService {
         repoPath,
         merged: false,
         archived: false,
-        lastTouch: since,
+        awaitingSince: null,
         members,
       });
     }
@@ -865,10 +865,9 @@ export class SessionService {
    * `isolated`/`trainId` before clearing, since the mark must be cleared either way.
    * Emits only via the LATE-CREDIT path: if the train already archived awaiting a
    * merge, this credit completes it. A credit while the train is still live never
-   * emits — the offer fires on run completion, not first merge. `now` injectable
-   * for tests; a resolution counts as train activity (refreshes the TTL clock).
+   * emits — the offer fires on run completion, not first merge.
    */
-  resolveMerging(id: string, didMerge: boolean, now: number = Date.now()): void {
+  resolveMerging(id: string, didMerge: boolean): void {
     const isolated = this.deps.store.get(id)?.isolated ?? false;
     this.clearMerging(id);
     const trainId = this.#memberToTrain.get(id);
@@ -877,7 +876,6 @@ export class SessionService {
     this.#memberToTrain.delete(id);
     if (!entry) return;
     entry.members.delete(id);
-    entry.lastTouch = now; // the train is actively landing PRs → don't let the sweep reclaim it
     entry.merged ||= didMerge && isolated;
     if (entry.archived && entry.merged) this.#finalizeTrain(trainId, entry.repoPath);
   }
@@ -889,9 +887,9 @@ export class SessionService {
    * still-tracked member via `refreshPr` so a poller-gated merge surfaces within
    * seconds and routes through `resolveMerging` → late-credit emit. A deferred
    * entry whose late credit never arrives is reclaimed by `sweepStaleMerging` with
-   * no emit, `MERGE_STALE_MS` after this archive (the clock restarts here, so the
-   * await window is independent of how long the run itself took). `now` injectable
-   * for tests.
+   * no emit, `MERGE_STALE_MS` after this archive — the await window starts HERE, so
+   * it is independent of how long the run itself took (a slow/long run is never
+   * reclaimed mid-flight; only the post-archive wait is bounded). `now` injectable.
    */
   clearMergingForTrain(trainId: string, now: number = Date.now()): void {
     for (const s of this.deps.store.list({ activeOnly: true })) {
@@ -900,7 +898,7 @@ export class SessionService {
     const entry = this.#trainOffers.get(trainId);
     if (!entry) return; // untracked train → no-op (unchanged behaviour)
     entry.archived = true;
-    entry.lastTouch = now; // restart the TTL clock for the post-archive await window
+    entry.awaitingSince = now; // start the post-archive await window (only awaiting entries are swept)
     if (entry.merged) {
       this.#finalizeTrain(trainId, entry.repoPath);
       return;
@@ -923,13 +921,14 @@ export class SessionService {
         this.clearMerging(s.id);
       }
     }
-    // Evict INACTIVE completion-tracker entries directly (NOT via activeOnly, which
-    // excludes archived trains). Keyed off `lastTouch`, not launch time, so a long
-    // train still actively landing PRs — or one just archived awaiting a late
-    // credit — keeps its entry; only a stuck/abandoned train is reclaimed. No emit
-    // on eviction — fail-safe no-offer.
+    // Reclaim only AWAITING entries (train archived, awaiting a late credit) once
+    // their post-archive window lapses — directly, NOT via activeOnly (which excludes
+    // archived trains). A still-running train (awaitingSince null) is NEVER swept,
+    // however long its run / first-PR CI takes; it's cleaned only when it archives.
+    // Total entries stay bounded: live ones track live train sessions, awaiting ones
+    // lapse after TTL. No emit on eviction — fail-safe no-offer.
     for (const [trainId, entry] of this.#trainOffers) {
-      if (now - entry.lastTouch > MERGE_STALE_MS) {
+      if (entry.awaitingSince !== null && now - entry.awaitingSince > MERGE_STALE_MS) {
         for (const id of entry.members) this.#memberToTrain.delete(id);
         this.#trainOffers.delete(trainId);
       }

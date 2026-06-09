@@ -17,7 +17,11 @@ concurrency:
 jobs:
   verify:
     name: verify
-    runs-on: ubuntu-latest
+    # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
+    # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
+    # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes
+    # public — a self-hosted runner on a public repo runs fork-PR code on the host.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5

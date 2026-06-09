@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   release-please:
+    # Intentionally NOT on the CI_RUNNER toggle (unlike verify + pr-hygiene): this
+    # runs only on push to main, is cheap, and must reliably cut releases even when
+    # the local self-hosted runner is down. See ci/self-hosted-runner/README.md.
     runs-on: ubuntu-latest
     steps:
       # Maintains a release PR that accrues a CHANGELOG from conventional

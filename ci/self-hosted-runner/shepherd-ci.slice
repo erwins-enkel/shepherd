@@ -1,0 +1,30 @@
+# Host-level resource ceiling for ALL Shepherd CI runner replicas.
+#
+# This is the enforcing belt to the per-container `--cpus`/`--memory` suspenders
+# in run-runner.sh: when both replicas spike, the slice caps their combined CPU +
+# memory so production shepherd.service keeps headroom on the same box.
+#
+# IMPORTANT: this only binds the containers when run-runner.sh passes
+# `--cgroup-parent=shepherd-ci.slice` (it does) AND the daemon places containers in
+# the USER systemd tree — i.e. ROOTLESS Docker. Under rootful Docker the daemon uses
+# the system tree and would create an unrelated, unlimited shepherd-ci.slice there;
+# to get the belt under rootful, install this slice as a SYSTEM unit
+# (/etc/systemd/system) instead. Without --cgroup-parent the containers run under the
+# daemon's own cgroup and this slice governs nothing.
+#
+# It ALSO requires the docker daemon to use the systemd cgroup driver
+# (native.cgroupdriver=systemd, the default here). Under the cgroupfs driver the
+# `.slice` name is treated as a literal cgroup path, not this systemd unit, so the
+# belt won't engage even rootless.
+#
+# Sizing (tune for the host): with default per-replica caps of 4 CPUs / 8G and
+# two replicas, the worst case is ~800% CPU / 16G.
+#   - CPUQuota=600% is deliberately BELOW the 800% aggregate, so the two runners
+#     can't pin every core and starve prod.
+#   - MemoryMax=16G equals the aggregate (2x8G): a hard host ceiling that stops the
+#     runners overcommitting past their combined caps, but it does NOT by itself
+#     reserve memory headroom for prod. On a RAM-constrained box, LOWER this
+#     (e.g. 12G) to carve out an explicit reserve for shepherd + the OS.
+[Slice]
+CPUQuota=600%
+MemoryMax=16G

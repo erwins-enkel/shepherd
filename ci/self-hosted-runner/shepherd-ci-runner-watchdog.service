@@ -1,0 +1,25 @@
+# Shepherd self-hosted CI runner — liveness watchdog (oneshot).
+#
+# Driven by shepherd-ci-runner-watchdog.timer, NOT enabled directly (no [Install]).
+# Each activation runs runner-liveness.sh once: green -> exit 0, runner down ->
+# exit non-zero so this unit shows `failed` (and the journal carries the reason).
+# See runner-liveness.sh for WHY a down runner is invisible without this.
+[Unit]
+Description=Shepherd self-hosted CI runner liveness check
+Documentation=https://github.com/erwins-enkel/shepherd
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Mirror the runner unit's environment so host `gh` (and notify-send) resolve under
+# the user manager's minimal env.
+Environment=HOME=%h
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Same non-secret config the runner units load — provides GH_REPO + RUNNER_DIR.
+# Optional PAT (leading `-` => absence ok) so `gh` can auth on a host without login.
+EnvironmentFile=%h/.config/shepherd-ci-runner/.env
+EnvironmentFile=-%h/.config/shepherd-ci-runner/pat.env
+
+ExecStart=/usr/bin/env bash ${RUNNER_DIR}/runner-liveness.sh

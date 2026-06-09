@@ -1,0 +1,73 @@
+# Shepherd self-hosted CI runner — systemd USER template unit.
+#
+# One instance per replica: `runner-1`, `runner-2` (the %i instance name).
+#   systemctl --user start shepherd-ci-runner@1.service   # -> runner-1
+#
+# Each start mints a fresh registration token on the host (admin credential
+# never enters the container) and runs ONE ephemeral --rm runner container.
+# EPHEMERAL=true means the runner deregisters after a single job, so Restart
+# brings up a fresh container + fresh token for the next job.
+[Unit]
+Description=Shepherd self-hosted CI runner (runner-%i)
+Documentation=https://github.com/erwins-enkel/shepherd
+After=network-online.target docker.service
+Wants=network-online.target
+# Disable systemd's start rate limiter. With EPHEMERAL=true the runner exits 0
+# after EVERY job and we restart to register for the next one — that clean
+# success-restart IS the normal per-job loop, so the rate limiter would count
+# legitimate restarts and trip (~5 jobs) then silently stop restarting, bricking
+# the runner. RestartSec (below) is what actually prevents a tight loop during a
+# sustained registration failure (GitHub outage): the unit just retries every
+# RestartSec instead of being held failed.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+
+# Mirror shepherd.service conventions: explicit HOME + PATH so host `gh` and
+# `docker` (in /usr/bin) resolve under the user manager's minimal environment.
+Environment=HOME=%h
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Where to deal docker its --user runtime socket (rootless / user docker).
+Environment=XDG_RUNTIME_DIR=%t
+
+# Per-instance token path under the runtime dir (%t = /run/user/<uid>): tmpfs,
+# 0700-owned by the user, wiped on logout — a good home for a short-lived token.
+Environment=RUNNER_TOKEN_FILE=%t/shepherd-ci-runner-%i.token
+
+# Non-secret config (required) + optional host-only PAT (leading `-` => absence ok).
+EnvironmentFile=%h/.config/shepherd-ci-runner/.env
+EnvironmentFile=-%h/.config/shepherd-ci-runner/pat.env
+
+# Clear any stale container left by an unclean prior stop (SIGKILL after a stop
+# timeout, daemon restart): the fixed --name would otherwise block the next run
+# with a name conflict. Leading `-` so a no-op (already gone) doesn't fail us.
+ExecStartPre=-/usr/bin/docker rm -f shepherd-ci-runner-%i
+
+# Mint the registration token on the host BEFORE the container starts.
+# If minting fails (empty token / GitHub down) this exits non-zero and ExecStart
+# never runs — fail closed, no tokenless container.
+ExecStartPre=/usr/bin/env bash ${RUNNER_DIR}/mint-token.sh
+
+# Launch the single hardened, ephemeral runner container for this replica.
+ExecStart=/usr/bin/env bash ${RUNNER_DIR}/run-runner.sh runner-%i
+
+# Best-effort: drop the minted token from the runtime dir once the job ends.
+ExecStopPost=/usr/bin/env rm -f ${RUNNER_TOKEN_FILE}
+# Best-effort: remove the container too, so an unclean stop can't strand it and
+# block the next start on a --name conflict. Leading `-` so a no-op is fine.
+ExecStopPost=-/usr/bin/docker rm -f shepherd-ci-runner-%i
+
+# Success-restart is the normal per-job loop (EPHEMERAL exits 0 after each job),
+# so the start rate limiter is OFF (StartLimitIntervalSec=0 above). On a sustained
+# registration failure RestartSec is the only brake: the unit retries every 5s
+# rather than hammering GitHub in a tight loop.
+Restart=always
+RestartSec=5s
+
+# Host-level resource ceiling shared by all runner replicas (belt to the
+# per-container --cpus/--memory suspenders).
+Slice=shepherd-ci.slice
+
+[Install]
+WantedBy=default.target

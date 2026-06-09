@@ -67,6 +67,7 @@
     connected = true,
     git = null,
     previewPort = null,
+    previewServeFailed = false,
     openPreviewTick = 0,
     buildQueue = null,
     onSeedBuildQueue,
@@ -101,6 +102,9 @@
     /** Live preview-listener port for this session (server-driven). Non-null → the
      *  Preview tab + pane are available; the iframe URL is built from window.location. */
     previewPort?: number | null;
+    /** true when the server's tailscale serve registration failed for this session's
+     *  preview port — the preview is reachable on loopback only, not over Tailscale. */
+    previewServeFailed?: boolean;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
     /** Current build queue for this session; updated live by WS queue:update events. */
@@ -1777,6 +1781,9 @@
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
         ></iframe>
         <div class="preview-foot">
+          {#if previewServeFailed}
+            <span class="preview-serve-failed">{m.viewport_preview_serve_failed()}</span>
+          {/if}
           <!-- Persistent static setup hint (NOT an auto-detected error): a blank
                frame usually means the preview port isn't tailscale-served yet, or the
                app refuses to frame via in-HTML CSP — both handled by open-in-new-tab. -->
@@ -2854,6 +2861,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Degraded state: tailscale serve registration failed; mirrors preview-hint sizing
+     but uses amber (attention/degraded) to call out the registration failure. */
+  .preview-serve-failed {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-amber);
   }
   .preview-open {
     margin-left: auto;

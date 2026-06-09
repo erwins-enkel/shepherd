@@ -451,6 +451,8 @@
   "viewport_preview_command_placeholder": "z.B. npm run dev",
   "viewport_preview_command_send": "Senden",
   "unitrow_preview_badge": "Vorschau",
+  "unitrow_preview_badge_degraded": "Vorschau — Tailscale-Registrierung fehlgeschlagen; nur über Loopback erreichbar",
+  "viewport_preview_serve_failed": "Tailscale-Registrierung für diesen Vorschau-Port fehlgeschlagen — nur über Loopback erreichbar. Nutze 'In neuem Tab öffnen', wenn der Frame leer bleibt.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, Merge, Kritiker & Merge-Freigabe",
   "viewport_git_actions_aria": "PR- und Merge-Aktionen ein-/ausblenden",

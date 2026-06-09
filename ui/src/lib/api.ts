@@ -461,7 +461,9 @@ export async function activityStates(): Promise<Record<string, SessionActivity>>
 /** Snapshot of the bound preview-listener port per session, keyed by session id
  *  (for client bootstrap). `previewPort` is null when the server knows of no
  *  live dev-server listener. Empty object when nothing is bound. */
-export async function previewStates(): Promise<Record<string, { previewPort: number | null }>> {
+export async function previewStates(): Promise<
+  Record<string, { previewPort: number | null; serve?: "ok" | "failed" }>
+> {
   const r = await fetch("/api/preview");
   if (!r.ok) throw await failed(r, "preview states");
   return r.json();

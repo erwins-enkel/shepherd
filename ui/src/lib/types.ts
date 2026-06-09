@@ -491,6 +491,7 @@ export type WsEvent =
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }
+  | { event: "session:preview-serve"; data: { id: string; serve: "ok" | "failed" | null } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "star-prompt:status"; data: StarPromptStatus }

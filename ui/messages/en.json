@@ -451,6 +451,8 @@
   "viewport_preview_command_placeholder": "e.g. npm run dev",
   "viewport_preview_command_send": "Send",
   "unitrow_preview_badge": "Preview",
+  "unitrow_preview_badge_degraded": "Preview — Tailscale registration failed; reachable on loopback only",
+  "viewport_preview_serve_failed": "Tailscale registration failed for this preview port — it's reachable on loopback only. Use Open in new tab if the frame is blank.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, merge, critic & ready-to-merge actions",
   "viewport_git_actions_aria": "Toggle PR and merge actions",

@@ -88,12 +88,21 @@
   // Viewport so it switches to its Preview tab. A counter (not a boolean) so a
   // repeat click on the already-selected session still re-triggers the open.
   let openPreviewTick = $state(0);
-  // Flatten the /api/preview snapshot ({ id: { previewPort } }) into the store's
-  // flat sessionId → port|null map.
+  // Flatten the /api/preview snapshot ({ id: { previewPort, serve? } }) into the
+  // store's flat sessionId → port|null map (unchanged shape; serve is separate).
   function flattenPreview(
-    map: Record<string, { previewPort: number | null }>,
+    map: Record<string, { previewPort: number | null; serve?: "ok" | "failed" }>,
   ): Record<string, number | null> {
     return Object.fromEntries(Object.entries(map).map(([id, v]) => [id, v.previewPort]));
+  }
+  // Extract the tailscale-serve registration status from the /api/preview snapshot
+  // into the store's sessionId → "ok"|"failed" map (absent = not managed / no mapping).
+  function extractServe(
+    map: Record<string, { previewPort: number | null; serve?: "ok" | "failed" }>,
+  ): Record<string, "ok" | "failed"> {
+    return Object.fromEntries(
+      Object.entries(map).flatMap(([id, v]) => (v.serve ? [[id, v.serve]] : [])),
+    );
   }
   // A row asked to open its live preview: select the session, then bump the tick
   // so the Viewport flips to its Preview tab (after its own unit-switch reset).
@@ -221,7 +230,10 @@
       .then((m) => store.setActivity(m))
       .catch(() => {});
     previewStates()
-      .then((m) => store.setPreview(flattenPreview(m)))
+      .then((m) => {
+        store.setPreview(flattenPreview(m));
+        store.setPreviewServe(extractServe(m));
+      })
       .catch(() => {});
     getBacklog()
       .then((p) => (backlog = p))
@@ -501,7 +513,10 @@
       .then((m) => store.setActivity(m))
       .catch(() => {});
     previewStates()
-      .then((m) => store.setPreview(flattenPreview(m)))
+      .then((m) => {
+        store.setPreview(flattenPreview(m));
+        store.setPreviewServe(extractServe(m));
+      })
       .catch(() => {});
     getDrain()
       .then((l) => store.setDrain(l))
@@ -805,6 +820,7 @@
             git={store.git}
             activity={store.activity}
             preview={store.preview}
+            previewServe={store.previewServe}
             onpreview={openPreview}
             ondecommission={onarchive}
             {onclearmerged}
@@ -841,6 +857,7 @@
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             previewHost={settings?.previewHost ?? null}
+            previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
@@ -890,6 +907,7 @@
           git={store.git}
           activity={store.activity}
           preview={store.preview}
+          previewServe={store.previewServe}
           onpreview={openPreview}
           {onclearmerged}
           {onmergetrain}
@@ -913,6 +931,7 @@
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             previewHost={settings?.previewHost ?? null}
+            previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}

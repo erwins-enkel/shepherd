@@ -40,6 +40,7 @@
   "options_repopath_placeholder": "~/Work/my-repo",
   "options_save": "Speichern",
   "options_saved": "Gespeichert",
+  "options_save_failed": "Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.",
   "popup_mode_label": "Aufnahme",
   "popup_mode_visible": "Sichtbarer Bereich",
   "popup_mode_fullpage": "Ganze Seite",

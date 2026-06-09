@@ -9,6 +9,7 @@
 
   let config = $state<CaptureConfig>({ ...DEFAULT_CONFIG });
   let saved = $state(false);
+  let saveError = $state(false);
   let recorderOn = $state(false);
   let recorderDenied = $state(false);
   let hostDenied = $state(false);
@@ -58,12 +59,12 @@
       config.signals.console = false;
       config.signals.network = false;
     }
-    await saveSignals(config.signals);
+    await saveSignals($state.snapshot(config.signals));
   }
 
   async function toggleA11y(e: Event) {
     config.signals.a11y = (e.target as HTMLInputElement).checked;
-    await saveSignals(config.signals);
+    await saveSignals($state.snapshot(config.signals));
   }
 
   // A remote (ts.net) base URL needs the optional host permission before it can
@@ -74,6 +75,7 @@
     e.preventDefault();
     // Clear the full shared status set so only this action's outcome shows.
     saved = false;
+    saveError = false;
     hostDenied = false;
     hostUnsupported = false;
     testOk = false;
@@ -94,11 +96,21 @@
     config.routingRules = config.routingRules.filter(
       (r) => r.pattern.trim() !== "" && r.repoPath.trim() !== "",
     );
-    const prevBaseUrl = (await loadConfig()).baseUrl;
-    await saveConfig(config);
-    // Release the previous remote host's grant if we've switched hosts (remove
-    // needs no gesture, so it can run after Save).
-    await releaseStaleHost(prevBaseUrl, config.baseUrl);
+    // chrome.storage serializes across a structured-clone boundary, where a
+    // deeply-reactive $state proxy array (routingRules) does not round-trip as a
+    // real Array — loadConfig's Array.isArray guard would then wipe it to []. Hand
+    // storage a plain snapshot instead.
+    try {
+      const prevBaseUrl = (await loadConfig()).baseUrl;
+      await saveConfig($state.snapshot(config));
+      // Release the previous remote host's grant if we've switched hosts (remove
+      // needs no gesture, so it can run after Save).
+      await releaseStaleHost(prevBaseUrl, config.baseUrl);
+    } catch {
+      // Fail closed: a failed write must surface, never silently flash "Saved".
+      saveError = true;
+      return;
+    }
     saved = true;
     setTimeout(() => (saved = false), 1500);
   }
@@ -112,6 +124,7 @@
     e.preventDefault();
     // Clear the full shared status set so only this action's outcome shows.
     saved = false;
+    saveError = false;
     hostDenied = false;
     hostUnsupported = false;
     testOk = false;
@@ -234,7 +247,7 @@
       <legend class="text-gray-600">{m.options_routing_title()}</legend>
       <span class="text-xs text-gray-500">{m.options_routing_hint()}</span>
 
-      {#each config.routingRules as rule (rule)}
+      {#each config.routingRules as rule, i (i)}
         <div class="flex items-center gap-2">
           <input
             class="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1"
@@ -294,6 +307,9 @@
     {/if}
     {#if hostDenied}
       <span class="text-xs text-red-600">{m.options_host_denied()}</span>
+    {/if}
+    {#if saveError}
+      <span class="text-xs text-red-600">{m.options_save_failed()}</span>
     {/if}
 
     <fieldset class="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-3">

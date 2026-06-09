@@ -37,7 +37,12 @@ export async function loadConfig(): Promise<CaptureConfig> {
   };
 }
 
-/** Persist config (local only — never synced; holds the token). */
+/**
+ * Persist config (local only — never synced; holds the token). Callers in a
+ * Svelte component MUST pass a plain object ($state.snapshot(config)), never a
+ * raw $state proxy — a proxied array won't survive chrome.storage's structured
+ * clone and loadConfig's Array.isArray guard would wipe it.
+ */
 export async function saveConfig(config: CaptureConfig): Promise<void> {
   await chrome.storage.local.set({ [KEY]: config });
 }

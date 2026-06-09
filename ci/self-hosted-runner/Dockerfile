@@ -26,13 +26,24 @@ FROM myoung34/github-runner@sha256:067d61600d8ea770ce4940002bd817972282b4b691b04
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
-# The base ships node (v18) but no npm/npx, and Playwright's CLI is driven via
-# npx. Install npm so `npx playwright install` is available at build time.
+# Install Node 20 (NodeSource), replacing the base image's Node 18.
+#
+# WHY Node 20 specifically (not the base's v18, and not just "any npm"):
+#   This node is used at JOB RUNTIME, not only at build time. The ui `check` step
+#   runs `paraglide-js compile`, whose `.bin` shim is `#!/usr/bin/env node`, so it
+#   executes under the CONTAINER's node. paraglide-js/inlang load a WASM SQLite that
+#   needs the global Web Crypto API; on Node 18 it aborts with
+#   "ReferenceError: crypto is not defined" (Aborted(initRandomDevice)). GitHub's
+#   ubuntu-latest ships Node 20, where it works — so the runner must match it, or
+#   every ui-touching PR fails here while passing on hosted runners. NodeSource
+#   nodejs also provides npm/npx for the Playwright bake below.
 # `playwright install --with-deps` needs root + apt; the base image's default
 # user is root, which is what we want for the build steps.
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends npm \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
        npx --yes playwright@1.60.0 install --with-deps chromium \
     && apt-get clean \

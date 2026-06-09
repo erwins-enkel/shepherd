@@ -1,7 +1,173 @@
 import { join } from "node:path";
-import { open } from "node:fs/promises";
+import { open, readdir } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { SessionPreviewState } from "./types";
+
+// ── detectDevCommand ──────────────────────────────────────────────────────────
+
+/** Injectable filesystem accessors so tests don't touch the real FS. */
+export interface FsAccessors {
+  readText(path: string): Promise<string | null>;
+  exists(path: string): Promise<boolean>;
+  readdir(path: string): Promise<string[]>;
+}
+
+const realFs: FsAccessors = {
+  readText: async (p: string) => {
+    try {
+      const f = Bun.file(p);
+      return (await f.exists()) ? await f.text() : null;
+    } catch {
+      return null;
+    }
+  },
+  exists: async (p: string) => {
+    try {
+      return await Bun.file(p).exists();
+    } catch {
+      return false;
+    }
+  },
+  readdir: async (p: string) => {
+    try {
+      return await readdir(p);
+    } catch {
+      return [];
+    }
+  },
+};
+
+/** Curated subdir names to scan when root has no `scripts.dev`. */
+const CURATED_SUBDIRS = ["ui", "app", "web", "frontend", "client"] as const;
+
+/**
+ * Detect the package manager from lockfiles in `dir`, returning null if none found.
+ * Call site must supply a fallback (e.g. root dir) before defaulting to "npm".
+ */
+async function detectPmInDir(
+  dir: string,
+  fs: FsAccessors,
+): Promise<"bun" | "pnpm" | "yarn" | "npm" | null> {
+  if (await fs.exists(`${dir}/bun.lock`)) return "bun";
+  if (await fs.exists(`${dir}/bun.lockb`)) return "bun";
+  if (await fs.exists(`${dir}/pnpm-lock.yaml`)) return "pnpm";
+  if (await fs.exists(`${dir}/yarn.lock`)) return "yarn";
+  if (await fs.exists(`${dir}/package-lock.json`)) return "npm";
+  return null;
+}
+
+/**
+ * Resolve the package manager for `dir`, falling back to the worktree root lockfile,
+ * then to "npm". Canonical monorepos keep the lockfile at the root only.
+ */
+async function detectPm(
+  dir: string,
+  root: string,
+  fs: FsAccessors,
+): Promise<"bun" | "pnpm" | "yarn" | "npm"> {
+  return (await detectPmInDir(dir, fs)) ?? (await detectPmInDir(root, fs)) ?? "npm";
+}
+
+/** Build the run command for a given package manager. */
+function pmDevCmd(pm: "bun" | "pnpm" | "yarn" | "npm"): string {
+  return pm === "yarn" ? "yarn dev" : `${pm} run dev`;
+}
+
+/** Parse package.json text; return null on failure. */
+function parsePkg(text: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(text);
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True if pkg has a non-empty `scripts.dev`. */
+function hasDev(pkg: Record<string, unknown>): boolean {
+  const scripts = pkg["scripts"];
+  if (typeof scripts !== "object" || scripts === null) return false;
+  const dev = (scripts as Record<string, unknown>)["dev"];
+  return typeof dev === "string" && dev.trim().length > 0;
+}
+
+/**
+ * Resolve the dev-server command for a worktree, using injectable fs accessors.
+ *
+ * Resolution order:
+ * 1. Root package.json with scripts.dev → `<pm> run dev`
+ * 2. Exactly one curated/workspace subdir with scripts.dev → `cd <dir> && <pm> run dev`
+ * 3. Zero or multiple subdirs → null
+ *
+ * NEVER uses sync fs operations (hard rule for Shepherd's single Bun event loop).
+ */
+export async function detectDevCommand(
+  worktreePath: string,
+  fs: FsAccessors = realFs,
+): Promise<string | null> {
+  try {
+    return await detectDevCommandImpl(worktreePath, fs);
+  } catch {
+    return null;
+  }
+}
+
+async function detectDevCommandImpl(worktreePath: string, fs: FsAccessors): Promise<string | null> {
+  // Step 1: root package.json
+  const rootPkgText = await fs.readText(`${worktreePath}/package.json`);
+  if (rootPkgText === null) return null;
+  const rootPkg = parsePkg(rootPkgText);
+  if (rootPkg === null) return null;
+
+  if (hasDev(rootPkg)) {
+    const pm = await detectPm(worktreePath, worktreePath, fs);
+    return pmDevCmd(pm);
+  }
+
+  // Step 2: scan subdirs — curated list + workspace globs
+  const subdirs = new Set<string>(CURATED_SUBDIRS);
+
+  // Add workspace globs from root package.json.
+  // Supports both array form (["packages/*", "apps/*"]) and npm/yarn-classic object
+  // form ({ packages: ["packages/*", ...] }). Any other shape is skipped.
+  const ws = rootPkg["workspaces"];
+  const wsArray: unknown[] = Array.isArray(ws)
+    ? ws
+    : ws !== null &&
+        typeof ws === "object" &&
+        Array.isArray((ws as Record<string, unknown>)["packages"])
+      ? ((ws as Record<string, unknown>)["packages"] as unknown[])
+      : [];
+  const wsPatterns: string[] = wsArray.filter((x): x is string => typeof x === "string");
+
+  for (const pattern of wsPatterns) {
+    // Handle `packages/*` style globs: scan the prefix dir one level deep
+    const slashStar = pattern.endsWith("/*");
+    if (slashStar) {
+      const prefix = pattern.slice(0, -2); // strip "/*"
+      const entries = await fs.readdir(`${worktreePath}/${prefix}`);
+      for (const entry of entries) subdirs.add(`${prefix}/${entry}`);
+    } else if (!pattern.includes("*")) {
+      subdirs.add(pattern);
+    }
+  }
+
+  // Collect subdirs that have a dev script
+  const matches: string[] = [];
+  for (const rel of subdirs) {
+    const pkgText = await fs.readText(`${worktreePath}/${rel}/package.json`);
+    if (pkgText === null) continue;
+    const pkg = parsePkg(pkgText);
+    if (pkg === null) continue;
+    if (hasDev(pkg)) matches.push(rel);
+  }
+
+  if (matches.length !== 1) return null; // 0 = none, >1 = ambiguous
+
+  const subdir = matches[0];
+  const pm = await detectPm(`${worktreePath}/${subdir}`, worktreePath, fs);
+  return `cd ${subdir} && ${pmDevCmd(pm)}`;
+}
 
 // ── dev-port detection primitives ─────────────────────────────────────────────
 //

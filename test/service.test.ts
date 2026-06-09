@@ -8,6 +8,7 @@ import {
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
   planGoSteer,
+  PREVIEW_START_STEER,
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config } from "../src/config";
@@ -2357,6 +2358,7 @@ test("create with buildQueueEnabled=true + autopilot off: queue is NOT auto-appr
   });
   expect(store.getBuildQueue(s.id).approved).toBe(false);
 });
+<<<<<<< HEAD
 
 // ── draft mode ───────────────────────────────────────────────────────────────
 
@@ -2420,4 +2422,67 @@ test("create with draftMode=false: system prompt has no <draft-mode> block", asy
     images: [],
   });
   expect(sysPrompt(captured.argv!)).not.toContain("<draft-mode>");
+});
+
+// ── startPreview ──────────────────────────────────────────────────────────────
+
+function makePreviewSvc(opts: { terminalId: string; liveIds: string[] }) {
+  const sent: { target: string; text: string }[] = [];
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "preview-test",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/preview-test",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: opts.terminalId,
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => opts.liveIds.map((id) => ({ terminalId: id })),
+      stop: () => {},
+      send: (target: string, text: string) => sent.push({ target, text }),
+    } as any,
+  });
+  return { svc, store, s, sent };
+}
+
+test("startPreview: sends PREVIEW_START_STEER as bracketed paste + CR, returns true", () => {
+  const { svc, s, sent } = makePreviewSvc({ terminalId: "term_p", liveIds: ["term_p"] });
+  const result = svc.startPreview(s.id, "bun run dev");
+  expect(result).toBe(true);
+  // Two sends: paste-wrapped steer then CR
+  expect(sent).toHaveLength(2);
+  const [paste, cr] = sent;
+  expect(cr!.text).toBe("\r");
+  // The paste payload must contain the command
+  expect(paste!.text).toContain("bun run dev");
+  // Must instruct backgrounding
+  const steer = PREVIEW_START_STEER("bun run dev");
+  expect(steer).toContain("background");
+  expect(steer).toContain("bun run dev");
+});
+
+test("startPreview: steer contains the command in backticks", () => {
+  const steer = PREVIEW_START_STEER("cd ui && npm run dev");
+  expect(steer).toContain("`cd ui && npm run dev`");
+});
+
+test("startPreview: returns false for an unknown session id", () => {
+  const { svc, sent } = makePreviewSvc({ terminalId: "term_p", liveIds: ["term_p"] });
+  expect(svc.startPreview("nope", "bun run dev")).toBe(false);
+  expect(sent).toHaveLength(0);
+});
+
+test("startPreview: returns false for a dead pane (session in store but pane not live)", () => {
+  const { svc, s, sent } = makePreviewSvc({ terminalId: "term_dead", liveIds: ["term_other"] });
+  expect(svc.startPreview(s.id, "bun run dev")).toBe(false);
+  expect(sent).toHaveLength(0);
 });

@@ -267,6 +267,20 @@ export const DRAFT_PR_NOTE =
   "Shepherd promotes it to ready-for-review automatically once it's signed off (a human approval and/or the " +
   "critic, per repo config) — do NOT run `gh pr ready` yourself.";
 
+/**
+ * Build the steer text sent to an agent to start its dev server in the background.
+ * Must instruct the agent to run the command in the background so it does NOT block
+ * on the dev server (a foreground dev server never exits and would hang the agent's
+ * turn forever). Agent-facing prompt, NOT i18n'd.
+ */
+export function PREVIEW_START_STEER(command: string): string {
+  return (
+    `Please run \`${command}\` in the background (use Claude Code's background run / append \`&\` so it ` +
+    `does NOT block your turn — a foreground dev server never exits and would hang you forever). ` +
+    `Confirm the port it's listening on once it starts, then continue what you were doing.`
+  );
+}
+
 /** Steered into a planning session when its plan is approved and the operator hits Go (or an
  *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd.
  *  When `draftMode` is true, appends the draft-PR note so the agent opens a draft PR. */
@@ -766,6 +780,16 @@ export class SessionService {
    */
   reply(id: string, text: string): boolean {
     return this.replyToLive(id, text, this.liveTerminalIds());
+  }
+
+  /**
+   * Steer the agent for session `id` to start its dev server with `command` running
+   * in the background. The agent's PTY is a live Claude Code session — we can't spawn
+   * processes ourselves, so we deliver a directive asking the agent to do it. Returns
+   * false for an unknown id or a dead pane (same semantics as reply()).
+   */
+  startPreview(id: string, command: string): boolean {
+    return this.reply(id, PREVIEW_START_STEER(command));
   }
 
   /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.

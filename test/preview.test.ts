@@ -4,6 +4,8 @@ import {
   sanitizeCloseCode,
   rewriteLoopbackLocation,
   resolveDevPort,
+  detectDevCommand,
+  type FsAccessors,
 } from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -884,4 +886,170 @@ test("PreviewService: stopAll clears all listeners and the snapshot", () => {
   service!.ensure("s1", 40001);
   service!.stopAll();
   expect(service!.snapshot()).toEqual({});
+});
+
+// ── detectDevCommand ──────────────────────────────────────────────────────────
+
+/** Build a minimal FsAccessors from a map of path→content. */
+function makeFs(files: Record<string, string>, dirs: Record<string, string[]> = {}): FsAccessors {
+  return {
+    readText: async (p: string): Promise<string | null> => {
+      if (Object.prototype.hasOwnProperty.call(files, p)) return files[p] as string;
+      return null;
+    },
+    exists: async (p: string) => Object.prototype.hasOwnProperty.call(files, p),
+    readdir: async (p: string) => dirs[p] ?? [],
+  };
+}
+
+test("detectDevCommand: root dev script + bun.lock → bun run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/bun.lock": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("bun run dev");
+});
+
+test("detectDevCommand: root dev + bun.lockb → bun run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/bun.lockb": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("bun run dev");
+});
+
+test("detectDevCommand: root dev + pnpm-lock.yaml → pnpm run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/pnpm-lock.yaml": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("pnpm run dev");
+});
+
+test("detectDevCommand: root dev + yarn.lock → yarn dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/yarn.lock": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("yarn dev");
+});
+
+test("detectDevCommand: root dev + package-lock.json → npm run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/package-lock.json": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("npm run dev");
+});
+
+test("detectDevCommand: root dev + no lockfile → npm run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("npm run dev");
+});
+
+test("detectDevCommand: no root dev → curated subdir ui has dev → cd ui && bun run dev", async () => {
+  const fs = makeFs(
+    {
+      "/wt/package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+      "/wt/ui/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      "/wt/ui/bun.lock": "",
+    },
+    { "/wt/packages": [] },
+  );
+  expect(await detectDevCommand("/wt", fs)).toBe("cd ui && bun run dev");
+});
+
+test("detectDevCommand: no root dev → subdir app has dev → cd app && npm run dev", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({}),
+    "/wt/app/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("cd app && npm run dev");
+});
+
+test("detectDevCommand: two subdirs with dev → null (ambiguous)", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({}),
+    "/wt/ui/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/web/package.json": JSON.stringify({ scripts: { dev: "next" } }),
+  });
+  expect(await detectDevCommand("/wt", fs)).toBeNull();
+});
+
+test("detectDevCommand: no dev anywhere → null", async () => {
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+  });
+  expect(await detectDevCommand("/wt", fs)).toBeNull();
+});
+
+test("detectDevCommand: no package.json at all → null", async () => {
+  const fs = makeFs({});
+  expect(await detectDevCommand("/wt", fs)).toBeNull();
+});
+
+test("detectDevCommand: root dev → subdir dev → root wins (root has priority)", async () => {
+  // root has dev AND subdir has dev — root wins because step 1 short-circuits
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/ui/package.json": JSON.stringify({ scripts: { dev: "next" } }),
+    "/wt/bun.lock": "",
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("bun run dev");
+});
+
+test("detectDevCommand: workspace glob packages/* finds the one with dev", async () => {
+  const fs = makeFs(
+    {
+      "/wt/package.json": JSON.stringify({ workspaces: ["packages/*"] }),
+      "/wt/packages/app/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      "/wt/packages/lib/package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+    },
+    { "/wt/packages": ["app", "lib"] },
+  );
+  expect(await detectDevCommand("/wt", fs)).toBe("cd packages/app && npm run dev");
+});
+
+test("detectDevCommand: fs errors in readText/exists → null (fail closed, never throws)", async () => {
+  // All accessors throw to simulate unreadable filesystem (permissions, I/O error, etc.)
+  const throwingFs: FsAccessors = {
+    readText: async () => {
+      throw new Error("EACCES");
+    },
+    exists: async () => {
+      throw new Error("EACCES");
+    },
+    readdir: async () => {
+      throw new Error("EACCES");
+    },
+  };
+  // Must not throw — fs errors mean "no command here" → null
+  const result = await detectDevCommand("/wt", throwingFs);
+  expect(result).toBeNull();
+});
+
+test("detectDevCommand: subdir with no lockfile falls back to root bun.lock → bun run dev", async () => {
+  // Canonical monorepo: single bun.lock at root, no lockfile in the subdir.
+  const fs = makeFs({
+    "/wt/package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+    "/wt/ui/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    "/wt/bun.lock": "",
+    // deliberately NO /wt/ui/bun.lock
+  });
+  expect(await detectDevCommand("/wt", fs)).toBe("cd ui && bun run dev");
+});
+
+test("detectDevCommand: workspaces object form { packages: [...] } is handled", async () => {
+  // npm/yarn-classic object workspaces: { packages: ["packages/*"] }
+  const fs = makeFs(
+    {
+      "/wt/package.json": JSON.stringify({ workspaces: { packages: ["packages/*"] } }),
+      "/wt/packages/app/package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      "/wt/packages/lib/package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+    },
+    { "/wt/packages": ["app", "lib"] },
+  );
+  expect(await detectDevCommand("/wt", fs)).toBe("cd packages/app && npm run dev");
 });

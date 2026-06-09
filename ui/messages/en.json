@@ -533,6 +533,14 @@
   "toast_merge_train_failed": "Couldn't start the merge train",
   "toast_merge_train_mark_failed": "Merge train started, but marking its PRs failed.",
   "toast_merged": "Merged {name}",
+  "toast_update_main_offer": "PR merged — update your local default branch?",
+  "toast_update_main_action": "Update",
+  "toast_update_main_done": "Updated local {branch} to latest",
+  "toast_update_main_uptodate": "Local {branch} already up to date",
+  "toast_update_main_wrong_branch": "Local checkout isn't on {branch} — left it untouched",
+  "toast_update_main_dirty": "Local {branch} has uncommitted changes — left it untouched",
+  "toast_update_main_diverged": "Local {branch} has diverged — pull manually",
+  "toast_update_main_failed": "Couldn't update local checkout",
   "toast_renamed": "Renamed to {name}",
   "emojipicker_search": "search emoji…",
   "emojipicker_custom": "paste any emoji",
@@ -714,5 +722,7 @@
   "feat_header_fold_title": "Fold the header for more terminal",
   "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions.",
   "feat_learnings_per_repo_title": "Learnings live on the repo row",
-  "feat_learnings_per_repo_body": "The lightbulb count moved off the top bar onto each repo's status row, next to its automation state — so a repo's proposed house rules show right where its other activity does. Click the 💡 to open the drawer at that repo."
+  "feat_learnings_per_repo_body": "The lightbulb count moved off the top bar onto each repo's status row, next to its automation state — so a repo's proposed house rules show right where its other activity does. Click the 💡 to open the drawer at that repo.",
+  "feat_update_checkout_title": "Update local checkout after merge",
+  "feat_update_checkout_body": "When you merge a PR from one of the app's merge buttons, a toast offers to fast-forward that repo's local default branch to the freshly merged state — no manual pull needed."
 }

@@ -3,6 +3,7 @@
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import { offerUpdateMain } from "$lib/pull-offer";
   import { showRebaseOffer } from "./pr-row";
 
   let {
@@ -98,6 +99,7 @@
     try {
       await mergeBacklogPr(repoPath, pr.number);
       onmerged(pr.number);
+      offerUpdateMain(repoPath);
     } catch {
       failed = true;
       merging = false;

@@ -140,6 +140,14 @@ export interface PullRequest {
   };
 }
 
+/** Result of fast-forwarding a repo's local default-branch checkout after a merge
+ *  (mirrors server `PullResult` from `src/pull.ts`). On failure `reason` distinguishes
+ *  benign non-fast-forwardable local states (`wrong_branch`/`dirty`/`diverged`) from a
+ *  genuine `error`. */
+export type PullResult =
+  | { ok: true; branch: string; updated: boolean; sha: string }
+  | { ok: false; reason: "wrong_branch" | "dirty" | "diverged" | "error"; branch?: string };
+
 /** One job within a workflow run (mirrors server `WorkflowJob`). */
 export interface WorkflowJob {
   name: string;

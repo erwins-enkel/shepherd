@@ -36,6 +36,7 @@ import type {
   SessionActivity,
   BuildQueue,
   BuildStepStatus,
+  PullResult,
 } from "./types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -361,6 +362,18 @@ export async function mergeBacklogPr(
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
     throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+  }
+}
+
+/** Fast-forward a repo's local default-branch checkout after a merge. Returns the
+ *  PullResult body regardless of HTTP status (fail-closed states are data, not throws);
+ *  only a network/parse failure collapses to { ok:false, reason:"error" }. */
+export async function pullRepo(repoPath: string, branch?: string): Promise<PullResult> {
+  try {
+    const r = await fetch("/api/repos/pull", JSON_POST({ repo: repoPath, branch }));
+    return (await r.json()) as PullResult;
+  } catch {
+    return { ok: false, reason: "error" };
   }
 }
 

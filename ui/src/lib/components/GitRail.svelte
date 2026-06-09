@@ -12,6 +12,7 @@
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { featureAnnouncements } from "$lib/feature-announcements";
   import Coachmark from "$lib/components/Coachmark.svelte";
+  import { offerUpdateMain } from "$lib/pull-offer";
 
   let {
     sessionId,
@@ -23,6 +24,8 @@
     status = "idle",
     showReady = true,
     planPhase = null,
+    isolated = false,
+    baseBranch = "",
   }: {
     sessionId: string;
     repoPath?: string;
@@ -33,6 +36,8 @@
     status?: SessionStatus;
     showReady?: boolean;
     planPhase?: Session["planPhase"];
+    isolated?: boolean;
+    baseBranch?: string;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -170,6 +175,10 @@
     try {
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
       toasts.info(m.toast_merged({ name: name || sessionId }));
+      // A non-isolated session has its feature branch checked out in the canonical
+      // clone, so there's no separate default-branch checkout to fast-forward — the
+      // offer would always report wrong_branch. Only offer for isolated sessions.
+      if (isolated) offerUpdateMain(repoPath, baseBranch);
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

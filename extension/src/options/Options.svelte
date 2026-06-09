@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
-  import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
+  import { DEFAULT_CONFIG, loadConfig, saveSignals } from "../lib/config";
+  import { persistConfig } from "../lib/config-persist.svelte";
   import { localizeError } from "../lib/localize-error";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
   import { hostKind, releaseStaleHost, requestHostPermission } from "../lib/remote-host";
@@ -96,20 +97,27 @@
     config.routingRules = config.routingRules.filter(
       (r) => r.pattern.trim() !== "" && r.repoPath.trim() !== "",
     );
-    // chrome.storage serializes across a structured-clone boundary, where a
-    // deeply-reactive $state proxy array (routingRules) does not round-trip as a
-    // real Array — loadConfig's Array.isArray guard would then wipe it to []. Hand
-    // storage a plain snapshot instead.
+    // persistConfig snapshots the $state proxy to plain data before it reaches
+    // chrome.storage — a proxied array (routingRules) degrades across the
+    // serializer and loadConfig's Array.isArray guard would then wipe it to [].
+    // prevBaseUrl is read inside the try (before the write) so the whole persist
+    // is fail-closed together.
+    let prevBaseUrl: string;
     try {
-      const prevBaseUrl = (await loadConfig()).baseUrl;
-      await saveConfig($state.snapshot(config));
-      // Release the previous remote host's grant if we've switched hosts (remove
-      // needs no gesture, so it can run after Save).
-      await releaseStaleHost(prevBaseUrl, config.baseUrl);
+      prevBaseUrl = (await loadConfig()).baseUrl;
+      await persistConfig(config);
     } catch {
       // Fail closed: a failed write must surface, never silently flash "Saved".
       saveError = true;
       return;
+    }
+    // Save succeeded. Releasing the previous remote host's grant is best-effort
+    // cleanup (remove needs no gesture, so it runs after Save) — a revoke failure
+    // must NOT read as a save failure, since the config is already persisted.
+    try {
+      await releaseStaleHost(prevBaseUrl, config.baseUrl);
+    } catch {
+      // A lingering stale ts.net grant is harmless permission hygiene.
     }
     saved = true;
     setTimeout(() => (saved = false), 1500);
@@ -247,7 +255,7 @@
       <legend class="text-gray-600">{m.options_routing_title()}</legend>
       <span class="text-xs text-gray-500">{m.options_routing_hint()}</span>
 
-      {#each config.routingRules as rule, i (i)}
+      {#each config.routingRules as rule (rule)}
         <div class="flex items-center gap-2">
           <input
             class="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1"

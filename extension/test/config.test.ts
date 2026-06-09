@@ -6,10 +6,19 @@ import {
   saveConfig,
   saveSignals,
 } from "../src/lib/config";
-import { reactiveConfig, snapshotConfig } from "./fixtures/reactive-config.svelte";
+import { persistConfig } from "../src/lib/config-persist.svelte";
+import { reactiveConfig } from "./fixtures/reactive-config.svelte";
 
 // Minimal in-memory chrome.storage.local stub.
-function installChromeStub(initial: Record<string, unknown> = {}) {
+//
+// `serialize` (default true) deep-clones via structuredClone, mirroring real
+// chrome.storage's serialization boundary so the stub catches values that don't
+// survive it. Pass `serialize: false` to store by reference — used to assert a
+// caller handed storage a detached snapshot, not a live $state proxy.
+function installChromeStub(
+  initial: Record<string, unknown> = {},
+  { serialize = true }: { serialize?: boolean } = {},
+) {
   let store = { ...initial };
   (globalThis as any).chrome = {
     storage: {
@@ -21,10 +30,7 @@ function installChromeStub(initial: Record<string, unknown> = {}) {
           return out;
         }),
         set: vi.fn(async (obj: Record<string, unknown>) => {
-          // Real chrome.storage serializes across a structured-clone boundary; clone
-          // here so the stub catches values that don't survive it (e.g. a Svelte
-          // $state proxy array that deserializes as a non-array).
-          store = { ...store, ...structuredClone(obj) };
+          store = { ...store, ...(serialize ? structuredClone(obj) : obj) };
         }),
       },
     },
@@ -139,23 +145,37 @@ describe("config", () => {
     expect(cfg.model).toBe("opus");
   });
 
-  describe("$state proxy persistence (routing-rule regression)", () => {
-    it("round-trips routingRules when the $state config is snapshotted before saving", async () => {
-      // Options.svelte holds the settings form in a deeply-reactive $state proxy
-      // and snapshots it before persisting. Verify the snapshot is plain,
-      // clone-safe data whose routingRules survives the structured-clone boundary
-      // (the hardened stub mimics chrome.storage) as a real Array.
-      //
-      // Note: the FAILURE this guards against — a raw $state proxy whose array
-      // degrades to a non-array through chrome.storage's serializer, tripping
-      // loadConfig's Array.isArray guard — is Chrome-specific and cannot be
-      // reproduced under Node's structuredClone (which preserves array-ness), so
-      // it is verified manually in-browser, not here.
+  describe("persistConfig (routing-rule persistence regression)", () => {
+    // Both tests drive the REAL production persistConfig with a genuine $state
+    // proxy, so they fail if its $state.snapshot is removed — not a tautology
+    // that snapshots in the test itself.
+
+    it("round-trips routingRules saved from a $state proxy", async () => {
       const rules = [{ pattern: "https://app.example.com/*", repoPath: "~/Work/app" }];
-      await saveConfig(snapshotConfig(reactiveConfig(rules)));
+      await persistConfig(reactiveConfig(rules));
       const loaded = await loadConfig();
       expect(Array.isArray(loaded.routingRules)).toBe(true);
       expect(loaded.routingRules).toEqual(rules);
+    });
+
+    it("hands storage a detached snapshot, not the live $state proxy", async () => {
+      // The actual bug is Chrome-specific (its serializer degrades a proxied
+      // array to a non-array; Node's structuredClone preserves array-ness, so a
+      // raw-proxy round-trip can't reproduce it here). What IS verifiable in Node
+      // is the property that prevents it: persistConfig must store a snapshot
+      // detached from live reactive state. With a by-reference store, mutating
+      // the proxy AFTER persisting must not change what was stored — which only
+      // holds if persistConfig snapshotted. Drop the snapshot and this fails.
+      const getStore = installChromeStub({}, { serialize: false });
+      const live = reactiveConfig([
+        { pattern: "https://app.example.com/*", repoPath: "~/Work/app" },
+      ]);
+      await persistConfig(live);
+      live.routingRules[0].pattern = "MUTATED";
+      const stored = getStore().captureConfig as typeof DEFAULT_CONFIG;
+      expect(stored.routingRules).toEqual([
+        { pattern: "https://app.example.com/*", repoPath: "~/Work/app" },
+      ]);
     });
   });
 });

@@ -47,17 +47,41 @@
   });
 
   let busy = $state(false);
+  // Set on a "started" trigger to bridge the window between the HTTP reply and the WS `reviewing`
+  // flag: the server emits `reviewing` before replying, but if that message lags the response the
+  // button would briefly flip back to "Review plan now" (a reprise of the original blink). Held
+  // until `reviewing` is observed, with a backstop timeout so a lost event can't wedge the spinner.
+  let awaitingReview = $state(false);
   // Outcome of the last manual review trigger that produced no live run, so the panel can explain
   // why nothing changed: "unchanged" = server deduped (plan unchanged / already approved),
-  // "error" = the reviewer failed to spawn. Without this the button would just blink and leave the
-  // operator guessing. null = no note (fresh page, or a real review is/was in flight).
+  // "error" = the reviewer failed to spawn. Auto-dismissed so it can't go stale between clicks.
+  // null = no note (fresh page, or a real review is/was in flight).
   let outcome = $state<"unchanged" | "error" | null>(null);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
-  const inFlight = $derived(busy || reviewing);
+  const inFlight = $derived(busy || reviewing || awaitingReview);
 
-  // A live review supersedes any prior no-op/error note.
+  // Once the WS `reviewing` flag takes over the in-flight indicator, drop the bridge and any
+  // stale no-op/error note — a real run supersedes both.
   $effect(() => {
-    if (reviewing) outcome = null;
+    if (reviewing) {
+      awaitingReview = false;
+      outcome = null;
+    }
+  });
+
+  // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
+  $effect(() => {
+    if (!awaitingReview) return;
+    const t = setTimeout(() => (awaitingReview = false), 4000);
+    return () => clearTimeout(t);
+  });
+
+  // The note is a transient confirmation, not persistent state — expire it so it can't linger
+  // and contradict a plan that changed since.
+  $effect(() => {
+    if (!outcome) return;
+    const t = setTimeout(() => (outcome = null), 6000);
+    return () => clearTimeout(t);
   });
 
   async function go() {
@@ -77,9 +101,10 @@
     outcome = null;
     try {
       const status = await reviewPlan(session.id);
-      // "started" → the WS reviewing flag drives the in-flight indicator; no note needed.
+      // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
       // "skipped" → unchanged plan / already approved; "error" → spawn failed.
-      if (status === "skipped" && !reviewing) outcome = "unchanged";
+      if (status === "started") awaitingReview = true;
+      else if (status === "skipped" && !reviewing) outcome = "unchanged";
       else if (status === "error") outcome = "error";
     } catch {
       // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.

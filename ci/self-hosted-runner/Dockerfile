@@ -26,23 +26,25 @@ FROM myoung34/github-runner@sha256:067d61600d8ea770ce4940002bd817972282b4b691b04
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
-# Install Node 20 (NodeSource), replacing the base image's Node 18.
+# Install Node 22 (NodeSource), replacing the base image's Node 18.
 #
-# WHY Node 20 specifically (not the base's v18, and not just "any npm"):
-#   This node is used at JOB RUNTIME, not only at build time. The ui `check` step
-#   runs `paraglide-js compile`, whose `.bin` shim is `#!/usr/bin/env node`, so it
-#   executes under the CONTAINER's node. paraglide-js/inlang load a WASM SQLite that
-#   needs the global Web Crypto API; on Node 18 it aborts with
-#   "ReferenceError: crypto is not defined" (Aborted(initRandomDevice)). GitHub's
-#   ubuntu-latest ships Node 20, where it works — so the runner must match it, or
-#   every ui-touching PR fails here while passing on hosted runners. NodeSource
-#   nodejs also provides npm/npx for the Playwright bake below.
+# WHY Node 22 specifically — match GitHub's ubuntu-latest (currently Node 22.22.3):
+#   The container's node is used at JOB RUNTIME, not only at build time, and the ui
+#   suite depends on Node's global Web APIs:
+#     - `paraglide-js compile` (.bin shim = `#!/usr/bin/env node`) loads a WASM SQLite
+#       needing global `crypto`; absent < Node 19 → "crypto is not defined".
+#     - the ui node-project tests (store.svelte.test.ts) use global `WebSocket`,
+#       which is only defined from Node 22.4+ → "WebSocket is not defined" on Node 20.
+#   ubuntu-latest ships Node 22, where both exist, so the runner MUST match its major
+#   or ui-touching PRs fail here while passing on hosted runners. (Node 20 fixed the
+#   first but not the second — match ubuntu-latest, don't just clear the current error.)
+#   NodeSource nodejs also provides npm/npx for the Playwright bake below.
 # `playwright install --with-deps` needs root + apt; the base image's default
 # user is root, which is what we want for the build steps.
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
        npx --yes playwright@1.60.0 install --with-deps chromium \

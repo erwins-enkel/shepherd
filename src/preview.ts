@@ -11,8 +11,7 @@ import type { SessionPreviewState } from "./types";
  * List-order is the selection priority — NOT numeric order.
  * Curated ports are trusted HTTP servers; they are NEVER probed via HTTP.
  */
-// fallow-ignore-next-line unused-export
-export const CURATED_PORTS: readonly number[] = [5173, 5174, 4321, 4173, 3000, 8000, 8080];
+const CURATED_PORTS: readonly number[] = [5173, 5174, 4321, 4173, 3000, 8000, 8080];
 
 const CURATED_SET = new Set<number>(CURATED_PORTS);
 
@@ -23,8 +22,7 @@ const CURATED_SET = new Set<number>(CURATED_PORTS);
  * This ensures non-HTTP sockets (debugger 9229, DB ports, etc.) are never surfaced.
  * Injectable for tests (pass a custom probe to avoid real network calls).
  */
-// fallow-ignore-next-line unused-export
-export async function defaultHttpProbe(port: number): Promise<boolean> {
+async function defaultHttpProbe(port: number): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 500);
   try {

@@ -96,9 +96,9 @@
     </button>
   {/snippet}
   {#snippet detail(id: string, text: string)}
-    {#if openDetail === id}
-      <p id="auto-detail-{id}" class="auto-detail" role="note">{text}</p>
-    {/if}
+    <!-- always in the DOM so the button's aria-controls target always resolves;
+         toggled with `hidden` rather than {#if} for assistive tech -->
+    <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={openDetail !== id}>{text}</p>
   {/snippet}
 
   <!-- Code review -->

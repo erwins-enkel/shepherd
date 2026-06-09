@@ -14,6 +14,7 @@ const EXPECTED: Record<string, string> = {
   "↓": "\x1b[B",
   "^A": "\x01",
   "^E": "\x05",
+  "^U": "\x15",
   "^C": "\x03",
   "^D": "\x04",
 };

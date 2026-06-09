@@ -36,6 +36,7 @@ export function controlKeys(): ControlKey[] {
     { label: "↓", aria: m.controlkey_arrow_down(), seq: "\x1b[B", group: "nav" },
     { label: "^A", aria: m.controlkey_ctrl_a(), seq: "\x01", group: "signal" },
     { label: "^E", aria: m.controlkey_ctrl_e(), seq: "\x05", group: "signal" },
+    { label: "^U", aria: m.controlkey_ctrl_u(), seq: "\x15", group: "signal" },
     { label: "^C", aria: m.controlkey_ctrl_c(), seq: "\x03", group: "signal", tone: "danger" },
     { label: "^D", aria: m.controlkey_ctrl_d(), seq: "\x04", group: "signal" },
   ];

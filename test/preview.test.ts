@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { pickPrimaryPort, sanitizeCloseCode, rewriteLoopbackLocation } from "../src/preview";
+import {
+  pickPrimaryPort,
+  sanitizeCloseCode,
+  rewriteLoopbackLocation,
+  resolveDevPort,
+} from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
 
 // ── pickPrimaryPort ───────────────────────────────────────────────────────────
@@ -84,6 +89,109 @@ test("pickPrimaryPort: mixed curated + non-curated → curated wins, no httpProb
 test("pickPrimaryPort: only non-curated, none answer HTTP → null", async () => {
   const result = await pickPrimaryPort([9229, 5678], noProbe);
   expect(result).toBeNull();
+});
+
+// ── readPreviewHint + resolveDevPort ──────────────────────────────────────────
+
+// Fake readFile helpers
+const rejectReadFile = async (): Promise<string> => {
+  throw new Error("ENOENT: no such file");
+};
+const makeReadFile = (content: string) => async (): Promise<string> => content;
+
+// These tests exercise readPreviewHint behaviour indirectly via resolveDevPort.
+test("resolveDevPort: valid port string '3000\\n' → hint honored (3000 curated, no probe)", async () => {
+  const result = await resolveDevPort([3000], "/any", makeReadFile("3000\n"), async () => true);
+  expect(result).toBe(3000);
+});
+
+test("resolveDevPort: non-numeric 'abc' hint → null (falls back to pickPrimaryPort)", async () => {
+  const result = await resolveDevPort([5173], "/any", makeReadFile("abc"), neverProbe);
+  expect(result).toBe(5173); // bad hint → falls back
+});
+
+test("resolveDevPort: out-of-range '0' hint → null (falls back)", async () => {
+  const result = await resolveDevPort([5173], "/any", makeReadFile("0"), neverProbe);
+  expect(result).toBe(5173);
+});
+
+test("resolveDevPort: out-of-range '70000' hint → null (falls back)", async () => {
+  const result = await resolveDevPort([5173], "/any", makeReadFile("70000"), neverProbe);
+  expect(result).toBe(5173);
+});
+
+test("resolveDevPort: surrounding whitespace '  5173  ' → hint honored (curated, no probe)", async () => {
+  let probeCount = 0;
+  const countingProbe = async (): Promise<boolean> => {
+    probeCount++;
+    return true;
+  };
+  const result = await resolveDevPort([5173], "/any", makeReadFile("  5173  "), countingProbe);
+  expect(result).toBe(5173);
+  expect(probeCount).toBe(0); // curated → no probe
+});
+
+test("resolveDevPort: junk-suffixed hint '3000abc' → rejected (falls back to pickPrimaryPort)", async () => {
+  // parseInt("3000abc") = 3000 but /^\d+$/ rejects it → hint is null → falls back
+  // Prove rejection: ports=[5173] so fallback picks 5173 (NOT 3000 via hint path)
+  let probeCount = 0;
+  const countingProbe = async (): Promise<boolean> => {
+    probeCount++;
+    return false;
+  };
+  const result = await resolveDevPort([5173], "/any", makeReadFile("3000abc"), countingProbe);
+  expect(result).toBe(5173); // curated 5173 returned via fallback (no probe)
+  expect(probeCount).toBe(0); // 3000 was NEVER probed (hint was rejected outright)
+});
+
+test("resolveDevPort: curated hint not in ports → falls back to pickPrimaryPort (ports.includes gate)", async () => {
+  // hint=3000 (curated), ports=[5173] — 3000 not listening → ignored
+  const result = await resolveDevPort([5173], "/any", makeReadFile("3000"), neverProbe);
+  expect(result).toBe(5173); // fallback picks curated 5173
+});
+
+test("resolveDevPort: hint curated, in ports → returns hint WITHOUT probing", async () => {
+  let probeCount = 0;
+  const countingProbe = async (): Promise<boolean> => {
+    probeCount++;
+    return true;
+  };
+  // hint=5173 (curated), ports=[3000, 5173]
+  const result = await resolveDevPort([3000, 5173], "/any", makeReadFile("5173"), countingProbe);
+  expect(result).toBe(5173);
+  expect(probeCount).toBe(0);
+});
+
+test("resolveDevPort: hint non-curated, in ports, probe passes → returns hint (wins over curated 5173)", async () => {
+  // hint=9000 (non-curated), ports=[9000, 5173]; probe passes for 9000
+  // Without the hint, pickPrimaryPort would return 5173. The hint overrides it.
+  const probe = async (port: number): Promise<boolean> => port === 9000;
+  const result = await resolveDevPort([9000, 5173], "/any", makeReadFile("9000"), probe);
+  expect(result).toBe(9000);
+});
+
+test("resolveDevPort: hint non-curated, in ports, probe fails → falls back to pickPrimaryPort (returns curated 5173)", async () => {
+  // hint=9000 (non-curated), probe fails for 9000; 5173 is curated → returned unprobed
+  const probe = async (port: number): Promise<boolean> => port !== 9000;
+  const result = await resolveDevPort([9000, 5173], "/any", makeReadFile("9000"), probe);
+  expect(result).toBe(5173);
+});
+
+test("resolveDevPort: hint not in ports → falls back, hint port never probed", async () => {
+  // hint=9000, ports=[5173] — 9000 not listening
+  const probedPorts: number[] = [];
+  const trackingProbe = async (port: number): Promise<boolean> => {
+    probedPorts.push(port);
+    return false;
+  };
+  const result = await resolveDevPort([5173], "/any", makeReadFile("9000"), trackingProbe);
+  expect(result).toBe(5173); // curated 5173 returned (no probe for curated)
+  expect(probedPorts).not.toContain(9000);
+});
+
+test("resolveDevPort: no hint (readFile rejects) → falls back to pickPrimaryPort", async () => {
+  const result = await resolveDevPort([5173], "/any", rejectReadFile, neverProbe);
+  expect(result).toBe(5173);
 });
 
 // ── sanitizeCloseCode ─────────────────────────────────────────────────────────

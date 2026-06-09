@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { readFile as fsReadFile } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { SessionPreviewState } from "./types";
 
@@ -37,6 +39,75 @@ async function defaultHttpProbe(port: number): Promise<boolean> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const PREVIEW_HINT_FILE = ".shepherd-preview";
+
+/**
+ * Read a `.shepherd-preview` hint file from the worktree root.
+ *
+ * Returns the declared port (integer in [1, 65535]) or null on any failure:
+ * missing/unreadable file, empty/whitespace content, content that is not a
+ * pure run of decimal digits (e.g. "3000abc", "3000 5173", "3000.5"), NaN,
+ * or out-of-range. Never throws.
+ *
+ * The file must contain only a base-10 port number (optionally surrounded by
+ * whitespace) — no trailing characters, no decimal points, no spaces between
+ * digits.
+ */
+async function readPreviewHint(
+  worktreePath: string,
+  readFile: (path: string, enc: "utf8") => Promise<string> = fsReadFile,
+): Promise<number | null> {
+  const hintPath = join(worktreePath, PREVIEW_HINT_FILE);
+  let text: string;
+  try {
+    text = await readFile(hintPath, "utf8");
+  } catch {
+    return null;
+  }
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const port = Number.parseInt(trimmed, 10);
+  if (port < 1 || port > 65535) return null;
+  return port;
+}
+
+/**
+ * Resolve the active dev port for a worktree, honoring an optional
+ * `.shepherd-preview` hint file.
+ *
+ * Honor rule: the hint is used ONLY when the declared port is in `ports`
+ * (confirmed listening) AND passes the HTTP liveness check — the same check
+ * `pickPrimaryPort` uses for non-curated ports (curated ports are trusted
+ * unprobed). This preserves every invariant from #345:
+ *   - never surface a dead port or a port owned by another process/worktree
+ *   - never surface a non-HTTP socket (DB port, debugger, etc.)
+ *   - the hint's purpose is to disambiguate WHICH live HTTP port wins over
+ *     the heuristic for multi-listener apps or apps on uncommon ports
+ *
+ * Falls through to `pickPrimaryPort` when the hint is absent, unreadable,
+ * not in `ports`, or not an HTTP server.
+ *
+ * @param ports        Listening ports for this worktree (from /proc scan).
+ * @param worktreePath Absolute path to the worktree root (hint file location).
+ * @param readFile     Injectable file reader (forwarded to readPreviewHint).
+ * @param httpProbe    Injectable HTTP liveness probe (default: real network call).
+ */
+export async function resolveDevPort(
+  ports: number[],
+  worktreePath: string,
+  readFile?: (path: string, enc: "utf8") => Promise<string>,
+  httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
+): Promise<number | null> {
+  const hint = await readPreviewHint(worktreePath, readFile);
+  if (hint !== null && ports.includes(hint)) {
+    // Curated ports are trusted HTTP servers — no probe needed.
+    // Non-curated declared ports must still pass the HTTP probe to be surfaced.
+    if (CURATED_SET.has(hint) || (await httpProbe(hint))) return hint;
+    // Declared port is listening but not an HTTP server (DB/debugger) → ignore, fall through.
+  }
+  return pickPrimaryPort(ports, httpProbe);
 }
 
 /**

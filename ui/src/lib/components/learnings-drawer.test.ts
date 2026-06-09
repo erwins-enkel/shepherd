@@ -1,6 +1,7 @@
 import { describe, it, expect, test } from "vitest";
 import {
   basename,
+  repoAnchorId,
   groupByRepo,
   mergeRepoGroups,
   injectionBadge,
@@ -45,6 +46,23 @@ function IR(
 describe("basename", () => {
   it("takes the last path segment", () => expect(basename("/home/u/acme")).toBe("acme"));
   it("tolerates trailing slash", () => expect(basename("/home/u/acme/")).toBe("acme"));
+});
+
+describe("repoAnchorId", () => {
+  it("is a DOM-id-safe slug of the full path with a disambiguating suffix", () => {
+    const id = repoAnchorId("/home/u/acme");
+    expect(id).toMatch(/^learnings-repo-home-u-acme-[a-z0-9]+$/);
+  });
+  it("distinguishes repos that share a basename (no collision)", () => {
+    expect(repoAnchorId("/work/a/api")).not.toBe(repoAnchorId("/work/b/api"));
+  });
+  it("distinguishes paths that differ only in punctuation (injective slug)", () => {
+    // both slugify to "r-a-b"; the raw-path hash keeps the ids distinct
+    expect(repoAnchorId("/r/a-b")).not.toBe(repoAnchorId("/r/a/b"));
+  });
+  it("is deterministic for the same path", () => {
+    expect(repoAnchorId("/x/Y/Z")).toBe(repoAnchorId("/x/Y/Z"));
+  });
 });
 
 describe("groupByRepo", () => {

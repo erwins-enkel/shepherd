@@ -6,8 +6,9 @@ import {
   mergeTrainLabel,
   pausedText,
   queueOpenable,
+  repoStatusRows,
 } from "./queue-strip";
-import type { AutoMergeStatus, DrainStatus } from "../types";
+import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -19,6 +20,39 @@ function drain(over: Partial<DrainStatus>): DrainStatus {
     queued: 0,
     inFlight: 0,
     max: 1,
+    ...over,
+  };
+}
+
+function learning(over: Partial<Learning>): Learning {
+  return {
+    id: "l1",
+    repoPath: "/repos/a",
+    rule: "r",
+    rationale: "",
+    evidence: [],
+    status: "proposed",
+    evidenceCount: 0,
+    ineffectiveCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    lastEvidenceAt: null,
+    promotedPrUrl: null,
+    ...over,
+  };
+}
+
+function rule(injected: boolean): Learning & { injected: boolean } {
+  return { ...learning({}), injected };
+}
+
+function injectable(over: Partial<RepoInjectable>): RepoInjectable {
+  return {
+    repoPath: "/repos/a",
+    enabled: true,
+    budgetChars: 100,
+    usedChars: 0,
+    rules: [],
     ...over,
   };
 }
@@ -150,5 +184,77 @@ describe("mergeTrainLabel", () => {
   });
   it("merge_error label differs from merging label", () => {
     expect(mergeTrainLabel("merge_error")).not.toBe(mergeTrainLabel("merging"));
+  });
+});
+
+// ─── repoStatusRows (generalized per-repo band) ──────────────────────────────
+
+describe("repoStatusRows", () => {
+  it("unions enabled-drain repos with learnings repos, sorted by path", () => {
+    const rows = repoStatusRows(
+      { z: drain({ repoPath: "/repos/z" }) },
+      [learning({ repoPath: "/repos/a" })],
+      [],
+    );
+    expect(rows.map((r) => r.repoPath)).toEqual(["/repos/a", "/repos/z"]);
+  });
+
+  it("an insight-only repo gets a row with drain:null and the proposal count", () => {
+    const rows = repoStatusRows(
+      {},
+      [learning({ id: "1", repoPath: "/repos/a" }), learning({ id: "2", repoPath: "/repos/a" })],
+      [],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 2, curate: 0 });
+  });
+
+  it("a drain-only repo has insights:0 and curate:0 and carries its drain", () => {
+    const rows = repoStatusRows({ a: drain({ repoPath: "/repos/a", inFlight: 1 }) }, [], []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].drain?.inFlight).toBe(1);
+    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
+  });
+
+  it("a disabled drain never produces a row or leaks into an insight-only row", () => {
+    const rows = repoStatusRows(
+      { a: drain({ repoPath: "/repos/a", enabled: false, inFlight: 5 }) },
+      [learning({ repoPath: "/repos/a" })],
+      [],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].drain).toBeNull(); // disabled drain stays out of the row
+  });
+
+  it("curate counts over-budget rules of an enabled repo with no proposals", () => {
+    const rows = repoStatusRows(
+      {},
+      [],
+      [injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] })],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ insights: 0, curate: 2 });
+  });
+
+  it("a disabled injectable repo never curates (pruning can't help)", () => {
+    const rows = repoStatusRows(
+      {},
+      [],
+      [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("proposals suppress the curate fallback (badge showed the count, not curate)", () => {
+    const rows = repoStatusRows(
+      {},
+      [learning({ repoPath: "/repos/a" })],
+      [injectable({ repoPath: "/repos/a", rules: [rule(false)] })],
+    );
+    expect(rows[0]).toMatchObject({ insights: 1, curate: 0 });
+  });
+
+  it("returns an empty list when nothing is drained, proposed, or over budget", () => {
+    expect(repoStatusRows({ a: drain({ enabled: false }) }, [], [])).toEqual([]);
   });
 });

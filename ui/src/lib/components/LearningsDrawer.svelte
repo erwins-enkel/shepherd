@@ -6,6 +6,7 @@
   import type { Learning, RepoInjectable, SignalKind } from "$lib/types";
   import {
     basename,
+    repoAnchorId,
     mergeRepoGroups,
     injectionBadge,
     injectedCount,
@@ -80,6 +81,7 @@
   let {
     items,
     injectable,
+    focusRepo = null,
     onapprove,
     ondismiss,
     ondistill,
@@ -88,6 +90,7 @@
   }: {
     items: Learning[];
     injectable: RepoInjectable[];
+    focusRepo?: string | null;
     onapprove: (id: string, rule: string) => void;
     ondismiss: (id: string) => void;
     ondistill: (repoPath: string) => void;
@@ -107,6 +110,16 @@
   const groups = $derived(mergeRepoGroups(items, injectable));
   // Empty only when there's nothing to curate in either view.
   const empty = $derived(groups.length === 0);
+
+  // Deep-link: when opened from a repo's status row, scroll that repo's section into
+  // view. Runs once on mount (a frame later, so the fly-in has laid out the sections).
+  $effect(() => {
+    if (!focusRepo) return;
+    const id = repoAnchorId(focusRepo);
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    });
+  });
 </script>
 
 <div class="scrim" aria-hidden="true" onclick={() => onclose()}></div>
@@ -147,7 +160,7 @@
     <p class="empty">{m.learnings_empty()}</p>
   {:else}
     {#each groups as group (group.repoPath)}
-      <section class="group">
+      <section class="group" id={repoAnchorId(group.repoPath)}>
         <div class="ghead">
           <span class="repo">{basename(group.repoPath)}</span>
           <button

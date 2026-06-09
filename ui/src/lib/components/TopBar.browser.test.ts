@@ -53,7 +53,6 @@ interface Scenario {
 
 const allBadges = {
   needsYou: 3,
-  learnings: 5,
   update: { behind: 4 } as UpdateStatus,
   herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
   whatsNew: true,
@@ -77,12 +76,11 @@ const SCENARIOS: Scenario[] = [
     props: { ...allBadges, ...sessionsProp(2) },
   },
   {
-    name: "touch-desktop 1000 — dual-update + learnings + needsYou + whatsNew",
+    name: "touch-desktop 1000 — dual-update + needsYou + whatsNew",
     mode: "touch-desktop",
     width: 1000,
     props: {
       needsYou: 2,
-      learnings: 3,
       update: { behind: 1 },
       herdrUpdate: { updateAvailable: true },
       whatsNew: true,
@@ -90,10 +88,10 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: "touch-desktop 1000 — lone learnings (#322 regression)",
+    name: "touch-desktop 1000 — lone needsYou (#322 regression)",
     mode: "touch-desktop",
     width: 1000,
-    props: { learnings: 4, ...sessionsProp(0) },
+    props: { needsYou: 4, ...sessionsProp(0) },
   },
   {
     name: "touch-desktop 960 — all badges (bracket)",
@@ -125,7 +123,7 @@ const SCENARIOS: Scenario[] = [
   // has usable < 1436 and may still clip; that sub-1480 edge is documented
   // out-of-scope — we do not assert the impossible for tiny desktop windows.)
   //
-  // FIXED (#322-desktop, then width-aware): with all five badges active the desktop
+  // FIXED (#322-desktop, then width-aware): with every badge active the desktop
   // bar's full-label content is ~1700px (with gauges: base 1055 + per-badge deltas;
   // the halt e-stop lives in the gear menu, not the bar) and had NO fallback — desktop never
   // compacted, so it overflowed 1436 on every monitor. Desktop compaction is now
@@ -145,7 +143,7 @@ const SCENARIOS: Scenario[] = [
   // with wide margin (the icon-collapsed cluster is far narrower than the full-label
   // form, which would be ~1751px).
   {
-    name: "desktop 1436 — all 6 badges + gauges (usable cap, compacts + fits)",
+    name: "desktop 1436 — all badges + gauges (usable cap, compacts + fits)",
     mode: "desktop",
     width: 1436,
     props: { ...allBadges, ...sessionsProp(2), limits: fullLimits },
@@ -159,7 +157,7 @@ const SCENARIOS: Scenario[] = [
   // ── Width-awareness: narrow desktop windows the old count-3 threshold MISSED ──
   // A ~1366px laptop gives the bar ~1322px usable; a ~1280px window ~1236px. With
   // the production-worst chrome (both usage gauges present), the full-label bar
-  // measures ~1333px for 2 badges (learnings + needsYou) and ~1450px for 3 — so it
+  // measures ~1333px for 2 badges (needsYou + update) and ~1450px for 3 — so it
   // overflows BOTH narrow widths even at just 2 badges, which the old count-3
   // threshold never compacted. Runtime measurement does. Each asserts the bar
   // compacts just enough to NOT overflow + keeps controls hittable. (Verified: with
@@ -169,7 +167,7 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1322 — 2 full-label badges + gauges (1366px laptop, measured compaction)",
     mode: "desktop",
     width: 1322,
-    props: { needsYou: 2, learnings: 3, limits: fullLimits, ...sessionsProp(0) },
+    props: { needsYou: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1322 — 3 badges + gauges (1366px laptop, measured compaction)",
@@ -177,8 +175,8 @@ const SCENARIOS: Scenario[] = [
     width: 1322,
     props: {
       needsYou: 2,
-      learnings: 3,
       update: { behind: 2 },
+      herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
       ...sessionsProp(0),
     },
@@ -187,7 +185,7 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1236 — 2 full-label badges + gauges (1280px window, measured compaction)",
     mode: "desktop",
     width: 1236,
-    props: { needsYou: 2, learnings: 3, limits: fullLimits, ...sessionsProp(0) },
+    props: { needsYou: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1236 — 3 badges + gauges (1280px window, measured compaction)",
@@ -195,8 +193,8 @@ const SCENARIOS: Scenario[] = [
     width: 1236,
     props: {
       needsYou: 2,
-      learnings: 3,
       update: { behind: 2 },
+      herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
       ...sessionsProp(0),
     },
@@ -292,17 +290,18 @@ describe("TopBar — no overflow, controls stay hittable", () => {
 
 describe("TopBar — wide desktop keeps full labels (measurement does NOT over-compact)", () => {
   // Width-awareness must not over-fire: at the TRUE usable cap (1436px = .shell
-  // 1480 - 2x22 padding) the WIDEST 2-badge selection (learnings + needsYou ~1354px
+  // 1480 - 2x22 padding) a wide 2-badge selection (needsYou + update ~1354px
   // incl. both usage gauges) STILL FITS, so the measured path must leave it FULL —
   // proving compaction triggers on real overflow, not merely on badge presence.
   // Settle the rAF first (the measurement might briefly flip), then assert it stays
   // non-compact. Plus a no-gauge variant. Both keep full labels AND fit 1436.
   //
-  // Asserts: (a) the learnings + needsYou badges are present and NOT collapsed to
-  // their .compact icon/count form (full labels showing), (b) no overflow, (c) all
-  // controls hittable - catching a future left-cluster or gap change that silently
-  // overflows the non-compact desktop path. (Sub-1436px desktop windows have less
-  // usable width and DO compact — covered by the narrow-desktop scenarios above.)
+  // Asserts: (a) the needsYou + update badges are present and showing their FULL
+  // labels (needsYou not in .compact form; the update badge still rendering its
+  // .up-label word), (b) no overflow, (c) all controls hittable - catching a future
+  // left-cluster or gap change that silently overflows the non-compact desktop path.
+  // (Sub-1436px desktop windows have less usable width and DO compact — covered by
+  // the narrow-desktop scenarios above.)
   const cases: Array<{ limits: UsageLimits | null; desc: string }> = [
     { limits: fullLimits, desc: "usable cap with gauges (worst-case chrome)" },
     { limits: null, desc: "usable cap no gauges" },
@@ -317,9 +316,9 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
         connected: true,
         mobile: false,
         touch: false,
-        // Widest 2-badge full-label combo (learnings + needsYou).
+        // Two full-label badges (needsYou + update).
         needsYou: 2,
-        learnings: 3,
+        update: { behind: 3 } as UpdateStatus,
         limits,
         ...sessionsProp(0),
       });
@@ -332,17 +331,18 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
       await nextFrame();
 
       // Full-label: both badges present and NOT in compact (icon/count) form.
-      const learnings = hud!.querySelector<HTMLElement>(".learnings-badge");
+      const update = hud!.querySelector<HTMLElement>(".update-badge");
       const needsYou = hud!.querySelector<HTMLElement>(".needsyou");
-      expect(learnings, "learnings badge present").not.toBeNull();
+      expect(update, "update badge present").not.toBeNull();
       expect(needsYou, "needsYou badge present").not.toBeNull();
-      expect(learnings!.classList.contains("compact"), "learnings NOT compact").toBe(false);
       expect(needsYou!.classList.contains("compact"), "needsYou NOT compact").toBe(false);
-      // The full word label renders inside the learnings badge (compact form omits it).
-      expect(learnings!.textContent ?? "", "learnings full label text").toContain(
-        m.learnings_title(),
+      // The full word label renders inside the update badge (compact form omits it).
+      const upLabel = update!.querySelector<HTMLElement>(".up-label");
+      expect(upLabel, "update full label present").not.toBeNull();
+      expect(upLabel!.textContent ?? "", "update full label text").toContain(
+        m.topbar_update_badge(),
       );
-      expect(learnings!.getBoundingClientRect().width, "learnings has width").toBeGreaterThan(0);
+      expect(update!.getBoundingClientRect().width, "update has width").toBeGreaterThan(0);
       expect(needsYou!.getBoundingClientRect().width, "needsYou has width").toBeGreaterThan(0);
 
       // Must still not overflow despite showing full labels.
@@ -378,7 +378,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
       touch: false,
       // Widest 2-badge full-label chrome + both gauges (~1354px): fits 1436, overflows 1236.
       needsYou: 2,
-      learnings: 3,
+      update: { behind: 3 } as UpdateStatus,
       limits: fullLimits,
       ...sessionsProp(0),
     });
@@ -458,7 +458,7 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
         mobile: false,
         touch: false,
         needsYou: 2,
-        learnings: 3,
+        update: { behind: 3 } as UpdateStatus,
         ...sessionsProp(0),
       });
       const hud = document.querySelector<HTMLElement>(".hud");

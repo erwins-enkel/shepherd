@@ -8,18 +8,16 @@ import { badgeCount, topBarPlan, type Mode, type ChromeState } from "./top-bar-l
 
 const MODES: Mode[] = ["mobile", "touch-desktop", "desktop"];
 
-// Build every ChromeState from a 5-bit mask over the five badge-presence inputs.
+// Build every ChromeState from a 4-bit mask over the four badge-presence inputs.
 // The halt e-stop is NOT a bar badge (it lives in the gear menu), so it never
 // appears here.
-const ALL = 0b11111; // all five badges present
+const ALL = 0b1111; // all four badges present
 function stateFromMask(mask: number): ChromeState {
   return {
     updateAvailable: !!(mask & 1),
     herdrUpdateAvailable: !!(mask & 2),
-    learnings: mask & 4 ? 1 : 0,
-    overBudget: 0,
-    needsYou: mask & 8 ? 1 : 0,
-    whatsNew: !!(mask & 16),
+    needsYou: mask & 4 ? 1 : 0,
+    whatsNew: !!(mask & 8),
   };
 }
 
@@ -28,26 +26,21 @@ function expectedCount(s: ChromeState): number {
   return (
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
-    (s.learnings > 0 || s.overBudget > 0 ? 1 : 0) +
     (s.needsYou > 0 ? 1 : 0) +
     (s.whatsNew ? 1 : 0)
   );
 }
 
 describe("badgeCount", () => {
-  it("counts each present badge once across all 32 presence combos", () => {
+  it("counts each present badge once across all 16 presence combos", () => {
     for (let mask = 0; mask <= ALL; mask++) {
       const s = stateFromMask(mask);
       expect(badgeCount(s)).toBe(expectedCount(s));
     }
   });
-
-  it("overBudget alone (no learnings) still counts the learnings badge", () => {
-    expect(badgeCount({ ...stateFromMask(0), overBudget: 3 })).toBe(1);
-  });
 });
 
-describe("topBarPlan — exhaustive 3 modes × 32 presence combos", () => {
+describe("topBarPlan — exhaustive 3 modes × 16 presence combos", () => {
   // Desktop compaction is measurement-driven (TopBar.svelte / TopBar.browser.test.ts),
   // so the pure layer always returns false for desktop here.
   it("hideClockTime only on touch-desktop (>=1 badge); desktop + mobile never", () => {
@@ -76,15 +69,15 @@ describe("topBarPlan — exhaustive 3 modes × 32 presence combos", () => {
 });
 
 describe("regression anchors (#322 / #247)", () => {
-  it("lone LEARNINGS on touch-desktop drops the clock but does NOT compact", () => {
-    const s = stateFromMask(0b00100); // learnings only
+  it("a lone badge on touch-desktop drops the clock but does NOT compact", () => {
+    const s = stateFromMask(0b0100); // needsYou only
     const plan = topBarPlan("touch-desktop", s);
     expect(plan.hideClockTime).toBe(true);
     expect(plan.compactBadges).toBe(false);
   });
 
   it("two badges on touch-desktop compact the row", () => {
-    const s = stateFromMask(0b01100); // learnings + needsYou
+    const s = stateFromMask(0b1100); // needsYou + whatsNew
     expect(topBarPlan("touch-desktop", s).compactBadges).toBe(true);
   });
 

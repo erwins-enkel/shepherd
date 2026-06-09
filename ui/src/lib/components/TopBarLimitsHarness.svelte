@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import TopBar from "./TopBar.svelte";
-  import type { Session, UsageLimits } from "$lib/types";
+  import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
 
   let {
     sessions,
@@ -20,7 +20,7 @@
     mobile = false,
     touch = false,
     needsYou = 0,
-    learnings = 0,
+    update = null,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -28,7 +28,7 @@
     mobile?: boolean;
     touch?: boolean;
     needsYou?: number;
-    learnings?: number;
+    update?: UpdateStatus | null;
   } = $props();
 
   // Starts null (no gauges) — the production first-paint state. The test flips it to a
@@ -50,7 +50,7 @@
   The host width is set by the test via document.body.style.width on this wrapper.
 -->
 <div class="shell-cap">
-  <TopBar {sessions} {nowMs} {connected} {mobile} {touch} {limits} {needsYou} {learnings} />
+  <TopBar {sessions} {nowMs} {connected} {mobile} {touch} {limits} {needsYou} {update} />
 </div>
 
 <style>

@@ -16,9 +16,6 @@
     onhalt,
     needsYou = 0,
     ontriage,
-    learnings = 0,
-    overBudget = 0,
-    onlearnings,
     update = null,
     onupdate,
     herdrUpdate = null,
@@ -36,9 +33,6 @@
     onhalt?: () => void;
     needsYou?: number;
     ontriage?: () => void;
-    learnings?: number;
-    overBudget?: number;
-    onlearnings?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
@@ -58,8 +52,6 @@
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
-    learnings,
-    overBudget,
     needsYou,
     whatsNew,
   });
@@ -326,27 +318,6 @@
           <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{needsYou}</span>
         {:else}
           {m.common_needs_you({ count: needsYou })}
-        {/if}
-      </button>
-    {/if}
-    {#if learnings > 0 || overBudget > 0}
-      <button
-        class="learnings-badge tip tip-wide"
-        class:compact={mobile || compactBadges}
-        class:curate={learnings === 0}
-        onclick={() => onlearnings?.()}
-        data-tip={m.learnings_badge_tip()}
-        aria-label={learnings > 0
-          ? m.learnings_open_aria({ count: learnings })
-          : m.learnings_open_curate_aria({ count: overBudget })}
-      >
-        {#if mobile || compactBadges}
-          <span class="lr-icon" aria-hidden="true">💡</span>
-          {#if learnings > 0}<span class="lr-n">{learnings}</span>{/if}
-        {:else}
-          <span class="lr-icon" aria-hidden="true">💡</span>
-          {m.learnings_title()}
-          {#if learnings > 0}{learnings}{/if}
         {/if}
       </button>
     {/if}
@@ -727,32 +698,6 @@
   .halt-pip.alert {
     background: var(--color-red);
   }
-  .learnings-badge {
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    letter-spacing: 0.14em;
-    font-size: var(--fs-meta);
-    padding: 5px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .learnings-badge:hover {
-    color: var(--color-ink-bright);
-    border-color: var(--color-ink-bright);
-  }
-  /* Curate-only entry point (no pending proposals, just over-budget rules to prune):
-     a softer dashed border so it reads as informational rather than action-required. */
-  .learnings-badge.curate {
-    border-style: dashed;
-  }
-  /* Desktop: the 💡 leads the label; drop the badge's wide tracking on the glyph
-     so it sits snug against the word rather than floating off to its left. */
-  .learnings-badge:not(.compact) .lr-icon {
-    margin-right: 5px;
-    letter-spacing: 0;
-  }
   .rightside {
     margin-left: auto;
     display: flex;
@@ -1103,25 +1048,6 @@
   .needsyou.compact .ny-n {
     font-weight: 600;
   }
-  /* Phone: same collapse for the LEARNINGS badge — icon+count chip so it fits
-     on line 1 instead of widening the right-side controls into a second row.
-     Full label stays as the aria-label. */
-  .learnings-badge.compact {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    min-width: 44px;
-    padding: 8px 10px;
-    letter-spacing: 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .learnings-badge.compact .lr-icon {
-    line-height: 1;
-  }
-  .learnings-badge.compact .lr-n {
-    font-weight: 600;
-  }
   .hud.mobile .update-badge {
     min-height: 44px;
   }
@@ -1135,8 +1061,6 @@
     .gear,
     .needsyou,
     .needsyou.compact,
-    .learnings-badge,
-    .learnings-badge.compact,
     .gauge-btn,
     .update-badge {
       min-height: 44px;
@@ -1180,14 +1104,6 @@
     .tip:focus-visible::after {
       opacity: 1;
       transform: translateY(0);
-    }
-    /* Wide variant for explanatory tooltips: let the sentence wrap instead of
-       forcing a single very-wide line. Right-anchored like the base .tip. */
-    .tip-wide::after {
-      white-space: normal;
-      width: max-content;
-      max-width: 260px;
-      line-height: 1.45;
     }
   }
 </style>

@@ -89,6 +89,13 @@ export interface PrStatus {
  *  payload and the value cached/pushed for the list overview. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
+  /** Who is up once the PR is open + green, when it isn't the operator — computed
+   *  server-side from `.shepherd/roles.json` + the operator's login. Absent = the
+   *  operator's turn (today's "awaiting merge"). Drives the herd's
+   *  waiting-on-reviewer / waiting-on-merger groups. */
+  handoff?: "reviewer" | "merger";
+  /** The login to display for {@link handoff} (e.g. "scoop"); absent for self. */
+  handoffWho?: string;
 }
 
 /** One job within a workflow run, mapped to the four-light CI vocab. */
@@ -170,6 +177,14 @@ export interface GitForge {
    *  Optional, same GitHub-only gating as {@link listWorkflowRunHistory}. */
   listRunJobs?(runId: number): Promise<WorkflowJob[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
+  /** The operator's own login on this host (`gh api user`), cached. Drives the
+   *  "is the configured reviewer/merger someone *other* than me" decision. Null
+   *  when it can't be resolved. Optional: hosts without an identity API omit it. */
+  currentUser?(): Promise<string | null>;
+  /** Logins with access to the repo, for the roles dialog's people picker.
+   *  `unavailable` is true when the host refused the list (e.g. GitHub 403 with no
+   *  push access) so the dialog falls back to free-text. Optional. */
+  listCollaborators?(): Promise<{ logins: string[]; unavailable: boolean }>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** The repo's default branch name (the promote PR's base). */
   defaultBranch(): Promise<string>;

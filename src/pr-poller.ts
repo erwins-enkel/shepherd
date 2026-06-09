@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import type { GitForge, GitState } from "./forge/types";
+import { annotateHandoff } from "./repo-roles";
 
 /** Read/write handle the HTTP layer uses to serve snapshots and apply instant
  *  updates from PR actions. `PrPoller` implements it. */
@@ -170,6 +171,7 @@ export class PrPoller implements PrCache {
   private async refresh(s: Session): Promise<void> {
     const forge = s.branch ? this.resolveForge(s.repoPath) : null;
     if (!forge || !s.branch) return; // no PR possible — leave uncached
+    const me = (await forge.currentUser?.()) ?? null;
     let git: GitState;
     try {
       git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(s.branch)) });
@@ -190,6 +192,9 @@ export class PrPoller implements PrCache {
         }
       }
     }
+    // Who's up (open+green): computed from .shepherd/roles.json + the operator's
+    // login, so the herd can show "waiting on scoop" instead of "your turn".
+    git = annotateHandoff(git, s.repoPath, me);
     const prev = this.cache.get(s.id);
     if (
       !prev ||
@@ -197,7 +202,9 @@ export class PrPoller implements PrCache {
       prev.number !== git.number ||
       prev.checks !== git.checks ||
       prev.headSha !== git.headSha ||
-      prev.latestReview?.submittedAt !== git.latestReview?.submittedAt
+      prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
+      prev.handoff !== git.handoff ||
+      prev.handoffWho !== git.handoffWho
     ) {
       this.cache.set(s.id, git);
       this.onChange(s.id, git);

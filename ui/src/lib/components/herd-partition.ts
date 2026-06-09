@@ -6,13 +6,18 @@ import { isMerging } from "./merge-train";
  *  - ciRunning: open PR with CI checks in flight (`open` + `pending`)
  *  - ciFailed: open PR whose CI checks failed (`open` + `failure`) — done, needs a look
  *  - reviewerRunning: a critic run is in flight for the session
+ *  - waitingOnReviewer / waitingOnMerger: same open+green+handed-off point as
+ *    awaitingMerge, but `.shepherd/roles.json` names someone *other* than the
+ *    operator as the reviewer (not yet approved) or merger. The server stamps
+ *    `git.handoff` so the herd can say "waiting on scoop" instead of "your turn".
  *  - awaitingMerge: open PR, CI green (`open` + `success`) AND the agent is not actively
  *    in the loop (status not `running` and not `blocked`) — handed off, waiting on a
  *    human (repo owner) to merge. Distinct from `ready`, which is operator-flagged. An
  *    agent still in the loop is NOT handed off — e.g. mid auto-correct after a critic
  *    steered findings back (with the PR's green CI now stale), or blocked awaiting
  *    operator input — so it stays in `active` rather than flicker into "waiting for
- *    merge" / get buried when it actually needs attention.
+ *    merge" / get buried when it actually needs attention. When `git.handoff` names
+ *    a foreign reviewer/merger, the session lands in the waiting-on-* group instead.
  *  - merging: PR-sessions a launched merge train is working through (marked + within TTL)
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
@@ -25,6 +30,18 @@ import { isMerging } from "./merge-train";
  *  The groups render top→bottom as active → ciRunning → ciFailed → reviewerRunning →
  *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing` is
  *  injected so this stays a pure function (the caller wires it to the reviews store). */
+/** Pick the bucket for a handed-off (open + green, idle) session: a foreign
+ *  reviewer/merger named in `git.handoff` routes to its waiting group, else it's
+ *  the operator's turn (`awaitingMerge`). */
+function handedOff(
+  g: GitState,
+  buckets: { waitingOnReviewer: Session[]; waitingOnMerger: Session[]; awaitingMerge: Session[] },
+): Session[] {
+  if (g.handoff === "reviewer") return buckets.waitingOnReviewer;
+  if (g.handoff === "merger") return buckets.waitingOnMerger;
+  return buckets.awaitingMerge;
+}
+
 export function partitionSessions(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -35,6 +52,8 @@ export function partitionSessions(
   ciRunning: Session[];
   ciFailed: Session[];
   reviewerRunning: Session[];
+  waitingOnReviewer: Session[];
+  waitingOnMerger: Session[];
   awaitingMerge: Session[];
   merging: Session[];
   ready: Session[];
@@ -44,6 +63,8 @@ export function partitionSessions(
   const ciRunning: Session[] = [];
   const ciFailed: Session[] = [];
   const reviewerRunning: Session[] = [];
+  const waitingOnReviewer: Session[] = [];
+  const waitingOnMerger: Session[] = [];
   const awaitingMerge: Session[] = [];
   const merging: Session[] = [];
   const ready: Session[] = [];
@@ -61,9 +82,22 @@ export function partitionSessions(
       g.checks === "success" &&
       s.status !== "running" &&
       s.status !== "blocked"
-    )
-      awaitingMerge.push(s);
-    else active.push(s);
+    ) {
+      // The server stamps `handoff` when the repo's roles name someone other than
+      // the operator: route to "waiting on <reviewer/merger>" instead of "your turn".
+      handedOff(g, { waitingOnReviewer, waitingOnMerger, awaitingMerge }).push(s);
+    } else active.push(s);
   }
-  return { active, ciRunning, ciFailed, reviewerRunning, awaitingMerge, merging, ready, merged };
+  return {
+    active,
+    ciRunning,
+    ciFailed,
+    reviewerRunning,
+    waitingOnReviewer,
+    waitingOnMerger,
+    awaitingMerge,
+    merging,
+    ready,
+    merged,
+  };
 }

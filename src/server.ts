@@ -48,6 +48,13 @@ import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import { type PrCache, guardStaleTerminal } from "./pr-poller";
+import {
+  readRepoRoles,
+  writeRepoRoles,
+  annotateHandoff,
+  normalizeLogin,
+  type RepoRoles,
+} from "./repo-roles";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
@@ -426,6 +433,80 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   if (patch instanceof Response) return patch;
   deps.store.setRepoConfig(dir, mergeRepoConfig(deps.store.getRepoConfig(dir), patch));
   return json(deps.store.getRepoConfig(dir));
+}
+
+// /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +
+// merger logins for a repo. PUT commits & pushes .shepherd/roles.json to the
+// default branch and immediately re-pushes the affected sessions' waiting-state.
+async function handleRepoRoles({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-roles" && !parts[2])) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  const me = (await forge?.currentUser?.()) ?? null;
+  if (req.method === "GET") return json({ roles: readRepoRoles(dir), me });
+  if (req.method !== "PUT") return null;
+  return setRepoRoles(req, dir, forge, me, deps);
+}
+
+async function setRepoRoles(
+  req: Request,
+  dir: string,
+  forge: GitForge | null,
+  me: string | null,
+  deps: AppDeps,
+): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as Partial<RepoRoles> | null;
+  if (!body) return json({ error: "invalid body" }, 400);
+  const cur = readRepoRoles(dir);
+  const next: RepoRoles = {
+    reviewer: "reviewer" in body ? normalizeLogin(body.reviewer) : cur.reviewer,
+    merger: "merger" in body ? normalizeLogin(body.merger) : cur.merger,
+  };
+  try {
+    if (!forge) throw new Error("no forge configured for repo");
+    writeRepoRoles(dir, next, await forge.defaultBranch());
+  } catch (e) {
+    // Push rejected (protected branch / no-ff / auth) or no forge — surface it so
+    // the dialog can tell the user instead of silently dropping the change.
+    return json(
+      { roles: readRepoRoles(dir), me, pushError: String((e as Error)?.message ?? e) },
+      502,
+    );
+  }
+  repushHandoff(deps, dir, me);
+  return json({ roles: next, me });
+}
+
+/** Recompute + re-push the waiting-state for every session in `dir` so the herd
+ *  reflects a role change at once, rather than lagging until an unrelated PR flip. */
+function repushHandoff(deps: AppDeps, dir: string, me: string | null): void {
+  if (!deps.prCache) return;
+  const snap = deps.prCache.snapshot();
+  for (const s of deps.store.list({ activeOnly: true })) {
+    if (s.repoPath !== dir) continue;
+    const prev = snap[s.id];
+    if (!prev) continue;
+    const updated = annotateHandoff(prev, dir, me);
+    if (updated.handoff !== prev.handoff || updated.handoffWho !== prev.handoffWho) {
+      deps.prCache.set(s.id, updated);
+      deps.events.emit("session:git", { id: s.id, git: updated });
+    }
+  }
+}
+
+// /api/repo-collaborators?repo=<path> — logins for the roles dialog's people
+// picker, plus the operator's own login. `collaboratorsUnavailable` lets the
+// dialog fall back to free-text when the host won't list them (e.g. GitHub 403).
+async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-collaborators" && !parts[2])) return null;
+  if (req.method !== "GET") return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  const me = (await forge?.currentUser?.()) ?? null;
+  const list = (await forge?.listCollaborators?.()) ?? { logins: [], unavailable: true };
+  return json({ logins: list.logins, me, collaboratorsUnavailable: list.unavailable });
 }
 
 // /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
@@ -1105,7 +1186,8 @@ async function forgeOpenPr(
     title: body.title?.trim() || session.name,
     body: body.body ?? session.prompt,
   });
-  const git: GitState = { kind: forge.kind, ...status };
+  const me = (await forge.currentUser?.()) ?? null;
+  const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
   return json(status);
@@ -1131,7 +1213,8 @@ async function forgeMerge(
     deleteBranch: body.deleteBranch ?? true,
   });
   const status = await forge.prStatus(head);
-  const git: GitState = { kind: forge.kind, ...status };
+  const me = (await forge.currentUser?.()) ?? null;
+  const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
   return json(status);
@@ -1153,7 +1236,12 @@ async function dispatchForgeAction(
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
     if (!parts[4]) {
-      const git: GitState = { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) };
+      const me = (await forge.currentUser?.()) ?? null;
+      const git: GitState = annotateHandoff(
+        { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
+        session.repoPath,
+        me,
+      );
       // Same guard as the background poller: a merged/closed PR matched only by a
       // reused branch name is dropped to "none" so GitRail and the list agree.
       return json(guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null));
@@ -2012,6 +2100,8 @@ const ROUTE_HANDLERS = [
   handleDrain,
   handleAutoMerge,
   handleRepoConfig,
+  handleRepoRoles,
+  handleRepoCollaborators,
   handleLearnings,
   handlePush,
   handleBuildQueue,

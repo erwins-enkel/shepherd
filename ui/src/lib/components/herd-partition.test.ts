@@ -207,3 +207,50 @@ test("merging sessions land in merging, pulled out of ready; merged still wins",
   expect(merging.map((s) => s.id)).toEqual(["m1"]); // m2 merged → merged group
   expect(ready.map((s) => s.id)).toEqual(["r1"]);
 });
+
+// ── repo roles: handoff routes a green PR away from "your turn" ──
+function gitHandoff(handoff: "reviewer" | "merger", who: string): GitState {
+  return { ...git("open", "success"), handoff, handoffWho: who };
+}
+
+test("green PR with merger handoff lands in waitingOnMerger, not awaitingMerge", () => {
+  const list = [session("s", false, "idle")];
+  const { awaitingMerge, waitingOnMerger } = partitionSessions(list, {
+    s: gitHandoff("merger", "scoop"),
+  });
+  expect(awaitingMerge).toHaveLength(0);
+  expect(waitingOnMerger.map((s) => s.id)).toEqual(["s"]);
+});
+
+test("green PR with reviewer handoff lands in waitingOnReviewer", () => {
+  const list = [session("s", false, "idle")];
+  const { awaitingMerge, waitingOnReviewer } = partitionSessions(list, {
+    s: gitHandoff("reviewer", "scoop"),
+  });
+  expect(awaitingMerge).toHaveLength(0);
+  expect(waitingOnReviewer.map((s) => s.id)).toEqual(["s"]);
+});
+
+test("green PR with no handoff still lands in awaitingMerge (self / no roles)", () => {
+  const list = [session("s", false, "idle")];
+  const { awaitingMerge, waitingOnMerger, waitingOnReviewer } = partitionSessions(list, {
+    s: git("open", "success"),
+  });
+  expect(awaitingMerge.map((s) => s.id)).toEqual(["s"]);
+  expect(waitingOnMerger).toHaveLength(0);
+  expect(waitingOnReviewer).toHaveLength(0);
+});
+
+test("a running agent ignores handoff and stays active (not yet handed off)", () => {
+  const list = [session("c", false, "running")];
+  const { active, waitingOnMerger } = partitionSessions(list, { c: gitHandoff("merger", "scoop") });
+  expect(waitingOnMerger).toHaveLength(0);
+  expect(active.map((s) => s.id)).toEqual(["c"]);
+});
+
+test("operator-parked ready wins over a merger handoff", () => {
+  const list = [session("r", true, "idle")];
+  const { ready, waitingOnMerger } = partitionSessions(list, { r: gitHandoff("merger", "scoop") });
+  expect(waitingOnMerger).toHaveLength(0);
+  expect(ready.map((s) => s.id)).toEqual(["r"]);
+});

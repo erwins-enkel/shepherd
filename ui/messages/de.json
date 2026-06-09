@@ -54,6 +54,7 @@
   "controlkey_arrow_down": "Pfeil runter",
   "controlkey_ctrl_a": "Strg A, Zeilenanfang",
   "controlkey_ctrl_e": "Strg E, Zeilenende",
+  "controlkey_ctrl_u": "Strg U, Zeile bis Anfang löschen",
   "controlkey_ctrl_c": "Strg C, unterbrechen",
   "controlkey_ctrl_d": "Strg D, Dateiende",
   "actionbar_new_task": "+ Neue Aufgabe",

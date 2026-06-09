@@ -54,6 +54,7 @@
   "controlkey_arrow_down": "Arrow down",
   "controlkey_ctrl_a": "Ctrl A, start of line",
   "controlkey_ctrl_e": "Ctrl E, end of line",
+  "controlkey_ctrl_u": "Ctrl U, clear line to start",
   "controlkey_ctrl_c": "Ctrl C, interrupt",
   "controlkey_ctrl_d": "Ctrl D, end of file",
   "actionbar_new_task": "+ New Task",

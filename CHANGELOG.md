@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.19.0](https://github.com/erwins-enkel/shepherd/compare/v1.18.0...v1.19.0) (2026-06-09)
+
+
+### Features
+
+* **drain:** label linked issues shepherd:active on task creation ([#401](https://github.com/erwins-enkel/shepherd/issues/401)) ([36e8e78](https://github.com/erwins-enkel/shepherd/commit/36e8e784aa8f366a18d79c178286e9200d7bc40d))
+* **extension:** keyboard shortcut + branded toolbar icons ([#343](https://github.com/erwins-enkel/shepherd/issues/343)) ([#395](https://github.com/erwins-enkel/shepherd/issues/395)) ([2296cf6](https://github.com/erwins-enkel/shepherd/commit/2296cf649bb7cf303809864573256e2e536237ca))
+* **extension:** Shepherd Capture — connection & pairing UX ([#402](https://github.com/erwins-enkel/shepherd/issues/402)) ([6798084](https://github.com/erwins-enkel/shepherd/commit/67980846696b99326846d171aaac71d15ef0f70a))
+
+
+### Bug Fixes
+
+* **mobile:** keep the herd-list action bar on-screen (document-scroll shell) ([#392](https://github.com/erwins-enkel/shepherd/issues/392)) ([91a9957](https://github.com/erwins-enkel/shepherd/commit/91a9957376ef4c96dba7be06e48ab55a394756c3))
+* **ui:** merge train always skips the plan gate ([#390](https://github.com/erwins-enkel/shepherd/issues/390)) ([0096c28](https://github.com/erwins-enkel/shepherd/commit/0096c28303c81f7410b67219aab464ad0b4bfa1f))
+* **ui:** merging badge pulses text not a bleeding halo ([#389](https://github.com/erwins-enkel/shepherd/issues/389)) ([40262aa](https://github.com/erwins-enkel/shepherd/commit/40262aaca684ec3e23419cbff7960016bd777294))
+* **ui:** plan review pulses the automation pill + plan-gate toggle ([#400](https://github.com/erwins-enkel/shepherd/issues/400)) ([79b74ea](https://github.com/erwins-enkel/shepherd/commit/79b74ea3895336a0f11369216335ed4fe7049a25))
+* **ui:** resync reconciles critic + plan-gate reviewing latches ([#391](https://github.com/erwins-enkel/shepherd/issues/391)) ([c49e69c](https://github.com/erwins-enkel/shepherd/commit/c49e69c5f82d096ede640c304d2862680c356db7))
+
+
+### Documentation
+
+* **research:** spike [#350](https://github.com/erwins-enkel/shepherd/issues/350) — evaluate Graphify as agent memory layer (verdict: park) ([#394](https://github.com/erwins-enkel/shepherd/issues/394)) ([70518e2](https://github.com/erwins-enkel/shepherd/commit/70518e2d3c5e57f50848c6a38659c179af10c008))
+
 ## [1.18.0](https://github.com/erwins-enkel/shepherd/compare/v1.17.0...v1.18.0) (2026-06-08)
 
 

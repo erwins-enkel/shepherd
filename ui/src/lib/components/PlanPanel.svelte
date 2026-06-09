@@ -47,6 +47,42 @@
   });
 
   let busy = $state(false);
+  // Set on a "started" trigger to bridge the window between the HTTP reply and the WS `reviewing`
+  // flag: the server emits `reviewing` before replying, but if that message lags the response the
+  // button would briefly flip back to "Review plan now" (a reprise of the original blink). Held
+  // until `reviewing` is observed, with a backstop timeout so a lost event can't wedge the spinner.
+  let awaitingReview = $state(false);
+  // Outcome of the last manual review trigger that produced no live run, so the panel can explain
+  // why nothing changed: "unchanged" = server deduped (plan unchanged / already approved),
+  // "error" = the reviewer failed to spawn. Auto-dismissed so it can't go stale between clicks.
+  // null = no note (fresh page, or a real review is/was in flight).
+  let outcome = $state<"unchanged" | "error" | null>(null);
+  // A review is visibly in flight from the click until the WS reviewing flag clears.
+  const inFlight = $derived(busy || reviewing || awaitingReview);
+
+  // Once the WS `reviewing` flag takes over the in-flight indicator, drop the bridge and any
+  // stale no-op/error note — a real run supersedes both.
+  $effect(() => {
+    if (reviewing) {
+      awaitingReview = false;
+      outcome = null;
+    }
+  });
+
+  // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
+  $effect(() => {
+    if (!awaitingReview) return;
+    const t = setTimeout(() => (awaitingReview = false), 4000);
+    return () => clearTimeout(t);
+  });
+
+  // The note is a transient confirmation, not persistent state — expire it so it can't linger
+  // and contradict a plan that changed since.
+  $effect(() => {
+    if (!outcome) return;
+    const t = setTimeout(() => (outcome = null), 6000);
+    return () => clearTimeout(t);
+  });
 
   async function go() {
     if (busy || !releasable) return;
@@ -60,12 +96,19 @@
   }
 
   async function review() {
-    if (busy || !canReviewNow) return;
+    if (inFlight || !canReviewNow) return;
     busy = true;
+    outcome = null;
     try {
-      await reviewPlan(session.id);
+      const status = await reviewPlan(session.id);
+      // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
+      // "skipped" → unchanged plan / already approved; "error" → spawn failed.
+      if (status === "started") awaitingReview = true;
+      else if (status === "skipped" && !reviewing) outcome = "unchanged";
+      else if (status === "error") outcome = "error";
     } catch {
-      /* verdict arrives via WS; surfacing the error here is out of scope */
+      // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.
+      outcome = "error";
     } finally {
       busy = false;
     }
@@ -121,10 +164,20 @@
       </section>
     {/if}
 
+    {#if outcome === "unchanged"}
+      <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
+    {:else if outcome === "error"}
+      <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
+    {/if}
+
     <div class="actions">
       {#if canReviewNow}
-        <button type="button" class="review" onclick={review} disabled={busy || reviewing}>
-          {m.planpanel_review_now()}
+        <button type="button" class="review" onclick={review} disabled={inFlight}>
+          {#if inFlight}
+            <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
+          {:else}
+            {m.planpanel_review_now()}
+          {/if}
         </button>
       {/if}
       <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
@@ -253,6 +306,15 @@
     justify-content: flex-end;
     margin-top: 2px;
   }
+  .note {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    text-align: right;
+  }
+  .note.err {
+    color: var(--color-red);
+  }
   .review,
   .go {
     border: 1px solid var(--color-line-bright);
@@ -265,6 +327,29 @@
     padding: 8px 14px;
     border-radius: 2px;
     cursor: pointer;
+  }
+  .review {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* plan reviewer running now: amber pulsing dot (mirrors PlanGateBadge) */
+  .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: pp-pulse 1.1s ease-in-out infinite !important;
+  }
+  @keyframes pp-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   .go {
     border-color: var(--color-green);

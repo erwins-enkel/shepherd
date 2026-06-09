@@ -125,7 +125,7 @@ export interface AppDeps {
   /** Trigger an adversarial plan review for a session on demand (the /review-plan route).
    *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */
   planGate?: {
-    consider(session: Session): Promise<void>;
+    consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
   };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
@@ -821,12 +821,15 @@ function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
 
 // POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
 // 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
+// `status` tells the caller whether a reviewer actually spawned ("started"), the plan was a
+// silent no-op ("skipped" — unchanged / already approved), or a spawn attempt failed ("error"),
+// so the UI can explain why nothing changed without mislabelling a failure as an unchanged plan.
 async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-plan")) return null;
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
-  await deps.planGate?.consider(s);
-  return json({ ok: true }, 202);
+  const status = (await deps.planGate?.consider(s)) ?? "skipped";
+  return json({ ok: true, status }, 202);
 }
 
 // Validate the rename body, returning the typed name or the error Response to send.

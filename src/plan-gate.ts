@@ -9,6 +9,11 @@ import type { Session, PlanGate, PlanDecision } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import { effectiveAutopilot } from "./effective-autopilot";
 
+/** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
+ *  (plan unchanged / already approved / nothing to review), or a spawn attempt failed. The
+ *  review-plan route relays this so the UI can distinguish a silent dedupe from a real error. */
+export type PlanReviewTrigger = "started" | "skipped" | "error";
+
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
 
@@ -151,12 +156,16 @@ export class PlanGateService {
     return createHash("sha256").update(plan).digest("hex");
   }
 
-  /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one. */
-  async consider(session: Session): Promise<void> {
-    if (session.planPhase !== "planning") return; // only gate before execution
-    if (this.inflight.has(session.id) || this.starting.has(session.id)) return; // in flight / mid-spawn
+  /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
+   *  Returns `"started"` iff a reviewer actually spawned, `"skipped"` for a no-op (not planning,
+   *  in flight, no/unchanged plan, already approved), or `"error"` if a spawn was attempted but
+   *  failed. The on-demand "Review plan now" route relays this so the UI can tell a real review
+   *  from a silent dedupe — and a genuine failure from either — instead of just blinking the button. */
+  async consider(session: Session): Promise<PlanReviewTrigger> {
+    if (session.planPhase !== "planning") return "skipped"; // only gate before execution
+    if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
-    if (!plan) return; // no plan written yet → nothing to review
+    if (!plan) return "skipped"; // no plan written yet → nothing to review
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
     // considers would otherwise both clear the guards above and double-spawn (orphaning the
     // first run's worktree + terminal). With the claim here, the second bails on the guard.
@@ -164,12 +173,12 @@ export class PlanGateService {
     try {
       const planHash = await PlanGateService.hashPlan(plan);
       const prior = this.deps.store.getPlanGate(session.id);
-      if (prior?.approved) return; // already cleared → execution allowed, don't re-review
+      if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
       // Dedupe an unchanged plan — but NEVER skip past an `error` verdict. A timeout/unparseable
       // run produced no real verdict, so re-running it (e.g. via the "Review plan now" button) must
       // retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip's error carve-out.
-      if (prior?.planHash === planHash && prior.decision !== "error") return;
-      await this.begin(session, plan, planHash, prior);
+      if (prior?.planHash === planHash && prior.decision !== "error") return "skipped";
+      return await this.begin(session, plan, planHash, prior);
     } finally {
       this.starting.delete(session.id);
     }
@@ -180,7 +189,7 @@ export class PlanGateService {
     plan: string,
     planHash: string,
     prior: PlanGate | null,
-  ): Promise<void> {
+  ): Promise<PlanReviewTrigger> {
     // Resolve the base SHA so the reviewer inspects a CLEAN copy of the codebase at the base
     // branch — never the live worktree (the planning agent is still editing it). baseSha's
     // default catches internally and falls back to the base ref / name, so this won't throw.
@@ -196,7 +205,7 @@ export class PlanGateService {
       wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha, session.id);
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
-      return;
+      return "error";
     }
 
     const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? []);
@@ -211,7 +220,7 @@ export class PlanGateService {
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);
       this.deps.worktree.remove(wt.worktreePath);
-      return;
+      return "error";
     }
     this.inflight.set(session.id, {
       sessionId: session.id,
@@ -224,6 +233,7 @@ export class PlanGateService {
       startedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
+    return "started";
   }
 
   /** Finalize any in-flight plan review whose verdict file is ready or that timed out. */

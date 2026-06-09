@@ -60,30 +60,35 @@ const planningSession = () => ({
 
 test("consider spawns reviewer when a plan exists and is unreviewed", async () => {
   const h = harness();
-  await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("started"); // relayed to the on-demand route as { status: "started" }
   expect(h.started.length).toBe(1);
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
 });
 test("consider no-ops when plan missing/empty", async () => {
   const h = harness({ readPlan: () => null });
-  await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped");
   expect(h.started.length).toBe(0);
 });
 test("consider no-ops when session is not in planning phase", async () => {
   const h = harness();
-  await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any);
+  const status = await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any);
+  expect(status).toBe("skipped");
   expect(h.started.length).toBe(0);
 });
 test("consider dedupes an unchanged plan hash", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const h = harness({ store: { getPlanGate: () => ({ planHash: hash, approved: false }) } });
-  await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped"); // route reports "skipped" so the UI explains the no-op
   expect(h.started.length).toBe(0);
 });
 test("consider no-ops when already approved", async () => {
   const h = harness({ store: { getPlanGate: () => ({ planHash: "other", approved: true }) } });
-  await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped");
   expect(h.started.length).toBe(0);
 });
 test("consider re-reviews an error verdict even when the plan hash is unchanged", async () => {
@@ -91,8 +96,23 @@ test("consider re-reviews an error verdict even when the plan hash is unchanged"
   const h = harness({
     store: { getPlanGate: () => ({ planHash: hash, approved: false, decision: "error" }) },
   });
-  await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("started");
   expect(h.started.length).toBe(1); // an error verdict is retried, not deduped away
+});
+test("consider reports 'error' (not a dedupe) when the reviewer fails to spawn", async () => {
+  const h = harness({
+    herdr: {
+      start: () => {
+        throw new Error("spawn boom");
+      },
+      stop() {},
+    },
+  });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("error"); // UI shows a failure note, not "plan unchanged"
+  expect(h.started.length).toBe(0);
+  expect(h.removed).toEqual(["/wt-detached"]); // the detached worktree is reaped on failure
 });
 test("consider won't double-spawn while one is in flight", async () => {
   const h = harness();

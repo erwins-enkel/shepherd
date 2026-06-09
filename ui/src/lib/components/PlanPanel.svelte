@@ -47,6 +47,17 @@
   });
 
   let busy = $state(false);
+  // True after a manual review that the server deduped (plan unchanged / already approved): the
+  // reviewer never spawned, so `reviewing` stays false and the verdict won't change — without this
+  // the button would just blink and leave the operator wondering whether anything happened.
+  let unchanged = $state(false);
+  // A review is visibly in flight from the click until the WS reviewing flag clears.
+  const inFlight = $derived(busy || reviewing);
+
+  // A live review (or a fresh verdict landing) supersedes the "unchanged" note.
+  $effect(() => {
+    if (reviewing) unchanged = false;
+  });
 
   async function go() {
     if (busy || !releasable) return;
@@ -60,10 +71,13 @@
   }
 
   async function review() {
-    if (busy || !canReviewNow) return;
+    if (inFlight || !canReviewNow) return;
     busy = true;
+    unchanged = false;
     try {
-      await reviewPlan(session.id);
+      const { started } = await reviewPlan(session.id);
+      // Server deduped the unchanged plan — flag it so the panel explains the no-op.
+      if (!started && !reviewing) unchanged = true;
     } catch {
       /* verdict arrives via WS; surfacing the error here is out of scope */
     } finally {
@@ -121,10 +135,18 @@
       </section>
     {/if}
 
+    {#if unchanged}
+      <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
+    {/if}
+
     <div class="actions">
       {#if canReviewNow}
-        <button type="button" class="review" onclick={review} disabled={busy || reviewing}>
-          {m.planpanel_review_now()}
+        <button type="button" class="review" onclick={review} disabled={inFlight}>
+          {#if inFlight}
+            <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
+          {:else}
+            {m.planpanel_review_now()}
+          {/if}
         </button>
       {/if}
       <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
@@ -253,6 +275,12 @@
     justify-content: flex-end;
     margin-top: 2px;
   }
+  .note {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    text-align: right;
+  }
   .review,
   .go {
     border: 1px solid var(--color-line-bright);
@@ -265,6 +293,29 @@
     padding: 8px 14px;
     border-radius: 2px;
     cursor: pointer;
+  }
+  .review {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* plan reviewer running now: amber pulsing dot (mirrors PlanGateBadge) */
+  .rev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: pp-pulse 1.1s ease-in-out infinite !important;
+  }
+  @keyframes pp-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   .go {
     border-color: var(--color-green);

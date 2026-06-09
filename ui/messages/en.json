@@ -449,6 +449,8 @@
   "planpanel_findings": "Requested changes",
   "planpanel_go": "Go — start execution",
   "planpanel_review_now": "Review plan now",
+  "planpanel_reviewing": "Reviewing…",
+  "planpanel_review_unchanged": "Plan unchanged since the last review — nothing to re-check.",
   "viewport_decommission_title": "stop agent + remove worktree",
   "viewport_decommission_ready_title": "PR is up. Close this session & clean up its worktree",
   "viewport_decommission_ready_aria": "PR ready. Decommission unit and clean up worktree",

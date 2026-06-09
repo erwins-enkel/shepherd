@@ -599,10 +599,14 @@ export async function releasePlanGate(id: string): Promise<boolean> {
   return r.ok;
 }
 
-/** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS. */
-export async function reviewPlan(id: string): Promise<void> {
+/** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS.
+ *  `started` is false when the server deduped the request (plan unchanged / already approved),
+ *  so the caller can tell a real review from a silent no-op. */
+export async function reviewPlan(id: string): Promise<{ started: boolean }> {
   const r = await fetch(`/api/sessions/${id}/review-plan`, JSON_POST());
   if (!r.ok) throw await failed(r, "review-plan");
+  const body = (await r.json().catch(() => ({}))) as { started?: boolean };
+  return { started: !!body.started };
 }
 
 export async function getBacklog(): Promise<BacklogPayload> {

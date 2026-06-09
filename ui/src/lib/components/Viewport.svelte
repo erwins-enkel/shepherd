@@ -2914,8 +2914,10 @@
     min-width: 220px;
   }
   /* phone: the preview slot is pinned at the row's right edge, so a left:0
-     popover would open rightward off-screen — flip it to right-anchored.
-     Stays position:absolute (ancestors overflow:visible), so it's unclipped. */
+     popover would open rightward off-screen — flip it to right-anchored and
+     width-cap it so it drops inside the (overflow:hidden) .viewport box instead
+     of past the viewport edge. It lives in the pinned .preview-start-wrap, not
+     the .tab-scroll scroller, so the strip's overflow-x:auto never clips it. */
   .vp-head.mobile .preview-cmd-pop {
     left: auto;
     right: 0;

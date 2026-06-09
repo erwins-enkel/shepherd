@@ -42,6 +42,7 @@ import { PlanGateService } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
 import { AutoMergeService } from "./automerge";
+import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
@@ -538,6 +539,39 @@ setInterval(() => {
   if (maintenance.active) return;
   void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
 }, 30_000);
+
+const draftReconcile = new DraftReconcileService({
+  store,
+  resolveForge,
+  prCache: prPoller,
+  pollSession: (id) => prPoller.pollSession(id),
+  emitStatus: (s) => events.emit("draftreconcile:status", s),
+});
+
+// Drive draft-reconcile off the same poller/critic events automerge uses.
+events.subscribe((event, data) => {
+  if (event === "session:git") {
+    const { id } = data as { id: string };
+    void draftReconcile.onGit(id).catch((err) => console.warn("[draft-reconcile] onGit:", err));
+  } else if (event === "session:review") {
+    const { id } = data as { id: string };
+    void draftReconcile
+      .onReview(id)
+      .catch((err) => console.warn("[draft-reconcile] onReview:", err));
+  } else if (event === "session:status") {
+    const { id } = data as { id: string };
+    void draftReconcile
+      .onStatus(id)
+      .catch((err) => console.warn("[draft-reconcile] onStatus:", err));
+  }
+});
+setInterval(() => {
+  if (maintenance.active) return;
+  void draftReconcile.tick().catch((err) => console.warn("[draft-reconcile] tick:", err));
+}, 30_000);
+// Note: draftreconcile:status is forwarded to websocket clients automatically via
+// the EventHub subscribe in server.ts (ws.data.kind === "events" path), just as
+// automerge:status is — no additional forwarding needed.
 
 // Learnings flywheel: capture block/stall signals, run the distiller on a slow
 // cadence, and surface the proposed-rule count to clients.

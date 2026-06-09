@@ -509,6 +509,8 @@ describe("TopBar — tallies toggle the status filter", () => {
     render(TopBar, { ...behaviorBase, ...FLAGS.desktop, onstatusfilter });
     const busy = page.getByTitle(m.topbar_tally_filter_title({ status: m.topbar_working_label() }));
     await expect.element(busy).toHaveAttribute("aria-pressed", "false");
+    // no filter active → the total (clear) tally is a no-op and renders disabled
+    await expect.element(page.getByTitle(m.topbar_tally_clear_title())).toBeDisabled();
     await busy.click();
     expect(onstatusfilter).toHaveBeenCalledWith("running");
   });
@@ -548,9 +550,14 @@ describe("TopBar — tallies toggle the status filter", () => {
     document.body.style.width = "390px";
     const onstatusfilter = vi.fn();
     render(TopBar, { ...behaviorBase, ...FLAGS.mobile, onstatusfilter });
+    // the accessible name must carry the COUNT, not just the action (the visible
+    // text is a bare digit) — and the no-op total renders disabled
+    await expect
+      .element(page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }))
+      .toBeDisabled();
     await page
       .getByRole("button", {
-        name: m.topbar_tally_filter_title({ status: m.topbar_blocked_label() }),
+        name: m.topbar_tally_status_aria({ status: m.topbar_blocked_label(), count: 0 }),
       })
       .click();
     expect(onstatusfilter).toHaveBeenCalledWith("blocked");
@@ -567,12 +574,12 @@ describe("TopBar — tallies toggle the status filter", () => {
       onstatusfilter,
     });
     const idleSeg = page.getByRole("button", {
-      name: m.topbar_tally_filter_title({ status: m.topbar_idle_label() }),
+      name: m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: 0 }),
     });
     await expect.element(idleSeg).toHaveAttribute("aria-pressed", "true");
     await idleSeg.click();
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
-    await page.getByRole("button", { name: m.topbar_tally_clear_title() }).click();
+    await page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }).click();
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
   });
 });

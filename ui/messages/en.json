@@ -343,6 +343,8 @@
   "topbar_blocked_label": "Blocked",
   "topbar_tally_filter_title": "Show only {status} sessions",
   "topbar_tally_clear_title": "Show all sessions",
+  "topbar_tally_total_aria": "Herd {count} — show all sessions",
+  "topbar_tally_status_aria": "{status} {count} — show only these sessions",
   "topbar_gauge_period_5h": "5-hour",
   "topbar_gauge_period_weekly": "weekly",
   "topbar_gauge_title": "{period} limit · {pct}% used · resets {reset}",

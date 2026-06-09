@@ -293,11 +293,15 @@
   <div class="sep"></div>
   {#if mobile}
     <div class="tallies compact">
+      <!-- aria-labels carry the COUNT alongside the action (the visible text is a
+           bare digit, and an action-only label would hide the tally from screen
+           readers — the desktop buttons get this for free from their text content) -->
       <button
         type="button"
         class="ctally"
+        disabled={statusFilter == null}
         title={m.topbar_tally_clear_title()}
-        aria-label={m.topbar_tally_clear_title()}
+        aria-label={m.topbar_tally_total_aria({ count: sessions.length })}
         onclick={() => onstatusfilter?.(null)}
       >
         <span class="n">{sessions.length}</span>
@@ -307,7 +311,10 @@
         class="ctally"
         class:active={statusFilter === "running"}
         title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
-        aria-label={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
+        aria-label={m.topbar_tally_status_aria({
+          status: m.topbar_working_label(),
+          count: working,
+        })}
         aria-pressed={statusFilter === "running"}
         onclick={() => clickStatus("running")}
       >
@@ -319,7 +326,7 @@
         class="ctally"
         class:active={statusFilter === "idle"}
         title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
-        aria-label={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
+        aria-label={m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: idle })}
         aria-pressed={statusFilter === "idle"}
         onclick={() => clickStatus("idle")}
       >
@@ -330,7 +337,10 @@
         class="ctally"
         class:active={statusFilter === "blocked"}
         title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
-        aria-label={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
+        aria-label={m.topbar_tally_status_aria({
+          status: m.topbar_blocked_label(),
+          count: blocked,
+        })}
         aria-pressed={statusFilter === "blocked"}
         onclick={() => clickStatus("blocked")}
       >
@@ -339,9 +349,12 @@
     </div>
   {:else}
     <div class="tallies" use:coachTarget={"tally-filter"}>
+      <!-- the total is a CLEAR action — without an active filter it's a no-op, so
+           it renders disabled (no hover/click affordance) until a status is set -->
       <button
         type="button"
         class="tally"
+        disabled={statusFilter == null}
         title={m.topbar_tally_clear_title()}
         onclick={() => onstatusfilter?.(null)}
       >
@@ -670,8 +683,14 @@
     color: inherit;
     cursor: pointer;
   }
-  .tally:hover {
+  .tally:not(:disabled):hover {
     background: var(--color-inset);
+  }
+  /* the disabled total (no active filter → clearing is a no-op) keeps its full
+     tally appearance, just without the click affordance */
+  .tally:disabled,
+  .ctally:disabled {
+    cursor: default;
   }
   .tally.active {
     background: var(--color-inset);

@@ -826,5 +826,7 @@
   "fable_arrival_try": "Try Fable 5",
   "fable_arrival_dismiss": "Maybe later",
   "feat_preview_tailscale_title": "Automatic preview exposure",
-  "feat_preview_tailscale_body": "Live previews now register themselves over Tailscale automatically as each agent's dev server comes up — and unregister when it stops, so only in-use ports are exposed. No more one-time tailscale serve port setup."
+  "feat_preview_tailscale_body": "Live previews now register themselves over Tailscale automatically as each agent's dev server comes up — and unregister when it stops, so only in-use ports are exposed. No more one-time tailscale serve port setup.",
+  "feat_whatsnew_versiondate_title": "Each update is now dated and versioned",
+  "feat_whatsnew_versiondate_body": "Every entry in this What's-New drawer now carries the release version it shipped in and the date that release went out, so you can see at a glance how recent each change is and which version introduced it."
 }

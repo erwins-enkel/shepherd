@@ -33,7 +33,7 @@
   loadConfig().then((c) => (config = c));
   hasAllUrls().then((on) => (recorderOn = on));
 
-  const models: CaptureConfig["model"][] = ["default", "opus", "sonnet", "haiku"];
+  const models: CaptureConfig["model"][] = ["default", "fable", "opus", "sonnet", "haiku"];
 
   // Signal toggles persist immediately (only the signals sub-object, via
   // saveSignals — so they don't flush unsaved edits to the text fields, which

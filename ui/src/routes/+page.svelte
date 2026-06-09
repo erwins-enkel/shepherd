@@ -75,11 +75,12 @@
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
-  import { featureAnnouncements } from "$lib/feature-announcements";
+  import { featureAnnouncements, FABLE_FEATURE_ID } from "$lib/feature-announcements";
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
+  import FableArrival from "$lib/components/FableArrival.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
@@ -156,6 +157,9 @@
   let showWhatsNew = $state(false);
   let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
   let whatsNewDotOn = $state(false);
+  // One-time Fable 5 launch celebration (gated separately from the What's-New
+  // drawer via the persisted seen-set, so it fires exactly once per upgrade).
+  let showFableArrival = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
@@ -174,6 +178,8 @@
   let composeIssue = $state<Issue | null>(null);
   // Seed prompt for the New Task dialog (PR review path); null = no seed.
   let composePrompt = $state<string | null>(null);
+  // Seed model for the New Task dialog (Fable celebration "Try it" path); null = picker default.
+  let composeModel = $state<string | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount; drives the first-run nudge (quick-launch is invisible
   // until a standard command is set). Re-read on settings close so a just-saved
@@ -523,6 +529,15 @@
           if (entries.length > 0) {
             whatsNewEntries = entries;
             whatsNewDotOn = true;
+            // Fable 5 gets a one-time hero celebration on top of the drawer line.
+            // Fires only for upgraders (computeNewEntries returns [] on a fresh
+            // install) and only once (seen-set keyed by the catalog id).
+            if (
+              entries.some((e) => e.id === FABLE_FEATURE_ID) &&
+              !featureDiscovery.isSeen(FABLE_FEATURE_ID)
+            ) {
+              showFableArrival = true;
+            }
           }
         } catch {
           // should never throw, but guard defensively
@@ -1015,6 +1030,21 @@
   />
 {/if}
 
+{#if showFableArrival}
+  <FableArrival
+    ontry={() => {
+      featureDiscovery.markSeen(FABLE_FEATURE_ID);
+      showFableArrival = false;
+      composeModel = "fable";
+      showNew = true;
+    }}
+    onclose={() => {
+      featureDiscovery.markSeen(FABLE_FEATURE_ID);
+      showFableArrival = false;
+    }}
+  />
+{/if}
+
 {#if showNew}
   <!-- Preselect: explicit backlog/PR context first, else the repo the herd is
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
@@ -1023,11 +1053,13 @@
     initialRepoPath={composeRepoPath ?? repoFilter ?? undefined}
     initialIssue={composeIssue ?? undefined}
     initialPrompt={composePrompt ?? undefined}
+    initialModel={composeModel ?? undefined}
     onclose={() => {
       showNew = false;
       composeRepoPath = null;
       composeIssue = null;
       composePrompt = null;
+      composeModel = null;
     }}
     onclone={() => {
       showNew = false;

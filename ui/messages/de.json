@@ -814,5 +814,13 @@
   "feat_active_label_newtask_title": "Beanspruchte Issues fallen in Neue Aufgabe auf",
   "feat_active_label_newtask_body": "Wenn du eine Neue Aufgabe aus einem GitHub-Issue erstellst, wird ein bereits von einem aktiven Shepherd-Agenten beanspruchtes Issue jetzt mit hervorgehobenem shepherd:active-Label angezeigt — zuerst gelistet und im Farbton laufender Sessions getönt — sodass du auf einen Blick siehst, an welchen Issues schon gearbeitet wird.",
   "feat_recent_repos_title": "Zuletzt bearbeitete Repos oben im Picker angeheftet",
-  "feat_recent_repos_body": "Die Repo-Auswahl in Neue Aufgabe heftet jetzt die drei Repos, auf denen du in den letzten 3 Tagen die meisten Agenten ausgeführt hast, oben an — abgesetzt und nach Agenten-Anzahl sortiert — damit die Repos, an denen du gerade aktiv arbeitest, mit einem Klick erreichbar sind statt in der alphabetischen Liste begraben."
+  "feat_recent_repos_body": "Die Repo-Auswahl in Neue Aufgabe heftet jetzt die drei Repos, auf denen du in den letzten 3 Tagen die meisten Agenten ausgeführt hast, oben an — abgesetzt und nach Agenten-Anzahl sortiert — damit die Repos, an denen du gerade aktiv arbeitest, mit einem Klick erreichbar sind statt in der alphabetischen Liste begraben.",
+  "feat_fable_title": "Claude Fable 5 ist da",
+  "feat_fable_body": "Anthropics leistungsstärkstes Modell lässt sich jetzt unter Neuer Task auswählen. Wähle „fable“ für die schwierigsten, langlaufenden Aufgaben. Hinweis: Es ist die Premium-Stufe mit höheren Token-Kosten als Opus — greif dazu, wenn die Aufgabe es wert ist.",
+  "fable_arrival_aria": "Claude Fable 5 ist da",
+  "fable_arrival_eyebrow": "Neues Modell",
+  "fable_arrival_title": "Fable 5 ist gelandet",
+  "fable_arrival_body": "Anthropics leistungsstärkstes Modell ist jetzt in Shepherd verfügbar. Wähle „fable“ unter Neuer Task für die anspruchsvollsten Aufgaben. Es ist die Premium-Stufe — höhere Token-Kosten als Opus — heb es dir also für die Aufgaben auf, die es wert sind.",
+  "fable_arrival_try": "Fable 5 ausprobieren",
+  "fable_arrival_dismiss": "Vielleicht später"
 }

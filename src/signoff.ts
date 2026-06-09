@@ -3,7 +3,12 @@ import type { ReviewDecision } from "./types";
 export type SignoffAuthority = "human" | "critic" | "either";
 
 export interface SignoffView {
-  /** A human submitted an APPROVED review on the PR (forge data). */
+  /** A human submitted an APPROVED review on the PR (forge data). NOTE: unlike the critic
+   *  path, this is NOT head-matched — `gh pr ... --json reviews` exposes no per-review commit
+   *  SHA, so head-matching a human approval would cost an extra per-poll API call. We instead
+   *  rely on the forge dismissing stale approvals on a new push (GitHub's "Dismiss stale pull
+   *  request approvals" branch-protection setting): with it on, an approval on an old commit is
+   *  withdrawn and never reaches `latestReview`. See `humanSignedOff`. */
   humanApproved: boolean;
   /** The critic verdict's decision for this session, or null if no verdict yet. */
   reviewDecision: ReviewDecision | null;
@@ -15,6 +20,9 @@ export interface SignoffView {
   headSha: string | null;
 }
 
+/** Human sign-off = an APPROVED human review. Deliberately not head-matched (see the
+ *  `humanApproved` note): freshness relies on the forge dismissing stale approvals on a new
+ *  push. A repo wanting strict head-matching should enable that branch-protection setting. */
 function humanSignedOff(view: SignoffView): boolean {
   return view.humanApproved === true;
 }

@@ -149,6 +149,7 @@
   "signoff_authority_human": "Mensch",
   "signoff_authority_critic": "Critic",
   "signoff_authority_either": "Mensch oder Critic",
+  "automation_signoff_needs_critic": "Critic / beide erfordern einen aktivierten Critic — nur menschliche Freigabe ist verfügbar.",
   "drain_strip_label": "Queue",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} in Warteschlange",

@@ -149,6 +149,7 @@
   "signoff_authority_human": "Human",
   "signoff_authority_critic": "Critic",
   "signoff_authority_either": "Human or Critic",
+  "automation_signoff_needs_critic": "Critic / either need the Critic turned on — only human sign-off is available.",
   "drain_strip_label": "Drain",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} queued",

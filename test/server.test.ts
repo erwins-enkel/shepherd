@@ -1518,6 +1518,52 @@ test("PUT /api/repo-config accepts signoffAuthority valid values", async () => {
   }
 });
 
+test("PUT /api/repo-config draftMode + critic authority while critic OFF → 400 (would deadlock)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "critic",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
+test("PUT /api/repo-config draftMode + either authority while critic OFF → 400", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "either",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
+test("PUT /api/repo-config draftMode + human authority while critic OFF → 200 (human needs no critic)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "human",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(200);
+});
+
+test("PUT /api/repo-config turning critic OFF on a draftMode+critic-authority repo → 400 (both orderings)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // critic on by default → draftMode + critic authority is fine
+  await putRepoConfig(app, validRepo, { draftMode: true, signoffAuthority: "critic" });
+  // now disabling the critic would strand the draft → rejected
+  const res = await putRepoConfig(app, validRepo, { criticEnabled: false });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
 test("PUT /api/repo-config rejects unknown signoffAuthority", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

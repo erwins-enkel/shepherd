@@ -485,6 +485,17 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   if (merged.draftMode && merged.autoMergeEnabled) {
     return json({ error: "draftMode and autoMergeEnabled are mutually exclusive" }, 400);
   }
+  // A critic-reliant sign-off authority with the critic OFF can never promote a draft → it
+  // would deadlock as a permanent draft. (With the critic off, "either" also reduces to the
+  // human check, so it's equivalent to "human" anyway.) Force an explicit "human" authority.
+  if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human") {
+    return json(
+      {
+        error: `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
+      },
+      400,
+    );
+  }
   deps.store.setRepoConfig(dir, merged);
   return json(deps.store.getRepoConfig(dir));
 }

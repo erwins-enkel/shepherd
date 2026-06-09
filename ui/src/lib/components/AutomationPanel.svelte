@@ -385,10 +385,15 @@
             )}
         >
           <option value="human">{m.signoff_authority_human()}</option>
-          <option value="critic">{m.signoff_authority_critic()}</option>
-          <option value="either">{m.signoff_authority_either()}</option>
+          <!-- Critic-reliant authorities are unusable with the Critic off (they could never
+               promote a draft → permanent-draft deadlock), so disable them. -->
+          <option value="critic" disabled={!flags.critic}>{m.signoff_authority_critic()}</option>
+          <option value="either" disabled={!flags.critic}>{m.signoff_authority_either()}</option>
         </select>
       </label>
+      {#if !flags.critic}
+        <div class="signoff-note">{m.automation_signoff_needs_critic()}</div>
+      {/if}
     </div>
   {/if}
   {#if flags.autoDrain}
@@ -712,5 +717,10 @@
     text-align: left;
     cursor: pointer;
     appearance: auto;
+  }
+  .signoff-note {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    padding: 0 12px 6px;
   }
 </style>

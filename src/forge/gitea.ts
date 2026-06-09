@@ -293,7 +293,12 @@ export class GiteaForge implements GitForge {
   }
 
   /** Gitea has no draft boolean in CreatePullRequestOption (confirmed via swagger.v1.json
-   *  on gitea.com). Draft PRs are signalled by prefixing the title with `WIP: `. */
+   *  on gitea.com). Draft PRs are signalled by prefixing the title with `WIP: `.
+   *  LIMITATIONS (Gitea is the secondary, non-production forge): (1) Gitea's WIP markers are
+   *  server-configurable (default also includes `[WIP]`); we only handle this one default, so a
+   *  repo using a custom marker won't be detected. (2) A PR whose real title legitimately starts
+   *  with `WIP: ` is indistinguishable from a draft — but that is exactly how Gitea itself treats
+   *  such a title, so `markReady` stripping the prefix matches Gitea's own semantics. */
   private static WIP_PREFIX = "WIP: ";
 
   private static addWip(title: string): string {

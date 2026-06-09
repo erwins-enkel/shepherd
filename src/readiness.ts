@@ -6,10 +6,11 @@
 // we enforce inward. Detection is cheap, deterministic file/script inspection;
 // it never executes the target repo's code.
 //
-// Scope: the JS/TS baseline we dogfood (presence of package.json gates
-// applicability). Other stacks (Python/ruff/mypy) are a later generalization.
+// Scope: the JS/TS baseline we dogfood (presence of a package.json — at the
+// root or in a first-level subdirectory — gates applicability). Other stacks
+// (Python/ruff/mypy) are a later generalization.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
 
 export type GuardrailId =
@@ -36,7 +37,7 @@ export interface GuardrailCheck {
 }
 
 export interface ReadinessReport {
-  /** False when the repo isn't a JS/TS project (no package.json) — baseline N/A. */
+  /** False when the repo isn't a JS/TS project (no package.json at the root or one level down) — baseline N/A. */
   applicable: boolean;
   /** Weighted percentage (0–100) of present guardrails, derived from `checks`. */
   score: number;
@@ -203,38 +204,69 @@ export const GUARDRAILS: GuardrailDef[] = [
   },
 ];
 
-function scanRepo(dir: string): RepoScan | null {
-  let raw: string;
+/**
+ * Package roots relative to `dir`: `""` when the root has a manifest, else
+ * first-level subdirectories with one (mixed-stack repos whose JS/TS lives in
+ * a subproject, e.g. `ui/` next to Python). Empty → not a JS/TS repo.
+ */
+function findPackageRoots(dir: string): string[] {
+  if (existsSync(join(dir, "package.json"))) return [""];
+  let entries: Dirent[];
   try {
-    raw = readFileSync(join(dir, "package.json"), "utf8");
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
-    return null; // not a JS/TS repo → baseline N/A
+    return [];
   }
+  return entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+    .map((e) => e.name)
+    .filter((n) => existsSync(join(dir, n, "package.json")))
+    .sort();
+}
+
+/** Merges one package.json's deps + scripts into the accumulators (first script wins). */
+function collectManifest(file: string, deps: Set<string>, scripts: Record<string, string>) {
   let pkg: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     scripts?: Record<string, string>;
   } = {};
   try {
-    pkg = JSON.parse(raw);
+    pkg = JSON.parse(readFileSync(file, "utf8"));
   } catch {
-    // Malformed package.json: still a JS/TS repo, just no resolvable deps/scripts.
+    // Missing or malformed package.json: still a JS/TS repo, just no resolvable deps/scripts.
   }
-  const deps = new Set([
-    ...Object.keys(pkg.dependencies ?? {}),
-    ...Object.keys(pkg.devDependencies ?? {}),
-  ]);
+  for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
+  for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);
+  for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) scripts[name] ??= cmd;
+}
+
+function scanRepo(dir: string): RepoScan | null {
+  const pkgRoots = findPackageRoots(dir);
+  if (pkgRoots.length === 0) return null; // not a JS/TS repo → baseline N/A
+
+  const deps = new Set<string>();
+  const scripts: Record<string, string> = {};
+  for (const root of pkgRoots) collectManifest(join(dir, root, "package.json"), deps, scripts);
+
+  // Repo-level markers (.husky, .github/workflows, CLAUDE.md) stay at the
+  // root, so file checks span the repo root + each package dir.
+  const roots = pkgRoots[0] === "" ? pkgRoots : ["", ...pkgRoots];
   return {
     dir,
     deps,
-    scripts: pkg.scripts ?? {},
-    has: (rel) => existsSync(join(dir, rel)),
+    scripts,
+    has: (rel) => roots.some((root) => existsSync(join(dir, root, rel))),
     glob: (subdir, test) => {
-      try {
-        return readdirSync(join(dir, subdir)).filter(test);
-      } catch {
-        return [];
+      const names = new Set<string>();
+      for (const root of roots) {
+        try {
+          for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
+        } catch {
+          // missing dir in this root
+        }
       }
+      return [...names];
     },
   };
 }

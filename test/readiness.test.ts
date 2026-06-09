@@ -32,6 +32,38 @@ test("a repo without package.json is not applicable to the JS/TS baseline", () =
   expect(r.score).toBe(0);
 });
 
+test("a mixed-stack repo with package.json only in a subdirectory is applicable", () => {
+  // epamano-shopify shape: Python at the root, the JS/TS app in a subproject.
+  write("scripts/changelog-gen.py", "print()");
+  write(
+    "category-ui/package.json",
+    JSON.stringify({
+      name: "category-ui",
+      scripts: { lint: "eslint .", test: "vitest" },
+      devDependencies: { eslint: "^10", typescript: "^6" },
+    }),
+  );
+  write("category-ui/tsconfig.json", "{}");
+  // Repo-level markers live at the root, not in the subproject.
+  write(".github/workflows/ci.yml", "name: ci");
+  write("CLAUDE.md", "# rules");
+
+  const r = analyzeReadiness(dir);
+  expect(r.applicable).toBe(true);
+  expect(present("linter", r)).toBe(true); // subpackage devDep + lint script
+  expect(present("type_checker", r)).toBe(true); // subpackage tsconfig.json
+  expect(present("test_runner", r)).toBe(true);
+  expect(present("ci", r)).toBe(true); // root-level workflow still counts
+  expect(r.hasAgentInstructions).toBe(true); // root-level CLAUDE.md still counts
+});
+
+test("node_modules and hidden directories never make a repo applicable", () => {
+  write("node_modules/package.json", JSON.stringify({ name: "leftpad" }));
+  write(".cache/package.json", JSON.stringify({ name: "tool" }));
+  const r = analyzeReadiness(dir);
+  expect(r.applicable).toBe(false);
+});
+
 test("a bare package.json scores low — every guardrail absent", () => {
   pkg({ name: "bare" });
   const r = analyzeReadiness(dir);

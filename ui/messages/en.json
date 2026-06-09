@@ -398,6 +398,8 @@
   "viewport_git_actions_state_clear": "ready to merge",
   "viewport_git_actions_title_state": "PR, merge, critic & ready-to-merge actions — {state}",
   "viewport_git_actions_aria_state": "Toggle PR and merge actions — {state}",
+  "viewport_fold_aria": "Collapse header — hide tabs and PR actions for more terminal space",
+  "viewport_unfold_aria": "Expand header — show tabs and PR actions",
   "diff_refresh": "Refresh diff",
   "diff_error": "Couldn't load the diff.",
   "diff_empty": "No changes vs {base}",
@@ -708,5 +710,7 @@
   "prspanel_launch_train": "Launch merge train",
   "prspanel_merge_train_prompt": "Run a merge train for the pull requests I've selected. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything — then re-check the queue after every merge, because main moves under you.\n\nSelected PRs:\n{prs}\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason — never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.",
   "feat_backlog_pr_merge_train_title": "Launch a merge train from selected PRs",
-  "feat_backlog_pr_merge_train_body": "Multi-select open PRs in a repo's backlog PRs tab and launch a merge train scoped to just those PRs."
+  "feat_backlog_pr_merge_train_body": "Multi-select open PRs in a repo's backlog PRs tab and launch a merge train scoped to just those PRs.",
+  "feat_header_fold_title": "Fold the header for more terminal",
+  "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions."
 }

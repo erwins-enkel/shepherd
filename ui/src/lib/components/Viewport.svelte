@@ -107,6 +107,27 @@
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
+  // mobile/compact only: folds the secondary header chrome (tabs + git rail +
+  // build queue) into the first identity line so the terminal reclaims the
+  // vertical space. Persisted globally → restored to the operator's last choice.
+  const COLLAPSE_KEY = "shepherd-vp-header-collapsed";
+  let headerCollapsed = $state(
+    typeof localStorage !== "undefined" &&
+      (() => {
+        try {
+          return localStorage.getItem(COLLAPSE_KEY) === "1";
+        } catch {
+          return false;
+        }
+      })(),
+  );
+  $effect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, headerCollapsed ? "1" : "0");
+    } catch {
+      /* localStorage unavailable (private mode) — fold stays in-memory only */
+    }
+  });
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
@@ -163,6 +184,22 @@
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the decommission button never clips.
   const compact = $derived(mobile || touch);
+  // the fold only applies on the compact layout (it's the mobile space-saver);
+  // desktop keeps its own git-actions disclosure untouched.
+  const headerFolded = $derived(compact && headerCollapsed);
+  // a11y: the fold button's aria-controls points at the tab switcher — the always-
+  // mounted primary region it collapses (the git rail + build queue come and go with
+  // the fold, so they can't carry a stable controlled-region id). Per-session id so
+  // it stays unique if ever more than one viewport mounts.
+  const foldRegionId = $derived(`vp-fold-region-${session.id}`);
+
+  function toggleFold() {
+    headerCollapsed = !headerCollapsed;
+    // folding hides the tab switcher, so a non-terminal tab would be stranded with no
+    // way back except unfolding — and its panel would keep filling the body, reclaiming
+    // nothing. Land on the terminal (the view this fold exists to enlarge).
+    if (headerCollapsed) tab = "term";
+  }
 
   // phone merged header: the repo + session that used to live in the top bar
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
@@ -1189,7 +1226,7 @@
       {@render renameControl()}
     {/if}
     <div class="spacer"></div>
-    <div class="tab-group" class:mobile={compact}>
+    <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
       <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
         >{m.viewport_terminal_tab()}</button
       >
@@ -1299,6 +1336,24 @@
     <div class="vp-actions">
       {#if compact}
         {@render renameControl()}
+        <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
+             terminal claims the freed height. State persists across sessions. -->
+        <button
+          class="vp-fold"
+          type="button"
+          aria-expanded={!headerCollapsed}
+          aria-controls={foldRegionId}
+          aria-label={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
+          title={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
+          onclick={toggleFold}
+        >
+          <!-- chevron points the way the secondary chrome moves, per the user's
+               explicit "Pfeil nach unten" request: ▾ while expanded (tap to fold it
+               down/away), ▴ once folded (tap to bring it back up). This intentionally
+               inverts the desktop git-toggle's disclosure caret, which is a separate
+               control that never co-renders with this one. -->
+          <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
+        </button>
       {/if}
       <button
         class="decom"
@@ -1321,7 +1376,7 @@
   <!-- the git rail gets its own strip when there's no room for it inline:
        always on compact layouts (mobile + unfolded fold, where the header wraps),
        and on desktop only while the PR disclosure toggle is open. -->
-  {#if compact || gitOpen}
+  {#if (compact && !headerCollapsed) || gitOpen}
     <div class="vp-git-strip">
       <GitRail
         sessionId={session.id}
@@ -1337,13 +1392,16 @@
     </div>
   {/if}
 
-  <!-- build queue panel: shown when the flag is on OR a queue already exists for this session -->
-  <BuildQueuePanel
-    sessionId={session.id}
-    enabled={repoConfig.flags(session.repoPath).buildQueue}
-    queue={buildQueue ?? null}
-    onbootstrap={(q) => onSeedBuildQueue?.(q)}
-  />
+  <!-- build queue panel: shown when the flag is on OR a queue already exists for this
+       session — folded away with the rest of the secondary chrome on mobile -->
+  {#if !headerFolded}
+    <BuildQueuePanel
+      sessionId={session.id}
+      enabled={repoConfig.flags(session.repoPath).buildQueue}
+      queue={buildQueue ?? null}
+      onbootstrap={(q) => onSeedBuildQueue?.(q)}
+    />
+  {/if}
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body">
@@ -1694,6 +1752,35 @@
      real flex cluster so the two trailing controls wrap together. */
   .vp-actions {
     display: contents;
+  }
+
+  /* mobile fold toggle: a bare chevron in the trailing actions cluster that
+     hides/shows the secondary header chrome. Mirrors the .decom ghost styling
+     so the two trailing controls read as a set. */
+  .vp-fold {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    line-height: 1;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .vp-fold:hover {
+    color: var(--color-ink);
+    border-color: var(--color-line-bright);
+  }
+  /* folded tabs are display:none rather than removed from the DOM so the active
+     tab + terminal mount survive the toggle (no remount, no PTY teardown) */
+  .tab-group.folded {
+    display: none;
   }
 
   .status-badge {
@@ -2323,6 +2410,7 @@
   /* finger-sized header controls on touch layouts (≥40px) */
   .vp-head.mobile .back,
   .vp-head.mobile .next-yu,
+  .vp-head.mobile .vp-fold,
   .vp-head.mobile .decom {
     min-height: 40px;
     padding: 8px 12px;

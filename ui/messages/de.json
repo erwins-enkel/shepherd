@@ -398,6 +398,8 @@
   "viewport_git_actions_state_clear": "bereit zum Mergen",
   "viewport_git_actions_title_state": "PR, Merge, Kritiker & Merge-Freigabe — {state}",
   "viewport_git_actions_aria_state": "PR- und Merge-Aktionen ein-/ausblenden — {state}",
+  "viewport_fold_aria": "Kopfbereich einklappen — Tabs und PR-Aktionen ausblenden für mehr Terminal-Platz",
+  "viewport_unfold_aria": "Kopfbereich ausklappen — Tabs und PR-Aktionen anzeigen",
   "diff_refresh": "Diff aktualisieren",
   "diff_error": "Diff konnte nicht geladen werden.",
   "diff_empty": "Keine Änderungen ggü. {base}",
@@ -708,5 +710,7 @@
   "prspanel_launch_train": "Merge-Train starten",
   "prspanel_merge_train_prompt": "Führe einen Merge-Train für die Pull Requests aus, die ich ausgewählt habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an — prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nAusgewählte PRs:\n{prs}\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste — merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen.",
   "feat_backlog_pr_merge_train_title": "Merge-Train aus ausgewählten PRs starten",
-  "feat_backlog_pr_merge_train_body": "Mehrere offene PRs im Backlog-PRs-Tab eines Repos auswählen und einen Merge-Train starten, der auf genau diese PRs beschränkt ist."
+  "feat_backlog_pr_merge_train_body": "Mehrere offene PRs im Backlog-PRs-Tab eines Repos auswählen und einen Merge-Train starten, der auf genau diese PRs beschränkt ist.",
+  "feat_header_fold_title": "Kopfbereich einklappen für mehr Terminal",
+  "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten."
 }

@@ -25,6 +25,10 @@
             pref === "dark" ||
             (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.theme = dark ? "dark" : "light";
+          // Hexes mirror app.css --color-bg per theme (runtime setter in
+          // theme.svelte.ts uses the same values).
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#0b0f0d" : "#e7ebe9");
           if (localStorage.getItem("shepherd:contrast") === "high")
             document.documentElement.dataset.contrast = "high";
         } catch (e) {

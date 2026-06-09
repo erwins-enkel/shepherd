@@ -301,13 +301,13 @@
     color: var(--color-red);
   }
   .score-ring.fair {
-    border-color: var(--color-amber, #d2a64a);
-    color: var(--color-amber, #d2a64a);
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
   .score-ring.good,
   .score-ring.strong {
-    border-color: var(--color-green, #5aa86b);
-    color: var(--color-green, #5aa86b);
+    border-color: var(--color-green);
+    color: var(--color-green);
   }
   .score-num {
     font-size: 1.5rem;
@@ -338,11 +338,11 @@
     color: var(--color-red);
   }
   .score-band.fair {
-    color: var(--color-amber, #d2a64a);
+    color: var(--color-amber);
   }
   .score-band.good,
   .score-band.strong {
-    color: var(--color-green, #5aa86b);
+    color: var(--color-green);
   }
   .score-summary {
     font-size: var(--fs-meta);
@@ -382,7 +382,7 @@
     font-size: 0.7rem;
   }
   .dot.present {
-    color: var(--color-green, #5aa86b);
+    color: var(--color-green);
   }
   .dot.absent {
     color: var(--color-faint);
@@ -409,7 +409,7 @@
   .all-covered {
     padding: 12px 0;
     font-size: var(--fs-base);
-    color: var(--color-green, #5aa86b);
+    color: var(--color-green);
     border-bottom: 1px solid var(--color-line);
   }
 
@@ -451,7 +451,7 @@
   }
   .merge-note {
     font-size: var(--fs-meta);
-    color: var(--color-amber, #d2a64a);
+    color: var(--color-amber);
     margin-bottom: 6px;
   }
   .claudemd {

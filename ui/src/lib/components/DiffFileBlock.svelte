@@ -1,11 +1,15 @@
 <script lang="ts">
   import type { DiffFile } from "$lib/types";
+  import { theme, type Resolved } from "$lib/theme.svelte";
 
   let { file }: { file: DiffFile } = $props();
 
   let open = $state(false);
   // per-line highlighted HTML for the whole file, in render order (null until loaded)
   let html = $state<string[] | null>(null);
+  // which resolved theme `html` was rendered for — a theme switch invalidates it
+  // (Shiki emits concrete foreground hexes, so dark-tuned HTML is illegible on light)
+  let htmlTheme = $state<Resolved | null>(null);
 
   const STATUS_GLYPH: Record<DiffFile["status"], string> = {
     added: "A",
@@ -19,18 +23,26 @@
   // lazily highlight the first time this file is expanded (one Shiki call per
   // file). The highlighter (and Shiki) is dynamically imported here so it stays
   // off the first-paint critical path — only pulled in on user expand.
+  // Re-runs on theme switch (resolved is read up front as a dependency) so stale
+  // dark-colored lines never linger on a light surface, and vice versa.
   $effect(() => {
-    if (!open || html || file.binary || file.truncated || flatLines.length === 0) return;
+    const resolved = theme.resolved;
+    if (!open || file.binary || file.truncated || flatLines.length === 0) return;
+    if (html && htmlTheme === resolved) return;
     let alive = true;
     import("$lib/highlight")
       .then(({ highlightLines }) =>
         highlightLines(
           flatLines.map((l) => l.content),
           file.path,
+          resolved,
         ),
       )
       .then((h) => {
-        if (alive) html = h;
+        if (alive) {
+          html = h;
+          htmlTheme = resolved;
+        }
       })
       .catch((err) => {
         // Highlighting is progressive enhancement — fall back to the plain diff,

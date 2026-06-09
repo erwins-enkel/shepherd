@@ -124,6 +124,7 @@
       class="ep-custom"
       class:bad={custom.length > 0 && !customOk}
       placeholder={m.emojipicker_custom()}
+      aria-label={m.emojipicker_custom()}
       type="text"
       autocomplete="off"
       onkeydown={(e) => {

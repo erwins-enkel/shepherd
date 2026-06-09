@@ -35,7 +35,7 @@ function gitInit(dir: string, remoteUrl: string): string {
 /** A recording fake GhRunner. */
 function fakeRunner(response: string): { run: GhRunner; calls: string[][] } {
   const calls: string[][] = [];
-  const run: GhRunner = (args) => {
+  const run: GhRunner = async (args) => {
     calls.push(args);
     return response;
   };
@@ -105,7 +105,7 @@ test("CountsService: Gitea repo returns openIssues and openPRs from REST API", a
   };
 
   const { fn } = fakeFetch({ open_issues_count: 5, open_pr_counter: 1 });
-  const run: GhRunner = () => "";
+  const run: GhRunner = async () => "";
   const svc = new CountsService(forges, run, fn);
 
   const result = await svc.counts(repoDir);
@@ -138,11 +138,8 @@ test("CountsService: single-flight — concurrent calls share one in-flight prom
   const forges: ForgeMap = {};
 
   const calls: string[][] = [];
-  const run: GhRunner = (args) => {
+  const run: GhRunner = async (args) => {
     calls.push(args);
-    // Synchronously block until we resolve — simulate a slow response
-    // We actually need sync return from GhRunner, so we return immediately
-    // but track that it was only invoked once.
     return JSON.stringify({
       data: { repository: { issues: { totalCount: 7 }, pullRequests: { totalCount: 0 } } },
     });
@@ -166,7 +163,7 @@ test("CountsService: fault isolation — throwing runner yields null counts, not
   const goodDir = gitInit(join(tmpBase, "good-repo"), "https://github.com/good/repo");
   const forges: ForgeMap = {};
 
-  const run: GhRunner = (args) => {
+  const run: GhRunner = async (args) => {
     // With gh variables, owner is passed as a separate -F arg: "owner=<value>"
     const ownerArg = args.find((a) => a.startsWith("owner=")) ?? "";
     if (ownerArg === "owner=bad") throw new Error("gh auth failed");
@@ -191,7 +188,7 @@ test("CountsService: failure yields null not 0", async () => {
   const repoDir = gitInit(join(tmpBase, "throws"), "https://github.com/boom/repo");
   const forges: ForgeMap = {};
 
-  const run: GhRunner = () => {
+  const run: GhRunner = async () => {
     throw new Error("network error");
   };
   const svc = new CountsService(forges, run);
@@ -295,7 +292,7 @@ test("CountsService: request-path failure still yields null (no preserve)", asyn
   const repoDir = gitInit(join(tmpBase, "gh-no-preserve"), "https://github.com/o/nopreserve");
   const forges: ForgeMap = {};
 
-  const run = (): string => {
+  const run = async (): Promise<string> => {
     throw new Error("down");
   };
   const svc = new CountsService(forges, run);
@@ -339,7 +336,7 @@ test("CountsService: repo with no origin → null counts (not a throw)", async (
   // No remote set
 
   const forges: ForgeMap = {};
-  const run: GhRunner = () => "";
+  const run: GhRunner = async () => "";
   const svc = new CountsService(forges, run);
 
   const result = await svc.counts(repoDir);
@@ -398,8 +395,8 @@ test("CountsService: maps SUCCESS → success and PENDING → pending", async ()
         },
       },
     });
-  const okSvc = new CountsService({}, () => mk("SUCCESS"));
-  const pendSvc = new CountsService({}, () => mk("PENDING"));
+  const okSvc = new CountsService({}, async () => mk("SUCCESS"));
+  const pendSvc = new CountsService({}, async () => mk("PENDING"));
   expect((await okSvc.counts(okDir)).ciStatus).toBe("success");
   expect((await pendSvc.counts(pendDir)).ciStatus).toBe("pending");
 });
@@ -431,6 +428,6 @@ test("CountsService: Gitea repo → ciStatus null", async () => {
     "git.example.com": { type: "gitea", baseUrl: "https://git.example.com", token: "tok" },
   };
   const { fn } = fakeFetch({ open_issues_count: 5, open_pr_counter: 1 });
-  const svc = new CountsService(forges, () => "", fn);
+  const svc = new CountsService(forges, async () => "", fn);
   expect((await svc.counts(repoDir)).ciStatus).toBeNull();
 });

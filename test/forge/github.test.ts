@@ -4,7 +4,7 @@ import { GithubForge } from "../../src/forge/github";
 // A recording fake `gh` runner. Returns canned stdout keyed by the subcommand.
 function fakeRunner(responses: Record<string, string>) {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     const key = `${args[0]} ${args[1] ?? ""}`.trim();
     if (key in responses) return responses[key]!;
@@ -195,7 +195,7 @@ test("GithubForge.addIssueLabel: ensures the label exists, then adds it", async 
 
 test("GithubForge.addIssueLabel: a pre-existing label (label create throws) still adds", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "label" && args[1] === "create") throw new Error("label already exists");
     return "";
@@ -221,7 +221,7 @@ test("GithubForge.removeIssueLabel: gh issue edit --remove-label", async () => {
 });
 
 test("GithubForge.kind + slug", () => {
-  const forge = new GithubForge("o/r", {}, () => "");
+  const forge = new GithubForge("o/r", {}, async () => "");
   expect(forge.kind).toBe("github");
   expect(forge.slug).toBe("o/r");
 });
@@ -438,7 +438,7 @@ test("GithubForge.listWorkflowRuns: newest run per workflow, jobs mapped, newest
     }),
   };
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "repo" && args[1] === "view")
       return JSON.stringify({ defaultBranchRef: { name: "main" } });
@@ -506,7 +506,7 @@ test("GithubForge.listWorkflowRuns: caps at 10 workflows", async () => {
     })),
   );
   let viewCalls = 0;
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     if (args[0] === "repo" && args[1] === "view")
       return JSON.stringify({ defaultBranchRef: { name: "main" } });
     if (args[0] === "run" && args[1] === "list") return runList;
@@ -543,7 +543,7 @@ test("GithubForge.postReview: request-changes falls back to pr comment when revi
   // GitHub 422s request-changes on a self-authored PR; emulate gh exiting non-zero
   // on the review call, then succeeding (and echoing the URL) on pr comment.
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[1] === "review") throw new Error("Can not request changes on your own pull request");
     return "https://github.com/o/r/pull/7#issuecomment-99\n";
@@ -604,7 +604,7 @@ test("GithubForge.comment: posts a PR comment via gh pr comment", async () => {
 });
 
 test("GithubForge.listRunJobs: maps a run's jobs to the four-light vocab", async () => {
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     if (args[0] === "run" && args[1] === "view" && args[2] === "200")
       return JSON.stringify({
         jobs: [
@@ -623,7 +623,7 @@ test("GithubForge.listRunJobs: maps a run's jobs to the four-light vocab", async
 
 test("GithubForge.listWorkflowRunHistory: filters by workflow + branch, jobs empty, newest-first", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "repo" && args[1] === "view")
       return JSON.stringify({ defaultBranchRef: { name: "main" } });
@@ -689,7 +689,7 @@ test("GithubForge.listWorkflowRunHistory: filters by workflow + branch, jobs emp
 });
 
 test("GithubForge.listWorkflowRunHistory: no default branch → []", async () => {
-  const run = (args: string[]): string => (args[0] === "repo" ? "{}" : "");
+  const run = async (args: string[]): Promise<string> => (args[0] === "repo" ? "{}" : "");
   expect(await new GithubForge("o/r", {}, run).listWorkflowRunHistory(11, { limit: 10 })).toEqual(
     [],
   );
@@ -697,7 +697,7 @@ test("GithubForge.listWorkflowRunHistory: no default branch → []", async () =>
 
 test("GithubForge.ensureIssueLink: appends Closes #N when body has no link", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "view") return "Some PR description";
     return "";
@@ -713,7 +713,7 @@ test("GithubForge.ensureIssueLink: appends Closes #N when body has no link", asy
 
 test("GithubForge.ensureIssueLink: appends to empty body without leading newlines", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "view") return "";
     return "";
@@ -727,7 +727,7 @@ test("GithubForge.ensureIssueLink: appends to empty body without leading newline
 
 test("GithubForge.ensureIssueLink: no-op when body already contains Closes #N", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "view") return "Description\n\nCloses #3";
     return "";
@@ -739,7 +739,7 @@ test("GithubForge.ensureIssueLink: no-op when body already contains Closes #N", 
 
 test("GithubForge.ensureIssueLink: no-op when body contains a different closing keyword (Fixes #N)", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "view") return "Description\n\nFixes #3";
     return "";
@@ -751,7 +751,7 @@ test("GithubForge.ensureIssueLink: no-op when body contains a different closing 
 
 test("GithubForge.ensureIssueLink: does not treat Closes #15 as a link for issue #1", async () => {
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "view") return "Description\n\nCloses #15";
     return "";
@@ -766,7 +766,7 @@ test("GithubForge.ensureIssueLink: null body (gh serializes body-less PR as lite
   // `gh pr view --json body -q '.body // empty'` returns empty string for a null body.
   // The old query `.body` returned the literal string "null", which corrupted the body.
   const calls: string[][] = [];
-  const run = (args: string[]): string => {
+  const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     // Simulate the fixed jq query: `.body // empty` returns "" for a null body.
     // The -q arg is at index args.indexOf("-q") + 1; verify the query is correct.
@@ -786,4 +786,12 @@ test("GithubForge.ensureIssueLink: null body (gh serializes body-less PR as lite
   expect(editCall).toBeDefined();
   const bodyIdx = editCall.indexOf("--body");
   expect(editCall[bodyIdx + 1]).toBe("Closes #3");
+});
+
+test("GithubForge: a rejecting runner propagates as a rejected promise (fail-closed)", async () => {
+  const run = async (): Promise<string> => {
+    throw new Error("gh: network error");
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  await expect(forge.listIssues()).rejects.toThrow("gh: network error");
 });

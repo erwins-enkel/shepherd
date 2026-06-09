@@ -837,5 +837,5 @@
   "feat_backlog_recent_repos_title": "Aktuelle Repos im Backlog angeheftet",
   "feat_backlog_recent_repos_body": "Die Repo-Liste im Backlog beginnt jetzt mit den drei Repos, auf denen zuletzt die meisten Agenten liefen — sortiert nach denselben Kriterien wie die Gruppe „zuletzt bearbeitet“ im Repo-Picker von Neue Aufgabe.",
   "feat_product_story_title": "Die Geschichte, auf den Punkt",
-  "feat_product_story_body": "Shepherd sagt jetzt klar, was es ist: ein meinungsstarker Leitstand für interaktiven Claude Code. Der Info-Bereich in den Einstellungen trägt den Zwei-Säulen-Pitch — echte Sitzungen, die du durch Tippen lenkst, und klare Vorstellungen davon, wie agentengebaute Software ausgeliefert wird — und das README steigt damit ein."
+  "feat_product_story_body": "Shepherd sagt jetzt klar, was es ist: ein meinungsstarker Leitstand für interaktiven Claude Code. Der Info-Bereich in den Einstellungen enthält die Zwei-Säulen-Geschichte — echte Sitzungen, die du durch Tippen lenkst, und klare Vorstellungen davon, wie agentengebaute Software ausgeliefert wird — und das README steigt damit ein."
 }

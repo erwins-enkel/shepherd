@@ -1,6 +1,6 @@
 # Shepherd UI
 
-The frontend package for Shepherd: a SvelteKit 5 SPA (static adapter) built to `ui/build` and
+The frontend package for Shepherd: a Svelte 5 SPA on SvelteKit (static adapter) built to `build/` and
 served statically by the core server. This is a package-level doc — the [root README](../README.md)
 is the front door.
 

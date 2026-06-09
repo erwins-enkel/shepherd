@@ -14,6 +14,7 @@
   import { dialog } from "$lib/a11yDialog";
   import {
     getSessionUsage,
+    getTodo,
     uploadImage,
     resumeSession as apiResumeSession,
     renameSession,
@@ -327,6 +328,32 @@
       alive = false;
       clearInterval(t);
     };
+  });
+
+  // The To-Do tab only earns its place when the repo actually has a TODO.md — an
+  // empty "add your first item" tab is just noise. Poll per-session (mirrors the
+  // usage loop above) so the tab appears live when the agent writes TODO.md
+  // mid-session and drops away if it's removed. null = not yet resolved → tab
+  // stays hidden until we know.
+  let todoExists = $state<boolean | null>(null);
+  $effect(() => {
+    const rp = session.repoPath;
+    todoExists = null;
+    let alive = true;
+    const load = () =>
+      getTodo(rp)
+        .then((r) => alive && (todoExists = r.exists))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  });
+  // Don't strand the operator on a To-Do tab that just vanished (TODO.md removed).
+  $effect(() => {
+    if (todoExists === false && tab === "todo") tab = "term";
   });
 
   // once a PR exists (open or merged) the session has delivered its work — surface
@@ -1444,9 +1471,13 @@
         <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
           >{m.viewport_terminal_tab()}</button
         >
-        <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
-          >{m.viewport_todo_tab()}</button
-        >
+        {#if todoExists}
+          <!-- only when the repo has a TODO.md (server-resolved); skips the empty
+               "add your first item" tab so the strip stays meaningful. -->
+          <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
+            >{m.viewport_todo_tab()}</button
+          >
+        {/if}
         <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
           >{m.viewport_issues_tab()}</button
         >

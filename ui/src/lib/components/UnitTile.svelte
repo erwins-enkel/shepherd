@@ -8,6 +8,7 @@
   import { resumeSession } from "$lib/api";
   import { theme, xtermTheme } from "$lib/theme.svelte";
   import CardMenu from "./CardMenu.svelte";
+  import { longPress } from "./longpress";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
@@ -140,11 +141,17 @@
   // Right-click / long-press → a small action menu. On a tile only Resume applies
   // (decommission isn't wired into the grid view); skip the menu otherwise.
   const resumable = $derived(canResume(session));
+  let hitEl = $state<HTMLButtonElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
-  function openMenu(e: MouseEvent) {
+  function openMenuAt(x: number, y: number): boolean {
+    if (menu || !resumable) return false;
+    menu = { x, y, opener: hitEl! };
+    return true;
+  }
+  function onContextMenu(e: MouseEvent) {
     if (!resumable) return; // nothing to offer → leave the native menu
     e.preventDefault();
-    menu = { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement };
+    openMenuAt(e.clientX, e.clientY);
   }
   async function resumeFromMenu() {
     menu = null;
@@ -163,12 +170,14 @@
   style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
 >
   <button
+    bind:this={hitEl}
     class="tile-hit"
     type="button"
     aria-label={m.unit_open_aria({ name: session.name })}
     aria-describedby={describedBy}
     onclick={() => onselect(session.id)}
-    oncontextmenu={openMenu}
+    oncontextmenu={onContextMenu}
+    use:longPress={{ onTrigger: openMenuAt }}
   ></button>
   <div class="t-head">
     <span class="name">{session.name}</span>
@@ -250,6 +259,9 @@
     border-radius: inherit;
     font: inherit;
     color: inherit;
+    /* long-press opens the card menu — suppress iOS's callout gesture */
+    -webkit-touch-callout: none;
+    user-select: none;
   }
   .tile-hit:focus-visible {
     outline: 1.5px solid var(--color-line-bright);

@@ -9,6 +9,7 @@
   import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge, canResume } from "$lib/format";
   import { resumeSession } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
+  import { longPress } from "./longpress";
   import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
@@ -143,15 +144,23 @@
   // doomed-but-still-present. Dim it so the operator sees it's on its way out.
   const decommissioning = $derived(toasts.pendingUndo(session.id));
 
-  // Right-click (desktop) / long-press (touch → native contextmenu) opens a small
-  // action menu on the card. Resume is the headline action for a session parked at
-  // a shell; decommission rides along where the parent wired it (mobile list).
+  // Right-click (desktop) / long-press (touch) opens a small action menu on the
+  // card. Resume is the headline action for a session parked at a shell;
+  // decommission rides along where the parent wired it (mobile list).
   const resumable = $derived(canResume(session));
+  let hitEl = $state<HTMLButtonElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
-  function openMenu(e: MouseEvent) {
+  // Returns whether a menu actually opened (so the long-press can decide whether to
+  // swallow the trailing tap). No-ops when nothing to offer or one is already open.
+  function openMenuAt(x: number, y: number): boolean {
+    if (menu || (!resumable && !ondecommission)) return false;
+    menu = { x, y, opener: hitEl! };
+    return true;
+  }
+  function onContextMenu(e: MouseEvent) {
     if (!resumable && !ondecommission) return; // nothing to offer → leave native menu
     e.preventDefault();
-    menu = { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement };
+    openMenuAt(e.clientX, e.clientY);
   }
   async function resumeFromMenu() {
     menu = null;
@@ -177,13 +186,15 @@
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
   >
     <button
+      bind:this={hitEl}
       class="unit-hit"
       type="button"
       aria-label={m.unit_open_aria({ name: session.name })}
       aria-describedby={describedBy}
       title={session.repoPath}
       onclick={() => onselect(session.id)}
-      oncontextmenu={openMenu}
+      oncontextmenu={onContextMenu}
+      use:longPress={{ onTrigger: openMenuAt }}
     ></button>
     <div class="pip-col">
       <StatusPip
@@ -372,6 +383,10 @@
     border-radius: inherit;
     font: inherit;
     color: inherit;
+    /* a long-press opens the card menu — suppress iOS's text/callout gesture so it
+       doesn't fight ours (the row has no selectable text anyway) */
+    -webkit-touch-callout: none;
+    user-select: none;
   }
   .unit-hit:focus-visible {
     outline: 1.5px solid var(--color-line-bright);

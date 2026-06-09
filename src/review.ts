@@ -583,8 +583,7 @@ async function defaultComputePatchId(worktreePath: string, base: string): Promis
     // 64 MiB ceiling: a real branch diff won't approach it; a runaway one just falls back
     // to null (review) rather than throwing.
     // Local but can read up to 64 MiB, so run it async too (mirrors computeDiff) to keep
-    // the critic poll off the Bun event loop. patch-id below stays sync: it needs the
-    // sync-only `input:` stdin option, and it only processes this already-bounded diff.
+    // the critic poll off the Bun event loop. (patch-id below stays sync — see its note.)
     const { stdout: diff } = await timedAsync("git diff", () =>
       execFileAsync("git", ["diff", `${ref}...HEAD`], {
         cwd: worktreePath,
@@ -593,6 +592,12 @@ async function defaultComputePatchId(worktreePath: string, base: string): Promis
       }),
     );
     if (!diff.length) return null; // no diff → nothing to fingerprint
+    // patch-id stays sync: it pipes the diff via the `input:` stdin option, which only
+    // execFileSync supports (promisify(execFile) has none). The sync stdin write is bounded
+    // by `diff` (capped at 64 MiB above) and is negligible for real PRs; only a pathological
+    // multi-MB diff would block the loop here. It's routed through the ./instrument timed
+    // wrapper, so if loop-lag profiling ever flags "git patch-id", convert it to a spawn with
+    // an async stdin write at that point — not worth the extra plumbing speculatively.
     const out = execFileSync("git", ["patch-id", "--stable"], {
       cwd: worktreePath,
       input: diff,

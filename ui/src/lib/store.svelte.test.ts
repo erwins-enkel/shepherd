@@ -446,6 +446,44 @@ test("session:archived drops the preview entry for that session", () => {
   expect(s.preview["s1"]).toBeUndefined();
 });
 
+// ── session:preview-serve ──────────────────────────────────────────────────
+
+test("setPreviewServe seeds the previewServe map for bootstrap", () => {
+  const s = new HerdStore();
+  s.setPreviewServe({ s1: "ok", s2: "failed" });
+  expect(s.previewServe["s1"]).toBe("ok");
+  expect(s.previewServe["s2"]).toBe("failed");
+});
+
+test("session:preview-serve with 'failed' sets the entry", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview-serve", data: { id: "s1", serve: "failed" } });
+  expect(s.previewServe["s1"]).toBe("failed");
+});
+
+test("session:preview-serve with 'ok' sets the entry", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview-serve", data: { id: "s1", serve: "ok" } });
+  expect(s.previewServe["s1"]).toBe("ok");
+});
+
+test("session:preview-serve with null drops the entry", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview-serve", data: { id: "s1", serve: "failed" } });
+  expect(s.previewServe["s1"]).toBe("failed");
+  s.apply({ event: "session:preview-serve", data: { id: "s1", serve: null } });
+  expect(s.previewServe["s1"]).toBeUndefined();
+});
+
+test("session:archived drops the previewServe entry for that session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({ event: "session:preview-serve", data: { id: "s1", serve: "failed" } });
+  expect(s.previewServe["s1"]).toBe("failed");
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.previewServe["s1"]).toBeUndefined();
+});
+
 test("session:merging sets and clears the mark", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

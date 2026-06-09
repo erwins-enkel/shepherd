@@ -113,20 +113,21 @@ include the public hostname (see below).
 
 All via environment variables (`src/config.ts`):
 
-| Variable                      | Default                         | Purpose                                                                         |
-| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| `SHEPHERD_PORT`               | `7330`                          | HTTP/WS listen port                                                             |
-| `SHEPHERD_HOST`               | `127.0.0.1`                     | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)       |
-| `SHEPHERD_DB`                 | `~/.shepherd/shepherd.db`       | SQLite session store path                                                       |
-| `SHEPHERD_REPO_ROOT`          | `~` (home)                      | Repos must live under this root (spawn is confined to it)                       |
-| `SHEPHERD_ALLOWED_HOSTS`      | `localhost,127.0.0.1,::1,[::1]` | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)     |
-| `SHEPHERD_TOKEN`              | _(none)_                        | When set, require `Authorization: Bearer <token>`                               |
-| `HERDR_BIN`                   | `herdr`                         | Path to the herdr binary                                                        |
-| `HERDR_SESSION`               | `default`                       | herdr session name                                                              |
-| `SHEPHERD_FORGES`             | `~/.shepherd/forges.json`       | Path to the git-host config (see [Git host integration](#git-host-integration)) |
-| `SHEPHERD_PREVIEW_PORT_BASE`  | `8001`                          | First port in the live-preview range (each agent's preview gets one port)       |
-| `SHEPHERD_PREVIEW_PORT_COUNT` | `16`                            | Size of the preview range and maximum concurrent previews                       |
-| `SHEPHERD_PREVIEW_SWEEP_MS`   | `4000`                          | Cadence (ms) of the dev-port detection sweep across active sessions             |
+| Variable                      | Default                         | Purpose                                                                                                                  |
+| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `SHEPHERD_PORT`               | `7330`                          | HTTP/WS listen port                                                                                                      |
+| `SHEPHERD_HOST`               | `127.0.0.1`                     | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs)                                                |
+| `SHEPHERD_DB`                 | `~/.shepherd/shepherd.db`       | SQLite session store path                                                                                                |
+| `SHEPHERD_REPO_ROOT`          | `~` (home)                      | Repos must live under this root (spawn is confined to it)                                                                |
+| `SHEPHERD_ALLOWED_HOSTS`      | `localhost,127.0.0.1,::1,[::1]` | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)                                              |
+| `SHEPHERD_TOKEN`              | _(none)_                        | When set, require `Authorization: Bearer <token>`                                                                        |
+| `HERDR_BIN`                   | `herdr`                         | Path to the herdr binary                                                                                                 |
+| `HERDR_SESSION`               | `default`                       | herdr session name                                                                                                       |
+| `SHEPHERD_FORGES`             | `~/.shepherd/forges.json`       | Path to the git-host config (see [Git host integration](#git-host-integration))                                          |
+| `SHEPHERD_PREVIEW_PORT_BASE`  | `8001`                          | First port in the live-preview range (each agent's preview gets one port)                                                |
+| `SHEPHERD_PREVIEW_PORT_COUNT` | `16`                            | Size of the preview range and maximum concurrent previews                                                                |
+| `SHEPHERD_PREVIEW_SWEEP_MS`   | `4000`                          | Cadence (ms) of the dev-port detection sweep across active sessions                                                      |
+| `SHEPHERD_PREVIEW_AUTO_SERVE` | `true`                          | Dynamically register/unregister `tailscale serve` mappings as previews bind/tear down; set `0` to map the range manually |
 
 A few runtime toggles live in the SQLite `settings` table (`~/.shepherd/shepherd.db`) rather than env:
 
@@ -230,19 +231,20 @@ agent's own app fetches (reads, writes, storage, HMR) are same-origin and work w
 rewriting. The HUD's origin check rejects preview-port origins for state-changing requests, so a
 previewed app cannot forge `/api` calls.
 
-**One-time setup** — map the preview port range over Tailscale (prerequisite: tailnet HTTPS
-certificates enabled):
+**Tailscale exposure is automatic and dynamic** (default on — `SHEPHERD_PREVIEW_AUTO_SERVE`, set `0`
+to opt out). As each preview listener binds a slot, Shepherd registers a
+`tailscale serve --bg --https=<port> 127.0.0.1:<port>` mapping for it and removes it on teardown —
+zero operator setup, and only in-use ports are exposed. Stale mappings are cleared at startup and on
+shutdown. Prerequisites: tailnet HTTPS certificates enabled, and the service's user set as the
+Tailscale operator (`tailscale set --operator=$USER`) so it can run `tailscale serve` without sudo.
+When the node's tailnet host can't be resolved (tailscale absent/down), Shepherd skips registration
+and logs a warning — previews still work on loopback.
+
+To map the range manually instead, set `SHEPHERD_PREVIEW_AUTO_SERVE=0` and run the loop once:
 
 ```bash
 for p in $(seq 8001 8016); do tailscale serve --bg --https=$p 127.0.0.1:$p; done
 ```
-
-**Automated alternative:** set `SHEPHERD_PREVIEW_AUTO_SERVE=1` and Shepherd runs that same
-`tailscale serve --bg --https=<port> 127.0.0.1:<port>` loop over the configured slot range at
-startup. The same prerequisite applies — tailnet HTTPS certificates must be provisioned, or the
-loop fails. Without this flag (the default) the operator must run the manual loop above; the
-iframe URL fix alone makes the preview target the correct host but does **not** make the slot
-ports tailnet-reachable.
 
 > **Funnel vs Serve:** the 443/8443/10000 port restriction applies to **Funnel** only. `tailscale serve`
 > (tailnet-internal) accepts arbitrary HTTPS ports — the snippet above uses that.
@@ -276,8 +278,10 @@ per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel
 
 **Caveats:**
 
-- **Blank pane?** Ensure the port is mapped via `tailscale serve`. Shepherd cannot detect this; the
-  pane shows a setup hint and an **Open in new tab** link as a fallback.
+- **Blank pane?** With auto-registration on (the default), a failed `tailscale serve` registration
+  shows a degraded (amber) Preview badge and a note in the pane — the app is still reachable on
+  loopback, so use the **Open in new tab** link. (With `SHEPHERD_PREVIEW_AUTO_SERVE=0`, ensure the
+  port is mapped manually.)
 - **App refuses to frame?** Some apps emit a `frame-ancestors` CSP via an in-HTML `<meta>` tag
   (SvelteKit can do this); response-header stripping cannot remove it. Use the **Open in new tab**
   link — safe because the preview runs on its own origin, not the HUD's.
@@ -285,7 +289,7 @@ per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel
   `hmr.clientPort` in the app's Vite config to the preview port Shepherd assigned. Page-load and
   manual refresh always work regardless.
 
-**Follow-ups:** multi-port apps (#396), idle-stop (#399), dynamic `tailscale serve` registration (#403), subdomain/full isolation (#398).
+**Follow-ups:** multi-port apps (#396), idle-stop (#399), subdomain/full isolation (#398).
 
 Install the unit (`deploy/shepherd.service`):
 

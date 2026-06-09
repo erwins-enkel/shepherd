@@ -40,6 +40,7 @@
     git,
     activity,
     previewPort = null,
+    previewServeFailed = false,
     onpreview,
     ondecommission,
   }: {
@@ -52,6 +53,8 @@
     activity?: SessionActivity;
     // live preview-listener port; non-null surfaces the Preview badge (server-driven, no iframe inference)
     previewPort?: number | null;
+    // true when the server's tailscale serve registration failed; surfaces a degraded (amber) badge
+    previewServeFailed?: boolean;
     // Preview badge clicked → select this session + open its Viewport preview pane
     onpreview?: (id: string) => void;
     // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
@@ -231,9 +234,12 @@
              stopPropagation so the row's select doesn't also fire. -->
         <span
           class="preview-badge"
+          class:preview-badge--degraded={previewServeFailed}
           role="button"
           tabindex="0"
-          title={m.unitrow_preview_badge()}
+          title={previewServeFailed
+            ? m.unitrow_preview_badge_degraded()
+            : m.unitrow_preview_badge()}
           onclick={(e) => {
             e.stopPropagation();
             onpreview?.(session.id);
@@ -673,6 +679,18 @@
   .preview-badge:hover,
   .preview-badge:focus-visible {
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+  }
+
+  /* Degraded: the slot's tailscale serve mapping failed to register — the preview
+     still works on loopback but isn't exposed over Tailscale. Amber = attention/
+     degraded (not red, which is reserved for a blocked session). */
+  .preview-badge--degraded {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .preview-badge--degraded:hover,
+  .preview-badge--degraded:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
   }
 
   /* MERGING: the one colored, moving badge — amber + pulse marks the in-flight

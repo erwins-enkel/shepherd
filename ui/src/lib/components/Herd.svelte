@@ -16,6 +16,7 @@
     git,
     activity,
     preview = {},
+    previewServe = {},
     onpreview = undefined,
     ondecommission,
     onclearmerged = undefined,
@@ -34,6 +35,8 @@
     activity: Record<string, SessionActivity>;
     // live sessionId → preview-listener port; a non-null entry surfaces the row's Preview badge
     preview?: Record<string, number | null>;
+    // live sessionId → tailscale-serve registration status; "failed" surfaces degraded badge
+    previewServe?: Record<string, "ok" | "failed">;
     // a row's Preview badge was clicked → select the session + open its Viewport preview pane
     onpreview?: (id: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
@@ -140,6 +143,7 @@
           git={git[session.id]}
           activity={activity[session.id]}
           previewPort={preview[session.id] ?? null}
+          previewServeFailed={previewServe[session.id] === "failed"}
           {onpreview}
           {ondecommission}
         />
@@ -157,6 +161,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -175,6 +180,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -193,6 +199,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -269,6 +276,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -287,6 +295,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -313,6 +322,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />
@@ -339,6 +349,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
+            previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
           />

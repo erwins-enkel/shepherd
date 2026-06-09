@@ -13,7 +13,7 @@ import {
   validatePreviewPortRange,
 } from "./config";
 import { SessionStore } from "./store";
-import type { Session, SessionPreviewEvent } from "./types";
+import type { Session, SessionPreviewEvent, SessionPreviewServeEvent } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
@@ -58,7 +58,7 @@ import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
-import { resolveNodeHost, serveRange } from "./tailscale";
+import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 
 const execFileAsync = promisify(execFile);
 
@@ -134,16 +134,9 @@ if (savedPlan !== null)
     localPort: config.port,
     servedPort,
   });
-  // Opt-in: register all preview slots with `tailscale serve` so they're tailnet-reachable.
-  // Fired void — serveRange sequences the 16 shells internally to avoid serve-config write
-  // races; no need to block boot on it.
-  if (config.previewAutoServe && config.previewHost) {
-    void serveRange(config.previewPortBase, config.previewPortCount).catch((err) =>
-      console.warn("[preview] serveRange failed:", err),
-    );
-  } else if (config.previewAutoServe && !config.previewHost) {
+  if (config.previewAutoServe && !config.previewHost) {
     console.warn(
-      "[preview] SHEPHERD_PREVIEW_AUTO_SERVE=1 but the node's tailnet host could not be resolved (is tailscale running?); previews will be unreachable.",
+      "[preview] dynamic tailscale serve registration is enabled but the node's tailnet host could not be resolved (is tailscale running?); previews won't be tailnet-reachable.",
     );
   }
 }
@@ -212,6 +205,14 @@ const previewService = new PreviewService({
     events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
 });
 
+const tailscaleServe = new TailscaleServeService({
+  base: config.previewPortBase,
+  count: config.previewPortCount,
+  enabled: config.previewAutoServe && config.previewHost != null,
+  onChange: (id, _previewPort, serve) =>
+    events.emit("session:preview-serve", { id, serve } satisfies SessionPreviewServeEvent),
+});
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -228,6 +229,14 @@ const poller = new StatusPoller(
   (id, activity) => events.emit("session:activity", { id, activity }),
   { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
 );
+// Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
+// single FIFO queue already guarantees this op completes before any register/unregister
+// enqueued after poller.start(), so awaiting only risks stalling boot up to count×5s
+// (16 ports × 5s timeout ≈ 80s) when tailscaled is unresponsive. Reconcile swallows its
+// own per-port failures; the .catch is a belt-and-suspenders guard on the queue chain.
+void tailscaleServe
+  .reconcileStartup()
+  .catch((err) => console.warn("[tailscale-serve] startup reconcile failed:", err));
 poller.start();
 
 // background Web Push: turn F3 state events into notifications for subscribed devices.
@@ -265,6 +274,17 @@ events.subscribe((event, data) => {
   if (event !== "session:status") return;
   const { id, status } = data as { id: string; status: string };
   if (status !== "running") prPoller.pollSession(id);
+});
+
+// Drive tailscale serve mappings: register when a preview port binds, unregister
+// on teardown. Listens on session:preview (NOT session:preview-serve to avoid
+// feedback loops). No-op when previewAutoServe disabled or previewHost unresolved.
+events.subscribe((event, data) => {
+  if (event !== "session:preview") return;
+  const { id, previewPort } = data as SessionPreviewEvent;
+  const op =
+    previewPort != null ? tailscaleServe.register(id, previewPort) : tailscaleServe.unregister(id);
+  void op.catch((err) => console.warn("[tailscale-serve] (un)register failed:", err));
 });
 
 // A PR in a merge train just landed (or was closed) → drop its "Merging" mark
@@ -722,6 +742,7 @@ const server = serve(
     ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
     preview: { snapshot: () => previewService.snapshot() },
+    previewServe: { snapshot: () => tailscaleServe.snapshot() },
     push,
     presence,
     poller,
@@ -762,13 +783,17 @@ const server = serve(
 );
 console.log(`shepherd core on http://localhost:${server.port}`);
 
-// Best-effort teardown of preview listeners on process exit / SIGTERM.
-process.on("exit", () => previewService.stopAll());
+// Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
+process.on("exit", () => {
+  previewService.stopAll();
+  tailscaleServe.stopAll();
+});
 // Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we
 // must exit explicitly — otherwise `systemctl stop/restart shepherd` hangs until the
 // stop-timeout SIGKILL. Tear down, then exit (the `exit` handler's second stopAll is a
 // no-op since stopAll is idempotent).
 process.on("SIGTERM", () => {
   previewService.stopAll();
+  tailscaleServe.stopAll();
   process.exit(0);
 });

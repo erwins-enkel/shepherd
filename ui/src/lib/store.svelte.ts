@@ -45,6 +45,12 @@ export class HerdStore {
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
   preview = $state<Record<string, number | null>>({});
+  /** Live per-session tailscale-serve registration status (sessionId → "ok"|"failed"),
+   *  pushed by the server's `session:preview-serve` event and merged from the
+   *  /api/preview bootstrap. "failed" → the preview is reachable on loopback only
+   *  (Tailscale exposure didn't register); surfaced as a degraded Preview badge/pane.
+   *  Absent = not managed (auto off / tailscale absent) or no mapping yet. */
+  previewServe = $state<Record<string, "ok" | "failed">>({});
   /** Live backlog overview, pushed over the WS by the server's warm poller
    *  (`backlog:update`, ~every 45s). Stays null until the first push arrives —
    *  the page's instant first paint comes from a separate one-shot GET
@@ -79,6 +85,10 @@ export class HerdStore {
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
     this.preview = map;
+  }
+  /** Seed (or replace) the preview-serve map after a bootstrap GET. */
+  setPreviewServe(map: Record<string, "ok" | "failed">) {
+    this.previewServe = map;
   }
   setDrain(list: DrainStatus[]) {
     this.drain = Object.fromEntries(list.map((d) => [d.repoPath, d]));
@@ -137,6 +147,14 @@ export class HerdStore {
   private setPreviewPort(id: string, port: number | null) {
     if (port == null) this.preview = dropKey(this.preview, id);
     else this.preview = { ...this.preview, [id]: port };
+  }
+
+  /** Set or clear a session's tailscale-serve registration status. null drops the
+   *  entry (not managed or cleared); "ok"/"failed" merges it in. Extracted from
+   *  apply() to keep that dispatch switch under the complexity gate. */
+  private setServe(id: string, serve: "ok" | "failed" | null) {
+    if (serve == null) this.previewServe = dropKey(this.previewServe, id);
+    else this.previewServe = { ...this.previewServe, [id]: serve };
   }
 
   /** Patch a session's name + branch, then surface the rename (esp. the async
@@ -201,6 +219,7 @@ export class HerdStore {
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
+        this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
@@ -213,6 +232,9 @@ export class HerdStore {
         break;
       case "session:preview":
         this.setPreviewPort(ev.data.id, ev.data.previewPort);
+        break;
+      case "session:preview-serve":
+        this.setServe(ev.data.id, ev.data.serve);
         break;
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);

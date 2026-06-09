@@ -129,6 +129,9 @@ export interface AppDeps {
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
   };
+  /** Tailscale serve registration status per session slot; absent when auto-serve is
+   *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
+  previewServe?: { snapshot(): Record<string, "ok" | "failed"> };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
@@ -233,7 +236,13 @@ function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
 
 function handlePreviewSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "preview" && !parts[2]) {
-    return json(deps.preview?.snapshot() ?? {});
+    const preview = deps.preview?.snapshot() ?? {};
+    const serve = deps.previewServe?.snapshot() ?? {};
+    const merged: Record<string, SessionPreviewState> = {};
+    for (const [id, st] of Object.entries(preview)) {
+      merged[id] = serve[id] ? { ...st, serve: serve[id] } : st;
+    }
+    return json(merged);
   }
   return null;
 }

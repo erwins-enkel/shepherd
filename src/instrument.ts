@@ -109,12 +109,12 @@ export const execFileSync: typeof nodeExecFileSync = ((
  */
 export function logRemainingOnLoopBlockers(): void {
   console.info(
-    "[profile] on-loop sync calls remaining (local/fast, instrumented):" +
+    "[shepherd] on-loop sync calls remaining (local/fast, instrumented):" +
       " herdr list/read (local daemon IPC)," +
       " local git in branch-pruner/repos/branches/worktree/plan-gate/review," +
       " herdr --version (herdr-update)," +
       " git remote get-url (forge/index, backlog)," +
-      " process-reaper kill.",
+      " process-reaper counter-command.",
   );
 }
 

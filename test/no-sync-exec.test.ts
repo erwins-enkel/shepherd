@@ -27,14 +27,27 @@ function collectTs(dir: string): string[] {
 
 /**
  * Matches any import statement that pulls `execFileSync` from "node:child_process".
- * Handles: named import in a list, e.g.
+ * Handles single-line and multi-line named imports, e.g.
  *   import { execFileSync } from "node:child_process"
  *   import { execFile, execFileSync, spawn } from "node:child_process"
+ *   import {
+ *     execFileSync,
+ *   } from "node:child_process"
  */
-const PATTERN = /import\s*\{[^}]*\bexecFileSync\b[^}]*\}\s*from\s*["']node:child_process["']/;
+const PATTERN = /import\s*\{[\s\S]*?\bexecFileSync\b[\s\S]*?\}\s*from\s*["']node:child_process["']/;
 
 /** Allowlist: files permitted to import execFileSync from node:child_process. */
 const ALLOWLIST = new Set(["src/instrument.ts"]);
+
+test("PATTERN matches a multi-line execFileSync import (self-check)", () => {
+  const multiLine = `import {\n  execFileSync,\n} from "node:child_process"`;
+  expect(PATTERN.test(multiLine)).toBe(true);
+});
+
+test("PATTERN does not match an async execFile import (no false positive)", () => {
+  const asyncOnly = `import { execFile, spawn } from "node:child_process"`;
+  expect(PATTERN.test(asyncOnly)).toBe(false);
+});
 
 test("no src file imports execFileSync from node:child_process (use ./instrument instead)", () => {
   const violations: string[] = [];

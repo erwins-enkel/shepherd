@@ -271,6 +271,29 @@ export class DrainService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
     const { number, url, title, body } = decision.issue;
+    // Pre-spawn claim re-check (closes the stale-cache race). The candidate came
+    // from the short-TTL issuesCache, which can be up to issuesTtlMs old — long
+    // enough for a SECOND instance to have stamped ACTIVE_LABEL since. A fresh,
+    // uncached single-issue read catches that: if the claim is already present, an
+    // earlier instance owns it, so yield without spawning (and without releasing
+    // its label). Best-effort and optional: a host without getIssue, or a null
+    // (gone/unreadable) read, falls through to spawn — local dedup still applies.
+    // NOTE: this narrows, it does not eliminate, the window — two instances reading
+    // fresh-and-unclaimed in the same instant still both stamp (see drain-core's
+    // ACTIVE_LABEL note). That residual is accepted; closing it fully needs a
+    // server-ordered claim (out of scope here).
+    // SCOPE: the re-check inspects ONLY the claim label (ACTIVE_LABEL), not whether
+    // the opt-in autoLabel is still present. A candidate another operator un-labeled
+    // (opted out) between the cached list read and now is NOT caught here — it still
+    // spawns. Re-validating the opt-in is a separate concern from the claim race this
+    // closes, and the next tick's fresh listIssues drops a de-labeled issue anyway.
+    try {
+      const fresh = await forge.getIssue?.(number);
+      if (fresh?.labels.includes(ACTIVE_LABEL)) return;
+    } catch (err) {
+      console.warn(`[drain] pre-spawn re-check for issue #${number} failed:`, err);
+      // fall through to spawn — best-effort, never stall the drain.
+    }
     // Claim the issue on the host BEFORE spawning. The active label is the only
     // cross-instance signal, so stamp it first to shrink the window in which a
     // second shepherd grabs the same issue. Best-effort: a claim failure (label

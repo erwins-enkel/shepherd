@@ -20,6 +20,38 @@ live pane). Auth is the operator's own login; no token relay, no impersonation, 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
 
+## Sharing a repo's queue across people
+
+Several people can drive the same repo's auto-drain queue together, each on their own Claude
+subscription. This is the multi-person form of the ToS model above — not one shared account but N
+independent single-operator instances, each running against its own `~/.claude` login (no token
+relay, no impersonation). The shared git-host repo is the only thing in common; the `shepherd:active`
+label keeps two instances off the same issue.
+
+How the work splits: each instance drains greedily up to its own `maxAuto` and `usageCeilingPct`,
+claiming issues first-come by polling timing (whoever pumps first stamps `shepherd:active` first).
+It is not a capacity-weighted load balancer — below the ceiling, issues split by when each instance
+happens to poll, not by who has more headroom. `usageCeilingPct` is a hard per-operator stop: an
+instance that hits its ceiling stops spawning and leaves the rest to the others. So "Patrick is at
+80%, Kai isn't" just means Patrick's ceiling stops his instance (or he turns auto-drain off) and
+Kai's keeps pulling up to Kai's own ceiling — nobody lends capacity.
+
+Setup, per person:
+
+1. Run your own instance logged into your own `~/.claude`.
+2. Use a separate `~/.claude` login (in practice: a separate machine or `HOME`). Usage is scraped
+   locally from `~/.claude` (`src/usage.ts`), so two instances sharing one login see the same usage
+   and their ceilings move in lockstep — the per-person hand-off then doesn't work.
+3. Register the same repo with auto-drain on and the same `autoLabel` (default `shepherd:auto`),
+   pointed at the shared git host (see [Git host integration](#git-host-integration)).
+4. Set your own `usageCeilingPct` and `maxAuto`.
+
+Done for the day? Turn auto-drain off (or shut the machine down) and your instance pulls nothing.
+
+Known edge: if two instances grab the exact same issue in the same instant — before either claim is
+visible to the other — both can spawn against it (two PRs; a human closes one). A pre-spawn re-check
+narrows this to the truly-simultaneous case but does not eliminate it.
+
 ## Your `/commands` come with you
 
 Because Shepherd attaches to a **genuine interactive `claude` session** running against your own

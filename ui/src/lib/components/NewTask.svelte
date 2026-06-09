@@ -468,21 +468,27 @@
       <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
     {/if}
 
-    <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
-    <select id="nt-model" bind:value={model}>
-      <option value="default">{m.newtask_model_default()}</option>
-      {#each MODELS as mdl (mdl)}
-        <option value={mdl}>{mdl}</option>
-      {/each}
-    </select>
+    <!-- Both are per-task run settings: plan-gate takes the primary slot,
+         the model select sits compact beside it on desktop (stacked on phones). -->
+    <div class="opts-row">
+      <label class="plan-gate" use:coachTarget={"plan-gate"} title={m.newtask_plan_gate_hint()}>
+        <input type="checkbox" bind:checked={planGate} onchange={() => (planGateTouched = true)} />
+        <span class="pg-text">
+          <span class="pg-label">{m.newtask_plan_gate_label()}</span>
+          <span class="pg-hint">{m.newtask_plan_gate_hint()}</span>
+        </span>
+      </label>
 
-    <label class="plan-gate" use:coachTarget={"plan-gate"} title={m.newtask_plan_gate_hint()}>
-      <input type="checkbox" bind:checked={planGate} onchange={() => (planGateTouched = true)} />
-      <span class="pg-text">
-        <span class="pg-label">{m.newtask_plan_gate_label()}</span>
-        <span class="pg-hint">{m.newtask_plan_gate_hint()}</span>
-      </span>
-    </label>
+      <div class="model-field">
+        <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
+        <select id="nt-model" bind:value={model}>
+          <option value="default">{m.newtask_model_default()}</option>
+          {#each MODELS as mdl (mdl)}
+            <option value={mdl}>{mdl}</option>
+          {/each}
+        </select>
+      </div>
+    </div>
 
     {#if error}
       <div class="err" role="alert">
@@ -612,12 +618,29 @@
     outline: none;
     border-color: var(--color-line-bright);
   }
+  .opts-row {
+    /* flex-start: plan-gate label and MODEL caption share a top edge */
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-top: 10px;
+  }
   .plan-gate {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    margin-top: 10px;
     cursor: pointer;
+  }
+  .model-field {
+    flex: 0 0 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .model-field .micro {
+    margin-top: 0;
   }
   .plan-gate input {
     width: auto;
@@ -759,6 +782,16 @@
       max-height: 40dvh;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+    }
+    /* Stack the run settings again on phones — the sheet is too narrow for
+       the side-by-side row. */
+    .opts-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .model-field {
+      flex: none;
     }
   }
 

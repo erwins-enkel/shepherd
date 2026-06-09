@@ -151,7 +151,7 @@
   "signoff_authority_either": "Mensch oder Critic",
   "automation_signoff_needs_critic": "Critic / beide erfordern einen aktivierten Critic — nur menschliche Freigabe ist verfügbar.",
   "drain_strip_label": "Queue",
-  "drain_inflight": "{count}/{max} auto",
+  "drain_inflight": "{count}/{max} Agenten",
   "drain_queued": "{count} in Warteschlange",
   "drain_paused_blocked": "Pausiert: {desig} ist blockiert",
   "drain_paused_changes": "Pausiert: {desig} braucht Änderungen",

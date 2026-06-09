@@ -151,7 +151,7 @@
   "signoff_authority_either": "Human or Critic",
   "automation_signoff_needs_critic": "Critic / either need the Critic turned on — only human sign-off is available.",
   "drain_strip_label": "Drain",
-  "drain_inflight": "{count}/{max} auto",
+  "drain_inflight": "{count}/{max} agents",
   "drain_queued": "{count} queued",
   "drain_paused_blocked": "Paused: {desig} is blocked",
   "drain_paused_changes": "Paused: {desig} needs changes",

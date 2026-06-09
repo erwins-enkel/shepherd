@@ -16,6 +16,7 @@
     onquick = undefined,
     onpr,
     onadopt,
+    onlaunchtrain,
     flow = false,
   }: {
     payload: BacklogPayload | null;
@@ -28,6 +29,8 @@
     onpr: (repoPath: string, pr: PullRequest) => void;
     /** Seed a New Task with the AI-readiness install prescription (Readiness tab). */
     onadopt: (repoPath: string, prompt: string) => void;
+    /** Launch a merge train from a hand-picked PR multi-selection (PRs tab). */
+    onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     /** When true, renders at natural height for parent-page scrolling (mobile list);
      *  default false preserves existing viewport-filling behavior. */
     flow?: boolean;
@@ -200,7 +203,12 @@
               age
             />
           {:else if activeTab === "prs"}
-            <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+            <PrsPanel
+              repoPath={selectedPath}
+              onreview={(pr) => onpr(selectedPath!, pr)}
+              {onlaunchtrain}
+              age
+            />
           {:else if activeTab === "actions"}
             <ActionsPanel repoPath={selectedPath} />
           {:else}
@@ -286,7 +294,12 @@
                 age
               />
             {:else if activeTab === "prs"}
-              <PrsPanel repoPath={selectedPath} onreview={(pr) => onpr(selectedPath!, pr)} age />
+              <PrsPanel
+                repoPath={selectedPath}
+                onreview={(pr) => onpr(selectedPath!, pr)}
+                {onlaunchtrain}
+                age
+              />
             {:else if activeTab === "actions"}
               <ActionsPanel repoPath={selectedPath} />
             {:else}

@@ -696,5 +696,13 @@
   "feat_backlog_repo_filter_title": "Filter the repo list",
   "feat_backlog_repo_filter_body": "Narrow the backlog's repo list to repos with open issues and/or open PRs using the new toggle chips.",
   "feat_newtask_repo_first_title": "Repo now leads the New Task form",
-  "feat_newtask_repo_first_body": "The repository you'll launch into now sits at the top of the New Task form and is named on the Create & Run button, so you never start a task against the wrong repo by accident."
+  "feat_newtask_repo_first_body": "The repository you'll launch into now sits at the top of the New Task form and is named on the Create & Run button, so you never start a task against the wrong repo by accident.",
+  "prspanel_select_pr": "Select PR #{number}",
+  "prspanel_select_all": "Select all",
+  "prspanel_clear_all": "Clear",
+  "prspanel_selected_count": "{count} selected",
+  "prspanel_launch_train": "Launch merge train",
+  "prspanel_merge_train_prompt": "Run a merge train for the pull requests I've selected. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything — then re-check the queue after every merge, because main moves under you.\n\nSelected PRs:\n{prs}\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason — never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.",
+  "feat_backlog_pr_merge_train_title": "Launch a merge train from selected PRs",
+  "feat_backlog_pr_merge_train_body": "Multi-select open PRs in a repo's backlog PRs tab and launch a merge train scoped to just those PRs."
 }

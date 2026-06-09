@@ -696,5 +696,13 @@
   "feat_backlog_repo_filter_title": "Repo-Liste filtern",
   "feat_backlog_repo_filter_body": "Grenze die Repo-Liste des Backlogs mit den neuen Umschalt-Chips auf Repos mit offenen Issues und/oder offenen PRs ein.",
   "feat_newtask_repo_first_title": "Repo steht jetzt oben im Neue-Aufgabe-Formular",
-  "feat_newtask_repo_first_body": "Das Repository, in dem die Aufgabe startet, steht jetzt oben im Neue-Aufgabe-Formular und wird auf dem „Erstellen & Starten“-Button genannt – so startest du nie versehentlich im falschen Repo."
+  "feat_newtask_repo_first_body": "Das Repository, in dem die Aufgabe startet, steht jetzt oben im Neue-Aufgabe-Formular und wird auf dem „Erstellen & Starten“-Button genannt – so startest du nie versehentlich im falschen Repo.",
+  "prspanel_select_pr": "PR #{number} auswählen",
+  "prspanel_select_all": "Alle auswählen",
+  "prspanel_clear_all": "Auswahl aufheben",
+  "prspanel_selected_count": "{count} ausgewählt",
+  "prspanel_launch_train": "Merge-Train starten",
+  "prspanel_merge_train_prompt": "Führe einen Merge-Train für die Pull Requests aus, die ich ausgewählt habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an — prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nAusgewählte PRs:\n{prs}\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste — merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen.",
+  "feat_backlog_pr_merge_train_title": "Merge-Train aus ausgewählten PRs starten",
+  "feat_backlog_pr_merge_train_body": "Mehrere offene PRs im Backlog-PRs-Tab eines Repos auswählen und einen Merge-Train starten, der auf genau diese PRs beschränkt ist."
 }

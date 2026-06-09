@@ -5,6 +5,7 @@ import {
   mergeTrainCreateInput,
   pickTrainRepo,
   isMerging,
+  sessionsForPrNumbers,
   MERGE_STALE_MS,
 } from "./merge-train";
 import type { Session, GitState } from "$lib/types";
@@ -168,22 +169,16 @@ describe("collectReadyPrs", () => {
 describe("formatReadyPrs", () => {
   it("formats one bullet per PR with number, title and url", () => {
     const out = formatReadyPrs([
-      { sessionId: "s1", number: 11, title: "feat: a", url: "https://h/pull/11", repoPath: "/r" },
-      { sessionId: "s2", number: 22, title: "fix: b", url: "https://h/pull/22", repoPath: "/r" },
+      { number: 11, title: "feat: a", url: "https://h/pull/11" },
+      { number: 22, title: "fix: b", url: "https://h/pull/22" },
     ]);
     expect(out).toBe("- #11 feat: a — https://h/pull/11\n- #22 fix: b — https://h/pull/22");
   });
 
   it("omits an empty title and an empty url gracefully", () => {
-    expect(
-      formatReadyPrs([{ sessionId: "s", number: 9, title: "", url: "", repoPath: "/r" }]),
-    ).toBe("- #9");
-    expect(
-      formatReadyPrs([{ sessionId: "s", number: 9, title: "t", url: "", repoPath: "/r" }]),
-    ).toBe("- #9 t");
-    expect(
-      formatReadyPrs([{ sessionId: "s", number: 9, title: "", url: "u", repoPath: "/r" }]),
-    ).toBe("- #9 — u");
+    expect(formatReadyPrs([{ number: 9, title: "", url: "" }])).toBe("- #9");
+    expect(formatReadyPrs([{ number: 9, title: "t", url: "" }])).toBe("- #9 t");
+    expect(formatReadyPrs([{ number: 9, title: "", url: "u" }])).toBe("- #9 — u");
   });
 });
 
@@ -251,4 +246,114 @@ test("isMerging: true when marked and within TTL, false when null or stale", () 
   expect(isMerging(make(null), now)).toBe(false);
   expect(isMerging(make(now - 1000), now)).toBe(true);
   expect(isMerging(make(now - MERGE_STALE_MS - 1), now)).toBe(false);
+});
+
+describe("sessionsForPrNumbers", () => {
+  const repoA = "/repo/a";
+  const repoB = "/repo/b";
+
+  it("returns session ids for ready PRs matching repo and numbers", () => {
+    const sessions = [
+      session({ id: "a", readyToMerge: true, repoPath: repoA }),
+      session({ id: "b", readyToMerge: true, repoPath: repoA }),
+    ];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+      b: openPr(22, "feat: b", "https://h/pull/22"),
+    };
+    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a", "b"]);
+  });
+
+  it("excludes sessions from a different repo", () => {
+    const sessions = [
+      session({ id: "a", readyToMerge: true, repoPath: repoA }),
+      session({ id: "b", readyToMerge: true, repoPath: repoB }),
+    ];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+      b: openPr(22, "feat: b", "https://h/pull/22"),
+    };
+    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a"]);
+  });
+
+  it("excludes sessions not readyToMerge", () => {
+    const sessions = [
+      session({ id: "a", readyToMerge: true, repoPath: repoA }),
+      session({ id: "b", readyToMerge: false, repoPath: repoA }),
+    ];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+      b: openPr(22, "feat: b", "https://h/pull/22"),
+    };
+    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a"]);
+  });
+
+  it("excludes sessions where isReviewing returns true", () => {
+    const sessions = [
+      session({ id: "a", readyToMerge: true, repoPath: repoA }),
+      session({ id: "b", readyToMerge: true, repoPath: repoA }),
+    ];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+      b: openPr(22, "feat: b", "https://h/pull/22"),
+    };
+    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git, (id) => id === "a")).toEqual(["b"]);
+  });
+
+  it("returns empty array when no numbers match", () => {
+    const sessions = [session({ id: "a", readyToMerge: true, repoPath: repoA })];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+    };
+    expect(sessionsForPrNumbers(repoA, [99, 100], sessions, git)).toEqual([]);
+  });
+
+  it("returns empty array for an empty numbers list", () => {
+    const sessions = [session({ id: "a", readyToMerge: true, repoPath: repoA })];
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+    };
+    expect(sessionsForPrNumbers(repoA, [], sessions, git)).toEqual([]);
+  });
+});
+
+describe("mergeTrainCreateInput with handpicked param", () => {
+  // A session-less item (e.g. a PullRequest from the PRs panel with no sessionId)
+  const prsNoSession = [
+    { number: 11, title: "feat: a", url: "https://h/pull/11" },
+    { number: 22, title: "fix: b", url: "https://h/pull/22" },
+  ];
+
+  it("accepts Pick<ReadyPr> items without sessionId", () => {
+    const input = mergeTrainCreateInput("/repo/a", "main", prsNoSession);
+    expect(typeof input.prompt).toBe("string");
+    expect(input.prompt.length).toBeGreaterThan(0);
+  });
+
+  it("default (handpicked=false) uses herd framing (flagged ready)", () => {
+    const input = mergeTrainCreateInput("/repo/a", "main", prsNoSession, false);
+    expect(input.prompt).toContain("flagged ready to merge");
+    expect(input.prompt).toContain("Ready-to-merge PRs:");
+  });
+
+  it("handpicked=true uses selected framing", () => {
+    const input = mergeTrainCreateInput("/repo/a", "main", prsNoSession, true);
+    expect(input.prompt).toContain("I've selected");
+    expect(input.prompt).toContain("Selected PRs:");
+  });
+
+  it("handpicked=true and false produce different prompts", () => {
+    const defaultInput = mergeTrainCreateInput("/repo/a", "main", prsNoSession, false);
+    const handpickedInput = mergeTrainCreateInput("/repo/a", "main", prsNoSession, true);
+    expect(defaultInput.prompt).not.toBe(handpickedInput.prompt);
+  });
+
+  it("always skips plan gate regardless of handpicked", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prsNoSession, false).planGateEnabled).toBe(
+      false,
+    );
+    expect(mergeTrainCreateInput("/repo/a", "main", prsNoSession, true).planGateEnabled).toBe(
+      false,
+    );
+  });
 });

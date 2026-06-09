@@ -11,6 +11,9 @@
     age = false,
     onreview,
     onmerged,
+    selectable = false,
+    selected = false,
+    ontoggle,
   }: {
     repoPath: string;
     pr: PullRequest;
@@ -18,6 +21,10 @@
     onreview: (pr: PullRequest) => void;
     /** Called after a successful merge so the parent can drop/refetch the row. */
     onmerged: (number: number) => void;
+    /** Render a leading multi-select checkbox (merge-train picking). */
+    selectable?: boolean;
+    selected?: boolean;
+    ontoggle?: () => void;
   } = $props();
 
   // Merge is outward-facing and hard to reverse, so it arms on first click and
@@ -113,126 +120,143 @@
   }
 </script>
 
-<div class="pr-row">
-  <div class="pr-top">
-    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-    <a class="pr-num" href={pr.url} target="_blank" rel="noopener" title={m.prspanel_open_link()}
-      >#{pr.number}</a
-    >
-    <a class="pr-title" href={pr.url} target="_blank" rel="noopener" title={m.prspanel_open_link()}
-      >{pr.title}</a
-    >
-    <!-- eslint-enable svelte/no-navigation-without-resolve -->
-    {#if pr.isDraft}<span class="draft-chip">{m.prspanel_draft()}</span>{/if}
-  </div>
-
-  <div class="pr-meta">
-    {#if pr.checks !== "none"}
-      {#if hasJobs}
-        <button
-          type="button"
-          class="ci-toggle"
-          class:expanded
-          onclick={() => (expanded = !expanded)}
-          aria-expanded={expanded}
-          aria-controls={jobsId}
-          title={ciToggleLabel}
-          aria-label={ciToggleLabel}
-        >
-          <span class="dot dot-{pr.checks}"></span>
-          <span class="caret" aria-hidden="true">▸</span>
-        </button>
-      {:else}
-        <span class="dot dot-{pr.checks}" title={ciStatus} aria-label={ciStatus}></span>
-      {/if}
-    {/if}
-    {#if pr.latestReview}
-      <span class="rdot rdot-{pr.latestReview.state}" title={reviewTitle} aria-label={reviewTitle}
-      ></span>
-    {/if}
-    {#if blocked}
-      <span class="conflict">{m.prspanel_conflicts()}</span>
-    {/if}
-    {#if pr.author}<span class="author">@{pr.author}</span>{/if}
-    {#if age}
-      <span class="age-chip"
-        >{m.backlog_open_since_days({
-          days: Math.floor((Date.now() - pr.createdAt) / 86_400_000),
-        })}</span
-      >
-    {/if}
-  </div>
-
-  {#if expanded && hasJobs}
-    <div class="pr-jobs" id={jobsId}>
-      <!-- key includes the index: a matrix build can repeat a check name on one
-           head commit, which would otherwise collide in the keyed each. -->
-      {#each pr.jobs as job, i (job.name + " " + i)}
-        <div class="job">
-          <span
-            class="dot dot-{job.state}"
-            title={m.gitrail_ci_status({ status: job.state })}
-            aria-label={m.gitrail_ci_status({ status: job.state })}
-          ></span>
-          {#if job.url}
-            <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
-            <a
-              class="job-name"
-              href={job.url}
-              target="_blank"
-              rel="noopener"
-              title={m.actionspanel_job_link()}>{job.name}</a
-            >
-            <!-- eslint-enable svelte/no-navigation-without-resolve -->
-          {:else}
-            <span class="job-name">{job.name}</span>
-          {/if}
-        </div>
-      {/each}
-    </div>
+<div class="pr-row" class:selectable>
+  {#if selectable}
+    <input
+      type="checkbox"
+      class="pr-pick"
+      checked={selected}
+      onchange={ontoggle}
+      aria-label={m.prspanel_select_pr({ number: pr.number })}
+    />
   {/if}
+  <div class="pr-body">
+    <div class="pr-top">
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+      <a class="pr-num" href={pr.url} target="_blank" rel="noopener" title={m.prspanel_open_link()}
+        >#{pr.number}</a
+      >
+      <a
+        class="pr-title"
+        href={pr.url}
+        target="_blank"
+        rel="noopener"
+        title={m.prspanel_open_link()}>{pr.title}</a
+      >
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      {#if pr.isDraft}<span class="draft-chip">{m.prspanel_draft()}</span>{/if}
+    </div>
 
-  <div class="pr-actions">
-    <!-- Left-aligned status text. One container carries the margin-right:auto push
-         so co-occurring messages (e.g. a failed merge *and* a later rebase request)
-         stay flush-left as a group instead of fighting over the free space. -->
-    {#if failed || rebaseFailed || requested}
-      <div class="pr-status">
-        {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
-        {#if rebaseFailed}<span class="merge-err">{m.prspanel_rebase_failed()}</span>{/if}
-        {#if requested}
-          <span class="rebase-note" role="status">{m.prspanel_rebase_requested()}</span>
+    <div class="pr-meta">
+      {#if pr.checks !== "none"}
+        {#if hasJobs}
+          <button
+            type="button"
+            class="ci-toggle"
+            class:expanded
+            onclick={() => (expanded = !expanded)}
+            aria-expanded={expanded}
+            aria-controls={jobsId}
+            title={ciToggleLabel}
+            aria-label={ciToggleLabel}
+          >
+            <span class="dot dot-{pr.checks}"></span>
+            <span class="caret" aria-hidden="true">▸</span>
+          </button>
+        {:else}
+          <span class="dot dot-{pr.checks}" title={ciStatus} aria-label={ciStatus}></span>
         {/if}
+      {/if}
+      {#if pr.latestReview}
+        <span class="rdot rdot-{pr.latestReview.state}" title={reviewTitle} aria-label={reviewTitle}
+        ></span>
+      {/if}
+      {#if blocked}
+        <span class="conflict">{m.prspanel_conflicts()}</span>
+      {/if}
+      {#if pr.author}<span class="author">@{pr.author}</span>{/if}
+      {#if age}
+        <span class="age-chip"
+          >{m.backlog_open_since_days({
+            days: Math.floor((Date.now() - pr.createdAt) / 86_400_000),
+          })}</span
+        >
+      {/if}
+    </div>
+
+    {#if expanded && hasJobs}
+      <div class="pr-jobs" id={jobsId}>
+        <!-- key includes the index: a matrix build can repeat a check name on one
+           head commit, which would otherwise collide in the keyed each. -->
+        {#each pr.jobs as job, i (job.name + " " + i)}
+          <div class="job">
+            <span
+              class="dot dot-{job.state}"
+              title={m.gitrail_ci_status({ status: job.state })}
+              aria-label={m.gitrail_ci_status({ status: job.state })}
+            ></span>
+            {#if job.url}
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+              <a
+                class="job-name"
+                href={job.url}
+                target="_blank"
+                rel="noopener"
+                title={m.actionspanel_job_link()}>{job.name}</a
+              >
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
+            {:else}
+              <span class="job-name">{job.name}</span>
+            {/if}
+          </div>
+        {/each}
       </div>
     {/if}
-    {#if offerRebase}
+
+    <div class="pr-actions">
+      <!-- Left-aligned status text. One container carries the margin-right:auto push
+         so co-occurring messages (e.g. a failed merge *and* a later rebase request)
+         stay flush-left as a group instead of fighting over the free space. -->
+      {#if failed || rebaseFailed || requested}
+        <div class="pr-status">
+          {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
+          {#if rebaseFailed}<span class="merge-err">{m.prspanel_rebase_failed()}</span>{/if}
+          {#if requested}
+            <span class="rebase-note" role="status">{m.prspanel_rebase_requested()}</span>
+          {/if}
+        </div>
+      {/if}
+      {#if offerRebase}
+        <button
+          class="rebase-btn"
+          disabled={requesting}
+          onclick={onrebase}
+          title={m.prspanel_rebase_button_title()}
+        >
+          {requesting ? m.prspanel_requesting() : m.prspanel_rebase_button()}
+        </button>
+      {/if}
       <button
-        class="rebase-btn"
-        disabled={requesting}
-        onclick={onrebase}
-        title={m.prspanel_rebase_button_title()}
+        class="review-btn"
+        onclick={() => onreview(pr)}
+        title={m.prspanel_review_button_title()}>{m.prspanel_review_button()}</button
       >
-        {requesting ? m.prspanel_requesting() : m.prspanel_rebase_button()}
-      </button>
-    {/if}
-    <button class="review-btn" onclick={() => onreview(pr)} title={m.prspanel_review_button_title()}
-      >{m.prspanel_review_button()}</button
-    >
-    {#if !pr.isDraft}
-      <button
-        class="merge-btn"
-        class:armed
-        disabled={merging || blocked}
-        onclick={onmerge}
-        title={blocked ? m.prspanel_merge_blocked_title() : undefined}
-      >
-        {merging
-          ? m.prspanel_merging()
-          : armed
-            ? m.prspanel_merge_confirm()
-            : m.prspanel_merge_button()}
-      </button>
-    {/if}
+      {#if !pr.isDraft}
+        <button
+          class="merge-btn"
+          class:armed
+          disabled={merging || blocked}
+          onclick={onmerge}
+          title={blocked ? m.prspanel_merge_blocked_title() : undefined}
+        >
+          {merging
+            ? m.prspanel_merging()
+            : armed
+              ? m.prspanel_merge_confirm()
+              : m.prspanel_merge_button()}
+        </button>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -245,6 +269,33 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-inset);
+  }
+
+  /* Selectable rows put the pick checkbox at the leading edge, alongside the
+     row body, without disturbing the body's own vertical stack. */
+  .pr-row.selectable {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .pr-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* A real, distinct hit target ahead of the row's links/buttons — its own
+     accent on check so a picked row reads at a glance. */
+  .pr-pick {
+    flex-shrink: 0;
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--color-amber);
+    cursor: pointer;
   }
 
   .pr-top {
@@ -507,6 +558,10 @@
       min-height: 32px;
       min-width: 32px;
       justify-content: center;
+    }
+    .pr-pick {
+      width: 20px;
+      height: 20px;
     }
   }
 </style>

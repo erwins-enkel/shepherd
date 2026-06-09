@@ -53,7 +53,7 @@ export function collectReadyPrs(
 
 /** Render the PR list for the kickoff prompt: one `- #<n> <title> — <url>`
  *  bullet per PR, gracefully dropping an absent title or url. */
-export function formatReadyPrs(prs: ReadyPr[]): string {
+export function formatReadyPrs(prs: Pick<ReadyPr, "number" | "title" | "url">[]): string {
   return prs
     .map((p) => {
       let line = `- #${p.number}`;
@@ -92,19 +92,48 @@ export function pickTrainRepo(prs: ReadyPr[]): {
 }
 
 /** Build the `createSession` input for a merge-train kickoff. Pure (no I/O, no
- *  side effects) so the gate-skip invariant is locked by `merge-train.test.ts`. */
+ *  side effects) so the gate-skip invariant is locked by `merge-train.test.ts`.
+ *
+ *  Two framings:
+ *  - `handpicked=false` (default): the PRs were operator-flagged readyToMerge —
+ *    uses `herd_merge_train_prompt` which says "I've flagged ready to merge".
+ *  - `handpicked=true`: the user hand-selected PRs from the backlog PRs panel —
+ *    uses `prspanel_merge_train_prompt` which says "I've selected", making no
+ *    false claim about readiness status. */
 export function mergeTrainCreateInput(
   repoPath: string,
   baseBranch: string,
-  prs: ReadyPr[],
+  prs: Pick<ReadyPr, "number" | "title" | "url">[],
+  handpicked = false,
 ): CreateInput {
+  const formatted = formatReadyPrs(prs);
   return {
     repoPath,
     baseBranch,
-    prompt: m.herd_merge_train_prompt({ prs: formatReadyPrs(prs) }),
+    prompt: handpicked
+      ? m.prspanel_merge_train_prompt({ prs: formatted })
+      : m.herd_merge_train_prompt({ prs: formatted }),
     model: null,
     // Merge train is a procedural land-the-queue task, never a feature plan —
     // always skip the plan gate regardless of the per-repo toggle.
     planGateEnabled: false,
   };
+}
+
+/** Return the `sessionId`s of ready-to-merge sessions whose open PR number is
+ *  in `numbers` AND whose `repoPath` matches.
+ *
+ *  Selects **only `readyToMerge`** sessions (mirroring `onmergetrain`), so an
+ *  in-progress session's PR not appearing here is deliberate, not a bug. */
+export function sessionsForPrNumbers(
+  repoPath: string,
+  numbers: number[],
+  sessions: Session[],
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean = () => false,
+): string[] {
+  const numberSet = new Set(numbers);
+  return collectReadyPrs(sessions, git, isReviewing)
+    .filter((p) => p.repoPath === repoPath && numberSet.has(p.number))
+    .map((p) => p.sessionId);
 }

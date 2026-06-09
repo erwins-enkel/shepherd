@@ -123,13 +123,18 @@
   });
 </script>
 
-<button
+<div
   class="tile"
   class:sel={selected}
   style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
-  type="button"
-  onclick={() => onselect(session.id)}
 >
+  <button
+    class="tile-hit"
+    type="button"
+    aria-label={m.unit_open_aria({ name: session.name })}
+    aria-describedby="tile-status-{session.id} tile-desig-{session.id}"
+    onclick={() => onselect(session.id)}
+  ></button>
   <div class="t-head">
     <span class="name">{session.name}</span>
     <span class="spacer"></span>
@@ -142,18 +147,18 @@
     <AutopilotBadge {session} />
     <AutoPip {session} />
     {#if session.readyToMerge}
-      <span class="badge">{m.status_ready_to_merge()}</span>
+      <span class="badge" id="tile-status-{session.id}">{m.status_ready_to_merge()}</span>
     {:else if !hideStatus}
-      <span class="badge" class:alert={session.status === "blocked"}
+      <span class="badge" class:alert={session.status === "blocked"} id="tile-status-{session.id}"
         >{statusLabel(session.status)}</span
       >
     {/if}
-    <span class="desig">{session.desig}</span>
+    <span class="desig" id="tile-desig-{session.id}">{session.desig}</span>
   </div>
   <div class="t-body">
     <div class="t-mount" bind:this={el}></div>
   </div>
-</button>
+</div>
 
 <style>
   .tile {
@@ -181,6 +186,34 @@
     width: 1px;
     background: var(--rule, var(--color-faint));
     z-index: 2;
+    pointer-events: none;
+  }
+  /* Transparent overlay that IS the tile's click/keyboard target — keeps the
+     card a <div> so the interactive PlanGate badge can sit as a sibling instead
+     of an (invalid) nested <button>. */
+  .tile-hit {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    border-radius: inherit;
+    font: inherit;
+    color: inherit;
+  }
+  .tile-hit:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
+  }
+  /* Raise the interactive badge above the overlay so it's clickable. */
+  .t-head > :global(button),
+  .t-head > :global([role="button"]) {
+    position: relative;
+    z-index: 1;
   }
   .tile:hover {
     border-color: var(--color-line-bright);

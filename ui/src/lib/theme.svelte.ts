@@ -86,7 +86,7 @@ class ThemeController {
       // Hexes mirror app.css --color-bg per theme (same values as the
       // pre-paint script in app.html).
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", this.resolved === "dark" ? "#0b0f0d" : "#e7ebe9");
+      if (meta) meta.setAttribute("content", this.resolved === "dark" ? "#0a0d0c" : "#e7ebe9");
       if (this.contrast) root.dataset.contrast = "high";
       else delete root.dataset.contrast;
     }

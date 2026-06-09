@@ -272,3 +272,298 @@ test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
   expect(result.get("/wt/app")).toEqual([]);
 });
+
+// ── PreviewService: reverse-proxy listeners + slot allocation ──────────────────
+//
+// These tests stand up REAL upstream Bun.serve servers (the "dev server") on
+// ephemeral ports and a PreviewService over a high range unlikely to collide.
+// Every test stops its upstream(s) AND the service in cleanup.
+
+import { afterEach, beforeEach } from "bun:test";
+import { PreviewService } from "../src/preview";
+
+// A high, unusual base unlikely to collide with anything on the test host.
+const TEST_BASE = 39000;
+const TEST_COUNT = 4;
+
+type Upstream = ReturnType<typeof Bun.serve>;
+
+const upstreams: Upstream[] = [];
+let service: PreviewService | null = null;
+
+/** The real listen port of a started upstream (`Server.port` is typed optional). */
+function portOf(s: Upstream): number {
+  return s.port as number;
+}
+
+/** Stand up a plain-HTTP upstream returning `body`/`status`/`headers`; tracked for cleanup. */
+function httpUpstream(opts: {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string;
+  echoPath?: boolean;
+}): Upstream {
+  const s = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      const url = new URL(req.url);
+      const body = opts.echoPath ? url.pathname + url.search : (opts.body ?? "ok");
+      return new Response(body, {
+        status: opts.status ?? 200,
+        headers: opts.headers ?? {},
+      });
+    },
+  });
+  upstreams.push(s);
+  return s;
+}
+
+/** Stand up an upstream that on WS-open pushes `pushMsg` and echoes incoming frames. */
+function wsUpstream(pushMsg: string): Upstream {
+  const s = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req, srv) {
+      if (srv.upgrade(req)) return undefined;
+      return new Response("not a ws", { status: 426 });
+    },
+    websocket: {
+      open(ws) {
+        ws.send(pushMsg);
+      },
+      message(ws, msg) {
+        ws.send("echo:" + msg);
+      },
+    },
+  });
+  upstreams.push(s);
+  return s;
+}
+
+/** Connect a client WS to the preview listener and resolve once `count` messages arrive. */
+function collectWsMessages(
+  url: string,
+  count: number,
+  onOpen?: (ws: WebSocket) => void,
+): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const got: string[] = [];
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        /* peer gone */
+      }
+      reject(new Error(`timed out waiting for ${count} ws messages (got ${got.length})`));
+    }, 4000);
+    ws.onopen = () => onOpen?.(ws);
+    ws.onmessage = (e) => {
+      got.push(String(e.data));
+      if (got.length >= count) {
+        clearTimeout(timer);
+        try {
+          ws.close();
+        } catch {
+          /* peer gone */
+        }
+        resolve(got);
+      }
+    };
+    ws.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("ws error"));
+    };
+  });
+}
+
+beforeEach(() => {
+  service = new PreviewService({ base: TEST_BASE, count: TEST_COUNT });
+});
+
+afterEach(() => {
+  try {
+    service?.stopAll();
+  } catch {
+    /* teardown best-effort */
+  }
+  service = null;
+  for (const u of upstreams.splice(0)) {
+    try {
+      u.stop(true);
+    } catch {
+      /* teardown best-effort */
+    }
+  }
+});
+
+test("PreviewService: HMR round-trip — upstream push + client echo both relay", async () => {
+  const up = wsUpstream("hmr-update");
+  const port = service!.ensure("s1", portOf(up));
+  expect(port).not.toBeNull();
+
+  // Expect 2 messages: the upstream push (upstream→client) AND the echo of our
+  // client-sent frame (client→upstream→client). This proves bidirectional relay.
+  const msgs = await collectWsMessages(`ws://127.0.0.1:${port}/`, 2, (ws) => {
+    ws.send("ping-from-client");
+  });
+  expect(msgs).toContain("hmr-update");
+  expect(msgs).toContain("echo:ping-from-client");
+});
+
+test("PreviewService: HTTP proxy strips X-Frame-Options + CSP frame-ancestors, keeps rest", async () => {
+  const up = httpUpstream({
+    status: 200,
+    headers: {
+      "X-Frame-Options": "DENY",
+      "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; img-src *",
+      "X-Keep": "yes",
+    },
+    body: "<html>hi</html>",
+  });
+  const port = service!.ensure("s1", portOf(up));
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("x-frame-options")).toBeNull();
+  expect(res.headers.get("x-keep")).toBe("yes");
+  const csp = res.headers.get("content-security-policy") ?? "";
+  expect(csp).not.toContain("frame-ancestors");
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("img-src *");
+  expect(await res.text()).toBe("<html>hi</html>");
+});
+
+test("PreviewService: fail-closed — upstream dead → 502/503, not a hang or empty 200", async () => {
+  // Bind to a devPort nothing listens on (free a port by stopping an upstream).
+  const dead = httpUpstream({});
+  const deadPort = portOf(dead);
+  dead.stop(true);
+  upstreams.splice(upstreams.indexOf(dead), 1);
+
+  const port = service!.ensure("s1", deadPort);
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect([502, 503]).toContain(res.status);
+});
+
+test("PreviewService: slot allocation bounded by count — (count+1)th session → null", () => {
+  for (let i = 0; i < TEST_COUNT; i++) {
+    const p = service!.ensure(`s${i}`, 40000 + i);
+    expect(p).not.toBeNull();
+  }
+  const overflow = service!.ensure("overflow", 40099);
+  expect(overflow).toBeNull();
+});
+
+test("PreviewService: release frees a slot for a later ensure", () => {
+  for (let i = 0; i < TEST_COUNT; i++) {
+    expect(service!.ensure(`s${i}`, 40000 + i)).not.toBeNull();
+  }
+  expect(service!.ensure("overflow", 40099)).toBeNull();
+  service!.release("s0");
+  expect(service!.ensure("later", 40100)).not.toBeNull();
+});
+
+test("PreviewService: snapshot reflects bound sessions only", () => {
+  const p0 = service!.ensure("s0", 40000);
+  const p1 = service!.ensure("s1", 40001);
+  const snap = service!.snapshot();
+  expect(snap["s0"]).toEqual({ previewPort: p0 });
+  expect(snap["s1"]).toEqual({ previewPort: p1 });
+  service!.release("s0");
+  const snap2 = service!.snapshot();
+  expect(snap2["s0"]).toBeUndefined();
+  expect(snap2["s1"]).toEqual({ previewPort: p1 });
+});
+
+test("PreviewService: release is idempotent", () => {
+  service!.ensure("s0", 40000);
+  service!.release("s0");
+  expect(() => service!.release("s0")).not.toThrow();
+  expect(() => service!.release("never-bound")).not.toThrow();
+});
+
+test("PreviewService: converge binds new + releases absent", () => {
+  service!.ensure("keep", 40000);
+  service!.ensure("drop", 40001);
+  service!.converge([
+    { sessionId: "keep", devPort: 40000 },
+    { sessionId: "new", devPort: 40002 },
+  ]);
+  const snap = service!.snapshot();
+  expect(snap["keep"]).toBeDefined();
+  expect(snap["new"]).toBeDefined();
+  expect(snap["drop"]).toBeUndefined();
+});
+
+test("PreviewService: target integrity — any path still hits the session's own devPort", async () => {
+  const up = httpUpstream({ echoPath: true });
+  const port = service!.ensure("s1", portOf(up));
+  const res = await fetch(`http://127.0.0.1:${port}/anything?q=1`);
+  expect(res.status).toBe(200);
+  // Body echoes the path it actually reached on the upstream — proves no host/port redirect.
+  expect(await res.text()).toBe("/anything?q=1");
+});
+
+test("PreviewService: re-ensure updates devPort live without rebind, no onChange", async () => {
+  const upA = httpUpstream({ body: "A" });
+  const upB = httpUpstream({ body: "B" });
+  const changes: Array<[string, number | null]> = [];
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    onChange: (id, port) => changes.push([id, port]),
+  });
+  try {
+    const port = svc.ensure("s1", portOf(upA));
+    expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("A");
+    // re-ensure with a new devPort: same listener, now targets B, NO new onChange.
+    const port2 = svc.ensure("s1", portOf(upB));
+    expect(port2).toBe(port);
+    expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("B");
+    // onChange fired exactly once (the first bind), not on the devPort-only update.
+    expect(changes).toEqual([["s1", port]]);
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: onChange fires on first bind and on release", () => {
+  const changes: Array<[string, number | null]> = [];
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    onChange: (id, port) => changes.push([id, port]),
+  });
+  try {
+    const port = svc.ensure("s1", 40000);
+    svc.release("s1");
+    expect(changes).toEqual([
+      ["s1", port],
+      ["s1", null],
+    ]);
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: range exhaustion logs a warning and never crashes", () => {
+  const warns: unknown[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => warns.push(a);
+  try {
+    for (let i = 0; i < TEST_COUNT; i++) service!.ensure(`s${i}`, 40000 + i);
+    const overflow = service!.ensure("overflow", 40099);
+    expect(overflow).toBeNull();
+    expect(warns.length).toBeGreaterThan(0);
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("PreviewService: stopAll clears all listeners and the snapshot", () => {
+  service!.ensure("s0", 40000);
+  service!.ensure("s1", 40001);
+  service!.stopAll();
+  expect(service!.snapshot()).toEqual({});
+});

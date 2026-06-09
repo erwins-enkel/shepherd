@@ -1,6 +1,9 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "popup_title": "Shepherd Capture",
+  "popup_conn_checking": "Wird geprüft…",
+  "popup_conn_linked": "Verbunden",
+  "popup_conn_unlinked": "Nicht verbunden",
   "popup_capturing": "Seite wird erfasst…",
   "popup_prompt_label": "Aufgabe",
   "popup_prompt_placeholder": "Aufgabe beschreiben (was ist falsch, was ist zu tun)…",
@@ -75,5 +78,15 @@
   "options_routing_pattern_ph": "https://app.example.com/*",
   "options_routing_repo_ph": "~/Work/my-repo",
   "options_routing_add": "Regel hinzufügen",
-  "options_routing_remove": "Entfernen"
+  "options_routing_remove": "Entfernen",
+  "options_test_connection": "Verbindung testen",
+  "options_testing": "Teste…",
+  "options_conn_ok": "Verbindung OK — Shepherd ist erreichbar.",
+  "options_pairing_title": "Kopplung",
+  "options_pairing_hint": "Shepherd lässt anhand der reinen Erweiterungs-ID zu (dem Hostnamen des Anfrage-Ursprungs). Füge diese ID zu SHEPHERD_ALLOWED_HOSTS hinzu, damit der Server Erfassungen dieser Erweiterung akzeptiert.",
+  "options_extension_id_label": "Erweiterungs-ID",
+  "options_pairing_command_label": "Server-Befehl",
+  "options_copy": "Kopieren",
+  "options_copied": "Kopiert",
+  "options_copy_failed": "Kopieren fehlgeschlagen — manuell markieren und kopieren"
 }

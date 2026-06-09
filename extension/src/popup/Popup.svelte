@@ -1,17 +1,22 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
   import { isConfigured, loadConfig } from "../lib/config";
+  import { localizeError } from "../lib/localize-error";
   import { hasAllUrls } from "../lib/recorder-control";
   import { hasHostPermission, requestHostPermission } from "../lib/remote-host";
   import { resolveRepo } from "../lib/routing";
   import { takePendingCapture } from "../lib/picker-session";
-  import { composeIssueBody, MAX_ISSUE_BODY_LEN, MAX_ISSUE_TITLE_LEN } from "../lib/transport";
+  import {
+    composeIssueBody,
+    MAX_ISSUE_BODY_LEN,
+    MAX_ISSUE_TITLE_LEN,
+    ping,
+  } from "../lib/transport";
   import type {
     CaptureConfig,
     CaptureMode,
     CaptureResult,
     DeliveryTarget,
-    TransportErrorKind,
     WorkerRequest,
     WorkerResponse,
   } from "../lib/types";
@@ -40,6 +45,27 @@
   let recorderAvailable = $state(false);
   let mode = $state<CaptureMode>("visible");
 
+  // Connection-status indicator: reflects whether the configured core is
+  // reachable + authorized, surfaced in the header without opening Options.
+  // "none" = not configured (indicator hidden — the needs-config view covers it).
+  type ConnState = "none" | "checking" | "linked" | "not-linked";
+  let conn = $state<ConnState>("none");
+
+  // Fire-and-forget reachability probe. STRICTLY non-blocking: this is kicked off
+  // WITHOUT await from init(), so it never delays config load, the screenshot, the
+  // popup becoming interactive, or gates capture. Fail-closed — any throw (a
+  // TransportError or otherwise) lands on "not-linked"; "linked" is only set on a
+  // resolved ping.
+  async function checkConnection(cfg: CaptureConfig) {
+    conn = "checking";
+    try {
+      await ping(fetch, cfg);
+      conn = "linked";
+    } catch {
+      conn = "not-linked";
+    }
+  }
+
   // Element captures arrive pre-gathered (signals run at pick time), so the
   // gather toggles are read-only — re-running them would replace the cropped
   // element with a fresh visible capture.
@@ -61,27 +87,6 @@
     });
   }
 
-  function localizeError(kind: TransportErrorKind | "capture", message: string): string {
-    switch (kind) {
-      case "origin":
-        return m.err_origin();
-      case "auth":
-        return m.err_auth();
-      case "invalid":
-        return m.err_invalid({ message });
-      case "too_large":
-        return m.err_too_large();
-      case "unsupported":
-        return m.err_unsupported();
-      case "unreachable":
-        return m.err_unreachable({ baseUrl: config?.baseUrl ?? "" });
-      case "capture":
-        return m.popup_cant_capture();
-      default:
-        return m.err_unknown({ message });
-    }
-  }
-
   async function init() {
     const cfg = await loadConfig();
     config = cfg;
@@ -97,6 +102,13 @@
       view = "needs-host";
       return;
     }
+    // Kick off the connection probe fire-and-forget (no await): it updates `conn`
+    // when it settles and must never delay or gate the capture flow below. Gated
+    // on the host-permission check above so a revoked-permission remote host shows
+    // only the needs-host re-grant view, not a redundant "not-linked" badge — the
+    // probe would fail anyway (Chrome blocks the fetch without the grant). A
+    // successful re-grant re-runs init(), which then fires this probe.
+    void checkConnection(cfg);
     toggles = { ...cfg.signals };
     recorderAvailable = await hasAllUrls();
     if (!recorderAvailable) {
@@ -160,7 +172,7 @@
       } else if (!res.ok) {
         // Injection failed (a restricted page — chrome://, the web store, …).
         // Surface it and keep the popup open instead of closing onto nothing.
-        errorMsg = localizeError(res.errorKind, res.message);
+        errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
         view = "error";
       }
       return;
@@ -189,7 +201,7 @@
       capture = res.result;
       view = "ready";
     } else if (!res.ok) {
-      errorMsg = localizeError(res.errorKind, res.message);
+      errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
       view = "error";
     }
   }
@@ -298,7 +310,7 @@
       doneKind = "issue";
       view = "done";
     } else if (!res.ok) {
-      errorMsg = localizeError(res.errorKind, res.message);
+      errorMsg = localizeError(res.errorKind, res.message, config?.baseUrl ?? "");
       view = "error";
     }
   }
@@ -307,7 +319,29 @@
 </script>
 
 <main class="flex w-[380px] flex-col gap-3 p-3 font-sans text-sm text-gray-900">
-  <h1 class="font-semibold">{m.popup_title()}</h1>
+  <div class="flex items-center justify-between gap-2">
+    <h1 class="font-semibold">{m.popup_title()}</h1>
+    {#if conn !== "none"}
+      {@const tone =
+        conn === "linked"
+          ? "text-green-700"
+          : conn === "not-linked"
+            ? "text-red-700"
+            : "text-gray-500"}
+      {@const dot =
+        conn === "linked" ? "bg-green-600" : conn === "not-linked" ? "bg-red-600" : "bg-gray-400"}
+      <span class={["flex items-center gap-1 text-xs", tone]}>
+        <span class={["h-2 w-2 rounded-full", dot]} aria-hidden="true"></span>
+        <span>
+          {conn === "linked"
+            ? m.popup_conn_linked()
+            : conn === "not-linked"
+              ? m.popup_conn_unlinked()
+              : m.popup_conn_checking()}
+        </span>
+      </span>
+    {/if}
+  </div>
 
   {#if view === "loading"}
     <p class="text-gray-500">{m.popup_capturing()}</p>

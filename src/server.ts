@@ -1929,8 +1929,19 @@ async function handleTodo({ req, parts, url }: Ctx): Promise<Response | null> {
   return null;
 }
 
+// ── reachability probe: lets the Capture extension verify connection (auth +
+// origin-allowlist) before first capture. Pure no-op — rides the global
+// checkAuth→checkOrigin guards, so a bad token 401s and a disallowed origin
+// 403s exactly as a real capture POST would; only 200s when both pass. MUST be
+// POST: checkOrigin skips GET/HEAD, so a GET ping couldn't reproduce the 403.
+function handlePing({ req, parts }: Ctx): Response | null {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "ping" || parts[2]) return null;
+  return json({ ok: true });
+}
+
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
+  handlePing,
   handleGitSnapshot,
   handleActivitySnapshot,
   handleReviews,

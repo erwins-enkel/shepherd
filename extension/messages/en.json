@@ -1,6 +1,9 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "popup_title": "Shepherd Capture",
+  "popup_conn_checking": "Checking…",
+  "popup_conn_linked": "Linked",
+  "popup_conn_unlinked": "Not linked",
   "popup_capturing": "Capturing this page…",
   "popup_prompt_label": "Task",
   "popup_prompt_placeholder": "Describe the task (what's wrong, what to do)…",
@@ -75,5 +78,15 @@
   "options_routing_pattern_ph": "https://app.example.com/*",
   "options_routing_repo_ph": "~/Work/my-repo",
   "options_routing_add": "Add rule",
-  "options_routing_remove": "Remove"
+  "options_routing_remove": "Remove",
+  "options_test_connection": "Test connection",
+  "options_testing": "Testing…",
+  "options_conn_ok": "Connection OK — Shepherd is reachable.",
+  "options_pairing_title": "Pairing",
+  "options_pairing_hint": "Shepherd allowlists by the raw extension ID (the request origin's hostname). Add this ID to SHEPHERD_ALLOWED_HOSTS so the server accepts captures from this extension.",
+  "options_extension_id_label": "Extension ID",
+  "options_pairing_command_label": "Server command",
+  "options_copy": "Copy",
+  "options_copied": "Copied",
+  "options_copy_failed": "Copy failed — select and copy manually"
 }

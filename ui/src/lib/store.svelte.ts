@@ -175,8 +175,18 @@ export class HerdStore {
    *  dispatch switch under the complexity gate. */
   private applyRenamed(id: string, name: string, branch: string | null) {
     const prevName = this.byId(id)?.name;
-    this.sessions = this.sessions.map((s) => (s.id === id ? { ...s, name, branch } : s));
+    this.patchSession(id, { name, branch });
     if (prevName !== undefined && prevName !== name) toasts.info(m.toast_renamed({ name }));
+  }
+
+  /** Mutate a session's fields in place. `sessions` is a deeply-reactive $state
+   *  proxy, so property writes give fine-grained updates without replacing the
+   *  array (which would re-run every keyed {#each} row for a one-session
+   *  change). Full-array replacement is reserved for events that change the SET
+   *  of sessions (session:new / session:archived / setAll). */
+  private patchSession(id: string, patch: Partial<Session>) {
+    const s = this.byId(id);
+    if (s) Object.assign(s, patch);
   }
 
   apply(ev: WsEvent) {
@@ -185,42 +195,30 @@ export class HerdStore {
         if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
         break;
       case "session:status":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id ? { ...s, status: ev.data.status } : s,
-        );
+        this.patchSession(ev.data.id, { status: ev.data.status });
         break;
       case "session:renamed":
         this.applyRenamed(ev.data.id, ev.data.name, ev.data.branch);
         break;
       case "session:ready":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id ? { ...s, readyToMerge: ev.data.ready } : s,
-        );
+        this.patchSession(ev.data.id, { readyToMerge: ev.data.ready });
         break;
       case "session:merging":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id
-            ? { ...s, mergingSince: ev.data.since, mergingTrainId: ev.data.trainId }
-            : s,
-        );
+        this.patchSession(ev.data.id, {
+          mergingSince: ev.data.since,
+          mergingTrainId: ev.data.trainId,
+        });
         break;
       case "session:autopilot":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id
-            ? {
-                ...s,
-                autopilotPaused: ev.data.paused,
-                autopilotComplete: ev.data.complete,
-                autopilotQuestion: ev.data.question,
-                autopilotEnabled: ev.data.enabled,
-              }
-            : s,
-        );
+        this.patchSession(ev.data.id, {
+          autopilotPaused: ev.data.paused,
+          autopilotComplete: ev.data.complete,
+          autopilotQuestion: ev.data.question,
+          autopilotEnabled: ev.data.enabled,
+        });
         break;
       case "session:automerge":
-        this.sessions = this.sessions.map((s) =>
-          s.id === ev.data.id ? { ...s, autoMergeEnabled: ev.data.enabled } : s,
-        );
+        this.patchSession(ev.data.id, { autoMergeEnabled: ev.data.enabled });
         break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
@@ -277,10 +275,7 @@ export class HerdStore {
       case "session:plangate":
         // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
         if (ev.data.gate) planGates.apply(ev.data.id, ev.data.gate);
-        if (ev.data.planPhase)
-          this.sessions = this.sessions.map((s) =>
-            s.id === ev.data.id ? { ...s, planPhase: ev.data.planPhase! } : s,
-          );
+        if (ev.data.planPhase) this.patchSession(ev.data.id, { planPhase: ev.data.planPhase });
         return true;
       case "session:plangate-reviewing":
         planGates.applyReviewing(ev.data.id, ev.data.reviewing);

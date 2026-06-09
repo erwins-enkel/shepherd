@@ -587,11 +587,11 @@
 
   // elapsed-time tick: only run while there's at least one session — an empty
   // herd has no elapsed clocks to drive, so don't write nowMs every second.
-  // Gate on a $derived boolean, not store.sessions.length directly: session:status
-  // (and renamed/ready/new) reassign store.sessions, which would re-run an effect
-  // that read it and recreate the interval mid-second — under heavy status traffic
-  // the 1s tick could stutter or stall, freezing every elapsed clock. A $derived
-  // only propagates on the empty↔non-empty flip, so the interval is made once.
+  // Gate on a $derived boolean, not store.sessions.length directly: session:new
+  // and session:archived reassign store.sessions, which would re-run an effect
+  // that read it and recreate the interval mid-add/remove — under churn the 1s
+  // tick could stutter, freezing every elapsed clock. A $derived only propagates
+  // on the empty↔non-empty flip, so the interval is made once.
   const hasSessions = $derived(store.sessions.length > 0);
   $effect(() => {
     if (!hasSessions) return;

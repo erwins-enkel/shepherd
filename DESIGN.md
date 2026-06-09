@@ -217,7 +217,7 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 ### Status Pip (signature)
 
-- A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding box-shadow halo (`pip-pulse`, 1.5s ease-out). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
+- A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding, fading halo (`pip-pulse`, 1.5s ease-out — a compositor-only transform/opacity pseudo-element, not an animated box-shadow). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
 
 ### Live Terminal (signature)
 

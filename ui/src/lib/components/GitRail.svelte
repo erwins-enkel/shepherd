@@ -13,6 +13,7 @@
   import { featureAnnouncements } from "$lib/feature-announcements";
   import Coachmark from "$lib/components/Coachmark.svelte";
   import { offerUpdateMain } from "$lib/pull-offer";
+  import { pollWhileVisible } from "$lib/visibility";
 
   let {
     sessionId,
@@ -92,11 +93,11 @@
     showReview = false;
     showAutomation = false;
     load(id);
-    // light poll only while a PR is open (CI/merge state can change)
-    const t = setInterval(() => {
+    // light poll only while a PR is open (CI/merge state can change);
+    // hidden-tab ticks are skipped, with a refresh on tab return
+    return pollWhileVisible(() => {
       if (git?.state === "open") load(id);
     }, 15000);
-    return () => clearInterval(t);
   });
 
   function startPr() {

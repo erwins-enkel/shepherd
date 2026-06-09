@@ -215,12 +215,12 @@
     padding: 1px 5px;
   }
 
-  /* shepherd:active — claimed work. Amber per the design system's running/in-progress
-     hue (--status-running), so a taken issue stands out from neutral labels. */
+  /* shepherd:active — claimed work. Uses the semantic running/in-progress token so a
+     taken issue stands out from neutral labels with the same hue as running sessions. */
   .label-chip.active {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+    color: var(--status-running);
+    border-color: var(--status-running);
+    background: color-mix(in srgb, var(--status-running) 14%, transparent);
   }
 
   .body-preview {

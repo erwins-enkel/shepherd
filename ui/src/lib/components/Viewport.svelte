@@ -41,6 +41,7 @@
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { buildPreviewUrl } from "$lib/previewUrl";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
   const enter = $derived(enterKey());
@@ -66,6 +67,7 @@
     openPreviewTick = 0,
     buildQueue = null,
     onSeedBuildQueue,
+    previewHost = null,
   }: {
     session: Session;
     onnewtask?: (repoPath: string, issue: Issue) => void;
@@ -102,6 +104,9 @@
     buildQueue?: BuildQueue | null;
     /** Called when the panel bootstrap-GETs or mutates a queue, to seed the store. */
     onSeedBuildQueue?: (q: BuildQueue) => void;
+    /** The agent node's own tailnet host; preview URLs build from it when the HUD is
+     *  fronted on a different host. Null → fall back to the operator's connection host. */
+    previewHost?: string | null;
   } = $props();
 
   let el: HTMLDivElement | undefined = $state();
@@ -288,13 +293,14 @@
   // server bound a reverse-proxy listener for this session's dev server. Single
   // source of truth for both the tab and the pane — no iframe-load inference.
   const hasPreview = $derived(previewPort != null);
-  // Build the URL from how the operator actually connected (Tailscale https host
-  // or localhost dev) + the assigned port — a distinct origin, so the app is
-  // same-origin to its own backend (the frame keeps `allow-same-origin`; see the
-  // sandbox note on the iframe). SSR-guarded.
+  // Build the iframe URL via the helper, which branches on loopback vs. split-front:
+  // when previewHost is set (agent node's own tailnet host differs from the operator's
+  // connection host), the URL targets previewHost directly so the iframe doesn't hit a
+  // port that only exists on the agent node. Falls back to loc.hostname when null
+  // (single-host deployment). SSR-guarded.
   const previewUrl = $derived(
-    hasPreview && typeof location !== "undefined"
-      ? `${location.protocol}//${location.hostname}:${previewPort}/`
+    hasPreview && previewPort != null && typeof location !== "undefined"
+      ? buildPreviewUrl(previewHost, location, previewPort)
       : null,
   );
 

@@ -818,6 +818,7 @@
             limits={store.usageLimits}
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
+            previewHost={settings?.previewHost ?? null}
             {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
@@ -889,6 +890,7 @@
             touch={touch.current}
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
+            previewHost={settings?.previewHost ?? null}
             {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}

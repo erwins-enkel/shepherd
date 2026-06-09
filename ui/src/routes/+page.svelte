@@ -113,20 +113,27 @@
   // When the learnings drawer is opened from a repo's status row, this carries that
   // repoPath so the drawer scrolls to the matching section; null = opened globally.
   let learningsRepo = $state<string | null>(null);
+  // Repos with at least one currently-running agent — the repo-status band lists only
+  // these (matches TopBar's "working" definition). Drives both the band rows and the
+  // filterable scope below.
+  const runningRepoPaths = $derived(
+    new Set(store.sessions.filter((s) => s.status === "running").map((s) => s.repoPath)),
+  );
   // Herd repo filter (full repo path) toggled from the repo-status band; null = all
-  // repos. Only repos that appear in the band (enabled drain or pending learnings) are
-  // filterable — the band IS the toggle, so a repo with agents but no drain/learnings
-  // can't be selected. Only narrows the herd list views — selection and global counts
+  // repos. Only repos that appear in the band (a running agent) are filterable — the
+  // band IS the toggle. Only narrows the herd list views — selection and global counts
   // stay whole.
   let repoFilter = $state<string | null>(null);
   // The band's filterable repos, so the toggle and the auto-clear guard agree on scope.
   const bandRepoPaths = $derived(
     new Set(
-      repoStatusRows(store.drain, learnings.items, learnings.injectable).map((r) => r.repoPath),
+      repoStatusRows(store.drain, learnings.items, learnings.injectable, runningRepoPaths).map(
+        (r) => r.repoPath,
+      ),
     ),
   );
   // A stale filter would otherwise strand the herd: when the filtered repo's band row
-  // disappears (drain disabled, learnings resolved) its toggle vanishes with no way to
+  // disappears (its last agent stopped running) its toggle vanishes with no way to
   // reset short of a reload. Clear it the moment its repo leaves the band.
   $effect(() => {
     if (repoFilter && !bandRepoPaths.has(repoFilter)) repoFilter = null;
@@ -759,6 +766,7 @@
         autoMerge={store.autoMerge}
         items={learnings.items}
         injectable={learnings.injectable}
+        {runningRepoPaths}
         onlearnings={(repoPath) => {
           learningsRepo = repoPath;
           showLearnings = true;

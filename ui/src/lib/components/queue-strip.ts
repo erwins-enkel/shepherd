@@ -9,8 +9,8 @@ export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[]
 }
 
 /** One row in the generalized per-repo status band: the repo's drain (only when
- *  enabled), plus its learnings footprint. A row exists when the repo has an enabled
- *  drain OR something to surface in the learnings drawer (proposals or curate need). */
+ *  enabled), plus its learnings footprint. A row exists only when the repo currently
+ *  has a RUNNING agent; the drain/learnings data merely enriches that row. */
 export interface RepoStatusRow {
   repoPath: string;
   /** The enabled drain for this repo, or null for an insight-only row. */
@@ -29,16 +29,18 @@ function overBudgetCount(repo: RepoInjectable): number {
 }
 
 /**
- * Build the per-repo status rows for the QueueStrip's first band: the union of
- * repos with an ENABLED drain and repos with a learnings footprint (pending
- * proposals or an over-budget curate need). `drain` is taken only from
- * `enabledDrains` — a disabled drain entry never produces a row or leaks its
- * inflight/queue/popover into an insight-only row. Sorted by repoPath.
+ * Build the per-repo status rows for the QueueStrip's first band: one row per repo
+ * that currently has a RUNNING agent (`runningRepoPaths`). Each row is enriched with
+ * the repo's ENABLED drain (taken only from `enabledDrains` — a disabled drain entry
+ * never leaks its inflight/queue/popover) and its learnings footprint (pending
+ * proposals, or an over-budget curate need). A repo with an enabled drain or pending
+ * learnings but NO running agent gets no row. Sorted by repoPath.
  */
 export function repoStatusRows(
   drain: Record<string, DrainStatus>,
   items: Learning[],
   injectable: RepoInjectable[],
+  runningRepoPaths: Set<string>,
 ): RepoStatusRow[] {
   const drains = new Map(enabledDrains(drain).map((d) => [d.repoPath, d]));
 
@@ -51,13 +53,7 @@ export function repoStatusRows(
     if (n > 0) curateByRepo.set(r.repoPath, n);
   }
 
-  const repoPaths = new Set<string>([
-    ...drains.keys(),
-    ...insightsByRepo.keys(),
-    ...curateByRepo.keys(),
-  ]);
-
-  return [...repoPaths]
+  return [...runningRepoPaths]
     .map((repoPath) => {
       const insights = insightsByRepo.get(repoPath) ?? 0;
       return {

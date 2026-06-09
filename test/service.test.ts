@@ -2001,6 +2001,24 @@ test("sweep eviction: stale awaiting entry evicted with no emit; fresh entry unt
   expect(landed(emitted)).toHaveLength(1);
 });
 
+test("long active run: member activity refreshes the TTL clock, so a >TTL run isn't evicted mid-run", async () => {
+  const { service, emitted } = mergeSvc();
+  const a = await mkSession(service);
+  const b = await mkSession(service);
+  service.setMerging([a.id, b.id], "train-L"); // lastTouch ≈ launch (t0)
+  const t0 = Date.now();
+  // The run outlives MERGE_STALE_MS, but a member lands just before the window
+  // elapses → refreshes lastTouch (and credits the merge).
+  service.resolveMerging(a.id, true, t0 + MERGE_STALE_MS - 1);
+  // A sweep past launch+TTL would have evicted a launch-time entry; lastTouch was
+  // refreshed, so it survives (the bug the PR critic flagged).
+  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
+  expect(landed(emitted)).toHaveLength(0); // still live, not yet archived
+  // The train finally archives long after launch → the entry is intact and fires.
+  service.clearMergingForTrain("train-L", t0 + MERGE_STALE_MS + 2);
+  expect(landed(emitted)).toHaveLength(1);
+});
+
 test("setMerging with all-unknown ids creates no entry; later archive is a no-op", async () => {
   const { service, emitted } = mergeSvc();
   service.setMerging(["ghost"], "train-G"); // no resolvable member

@@ -522,7 +522,7 @@ setInterval(() => {
 
 const autoMerge = new AutoMergeService({
   store,
-  service, // archive, reply, resume
+  service, // archive, reply, resume, resolveMerging
   resolveForge,
   worktree, // has behindBase
   prCache: prPoller,

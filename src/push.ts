@@ -17,7 +17,8 @@ export interface PushPayload {
     | "review-human"
     | "autopilot"
     | "autopilot-done"
-    | "merge_attention";
+    | "merge_attention"
+    | "usage_limit";
   tag: string;
 }
 
@@ -34,6 +35,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   "review-human": "reviews",
   ci: "ci",
   merge_attention: "ci",
+  usage_limit: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -46,7 +48,8 @@ export interface NotifyInput {
     | "review-human"
     | "autopilot"
     | "autopilot-done"
-    | "merge_attention";
+    | "merge_attention"
+    | "usage_limit";
   sessionId: string;
   tag: string;
   name: string;
@@ -63,6 +66,10 @@ export interface NotifyInput {
   mergeState?: "merge_error" | "rebase_cap";
   /** For kind "merge_attention": the desig of the session that needs attention. */
   desig?: string;
+  /** For kind "usage_limit": percent of the 5-hour window already used. */
+  pct?: number;
+  /** For kind "usage_limit": epoch ms when the window resets. */
+  resetAt?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -106,6 +113,9 @@ const NOTIFY_TEXT = {
     mergeErrorBody: (desig: string) => `${desig}: the merge train needs your help`,
     rebaseCapTitle: "Rebase limit reached",
     rebaseCapBody: (desig: string) => `${desig}: too many rebase attempts — over to you`,
+    usageLimitTitle: (pct: number) => `5-hour limit at ${pct}%`,
+    usageLimitBody: (time: string | null) =>
+      time ? `Approaching the usage cap — resets at ${time}.` : "Approaching the usage cap.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -134,6 +144,9 @@ const NOTIFY_TEXT = {
     mergeErrorBody: (desig: string) => `${desig}: der Merge-Train braucht deine Hilfe`,
     rebaseCapTitle: "Rebase-Limit erreicht",
     rebaseCapBody: (desig: string) => `${desig}: zu viele Rebase-Versuche — du bist dran`,
+    usageLimitTitle: (pct: number) => `5-Stunden-Limit bei ${pct} %`,
+    usageLimitBody: (time: string | null) =>
+      time ? `Limit fast erreicht — Reset um ${time}.` : "Limit fast erreicht.",
   },
 } as const;
 
@@ -170,6 +183,15 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
     default:
       return t.other;
   }
+}
+
+/** Locale-formatted clock time of a window reset, or null without an anchor. */
+function resetTimeLabel(resetAt: number | undefined, locale: NotifyLocale): string | null {
+  if (resetAt === undefined) return null;
+  return new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(resetAt));
 }
 
 /** Build the device-facing payload for a notification in the subscriber's locale. */
@@ -212,6 +234,12 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
       }
       return { ...base, title: t.mergeErrorTitle, body: t.mergeErrorBody(desig) };
     }
+    case "usage_limit":
+      return {
+        ...base,
+        title: t.usageLimitTitle(input.pct ?? 0),
+        body: t.usageLimitBody(resetTimeLabel(input.resetAt, asLocale(locale))),
+      };
     default:
       return {
         ...base,
@@ -271,13 +299,14 @@ export class PushService {
     this.store.deletePushSub(endpoint);
   }
 
-  async notify(input: NotifyInput): Promise<void> {
+  /** Returns true when at least one device actually received the push. */
+  async notify(input: NotifyInput): Promise<boolean> {
     // Suppress while the app is actively in use: the live UI already surfaces
     // every status change, so an OS banner is pure noise. Decided server-side —
     // by simply not sending — because a service worker can't reliably drop a
     // push under userVisibleOnly:true (Android substitutes its own banner). We
     // don't touch the cooldown clock here: nothing was sent.
-    if (this.isActive()) return;
+    if (this.isActive()) return false;
     const cooldownMs = config.pushCooldownMs;
     const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
     const t = this.now();
@@ -286,7 +315,7 @@ export class PushService {
     // kinds (done vs blocked) live under separate keys and never collapse.
     if (cooldownMs > 0) {
       const last = this.lastNotified.get(key);
-      if (last !== undefined && t - last < cooldownMs) return;
+      if (last !== undefined && t - last < cooldownMs) return false;
     }
     const category = KIND_CATEGORY[input.kind];
     let sent = false;
@@ -297,6 +326,7 @@ export class PushService {
       if (await this.deliver(row, input)) sent = true;
     }
     if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
+    return sent;
   }
 
   /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */
@@ -399,6 +429,45 @@ export function attachMergePush(events: EventHub, push: PushService): void {
         cooldownKey: `${state}:${target}`,
       })
       .catch((err) => console.warn("[push] merge_attention notify failed:", err));
+  });
+}
+
+/** Warn when the 5-hour usage window crosses this percentage. */
+export const USAGE_WARN_PCT = 80;
+/** Setting key holding the resetAt of the 5h window already warned about. */
+const USAGE_WARNED_KEY = "usageWarnedResetAt5h";
+
+/** Push once per 5-hour window when usage crosses the warning threshold. */
+export function attachUsagePush(
+  events: EventHub,
+  store: SessionStore,
+  push: PushService,
+  now: () => number = () => Date.now(),
+): void {
+  events.subscribe((event, data) => {
+    if (event !== "usage:limits") return;
+    const { session5h } = data as { session5h: { pct: number; resetAt: number } | null };
+    if (!session5h || session5h.pct < USAGE_WARN_PCT) return;
+    // One warning per window: the stored resetAt marks the window already warned.
+    // Persisted (not in-memory) so the post-merge redeploys don't re-announce it.
+    const warned = Number(store.getSetting(USAGE_WARNED_KEY) ?? 0);
+    if (now() < warned) return;
+    void push
+      .notify({
+        kind: "usage_limit",
+        sessionId: "",
+        tag: "usage-5h",
+        name: "5h",
+        pct: session5h.pct,
+        resetAt: session5h.resetAt,
+        cooldownKey: "usage_limit:5h",
+      })
+      .then((sent) => {
+        // Only mark the window once a device heard it: a push suppressed while
+        // the app is active retries next tick and fires when the user steps away.
+        if (sent) store.setSetting(USAGE_WARNED_KEY, String(session5h.resetAt));
+      })
+      .catch((err) => console.warn("[push] usage_limit notify failed:", err));
   });
 }
 

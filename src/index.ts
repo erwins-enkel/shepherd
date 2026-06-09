@@ -35,7 +35,14 @@ import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { StarPromptService } from "./star-prompt";
-import { PushService, attachPush, attachReviewPush, attachGitPush, attachMergePush } from "./push";
+import {
+  PushService,
+  attachPush,
+  attachReviewPush,
+  attachGitPush,
+  attachMergePush,
+  attachUsagePush,
+} from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { PlanGateService } from "./plan-gate";
@@ -659,6 +666,7 @@ setTimeout(runDailySweep, 10_000); // once shortly after boot
 setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 
 // recompute live limit % from local JSONL ~every 30s; push to clients
+attachUsagePush(events, store, push);
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
   events.emit("usage:limits", usageLimits.limits(Date.now()));

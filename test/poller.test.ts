@@ -18,6 +18,12 @@ const baseSession = {
   herdrAgentId: "term_a",
 };
 
+/** A running agent with an empty transcript falls into the interim path, whose
+ *  terminal read is dispatched fire-and-forget (async `readAsync`) off the
+ *  synchronous tick — so its onActivity/onBlock effects (incl. the resume
+ *  block-clear) land on a later microtask. Flush a cycle before asserting them. */
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 test("tick maps herdr state to status and emits only on change", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
@@ -56,7 +62,7 @@ test("tick maps herdr state to status and emits only on change", () => {
   expect(emitted.length).toBe(2);
 });
 
-test("emits onBlock with a classified reason for blocked sessions, clears on resume", () => {
+test("emits onBlock with a classified reason for blocked sessions, clears on resume", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -76,6 +82,9 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
       },
     ],
     read: () => "❯ 1. Yes\n  2. No",
+    // resume runs the interim path (no injected transcript probe → empty signals),
+    // whose block-clear is async; provide the async read so it fires
+    readAsync: () => Promise.resolve("❯ 1. Yes\n  2. No"),
   };
 
   let clock = 100_000;
@@ -103,6 +112,7 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
   agentStatus = "working";
   clock += 5000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
@@ -868,7 +878,8 @@ import { STRIP_WINDOW_MS } from "../src/activity-signal";
 
 /** A running agent whose transcript probe yields NOTHING (the CC 2.1.169 case):
  *  both snapshot and activity are null, so the poller falls back to the
- *  terminal-diff interim path. `read("visible")` returns whatever `visible` holds. */
+ *  terminal-diff interim path. `readAsync("visible")` resolves whatever `visible`
+ *  holds. */
 function interimHarness(opts: {
   store: SessionStore;
   visible: () => string;
@@ -891,6 +902,7 @@ function interimHarness(opts: {
       },
     ],
     read: () => opts.visible(),
+    readAsync: () => Promise.resolve(opts.visible()),
   };
   return new StatusPoller(
     opts.store,
@@ -909,7 +921,7 @@ function interimHarness(opts: {
   );
 }
 
-test("interim: empty transcript + changing terminal accrues heartbeat ticks, never stalls", () => {
+test("interim: empty transcript + changing terminal accrues heartbeat ticks, never stalls", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const activities: { id: string; activity: any }[] = [];
@@ -927,6 +939,7 @@ test("interim: empty transcript + changing terminal accrues heartbeat ticks, nev
 
   // first probe: captures baseline, no change to diff against yet → no tick, no emit
   poller.tick();
+  await flush();
   expect(activities).toHaveLength(0);
 
   // subsequent probes: terminal changes each cadence → a tick accrues each time
@@ -934,6 +947,7 @@ test("interim: empty transcript + changing terminal accrues heartbeat ticks, nev
     frame += 7;
     clock += 7000;
     poller.tick();
+    await flush();
   }
   expect(blocks).toHaveLength(0); // moving terminal never stalls
   expect(activities.length).toBeGreaterThan(0);
@@ -945,7 +959,7 @@ test("interim: empty transcript + changing terminal accrues heartbeat ticks, nev
   expect(last.id ?? s.id).toBe(s.id);
 });
 
-test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", () => {
+test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: any[] = [];
@@ -960,6 +974,7 @@ test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", () => {
   });
 
   poller.tick(); // baseline
+  await flush();
   // accrue ticks well past the window so the oldest must be dropped
   const totalSpan = STRIP_WINDOW_MS * 2;
   let elapsed = 0;
@@ -968,6 +983,7 @@ test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", () => {
     clock += 7000;
     elapsed += 7000;
     poller.tick();
+    await flush();
   }
   const last = activities[activities.length - 1]!;
   for (const ts of last.recentTs) {
@@ -976,7 +992,7 @@ test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", () => {
   }
 });
 
-test("interim: static terminal for ≥ stallMs fires a stall once, then clears when it moves again", () => {
+test("interim: static terminal for ≥ stallMs fires a stall once, then clears when it moves again", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: any }[] = [];
@@ -993,16 +1009,19 @@ test("interim: static terminal for ≥ stallMs fires a stall once, then clears w
 
   // first probe: baseline only — must NOT fire even though static
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(0);
 
   // still static, but not yet past stallMs → no fire
   clock += 7000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(0);
 
   // past stallMs of no change → stall fires once
   clock += 7000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
   expect((blocks[0]!.block as any).tail).toEqual(["frozen output"]);
@@ -1010,17 +1029,19 @@ test("interim: static terminal for ≥ stallMs fires a stall once, then clears w
   // still static past throttle → once per episode, no re-fire
   clock += 7000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(1);
 
   // terminal moves again → stall clears
   visible = "moving now";
   clock += 7000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
 
-test("interim: first static sample defers — does not fire immediately", () => {
+test("interim: first static sample defers — does not fire immediately", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: unknown[] = [];
@@ -1036,10 +1057,11 @@ test("interim: first static sample defers — does not fire immediately", () => 
 
   // …the very first sample has no baseline to diff against → defer, no fire
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(0);
 });
 
-test("interim: terminal read throwing is best-effort — no throw, no emit", () => {
+test("interim: terminal read throwing is best-effort — no throw, no emit", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: unknown[] = [];
@@ -1058,9 +1080,7 @@ test("interim: terminal read throwing is best-effort — no throw, no emit", () 
         workspaceId: "w",
       },
     ],
-    read: () => {
-      throw new Error("herdr down");
-    },
+    readAsync: () => Promise.reject(new Error("herdr down")),
   };
   const poller = new StatusPoller(
     store,
@@ -1079,11 +1099,78 @@ test("interim: terminal read throwing is best-effort — no throw, no emit", () 
   );
 
   expect(() => poller.tick()).not.toThrow();
+  await flush();
   expect(blocks).toHaveLength(0);
   expect(activities).toHaveLength(0);
 });
 
-test("interim path is NOT used when the transcript probe returns a non-null signal", () => {
+test("interim: a second probe while the first read is in flight does not start a second read", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let reads = 0;
+  let resolveFirst!: (text: string) => void;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    // first read hangs (caller controls when it resolves); count every call
+    readAsync: () => {
+      reads++;
+      return new Promise<string>((r) => {
+        resolveFirst = r;
+      });
+    },
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    () => {},
+  );
+
+  // first tick dispatches a read that never resolves yet
+  poller.tick();
+  await flush();
+  expect(reads).toBe(1);
+
+  // advance past the throttle so the throttle alone wouldn't block a second probe,
+  // tick again → the in-flight guard must suppress a second read
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(reads).toBe(1);
+
+  // let the first read finish → the next probe is free to read again
+  resolveFirst("done");
+  await flush();
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(reads).toBe(2);
+});
+
+test("interim path is NOT used when the transcript probe returns a non-null signal", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const activities: { id: string; activity: any }[] = [];
@@ -1103,9 +1190,15 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
         workspaceId: "w",
       },
     ],
+    // a healthy (non-stalled) transcript signal must not read the terminal by
+    // EITHER path — the interim uses readAsync, evaluateStall the sync read
     read: () => {
-      visibleReads++; // a healthy (non-stalled) transcript signal must not read the terminal
+      visibleReads++;
       return "irrelevant";
+    },
+    readAsync: () => {
+      visibleReads++;
+      return Promise.resolve("irrelevant");
     },
   };
 
@@ -1136,6 +1229,7 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
   poller.tick();
   clock += 7000;
   poller.tick();
+  await flush();
 
   // the transcript-driven emit still happens (real summary, not interim's null)
   expect(activities.length).toBeGreaterThan(0);
@@ -1327,6 +1421,7 @@ test("tick() is a no-op while maintenance is active (no herdr call, no reap)", (
       return [];
     },
     read: () => "",
+    readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
     store,
@@ -1361,6 +1456,7 @@ test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
       throw new Error("herdr list timed out"); // simulate HERDR_TIMEOUT_MS firing
     },
     read: () => "",
+    readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
     store,

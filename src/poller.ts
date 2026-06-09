@@ -60,6 +60,10 @@ export class StatusPoller {
   private interimTicks = new Map<string, number[]>();
   /** Per-session last time the interim visible buffer changed; the stall baseline. */
   private lastInterimChangeAt = new Map<string, number>();
+  /** Sessions whose interim terminal read is in flight — the read is dispatched
+   *  fire-and-forget off the (synchronous) tick, so a slow read must not let the
+   *  next cadence pile a second read on top; we skip while one is pending. */
+  private interimInFlight = new Set<string>();
 
   /** Timestamp of the last completed preview sweep start (0 = never). */
   private lastPreviewSweepAt = 0;
@@ -70,7 +74,7 @@ export class StatusPoller {
 
   constructor(
     private store: SessionStore,
-    private herdr: Pick<HerdrDriver, "list" | "read">,
+    private herdr: Pick<HerdrDriver, "list" | "read" | "readAsync">,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
     private intervalMs = 1000,
@@ -197,6 +201,7 @@ export class StatusPoller {
       ...this.lastInterimVisible.keys(),
       ...this.interimTicks.keys(),
       ...this.lastInterimChangeAt.keys(),
+      ...this.interimInFlight.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -209,6 +214,7 @@ export class StatusPoller {
         this.lastInterimVisible.delete(id);
         this.interimTicks.delete(id);
         this.lastInterimChangeAt.delete(id);
+        this.interimInFlight.delete(id);
       }
     }
   }
@@ -265,13 +271,17 @@ export class StatusPoller {
     // comes back empty → the heartbeat strip would render all-empty AND stall
     // detection would be disabled (`evaluateStall` bails on a null snapshot
     // BEFORE it ever reads the terminal). When BOTH signals are null we instead
-    // derive a coarse-but-live heartbeat + stall from the herdr "visible" buffer
-    // we already read elsewhere — no Claude-Code-side hooks, works on already-
-    // running agents. This branch is mutually exclusive with the transcript path
-    // below: the instant Claude Code restores live transcript writes (signals
-    // become non-null) it goes dormant automatically and the original path runs.
+    // derive a coarse-but-live heartbeat + stall from the herdr "visible" buffer.
+    // This is NOT free: it adds ONE fresh `visible` read per running agent per
+    // probe cadence (the transcript path early-returned at zero reads in this
+    // 2.1.169 world). To keep that fan-out off Bun's single loop, the read is
+    // ASYNC (`readAsync`) and dispatched fire-and-forget — `tick()` never blocks
+    // on it. No Claude-Code-side hooks, works on already-running agents. This
+    // branch is mutually exclusive with the transcript path below: the instant
+    // Claude Code restores live transcript writes (signals become non-null) it
+    // goes dormant automatically and the original path runs.
     if (signals.activity == null && signals.snapshot == null) {
-      this.probeTerminalInterim(s, t);
+      void this.probeTerminalInterim(s, t);
       return;
     }
 
@@ -287,8 +297,12 @@ export class StatusPoller {
   /**
    * Interim heartbeat + stall, derived from the live terminal alone, for when the
    * transcript probe yields nothing (Claude Code 2.1.169 no longer writes the
-   * JSONL live). Reads the visible buffer EXACTLY ONCE (house rule: one terminal
-   * read per probe per agent) and drives BOTH signals off that single read:
+   * JSONL live). Reads the visible buffer EXACTLY ONCE — and ASYNCHRONOUSLY, via
+   * `readAsync`, so the read never blocks Bun's single loop (it fans out across
+   * every running agent each probe cadence). Dispatched fire-and-forget from the
+   * synchronous `maybeProbe`; an `interimInFlight` guard skips a fresh dispatch
+   * while a prior read for the same session is still pending, so a slow read can't
+   * pile up. Drives BOTH signals off that single read:
    *
    *  1. Heartbeat — a running agent mid-turn keeps its spinner/elapsed/token
    *     counter ticking, so its visible buffer changes between ~7s probes. Each
@@ -306,52 +320,59 @@ export class StatusPoller {
    * null. Best-effort throughout: a throwing terminal read is swallowed and
    * retried next cadence, never propagated out of the tick.
    */
-  private probeTerminalInterim(s: Session, t: number): void {
-    let visible: string;
-    try {
-      visible = this.herdr.read(s.herdrAgentId, "visible");
-    } catch {
-      return; // can't assess this cycle → best-effort, retry next cadence
-    }
+  private async probeTerminalInterim(s: Session, t: number): Promise<void> {
     const id = s.id;
-    // A running agent must not carry a stale *non-stall* block sig left over from a
-    // prior blocked state (the old transcript path cleared this via
-    // evaluateStall→clearBlock). Drop it here so a blocked→running resume still
-    // emits its clear; leave a live stall sig alone (its own clearStall/fireStall
-    // logic below owns the once-per-episode guard).
-    if (this.lastSig.has(id) && this.lastSig.get(id) !== STALL_SIG) this.clearBlock(id);
-    const prev = this.lastInterimVisible.get(id);
-    const changed = prev !== undefined && visible !== prev;
+    if (this.interimInFlight.has(id)) return; // a prior read is still pending → skip
+    this.interimInFlight.add(id);
+    try {
+      let visible: string;
+      try {
+        visible = await this.herdr.readAsync(s.herdrAgentId, "visible");
+      } catch {
+        return; // can't assess this cycle → best-effort, retry next cadence
+      }
+      // A running agent must not carry a stale *non-stall* block sig left over from a
+      // prior blocked state (the old transcript path cleared this via
+      // evaluateStall→clearBlock). Drop it here so a blocked→running resume still
+      // emits its clear; leave a live stall sig alone (its own clearStall/fireStall
+      // logic below owns the once-per-episode guard).
+      if (this.lastSig.has(id) && this.lastSig.get(id) !== STALL_SIG) this.clearBlock(id);
+      const prev = this.lastInterimVisible.get(id);
+      const changed = prev !== undefined && visible !== prev;
 
-    // 1. heartbeat: a changed buffer is one live "tick"; window the list.
-    if (changed) {
-      const ticks = this.interimTicks.get(id) ?? [];
-      ticks.push(t);
-      const cutoff = t - STRIP_WINDOW_MS;
-      const windowed = ticks.filter((ts) => ts >= cutoff);
-      this.interimTicks.set(id, windowed);
-      // summary is null — the terminal diff can't name the tool-use; recentErrTs
-      // is always empty for the same reason. lastActivityTs = newest tick (or 0).
-      this.emitActivity(id, {
-        lastActivityTs: windowed.length ? windowed[windowed.length - 1]! : 0,
-        summary: null,
-        recentTs: windowed,
-        recentErrTs: [],
-      });
+      // 1. heartbeat: a changed buffer is one live "tick"; window the list.
+      if (changed) {
+        const ticks = this.interimTicks.get(id) ?? [];
+        ticks.push(t);
+        const cutoff = t - STRIP_WINDOW_MS;
+        const windowed = ticks.filter((ts) => ts >= cutoff);
+        this.interimTicks.set(id, windowed);
+        // summary is null — the terminal diff can't name the tool-use; recentErrTs
+        // is always empty for the same reason. lastActivityTs = newest tick (`t`
+        // was just pushed and survives the window, so `windowed` is never empty).
+        this.emitActivity(id, {
+          lastActivityTs: windowed[windowed.length - 1]!,
+          summary: null,
+          recentTs: windowed,
+          recentErrTs: [],
+        });
+      }
+
+      // 2. stall: a moving terminal is alive; a frozen one past stallMs is stalled.
+      if (changed) {
+        this.lastInterimChangeAt.set(id, t);
+        this.clearStall(id);
+      } else if (!this.lastInterimChangeAt.has(id)) {
+        // first sample (no baseline yet) → defer one cycle, never fire blind.
+        this.lastInterimChangeAt.set(id, t);
+      } else if (t - this.lastInterimChangeAt.get(id)! >= this.stallCfg.stallMs) {
+        this.fireStall(id, visible); // idempotent per episode
+      }
+
+      this.lastInterimVisible.set(id, visible);
+    } finally {
+      this.interimInFlight.delete(id);
     }
-
-    // 2. stall: a moving terminal is alive; a frozen one past stallMs is stalled.
-    if (changed) {
-      this.lastInterimChangeAt.set(id, t);
-      this.clearStall(id);
-    } else if (!this.lastInterimChangeAt.has(id)) {
-      // first sample (no baseline yet) → defer one cycle, never fire blind.
-      this.lastInterimChangeAt.set(id, t);
-    } else if (t - this.lastInterimChangeAt.get(id)! >= this.stallCfg.stallMs) {
-      this.fireStall(id, visible); // idempotent per episode
-    }
-
-    this.lastInterimVisible.set(id, visible);
   }
 
   /** Emit an activity signal, deduped by content so clients see only real changes. */

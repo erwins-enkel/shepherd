@@ -317,3 +317,54 @@ test("runner delegates to exec when maintenance is inactive", () => {
   const runner = makeHerdrRunner(() => "ok");
   expect(runner(["agent", "list"])).toBe("ok");
 });
+
+import { makeHerdrAsyncRunner } from "../src/herdr";
+
+const READ_REPLY = JSON.stringify({ result: { type: "read", read: { text: "Computing… (3s)" } } });
+
+test("readAsync mirrors read's argv and parses the buffer text", async () => {
+  let captured: string[] = [];
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async (args) => {
+      captured = args;
+      return READ_REPLY;
+    },
+  );
+  const text = await d.readAsync("term_a", "visible", 200);
+  expect(text).toBe("Computing… (3s)");
+  expect(captured).toEqual([
+    "agent",
+    "read",
+    "term_a",
+    "--format",
+    "text",
+    "--source",
+    "visible",
+    "--lines",
+    "200",
+  ]);
+});
+
+test("readAsync returns raw output when the reply is unparseable", async () => {
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async () => "not json",
+  );
+  expect(await d.readAsync("term_a")).toBe("not json");
+});
+
+test("async runner throws fast (no spawn) while maintenance is active", async () => {
+  let spawned = 0;
+  const runner = makeHerdrAsyncRunner(async () => {
+    spawned++;
+    return "{}";
+  });
+  maintenance.begin();
+  try {
+    await expect(runner(["agent", "read"])).rejects.toBeInstanceOf(HerdrUnavailableError);
+    expect(spawned).toBe(0);
+  } finally {
+    maintenance.end();
+  }
+});

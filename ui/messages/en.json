@@ -23,6 +23,7 @@
   "common_needs_you": "NEEDS YOU · {count}",
   "common_no_open_issues": "no open issues",
   "main_no_unit_selected": "NO TASK SELECTED",
+  "unit_open_aria": "Open {name}",
   "emptyherd_title": "Mission control, no units",
   "emptyherd_lede": "Shepherd runs a herd of live Claude Code sessions. Spawn a task and it gets its own worktree, branch, and terminal you steer in place.",
   "emptyherd_spawn": "Spawn first task",

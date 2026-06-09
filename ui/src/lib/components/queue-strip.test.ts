@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   activeMergeTrain,
+  bandHasValue,
   enabledDrains,
   mergeTrainIsAttention,
   mergeTrainLabel,
@@ -8,6 +9,7 @@ import {
   queueOpenable,
   repoStatusRows,
 } from "./queue-strip";
+import type { RepoStatusRow } from "./queue-strip";
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
@@ -292,5 +294,40 @@ describe("repoStatusRows", () => {
 
   it("returns an empty list when no repo has a running agent", () => {
     expect(repoStatusRows({ a: drain({}) }, [learning({})], [], running())).toEqual([]);
+  });
+});
+
+describe("bandHasValue", () => {
+  function row(over: Partial<RepoStatusRow>): RepoStatusRow {
+    return { repoPath: "/repos/a", drain: null, insights: 0, curate: 0, ...over };
+  }
+
+  it("single bare name-only row → false", () => {
+    expect(bandHasValue([row({ drain: null, insights: 0, curate: 0 })])).toBe(false);
+  });
+
+  it("single row with an enabled drain → true", () => {
+    expect(bandHasValue([row({ drain: drain({}), insights: 0, curate: 0 })])).toBe(true);
+  });
+
+  it("single row with insights → true", () => {
+    expect(bandHasValue([row({ drain: null, insights: 1, curate: 0 })])).toBe(true);
+  });
+
+  it("single row with curate (no insights) → true", () => {
+    expect(bandHasValue([row({ drain: null, insights: 0, curate: 2 })])).toBe(true);
+  });
+
+  it("two bare name-only rows → true", () => {
+    expect(
+      bandHasValue([
+        row({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 }),
+        row({ repoPath: "/repos/b", drain: null, insights: 0, curate: 0 }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("empty array → false", () => {
+    expect(bandHasValue([])).toBe(false);
   });
 });

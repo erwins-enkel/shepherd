@@ -67,6 +67,17 @@ export function repoStatusRows(
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
+/** Whether the repo-status band carries enough value to render: at least one row
+ *  has drain/queue/learnings info, OR ≥2 repos run (so the herd filter is useful).
+ *  The ≥2-rows case earns its space only because the band's repo-name buttons are
+ *  interactive herd filters — i.e. QueueStrip is given `onrepofilter`. Without that
+ *  the names are inert and ≥2 bare rows show nothing actionable. A single bare
+ *  name-only row is pure noise — hide the whole band. */
+export function bandHasValue(rows: RepoStatusRow[]): boolean {
+  if (rows.length >= 2) return true;
+  return rows.some((r) => r.drain !== null || r.insights > 0 || r.curate > 0);
+}
+
 /** Whether the `queued` indicator is an interactive trigger (opens the queue
  *  popover) rather than inert text — true only when something is actually queued. */
 export function queueOpenable(d: DrainStatus): boolean {

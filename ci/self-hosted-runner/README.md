@@ -35,7 +35,7 @@ one fresh container per job. The posture:
   to `host = 127.0.0.1` (`src/config.ts:38`), and a bridge container **cannot** reach
   host loopback services. **FOOTGUN:** a `0.0.0.0`-bound service IS reachable from the
   container via the `docker0` gateway IP. So `SHEPHERD_HOST=0.0.0.0` (the
-  `src/config.ts:37` escape hatch) **defeats this isolation** — and the **herdr server's
+  `src/config.ts:38` escape hatch) **defeats this isolation** — and the **herdr server's
   bind must be loopback too**, for the same reason. Keep both on loopback. (See the
   optional defense-in-depth firewall rule under Prerequisites for bind-independent
   isolation.)

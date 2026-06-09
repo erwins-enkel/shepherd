@@ -262,6 +262,7 @@ const reviewService = new ReviewService({
   resolveForge,
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
+  onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
   // round cap below stops it ping-ponging forever.

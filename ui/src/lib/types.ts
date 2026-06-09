@@ -459,6 +459,7 @@ export type WsEvent =
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
+  | { event: "session:critic-activity"; data: { id: string; summary: string } }
   | {
       event: "session:plangate";
       // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.

@@ -56,7 +56,7 @@ export function planReviewPrompt(task: string, plan: string, priorFindings: stri
 /** The read-only plan reviewer's argv — the PR critic's exact hardening, shared via one builder
  *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). */
 export function reviewerArgv(model: string | null, prompt: string): string[] {
-  return readonlyReviewerArgv(model, prompt);
+  return readonlyReviewerArgv(model, prompt).argv;
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.

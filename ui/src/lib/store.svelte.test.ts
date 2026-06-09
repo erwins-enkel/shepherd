@@ -396,6 +396,14 @@ test("session:activity replaces an existing entry (latest wins)", () => {
   expect(s.activity["s1"]?.summary).toBe("$ bun test");
 });
 
+test("session:critic-activity routes to the reviews store", async () => {
+  const { reviews } = await import("./reviews.svelte");
+  reviews.activity = {};
+  const s = new HerdStore();
+  s.apply({ event: "session:critic-activity", data: { id: "s1", summary: "$ git diff" } });
+  expect(reviews.activityFor("s1")).toBe("$ git diff");
+});
+
 test("session:merging sets and clears the mark", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

@@ -195,6 +195,9 @@ export class HerdStore {
       case "session:reviewing":
         reviews.setReviewing(ev.data.id, ev.data.reviewing);
         break;
+      case "session:critic-activity":
+        reviews.setActivity(ev.data.id, ev.data.summary);
+        break;
       case "session:plangate":
         // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
         if (ev.data.gate) planGates.apply(ev.data.id, ev.data.gate);

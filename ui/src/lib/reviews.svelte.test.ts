@@ -44,6 +44,7 @@ const verdict = (id: string): ReviewVerdict => ({
 beforeEach(() => {
   reviews.map = {};
   reviews.reviewing = {};
+  reviews.activity = {};
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
   repoConfig.learnings = {};
@@ -97,6 +98,36 @@ test("drop is a no-op for unknown id", () => {
   reviews.map = { s1: verdict("s1") };
   reviews.drop("s2");
   expect(reviews.map["s1"]).toBeDefined();
+});
+
+test("setActivity records the critic's latest tool-use", () => {
+  reviews.setActivity("s1", "$ git diff main...HEAD");
+  expect(reviews.activityFor("s1")).toBe("$ git diff main...HEAD");
+});
+
+test("activityFor returns null for an unknown id", () => {
+  expect(reviews.activityFor("nope")).toBeNull();
+});
+
+test("ending the review (setReviewing false) clears its live activity", () => {
+  reviews.setReviewing("s1", true);
+  reviews.setActivity("s1", "read review.ts");
+  reviews.setReviewing("s1", false);
+  expect(reviews.activityFor("s1")).toBeNull();
+});
+
+test("applying a verdict clears the live activity too", () => {
+  reviews.setReviewing("s1", true);
+  reviews.setActivity("s1", "read review.ts");
+  reviews.apply({ id: "s1", review: verdict("s1") });
+  expect(reviews.activityFor("s1")).toBeNull();
+});
+
+test("setActivity ignores an unchanged value (no reactive churn)", () => {
+  reviews.setActivity("s1", "$ git log");
+  const before = reviews.activity;
+  reviews.setActivity("s1", "$ git log"); // identical → same object reference kept
+  expect(reviews.activity).toBe(before);
 });
 
 test("repoConfig.isEnabled returns true for unknown repo (default-on)", () => {

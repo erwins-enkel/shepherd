@@ -210,6 +210,45 @@ test("onReviewing fires false when an in-flight critic is forgotten", async () =
   ]);
 });
 
+test("onActivity surfaces the running critic's latest tool-use while no verdict yet", async () => {
+  const acts: { id: string; summary: string }[] = [];
+  const { deps: d } = makeDeps({
+    readVerdict: () => null, // still running — no verdict file yet
+    readActivity: () => "$ git diff main...HEAD",
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(acts).toEqual([{ id: "s1", summary: "$ git diff main...HEAD" }]);
+});
+
+test("onActivity stays silent when the critic has no parseable activity yet", async () => {
+  const acts: unknown[] = [];
+  const { deps: d } = makeDeps({
+    readVerdict: () => null,
+    readActivity: () => null, // transcript missing / nothing parseable
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(acts).toEqual([]);
+});
+
+test("onActivity does not fire on the tick that finalizes the verdict", async () => {
+  const acts: unknown[] = [];
+  const { deps: d } = makeDeps({
+    // verdict present → this tick finalizes rather than reporting activity
+    readActivity: () => "$ git diff",
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(acts).toEqual([]);
+});
+
 test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist", async () => {
   const { deps: d, started } = makeDeps({});
   await new ReviewService(d as any).consider(session(), OPEN_GREEN);

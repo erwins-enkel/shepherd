@@ -442,6 +442,7 @@
   "criticbadge_title": "Critic review for this PR head",
   "criticbadge_reviewing": "REVIEWING…",
   "criticbadge_reviewing_title": "Critic is reviewing this session",
+  "criticbadge_reviewing_activity_title": "Critic is reviewing — now: {activity}",
   "criticbadge_round": "↻ {round}/{cap}",
   "criticbadge_round_title": "Auto-addressing critic findings — round {round} of {cap}",
   "criticbadge_stalled": "STALLED {round}/{cap}",
@@ -736,5 +737,7 @@
   "feat_update_checkout_title": "Update local checkout after merge",
   "feat_update_checkout_body": "When you merge a PR from one of the app's merge buttons, a toast offers to fast-forward that repo's local default branch to the freshly merged state — no manual pull needed.",
   "feat_automation_help_title": "Explain each automation",
-  "feat_automation_help_body": "Every switch in the automation panel now has a clickable \"ⓘ\" that opens a thorough, plain-language explanation of what that function does, how it works, and exactly when it fires — so anyone, not just the team, can understand the Critic, Plan gate, Autopilot, Auto-Drain and the rest before turning them on."
+  "feat_automation_help_body": "Every switch in the automation panel now has a clickable \"ⓘ\" that opens a thorough, plain-language explanation of what that function does, how it works, and exactly when it fires — so anyone, not just the team, can understand the Critic, Plan gate, Autopilot, Auto-Drain and the rest before turning them on.",
+  "feat_critic_activity_title": "See what the critic is doing live",
+  "feat_critic_activity_body": "The PR critic runs as its own Claude Code session. Hover the REVIEWING badge to see its latest action live — “$ git diff”, “read review.ts” — instead of just that it's busy."
 }

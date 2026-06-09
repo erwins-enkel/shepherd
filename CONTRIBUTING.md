@@ -71,13 +71,19 @@ Keep subjects concise — sacrifice grammar for concision.
 
 The `pre-push` hook runs the **same checks as CI** so failures surface before a PR:
 
-1. `prettier --check .`
-2. `bun run lint` (eslint)
-3. `bun run typecheck` (root `tsc --noEmit`)
-4. `cd ui && bun run check` (svelte-check typecheck)
-5. `bun test ./test` (core tests)
-6. `cd ui && bun run test` (ui tests)
-7. `cd ui && bun run build` (ui build)
+1. `bash scripts/check-branch-hygiene.sh` (branch hygiene — linear off `main`, no merge commits)
+2. `bash scripts/check-feature-catalog.sh` (feature-catalog completeness — a `feat` touching UI
+   ships its announcement entry)
+3. `prettier --check .`
+4. `bun run lint` (eslint)
+5. `bun run typecheck` (root `tsc --noEmit`)
+6. `cd ui && bun run check` (svelte-check typecheck)
+7. `cd ui && bun run check:i18n` (i18n catalog parity, en ↔ de)
+8. `bun test ./test` (core tests)
+9. `cd ui && bun run test` (ui tests)
+10. `cd ui && bun run build` (ui build)
+11. `bunx fallow audit --base origin/main --fail-on-issues` (delta dead-code/complexity audit
+    vs `origin/main`)
 
 > Lint and typecheck are separate gates: eslint catches lint rules, `tsc` catches
 > type errors. Bun runs `.ts` by stripping types, so it never type-checks — only
@@ -91,8 +97,10 @@ bun run typecheck            # root tsc --noEmit (src + test)
 bun run format               # prettier --write across the repo
 bun test ./test              # core test suite
 cd ui && bun run check       # svelte-check (ui types)
+cd ui && bun run check:i18n  # locale-catalog parity (en ↔ de)
 cd ui && bun run test        # ui test suite (vitest)
 cd ui && bun run build       # ui production build
+bunx fallow audit --base origin/main --fail-on-issues   # delta dead-code/complexity audit
 ```
 
 ## Tests

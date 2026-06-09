@@ -1,14 +1,43 @@
 # Shepherd
 
-> Self-hosted mission control for **interactive** Claude Code. Spawn, watch, and steer a herd of
-> real `claude` sessions live from your browser or phone — on your own server.
+> Self-hosted mission control for **interactive** Claude Code — and opinionated about how
+> agent-built software should ship. Spawn, watch, and steer a herd of real `claude` sessions from
+> your browser or phone, with best-practice guardrails built in. On your own server, on your own
+> subscription.
 
 Shepherd spawns genuine interactive `claude` sessions in isolated git worktrees (via `herdr`, the
 interactive-pane manager), bridges each PTY to an `xterm.js` pane in the browser, and lets one
 operator run many agents in parallel — observing their status and steering them by typing, exactly
-like a human at a terminal.
+like a human at a terminal. Around those sessions it adds the engineering discipline that parallel
+agent work otherwise erodes: every plan and PR faces adversarial review, and nothing merges while
+behind its base — a stale PR is rebased and re-verified first.
 
 > The repo directory is `tank/` for historical reasons; the product is **Shepherd**.
+
+## Opinionated by design
+
+Running many agents is the easy half; keeping their output shippable is the actual product.
+Shepherd institutionalizes the practices a careful team would otherwise have to enforce by hand,
+as per-repo automation:
+
+- **Readiness** — Shepherd scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house
+  rules) before you point agents at it, and turns the gaps into an install task.
+- **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
+  reviewer grills it adversarially; only a plan that survives review is released to implement.
+- **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff
+  and posts a verdict; with Auto-Address on, findings flow back to the authoring agent until the
+  list comes back empty.
+- **Learnings** — Shepherd distills past sessions' failure signals into proposed house rules; the
+  ones you approve are injected into every new agent in the repo, so lessons compound instead of
+  repeating.
+- **Merge train** — a finished PR lands only when it is open, CI-green, conflict-free, and up to
+  date with the base branch; one that has fallen behind is rebased and fully re-verified first.
+- **Hygiene gates** — CI and the pre-push hook enforce linear branches, locale-catalog parity,
+  feature-catalog completeness, and a dead-code/complexity audit
+  (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
+
+Shepherd's own repo ships behind the same bar. All of it obeys the same constraint as the rest of
+the product: it works by observing and typing into real terminals — see the compliance model below.
 
 ## ToS compliance model
 
@@ -19,38 +48,6 @@ live pane). Auth is the operator's own login; no token relay, no impersonation, 
 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
-
-## Sharing a repo's queue across people
-
-Several people can drive the same repo's auto-drain queue together, each on their own Claude
-subscription. This is the multi-person form of the ToS model above — not one shared account but N
-independent single-operator instances, each running against its own `~/.claude` login (no token
-relay, no impersonation). The shared git-host repo is the only thing in common; the `shepherd:active`
-label keeps two instances off the same issue.
-
-How the work splits: each instance drains greedily up to its own `maxAuto` and `usageCeilingPct`,
-claiming issues first-come by polling timing (whoever pumps first stamps `shepherd:active` first).
-It is not a capacity-weighted load balancer — below the ceiling, issues split by when each instance
-happens to poll, not by who has more headroom. `usageCeilingPct` is a hard per-operator stop: an
-instance that hits its ceiling stops spawning and leaves the rest to the others. So "Patrick is at
-80%, Kai isn't" just means Patrick's ceiling stops his instance (or he turns auto-drain off) and
-Kai's keeps pulling up to Kai's own ceiling — nobody lends capacity.
-
-Setup, per person:
-
-1. Run your own instance logged into your own `~/.claude`.
-2. Use a separate `~/.claude` login (in practice: a separate machine or `HOME`). Usage is scraped
-   locally from `~/.claude` (`src/usage.ts`), so two instances sharing one login see the same usage
-   and their ceilings move in lockstep — the per-person hand-off then doesn't work.
-3. Register the same repo with auto-drain on and the same `autoLabel` (default `shepherd:auto`),
-   pointed at the shared git host (see [Git host integration](#git-host-integration)).
-4. Set your own `usageCeilingPct` and `maxAuto`.
-
-Done for the day? Turn auto-drain off (or shut the machine down) and your instance pulls nothing.
-
-Known edge: if two instances grab the exact same issue in the same instant — before either claim is
-visible to the other — both can spawn against it (two PRs; a human closes one). A pre-spawn re-check
-narrows this to the truly-simultaneous case but does not eliminate it.
 
 ## Your `/commands` come with you
 
@@ -325,6 +322,38 @@ since the core reads `ui/build` from disk per request.
 Per-deployment overrides (token, repo root, alternate hosts) go in `~/.shepherd/env`
 (`KEY=value` lines), read by the unit if present.
 
+## Sharing a repo's queue across people
+
+Several people can drive the same repo's auto-drain queue together, each on their own Claude
+subscription. This is the multi-person form of the ToS model above — not one shared account but N
+independent single-operator instances, each running against its own `~/.claude` login (no token
+relay, no impersonation). The shared git-host repo is the only thing in common; the `shepherd:active`
+label keeps two instances off the same issue.
+
+How the work splits: each instance drains greedily up to its own `maxAuto` and `usageCeilingPct`,
+claiming issues first-come by polling timing (whoever pumps first stamps `shepherd:active` first).
+It is not a capacity-weighted load balancer — below the ceiling, issues split by when each instance
+happens to poll, not by who has more headroom. `usageCeilingPct` is a hard per-operator stop: an
+instance that hits its ceiling stops spawning and leaves the rest to the others. So "Patrick is at
+80%, Kai isn't" just means Patrick's ceiling stops his instance (or he turns auto-drain off) and
+Kai's keeps pulling up to Kai's own ceiling — nobody lends capacity.
+
+Setup, per person:
+
+1. Run your own instance logged into your own `~/.claude`.
+2. Use a separate `~/.claude` login (in practice: a separate machine or `HOME`). Usage is scraped
+   locally from `~/.claude` (`src/usage.ts`), so two instances sharing one login see the same usage
+   and their ceilings move in lockstep — the per-person hand-off then doesn't work.
+3. Register the same repo with auto-drain on and the same `autoLabel` (default `shepherd:auto`),
+   pointed at the shared git host (see [Git host integration](#git-host-integration)).
+4. Set your own `usageCeilingPct` and `maxAuto`.
+
+Done for the day? Turn auto-drain off (or shut the machine down) and your instance pulls nothing.
+
+Known edge: if two instances grab the exact same issue in the same instant — before either claim is
+visible to the other — both can spawn against it (two PRs; a human closes one). A pre-spawn re-check
+narrows this to the truly-simultaneous case but does not eliminate it.
+
 ## Project layout
 
 ```
@@ -359,12 +388,13 @@ PRD.md              product vision + ToS-compliance model (source of truth)
 
 ## Status
 
-Core through the v5 responsive mobile HUD is shipped: spawn → live PTY → browser, status lights,
-persistence/resume, repo + branch pickers, per-repo TODO sync, issue prompt sources (GitHub +
-Gitea/Forgejo), platform-agnostic git host buttons (open PR / merge / redeploy),
-per-session model picker, session decommission, and real usage tracking (per-session token counts +
-account-wide 5h/weekly limit gauges from `~/.claude` JSONL). See the [GitHub issues][issues] for the
-open backlog and `PRD.md` for the full feature set and roadmap.
+Actively developed and run in production by its authors. Shipped: the interactive core (spawn →
+live PTY → browser, status lights, persistence/resume, repo + branch + model pickers, per-repo TODO
+sync, issue intake and git-host actions for GitHub and Gitea/Forgejo, usage tracking); the
+automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue); Learnings;
+Readiness; live previews of agents' dev servers; and a browser capture extension that turns a page
+into a spawned session or filed issue. See the [GitHub issues][issues] for the open backlog and
+`PRD.md` for the full feature set and roadmap.
 
 [issues]: https://github.com/erwins-enkel/shepherd/issues
 

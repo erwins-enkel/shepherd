@@ -586,6 +586,7 @@
       </div>
       <div class="about">
         <span class="micro">{m.settings_about_title()}</span>
+        <p class="hint">{m.settings_about_blurb()}</p>
         <dl class="about-grid">
           <dt>{m.settings_about_version()}</dt>
           <dd>
@@ -1090,18 +1091,23 @@
     color: var(--color-amber);
     background: var(--color-inset);
   }
-  /* Version / commit / repo — desktop reads these from the ActionBar footer,
-     so surface them here only on mobile, where that footer is hidden. */
+  /* The about blurb shows everywhere; the version / commit / repo rows surface
+     only on mobile — desktop reads them from the ActionBar footer. */
   .about {
-    display: none;
+    display: flex;
     flex-direction: column;
     gap: 6px;
     margin-top: 4px;
     border-top: 1px solid var(--color-line);
     padding-top: 12px;
   }
+  .about .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
   .about-grid {
-    display: grid;
+    display: none;
     grid-template-columns: auto 1fr;
     gap: 4px 14px;
     margin: 0;
@@ -1135,8 +1141,8 @@
       flex-direction: column;
       gap: 6px;
     }
-    .about {
-      display: flex;
+    .about-grid {
+      display: grid;
     }
     .card {
       width: 100%;

@@ -1,7 +1,8 @@
 # Shepherd — Product Requirements
 
-> Self-hosted mission control for **interactive** Claude Code. Spawn, watch, and steer a herd
-> of real `claude` sessions live in the browser/mobile — ToS-clean, on your own server.
+> Self-hosted mission control for **interactive** Claude Code — and opinionated about how
+> agent-built software ships. Spawn, watch, and steer a herd of real `claude` sessions live in
+> the browser/mobile — ToS-clean, with best-practice guardrails built in, on your own server.
 
 Derived from Creator Magic's "Shepherd" demo (yt: hXWwqPgexZU), re-architected for our stack
 (kanban-api · herdr · gitea · searxng · Hermes). Clean-room; we can do better.
@@ -29,6 +30,11 @@ the whole ecosystem, not just a dashboard.
 - Single pane over: sessions, tasks, git/PRs, usage, research. No SaaS sprawl, nothing leaves
   the building except Anthropic calls.
 - Reuse the ecosystem brain (`kanban-api` task store, gitea, searxng); add only the thin parts.
+- Enforce engineering best practices across the herd, automated per repo: Plan gate (adversarial
+  plan review before an autonomous run) → Critic (PR review on CI-green) → Merge train (a PR
+  behind its base is rebased + re-verified before merge), plus Readiness (guardrail scoring for
+  JS/TS repos before agents are pointed at them), Learnings (approved house rules injected into new
+  sessions) and hygiene gates.
 
 **Non-goals (v1)**
 

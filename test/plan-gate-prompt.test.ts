@@ -25,6 +25,8 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   const tools = a.indexOf("--allowedTools");
   expect(tools).toBeGreaterThan(-1);
   expect(tools).toBeLessThan(dontAsk);
+  expect(a).toContain("--safe-mode");
+  expect(a.indexOf("--safe-mode")).toBeLessThan(a.indexOf("--allowedTools"));
 });
 test("reviewerArgv inserts --model when given", () => {
   const a = reviewerArgv("opus", "PROMPT");

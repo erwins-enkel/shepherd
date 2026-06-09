@@ -230,6 +230,7 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   expect(argv).not.toContain("--bare");
   expect(argv).toContain("--disable-slash-commands");
   expect(argv[argv.indexOf("--settings") + 1]).toBe('{"disableAllHooks":true}');
+  expect(argv).toContain("--safe-mode");
 });
 
 test("task prompt survives the variadic allowlist (not swallowed → no task → timeout)", () => {

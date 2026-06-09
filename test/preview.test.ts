@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { pickPrimaryPort } from "../src/preview";
+import { pickPrimaryPort, sanitizeCloseCode } from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
 
 // ── pickPrimaryPort ───────────────────────────────────────────────────────────
@@ -84,6 +84,34 @@ test("pickPrimaryPort: mixed curated + non-curated → curated wins, no httpProb
 test("pickPrimaryPort: only non-curated, none answer HTTP → null", async () => {
   const result = await pickPrimaryPort([9229, 5678], noProbe);
   expect(result).toBeNull();
+});
+
+// ── sanitizeCloseCode ─────────────────────────────────────────────────────────
+//
+// Security-relevant: a relayed close code from an untrusted peer must never be
+// passed verbatim to `.close(code)` (reserved/abnormal codes throw). Accepted:
+// 1000 (normal) + the application range 3000–4999. Everything else → null, the
+// sentinel that routes safeClose to a no-arg `.close()`.
+
+test("sanitizeCloseCode: 1000 (normal) passes through", () => {
+  expect(sanitizeCloseCode(1000)).toBe(1000);
+});
+
+test("sanitizeCloseCode: application range bounds 3000 and 4999 pass through", () => {
+  expect(sanitizeCloseCode(3000)).toBe(3000);
+  expect(sanitizeCloseCode(4999)).toBe(4999);
+});
+
+test("sanitizeCloseCode: reserved/abnormal codes → null (no-arg close sentinel)", () => {
+  // 1005/1006 are reserved (never sent on the wire), 1011 is server-only,
+  // 2999/5000 fall just outside the application range.
+  for (const code of [1005, 1006, 1011, 2999, 5000]) {
+    expect(sanitizeCloseCode(code)).toBeNull();
+  }
+});
+
+test("sanitizeCloseCode: undefined (no code) → null", () => {
+  expect(sanitizeCloseCode(undefined)).toBeNull();
 });
 
 // ── scanListeningPortsByWorktree ──────────────────────────────────────────────
@@ -341,6 +369,30 @@ function wsUpstream(pushMsg: string): Upstream {
   return s;
 }
 
+/**
+ * WS upstream that DELAYS accepting the upgrade by `delayMs`, then echoes frames.
+ * Used to deterministically exercise the relay's pre-open `pending` buffer: a
+ * client frame sent before this upstream opens must be buffered then flushed.
+ */
+function delayedWsUpstream(delayMs: number): Upstream {
+  const s = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req, srv) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      if (srv.upgrade(req)) return undefined;
+      return new Response("not a ws", { status: 426 });
+    },
+    websocket: {
+      message(ws, msg) {
+        ws.send("echo:" + msg);
+      },
+    },
+  });
+  upstreams.push(s);
+  return s;
+}
+
 /** Connect a client WS to the preview listener and resolve once `count` messages arrive. */
 function collectWsMessages(
   url: string,
@@ -410,6 +462,52 @@ test("PreviewService: HMR round-trip — upstream push + client echo both relay"
   });
   expect(msgs).toContain("hmr-update");
   expect(msgs).toContain("echo:ping-from-client");
+});
+
+test("PreviewService: pre-open buffering — client frame sent before upstream opens is flushed + echoed", async () => {
+  // Upstream delays its WS accept, so the client frame sent on open() lands in
+  // the relay's `pending` buffer and must be flushed once upstream opens.
+  const up = delayedWsUpstream(300);
+  const port = service!.ensure("s1", portOf(up));
+  expect(port).not.toBeNull();
+
+  const msgs = await collectWsMessages(`ws://127.0.0.1:${port}/`, 1, (ws) => {
+    ws.send("buffered-before-open");
+  });
+  expect(msgs).toContain("echo:buffered-before-open");
+});
+
+test("PreviewService: pre-open buffer overflow closes the client (untrusted-flood cap)", async () => {
+  // Slow upstream keeps the buffer open; the client floods >1 MiB before it
+  // opens, so the relay must fail safe and close the client socket.
+  const up = delayedWsUpstream(2000);
+  const port = service!.ensure("s1", portOf(up));
+  expect(port).not.toBeNull();
+
+  const closed = await new Promise<{ wasClean: boolean }>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/`);
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        /* peer gone */
+      }
+      reject(new Error("client was not closed by the overflow cap within timeout"));
+    }, 4000);
+    const chunk = "x".repeat(64 * 1024); // 64 KiB per frame
+    ws.onopen = () => {
+      // 24 × 64 KiB = 1.5 MiB > 1 MiB cap; upstream is still mid-delay so these
+      // all hit the pending buffer.
+      for (let i = 0; i < 24; i++) ws.send(chunk);
+    };
+    ws.onclose = (e) => {
+      clearTimeout(timer);
+      resolve({ wasClean: e.wasClean });
+    };
+  });
+  // The relay closed us; assert the close happened (code/clean-ness varies by
+  // platform for a no-arg close, so we only assert the path fired).
+  expect(closed).toBeDefined();
 });
 
 test("PreviewService: HTTP proxy strips X-Frame-Options + CSP frame-ancestors, keeps rest", async () => {

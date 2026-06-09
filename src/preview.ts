@@ -107,11 +107,13 @@ interface RelayData {
   protocols: string[];
 }
 
-/** Bound listener record: the running server + the live (mutable) dev port. */
+/** Bound listener record: the running server + the live (mutable) dev port.
+ *  `server` is null only for the brief window between record creation and a
+ *  successful `bind`; a listener is never stored in the service while null. */
 interface Listener {
   previewPort: number;
   devPort: number;
-  server: Server<RelayData>;
+  server: Server<RelayData> | null;
 }
 
 export interface PreviewServiceOptions {
@@ -167,13 +169,11 @@ export class PreviewService {
     }
 
     for (const previewPort of candidates) {
-      const listener: Listener = {
-        previewPort,
-        devPort,
-        server: undefined as unknown as Server<RelayData>,
-      };
+      const listener: Listener = { previewPort, devPort, server: null };
       try {
-        listener.server = this.bind(listener);
+        // bind reads listener.devPort live (re-ensure mutates it), so the record
+        // must exist first — server is the only field bind fills in.
+        listener.server = this.bind(previewPort, listener);
       } catch (err) {
         console.warn(`[preview] failed to bind ${previewPort} for ${sessionId}: ${String(err)}`);
         continue; // try the next free slot
@@ -199,7 +199,7 @@ export class PreviewService {
     this.listeners.delete(sessionId);
     this.slotOwner.delete(listener.previewPort);
     try {
-      listener.server.stop(true);
+      listener.server?.stop(true);
     } catch {
       /* already gone */
     }
@@ -232,7 +232,7 @@ export class PreviewService {
   stopAll(): void {
     for (const listener of this.listeners.values()) {
       try {
-        listener.server.stop(true);
+        listener.server?.stop(true);
       } catch {
         /* already gone */
       }
@@ -250,10 +250,12 @@ export class PreviewService {
     return free;
   }
 
-  /** Bind the loopback reverse-proxy `Bun.serve` for one listener record. */
-  private bind(listener: Listener): Server<RelayData> {
+  /** Bind the loopback reverse-proxy `Bun.serve` for one listener record.
+   *  Takes `previewPort` explicitly + the `listener` whose live `devPort` the
+   *  fetch handler reads on every request (re-ensure mutates it in place). */
+  private bind(previewPort: number, listener: Listener): Server<RelayData> {
     return Bun.serve<RelayData>({
-      port: listener.previewPort,
+      port: previewPort,
       hostname: "127.0.0.1",
       fetch: (req, server) => this.handleFetch(req, server, listener),
       websocket: makeRelayHandlers(),
@@ -355,12 +357,29 @@ function stripFramingHeaders(headers: Headers): void {
 // Client→upstream frames that arrive before the upstream opens are buffered and
 // flushed on upstream open.
 
+/**
+ * Cap on bytes buffered client→upstream before the upstream socket opens. The
+ * relay carries UNTRUSTED agent apps; a client flooding frames during the open
+ * window would otherwise grow the heap without bound. On overflow we fail safe —
+ * close both sockets — rather than buffer forever. ~1 MiB.
+ */
+const MAX_PENDING_WS_BYTES = 1024 * 1024;
+
+/** Byte length of a buffered client→upstream frame (string or binary). */
+function frameByteLength(frame: string | ArrayBufferLike | Uint8Array): number {
+  if (typeof frame === "string") return Buffer.byteLength(frame);
+  if (frame instanceof Uint8Array) return frame.byteLength;
+  return frame.byteLength;
+}
+
 /** Mutable per-socket relay context, stashed on the ServerWebSocket. */
 interface RelayContext {
   upstream: WebSocket | null;
   upstreamOpen: boolean;
   /** client→upstream frames buffered until the upstream socket opens. */
   pending: Array<string | ArrayBufferLike | Uint8Array>;
+  /** bytes currently held in `pending`; capped by MAX_PENDING_WS_BYTES. */
+  pendingBytes: number;
   /** true once either side initiated a close, so handlers stop relaying. */
   closing: boolean;
 }
@@ -375,6 +394,7 @@ function makeRelayHandlers() {
         upstream: null,
         upstreamOpen: false,
         pending: [],
+        pendingBytes: 0,
         closing: false,
       };
       ws.__relay = ctx;
@@ -394,6 +414,7 @@ function makeRelayHandlers() {
 
       upstream.onopen = () => {
         ctx.upstreamOpen = true;
+        ctx.pendingBytes = 0;
         for (const frame of ctx.pending.splice(0)) safeSend(upstream, frame);
       };
       upstream.onmessage = (e: MessageEvent) => safeSend(ws, e.data);
@@ -408,8 +429,20 @@ function makeRelayHandlers() {
       const ctx = ws.__relay;
       if (!ctx || ctx.closing) return;
       const frame = typeof msg === "string" ? msg : new Uint8Array(msg);
-      if (ctx.upstream && ctx.upstreamOpen) safeSend(ctx.upstream, frame);
-      else ctx.pending.push(frame);
+      if (ctx.upstream && ctx.upstreamOpen) {
+        safeSend(ctx.upstream, frame);
+        return;
+      }
+      // Pre-open buffering: bound the heap. A flooding client (untrusted app)
+      // during the open window would otherwise grow `pending` forever → fail safe.
+      if (ctx.pendingBytes + frameByteLength(frame) > MAX_PENDING_WS_BYTES) {
+        ctx.closing = true;
+        if (ctx.upstream) safeClose(ctx.upstream);
+        safeClose(ws);
+        return;
+      }
+      ctx.pendingBytes += frameByteLength(frame);
+      ctx.pending.push(frame);
     },
 
     close(ws: RelaySocket, code: number, reason: string) {
@@ -424,7 +457,7 @@ function makeRelayHandlers() {
 /** A WebSocket close code the client/upstream WS API will accept without throwing:
  *  1000 (normal) or the application range 3000–4999. Reserved/abnormal codes
  *  (1005/1006/1011/…) are mapped to a safe no-arg close. */
-function sanitizeCloseCode(code: number | undefined): number | null {
+export function sanitizeCloseCode(code: number | undefined): number | null {
   if (code === undefined) return null;
   if (code === 1000) return 1000;
   if (code >= 3000 && code <= 4999) return code;

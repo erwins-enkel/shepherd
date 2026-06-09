@@ -359,4 +359,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* Coarse pointers: give the band's inline action buttons a ≥44px hit area
+     (mirrors the TopBar coarse-pointer pattern). The band reads a little taller on
+     touch, but the queued-count and learnings buttons clear the tap-target floor.
+     Desktop (pointer: fine) sizing is untouched, so the band stays compact there. */
+  @media (pointer: coarse) {
+    .qs-queued-btn,
+    .qs-insights {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
 </style>

@@ -28,6 +28,7 @@ import {
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
 import { listRepos, readTodo, writeTodo, cloneRepo } from "./repos";
+import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
@@ -1757,6 +1758,29 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
   }
 }
 
+// POST /api/repos/pull — fast-forward the local default-branch checkout of a repo
+// to its remote tip (e.g. after a PR merge), so the canonical clone doesn't drift.
+// Resolves the default branch (validated client hint → local origin/HEAD → forge)
+// then attempts a strict fail-closed fast-forward. 200 on success; 409 for the
+// client-correctable fail-closed states (wrong_branch/dirty/diverged); 502 on a
+// resolution/exec error.
+async function handleRepoPull({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "repos" || parts[2] !== "pull")
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string; branch?: string };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  const branch = await resolveDefaultBranch(dir, {
+    hint: body.branch,
+    forgeDefault: forge ? () => forge.defaultBranch().catch(() => null) : undefined,
+  });
+  if (!branch) return json({ ok: false, reason: "error" }, 502);
+  const result = await fastForwardDefaultBranch(dir, branch);
+  const status = result.ok ? 200 : result.reason === "error" ? 502 : 409;
+  return json(result, status);
+}
+
 // POST /api/prs/dependabot-rebase — post the opt-in "@dependabot rebase" command on
 // a stuck Dependabot PR by repo + number. The body is fixed server-side. GitHub
 // only (forge must expose `comment`); other forges 400 and the UI never offers it.
@@ -2000,6 +2024,7 @@ const ROUTE_HANDLERS = [
   handleActionsHistory,
   handleActionsRunJobs,
   handlePrMerge,
+  handleRepoPull,
   handleDependabotRebase,
   handleReadiness,
   handleBacklog,

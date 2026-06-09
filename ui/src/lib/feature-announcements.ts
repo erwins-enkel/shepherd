@@ -121,4 +121,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_newtask_repo_first_body",
     targetId: "nt-repo",
   },
+  {
+    // No targetId: the multi-select controls live inside the PRs tab which is
+    // only mounted when a repo is selected; coachmark anchor added in a later task.
+    id: "backlog-pr-merge-train",
+    sinceVersion: "1.19.0",
+    titleKey: "feat_backlog_pr_merge_train_title",
+    bodyKey: "feat_backlog_pr_merge_train_body",
+  },
 ];

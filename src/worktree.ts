@@ -279,10 +279,13 @@ export class WorktreeMgr {
     // the same head isn't permanently blocked by `worktree add` hitting an
     // occupied directory.
     if (existsSync(worktreePath)) this.remove(worktreePath);
-    execFileSync("git", ["worktree", "add", "--detach", worktreePath, sha], {
-      cwd: repoPath,
-      stdio: "pipe",
-    });
+    // `worktree add --detach` is a full working-tree checkout — the heaviest local git op
+    // here — and createDetached runs on the plan-gate / critic background-poll path, so run
+    // it async to keep the checkout off the Bun event loop. (No stdin constraint, unlike
+    // patch-id, so execFileAsync works directly.)
+    await timedAsync("git worktree add", () =>
+      execFileAsync("git", ["worktree", "add", "--detach", worktreePath, sha], { cwd: repoPath }),
+    );
     return { worktreePath, branch: null, isolated: true };
   }
 

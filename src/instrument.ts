@@ -2,13 +2,8 @@
  * Profiling / instrumentation helpers — zero-cost when SHEPHERD_PROFILE_LOOP is unset.
  * Set SHEPHERD_PROFILE_LOOP=1 to enable event-loop-lag sampling and per-call timing.
  */
-import {
-  execFileSync as _execFileSync,
-  type ExecFileSyncOptionsWithStringEncoding,
-  type ExecFileSyncOptionsWithBufferEncoding,
-  type ExecFileSyncOptions,
-} from "node:child_process";
-import { readFileSync as _readFileSync } from "node:fs";
+import { execFileSync as nodeExecFileSync } from "node:child_process";
+import { readFileSync as nodeReadFileSync } from "node:fs";
 import { basename } from "node:path";
 
 /** Lazy — read inside each function so tests can toggle the env var. */
@@ -36,6 +31,7 @@ export function startLoopLagSampler(): () => void {
       console.warn(`[profile] loop-lag ${lag}ms`);
     }
   }, INTERVAL);
+  id.unref();
   return () => clearInterval(id);
 }
 
@@ -96,43 +92,27 @@ export async function timedAsync<T>(label: string, fn: () => Promise<T>): Promis
 
 // ── execFileSync passthrough ──────────────────────────────────────────────────
 
-function execLabel(file: string, args?: readonly string[]): string {
-  const sub = args?.[0];
-  return sub ? `${file} ${sub}` : file;
-}
-
-// Overloads mirror node:child_process execFileSync's primary call signatures.
-export function execFileSync(
-  file: string,
-  args: readonly string[],
-  options: ExecFileSyncOptionsWithStringEncoding,
-): string;
-export function execFileSync(
-  file: string,
-  args?: readonly string[],
-  options?: ExecFileSyncOptionsWithBufferEncoding | ExecFileSyncOptions,
-): Buffer;
-export function execFileSync(
-  file: string,
-  args?: readonly string[],
-  options?:
-    | ExecFileSyncOptionsWithStringEncoding
-    | ExecFileSyncOptionsWithBufferEncoding
-    | ExecFileSyncOptions,
-): string | Buffer {
-  const label = execLabel(file, args);
-  return timed(
-    label,
-    () => _execFileSync(file, args as string[], options as ExecFileSyncOptions) as string | Buffer,
-  );
-}
+export const execFileSync: typeof nodeExecFileSync = ((
+  ...args: Parameters<typeof nodeExecFileSync>
+) => {
+  const [file, second] = args;
+  const sub = Array.isArray(second) ? (second as string[])[0] : undefined;
+  const label = sub ? `${String(file)} ${sub}` : String(file);
+  return timed(label, () => nodeExecFileSync(...(args as Parameters<typeof nodeExecFileSync>)));
+}) as typeof nodeExecFileSync;
 
 // ── readFileSync passthrough ──────────────────────────────────────────────────
 
 /**
- * Drop-in for `readFileSync(path, "utf8")` — the pattern used in transcript hot paths.
- * Wraps in `timed` with label `readFileSync <basename>`.
+ * Faithful passthrough for node's `readFileSync`. Wraps in `timed` with label
+ * `readFileSync <basename>` (basename derived only when the first arg is a string).
  */
-export function readFileSync(path: string, encoding: "utf8" | BufferEncoding): string {
-  return timed(`readFileSync ${basename(path)}`, () => _readFileSync(path, encoding as "utf8"));
-}
+export const readFileSync: typeof nodeReadFileSync = ((
+  ...args: Parameters<typeof nodeReadFileSync>
+) => {
+  const first = args[0];
+  const name = typeof first === "string" ? basename(first) : "readFileSync";
+  return timed(`readFileSync ${name}`, () =>
+    nodeReadFileSync(...(args as Parameters<typeof nodeReadFileSync>)),
+  );
+}) as typeof nodeReadFileSync;

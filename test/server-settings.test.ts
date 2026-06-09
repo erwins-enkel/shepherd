@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
-import { config } from "../src/config";
+import { config, clampCap, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX } from "../src/config";
 
 let tmp: string;
 let savedRoot: string;
@@ -13,7 +13,8 @@ let savedCeiling: string;
 let savedRc: boolean;
 let savedSc: string;
 let savedHk: boolean;
-let savedCap: number;
+let savedPrCap: number;
+let savedPlanCap: number;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -24,7 +25,8 @@ beforeEach(() => {
   savedRc = config.remoteControlAtStartup;
   savedSc = config.standardCommand;
   savedHk = config.sessionHousekeepingEnabled;
-  savedCap = config.reviewCyclesCap;
+  savedPrCap = config.prReviewCyclesCap;
+  savedPlanCap = config.planReviewCyclesCap;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -36,7 +38,8 @@ afterEach(() => {
   config.remoteControlAtStartup = savedRc;
   config.standardCommand = savedSc;
   config.sessionHousekeepingEnabled = savedHk;
-  config.reviewCyclesCap = savedCap;
+  config.prReviewCyclesCap = savedPrCap;
+  config.planReviewCyclesCap = savedPlanCap;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -76,53 +79,114 @@ test("GET /api/settings returns the current repo root and remote-control flag", 
   expect(typeof body.sessionHousekeepingEnabled).toBe("boolean");
   expect(body.sessionRetentionDays).toBeGreaterThan(0);
   expect(body.sessionRetentionKeep).toBeGreaterThan(0);
-  // review-cycles cap + its display-only bounds
-  expect(typeof body.reviewCyclesCap).toBe("number");
-  expect(body.reviewCyclesMin).toBeGreaterThan(0);
-  expect(body.reviewCyclesMax).toBeGreaterThanOrEqual(body.reviewCyclesMin);
+  // PR + plan review caps, each with its display-only bounds
+  expect(typeof body.prReviewCyclesCap).toBe("number");
+  expect(body.prReviewCyclesMin).toBeGreaterThan(0);
+  expect(body.prReviewCyclesMax).toBeGreaterThanOrEqual(body.prReviewCyclesMin);
+  expect(typeof body.planReviewCyclesCap).toBe("number");
+  expect(body.planReviewCyclesMin).toBeGreaterThan(0);
+  expect(body.planReviewCyclesMax).toBeGreaterThanOrEqual(body.planReviewCyclesMin);
 });
 
-test("PUT /api/settings sets reviewCyclesCap in range, persists, leaves repoRoot intact", async () => {
+test("PUT /api/settings sets prReviewCyclesCap in range, persists, leaves repoRoot intact", async () => {
   config.repoRoot = tmp;
-  config.reviewCyclesCap = 3;
+  config.prReviewCyclesCap = 3;
   const { app, store } = harness();
-  const res = await put(app, { reviewCyclesCap: 5 });
+  const res = await put(app, { prReviewCyclesCap: 5 });
   expect(res.status).toBe(200);
-  expect((await res.json()).reviewCyclesCap).toBe(5);
-  expect(config.reviewCyclesCap).toBe(5); // live
-  expect(store.getSetting("reviewCyclesCap")).toBe("5"); // persisted as a string
+  expect((await res.json()).prReviewCyclesCap).toBe(5);
+  expect(config.prReviewCyclesCap).toBe(5); // live
+  expect(store.getSetting("prReviewCyclesCap")).toBe("5"); // persisted as a string
   expect(config.repoRoot).toBe(tmp); // a cap patch must not touch the repo root
   const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
-  expect(got.reviewCyclesCap).toBe(5);
+  expect(got.prReviewCyclesCap).toBe(5);
 });
 
-test("PUT /api/settings clamps an out-of-range reviewCyclesCap into the valid bounds", async () => {
+test("PUT /api/settings clamps an out-of-range prReviewCyclesCap into the valid bounds", async () => {
   const { app, store } = harness();
-  const high = await put(app, { reviewCyclesCap: 99 });
+  const high = await put(app, { prReviewCyclesCap: 99 });
   expect(high.status).toBe(200);
-  const hi = (await high.json()).reviewCyclesCap;
-  expect(hi).toBeLessThanOrEqual(8); // snapped to MAX, not rejected
-  expect(store.getSetting("reviewCyclesCap")).toBe(String(hi));
-  const low = await put(app, { reviewCyclesCap: 0 });
+  const hi = (await high.json()).prReviewCyclesCap;
+  expect(hi).toBe(8); // snapped to its MAX, not rejected
+  expect(store.getSetting("prReviewCyclesCap")).toBe(String(hi));
+  const low = await put(app, { prReviewCyclesCap: 0 });
   expect(low.status).toBe(200);
-  expect((await low.json()).reviewCyclesCap).toBeGreaterThanOrEqual(1); // snapped to MIN
+  expect((await low.json()).prReviewCyclesCap).toBe(1); // snapped to its MIN
 });
 
-test("PUT /api/settings rounds a fractional reviewCyclesCap to an integer", async () => {
+test("PUT /api/settings rounds a fractional prReviewCyclesCap to an integer", async () => {
   const { app } = harness();
-  const res = await put(app, { reviewCyclesCap: 4.7 });
+  const res = await put(app, { prReviewCyclesCap: 4.7 });
   expect(res.status).toBe(200);
-  expect((await res.json()).reviewCyclesCap).toBe(5);
+  expect((await res.json()).prReviewCyclesCap).toBe(5);
 });
 
-test("PUT /api/settings rejects a non-number reviewCyclesCap", async () => {
+test("PUT /api/settings rejects a non-number prReviewCyclesCap", async () => {
   const { app } = harness();
-  config.reviewCyclesCap = 3;
+  config.prReviewCyclesCap = 3;
   for (const bad of ["4", true, null, NaN]) {
-    const res = await put(app, { reviewCyclesCap: bad });
+    const res = await put(app, { prReviewCyclesCap: bad });
     expect(res.status).toBe(400);
   }
-  expect(config.reviewCyclesCap).toBe(3); // unchanged on failure
+  expect(config.prReviewCyclesCap).toBe(3); // unchanged on failure
+});
+
+test("PUT /api/settings sets planReviewCyclesCap in range, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.planReviewCyclesCap = 5;
+  const { app, store } = harness();
+  const res = await put(app, { planReviewCyclesCap: 7 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).planReviewCyclesCap).toBe(7);
+  expect(config.planReviewCyclesCap).toBe(7); // live
+  expect(store.getSetting("planReviewCyclesCap")).toBe("7"); // persisted as a string
+  expect(config.repoRoot).toBe(tmp); // a cap patch must not touch the repo root
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.planReviewCyclesCap).toBe(7);
+});
+
+test("PUT /api/settings clamps an out-of-range planReviewCyclesCap into ITS bounds (1–12)", async () => {
+  const { app, store } = harness();
+  const high = await put(app, { planReviewCyclesCap: 99 });
+  expect(high.status).toBe(200);
+  expect((await high.json()).planReviewCyclesCap).toBe(12); // snapped to its MAX (12, not 8)
+  expect(store.getSetting("planReviewCyclesCap")).toBe("12");
+  const low = await put(app, { planReviewCyclesCap: 0 });
+  expect(low.status).toBe(200);
+  expect((await low.json()).planReviewCyclesCap).toBe(1); // snapped to its MIN
+});
+
+test("PUT /api/settings rounds a fractional planReviewCyclesCap to an integer", async () => {
+  const { app } = harness();
+  const res = await put(app, { planReviewCyclesCap: 8.4 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).planReviewCyclesCap).toBe(8);
+});
+
+test("PUT /api/settings rejects a non-number planReviewCyclesCap", async () => {
+  const { app } = harness();
+  config.planReviewCyclesCap = 5;
+  for (const bad of ["4", true, null, NaN]) {
+    const res = await put(app, { planReviewCyclesCap: bad });
+    expect(res.status).toBe(400);
+  }
+  expect(config.planReviewCyclesCap).toBe(5); // unchanged on failure
+});
+
+// Migration read-fallback: an install predating the cap split persisted only the legacy
+// `reviewCyclesCap` key. The boot-override in src/index.ts seeds the PR cap from
+// `getSetting("prReviewCyclesCap") ?? getSetting("reviewCyclesCap")`. That override is
+// top-level module code that runs the whole server bootstrap on import, so rather than
+// import it we assert the equivalent expression directly against a real store + clampCap.
+test("legacy reviewCyclesCap seeds the PR cap when no prReviewCyclesCap key exists", () => {
+  const store = new SessionStore(":memory:");
+  store.setSetting("reviewCyclesCap", "6"); // legacy single-cap value, no new key
+  const savedPr = store.getSetting("prReviewCyclesCap") ?? store.getSetting("reviewCyclesCap");
+  expect(savedPr).toBe("6"); // fallback resolves to the legacy value
+  expect(clampCap(Number(savedPr), PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX, 3)).toBe(6);
+  // a fresh store with neither key → no persisted value → boot keeps the env/default seed
+  const fresh = new SessionStore(":memory:");
+  expect(fresh.getSetting("prReviewCyclesCap") ?? fresh.getSetting("reviewCyclesCap")).toBeNull();
 });
 
 test("PUT /api/settings sets standardCommand, persists, leaves repoRoot intact", async () => {

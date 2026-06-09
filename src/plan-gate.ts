@@ -56,7 +56,7 @@ export function reviewerArgv(model: string | null, prompt: string): string[] {
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-const DEFAULT_CAP = 3;
+const DEFAULT_CAP = 5;
 
 /** The reviewer's verdict JSON, as written to PLAN_VERDICT_FILE — untyped fields are coerced
  *  in finalize() (Task 6). Mirrors review.ts's RawVerdict. */
@@ -88,7 +88,7 @@ export interface PlanGateServiceDeps {
   /** Fired when a plan review starts (true) and when it ends (false) for a session. */
   onReviewing?: (id: string, reviewing: boolean) => void;
   /**
-   * Max adversarial rounds before escalating to the human (default 3). Pass a thunk to read a
+   * Max adversarial rounds before escalating to the human (default 5). Pass a thunk to read a
    * live, UI-configurable value per-use — resolved on every read so a settings change takes
    * effect on the next run without a restart.
    */

@@ -4,7 +4,11 @@ import {
   config,
   SESSION_RETENTION_MS,
   SESSION_RETENTION_KEEP,
-  clampReviewCyclesCap,
+  clampCap,
+  PR_REVIEW_CYCLES_MIN,
+  PR_REVIEW_CYCLES_MAX,
+  PLAN_REVIEW_CYCLES_MIN,
+  PLAN_REVIEW_CYCLES_MAX,
 } from "./config";
 import { SessionStore } from "./store";
 import type { Session } from "./types";
@@ -74,10 +78,29 @@ if (savedSc !== null) config.standardCommand = savedSc;
 // absent → keep the config default (on). Stored as "1"/"0".
 const savedHk = store.getSetting("sessionHousekeepingEnabled");
 if (savedHk !== null) config.sessionHousekeepingEnabled = savedHk === "1";
-// a UI-chosen review-cycles cap (persisted) overrides the env seed; absent → keep the
-// config default. Clamped on read so a hand-edited/out-of-range DB value can't escape.
-const savedCap = store.getSetting("reviewCyclesCap");
-if (savedCap !== null) config.reviewCyclesCap = clampReviewCyclesCap(Number(savedCap));
+// a UI-chosen PR-review cap (persisted) overrides the env seed; absent → keep the config
+// default. Clamped on read so a hand-edited/out-of-range DB value can't escape. Falls
+// back to the legacy single-cap key `reviewCyclesCap` for migration: an existing install
+// keeps its prior value as the PR cap. Only override when a value is actually persisted —
+// clamping an absent (untuned) cap would snap it to MIN and discard the env/default seed.
+const savedPr = store.getSetting("prReviewCyclesCap") ?? store.getSetting("reviewCyclesCap");
+if (savedPr !== null)
+  config.prReviewCyclesCap = clampCap(
+    Number(savedPr),
+    PR_REVIEW_CYCLES_MIN,
+    PR_REVIEW_CYCLES_MAX,
+    config.prReviewCyclesCap,
+  );
+// a UI-chosen plan-review cap (persisted) overrides the env seed; absent → keep the
+// config default. Clamped on read; same presence guard as above.
+const savedPlan = store.getSetting("planReviewCyclesCap");
+if (savedPlan !== null)
+  config.planReviewCyclesCap = clampCap(
+    Number(savedPlan),
+    PLAN_REVIEW_CYCLES_MIN,
+    PLAN_REVIEW_CYCLES_MAX,
+    config.planReviewCyclesCap,
+  );
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
@@ -241,7 +264,7 @@ const reviewService = new ReviewService({
   autoAddress: (id, text) => service.reply(id, text),
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
-  cap: () => config.reviewCyclesCap,
+  cap: () => config.prReviewCyclesCap,
 });
 
 // Pre-execution plan gate (#348): the planning-phase twin of the PR critic. An
@@ -258,7 +281,7 @@ const planGate = new PlanGateService({
   release: (id) => service.releasePlanGate(id),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
-  cap: () => config.reviewCyclesCap,
+  cap: () => config.planReviewCyclesCap,
 });
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);

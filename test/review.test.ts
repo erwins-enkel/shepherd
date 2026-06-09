@@ -865,7 +865,7 @@ test("verdict surfaces the configured cap so the UI need not mirror it", async (
 });
 
 test("a cap thunk is resolved live so a settings change applies without a restart", async () => {
-  let live = 3; // stands in for config.reviewCyclesCap
+  let live = 3; // stands in for config.prReviewCyclesCap
   const { deps: d, reviews } = makeDeps({ cap: () => live });
   const svc = new ReviewService(d as any);
   svc.consider(session(), OPEN_GREEN);

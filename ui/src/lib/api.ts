@@ -181,10 +181,15 @@ export const putSessionHousekeeping = (
 export const putStandardCommand = (command: string): Promise<{ standardCommand: string }> =>
   patchSettings({ standardCommand: command });
 
-// Persist the global review-cycles cap (max critic auto-address rounds). The server
-// clamps the value into its valid range and returns the stored value.
-export const putReviewCyclesCap = (cap: number): Promise<{ reviewCyclesCap: number }> =>
-  patchSettings({ reviewCyclesCap: cap });
+// Persist the global PR review-cycles cap (max PR-critic auto-address rounds). The
+// server clamps the value into its valid range and returns the stored value.
+export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: number }> =>
+  patchSettings({ prReviewCyclesCap: cap });
+
+// Persist the global plan review-cycles cap (max plan-gate revise rounds). The
+// server clamps the value into its valid range and returns the stored value.
+export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesCap: number }> =>
+  patchSettings({ planReviewCyclesCap: cap });
 
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";

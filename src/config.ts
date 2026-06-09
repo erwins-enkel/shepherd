@@ -12,23 +12,29 @@ const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.
 const herdrUpdateLogPath =
   process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
 
-// Review auto-address cap: how many critic→agent steer rounds a findings streak may
-// spend before escalating to a human (also the ceiling for the consecutive-error
-// counter). Global, UI-configurable + persisted; the env seeds a fresh DB. The bound is
-// the single source of truth for both the env seed and the PUT validator.
+// Two independent review caps, each how many reviewer→agent steer rounds a findings
+// streak may spend before escalating to a human. Global, UI-configurable + persisted;
+// the env seeds a fresh DB. The bounds are the single source of truth for the env seed,
+// the boot-override clamp, and the PUT validators.
 //
-// Range [1,8]: MIN 1 guarantees at least one round; MAX 8 is a deliberate operator choice
-// — the task suggested ~5, but 8 gives headroom for noisier repos while still capping a
-// runaway config from ping-ponging an agent forever. Raise MAX here if 8 proves tight.
-export const REVIEW_CYCLES_MIN = 1;
-export const REVIEW_CYCLES_MAX = 8;
-// module-local: the seed default, used by the clamp + the config seed below only.
-const REVIEW_CYCLES_DEFAULT = 3;
-// Coerce any input (env/DB/request) to a valid integer cap, snapping out-of-range or
-// non-finite values into [MIN,MAX] rather than rejecting — callers stay forgiving.
-export function clampReviewCyclesCap(n: number): number {
-  if (!Number.isFinite(n)) return REVIEW_CYCLES_DEFAULT;
-  return Math.min(REVIEW_CYCLES_MAX, Math.max(REVIEW_CYCLES_MIN, Math.round(n)));
+// PR review cap drives ReviewService (the PR critic auto-address rounds + the
+// consecutive-error ceiling). Range [1,8]: MIN 1 guarantees at least one round; MAX 8
+// gives headroom for noisier repos while still capping a runaway from ping-ponging.
+// Plan review cap drives PlanGateService (the adversarial plan-gate rounds). Range
+// [1,12]: planning tends to need a couple more passes, so it gets a higher ceiling.
+export const PR_REVIEW_CYCLES_MIN = 1;
+export const PR_REVIEW_CYCLES_MAX = 8;
+export const PLAN_REVIEW_CYCLES_MIN = 1;
+export const PLAN_REVIEW_CYCLES_MAX = 12;
+// module-local seed defaults, used by the config seeds + boot-override fallbacks only.
+const PR_REVIEW_CYCLES_DEFAULT = 3;
+const PLAN_REVIEW_CYCLES_DEFAULT = 5;
+// Coerce any input (env/DB/request) to a valid integer cap, snapping out-of-range
+// values into [min,max] rather than rejecting (callers stay forgiving); a non-finite
+// input falls back to the supplied default.
+export function clampCap(n: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
 }
 
 export const config = {
@@ -105,10 +111,21 @@ export const config = {
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
   // Model alias for the transient autopilot stop-classifier spawn (cheap + fast is plenty).
   autopilotModel: process.env.SHEPHERD_AUTOPILOT_MODEL ?? "haiku",
-  // Max critic auto-address rounds before escalating to a human (see clampReviewCyclesCap
-  // above). UI-configurable + persisted; the env seeds the initial value on a fresh DB.
-  reviewCyclesCap: clampReviewCyclesCap(
-    Number(process.env.SHEPHERD_REVIEW_CYCLES_CAP ?? REVIEW_CYCLES_DEFAULT),
+  // Max PR-critic auto-address rounds before escalating to a human (drives ReviewService).
+  // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
+  prReviewCyclesCap: clampCap(
+    Number(process.env.SHEPHERD_REVIEW_CYCLES_CAP ?? PR_REVIEW_CYCLES_DEFAULT),
+    PR_REVIEW_CYCLES_MIN,
+    PR_REVIEW_CYCLES_MAX,
+    PR_REVIEW_CYCLES_DEFAULT,
+  ),
+  // Max plan-gate adversarial-review rounds before escalating to a human (drives
+  // PlanGateService). UI-configurable + persisted; the env seeds the value on a fresh DB.
+  planReviewCyclesCap: clampCap(
+    Number(process.env.SHEPHERD_PLAN_REVIEW_CYCLES_CAP ?? PLAN_REVIEW_CYCLES_DEFAULT),
+    PLAN_REVIEW_CYCLES_MIN,
+    PLAN_REVIEW_CYCLES_MAX,
+    PLAN_REVIEW_CYCLES_DEFAULT,
   ),
   // Max consecutive auto-rebase attempts the merge train spends on a PR before pausing for the operator.
   autoMergeRebaseCap: Number(process.env.SHEPHERD_AUTOMERGE_REBASE_CAP ?? 5),

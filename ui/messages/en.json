@@ -824,5 +824,7 @@
   "fable_arrival_title": "Fable 5 has arrived",
   "fable_arrival_body": "Anthropic's most powerful model is now available in Shepherd. Pick \"fable\" in New Task for the most demanding work. It's the premium tier — higher token costs than Opus — so save it for the tasks that earn it.",
   "fable_arrival_try": "Try Fable 5",
-  "fable_arrival_dismiss": "Maybe later"
+  "fable_arrival_dismiss": "Maybe later",
+  "feat_preview_tailscale_title": "Automatic preview exposure",
+  "feat_preview_tailscale_body": "Live previews now register themselves over Tailscale automatically as each agent's dev server comes up — and unregister when it stops, so only in-use ports are exposed. No more one-time tailscale serve port setup."
 }

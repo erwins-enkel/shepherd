@@ -182,6 +182,8 @@ export class GiteaForge implements GitForge {
       url: pr.html_url,
       title: pr.title ?? "",
       mergeable: pr.mergeable ?? null,
+      // Gitea has no draft boolean; draft = the WIP-title-prefix convention (see WIP_PREFIX).
+      isDraft: (pr.title ?? "").startsWith(GiteaForge.WIP_PREFIX),
       checks: await this.checksFor(pr.head?.sha),
       headSha: pr.head?.sha,
       deployConfigured,

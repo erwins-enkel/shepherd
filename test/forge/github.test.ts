@@ -146,6 +146,21 @@ test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () =
   expect(calls[0]).toContain("o/r");
 });
 
+test("GithubForge.prStatus: maps isDraft from the json", async () => {
+  const draftJson = JSON.stringify([
+    { number: 7, url: "u", title: "feat", state: "OPEN", mergeable: "MERGEABLE", isDraft: true },
+  ]);
+  const draftForge = new GithubForge("o/r", {}, fakeRunner({ "pr list": draftJson }).run);
+  expect((await draftForge.prStatus("feature")).isDraft).toBe(true);
+
+  // isDraft absent in the json → defaults to false
+  const readyJson = JSON.stringify([
+    { number: 7, url: "u", title: "feat", state: "OPEN", mergeable: "MERGEABLE" },
+  ]);
+  const readyForge = new GithubForge("o/r", {}, fakeRunner({ "pr list": readyJson }).run);
+  expect((await readyForge.prStatus("feature")).isDraft).toBe(false);
+});
+
 test("GithubForge.prStatus: no PR → state none", async () => {
   const { run } = fakeRunner({ "pr list": "[]" });
   const forge = new GithubForge("o/r", { deployWorkflow: "x.yml" }, run);

@@ -70,6 +70,7 @@ interface GhPr {
   title: string;
   state: string; // OPEN | MERGED | CLOSED
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
+  isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
   reviews?: GhReview[];
@@ -372,7 +373,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,statusCheckRollup,headRefOid,reviews",
+      "number,url,title,state,mergeable,isDraft,statusCheckRollup,headRefOid,reviews",
       "--limit",
       "1",
     ]);
@@ -386,6 +387,7 @@ export class GithubForge implements GitForge {
       url: pr.url,
       title: pr.title,
       mergeable: mapMergeable(pr.mergeable),
+      isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,
       latestReview: latestHumanReview(pr.reviews),

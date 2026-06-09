@@ -852,6 +852,48 @@ test("GiteaForge.openPr: draft:false (or omitted) does NOT prefix title", async 
   expect(post.body).toMatchObject({ title: "My Feature" });
 });
 
+test("GiteaForge.prStatus: WIP-prefixed title → isDraft true", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "WIP: feat",
+          state: "open",
+          merged: false,
+          mergeable: true,
+          html_url: "u9",
+          head: { ref: "feature", sha: "abc123" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/abc123/status": { json: { state: "success" } },
+  });
+  const st = await new GiteaForge("team/proj", CFG, fn).prStatus("feature");
+  expect(st.isDraft).toBe(true);
+});
+
+test("GiteaForge.prStatus: non-WIP title → isDraft false", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "feat",
+          state: "open",
+          merged: false,
+          mergeable: true,
+          html_url: "u9",
+          head: { ref: "feature", sha: "abc123" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/abc123/status": { json: { state: "success" } },
+  });
+  const st = await new GiteaForge("team/proj", CFG, fn).prStatus("feature");
+  expect(st.isDraft).toBe(false);
+});
+
 test("GiteaForge.markReady: strips WIP: prefix via PATCH", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls/20": {

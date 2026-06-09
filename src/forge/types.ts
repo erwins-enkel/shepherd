@@ -81,6 +81,8 @@ export interface PrStatus {
   headSha?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
+  /** true = PR is a draft / not ready-for-review. Optional; absent ⇒ treat as false downstream. */
+  isDraft?: boolean;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

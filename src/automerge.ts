@@ -136,6 +136,9 @@ export class AutoMergeService {
       behind,
       reviewDecision: review?.decision ?? null,
       reviewHeadSha: review?.headSha ?? null,
+      findings: review?.findings ?? [],
+      humanApproved: git?.latestReview?.state === "approved",
+      isDraft: git?.isDraft ?? false,
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
       mergeBlocked: this.computeMergeBlocked(s.id, headSha),
@@ -154,6 +157,8 @@ export class AutoMergeService {
     return {
       enabled: sessions.length > 0,
       criticEnabled: cfg.criticEnabled,
+      draftMode: cfg.draftMode,
+      signoffAuthority: cfg.signoffAuthority,
       rebaseCap: this.deps.rebaseCap,
       sessions,
     };

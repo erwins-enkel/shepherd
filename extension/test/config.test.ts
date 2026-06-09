@@ -6,9 +6,19 @@ import {
   saveConfig,
   saveSignals,
 } from "../src/lib/config";
+import { persistConfig } from "../src/lib/config-persist.svelte";
+import { reactiveConfig } from "./fixtures/reactive-config.svelte";
 
 // Minimal in-memory chrome.storage.local stub.
-function installChromeStub(initial: Record<string, unknown> = {}) {
+//
+// `serialize` (default true) deep-clones via structuredClone, mirroring real
+// chrome.storage's serialization boundary so the stub catches values that don't
+// survive it. Pass `serialize: false` to store by reference — used to assert a
+// caller handed storage a detached snapshot, not a live $state proxy.
+function installChromeStub(
+  initial: Record<string, unknown> = {},
+  { serialize = true }: { serialize?: boolean } = {},
+) {
   let store = { ...initial };
   (globalThis as any).chrome = {
     storage: {
@@ -20,7 +30,7 @@ function installChromeStub(initial: Record<string, unknown> = {}) {
           return out;
         }),
         set: vi.fn(async (obj: Record<string, unknown>) => {
-          store = { ...store, ...obj };
+          store = { ...store, ...(serialize ? structuredClone(obj) : obj) };
         }),
       },
     },
@@ -133,5 +143,39 @@ describe("config", () => {
     expect(cfg.token).toBe("tok");
     expect(cfg.baseBranch).toBe("dev");
     expect(cfg.model).toBe("opus");
+  });
+
+  describe("persistConfig (routing-rule persistence regression)", () => {
+    // Both tests drive the REAL production persistConfig with a genuine $state
+    // proxy, so they fail if its $state.snapshot is removed — not a tautology
+    // that snapshots in the test itself.
+
+    it("round-trips routingRules saved from a $state proxy", async () => {
+      const rules = [{ pattern: "https://app.example.com/*", repoPath: "~/Work/app" }];
+      await persistConfig(reactiveConfig(rules));
+      const loaded = await loadConfig();
+      expect(Array.isArray(loaded.routingRules)).toBe(true);
+      expect(loaded.routingRules).toEqual(rules);
+    });
+
+    it("hands storage a detached snapshot, not the live $state proxy", async () => {
+      // The actual bug is Chrome-specific (its serializer degrades a proxied
+      // array to a non-array; Node's structuredClone preserves array-ness, so a
+      // raw-proxy round-trip can't reproduce it here). What IS verifiable in Node
+      // is the property that prevents it: persistConfig must store a snapshot
+      // detached from live reactive state. With a by-reference store, mutating
+      // the proxy AFTER persisting must not change what was stored — which only
+      // holds if persistConfig snapshotted. Drop the snapshot and this fails.
+      const getStore = installChromeStub({}, { serialize: false });
+      const live = reactiveConfig([
+        { pattern: "https://app.example.com/*", repoPath: "~/Work/app" },
+      ]);
+      await persistConfig(live);
+      live.routingRules[0].pattern = "MUTATED";
+      const stored = getStore().captureConfig as typeof DEFAULT_CONFIG;
+      expect(stored.routingRules).toEqual([
+        { pattern: "https://app.example.com/*", repoPath: "~/Work/app" },
+      ]);
+    });
   });
 });

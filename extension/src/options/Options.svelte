@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages";
-  import { DEFAULT_CONFIG, loadConfig, saveConfig, saveSignals } from "../lib/config";
+  import { DEFAULT_CONFIG, loadConfig, saveSignals } from "../lib/config";
+  import { persistConfig } from "../lib/config-persist.svelte";
   import { localizeError } from "../lib/localize-error";
   import { disableRecorder, enableRecorder, hasAllUrls } from "../lib/recorder-control";
   import { hostKind, releaseStaleHost, requestHostPermission } from "../lib/remote-host";
@@ -9,6 +10,7 @@
 
   let config = $state<CaptureConfig>({ ...DEFAULT_CONFIG });
   let saved = $state(false);
+  let saveError = $state(false);
   let recorderOn = $state(false);
   let recorderDenied = $state(false);
   let hostDenied = $state(false);
@@ -58,12 +60,12 @@
       config.signals.console = false;
       config.signals.network = false;
     }
-    await saveSignals(config.signals);
+    await saveSignals($state.snapshot(config.signals));
   }
 
   async function toggleA11y(e: Event) {
     config.signals.a11y = (e.target as HTMLInputElement).checked;
-    await saveSignals(config.signals);
+    await saveSignals($state.snapshot(config.signals));
   }
 
   // A remote (ts.net) base URL needs the optional host permission before it can
@@ -74,6 +76,7 @@
     e.preventDefault();
     // Clear the full shared status set so only this action's outcome shows.
     saved = false;
+    saveError = false;
     hostDenied = false;
     hostUnsupported = false;
     testOk = false;
@@ -94,11 +97,28 @@
     config.routingRules = config.routingRules.filter(
       (r) => r.pattern.trim() !== "" && r.repoPath.trim() !== "",
     );
-    const prevBaseUrl = (await loadConfig()).baseUrl;
-    await saveConfig(config);
-    // Release the previous remote host's grant if we've switched hosts (remove
-    // needs no gesture, so it can run after Save).
-    await releaseStaleHost(prevBaseUrl, config.baseUrl);
+    // persistConfig snapshots the $state proxy to plain data before it reaches
+    // chrome.storage — a proxied array (routingRules) degrades across the
+    // serializer and loadConfig's Array.isArray guard would then wipe it to [].
+    // prevBaseUrl is read inside the try (before the write) so the whole persist
+    // is fail-closed together.
+    let prevBaseUrl: string;
+    try {
+      prevBaseUrl = (await loadConfig()).baseUrl;
+      await persistConfig(config);
+    } catch {
+      // Fail closed: a failed write must surface, never silently flash "Saved".
+      saveError = true;
+      return;
+    }
+    // Save succeeded. Releasing the previous remote host's grant is best-effort
+    // cleanup (remove needs no gesture, so it runs after Save) — a revoke failure
+    // must NOT read as a save failure, since the config is already persisted.
+    try {
+      await releaseStaleHost(prevBaseUrl, config.baseUrl);
+    } catch {
+      // A lingering stale ts.net grant is harmless permission hygiene.
+    }
     saved = true;
     setTimeout(() => (saved = false), 1500);
   }
@@ -112,6 +132,7 @@
     e.preventDefault();
     // Clear the full shared status set so only this action's outcome shows.
     saved = false;
+    saveError = false;
     hostDenied = false;
     hostUnsupported = false;
     testOk = false;
@@ -294,6 +315,9 @@
     {/if}
     {#if hostDenied}
       <span class="text-xs text-red-600">{m.options_host_denied()}</span>
+    {/if}
+    {#if saveError}
+      <span class="text-xs text-red-600">{m.options_save_failed()}</span>
     {/if}
 
     <fieldset class="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-3">

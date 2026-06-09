@@ -88,6 +88,7 @@
       class={["info", { open: openDetail === id }]}
       type="button"
       aria-expanded={openDetail === id}
+      aria-controls="auto-detail-{id}"
       aria-label={m.automation_info_aria({ name })}
       onclick={() => toggleDetail(id)}
     >
@@ -96,7 +97,7 @@
   {/snippet}
   {#snippet detail(id: string, text: string)}
     {#if openDetail === id}
-      <p class="auto-detail" role="note">{text}</p>
+      <p id="auto-detail-{id}" class="auto-detail" role="note">{text}</p>
     {/if}
   {/snippet}
 

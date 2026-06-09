@@ -121,6 +121,10 @@ const service = new SessionService({
     : undefined,
   events,
   reaper: new ProcessReaper(),
+  // Fast-poll a queue member to surface its merge promptly when the train session
+  // archives before the 120s PR sweep credits it (the merge-train completion race).
+  // prPoller is defined below; this closure is only invoked at runtime, after init.
+  refreshPr: (id) => prPoller.pollSession(id),
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -215,11 +219,13 @@ events.subscribe((event, data) => {
 
 // A PR in a merge train just landed (or was closed) → drop its "Merging" mark
 // so the row resolves out of the Merging group one-by-one as the train works.
-// session:git fires on any git change; clearMerging no-ops when not marked.
+// session:git fires on any git change; resolveMerging clears the mark and
+// credits the train tracker, no-opping when the session isn't marked / untracked.
 events.subscribe((event, data) => {
   if (event !== "session:git") return;
   const { id, git } = data as { id: string; git: import("./forge/types").GitState };
-  if (git.state === "merged" || git.state === "closed") service.clearMerging(id);
+  if (git.state === "merged" || git.state === "closed")
+    service.resolveMerging(id, git.state === "merged");
 });
 
 // The train session itself was archived → clear any of its PRs still marked

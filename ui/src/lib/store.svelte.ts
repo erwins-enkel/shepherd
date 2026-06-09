@@ -18,6 +18,7 @@ import { reviews, planGates } from "./reviews.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
+import { offerUpdateMain } from "./pull-offer";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -267,6 +268,9 @@ export class HerdStore {
         // "Halting N…" toast in place (haltHerd posts it under the same key), and also
         // dedupes back-to-back halts / the echo to the firer into one row.
         toasts.info(m.halt_done({ count: ev.data.halted }), { key: "halt-done" });
+        break;
+      case "mergetrain:landed":
+        offerUpdateMain(ev.data.repoPath);
         break;
     }
   }

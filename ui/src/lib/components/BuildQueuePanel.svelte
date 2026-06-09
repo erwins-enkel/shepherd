@@ -298,6 +298,14 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* The panel lives in an overflow:hidden flex column (Viewport). Without a
+       cap a long queue grows unbounded, crushes the terminal below, and offers
+       no scroll target — so touch gestures get trapped. Bound it and let the
+       list own its own vertical scroll. */
+    max-height: 40vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
   .bqp-row {

@@ -599,14 +599,19 @@ export async function releasePlanGate(id: string): Promise<boolean> {
   return r.ok;
 }
 
+/** Outcome of an on-demand plan review trigger: a reviewer spawned, the request was a silent
+ *  no-op (plan unchanged / already approved), or a spawn attempt failed. Mirrors the server's
+ *  PlanReviewTrigger so the UI can distinguish a dedupe from a genuine error. */
+export type PlanReviewTrigger = "started" | "skipped" | "error";
+
 /** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS.
- *  `started` is false when the server deduped the request (plan unchanged / already approved),
- *  so the caller can tell a real review from a silent no-op. */
-export async function reviewPlan(id: string): Promise<{ started: boolean }> {
+ *  Returns the trigger outcome so the caller can tell a real review from a silent dedupe
+ *  ("skipped") and a genuine spawn failure ("error"). */
+export async function reviewPlan(id: string): Promise<PlanReviewTrigger> {
   const r = await fetch(`/api/sessions/${id}/review-plan`, JSON_POST());
   if (!r.ok) throw await failed(r, "review-plan");
-  const body = (await r.json().catch(() => ({}))) as { started?: boolean };
-  return { started: !!body.started };
+  const body = (await r.json().catch(() => ({}))) as { status?: PlanReviewTrigger };
+  return body.status ?? "skipped";
 }
 
 export async function getBacklog(): Promise<BacklogPayload> {

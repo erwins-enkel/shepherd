@@ -451,6 +451,7 @@
   "planpanel_review_now": "Plan jetzt prüfen",
   "planpanel_reviewing": "Prüfe Plan…",
   "planpanel_review_unchanged": "Plan seit der letzten Prüfung unverändert — keine erneute Prüfung nötig.",
+  "planpanel_review_failed": "Prüfung konnte nicht gestartet werden — bitte erneut versuchen.",
   "viewport_decommission_title": "Agent stoppen + Worktree entfernen",
   "viewport_decommission_ready_title": "PR steht. Session schließen & Worktree aufräumen",
   "viewport_decommission_ready_aria": "PR bereit. Einheit stilllegen und Worktree aufräumen",

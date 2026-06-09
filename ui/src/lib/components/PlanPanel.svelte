@@ -47,16 +47,17 @@
   });
 
   let busy = $state(false);
-  // True after a manual review that the server deduped (plan unchanged / already approved): the
-  // reviewer never spawned, so `reviewing` stays false and the verdict won't change — without this
-  // the button would just blink and leave the operator wondering whether anything happened.
-  let unchanged = $state(false);
+  // Outcome of the last manual review trigger that produced no live run, so the panel can explain
+  // why nothing changed: "unchanged" = server deduped (plan unchanged / already approved),
+  // "error" = the reviewer failed to spawn. Without this the button would just blink and leave the
+  // operator guessing. null = no note (fresh page, or a real review is/was in flight).
+  let outcome = $state<"unchanged" | "error" | null>(null);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
   const inFlight = $derived(busy || reviewing);
 
-  // A live review (or a fresh verdict landing) supersedes the "unchanged" note.
+  // A live review supersedes any prior no-op/error note.
   $effect(() => {
-    if (reviewing) unchanged = false;
+    if (reviewing) outcome = null;
   });
 
   async function go() {
@@ -73,13 +74,16 @@
   async function review() {
     if (inFlight || !canReviewNow) return;
     busy = true;
-    unchanged = false;
+    outcome = null;
     try {
-      const { started } = await reviewPlan(session.id);
-      // Server deduped the unchanged plan — flag it so the panel explains the no-op.
-      if (!started && !reviewing) unchanged = true;
+      const status = await reviewPlan(session.id);
+      // "started" → the WS reviewing flag drives the in-flight indicator; no note needed.
+      // "skipped" → unchanged plan / already approved; "error" → spawn failed.
+      if (status === "skipped" && !reviewing) outcome = "unchanged";
+      else if (status === "error") outcome = "error";
     } catch {
-      /* verdict arrives via WS; surfacing the error here is out of scope */
+      // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.
+      outcome = "error";
     } finally {
       busy = false;
     }
@@ -135,8 +139,10 @@
       </section>
     {/if}
 
-    {#if unchanged}
+    {#if outcome === "unchanged"}
       <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
+    {:else if outcome === "error"}
+      <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
     {/if}
 
     <div class="actions">
@@ -280,6 +286,9 @@
     color: var(--color-muted);
     font-size: var(--fs-meta);
     text-align: right;
+  }
+  .note.err {
+    color: var(--color-red);
   }
   .review,
   .go {

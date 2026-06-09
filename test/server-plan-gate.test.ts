@@ -108,13 +108,13 @@ test("POST /api/sessions/:id/go → 409 when releasePlanGate returns false", asy
 
 // ── POST /api/sessions/:id/review-plan ──────────────────────────────────────
 
-test("POST /api/sessions/:id/review-plan → 202, calls consider, relays started:true", async () => {
+test("POST /api/sessions/:id/review-plan → 202, calls consider, relays status:started", async () => {
   const considered: Session[] = [];
   const { app, store } = harness({
     planGate: {
       consider: async (s: Session) => {
         considered.push(s);
-        return true; // a reviewer was spawned
+        return "started" as const; // a reviewer was spawned
       },
     },
   });
@@ -137,15 +137,15 @@ test("POST /api/sessions/:id/review-plan → 202, calls consider, relays started
     new Request(`http://x/api/sessions/${id}/review-plan`, { method: "POST" }),
   );
   expect(res.status).toBe(202);
-  expect(await res.json()).toEqual({ ok: true, started: true });
+  expect(await res.json()).toEqual({ ok: true, status: "started" });
   expect(considered.length).toBe(1);
   expect(considered[0]!.id).toBe(id);
 });
 
-test("POST /api/sessions/:id/review-plan → started:false when consider deduped", async () => {
+test("POST /api/sessions/:id/review-plan → status:skipped when consider deduped", async () => {
   const { app, store } = harness({
     planGate: {
-      consider: async () => false, // unchanged plan / already approved → no-op
+      consider: async () => "skipped" as const, // unchanged plan / already approved → no-op
     },
   });
   const seeded = store.create({
@@ -165,7 +165,7 @@ test("POST /api/sessions/:id/review-plan → started:false when consider deduped
     new Request(`http://x/api/sessions/${seeded.id}/review-plan`, { method: "POST" }),
   );
   expect(res.status).toBe(202);
-  expect(await res.json()).toEqual({ ok: true, started: false });
+  expect(await res.json()).toEqual({ ok: true, status: "skipped" });
 });
 
 test("POST /api/sessions/:id/review-plan → 404 for unknown id", async () => {
@@ -174,7 +174,7 @@ test("POST /api/sessions/:id/review-plan → 404 for unknown id", async () => {
     planGate: {
       consider: async () => {
         called = true;
-        return true;
+        return "started" as const;
       },
     },
   });

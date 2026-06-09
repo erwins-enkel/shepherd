@@ -2140,7 +2140,12 @@ export function serve(deps: AppDeps, port: number) {
       const url = new URL(req.url);
       if (url.pathname === "/events") {
         const origin = req.headers.get("Origin");
-        if (!originAllowed(origin, config.allowedOriginHosts)) {
+        if (
+          !originAllowed(origin, config.allowedOriginHosts, {
+            base: config.previewPortBase,
+            count: config.previewPortCount,
+          })
+        ) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
         return server.upgrade(req, { data: { kind: "events" } })
@@ -2150,7 +2155,12 @@ export function serve(deps: AppDeps, port: number) {
       const m = url.pathname.match(/^\/pty\/([^/]+)$/);
       if (m) {
         const origin = req.headers.get("Origin");
-        if (!originAllowed(origin, config.allowedOriginHosts)) {
+        if (
+          !originAllowed(origin, config.allowedOriginHosts, {
+            base: config.previewPortBase,
+            count: config.previewPortCount,
+          })
+        ) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
         const s = deps.store.get(m[1]!);

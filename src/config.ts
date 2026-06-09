@@ -75,14 +75,18 @@ export function parseServedPort(serveStatusText: string, localPort: number): num
 
 /** Extract the public HTTPS port from a `https://...` serve-status header line.
  *  Returns 443 when no explicit port is present, null when the line isn't an
- *  https header. */
+ *  https header.
+ *  Note: IPv6 bracket hosts (`[::1]:…`) are intentionally not matched because
+ *  Tailscale `serve` always emits `127.0.0.1` + ts.net hostnames. */
 function extractServedPort(line: string): number | null {
   const m = line.match(/^https:\/\/[^:/]+(?::(\d+))?(?:\s|$)/);
   if (!m) return null;
   return m[1] ? Number(m[1]) : 443;
 }
 
-/** True when a `|-- / proxy ...` line targets 127.0.0.1:<localPort>. */
+/** True when a `|-- / proxy ...` line targets 127.0.0.1:<localPort>.
+ *  Note: `localhost` and IPv6 bracket targets (`[::1]:…`) are intentionally
+ *  not matched because Tailscale `serve` always emits `127.0.0.1`. */
 function isProxyTarget(line: string, localPort: number): boolean {
   if (!line.startsWith("|--")) return false;
   const m = line.match(/proxy\s+(?:https?:\/\/)?127\.0\.0\.1:(\d+)/);
@@ -114,6 +118,12 @@ export function validatePreviewPortRange({
   localPort,
   servedPort,
 }: PreviewPortRangeParams): void {
+  if (!Number.isFinite(previewPortBase) || !Number.isFinite(previewPortCount)) {
+    throw new Error(
+      `Preview port config is invalid: SHEPHERD_PREVIEW_PORT_BASE and SHEPHERD_PREVIEW_PORT_COUNT must be finite numbers (got base=${previewPortBase}, count=${previewPortCount}).`,
+    );
+  }
+
   const rangeEnd = previewPortBase + previewPortCount; // exclusive
 
   const inRange = (port: number) => port >= previewPortBase && port < rangeEnd;

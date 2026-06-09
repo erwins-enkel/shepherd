@@ -115,16 +115,52 @@ test("validatePreviewPortRange: throws when range includes a non-standard served
   ).toThrow(/served.*port|port.*5191|overlap/i);
 });
 
-test("validatePreviewPortRange: range exactly touching but not overlapping passes", () => {
-  // range 8001–8016 (exclusive end = 8017); served=443, local=7330 — no overlap
+test("validatePreviewPortRange: port at exclusive range end (base+count=8017) passes for localPort", () => {
+  // range [8001, 8017); localPort=8017 is outside → no overlap
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      localPort: 8017,
+      servedPort: 443,
+    }),
+  ).not.toThrow();
+});
+
+test("validatePreviewPortRange: port at exclusive range end (base+count=8017) passes for servedPort", () => {
+  // range [8001, 8017); servedPort=8017 is outside → no overlap
   expect(() =>
     validatePreviewPortRange({
       previewPortBase: 8001,
       previewPortCount: 16,
       localPort: 7330,
-      servedPort: 443,
+      servedPort: 8017,
     }),
   ).not.toThrow();
+});
+
+test("validatePreviewPortRange: last in-range localPort (base+count-1=8016) throws", () => {
+  // range [8001, 8017); localPort=8016 is inside → overlap
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      localPort: 8016,
+      servedPort: 443,
+    }),
+  ).toThrow();
+});
+
+test("validatePreviewPortRange: last in-range servedPort (base+count-1=8016) throws", () => {
+  // range [8001, 8017); servedPort=8016 is inside → overlap
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      localPort: 7330,
+      servedPort: 8016,
+    }),
+  ).toThrow();
 });
 
 test("validatePreviewPortRange: localPort equals previewPortBase throws", () => {
@@ -136,6 +172,40 @@ test("validatePreviewPortRange: localPort equals previewPortBase throws", () => 
       servedPort: 443,
     }),
   ).toThrow();
+});
+
+test("validatePreviewPortRange: NaN previewPortBase throws with clear error", () => {
+  // Simulates a corrupted SHEPHERD_PREVIEW_PORT_BASE env (Number("") → NaN)
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: NaN,
+      previewPortCount: 16,
+      localPort: 7330,
+      servedPort: 443,
+    }),
+  ).toThrow(/finite|invalid/i);
+});
+
+test("validatePreviewPortRange: NaN previewPortCount throws with clear error", () => {
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: 8001,
+      previewPortCount: NaN,
+      localPort: 7330,
+      servedPort: 443,
+    }),
+  ).toThrow(/finite|invalid/i);
+});
+
+test("validatePreviewPortRange: Infinity previewPortBase throws with clear error", () => {
+  expect(() =>
+    validatePreviewPortRange({
+      previewPortBase: Infinity,
+      previewPortCount: 16,
+      localPort: 7330,
+      servedPort: 443,
+    }),
+  ).toThrow(/finite|invalid/i);
 });
 
 // ── originAllowed with preview-port range ─────────────────────────────────────

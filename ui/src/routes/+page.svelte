@@ -51,6 +51,7 @@
     collectReadyPrs,
     mergeTrainCreateInput,
     pickTrainRepo,
+    sessionsForPrNumbers,
   } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
@@ -295,6 +296,37 @@
       if (mobile.current) mobileScreen = "detail";
       if (otherRepoCount > 0)
         toasts.info(m.toast_merge_train_other_repos({ count: otherRepoCount }));
+    } catch {
+      toasts.info(m.toast_merge_train_failed());
+    }
+  }
+
+  /** Launch a merge train scoped to a hand-picked set of PRs from the backlog
+   *  PRs panel. Unlike onmergetrain (which auto-collects ready sessions), the
+   *  operator chose these PRs directly, so the kickoff prompt uses the
+   *  hand-picked framing. Matching ready-to-merge sessions are marked "merging";
+   *  backlog-only PRs (no session) still ride along in the prompt. */
+  async function onlaunchtrain(repoPath: string, prs: PullRequest[]) {
+    if (prs.length < 2) return; // UI gates at >=2; defensive guard
+    const br = await listBranches(repoPath).catch(() => null);
+    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+    try {
+      const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
+      selectedId = s.id;
+      // Mark any ready-to-merge sessions whose open PR is in this selection as
+      // "merging" (same coupling as onmergetrain). Composed review predicate
+      // matches onmergetrain. Fire-and-forget + fail-soft; skip when none match.
+      const ids = sessionsForPrNumbers(
+        repoPath,
+        prs.map((p) => p.number),
+        store.sessions,
+        store.git,
+        (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      );
+      if (ids.length > 0)
+        startMergeTrain(ids, s.id).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
+      showBacklog = false;
+      if (mobile.current) mobileScreen = "detail";
     } catch {
       toasts.info(m.toast_merge_train_failed());
     }
@@ -709,6 +741,7 @@
               onquick={onquickissue}
               {onpr}
               {onadopt}
+              {onlaunchtrain}
               flow={true}
             />
           {/if}
@@ -784,6 +817,7 @@
             onquick={onquickissue}
             {onpr}
             {onadopt}
+            {onlaunchtrain}
           />
         {:else if selected}
           <Viewport
@@ -978,6 +1012,7 @@
     onquick={onquickissue}
     {onpr}
     {onadopt}
+    {onlaunchtrain}
     onclose={() => (showBacklog = false)}
   />
 {/if}

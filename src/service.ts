@@ -730,6 +730,16 @@ export class SessionService {
   }
 
   /**
+   * Shared phase→executing transition: flip planPhase to "executing" and push the change live.
+   * Used by both the Go release (releasePlanGate) and the PR auto-advance (advanceToExecutionOnPr).
+   * Callers are responsible for their own guards before calling this.
+   */
+  #enterExecution(id: string): void {
+    this.deps.store.setPlanPhase(id, "executing");
+    this.deps.events?.emit("session:plangate", { id, planPhase: "executing" });
+  }
+
+  /**
    * The "Go" gate: release an APPROVED planning session into autonomous execution. Strict —
    * only transitions when the session is in the planning phase AND its plan gate is approved
    * (the reviewer signed off). Flips planPhase → "executing", steers the agent to implement the
@@ -741,9 +751,31 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
-    this.deps.store.setPlanPhase(id, "executing");
+    this.#enterExecution(id);
     this.reply(id, PLAN_GO_STEER);
-    this.deps.events?.emit("session:plangate", { id, planPhase: "executing" });
+    return true;
+  }
+
+  /**
+   * Auto-advance a manually-driven (or otherwise un-released) planning session into execution
+   * once a PR appears. When the operator reviews the plan then steers the agent instead of
+   * clicking Go, the agent writes code and opens a PR while planPhase is still "planning" —
+   * leaving the plan-gate badge latched and making autopilot stand down (autopilot.ts eligible()
+   * suppresses planning sessions). This method detects that case: called when a PR is observed
+   * for a still-planning session, it flips planPhase → "executing" so the plan gate yields and
+   * autopilot stops standing down.
+   *
+   * Critically, it does NOT send PLAN_GO_STEER — the agent already executed; steering it to
+   * "implement the approved plan" would be wrong (the plan may not even be approved). Its caller
+   * mirrors autopilot's hasPr non-"none" semantics (open/merged/closed) so the two don't drift.
+   *
+   * Returns true when a real transition occurred (planPhase was "planning" and is now "executing"),
+   * false when the session is unknown or not in the planning phase (idempotent no-op).
+   */
+  advanceToExecutionOnPr(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.planPhase !== "planning") return false;
+    this.#enterExecution(id);
     return true;
   }
 

@@ -275,6 +275,23 @@ events.subscribe((event, data) => {
       .consider(s, git)
       .catch((err) => console.warn("[review] consider failed:", err));
 });
+
+// When a PR appears for a session that is still in the planning phase, auto-advance it to
+// "executing" so the plan-gate badge unlatches and autopilot stops standing down. This covers
+// the case where the operator reviewed the plan then steered the agent manually (without
+// clicking Go), so the agent wrote code and opened a PR while planPhase was still "planning".
+// PR-present = state !== "none" (open/merged/closed), mirroring autopilot's hasPr non-"none"
+// semantics — using "open"-only would leave a merged/closed-PR planning session latched.
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  if (git.state === "none") return;
+  const advanced = service.advanceToExecutionOnPr(id);
+  // Only reap the plan reviewer when a real transition happened — avoids redundant
+  // work and log spam on every subsequent poll tick (mirrors how session:archived
+  // gates forget() on the id being present before calling it).
+  if (advanced) planGate.forget(id);
+});
 setInterval(() => {
   if (maintenance.active) return;
   void reviewService.tick();

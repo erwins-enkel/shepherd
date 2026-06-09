@@ -249,7 +249,7 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     // New Task dialog, so a coachmark anchor would usually be unmounted — surface via
     // the What's-New drawer only.
     id: "active-label-newtask",
-    sinceVersion: "1.20.0",
+    sinceVersion: "1.21.0",
     titleKey: "feat_active_label_newtask_title",
     bodyKey: "feat_active_label_newtask_body",
   },

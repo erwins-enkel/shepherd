@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -270,15 +270,22 @@ test("readTranscriptSignals parity: signals from tail read equal signals from re
   const dir = mkdtempSync(join(tmpdir(), "parity-signal-"));
   const path = join(dir, "parity.jsonl");
   try {
-    // Build a transcript: 5 "old" tool lines that will be cropped by the tail cap,
-    // then 4 "recent" lines that must survive the tail read. Recent records all
-    // fall within the default MAX_TAIL_BYTES window so accuracy is preserved.
-    const oldLines: string[] = [];
-    for (let i = 0; i < 5; i++) {
-      oldLines.push(
-        toolLine("Read", { file_path: `/old/file${i}.ts` }, `old${i}`, "2026-01-01T00:00:00.000Z"),
+    // Build a transcript that EXCEEDS MAX_TAIL_BYTES (512 KB) so the tail read
+    // genuinely truncates the file. Filler records use a distinct old timestamp
+    // (2020-01-01) and a unique Bash command — if any filler leaked through the
+    // tail cut, lastActivityTs and summary would differ from the expected values,
+    // making the assertions non-tautological.
+    //
+    // Each filler pair (tool_use + tool_result) is ~400 B. We need > 512 KB of
+    // filler, so 1500 pairs ≈ 600 KB safely exceeds the cap. The recent records
+    // (< 2 KB) are appended last and must fully fit within the tail window.
+    const FILLER_PAIRS = 1500;
+    const fillerLines: string[] = [];
+    for (let i = 0; i < FILLER_PAIRS; i++) {
+      fillerLines.push(
+        toolLine("Bash", { command: `echo filler-${i}` }, `filler${i}`, "2020-01-01T00:00:00.000Z"),
       );
-      oldLines.push(resultLine(`old${i}`, "2026-01-01T00:00:01.000Z"));
+      fillerLines.push(resultLine(`filler${i}`, "2020-01-01T00:00:01.000Z"));
     }
     const recentLines = [
       toolLine("Edit", { file_path: "/a/server.ts" }, "r1", "2026-05-31T10:00:00.000Z"),
@@ -287,24 +294,31 @@ test("readTranscriptSignals parity: signals from tail read equal signals from re
       resultLine("r2", "2026-05-31T10:05:00.000Z"),
     ];
 
-    const fullContent = [...oldLines, ...recentLines].join("\n");
+    const fullContent = [...fillerLines, ...recentLines].join("\n");
     writeFileSync(path, fullContent);
 
-    // derive expected signals from ONLY the recent lines (what the tail should cover)
+    // Verify the file is actually larger than MAX_TAIL_BYTES so the truncation
+    // path is exercised (not the whole-file-fits path).
+    const fileSize = statSync(path).size;
+    expect(fileSize).toBeGreaterThan(512 * 1024);
+
+    // Derive expected signals from ONLY the recent lines (what the tail should cover
+    // after the filler is cut). The filler uses "2020-01-01" timestamps and
+    // "$ echo filler-N" summaries — distinct enough that leakage would be detected.
     const recentText = recentLines.join("\n");
     const expectedActivity = signalFromText(recentText);
     const expectedSnapshot = snapshotFromText(recentText);
 
-    // actual read via readTranscriptSignals (uses readTranscriptTail internally)
+    // actual read via readTranscriptSignals (uses readTranscriptTail + 512 KB cap)
     const { snapshot, activity } = readTranscriptSignals(path);
 
     expect(activity).not.toBeNull();
     expect(snapshot).not.toBeNull();
-    // heartbeat must match
+    // heartbeat must match the recent records, not the filler's 2020 timestamp
     expect(activity!.lastActivityTs).toBe(expectedActivity!.lastActivityTs);
-    // summary must match
+    // summary must be from the recent edit/bash, not "$ echo filler-N"
     expect(activity!.summary).toBe(expectedActivity!.summary);
-    // stall snapshot must match
+    // stall snapshot must reflect recent records only
     expect(snapshot!.lastTs).toBe(expectedSnapshot!.lastTs);
     expect(snapshot!.pending).toBe(expectedSnapshot!.pending);
   } finally {

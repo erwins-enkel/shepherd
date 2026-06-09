@@ -1078,7 +1078,9 @@
        (--mobile-actionbar-h + its own safe-area inset, both shared with the bar
        in app.css) so the last list row never hides behind it. */
     padding-top: 0;
-    padding-bottom: calc(var(--mobile-actionbar-h) + max(10px, env(safe-area-inset-bottom)));
+    padding-bottom: calc(
+      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+    );
   }
   .shell.mobile.list .chrome {
     position: sticky;

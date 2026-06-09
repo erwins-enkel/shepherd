@@ -122,7 +122,7 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    border: 1px solid var(--color-line);
+    border: var(--actionbar-border) solid var(--color-line);
     background: var(--color-panel);
     padding: 10px 14px;
   }
@@ -241,10 +241,10 @@
     right: 0;
     bottom: 0;
     z-index: 5;
-    padding: 10px;
-    padding-left: max(10px, env(safe-area-inset-left));
-    padding-right: max(10px, env(safe-area-inset-right));
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding: var(--mobile-actionbar-pad);
+    padding-left: max(var(--mobile-actionbar-pad), env(safe-area-inset-left));
+    padding-right: max(var(--mobile-actionbar-pad), env(safe-area-inset-right));
+    padding-bottom: max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom));
   }
   .actions.mobile .btn.primary {
     flex: 1;

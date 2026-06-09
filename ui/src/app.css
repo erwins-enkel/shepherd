@@ -70,13 +70,18 @@
   --fs-2xl: 22px;
 
   /* Fixed mobile action bar (list screen) — single source so the bar's sizing
-     and the list's padding-bottom reservation can't drift. --mobile-actionbar-h
-     is the bar's height minus its bottom safe-area inset: the button touch
-     target + the bar's 10px top padding + 2px top/bottom border (buttons are
-     border-box via Tailwind preflight, so --mobile-actionbar-hit is the button's
-     full rendered height). */
+     and the list's padding-bottom reservation can't drift. The bar's own
+     padding + border are tokenized here and consumed in ActionBar.svelte, so
+     --mobile-actionbar-h (the bar's height minus its bottom safe-area inset =
+     button touch target + top padding + top/bottom border) stays bound to the
+     real bar. Buttons are border-box via Tailwind preflight, so
+     --mobile-actionbar-hit is the button's full rendered height. */
   --mobile-actionbar-hit: 44px;
-  --mobile-actionbar-h: calc(var(--mobile-actionbar-hit) + 12px);
+  --mobile-actionbar-pad: 10px;
+  --actionbar-border: 1px;
+  --mobile-actionbar-h: calc(
+    var(--mobile-actionbar-hit) + var(--mobile-actionbar-pad) + 2 * var(--actionbar-border)
+  );
 
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is

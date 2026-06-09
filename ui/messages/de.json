@@ -743,5 +743,7 @@
   "feat_automation_help_title": "Jede Automatisierung erklärt",
   "feat_automation_help_body": "Jeder Schalter im Automatisierungs-Panel hat jetzt ein anklickbares „ⓘ“, das eine ausführliche, verständliche Erklärung öffnet — was die Funktion macht, wie sie arbeitet und wann genau sie auslöst. So versteht jeder, nicht nur das Team, den Kritiker, das Plan-Gate, Autopilot, Auto-Abarbeitung und den Rest, bevor er sie einschaltet.",
   "feat_critic_activity_title": "Sieh dem Kritiker live bei der Arbeit zu",
-  "feat_critic_activity_body": "Der PR-Kritiker läuft als eigene Claude-Code-Session. Fahr mit der Maus über das PRÜFT-Badge und sieh seine letzte Aktion live – „$ git diff“, „read review.ts“ – statt nur, dass er beschäftigt ist."
+  "feat_critic_activity_body": "Der PR-Kritiker läuft als eigene Claude-Code-Session. Fahr mit der Maus über das PRÜFT-Badge und sieh seine letzte Aktion live – „$ git diff“, „read review.ts“ – statt nur, dass er beschäftigt ist.",
+  "feat_preview_title": "Live-App-Vorschau",
+  "feat_preview_body": "Wenn der Dev-Server eines Agenten läuft, erscheint ein Vorschau-Badge in seiner Zeile. Beim Öffnen zeigt sich die laufende App in einem HUD-Pane — erreichbar von Desktop oder Handy über Tailscale."
 }

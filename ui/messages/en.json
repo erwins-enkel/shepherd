@@ -743,5 +743,7 @@
   "feat_automation_help_title": "Explain each automation",
   "feat_automation_help_body": "Every switch in the automation panel now has a clickable \"ⓘ\" that opens a thorough, plain-language explanation of what that function does, how it works, and exactly when it fires — so anyone, not just the team, can understand the Critic, Plan gate, Autopilot, Auto-Drain and the rest before turning them on.",
   "feat_critic_activity_title": "See what the critic is doing live",
-  "feat_critic_activity_body": "The PR critic runs as its own Claude Code session. Hover the REVIEWING badge to see its latest action live — “$ git diff”, “read review.ts” — instead of just that it's busy."
+  "feat_critic_activity_body": "The PR critic runs as its own Claude Code session. Hover the REVIEWING badge to see its latest action live — “$ git diff”, “read review.ts” — instead of just that it's busy.",
+  "feat_preview_title": "Live app preview",
+  "feat_preview_body": "When an agent's dev server is running, a Preview badge appears on its row. Opening it shows the live app in an in-HUD pane — reachable from desktop or phone over Tailscale."
 }

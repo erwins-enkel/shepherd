@@ -295,7 +295,7 @@
   "settings_about_version": "Version",
   "settings_about_commit": "Commit",
   "settings_about_repo": "Repository",
-  "settings_about_blurb": "Shepherd ist ein selbst gehosteter Leitstand für interaktiven Claude Code — echte Terminal-Sitzungen, die du beobachtest und durch Tippen lenkst, auf deinem eigenen Server mit deinem eigenen Abo. Genauso entschieden ist es bei der Frage, wie agentengebaute Software ausgeliefert wird: Plan-Gate und Kritiker prüfen jeden Plan und jeden PR kritisch, freigegebene Erkenntnisse werden zu Hausregeln, und der Merge-Train merged nichts, was rot oder hinter dem Hauptbranch ist.",
+  "settings_about_blurb": "Shepherd ist ein selbst gehosteter Leitstand für interaktiven Claude Code — echte Terminal-Sitzungen, die du beobachtest und durch Tippen lenkst, auf deinem eigenen Server mit deinem eigenen Abo. Genauso klare Vorstellungen hat Shepherd davon, wie agentengebaute Software ausgeliefert wird: Plan-Gate und Kritiker nehmen jeden Plan und jeden PR kritisch auseinander, freigegebene Erkenntnisse werden zu Hausregeln, und der Merge-Train merged nichts, was rot oder hinter dem Hauptbranch ist.",
   "settings_remote_control_title": "Remote-Steuerung",
   "settings_remote_control_hint": "Claude-Code-Remote-Steuerung in Agent-Sessions automatisch starten. Aus hält Sessions ruhig; pro Session im Terminal mit /remote-control einschalten.",
   "settings_remote_control_on": "Auto-Start an",

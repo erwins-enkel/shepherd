@@ -2,7 +2,7 @@
   import type { Session, GitState, SessionActivity } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
-  import { partitionSessions } from "./herd-partition";
+  import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { collectReadyPrs } from "./merge-train";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -25,6 +25,7 @@
     onsettings = undefined,
     flow = false,
     filteredRepo = null,
+    filter = $bindable("all"),
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -57,21 +58,20 @@
     // list is empty, show a neutral "no agents for this repo" note instead of the
     // first-run EmptyHerd nudge. null = unfiltered.
     filteredRepo?: string | null;
+    // the all/ready list filter — bindable so the page-level keyboard navigation
+    // can mirror exactly what the rail shows (herd-keynav's railOrder takes it)
+    filter?: HerdFilter;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
   // the reviewer is actively working the session, so it is NOT awaiting the operator.
   const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
 
-  // sidebar list filter: "all" or "ready" (only sessions not actively working —
-  // anything but a running agent: idle, blocked, done → awaiting the operator;
-  // in-review sessions are excluded too, since a reviewer is actively working them)
-  let filter = $state<"all" | "ready">("all");
-  const shown = $derived(
-    filter === "ready"
-      ? sessions.filter((s) => s.status !== "running" && !inReview(s.id))
-      : sessions,
-  );
+  // sidebar list filter (bindable prop): "all" or "ready" (only sessions not actively
+  // working — anything but a running agent: idle, blocked, done → awaiting the operator;
+  // in-review sessions are excluded too, since a reviewer is actively working them).
+  // shownSessions is the shared single source of truth with herd-keynav's railOrder.
+  const shown = $derived(shownSessions(sessions, filter, inReview));
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
   // PR-CI-running and critic-reviewing / plan-gate-reviewing in-flight groups, then
   // the parked ready-to-merge (green) and landed merged (blue) groups at the bottom.

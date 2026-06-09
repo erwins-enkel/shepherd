@@ -1,5 +1,5 @@
 import type { Session, GitState } from "$lib/types";
-import { partitionSessions } from "./herd-partition";
+import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
@@ -21,15 +21,22 @@ const RAIL_GROUP_ORDER = [
   "merged",
 ] as const;
 
-/** Session ids in the exact order the herd rail renders them: the same
- *  partition Herd.svelte derives, flattened in its template's group order. */
+/** Session ids in the exact order the herd rail renders them: the same shown
+ *  set (rail filter applied) and partition Herd.svelte derives, flattened in
+ *  its template's group order. */
 export function railOrder(
   sessions: Session[],
   git: Record<string, GitState>,
   isReviewing: (id: string) => boolean = () => false,
   now: number = Date.now(),
+  filter: HerdFilter = "all",
 ): string[] {
-  const partition = partitionSessions(sessions, git, isReviewing, now);
+  const partition = partitionSessions(
+    shownSessions(sessions, filter, isReviewing),
+    git,
+    isReviewing,
+    now,
+  );
   return RAIL_GROUP_ORDER.flatMap((group) => partition[group].map((s) => s.id));
 }
 

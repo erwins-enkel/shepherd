@@ -50,6 +50,23 @@ type Stage =
   | "awaitingMerge"
   | "active";
 
+/** The herd rail's list filter: everything, or only sessions awaiting the operator. */
+export type HerdFilter = "all" | "ready";
+
+/** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
+ *  awaiting the operator (not running, not under review). Single source of truth shared
+ *  by Herd.svelte's list and herd-keynav's rail order, so keyboard navigation can never
+ *  land on a row the rail isn't showing. */
+export function shownSessions(
+  sessions: Session[],
+  filter: HerdFilter,
+  inReview: (id: string) => boolean,
+): Session[] {
+  return filter === "ready"
+    ? sessions.filter((s) => s.status !== "running" && !inReview(s.id))
+    : sessions;
+}
+
 /** Terminal / in-flight stages that win before the green-idle handoff decision, or null
  *  when none apply (the session is then either active or handed off). Split out of stageOf
  *  to keep each branch-set small. */

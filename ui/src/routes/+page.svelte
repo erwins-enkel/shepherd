@@ -51,6 +51,7 @@
   import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
   import { railOrder, cycleId, nthId, nextNeedsYou } from "$lib/components/herd-keynav";
+  import type { HerdFilter } from "$lib/components/herd-partition";
   import {
     collectReadyPrs,
     mergeTrainCreateInput,
@@ -427,9 +428,13 @@
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
   }
 
-  // The herd rail's visible session order (same partition + group order
-  // Herd.svelte renders) — the j/k/1-9 navigation space. Computed on demand at
-  // keypress time, not $derived: re-partitioning on every nowMs tick would be
+  // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
+  // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
+  let herdFilter = $state<HerdFilter>("all");
+
+  // The herd rail's visible session order (same shown set + partition + group
+  // order Herd.svelte renders) — the j/k/1-9 navigation space. Computed on demand
+  // at keypress time, not $derived: re-partitioning on every nowMs tick would be
   // wasted work for a value only keystrokes read.
   function railIds(): string[] {
     return railOrder(
@@ -437,6 +442,7 @@
       store.git,
       (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
       nowMs,
+      herdFilter,
     );
   }
 
@@ -898,6 +904,7 @@
             {standardCommandUnset}
             onsettings={() => (showSettings = true)}
             flow={true}
+            bind:filter={herdFilter}
           />
           {#if store.sessions.length === 0}
             <BacklogView
@@ -984,6 +991,7 @@
           {onmergetrain}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
+          bind:filter={herdFilter}
         />
         {#if store.sessions.length === 0}
           <BacklogView

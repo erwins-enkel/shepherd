@@ -57,6 +57,21 @@ test("railOrder flattens the partition in the rail's render order", () => {
   expect(order).toEqual(["a", "b", "ci1", "ready1", "merged1"]);
 });
 
+test("railOrder under the ready filter only walks rows the rail shows", () => {
+  // "ready" hides running and in-review sessions — keynav must match, so j/k
+  // and 1-9 can never select a session the filtered rail isn't rendering
+  const list = [
+    session("running1"),
+    session("idle1", false, "idle"),
+    session("blocked1", false, "blocked"),
+    session("reviewed1", false, "done"),
+  ];
+  const inReview = (id: string) => id === "reviewed1";
+  expect(railOrder(list, {}, inReview, 0, "ready")).toEqual(["idle1", "blocked1"]);
+  // default "all" keeps everything
+  expect(railOrder(list, {}, inReview, 0)).toEqual(["running1", "idle1", "blocked1", "reviewed1"]);
+});
+
 test("railOrder of an empty herd is empty", () => {
   expect(railOrder([], {})).toEqual([]);
 });

@@ -30,6 +30,18 @@
 
   const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
 
+  // A status badge renders for ready / a non-hidden status; only then does
+  // #tile-status-{id} exist. Build the overlay's aria-describedby so it omits
+  // that id when no badge renders (reviewing && done/idle) — no dangling IDREF.
+  const describedBy = $derived(
+    [
+      session.readyToMerge || !hideStatus ? `tile-status-${session.id}` : null,
+      `tile-desig-${session.id}`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
   let el: HTMLDivElement | undefined = $state();
   let termRef = $state<Terminal | undefined>();
 
@@ -132,7 +144,7 @@
     class="tile-hit"
     type="button"
     aria-label={m.unit_open_aria({ name: session.name })}
-    aria-describedby="tile-status-{session.id} tile-desig-{session.id}"
+    aria-describedby={describedBy}
     onclick={() => onselect(session.id)}
   ></button>
   <div class="t-head">

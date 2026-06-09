@@ -107,6 +107,21 @@
 
   const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
 
+  // A status badge renders for merging / ready / a non-hidden status; only then
+  // does #u-status-{id} exist. Build the overlay's aria-describedby so it omits
+  // that id when no badge renders (reviewing && done/idle) — no dangling IDREF.
+  const describedBy = $derived(
+    [
+      `u-repo-${session.id}`,
+      `u-sub-${session.id}`,
+      isMerging(session, nowMs) || session.readyToMerge || !hideStatus
+        ? `u-status-${session.id}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
   // live signals (heartbeat + current tool) only make sense while the agent works
   const live = $derived(session.status === "running");
   // verbatim tool summary — NOT translated; shown as a quiet line when present
@@ -132,7 +147,7 @@
       class="unit-hit"
       type="button"
       aria-label={m.unit_open_aria({ name: session.name })}
-      aria-describedby="u-repo-{session.id} u-sub-{session.id} u-status-{session.id}"
+      aria-describedby={describedBy}
       title={session.repoPath}
       onclick={() => onselect(session.id)}
     ></button>

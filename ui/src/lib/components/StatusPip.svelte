@@ -109,6 +109,9 @@
     inset: 0;
     border-radius: 50%;
     background: color-mix(in srgb, var(--c) 70%, transparent);
+    /* the scaled halo must never intercept clicks meant for neighbors (the
+       box-shadow it replaced was hit-transparent) */
+    pointer-events: none;
     /* functional status motion — exempt from the reduced-motion blanket (app.css) */
     animation: pip-pulse 1.5s ease-out infinite !important;
   }

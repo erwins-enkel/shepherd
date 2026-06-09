@@ -517,6 +517,8 @@
   // Command-collection popover: shown when the server says it can't auto-detect.
   let previewCommandOpen = $state(false);
   let previewCommandDraft = $state("");
+  // Ref for outside-click dismissal of the start-wrap (button + command popover).
+  let previewStartWrapEl = $state<HTMLElement | null>(null);
   // Two-step confirm for working-agent start: first click arms, second confirms.
   let previewArmed = $state(false);
   let previewArmTimer: ReturnType<typeof setTimeout> | undefined;
@@ -620,6 +622,16 @@
       void submitPreviewCommand();
     }
     // Esc is handled by use:dialog (closes + restores focus to Start button).
+  }
+
+  // Outside-click dismiss for the command popover + arm state.
+  function onWindowPointerdownPreview(e: PointerEvent) {
+    if (!previewCommandOpen && !previewArmed) return;
+    if (previewStartWrapEl && !previewStartWrapEl.contains(e.target as Node)) {
+      previewCommandOpen = false;
+      previewArmed = false;
+      clearTimeout(previewArmTimer);
+    }
   }
 
   // upload image(s) into this session's worktree, then inject their paths into
@@ -1249,6 +1261,8 @@
   });
 </script>
 
+<svelte:window onpointerdown={onWindowPointerdownPreview} />
+
 <div
   class="viewport"
   class:swiping
@@ -1420,8 +1434,8 @@
         >
       {:else if session && !session.archivedAt}
         <!-- no preview yet: offer operator-triggered start. Anchored non-modal
-             (no scrim) — dismiss on Esc / outside-click per the design-system rule. -->
-        <span class="preview-start-wrap">
+             (no scrim) — dismiss on Esc + outside-click (svelte:window onpointerdown). -->
+        <span class="preview-start-wrap" bind:this={previewStartWrapEl}>
           <button
             class="tab-btn preview-start-btn"
             class:armed={previewArmed}
@@ -2816,6 +2830,12 @@
   .tab-btn.preview-start-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* confirm-to-proceed cue — mirrors .decom.armed but with amber (non-destructive) */
+  .tab-btn.preview-start-btn.armed {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
   }
   /* anchored non-modal command-collection popover (no scrim) */
   .preview-cmd-pop {

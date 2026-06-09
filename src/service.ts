@@ -237,16 +237,22 @@ function buildQueueDirective(args: {
  * Pre-execution PLAN GATE directives. When the plan gate is on for a session, one of these
  * REPLACES the autopilot directive during the planning phase — planning deliberately suppresses
  * autopilot so the agent stops to plan/grill instead of rushing to a PR. The interactive variant
- * grills a present human; the auto variant runs unattended (drain) and just writes the plan.
- * English, not i18n'd — agent-facing prompt text, same precedent as AUTOPILOT_DIRECTIVE.
+ * grills a present human ACTIVELY — clarifying questions are asked via AskUserQuestion / in the
+ * conversation, never parked as an open-questions list in the plan; the auto variant runs
+ * unattended (drain) and just writes the plan. English, not i18n'd — agent-facing prompt text,
+ * same precedent as AUTOPILOT_DIRECTIVE.
  */
 const PLAN_GATE_DIRECTIVE_INTERACTIVE =
   "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
   "1. Research the codebase enough to plan confidently.\n" +
-  "2. Grill the user: ask sharp, specific clarifying questions until you and the user are genuinely " +
-  "aligned on scope, approach, and success criteria. Misalignment now is the costliest failure.\n" +
+  "2. Ask the user actively — do NOT hide questions in the plan or a spec file. Use the AskUserQuestion " +
+  "tool for choice-style clarifications, and ask open-ended questions directly in the conversation. Keep " +
+  "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
+  "success criteria. Misalignment now is the costliest failure.\n" +
   "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, files, " +
-  "steps, risks, success criteria) and tell the user it's ready for review.\n" +
+  "steps, risks, success criteria) and tell the user it's ready for review. The plan must contain NO open / " +
+  "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
+  "assumptions and resolved decisions.\n" +
   "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
   "Begin implementing ONLY after the plan is approved and you are told to execute.";
 const PLAN_GATE_DIRECTIVE_AUTO =

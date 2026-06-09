@@ -116,11 +116,11 @@ ${big}
 
 test("MAX_TOTAL_LINES: stops parsing after global cap, marks over-cap file truncated", () => {
   // Each file has 1000 lines (under per-file cap of 2000). Generate 102 files →
-  // 102k total lines, exceeding MAX_TOTAL_LINES (100k). Files 1-100 parse clean;
-  // file 101+ gets marked truncated by the global cap.
+  // 102k total lines, exceeding MAX_TOTAL_LINES (100k). At least one file parses
+  // clean and at least one is marked truncated by the global cap.
   const makeFile = (name: string, n: number) => {
     const lines = Array.from({ length: n }, (_, i) => `+line ${i}`).join("\n");
-    return `diff --git a/${name} b/${name}\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${n} @@\n${lines}\n`;
+    return `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${n} @@\n${lines}\n`;
   };
   const text = Array.from({ length: 102 }, (_, i) => makeFile(`file${i}.ts`, 1000)).join("");
   const files = parseUnifiedDiff(text);
@@ -130,9 +130,11 @@ test("MAX_TOTAL_LINES: stops parsing after global cap, marks over-cap file trunc
   const truncatedFiles = files.filter((f) => f.truncated);
   expect(cleanFiles.length).toBeGreaterThan(0);
   expect(truncatedFiles.length).toBeGreaterThan(0);
-  // The truncated files have no hunks
+  // The truncated files have no hunks but still carry correct status + path metadata
   for (const f of truncatedFiles) {
     expect(f.hunks).toHaveLength(0);
+    expect(f.status).toBe("added");
+    expect(f.path).toMatch(/^file\d+\.ts$/);
   }
 });
 

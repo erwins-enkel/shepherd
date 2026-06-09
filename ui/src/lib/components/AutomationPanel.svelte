@@ -121,6 +121,30 @@
     return collaborators.find((c) => eqLogin(c, value)) ?? value;
   }
 
+  // The popover is anchored below its trigger (top: 100%), so a viewport-relative
+  // max-height alone can't keep the bottom on screen — how much room exists depends
+  // on where the anchor sits. Measure the popover's top and cap its height to the
+  // space actually left below it, so the internal scrollbar engages and the last
+  // sections (e.g. Zuständigkeiten) stay reachable.
+  let popEl = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    const el = popEl;
+    if (!el) return;
+    const clamp = () => {
+      const top = el.getBoundingClientRect().top;
+      el.style.maxHeight = `${Math.max(160, window.innerHeight - top - 12)}px`;
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    // capture-phase scroll: the anchor may live inside a scrollable container,
+    // and scroll events don't bubble — recompute whenever anything scrolls.
+    window.addEventListener("scroll", clamp, true);
+    return () => {
+      window.removeEventListener("resize", clamp);
+      window.removeEventListener("scroll", clamp, true);
+    };
+  });
+
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const prev = roles;
     roles = { ...roles, [role]: value }; // optimistic
@@ -141,7 +165,7 @@
   }
 </script>
 
-<div class="auto-pop" role="dialog" aria-label={m.automation_panel_title()}>
+<div class="auto-pop" role="dialog" aria-label={m.automation_panel_title()} bind:this={popEl}>
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>
 
@@ -499,7 +523,9 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     color: var(--color-ink);
     /* long-form details can expand a row tall; keep the popover within the
-       viewport and scroll instead of overflowing off-screen */
+       viewport and scroll instead of overflowing off-screen. The 85vh is only
+       the pre-measure fallback — an effect clamps max-height to the space
+       actually available below the anchored top edge. */
     max-height: 85vh;
     overflow-y: auto;
   }

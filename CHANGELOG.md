@@ -1,5 +1,65 @@
 # Changelog
 
+## [1.20.0](https://github.com/erwins-enkel/shepherd/compare/v1.19.0...v1.20.0) (2026-06-09)
+
+
+### Features
+
+* agent-declared `.shepherd-preview` port hint ([#397](https://github.com/erwins-enkel/shepherd/issues/397)) ([#448](https://github.com/erwins-enkel/shepherd/issues/448)) ([56609ee](https://github.com/erwins-enkel/shepherd/commit/56609ee484e20ba8fcc506ea521356a1e2ee8d46))
+* **automation:** clickable ⓘ help with full explanation per function ([#438](https://github.com/erwins-enkel/shepherd/issues/438)) ([ff78853](https://github.com/erwins-enkel/shepherd/commit/ff788535eeedea5907418f282fda48b623ea4b43))
+* draft-mode PRs held until sign-off (human / critic / either) ([#444](https://github.com/erwins-enkel/shepherd/issues/444)) ([a7d622c](https://github.com/erwins-enkel/shepherd/commit/a7d622c576812ade7bb4aae05a87fa6176080054))
+* **herd:** per-repo reviewer/merger roles — "your turn" only when it really is ([#434](https://github.com/erwins-enkel/shepherd/issues/434)) ([6c51efc](https://github.com/erwins-enkel/shepherd/commit/6c51efce6b767085d228813e7635db1e3cf33af9))
+* live app preview URL per agent ([#345](https://github.com/erwins-enkel/shepherd/issues/345)) ([#415](https://github.com/erwins-enkel/shepherd/issues/415)) ([e91663d](https://github.com/erwins-enkel/shepherd/commit/e91663dc6f8caa57ab9e404425d8dd0d08f61e7c))
+* **merge-train:** offer local-checkout update after a merge-train run completes ([#439](https://github.com/erwins-enkel/shepherd/issues/439)) ([e9fd2d9](https://github.com/erwins-enkel/shepherd/commit/e9fd2d97d93a56061cec4495cc45522feeec0f68))
+* offer to update local checkout after a PR merge ([#427](https://github.com/erwins-enkel/shepherd/issues/427)) ([935abc0](https://github.com/erwins-enkel/shepherd/commit/935abc0aba8e8b8f66c1643b154dbe86d535a7fd))
+* **plan-gate:** planning agent asks questions actively, not parked in the plan ([#454](https://github.com/erwins-enkel/shepherd/issues/454)) ([224453b](https://github.com/erwins-enkel/shepherd/commit/224453bcd8171efabf88d808c41d02a9999e4c3e))
+* **preview:** operator-triggered "Start dev server" from the HUD ([#446](https://github.com/erwins-enkel/shepherd/issues/446)) ([#453](https://github.com/erwins-enkel/shepherd/issues/453)) ([54c057a](https://github.com/erwins-enkel/shepherd/commit/54c057a6c7b7e3903eb3fd239375afb64ce85e11))
+* split review cap into separate PR + plan review caps ([#404](https://github.com/erwins-enkel/shepherd/issues/404)) ([38127ea](https://github.com/erwins-enkel/shepherd/commit/38127ea3f815ca6cc5f184ede19f0a561204f106))
+* **ui:** add ^U quick-tap shortcut to control palette ([#409](https://github.com/erwins-enkel/shepherd/issues/409)) ([e753b69](https://github.com/erwins-enkel/shepherd/commit/e753b69d42a4a2b42a1da67d0fc122966e8f7ea5))
+* **ui:** foldable header on mobile to reclaim terminal space ([#416](https://github.com/erwins-enkel/shepherd/issues/416)) ([07cbd1b](https://github.com/erwins-enkel/shepherd/commit/07cbd1b023c5c6c0488a18298eeafc015b93334f))
+* **ui:** highlight shepherd:active label in backlog issue list ([#440](https://github.com/erwins-enkel/shepherd/issues/440)) ([3d4ee34](https://github.com/erwins-enkel/shepherd/commit/3d4ee341c366bb7cd2ef2691c951598d674f0ecc))
+* **ui:** launch a merge train from a backlog PR multi-selection ([#436](https://github.com/erwins-enkel/shepherd/issues/436)) ([11ccd0d](https://github.com/erwins-enkel/shepherd/commit/11ccd0dfb6c6c411681b0957ceeb29e0d506d01e))
+* **ui:** nudge users to star Shepherd on GitHub after a few days ([#442](https://github.com/erwins-enkel/shepherd/issues/442)) ([4ca8d93](https://github.com/erwins-enkel/shepherd/commit/4ca8d93cd0ee75d9fa06803cc17bc4d8cd017395))
+* **ui:** repo selector leads New Task form + named on submit ([#420](https://github.com/erwins-enkel/shepherd/issues/420)) ([010e459](https://github.com/erwins-enkel/shepherd/commit/010e459011ea12b8bd28e0d22f7df411e395f76a))
+* **ui:** resume a parked session from a header button + card right-click ([#445](https://github.com/erwins-enkel/shepherd/issues/445)) ([a01e3b0](https://github.com/erwins-enkel/shepherd/commit/a01e3b0211a6943dc678c12faaa92ababac3467c))
+* **ui:** show per-repo learnings in the repo status row, drop top-bar badge ([#432](https://github.com/erwins-enkel/shepherd/issues/432)) ([d91786b](https://github.com/erwins-enkel/shepherd/commit/d91786be9a826cab33d50126c0ee77b06bd2bfdd))
+* **ui:** stack repo-status rows and make them a herd filter ([#443](https://github.com/erwins-enkel/shepherd/issues/443)) ([598f5a8](https://github.com/erwins-enkel/shepherd/commit/598f5a85bedfcf08d132915a6fbce5acfb312114))
+* **ui:** surface the critic's live activity in the badge tooltip ([#431](https://github.com/erwins-enkel/shepherd/issues/431)) ([9c5cecf](https://github.com/erwins-enkel/shepherd/commit/9c5cecf90d701d4e075a05d3e053e903d0ad2481))
+
+
+### Bug Fixes
+
+* **a11y:** row/tile clickable surface as overlay button, not a wrapping &lt;button&gt; ([#412](https://github.com/erwins-enkel/shepherd/issues/412)) ([#433](https://github.com/erwins-enkel/shepherd/issues/433)) ([eb86a32](https://github.com/erwins-enkel/shepherd/commit/eb86a325178ef315a4b2e17d5744bce03a97dbfa))
+* **ci:** bump runner image Node 20 -&gt; 22 to match ubuntu-latest ([#422](https://github.com/erwins-enkel/shepherd/issues/422)) ([caeb7d2](https://github.com/erwins-enkel/shepherd/commit/caeb7d2f3a08f16d1da3a3f45baa509c5a73a417))
+* **ci:** install Node 20 in the self-hosted runner image ([#419](https://github.com/erwins-enkel/shepherd/issues/419)) ([b1e6d36](https://github.com/erwins-enkel/shepherd/commit/b1e6d3689c5e27f53fb2834a7acf945173e79ed6))
+* **drain:** close stale-cache claim race for multi-person queue sharing + docs ([#435](https://github.com/erwins-enkel/shepherd/issues/435)) ([12c266a](https://github.com/erwins-enkel/shepherd/commit/12c266ac863ee9dcd0f625d88a78f831148edf9c))
+* eliminate intermittent 1-3s web-terminal input freezes (event-loop starvation) ([#437](https://github.com/erwins-enkel/shepherd/issues/437)) ([5bbea2e](https://github.com/erwins-enkel/shepherd/commit/5bbea2ee540556f54705457ff75005ae920980ad))
+* **extension:** persist routing rules — snapshot $state before chrome.storage ([#456](https://github.com/erwins-enkel/shepherd/issues/456)) ([ac00593](https://github.com/erwins-enkel/shepherd/commit/ac00593509eeb10c1df5464036ac275fab622036))
+* **herdr:** protocol-bump update no longer kills sessions + Resume when herdr is down ([#413](https://github.com/erwins-enkel/shepherd/issues/413)) ([0cf4c69](https://github.com/erwins-enkel/shepherd/commit/0cf4c695a6429d5a846e4f41a0d8fc81664aa5c0))
+* merge-train sessions stuck on pulsing 'merging' tag, never flip to merged ([#455](https://github.com/erwins-enkel/shepherd/issues/455)) ([e1dd709](https://github.com/erwins-enkel/shepherd/commit/e1dd70963c6d019259cde92da3fe8138acc505b1))
+* **plan-gate:** give 'Review plan now' visible feedback ([#428](https://github.com/erwins-enkel/shepherd/issues/428)) ([dda9679](https://github.com/erwins-enkel/shepherd/commit/dda9679b65c5ac04ea5bb61f54766bb97e0cc65f))
+* **plan-gate:** isolate plan-reviewer worktree per session ([#417](https://github.com/erwins-enkel/shepherd/issues/417)) ([0bced1f](https://github.com/erwins-enkel/shepherd/commit/0bced1fd0ec809d0f4f559744bdf51afc7b6e919))
+* **poller:** restore per-agent heartbeat + stall after CC stopped live-writing transcripts ([#441](https://github.com/erwins-enkel/shepherd/issues/441)) ([be6ae84](https://github.com/erwins-enkel/shepherd/commit/be6ae84735c71a89fb5ac178d704b8b951a28e4f))
+* **preview:** reach live preview when the HUD is fronted on a different Tailscale identity than the agents ([#447](https://github.com/erwins-enkel/shepherd/issues/447)) ([#452](https://github.com/erwins-enkel/shepherd/issues/452)) ([03ec599](https://github.com/erwins-enkel/shepherd/commit/03ec59967a497666c3cef0df28a7b9bfbdce3b21))
+* **review:** isolate reviewer agents from MCP via --safe-mode ([#421](https://github.com/erwins-enkel/shepherd/issues/421)) ([0391284](https://github.com/erwins-enkel/shepherd/commit/039128464ef9cf3c71204688ab06c31c8b68ec3d))
+* stop plan-gate and PR-critic badges from competing on a card ([#425](https://github.com/erwins-enkel/shepherd/issues/425)) ([c60e2b6](https://github.com/erwins-enkel/shepherd/commit/c60e2b6ab5e15c239395b20afadb16e8e2cf99da))
+* **store:** monotonic task designations — never reuse a number after prune ([#449](https://github.com/erwins-enkel/shepherd/issues/449)) ([5f420c5](https://github.com/erwins-enkel/shepherd/commit/5f420c5bf3d46dd31fc08bb790370bbe59e79474))
+* **ui:** dim+blur the app behind every dialog and drawer ([#424](https://github.com/erwins-enkel/shepherd/issues/424)) ([b9f1ac0](https://github.com/erwins-enkel/shepherd/commit/b9f1ac0d93ba76b28bbd128d7e21ab125ac4014f))
+* **ui:** exclude in-review sessions from Ready filter + merge-train ([#406](https://github.com/erwins-enkel/shepherd/issues/406)) ([3d6d721](https://github.com/erwins-enkel/shepherd/commit/3d6d721d534af2f9608e593e509ca8ff68ada3b2))
+* **ui:** explain Erkenntnisse via badge tooltip and panel intro ([#414](https://github.com/erwins-enkel/shepherd/issues/414)) ([38fd6dd](https://github.com/erwins-enkel/shepherd/commit/38fd6dd87b32b186c69555ef5bf1b21a2d2f329a))
+* **ui:** granular PR/issue open-age chip instead of "0 d" same-day ([#451](https://github.com/erwins-enkel/shepherd/issues/451)) ([e2f4ddc](https://github.com/erwins-enkel/shepherd/commit/e2f4ddca169498582a7108cbf86af2b88bfd754c))
+* **ui:** heartbeat strip spans full card width, consistent across badges ([#450](https://github.com/erwins-enkel/shepherd/issues/450)) ([01d5fb5](https://github.com/erwins-enkel/shepherd/commit/01d5fb595a5959d95a77b9c78c5a71de446c8d5e))
+* **ui:** let desktop shell fill viewport width instead of capping at 1480px ([#411](https://github.com/erwins-enkel/shepherd/issues/411)) ([d83bf56](https://github.com/erwins-enkel/shepherd/commit/d83bf5644aeb90d680a8e6e1bc48284088d85fd6))
+* **ui:** pin mobile action bar to viewport bottom ([#418](https://github.com/erwins-enkel/shepherd/issues/418)) ([1a74c36](https://github.com/erwins-enkel/shepherd/commit/1a74c36f2b9cea60048c3c0a66b9334613aa8c71))
+* **ui:** stop truncating repo name on New Task submit button ([#430](https://github.com/erwins-enkel/shepherd/issues/430)) ([aac92c6](https://github.com/erwins-enkel/shepherd/commit/aac92c6de7cf23ca51a2ea16fdab6ff87af0d699))
+* **ui:** tappable Set button for custom repo emoji (mobile) ([#410](https://github.com/erwins-enkel/shepherd/issues/410)) ([8110784](https://github.com/erwins-enkel/shepherd/commit/81107849b95e95ce81a0468b111576d705237b6f))
+* **ui:** terminal Shift+Enter newline + copyable selection ([#429](https://github.com/erwins-enkel/shepherd/issues/429)) ([092c8e9](https://github.com/erwins-enkel/shepherd/commit/092c8e966ce2bc44e59c09b2de6edc7542d1e3e0))
+
+
+### Documentation
+
+* **research:** graphify follow-up — preloading graph won't cut mean time-to-plan/impl ([#407](https://github.com/erwins-enkel/shepherd/issues/407)) ([401b337](https://github.com/erwins-enkel/shepherd/commit/401b337c15d6239dda71deef4658842c0cf44559))
+
 ## [1.19.0](https://github.com/erwins-enkel/shepherd/compare/v1.18.0...v1.19.0) (2026-06-09)
 
 

@@ -48,12 +48,12 @@ export class StatusPoller {
    *  still generating keeps its spinner/elapsed/token counter ticking, so the
    *  buffer changes between probes; a wedged or idle turn leaves it frozen. */
   private lastVisible = new Map<string, string>();
-  /** Interim terminal-diff state — used ONLY when the transcript probe yields
-   *  nothing (Claude Code 2.1.169 stopped writing the JSONL live during a
-   *  session). Kept separate from `lastVisible` (which belongs to
-   *  `evaluateStall`'s gate) so the two liveness diffs never trample each other;
-   *  this whole cluster goes dormant the moment the transcript starts producing
-   *  signals again. See `probeTerminalInterim`. */
+  /** Interim terminal-diff state — used whenever the transcript is NOT being
+   *  written live (an empty JSONL, or a resumed session inheriting a frozen old
+   *  one; see the liveness gate in `maybeProbe`). Kept separate from `lastVisible`
+   *  (which belongs to `evaluateStall`'s gate) so the two liveness diffs never
+   *  trample each other; this whole cluster is reset (`resetInterim`) the moment
+   *  the transcript starts live-writing again. See `probeTerminalInterim`. */
   private lastInterimVisible = new Map<string, string>();
   /** Per-session heartbeat ticks (ms epochs of probes where the visible buffer
    *  changed), windowed to STRIP_WINDOW_MS — drives the interim heat-strip. */
@@ -64,6 +64,13 @@ export class StatusPoller {
    *  fire-and-forget off the (synchronous) tick, so a slow read must not let the
    *  next cadence pile a second read on top; we skip while one is pending. */
   private interimInFlight = new Set<string>();
+  /** Per-session newest transcript-record ts seen on the PREVIOUS probe — the
+   *  liveness baseline that decides transcript-vs-interim each probe. A probe whose
+   *  newest record advanced past this is "live-writing" (use the transcript); one
+   *  that didn't (empty, or a resumed session inheriting a frozen old JSONL) falls
+   *  to the interim terminal-diff. First sighting (no baseline) counts as live so a
+   *  resumed agent auto-reactivates the transcript path before settling. */
+  private lastTranscriptTs = new Map<string, number>();
 
   /** Timestamp of the last completed preview sweep start (0 = never). */
   private lastPreviewSweepAt = 0;
@@ -202,6 +209,7 @@ export class StatusPoller {
       ...this.interimTicks.keys(),
       ...this.lastInterimChangeAt.keys(),
       ...this.interimInFlight.keys(),
+      ...this.lastTranscriptTs.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -215,6 +223,7 @@ export class StatusPoller {
         this.interimTicks.delete(id);
         this.lastInterimChangeAt.delete(id);
         this.interimInFlight.delete(id);
+        this.lastTranscriptTs.delete(id);
       }
     }
   }
@@ -265,25 +274,49 @@ export class StatusPoller {
       return; // best-effort; retry next cadence
     }
 
-    // ── interim path: transcript yielded NOTHING (the CC 2.1.169 case) ──
+    // ── transcript-liveness gate: use the transcript only while it's LIVE ──
     // Claude Code 2.1.169 stopped flushing the transcript JSONL live during a
-    // session (it now writes only on exit), so for every running agent the probe
-    // comes back empty → the heartbeat strip would render all-empty AND stall
-    // detection would be disabled (`evaluateStall` bails on a null snapshot
-    // BEFORE it ever reads the terminal). When BOTH signals are null we instead
-    // derive a coarse-but-live heartbeat + stall from the herdr "visible" buffer.
-    // This is NOT free: it adds ONE fresh `visible` read per running agent per
-    // probe cadence (the transcript path early-returned at zero reads in this
-    // 2.1.169 world). To keep that fan-out off Bun's single loop, the read is
-    // ASYNC (`readAsync`) and dispatched fire-and-forget — `tick()` never blocks
-    // on it. No Claude-Code-side hooks, works on already-running agents. This
-    // branch is mutually exclusive with the transcript path below: the instant
-    // Claude Code restores live transcript writes (signals become non-null) it
-    // goes dormant automatically and the original path runs.
-    if (signals.activity == null && signals.snapshot == null) {
+    // session (it now writes only on exit). Worse, a RESUMED session inherits its
+    // OLD frozen JSONL, so `parseActivity` returns stale entries → the probe comes
+    // back NON-null but its newest record never advances. A naive "both signals
+    // null" trigger therefore missed those stale-but-parseable transcripts and
+    // stranded the agent on a dead transcript path (its old `recentTs` drain to
+    // empty at `now`, so the heartbeat strip renders all-empty and stall detection
+    // is effectively disabled).
+    //
+    // So we don't ask "is the transcript empty?" but "is it being WRITTEN right
+    // now?" — does its newest record advance between probes. `newestTs` is the
+    // newest of the two signals; `liveWriting` is true on the FIRST sighting (no
+    // baseline yet — so a resumed agent still auto-reactivates the transcript path)
+    // and thereafter only when `newestTs` strictly advances past the prior probe.
+    //
+    //  • NOT live-writing (empty transcript OR a frozen/stale one) → derive a
+    //    coarse-but-live heartbeat + stall from the herdr "visible" buffer instead.
+    //    This adds ONE fresh `visible` read per such agent per probe cadence; to
+    //    keep that fan-out off Bun's single loop the read is ASYNC (`readAsync`)
+    //    and dispatched fire-and-forget — `tick()` never blocks on it. No
+    //    Claude-Code-side hooks; works on already-running agents.
+    //  • Live-writing → run the original transcript path (activity emit + stall
+    //    liveness gate). First, `resetInterim` clears any interim baseline left by
+    //    a prior interim episode, so a LATER re-entry into interim defers cleanly
+    //    off a fresh first sample rather than firing off a stale `lastInterimChangeAt`.
+    //
+    // Flipping to interim during a long live-writing generation gap (no new record
+    // for a while) is benign: the terminal-diff still shows the agent alive, and
+    // the transcript path resumes the instant a new record lands.
+    const newestTs = signals.activity?.lastActivityTs ?? signals.snapshot?.lastTs ?? null;
+    const prevTs = this.lastTranscriptTs.get(s.id);
+    const liveWriting = newestTs != null && (prevTs === undefined || newestTs > prevTs);
+    if (newestTs != null) this.lastTranscriptTs.set(s.id, newestTs);
+
+    if (!liveWriting) {
       void this.probeTerminalInterim(s, t);
       return;
     }
+
+    // transcript is live-writing → clear any stale interim baseline first, then the
+    // original transcript-driven activity emit + stall liveness gate.
+    this.resetInterim(s.id);
 
     // ── activity emit (deduped by signal content) ──
     if (signals.activity) {
@@ -295,9 +328,28 @@ export class StatusPoller {
   }
 
   /**
+   * Clear the interim terminal-diff baseline for a session (its change-baseline,
+   * heartbeat ticks, and last visible buffer). Called on every live-writing probe
+   * so a later re-entry into the interim path starts from a clean first sample
+   * (which defers one cycle) rather than firing off a stale `lastInterimChangeAt`
+   * carried over from a PRIOR interim episode (Finding 1).
+   *
+   * Deliberately does NOT touch `interimInFlight`: that flag self-clears in
+   * `probeTerminalInterim`'s `finally`, and an in-flight read completing after a
+   * reset simply finds no baseline → behaves as a fresh first sample, which is the
+   * correct (defer-not-fire) outcome.
+   */
+  private resetInterim(id: string): void {
+    this.lastInterimChangeAt.delete(id);
+    this.interimTicks.delete(id);
+    this.lastInterimVisible.delete(id);
+  }
+
+  /**
    * Interim heartbeat + stall, derived from the live terminal alone, for when the
-   * transcript probe yields nothing (Claude Code 2.1.169 no longer writes the
-   * JSONL live). Reads the visible buffer EXACTLY ONCE — and ASYNCHRONOUSLY, via
+   * transcript is not being written live (an empty JSONL, or a resumed session
+   * inheriting a frozen old one — see the liveness gate in `maybeProbe`). Reads
+   * the visible buffer EXACTLY ONCE — and ASYNCHRONOUSLY, via
    * `readAsync`, so the read never blocks Bun's single loop (it fans out across
    * every running agent each probe cadence). Dispatched fire-and-forget from the
    * synchronous `maybeProbe`; an `interimInFlight` guard skips a fresh dispatch

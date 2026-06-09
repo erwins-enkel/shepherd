@@ -152,12 +152,54 @@ describe("connectPty", () => {
 
     last().gone(); // server says the agent is gone (close code 4001)
     expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onEnded).toHaveBeenCalledWith("gone");
 
     vi.advanceTimersByTime(5000);
     expect(FakeWs.instances).toHaveLength(1); // never reconnected — no attach loop
 
     conn.poke(); // a refocus must not resurrect an ended session
     expect(FakeWs.instances).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("ends after repeated instant attach failures (herdr server gone)", () => {
+    vi.useFakeTimers();
+    const onEnded = vi.fn();
+    const { last } = make(
+      () => {},
+      () => {},
+      onEnded,
+    );
+    // herdr's server was stopped (e.g. by a failed update): every attach opens
+    // then dies at once. Without a cap this loops on `Os NotFound` forever.
+    for (let i = 0; i < 12; i++) {
+      last().open();
+      last().drop(); // closes immediately — never lived past the fast-fail window
+      vi.advanceTimersByTime(1000); // let the scheduled retry fire
+    }
+    expect(onEnded).toHaveBeenCalledTimes(1); // surfaced the affordance, once
+    expect(onEnded).toHaveBeenCalledWith("unreachable"); // herdr down, not agent gone
+    vi.useRealTimers();
+  });
+
+  it("keeps reconnecting when a real session drops after running a while", () => {
+    vi.useFakeTimers();
+    const onEnded = vi.fn();
+    const { last } = make(
+      () => {},
+      () => {},
+      onEnded,
+    );
+    // a healthy session that lives past the window then drops is transient, not a
+    // dead herdr — it must keep reconnecting and never surface "ended".
+    for (let i = 0; i < 12; i++) {
+      last().open();
+      vi.advanceTimersByTime(5000); // session lives past FAST_FAIL_MS
+      last().drop();
+      vi.advanceTimersByTime(1000); // reconnect
+    }
+    expect(onEnded).not.toHaveBeenCalled();
+    expect(FakeWs.instances.length).toBeGreaterThan(5);
     vi.useRealTimers();
   });
 

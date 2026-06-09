@@ -36,9 +36,11 @@ export function connectPty(
   // fired when the server hands this terminal to another device — caller shows a
   // "take over" affordance instead of fighting for the attach
   onParked: () => void = () => {},
-  // fired when the session has ended (agent gone) — caller shows an ended state;
-  // the connection stops for good and never reconnects
-  onEnded: () => void = () => {},
+  // fired when the connection stops for good and never reconnects. "gone" = the
+  // herdr agent itself exited (user quit claude); "unreachable" = herdr is down
+  // so no attach can succeed (e.g. its server was stopped by a failed update).
+  // The caller shows a Resume vs. Reconnect affordance accordingly.
+  onEnded: (reason: "gone" | "unreachable") => void = () => {},
   makeWs: (path: string) => WebSocket = (p) => new WebSocket(wsUrl(p)),
 ): PtyConn {
   let ws: WebSocket;
@@ -50,9 +52,23 @@ export function connectPty(
   // (the viewport may have changed — rotation, keyboard — while backgrounded)
   let lastCols = cols;
   let lastRows = rows;
+  // Tell apart a herdr server that's gone for good (e.g. its server was stopped
+  // by a failed `herdr update`) from a momentary blip. Every attach against a
+  // dead herdr opens then drops within milliseconds, and reconnecting just spews
+  // `Error: Os { code: 2, … NotFound }` forever (no agent socket to attach to).
+  // We count consecutive attaches that die within FAST_FAIL_MS of opening; once
+  // they pass MAX_FAST_FAILS we stop and surface the ended/Resume affordance
+  // instead of looping. A connection that lived past the window (a real session
+  // that later dropped) resets the counter, so a single herdr restart/handoff
+  // rides through normally.
+  let openedAt = 0;
+  let fastFails = 0;
+  const FAST_FAIL_MS = 4000;
+  const MAX_FAST_FAILS = 8;
 
   const open = () => {
     parked = false;
+    openedAt = 0;
     if (retry) {
       clearTimeout(retry);
       retry = null;
@@ -62,6 +78,7 @@ export function connectPty(
     ws.onmessage = (e) =>
       onData(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data));
     ws.onopen = () => {
+      openedAt = Date.now();
       if (everOpened) onReconnect();
       everOpened = true;
     };
@@ -77,10 +94,23 @@ export function connectPty(
       // loop on herdr's agent_not_found
       if (e && e.code === PTY_GONE_CODE) {
         stopped = true;
-        onEnded();
+        onEnded("gone");
         return;
       }
-      if (!stopped && !parked && !retry) retry = setTimeout(open, 1000);
+      // conn.close() / a terminal state already stopped us → don't revive
+      if (stopped || parked) return;
+      // herdr unreachable? a dead-herdr attach opens then drops at once; a
+      // connection that lived past the window was a real session → reset.
+      const livedMs = openedAt ? Date.now() - openedAt : 0;
+      fastFails = livedMs >= FAST_FAIL_MS ? 0 : fastFails + 1;
+      if (fastFails >= MAX_FAST_FAILS) {
+        // herdr is gone for good (not a blip) — stop the attach loop and let the
+        // caller surface a Reconnect affordance instead of error spam.
+        stopped = true;
+        onEnded("unreachable");
+        return;
+      }
+      if (!retry) retry = setTimeout(open, 1000);
     };
     ws.onerror = () => ws.close();
   };

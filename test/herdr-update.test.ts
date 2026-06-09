@@ -9,13 +9,21 @@ import {
 
 const LOG = "/home/op/.shepherd/herdr-update.log";
 
-// ── buildUpdateScript: stop → update, NO restart, durable audit log ──────────
-test("buildUpdateScript: stops herdr then updates, in that order", () => {
+// ── buildUpdateScript: handoff update, recover-on-fail, durable audit log ─────
+test("buildUpdateScript: runs `herdr update --handoff`, no destructive pre-stop", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  const stop = s.indexOf("herdr server stop");
-  const update = s.indexOf("herdr update;");
-  expect(stop).toBeGreaterThanOrEqual(0);
-  expect(update).toBeGreaterThan(stop);
+  // --handoff lets a protocol-bumping update proceed while Shepherd's own herdr
+  // target is live ("one or more herdr targets must restart" otherwise).
+  expect(s).toContain("herdr update --handoff");
+  // the old pre-update `herdr server stop` killed the live server but never
+  // cleared the targets, orphaning every pane on a failed update — gone for good.
+  expect(s).not.toContain("herdr server stop");
+});
+
+test("buildUpdateScript: restarts the herdr server only when the update fails", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  expect(s).toContain('if [ "$rc" -ne 0 ]; then');
+  expect(s).toContain("herdr server start || true");
 });
 
 test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
@@ -25,10 +33,10 @@ test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
   expect(s).not.toContain("restart shepherd");
 });
 
-test("buildUpdateScript: echoes a greppable marker for the two real steps", () => {
+test("buildUpdateScript: echoes a greppable marker for each step", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
-  // stopping / running / exited rc = 3 markers (no restart markers anymore)
+  // running / exited rc / restart-on-failure = 3 markers
   expect(markers.length).toBe(3);
   expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
 });

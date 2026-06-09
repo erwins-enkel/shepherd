@@ -65,16 +65,29 @@ export function buildUpdateScript(
   // Shepherd stays up during the update (no restart), so it captures this
   // script's stdout live for the modal. The `tee -a` is kept anyway: it makes
   // `cat <logPath>` a durable post-mortem that survives even a shepherd crash.
+  // `--handoff` is required because Shepherd itself runs as a live herdr target.
+  // A protocol-bumping update (e.g. 0.6.5 proto 11 → 0.6.8 proto 12) refuses to
+  // proceed while targets are running: bare `herdr update` aborts with "one or
+  // more herdr targets must restart". `--handoff` hands the running targets to
+  // the new version instead of aborting. We deliberately do NOT `herdr server
+  // stop` first: that earlier mitigation never actually cleared the targets (they
+  // outlive the server) yet left the server dead, so a failed update orphaned
+  // every agent pane — clients then loop forever on `agent attach` against a gone
+  // socket. Not stopping means a failed update leaves the live server + panes
+  // untouched. As a belt-and-suspenders recovery, if the update still fails we
+  // bring the server back up so panes can reattach.
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
     "{",
     `  echo "=== herdr-update $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
-    `  echo '${UPDATE_LOG_PREFIX} stopping herdr server'`,
-    "  herdr server stop || true",
-    `  echo '${UPDATE_LOG_PREFIX} running herdr update'`,
-    "  herdr update; rc=$?",
+    `  echo '${UPDATE_LOG_PREFIX} running herdr update --handoff'`,
+    "  herdr update --handoff; rc=$?",
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
+    '  if [ "$rc" -ne 0 ]; then',
+    `    echo '${UPDATE_LOG_PREFIX} update failed — restarting herdr server so panes can reattach'`,
+    "    herdr server start || true",
+    "  fi",
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
 }
@@ -122,8 +135,8 @@ export interface HerdrUpdateDeps {
  * network down, malformed payload) yields updateAvailable:false, so a broken
  * check can never raise a false badge.
  *
- * `apply()` spawns `herdr server stop; herdr update` as a managed child of
- * shepherd (no systemd-run, no shepherd restart). Shepherd stays up — no 502.
+ * `apply()` spawns `herdr update --handoff` as a managed child of shepherd (no
+ * systemd-run, no shepherd restart). Shepherd stays up — no 502.
  * Success is determined by re-reading `herdr --version` after the child exits,
  * not by exit code (`herdr update` exits 0 even when it prints "Herdr was not
  * updated"). The terminal result is emitted via onDone.

@@ -96,6 +96,23 @@ const STRIPPED_REQUEST_HEADERS = new Set([
   "upgrade",
 ]);
 
+// Hop-by-hop + content-framing headers stripped from the UPSTREAM RESPONSE. Bun's
+// fetch transparently DECODES a compressed body but leaves `content-encoding` and the
+// original `content-length` in place — forwarding them makes the browser try to decode
+// an already-decoded body (ERR_CONTENT_DECODING_FAILED) or truncate at the wrong length.
+// So drop both, plus the hop-by-hop headers that mustn't be proxied end-to-end.
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  "content-encoding",
+  "content-length",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
 /** Per-WS-connection relay state attached via `server.upgrade(req, { data })`. */
 interface RelayData {
   devPort: number;
@@ -300,7 +317,9 @@ function parseSubprotocols(header: string | null): string[] {
 /**
  * Reverse-proxy a plain HTTP request to `127.0.0.1:<devPort>` with the same path,
  * query, method, headers (minus host + hop-by-hop) and a streamed body. Strips
- * framing-blocking response headers. Fails closed with a 502 if upstream throws.
+ * content-framing + hop-by-hop + framing-blocking headers from the response (Bun's
+ * fetch decodes the body, so a forwarded content-encoding/length would break it).
+ * Fails closed with a 502 if upstream throws.
  */
 async function proxyHttp(req: Request, devPort: number): Promise<Response> {
   const url = new URL(req.url);
@@ -327,6 +346,7 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
   }
 
   const respHeaders = new Headers(upstream.headers);
+  for (const h of STRIPPED_RESPONSE_HEADERS) respHeaders.delete(h);
   stripFramingHeaders(respHeaders);
   return new Response(upstream.body, {
     status: upstream.status,

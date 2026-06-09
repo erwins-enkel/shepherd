@@ -702,7 +702,12 @@ const server = serve(
 console.log(`shepherd core on http://localhost:${server.port}`);
 
 // Best-effort teardown of preview listeners on process exit / SIGTERM.
-// Mirrors the existing pattern for other teardown (e.g. poller.stop()).
-const shutdownPreview = () => previewService.stopAll();
-process.on("exit", shutdownPreview);
-process.on("SIGTERM", shutdownPreview);
+process.on("exit", () => previewService.stopAll());
+// Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we
+// must exit explicitly — otherwise `systemctl stop/restart shepherd` hangs until the
+// stop-timeout SIGKILL. Tear down, then exit (the `exit` handler's second stopAll is a
+// no-op since stopAll is idempotent).
+process.on("SIGTERM", () => {
+  previewService.stopAll();
+  process.exit(0);
+});

@@ -532,6 +532,42 @@ test("PreviewService: HTTP proxy strips X-Frame-Options + CSP frame-ancestors, k
   expect(await res.text()).toBe("<html>hi</html>");
 });
 
+test("PreviewService: HTTP proxy strips content-encoding/content-length (Bun decodes the body)", async () => {
+  // A real compressing dev server: send a genuinely gzipped body with the matching
+  // content-encoding/content-length. Bun's fetch in the proxy DECODES the body but
+  // leaves those headers — forwarding them makes the browser re-decode/truncate. The
+  // proxy must strip them and serve the decoded body verbatim.
+  const raw = "<html>hello compressed preview world</html>";
+  const gz = Bun.gzipSync(Buffer.from(raw));
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch() {
+      return new Response(gz, {
+        status: 200,
+        headers: {
+          "content-encoding": "gzip",
+          "content-length": String(gz.length),
+          "x-keep": "yes",
+        },
+      });
+    },
+  });
+  upstreams.push(up);
+
+  const port = service!.ensure("s1", portOf(up));
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect(res.status).toBe(200);
+  // content-encoding stripped so the browser doesn't gunzip already-decoded bytes
+  expect(res.headers.get("content-encoding")).toBeNull();
+  // the STALE (compressed) content-length must be gone; any length now present is the
+  // serializer's correct decoded length, never the gzipped one
+  expect(res.headers.get("content-length")).not.toBe(String(gz.length));
+  expect(res.headers.get("x-keep")).toBe("yes");
+  // body is the correctly-decoded original
+  expect(await res.text()).toBe(raw);
+});
+
 test("PreviewService: fail-closed — upstream dead → 502/503, not a hang or empty 200", async () => {
   // Bind to a devPort nothing listens on (free a port by stopping an upstream).
   const dead = httpUpstream({});

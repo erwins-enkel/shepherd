@@ -89,6 +89,42 @@ export function actionsTabLabel(sel: BacklogProject | null): string {
   }
 }
 
+// How many repos the "recently worked on" group at the top of the backlog list
+// holds — same size as the repo picker's pinned shortcut group (RepoSelect).
+export const RECENT_LIMIT = 3;
+
+/** Repo name a row displays: path basename, falling back to slug/display —
+ *  mirrors ProjectRow so the recents tie-break sorts by the visible name. */
+function projectName(p: BacklogProject): string {
+  return p.path.replace(/\/+$/, "").split("/").pop() || p.slug || p.display;
+}
+
+/**
+ * Split the (already filtered) repo list into the "recently worked on" group
+ * and the rest. Ranking criteria are identical to RepoSelect's pinned recents:
+ * agents run in the recent window (desc), then most-recently-used (desc), then
+ * name (asc); only repos with at least one recent agent qualify, capped at
+ * {@link RECENT_LIMIT}. Unlike the picker (a transient dropdown that repeats
+ * pinned rows below), this persistent list hoists the recents — `rest` keeps
+ * the parent's order minus the hoisted entries, so no repo appears twice.
+ */
+export function partitionRecents(projects: readonly BacklogProject[]): {
+  recents: BacklogProject[];
+  rest: BacklogProject[];
+} {
+  const recents = projects
+    .filter((p) => (p.recentAgentCount ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.recentAgentCount ?? 0) - (a.recentAgentCount ?? 0) ||
+        (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) ||
+        projectName(a).localeCompare(projectName(b)),
+    )
+    .slice(0, RECENT_LIMIT);
+  const hoisted = new Set(recents.map((p) => p.path));
+  return { recents, rest: projects.filter((p) => !hoisted.has(p.path)) };
+}
+
 /**
  * Narrow the repo list by activity. Each active flag is a *required* predicate
  * (AND semantics): `hasIssues` keeps only repos with open issues, `hasPRs` only

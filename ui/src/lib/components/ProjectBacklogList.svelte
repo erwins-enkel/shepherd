@@ -2,6 +2,7 @@
   import type { BacklogProject } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectRow from "./ProjectRow.svelte";
+  import { partitionRecents } from "./backlog-view";
 
   let {
     projects,
@@ -24,6 +25,11 @@
     ontoggleprs: () => void;
     onselect: (path: string) => void;
   } = $props();
+
+  // "Recently worked on" group at the top — same ranking criteria as the New
+  // Task repo picker's pinned recents (see partitionRecents). Hoisted, not
+  // duplicated, so each repo keeps a single selectable row.
+  const grouped = $derived(partitionRecents(projects));
 </script>
 
 <div class="filter-bar">
@@ -55,7 +61,21 @@
   </div>
 {:else}
   <div class="project-list">
-    {#each projects as project (project.path)}
+    {#if grouped.recents.length > 0}
+      <div class="recent-label">{m.reposelect_recent_heading()}</div>
+      {#each grouped.recents as project (project.path)}
+        <ProjectRow
+          {project}
+          pinned={project.path === pinnedPath}
+          selected={project.path === selectedPath}
+          onselect={() => onselect(project.path)}
+        />
+      {/each}
+      {#if grouped.rest.length > 0}
+        <div class="recent-sep" role="presentation"></div>
+      {/if}
+    {/if}
+    {#each grouped.rest as project (project.path)}
       <ProjectRow
         {project}
         pinned={project.path === pinnedPath}
@@ -110,6 +130,22 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+
+  /* "recently worked on" group heading + divider — mirrors the rs-group-label /
+     rs-group-sep recipe in RepoSelect so both recent-repo groups read alike. */
+  .recent-label {
+    padding: 6px 12px 4px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  .recent-sep {
+    height: 0;
+    border-top: 1px solid var(--color-line-bright);
+    margin: 4px 0;
   }
 
   .filter-empty {

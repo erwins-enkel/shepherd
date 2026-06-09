@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 import type { ReviewVerdict } from "../src/types";
 
@@ -437,4 +441,49 @@ test("session: autoMergeEnabled override + rebase count round-trip", () => {
   expect(store.get(s.id)!.autoMergeRebaseHead).toBe("deadbeef");
   store.setAutoMergeState(s.id, { rebaseHead: null });
   expect(store.get(s.id)!.autoMergeRebaseHead).toBeNull();
+});
+
+test("desig: no reuse after prune — counter is strictly monotonic", async () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.desig).toBe("TASK-01");
+  s.archive(a.id);
+  // negative maxAgeMs makes cutoff land in the future → the just-archived row is within the age
+  // window AND keepNewest:0 evicts it by rank; confirm it's gone
+  const removed = s.pruneArchivedSessions({ maxAgeMs: -Number.MAX_SAFE_INTEGER, keepNewest: 0 });
+  expect(removed).toBe(1);
+  expect(s.get(a.id)).toBeNull();
+  // pre-fix: COUNT(*) would drop to 0 → next desig is TASK-01 again (collision)
+  const b = s.create({ ...base, herdrAgentId: "term_2" });
+  expect(b.desig).toBe("TASK-02");
+});
+
+test("desig: seed from pre-existing DB high-water mark", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-seed-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-populate a raw DB with desig='TASK-09' so the seed subquery finds max=9.
+    // Use the full sessions schema so migrateSessionColumns + INSERT in create() work.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, worktreePath, isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt)
+       VALUES ('s1', 'TASK-09', 'old', 'old', '/r', 'main', '/wt', 1, 'default', 'term_0', 'archived', 'idle', 1, 1)`,
+    );
+    raw.close();
+
+    const store = new SessionStore(dbPath);
+    const s = store.create(base);
+    expect(s.desig).toBe("TASK-10");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

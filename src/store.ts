@@ -26,6 +26,9 @@ function parseFindings(raw: unknown): string[] {
   }
 }
 
+/** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
+const DESIG_PREFIX = "TASK-";
+
 /** Allowed learning status transitions (spec §3). Terminal states have no exits. */
 const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
   proposed: ["active", "dismissed"],
@@ -137,6 +140,17 @@ export class SessionStore implements CapStore {
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     this.migrateSessionColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS task_seq (
+      id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL)`);
+    // Seed once from the high-water mark of existing desigs (TASK-NN) + 1, or 1 on a fresh DB.
+    // SUBSTR offset strips the fixed DESIG_PREFIX; SQLite SUBSTR is 1-based so offset = prefix.length + 1.
+    // INSERT OR IGNORE keeps this idempotent.
+    // NB: this guarantees no *future* reuse but does not de-duplicate desig collisions a pre-fix
+    // DB may already hold (the old COUNT(*) scheme reused numbers after a prune). We deliberately
+    // don't renumber historical rows: a desig is stamped into that task's already-created branch
+    // name + PR title, so rewriting it would desync the label from its real-world artifacts.
+    this.db.run(`INSERT OR IGNORE INTO task_seq (id, next)
+      VALUES (1, (SELECT COALESCE(MAX(CAST(SUBSTR(desig, ${DESIG_PREFIX.length + 1}) AS INTEGER)), 0) + 1 FROM sessions))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
@@ -353,75 +367,83 @@ export class SessionStore implements CapStore {
     return changes > 0;
   }
 
+  private nextDesignationSeq(): number {
+    const row = this.db.query(`SELECT next FROM task_seq WHERE id = 1`).get() as { next: number };
+    this.db.run(`UPDATE task_seq SET next = next + 1 WHERE id = 1`);
+    return row.next;
+  }
+
   create(input: NewSession): Session {
-    const now = Date.now();
-    const n = (this.db.query(`SELECT COUNT(*) AS c FROM sessions`).get() as { c: number }).c;
-    const s: Session = {
-      ...input,
-      model: input.model ?? null,
-      claudeSessionId: input.claudeSessionId ?? "",
-      id: input.id ?? randomUUID(),
-      desig: `TASK-${String(n + 1).padStart(2, "0")}`,
-      readyToMerge: false,
-      autopilotEnabled: null,
-      autopilotStepCount: 0,
-      autopilotPaused: false,
-      autopilotComplete: false,
-      autopilotQuestion: null,
-      planGateEnabled: input.planGateEnabled ?? null,
-      planPhase: input.planPhase ?? null,
-      autoMergeEnabled: null,
-      autoMergeRebaseCount: 0,
-      autoMergeRebaseHead: null,
-      auto: input.auto ?? false,
-      issueNumber: input.issueNumber ?? null,
-      status: "running",
-      lastState: "idle",
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: null,
-      mergingSince: null,
-      mergingTrainId: null,
-    };
-    this.db.run(
-      `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        s.id,
-        s.desig,
-        s.name,
-        s.prompt,
-        s.repoPath,
-        s.baseBranch,
-        s.branch,
-        s.worktreePath,
-        s.isolated ? 1 : 0,
-        s.herdrSession,
-        s.herdrAgentId,
-        s.claudeSessionId,
-        s.model,
-        s.readyToMerge ? 1 : 0,
-        s.status,
-        s.lastState,
-        null, // autopilotEnabled — inherit repo default
-        0, // autopilotStepCount
-        0, // autopilotPaused
-        0, // autopilotComplete
-        null, // autopilotQuestion
-        s.planGateEnabled === null ? null : s.planGateEnabled ? 1 : 0, // planGateEnabled — inherit repo default
-        s.planPhase, // planPhase — null = gate off
-        null, // autoMergeEnabled — inherit repo default
-        0, // autoMergeRebaseCount
-        null, // autoMergeRebaseHead — none outstanding
-        s.auto ? 1 : 0,
-        s.issueNumber,
-        s.createdAt,
-        s.updatedAt,
-        s.archivedAt,
-        s.mergingSince,
-        s.mergingTrainId,
-      ],
-    );
-    return s;
+    return this.db.transaction(() => {
+      const now = Date.now();
+      const seq = this.nextDesignationSeq();
+      const s: Session = {
+        ...input,
+        model: input.model ?? null,
+        claudeSessionId: input.claudeSessionId ?? "",
+        id: input.id ?? randomUUID(),
+        desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
+        readyToMerge: false,
+        autopilotEnabled: null,
+        autopilotStepCount: 0,
+        autopilotPaused: false,
+        autopilotComplete: false,
+        autopilotQuestion: null,
+        planGateEnabled: input.planGateEnabled ?? null,
+        planPhase: input.planPhase ?? null,
+        autoMergeEnabled: null,
+        autoMergeRebaseCount: 0,
+        autoMergeRebaseHead: null,
+        auto: input.auto ?? false,
+        issueNumber: input.issueNumber ?? null,
+        status: "running",
+        lastState: "idle",
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        mergingSince: null,
+        mergingTrainId: null,
+      };
+      this.db.run(
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          s.id,
+          s.desig,
+          s.name,
+          s.prompt,
+          s.repoPath,
+          s.baseBranch,
+          s.branch,
+          s.worktreePath,
+          s.isolated ? 1 : 0,
+          s.herdrSession,
+          s.herdrAgentId,
+          s.claudeSessionId,
+          s.model,
+          s.readyToMerge ? 1 : 0,
+          s.status,
+          s.lastState,
+          null, // autopilotEnabled — inherit repo default
+          0, // autopilotStepCount
+          0, // autopilotPaused
+          0, // autopilotComplete
+          null, // autopilotQuestion
+          s.planGateEnabled === null ? null : s.planGateEnabled ? 1 : 0, // planGateEnabled — inherit repo default
+          s.planPhase, // planPhase — null = gate off
+          null, // autoMergeEnabled — inherit repo default
+          0, // autoMergeRebaseCount
+          null, // autoMergeRebaseHead — none outstanding
+          s.auto ? 1 : 0,
+          s.issueNumber,
+          s.createdAt,
+          s.updatedAt,
+          s.archivedAt,
+          s.mergingSince,
+          s.mergingTrainId,
+        ],
+      );
+      return s;
+    })();
   }
 
   get(id: string): Session | null {

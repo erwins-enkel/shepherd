@@ -229,7 +229,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🔍 {m.automation_critic_name()}
+        ⌕ {m.automation_critic_name()}
         {@render info("critic", m.automation_critic_name())}
       </div>
       <div class="auto-desc">{m.automation_critic_desc()}</div>
@@ -250,7 +250,7 @@
   <div class={["auto-row", { disabled: !flags.critic }]}>
     <div class="auto-meta">
       <div class="auto-name">
-        🤖 {m.automation_autoaddress_name()}
+        ◆ {m.automation_autoaddress_name()}
         {@render info("auto-address", m.automation_autoaddress_name())}
       </div>
       <div class="auto-desc">
@@ -273,7 +273,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🪧 {m.automation_plan_gate_name()}
+        ⌖ {m.automation_plan_gate_name()}
         {@render info("plan-gate", m.automation_plan_gate_name())}
       </div>
       <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
@@ -300,7 +300,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🎓 {m.automation_learnings_name()}
+        ✦ {m.automation_learnings_name()}
         {@render info("learnings", m.automation_learnings_name())}
       </div>
       <div class="auto-desc">{m.automation_learnings_desc()}</div>
@@ -320,7 +320,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🛫 {m.automation_autopilot_name()}
+        ▲ {m.automation_autopilot_name()}
         {@render info("autopilot", m.automation_autopilot_name())}
       </div>
       <div class="auto-desc">{m.automation_autopilot_desc()}</div>
@@ -343,7 +343,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🚰 {m.automation_autodrain_name()}
+        ▽ {m.automation_autodrain_name()}
         {@render info("auto-drain", m.automation_autodrain_name())}
       </div>
       <div class="auto-desc">{m.automation_autodrain_desc()}</div>
@@ -363,7 +363,7 @@
   <div class={["auto-row", { disabled: flags.draftMode }]}>
     <div class="auto-meta">
       <div class="auto-name">
-        🚀 {m.automation_automerge_name()}
+        ↣ {m.automation_automerge_name()}
         {@render info("auto-merge", m.automation_automerge_name())}
       </div>
       <div class="auto-desc">
@@ -389,7 +389,7 @@
   <div class="auto-row">
     <div class="auto-meta">
       <div class="auto-name">
-        🧱 {m.automation_buildqueue_name()}
+        ▦ {m.automation_buildqueue_name()}
         {@render info("build-queue", m.automation_buildqueue_name())}
       </div>
       <div class="auto-desc">{m.automation_buildqueue_desc()}</div>
@@ -408,7 +408,7 @@
   </div>
   <div class={["auto-row", { disabled: flags.autoMerge }]} use:coachTarget={"draft-mode"}>
     <div class="auto-meta">
-      <div class="auto-name">📋 {m.automation_draftmode_name()}</div>
+      <div class="auto-name">□ {m.automation_draftmode_name()}</div>
       <div class="auto-desc">
         {flags.autoMerge
           ? m.automation_draftmode_excludes_automerge()

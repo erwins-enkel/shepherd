@@ -6,7 +6,7 @@
 
   let { focusedId, onbroadcast }: { focusedId: string; onbroadcast: () => void } = $props();
 
-  // One-time coachmark: the steer chips are tap-to-send and the leading 📡 chip
+  // One-time coachmark: the steer chips are tap-to-send and the leading ⌁ broadcast chip
   // broadcasts to many sessions — neither affordance is obvious on first sight.
   // Show a single muted hint until the operator dismisses it, then never again
   // (localStorage). SSR-safe: stays hidden until mount reads the flag.
@@ -101,7 +101,7 @@
     onpointerup={(e) => tap(e, onbroadcast)}
     title={m.steerbar_broadcast_aria()}
     aria-label={m.steerbar_broadcast_aria()}
-    >📡<span class="bc-label">{m.steerbar_broadcast()}</span></button
+    >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
   >
   {#each steers.list as s (s.id)}
     <button
@@ -164,15 +164,15 @@
   .bc-label {
     margin-left: 6px;
   }
-  /* on mobile the broadcast chip collapses to just its 📡 icon to reclaim
+  /* on mobile the broadcast chip collapses to just its ⌁ icon to reclaim
      space; matches the ControlBar Esc key's box model (min-width 44px, no
      horizontal padding) so the collapsed chip and Esc render an identical width.
      Esc additionally sits inside a 3px-padded group "well", nudging its box that
      far right of the bar edge — match it with an equal left margin so the two
      left edges line up, not just the widths.
-     The steer row also mirrors the ControlBar's *grouping*: 📡 plays Esc's part
+     The steer row also mirrors the ControlBar's *grouping*: ⌁ plays Esc's part
      (own box, frozen left) and the steer chips play the Tab/nav groups. To line
-     the first steer chip up under the Tab key, the 📡→first-chip channel must
+     the first steer chip up under the Tab key, the ⌁→first-chip channel must
      equal the Esc→Tab channel (3px Esc-well + 6px ctrl-row gap + 3px Tab-well =
      12px). The flex `gap` already gives 4px, so add the remaining 8px here. */
   @media (max-width: 768px) {

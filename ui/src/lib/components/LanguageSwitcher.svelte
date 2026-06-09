@@ -30,7 +30,7 @@
     aria-label={m.lang_switcher_aria()}
     onclick={() => (open = !open)}
   >
-    <span aria-hidden="true">🌐</span>
+    <span aria-hidden="true">◍</span>
     <span class="code">{localeCode(current)}</span>
     <span class="caret" aria-hidden="true">▾</span>
   </button>

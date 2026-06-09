@@ -798,20 +798,20 @@
 
   // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
   // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
-  // composeDictate opens the sheet already listening — the one-tap 🎤 chip sets
+  // composeDictate opens the sheet already listening — the one-tap ◉ dictate chip sets
   // it; the compose-first entries (✎, swipe-up) leave it false so the keyboard
   // comes up to type.
   let composeOpen = $state(false);
   let composeDictate = $state(false);
   let ctrlRowEl: HTMLDivElement | undefined = $state();
   function openCompose() {
-    composeDictate = false; // compose-first; the 🎤 lives inside the sheet too
+    composeDictate = false; // compose-first; the ◉ dictate toggle lives inside the sheet too
     composeOpen = true;
   }
   // one-tap dictate: opens the sheet already listening (preserves Kai's original
   // affordance), a peer of the ✎ compose entry rather than a step inside it.
   // Gated on Web Speech support so the chip never becomes a dead end where it's
-  // unavailable (e.g. an iOS home-screen PWA); the sheet's own 🎤 toggle hides
+  // unavailable (e.g. an iOS home-screen PWA); the sheet's own ◉ toggle hides
   // itself there the same way.
   const speechSupported =
     typeof window !== "undefined" &&
@@ -1665,7 +1665,7 @@
           title={m.viewport_resume_title()}
           aria-label={m.viewport_resume_title()}
         >
-          <span class="vp-resume-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
+          <span class="vp-resume-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
           {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
         </button>
       {/if}
@@ -1679,7 +1679,9 @@
         aria-label={prReady ? m.viewport_decommission_ready_aria() : m.viewport_decommission_aria()}
       >
         {#if compact}
-          {armed ? "✓" : "✕"}
+          <!-- armed = destructive confirm: stay red + interrogative. Never ✓ —
+               that glyph means READY/actionable-complete elsewhere in the HUD. -->
+          {armed ? "✕?" : "✕"}
         {:else}
           {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
         {/if}
@@ -1770,7 +1772,7 @@
         onclick={() => resumeSession()}
         disabled={resuming}
       >
-        <span class="parked-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
+        <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
         <span class="parked-title"
           >{resumeFailed ? m.viewport_resume_failed() : m.viewport_resume_title()}</span
         >
@@ -1864,7 +1866,7 @@
           onpointerup={(e) => {
             e.preventDefault();
             if (notesKey) conn?.send(notesKey);
-          }}>📝 {notesKey.toUpperCase()}</button
+          }}>✎ {notesKey.toUpperCase()}</button
         >
       {/if}
       <button
@@ -1875,7 +1877,7 @@
         onclick={() => fileInput?.click()}
         aria-label={m.viewport_attach_image()}
       >
-        {uploading ? "⏳" : uploadFailed ? "⚠" : "📎"}
+        {uploading ? "⟳" : uploadFailed ? "⚠" : "↥"}
       </button>
       {#if speechSupported}
         <button

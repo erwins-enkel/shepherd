@@ -57,6 +57,7 @@ import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
+import { resolveNodeHost, serveRange } from "./tailscale";
 
 const execFileAsync = promisify(execFile);
 
@@ -114,6 +115,7 @@ if (savedPlan !== null)
 // Discover the public served port by parsing `tailscale serve status`; default
 // to 443 when tailscale is unavailable or the mapping isn't found. The parser
 // is pure and injected here so it's testable without tailscale.
+// Also resolve this node's tailnet hostname for split-front preview URL construction.
 {
   let servedPort = 443;
   try {
@@ -123,12 +125,26 @@ if (savedPlan !== null)
   } catch {
     // tailscale not available or not set up — default to 443
   }
+  // Resolve the node's own tailnet hostname (null when tailscale is absent).
+  config.previewHost = await resolveNodeHost();
   validatePreviewPortRange({
     previewPortBase: config.previewPortBase,
     previewPortCount: config.previewPortCount,
     localPort: config.port,
     servedPort,
   });
+  // Opt-in: register all preview slots with `tailscale serve` so they're tailnet-reachable.
+  // Fired void — serveRange sequences the 16 shells internally to avoid serve-config write
+  // races; no need to block boot on it.
+  if (config.previewAutoServe && config.previewHost) {
+    void serveRange(config.previewPortBase, config.previewPortCount).catch((err) =>
+      console.warn("[preview] serveRange failed:", err),
+    );
+  } else if (config.previewAutoServe && !config.previewHost) {
+    console.warn(
+      "[preview] SHEPHERD_PREVIEW_AUTO_SERVE=1 but the node's tailnet host could not be resolved (is tailscale running?); previews will be unreachable.",
+    );
+  }
 }
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h

@@ -95,7 +95,7 @@
   "drain_ceiling_label": "Grenze %",
   "automation_pill_label": "Automatisierung",
   "automation_pill_aria": "Repo-Automatisierung: {count} von {total} aktiv. Einstellungen öffnen.",
-  "automation_pill_reviewing_aria": "Critic prüft gerade. Repo-Automatisierungseinstellungen öffnen.",
+  "automation_pill_reviewing_aria": "Eine Prüfung läuft. Repo-Automatisierungseinstellungen öffnen.",
   "automation_panel_title": "Repo-Automatisierung",
   "automation_panel_subtitle": "Repo-weite Standardwerte — nicht nur dieser Task",
   "automation_group_review": "Code-Review",

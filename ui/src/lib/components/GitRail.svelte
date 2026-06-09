@@ -3,7 +3,7 @@
   import type { GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { reviews, repoConfig } from "$lib/reviews.svelte";
+  import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { criticChip, criticBadgeLabel } from "./critic-badge";
   import ReadyToggle from "./ReadyToggle.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
@@ -205,6 +205,7 @@
 
   const verdict = $derived(reviews.map[sessionId]);
   const reviewing = $derived(reviews.isReviewing(sessionId));
+  const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
   const chip = $derived(criticChip(verdict, reviewing));
   // Render the (AI-authored) findings as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay off
@@ -337,12 +338,12 @@
 
       {#if repoPath}
         <button
-          class={["gbtn", "auto-pill", { reviewing, armed: showAutomation }]}
+          class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={showAutomation}
-          aria-busy={reviewing}
-          aria-label={reviewing
+          aria-busy={pillReviewing}
+          aria-label={pillReviewing
             ? m.automation_pill_reviewing_aria()
             : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
           use:coachTarget={"critic"}

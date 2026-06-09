@@ -244,6 +244,59 @@ test("GET /api/git returns the prCache snapshot", async () => {
   expect(await res.json()).toEqual({});
 });
 
+test("GET git trusts a merged PR when cache already showed it open (signal b)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 5,
+      headSha: "newsha",
+      checks: "success",
+      deployConfigured: true,
+    }),
+  });
+  const deps = Object.assign(makeDeps(f), { ownsPr: () => false });
+  const baseCache = deps.prCache!;
+  deps.prCache = {
+    snapshot: () => ({
+      s1: {
+        kind: "gitea",
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+      } as any,
+    }),
+    set: baseCache.set,
+    drop: baseCache.drop,
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(5);
+});
+
+test("GET git trusts a merged PR when session is merge-train-flagged, cold cache (signal a)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 344,
+      headSha: "somesha",
+      checks: "success",
+      deployConfigured: true,
+    }),
+  });
+  const mergeTrainSession = { ...SESSION, mergingSince: Date.now(), mergingTrainId: "t" };
+  const deps = Object.assign(makeDeps(f, mergeTrainSession), { ownsPr: () => false });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(344);
+});
+
 test("GET /api/activity returns the activity snapshot", async () => {
   const snap = { s1: { lastActivityTs: 123, summary: "edited poller.ts" } };
   const deps = Object.assign(makeDeps(fakeForge()), { activity: { snapshot: () => snap } });

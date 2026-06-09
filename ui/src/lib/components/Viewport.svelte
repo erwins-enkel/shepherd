@@ -669,9 +669,12 @@
     };
 
     // Shift+Enter → newline: xterm emits a bare CR for both Enter and
-    // Shift+Enter, so Claude Code can't tell them apart and submits. Send a
-    // line feed (0x0A, same byte as Ctrl+J / chat:newline) instead and swallow
-    // xterm's default CR. keydown-only so the keyup doesn't double-send.
+    // Shift+Enter, so Claude Code can't tell them apart and submits. Returning
+    // false alone is insufficient — xterm then skips its own preventDefault and
+    // the browser's Enter keypress still makes xterm emit \r. We must call
+    // e.preventDefault() to suppress that keypress, then send a line feed
+    // (0x0A, same byte as Ctrl+J / chat:newline) instead. keydown-only so the
+    // keyup doesn't double-send.
     term.attachCustomKeyEventHandler((e) => {
       if (
         e.type === "keydown" &&
@@ -681,8 +684,22 @@
         !e.altKey &&
         !e.metaKey
       ) {
+        e.preventDefault();
         c.send("\n");
         return false;
+      }
+      // Ctrl+Shift+C: explicit copy. Ctrl+C in a focused terminal sends SIGINT to
+      // the agent rather than copying; this gives users an explicit copy shortcut.
+      // Read the selection before returning false — xterm hasn't cleared it yet.
+      if (e.type === "keydown" && e.ctrlKey && e.shiftKey && (e.key === "C" || e.key === "c")) {
+        const sel = term.getSelection();
+        if (sel) {
+          e.preventDefault();
+          navigator.clipboard?.writeText(sel)?.catch((err) => {
+            console.warn("ctrl+shift+c: clipboard write failed", err);
+          });
+          return false;
+        }
       }
       return true;
     });
@@ -745,6 +762,33 @@
       if (!dragged) term.focus();
     };
     el.addEventListener("click", onTap);
+
+    // copy-on-select: Ctrl+C in a focused terminal sends SIGINT to the agent
+    // rather than copying, so copy the xterm selection to the clipboard when a
+    // drag-select finishes. xterm tracks the drag with document-level listeners,
+    // so the pointer can be released outside the terminal element — listen for
+    // mouseup on the document (gated to drags that began in the terminal) rather
+    // than on el, so those releases still copy. The mousedown gate is capture-
+    // phase: xterm stops the mousedown from bubbling to el, so a bubble-phase
+    // listener never sees it — capture fires top-down before xterm can swallow
+    // it. A plain click clears xterm's selection first, so getSelection() is
+    // empty → no spurious copy.
+    let selectingInTerm = false;
+    const onTermMouseDown = () => {
+      selectingInTerm = true;
+    };
+    const onDocMouseUp = () => {
+      if (!selectingInTerm) return;
+      selectingInTerm = false;
+      const sel = term.getSelection();
+      if (sel) {
+        navigator.clipboard?.writeText(sel)?.catch((err) => {
+          console.warn("copy-on-select: clipboard write failed", err);
+        });
+      }
+    };
+    el.addEventListener("mousedown", onTermMouseDown, true);
+    document.addEventListener("mouseup", onDocMouseUp);
 
     // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
     // silently dropped. Intercept in the capture phase (before xterm's textarea
@@ -879,6 +923,8 @@
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
+      el?.removeEventListener("mousedown", onTermMouseDown, true);
+      document.removeEventListener("mouseup", onDocMouseUp);
       el?.removeEventListener("paste", onPaste, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);

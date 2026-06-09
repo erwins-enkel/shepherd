@@ -475,7 +475,7 @@
   "viewport_notes_aria": "Notiz hinzufügen: {key} drücken",
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
-  "viewport_select_hint": "{key} zum Markieren ziehen",
+  "viewport_select_hint": "{key} Ziehen zum Kopieren",
   "viewport_parked_title": "Auf anderem Gerät aktiv",
   "viewport_parked_sub": "Tippen zum Übernehmen",
   "viewport_session_ended": "── Sitzung beendet ──",

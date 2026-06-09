@@ -149,6 +149,14 @@
     padding: 8px;
     width: 240px;
   }
+  /* Anchored popover (absolutely positioned, left-pinned by its host): on
+     narrow phones cap the fixed width so it never spills past the right
+     viewport edge — the grid's 1fr columns shrink gracefully. */
+  @media (max-width: 768px) {
+    .ep {
+      width: min(240px, calc(100vw - 16px));
+    }
+  }
   .ep-search {
     width: 100%;
     box-sizing: border-box;

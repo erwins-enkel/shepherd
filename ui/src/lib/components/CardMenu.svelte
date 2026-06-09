@@ -130,6 +130,10 @@
     position: fixed;
     z-index: 60;
     min-width: 180px;
+    /* Never wider than the viewport minus the JS clamp's 8px margin per side,
+       so the position clamp above can always fit the menu on narrow phones
+       (long labels wrap instead of overflowing). */
+    max-width: calc(100vw - 16px);
     padding: 4px;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);

@@ -276,6 +276,19 @@ button {
   touch-action: manipulation;
 }
 
+/* iOS zoom-on-focus guard: mobile Safari zooms the whole page when a focused
+   text control renders below 16px. Force every text-entry control to the 16px
+   rung (--fs-lg) on phones — systemic here so no individual component can
+   drift back under the threshold. The `:is()` wrapper deliberately lends the
+   bare `textarea`/`select` the input arm's specificity (0,3,1), so this beats
+   Svelte-scoped component rules like `.ep-search.svelte-x` (0,2,0) or
+   `textarea.svelte-x` (0,1,1) that set a smaller desktop size. */
+@media (max-width: 768px) {
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
+    font-size: var(--fs-lg);
+  }
+}
+
 /* ── Dialog backdrop ──────────────────────────────────────────────────────
    Canonical treatment for any blocking dialog/modal/drawer: a theme-aware dim
    (--color-scrim) plus a soft blur, so whatever is behind recedes and the

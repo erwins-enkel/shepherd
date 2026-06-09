@@ -486,8 +486,8 @@
     border-radius: 2px;
     color: var(--color-ink);
     font-family: var(--font-mono);
-    /* a touch smaller for density; under the 16px iOS no-zoom threshold, an
-       accepted tradeoff since the overlay is centered and not edge-pinned */
+    /* 16px — the iOS no-zoom minimum, so focusing the field never zooms the
+       page (kept at the threshold on desktop too for steering legibility) */
     font-size: var(--fs-lg);
     line-height: 1.4;
     overflow-y: auto;

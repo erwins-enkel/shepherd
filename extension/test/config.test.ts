@@ -6,6 +6,7 @@ import {
   saveConfig,
   saveSignals,
 } from "../src/lib/config";
+import { reactiveConfig, snapshotConfig } from "./fixtures/reactive-config.svelte";
 
 // Minimal in-memory chrome.storage.local stub.
 function installChromeStub(initial: Record<string, unknown> = {}) {
@@ -20,7 +21,10 @@ function installChromeStub(initial: Record<string, unknown> = {}) {
           return out;
         }),
         set: vi.fn(async (obj: Record<string, unknown>) => {
-          store = { ...store, ...obj };
+          // Real chrome.storage serializes across a structured-clone boundary; clone
+          // here so the stub catches values that don't survive it (e.g. a Svelte
+          // $state proxy array that deserializes as a non-array).
+          store = { ...store, ...structuredClone(obj) };
         }),
       },
     },
@@ -133,5 +137,25 @@ describe("config", () => {
     expect(cfg.token).toBe("tok");
     expect(cfg.baseBranch).toBe("dev");
     expect(cfg.model).toBe("opus");
+  });
+
+  describe("$state proxy persistence (routing-rule regression)", () => {
+    it("round-trips routingRules when the $state config is snapshotted before saving", async () => {
+      // Options.svelte holds the settings form in a deeply-reactive $state proxy
+      // and snapshots it before persisting. Verify the snapshot is plain,
+      // clone-safe data whose routingRules survives the structured-clone boundary
+      // (the hardened stub mimics chrome.storage) as a real Array.
+      //
+      // Note: the FAILURE this guards against — a raw $state proxy whose array
+      // degrades to a non-array through chrome.storage's serializer, tripping
+      // loadConfig's Array.isArray guard — is Chrome-specific and cannot be
+      // reproduced under Node's structuredClone (which preserves array-ness), so
+      // it is verified manually in-browser, not here.
+      const rules = [{ pattern: "https://app.example.com/*", repoPath: "~/Work/app" }];
+      await saveConfig(snapshotConfig(reactiveConfig(rules)));
+      const loaded = await loadConfig();
+      expect(Array.isArray(loaded.routingRules)).toBe(true);
+      expect(loaded.routingRules).toEqual(rules);
+    });
   });
 });

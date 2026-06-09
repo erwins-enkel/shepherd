@@ -722,5 +722,7 @@
   "feat_header_fold_title": "Kopfbereich einklappen für mehr Terminal",
   "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten.",
   "feat_learnings_per_repo_title": "Erkenntnisse in der Repo-Zeile",
-  "feat_learnings_per_repo_body": "Der Glühbirnen-Zähler ist aus der oberen Leiste in die Status-Zeile jedes Repos gewandert — neben dessen Automatismus-Status. So erscheinen die vorgeschlagenen Hausregeln eines Repos genau dort, wo auch seine übrige Aktivität sichtbar ist. Klick auf die 💡 öffnet den Drawer bei diesem Repo."
+  "feat_learnings_per_repo_body": "Der Glühbirnen-Zähler ist aus der oberen Leiste in die Status-Zeile jedes Repos gewandert — neben dessen Automatismus-Status. So erscheinen die vorgeschlagenen Hausregeln eines Repos genau dort, wo auch seine übrige Aktivität sichtbar ist. Klick auf die 💡 öffnet den Drawer bei diesem Repo.",
+  "feat_update_checkout_title": "Lokalen Checkout nach Merge aktualisieren",
+  "feat_update_checkout_body": "Wenn du einen PR über einen der Merge-Buttons der App mergst, bietet ein Toast an, den lokalen Default-Branch des Repos per Fast-Forward auf den frisch gemergten Stand zu bringen — kein manuelles Pull nötig."
 }

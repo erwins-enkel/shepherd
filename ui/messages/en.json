@@ -722,5 +722,7 @@
   "feat_header_fold_title": "Fold the header for more terminal",
   "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions.",
   "feat_learnings_per_repo_title": "Learnings live on the repo row",
-  "feat_learnings_per_repo_body": "The lightbulb count moved off the top bar onto each repo's status row, next to its automation state — so a repo's proposed house rules show right where its other activity does. Click the 💡 to open the drawer at that repo."
+  "feat_learnings_per_repo_body": "The lightbulb count moved off the top bar onto each repo's status row, next to its automation state — so a repo's proposed house rules show right where its other activity does. Click the 💡 to open the drawer at that repo.",
+  "feat_update_checkout_title": "Update local checkout after merge",
+  "feat_update_checkout_body": "When you merge a PR from one of the app's merge buttons, a toast offers to fast-forward that repo's local default branch to the freshly merged state — no manual pull needed."
 }

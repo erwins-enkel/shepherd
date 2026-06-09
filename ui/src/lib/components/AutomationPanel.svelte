@@ -111,6 +111,15 @@
   const eqLogin = (a: string | null, b: string | null) =>
     !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
+  // Map a stored login onto the exact casing of its <option> so the dropdown
+  // reflects it — a casing-only difference (stored "Kai" vs me/collaborator "kai")
+  // would otherwise match no option and fall back to "— anyone / me —".
+  function optionValue(value: string | null): string {
+    if (!value) return "";
+    if (eqLogin(value, me)) return me ?? value;
+    return collaborators.find((c) => eqLogin(c, value)) ?? value;
+  }
+
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const prev = roles;
     roles = { ...roles, [role]: value }; // optimistic
@@ -392,7 +401,7 @@
         <select
           class="role-select"
           aria-label={label}
-          value={value ?? ""}
+          value={optionValue(value)}
           onchange={(e) => setRole(role, e.currentTarget.value || null)}
         >
           <option value="">{m.roles_unset_option()}</option>

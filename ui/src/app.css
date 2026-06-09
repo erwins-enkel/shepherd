@@ -208,15 +208,22 @@ body {
 }
 
 /* motion (guarded) */
+/* Expanding-fading halo for the working pip. Compositor-only (transform +
+   opacity, NOT box-shadow — animating box-shadow repaints every frame, ×N
+   pulsing pips across a large herd): the animated element is a pseudo-element
+   disc sized to the pip that scales out to the old 7px box-shadow spread
+   (9px pip + 2×7px ≈ scale 2.55) while fading. The 70% keyframe mirrors the
+   original spread timing: visible expansion for the first 70% of the cycle,
+   then a rest beat. */
 @keyframes pip-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 70%, transparent);
+    transform: scale(1);
+    opacity: 1;
   }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
+  70%,
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    transform: scale(2.55);
+    opacity: 0;
   }
 }
 /* in-progress dot: opacity blink (reads clearly at small size, clip-proof,
@@ -274,6 +281,19 @@ body {
 
 button {
   touch-action: manipulation;
+}
+
+/* iOS zoom-on-focus guard: mobile Safari zooms the whole page when a focused
+   text control renders below 16px. Force every text-entry control to the 16px
+   rung (--fs-lg) on phones — systemic here so no individual component can
+   drift back under the threshold. The `:is()` wrapper deliberately lends the
+   bare `textarea`/`select` the input arm's specificity (0,3,1), so this beats
+   Svelte-scoped component rules like `.ep-search.svelte-x` (0,2,0) or
+   `textarea.svelte-x` (0,1,1) that set a smaller desktop size. */
+@media (max-width: 768px) {
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
+    font-size: var(--fs-lg);
+  }
 }
 
 /* ── Dialog backdrop ──────────────────────────────────────────────────────

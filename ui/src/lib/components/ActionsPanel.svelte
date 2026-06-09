@@ -1,5 +1,6 @@
 <script lang="ts">
   import { listWorkflowRuns } from "$lib/api";
+  import { pollWhileVisible } from "$lib/visibility";
   import type { WorkflowRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ActionRunRow from "./ActionRunRow.svelte";
@@ -61,8 +62,8 @@
   $effect(() => {
     if (!hasPending) return;
     const rp = repoPath;
-    const timer = setInterval(() => load(rp, true), REFRESH_MS);
-    return () => clearInterval(timer);
+    // hidden-tab ticks are skipped, with a silent refresh on tab return
+    return pollWhileVisible(() => load(rp, true), REFRESH_MS);
   });
 </script>
 

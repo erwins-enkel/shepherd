@@ -328,9 +328,7 @@
       width: 6px;
       height: 10px;
     }
-    .add-input {
-      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
-    }
+    /* .add-input's 16px no-zoom font-size comes from the global iOS guard in app.css */
     .add-btn {
       min-height: 40px;
     }

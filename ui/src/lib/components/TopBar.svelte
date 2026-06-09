@@ -740,9 +740,9 @@
     align-items: center;
     gap: 6px;
     padding: 5px 11px;
-    background: color-mix(in srgb, var(--color-blue, #4a9eff) 14%, transparent);
-    border: 1px solid var(--color-blue, #4a9eff);
-    color: var(--color-blue, #4a9eff);
+    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+    border: 1px solid var(--color-blue);
+    color: var(--color-blue);
     cursor: pointer;
     font: inherit;
     font-size: var(--fs-meta);
@@ -751,7 +751,7 @@
     border-radius: 2px;
   }
   .whatsnew-badge:hover {
-    background: color-mix(in srgb, var(--color-blue, #4a9eff) 22%, transparent);
+    background: color-mix(in srgb, var(--color-blue) 22%, transparent);
   }
   .whatsnew-badge .wn-dot {
     font-size: var(--fs-micro);
@@ -778,7 +778,7 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: var(--color-blue, #4a9eff);
+    background: var(--color-blue);
     box-shadow: 0 0 0 2px var(--color-panel);
   }
   .gauges {

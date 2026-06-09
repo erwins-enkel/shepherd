@@ -531,9 +531,7 @@
     .rs-trigger {
       min-height: 44px;
     }
-    .rs-filter {
-      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
-    }
+    /* .rs-filter's 16px no-zoom font-size comes from the global iOS guard in app.css */
     .rs-row {
       min-height: 44px;
     }

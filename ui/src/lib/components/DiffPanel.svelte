@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getDiff } from "$lib/api";
+  import { pollWhileVisible } from "$lib/visibility";
   import { diffTotals } from "$lib/diff";
   import type { DiffResult } from "$lib/types";
   import DiffFileBlock from "$lib/components/DiffFileBlock.svelte";
@@ -37,10 +38,10 @@
     failed = false;
     alive = true;
     load();
-    const t = setInterval(load, 15000);
+    const stop = pollWhileVisible(load, 15000); // skip hidden-tab ticks; refresh on return
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
     };
   });
 

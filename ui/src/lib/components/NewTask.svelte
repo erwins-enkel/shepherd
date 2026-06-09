@@ -718,11 +718,8 @@
       overflow-y: auto;
       animation: sheet-up 0.18s ease-out;
     }
-    textarea,
-    input,
-    select {
-      font-size: var(--fs-lg); /* prevents iOS zoom-on-focus */
-    }
+    /* 16px no-zoom font-size for textarea/input/select comes from the global
+       iOS guard in app.css */
     input,
     select,
     .run {

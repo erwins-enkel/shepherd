@@ -179,18 +179,19 @@ The hierarchy above is realized as a 6-rung type scale, the single source of tru
 
 This system is flat by doctrine. Depth is built from tonal layering, not shadow: the four ground values (inset #070a09 < panel-2 #0c100f < panel #0f1413 < head #0a0f0d) step against each other, and 1px hairlines (#1b2422, brightening to #2c3835 on focus or hover) draw every boundary. At rest there are no drop shadows and no glassmorphism. The only ambient light in the system is the faint radial glow at the top of the page and the inset amber glow on a primary button.
 
-Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheets and modals that rise over the live terminal carry a single soft shadow to lift them off the busy backdrop, paired with a subtle backdrop blur. That shadow is a response to state (the sheet was invoked), never a resting decoration.
+Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheets and modals that rise over the live terminal carry a single soft shadow to lift them off the busy backdrop, paired with a subtle backdrop blur. The same logic extends to small anchored surfaces summoned by interaction — tooltips, dropdowns, context menus, popovers. In every case the shadow is a response to state (the surface was invoked), never a resting decoration.
 
 ### Shadow Vocabulary
 
 - **Sheet lift** (`box-shadow: 0 -8px 40px rgba(0,0,0,0.5)`): The rising compose / bottom-sheet overlay, anchored to the bottom edge.
+- **Popover lift** (`box-shadow: 0 6px 24px rgba(0,0,0,0.45)`, nearby variants tolerated): Small anchored surfaces summoned by interaction — tooltips, dropdowns, context menus, anchored popovers. Invoked, not resting. The `rgba(0,0,0)` base is intentionally theme-static: it reads correctly on both themes, and being near-invisible on the dark ground is fine — tonal steps carry depth there.
 - **Action inset glow** (`box-shadow: inset 0 0 18px -10px var(--color-amber)`): The amber primary/active button. An internal glow, not an outer drop.
 
 ### Named Rules
 
 **The Flat Panel Rule.** Surfaces are flat and square at rest. Depth comes from tonal value and hairlines. A drop shadow on a resting panel is prohibited; if you reach for one, you are missing a tonal step.
 
-**The Earned Shadow Rule.** Shadows appear only as a response to invocation (a sheet or modal rising over the terminal). No shadow exists to make a static element look "lifted."
+**The Earned Shadow Rule.** Shadows appear only as a response to invocation (a sheet or modal rising over the terminal, or a popover/tooltip/menu summoned at its anchor). No shadow exists to make a static element look "lifted."
 
 ## 5. Components
 
@@ -217,7 +218,7 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 ### Status Pip (signature)
 
-- A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding box-shadow halo (`pip-pulse`, 1.5s ease-out). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
+- A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding, fading halo (`pip-pulse`, 1.5s ease-out — a compositor-only transform/opacity pseudo-element, not an animated box-shadow). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
 
 ### Live Terminal (signature)
 

@@ -27,6 +27,7 @@
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
+  import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -297,10 +298,10 @@
   // null model = claude's own default (shepherd passed no --model flag)
   const modelLabel = $derived(session.model ?? "default");
 
-  // session:status events replace the Session object on every state change of the
-  // running unit, so the `session` prop reference churns while its id stays put.
-  // Derive the id: a $derived only notifies dependents when its *value* changes,
-  // so effects keyed on it re-run on an actual unit switch — not on status churn.
+  // The `session` prop is re-resolved from the store whenever the sessions
+  // state changes, so its reference can churn while the id stays put. Derive
+  // the id: a $derived only notifies dependents when its *value* changes, so
+  // effects keyed on it re-run on an actual unit switch — not on churn.
   const unitId = $derived(session.id);
 
   // Live preview availability is purely server-driven: a non-null port means the
@@ -329,10 +330,10 @@
         .then((u) => alive && (usage = u))
         .catch(() => {});
     load();
-    const t = setInterval(load, 5000);
+    const stop = pollWhileVisible(load, 5000); // skip hidden-tab ticks; refresh on return
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
     };
   });
 

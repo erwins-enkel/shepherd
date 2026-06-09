@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Shepherd" />
-    <meta name="theme-color" content="#0b0f0d" />
+    <meta name="theme-color" content="#0a0d0c" />
     <!-- viewport-fit=cover is required for env(safe-area-inset-*) to return non-zero
          values; without it iOS letterboxes content and the insets stay 0. Paired with
          apple-mobile-web-app-status-bar-style=black-translucent for a full-bleed dark shell. -->
@@ -25,6 +25,10 @@
             pref === "dark" ||
             (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.theme = dark ? "dark" : "light";
+          // Hexes mirror app.css --color-bg per theme (runtime setter in
+          // theme.svelte.ts uses the same values).
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#0a0d0c" : "#e7ebe9");
           if (localStorage.getItem("shepherd:contrast") === "high")
             document.documentElement.dataset.contrast = "high";
         } catch (e) {

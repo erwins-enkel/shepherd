@@ -52,7 +52,6 @@
     border-radius: 50%;
     background: var(--c);
     display: inline-block;
-    box-shadow: 0 0 0 0 var(--c);
   }
   /* done (WAITING): a hollow ring reads as "parked", distinct from idle's solid
      slate dot even though both share the slate hue */
@@ -67,7 +66,6 @@
     align-items: center;
     justify-content: center;
     background: none;
-    box-shadow: none;
     color: var(--c);
     font-size: var(--fs-micro);
     line-height: 1;
@@ -87,7 +85,6 @@
        hits ~3.9:1, just shy of WCAG AA 4.5:1 for the 12px glyph; the deeper red
        clears ~5:1 in both themes and reads as a stronger alarm, not weaker. */
     background: color-mix(in srgb, var(--c) 88%, #000);
-    box-shadow: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -101,6 +98,20 @@
     font-weight: 800;
   }
   .pulse {
+    position: relative;
+  }
+  /* expanding-fading halo: a same-color translucent disc behind/over the solid
+     pip (only solid pips pulse, so the same-hue wash over the dot is invisible),
+     scaled + faded on the compositor — no per-frame box-shadow repaints */
+  .pulse::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--c) 70%, transparent);
+    /* the scaled halo must never intercept clicks meant for neighbors (the
+       box-shadow it replaced was hit-transparent) */
+    pointer-events: none;
     /* functional status motion — exempt from the reduced-motion blanket (app.css) */
     animation: pip-pulse 1.5s ease-out infinite !important;
   }

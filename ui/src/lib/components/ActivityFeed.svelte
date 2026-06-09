@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getActivity } from "$lib/api";
+  import { pollWhileVisible } from "$lib/visibility";
   import { glyph, clock } from "$lib/activity";
   import type { ActivityEntry } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -25,10 +26,10 @@
         })
         .catch(() => {});
     load();
-    const t = setInterval(load, 5000);
+    const stop = pollWhileVisible(load, 5000); // skip hidden-tab ticks; refresh on return
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
     };
   });
 

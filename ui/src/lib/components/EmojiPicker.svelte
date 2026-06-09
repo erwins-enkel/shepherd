@@ -124,6 +124,7 @@
       class="ep-custom"
       class:bad={custom.length > 0 && !customOk}
       placeholder={m.emojipicker_custom()}
+      aria-label={m.emojipicker_custom()}
       type="text"
       autocomplete="off"
       onkeydown={(e) => {
@@ -147,6 +148,14 @@
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
     padding: 8px;
     width: 240px;
+  }
+  /* Anchored popover (absolutely positioned, left-pinned by its host): on
+     narrow phones cap the fixed width so it never spills past the right
+     viewport edge — the grid's 1fr columns shrink gracefully. */
+  @media (max-width: 768px) {
+    .ep {
+      width: min(240px, calc(100vw - 16px));
+    }
   }
   .ep-search {
     width: 100%;

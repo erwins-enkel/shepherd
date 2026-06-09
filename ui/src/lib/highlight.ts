@@ -6,8 +6,9 @@ import {
 } from "shiki";
 import { langFromPath } from "./diff";
 
-// Hand-tuned dark theme matching the HUD palette (Shiki needs concrete hex, not
-// CSS vars). Mirrors app.css --ink/--muted/--amber/--green/--blue/--red.
+// Hand-tuned themes matching the HUD palette (Shiki needs concrete hex, not
+// CSS vars). Each mirrors app.css --ink/--muted/--amber/--green/--blue/--red
+// for its [data-theme] block.
 const SHEPHERD_DARK = {
   name: "shepherd-dark",
   type: "dark" as const,
@@ -25,6 +26,27 @@ const SHEPHERD_DARK = {
     },
     { scope: ["variable", "meta.definition.variable"], settings: { foreground: "#c4d0cb" } },
     { scope: ["invalid", "keyword.operator"], settings: { foreground: "#e5484d" } },
+  ],
+};
+
+// Light counterpart — mirrors app.css [data-theme="light"] tokens.
+const SHEPHERD_LIGHT = {
+  name: "shepherd-light",
+  type: "light" as const,
+  colors: { "editor.background": "#f7f9f8", "editor.foreground": "#2b3633" },
+  settings: [
+    { settings: { foreground: "#2b3633" } }, // --ink
+    { scope: ["comment"], settings: { foreground: "#5a6862" } }, // --muted
+    { scope: ["string", "constant.other.symbol"], settings: { foreground: "#1d8a5d" } }, // --green
+    { scope: ["constant.numeric", "constant.language"], settings: { foreground: "#a8680a" } }, // --amber
+    { scope: ["keyword", "storage", "storage.type"], settings: { foreground: "#2f6fb0" } }, // --blue
+    { scope: ["entity.name.function", "support.function"], settings: { foreground: "#a8680a" } }, // --amber
+    {
+      scope: ["entity.name.type", "support.type", "support.class"],
+      settings: { foreground: "#1d8a5d" }, // --green
+    },
+    { scope: ["variable", "meta.definition.variable"], settings: { foreground: "#2b3633" } }, // --ink
+    { scope: ["invalid", "keyword.operator"], settings: { foreground: "#c2363b" } }, // --red
   ],
 };
 
@@ -48,7 +70,7 @@ let hlPromise: Promise<Highlighter> | null = null;
 function getHighlighter(): Promise<Highlighter> {
   if (!hlPromise) {
     hlPromise = createHighlighter({
-      themes: [SHEPHERD_DARK as ThemeRegistrationAny],
+      themes: [SHEPHERD_DARK as ThemeRegistrationAny, SHEPHERD_LIGHT as ThemeRegistrationAny],
       langs: LANGS,
     });
   }
@@ -64,15 +86,21 @@ function escapeHtml(s: string): string {
  * One Shiki call per file: join with \n, tokenize once, map tokens back per line.
  * Unknown language → escaped plain text (the +/- coloring still applies in CSS).
  * Per-line tokenization caveat (multi-line constructs) is accepted for review.
+ * `theme` is the resolved app theme — callers pass it so the emitted
+ * foreground-only colors match the surface they paint over.
  */
-export async function highlightLines(contents: string[], path: string): Promise<string[]> {
+export async function highlightLines(
+  contents: string[],
+  path: string,
+  theme: "dark" | "light" = "dark",
+): Promise<string[]> {
   const lang = langFromPath(path);
   if (lang === "text") return contents.map(escapeHtml);
   try {
     const hl = await getHighlighter();
     const { tokens } = hl.codeToTokens(contents.join("\n"), {
       lang: lang as BundledLanguage,
-      theme: "shepherd-dark",
+      theme: theme === "light" ? "shepherd-light" : "shepherd-dark",
     });
     return tokens.map((line) =>
       line

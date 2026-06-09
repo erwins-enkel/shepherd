@@ -210,15 +210,28 @@ export class HerdStore {
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
         break;
+      default:
+        // Review/plan-gate and app-global (non-per-session-row) events are handled
+        // out of line to keep this dispatch switch under the complexity gate.
+        if (!this.applyReviewEvent(ev)) this.applyGlobalEvent(ev);
+        break;
+    }
+  }
+
+  /** Handle the review + plan-gate WS events, all of which delegate to the
+   *  `reviews`/`planGates` sub-stores. Split out of apply() so its dispatch
+   *  switch stays under the complexity gate. Returns true if `ev` was handled. */
+  private applyReviewEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
       case "session:review":
         reviews.apply(ev.data);
-        break;
+        return true;
       case "session:reviewing":
         reviews.setReviewing(ev.data.id, ev.data.reviewing);
-        break;
+        return true;
       case "session:critic-activity":
         reviews.setActivity(ev.data.id, ev.data.summary);
-        break;
+        return true;
       case "session:plangate":
         // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
         if (ev.data.gate) planGates.apply(ev.data.id, ev.data.gate);
@@ -226,15 +239,12 @@ export class HerdStore {
           this.sessions = this.sessions.map((s) =>
             s.id === ev.data.id ? { ...s, planPhase: ev.data.planPhase! } : s,
           );
-        break;
+        return true;
       case "session:plangate-reviewing":
         planGates.applyReviewing(ev.data.id, ev.data.reviewing);
-        break;
+        return true;
       default:
-        // App-global (non-per-session-row) events are handled out of line to keep
-        // this dispatch switch under the complexity gate.
-        this.applyGlobalEvent(ev);
-        break;
+        return false;
     }
   }
 

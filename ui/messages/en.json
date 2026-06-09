@@ -813,7 +813,7 @@
   "feat_resume_session_title": "Resume a parked session",
   "feat_resume_session_body": "When Claude exits and leaves a session sitting at a bare shell (e.g. after a herdr restart), it no longer strands you. A ↻ Resume button now appears in the session header — and right-clicking (or long-pressing) any session card offers Resume too — to respawn `claude --resume` and drop you straight back into the conversation.",
   "feat_draft_mode_title": "Draft-mode PRs with sign-off control",
-  "feat_draft_mode_body": "Turn on draft mode to open every new PR as a draft — it stays out of the merge queue until signed off. Choose who may promote it: a human, the Critic, or either. Mutually exclusive with Full-auto merge.",
+  "feat_draft_mode_body": "Turn on Draft mode to open every new PR as a draft — it stays out of the merge queue until signed off. Choose who may promote it: a human, the Critic, or either. Mutually exclusive with Full-auto merge.",
   "feat_preview_start_title": "Start a dev server from the HUD",
   "feat_preview_start_body": "When an agent has no live preview yet, a Start control appears on its Viewport. Click it to have the agent launch its dev server — auto-detected from package.json, or type the command yourself — then preview the running app without waiting for the agent to start one on its own.",
   "feat_active_label_newtask_title": "Claimed issues stand out in New Task",

@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.21.0](https://github.com/erwins-enkel/shepherd/compare/v1.20.0...v1.21.0) (2026-06-09)
+
+
+### Features
+
+* **models:** add Claude Fable 5 with a launch celebration ([#466](https://github.com/erwins-enkel/shepherd/issues/466)) ([ff3db76](https://github.com/erwins-enkel/shepherd/commit/ff3db76ede8e7c420d407f24e5e309da7287067d))
+* **preview:** dynamic tailscale serve registration for preview ports ([#403](https://github.com/erwins-enkel/shepherd/issues/403)) ([#463](https://github.com/erwins-enkel/shepherd/issues/463)) ([fc98f70](https://github.com/erwins-enkel/shepherd/commit/fc98f702588f638a40cb0951b1d88ed670f58d7e))
+* **repo-select:** zuletzt bearbeitete Repos oben im Picker anheften ([#469](https://github.com/erwins-enkel/shepherd/issues/469)) ([c0bcf1e](https://github.com/erwins-enkel/shepherd/commit/c0bcf1e2539d438df2734d4a0a6bd6901aa93ef2))
+* **ui:** highlight shepherd:active label in New Task issue list ([#457](https://github.com/erwins-enkel/shepherd/issues/457)) ([1a00619](https://github.com/erwins-enkel/shepherd/commit/1a00619ae024bfc5db0a1755b46c2b4b26968438))
+
+
+### Bug Fixes
+
+* **buildqueue:** bound queue list so touch-scroll isn't trapped on mobile ([#458](https://github.com/erwins-enkel/shepherd/issues/458)) ([99fe1e3](https://github.com/erwins-enkel/shepherd/commit/99fe1e3582586b13918fd690cdfb927f48fb7cb4))
+* **newtask:** preselect the active repo filter when composing a task ([#467](https://github.com/erwins-enkel/shepherd/issues/467)) ([99775f2](https://github.com/erwins-enkel/shepherd/commit/99775f27633598520e328394ae2f92e0fa75befc))
+* **queue-strip:** hide repo-status band when it carries no value; stop full-width stretch ([#468](https://github.com/erwins-enkel/shepherd/issues/468)) ([d5bf2a2](https://github.com/erwins-enkel/shepherd/commit/d5bf2a213d074e10f4c5cbc00e5bfe34aea916e9))
+* **queue-strip:** show only repos with a running agent in the status band ([#459](https://github.com/erwins-enkel/shepherd/issues/459)) ([0937a34](https://github.com/erwins-enkel/shepherd/commit/0937a34c2b2d72012bd4c3e2a648b86284a70d4f))
+* **ui:** make terminal jump-to-bottom button more prominent on desktop ([#460](https://github.com/erwins-enkel/shepherd/issues/460)) ([12a520f](https://github.com/erwins-enkel/shepherd/commit/12a520f1c341720bd7f6983e60be1efb0b72f940))
+* **ui:** open the card menu on touch long-press ([#462](https://github.com/erwins-enkel/shepherd/issues/462)) ([3d19e01](https://github.com/erwins-enkel/shepherd/commit/3d19e01fcf00daad4437489e2754f44c483fbb24))
+* **ui:** rename repo-row drain indicator from 'auto' to 'agents' ([#461](https://github.com/erwins-enkel/shepherd/issues/461)) ([dce083e](https://github.com/erwins-enkel/shepherd/commit/dce083e72d6d89dd99d0532e3e21719ae3f75b79))
+* **ui:** scroll mobile viewport tabs, pin Start-dev-server control ([#465](https://github.com/erwins-enkel/shepherd/issues/465)) ([e8628f3](https://github.com/erwins-enkel/shepherd/commit/e8628f33ae0b9804972d5c0c006ceea9b270b6f4))
+
 ## [1.20.0](https://github.com/erwins-enkel/shepherd/compare/v1.19.0...v1.20.0) (2026-06-09)
 
 

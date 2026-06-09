@@ -327,4 +327,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_product_story_title",
     bodyKey: "feat_product_story_body",
   },
+  {
+    // No targetId: keyboard shortcuts are invisible chrome (documented in the
+    // viewport footer hint line) — surface via the What's-New drawer only.
+    id: "herd-keyboard-nav",
+    sinceVersion: "1.22.0",
+    titleKey: "feat_herd_keynav_title",
+    bodyKey: "feat_herd_keynav_body",
+  },
 ];

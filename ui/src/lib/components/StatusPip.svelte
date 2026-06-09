@@ -54,10 +54,11 @@
     display: inline-block;
   }
   /* done (WAITING): a hollow ring reads as "parked", distinct from idle's solid
-     slate dot even though both share the slate hue */
+     slate dot even though both share the slate hue. 2px stroke — at 9px a thinner
+     ring is sub-perceptual next to the solid dot. */
   .pip.hollow {
     background: none;
-    box-shadow: inset 0 0 0 1.5px var(--c);
+    box-shadow: inset 0 0 0 2px var(--c);
   }
   /* bare glyph (no filled circle) — the mark itself is the signal:
      `ready` → green ✓ */

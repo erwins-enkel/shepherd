@@ -369,7 +369,7 @@
         </button>
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
-        <ReadyToggle {sessionId} {ready} variant="rail" {mobile} />
+        <ReadyToggle {sessionId} {ready} {mobile} />
       {/if}
       <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body exists,
            so the showReview popover below still has content); otherwise a plain status chip. -->
@@ -570,11 +570,13 @@
     align-items: center;
     gap: 6px;
   }
+  /* active-count is informational telemetry, not a status light: it steps from
+     faint (nothing on) to plain ink, never green (Four-Light Rule, DESIGN.md) */
   .auto-count {
     color: var(--color-faint);
   }
   .auto-count.on {
-    color: var(--color-green);
+    color: var(--color-ink);
   }
 
   /* "new" discovery pip — separate element, distinct hue (accent blue ring).

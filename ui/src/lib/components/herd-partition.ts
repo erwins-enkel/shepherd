@@ -33,8 +33,9 @@ import { isMerging } from "./merge-train";
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
  *  yet) stays in `active` to avoid flicker into the "Your turn" group before CI registers
  *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
- *  reviewerRunning → draftAwaitingSignoff → waitingOnReviewer → waitingOnMerger →
- *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing`
+ *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
+ *  awaitingMerge → merging → ready → merged (Herd.svelte's template order, mirrored
+ *  by herd-keynav's RAIL_GROUP_ORDER), tracking the session lifecycle. `isReviewing`
  *  is injected so this stays a pure function (the caller wires it to the reviews store). */
 type Stage =
   | "merged"
@@ -48,6 +49,23 @@ type Stage =
   | "waitingOnMerger"
   | "awaitingMerge"
   | "active";
+
+/** The herd rail's list filter: everything, or only sessions awaiting the operator. */
+export type HerdFilter = "all" | "ready";
+
+/** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
+ *  awaiting the operator (not running, not under review). Single source of truth shared
+ *  by Herd.svelte's list and herd-keynav's rail order, so keyboard navigation can never
+ *  land on a row the rail isn't showing. */
+export function shownSessions(
+  sessions: Session[],
+  filter: HerdFilter,
+  inReview: (id: string) => boolean,
+): Session[] {
+  return filter === "ready"
+    ? sessions.filter((s) => s.status !== "running" && !inReview(s.id))
+    : sessions;
+}
 
 /** Terminal / in-flight stages that win before the green-idle handoff decision, or null
  *  when none apply (the session is then either active or handed off). Split out of stageOf

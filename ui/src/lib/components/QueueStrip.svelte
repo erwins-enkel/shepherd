@@ -129,7 +129,7 @@
                 : m.learnings_open_curate_aria({ count: row.curate })}
               onclick={() => onlearnings?.(row.repoPath)}
             >
-              <span class="qs-insights-icon" aria-hidden="true">💡</span>{#if row.insights > 0}<span
+              <span class="qs-insights-icon" aria-hidden="true">✦</span>{#if row.insights > 0}<span
                   class="qs-insights-n">{row.insights}</span
                 >{/if}
             </button>
@@ -179,7 +179,7 @@
 
 {#if mergeRows.length > 0}
   <div class="queue-strip" role="status" aria-label={m.automation_automerge_name()}>
-    <span class="qs-label">🚀 {m.automation_automerge_name()}</span>
+    <span class="qs-label">↣ {m.automation_automerge_name()}</span>
     <ul class="qs-rows">
       {#each mergeRows as s (s.repoPath)}
         {@const label = mergeTrainLabel(s.state)}
@@ -295,7 +295,7 @@
   .qs-queued-btn:focus-visible {
     color: var(--color-ink-bright);
   }
-  /* per-repo learnings entry point — 💡 + count, same inline-button chrome as the
+  /* per-repo learnings entry point — ✦ + count, same inline-button chrome as the
      queued button so the row reads as one band. */
   .qs-insights {
     display: inline-flex;

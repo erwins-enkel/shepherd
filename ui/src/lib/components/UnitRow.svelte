@@ -190,6 +190,7 @@
     class:sel={selected}
     class:has-activity={live}
     class:decommissioning
+    data-unit-id={session.id}
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
   >
     <button
@@ -584,6 +585,9 @@
     align-items: center;
     gap: 0;
     min-width: 0;
+    /* stays on the meta rung: this is a dense single-line telemetry row (heartbeat
+       strip + verbatim tool snippet on hover), not instructional prose — at
+       --fs-base the act line grows taller and crowds the rail's row rhythm */
     font-size: var(--fs-meta);
     line-height: 1.3;
     color: var(--color-muted);

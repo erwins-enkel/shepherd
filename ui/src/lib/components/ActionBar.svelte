@@ -273,7 +273,7 @@
       bottom: calc(100% + 9px);
       left: 0;
       white-space: nowrap;
-      background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
+      background: var(--color-panel);
       border: 1px solid var(--color-line-bright);
       box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
       color: var(--color-ink-bright);

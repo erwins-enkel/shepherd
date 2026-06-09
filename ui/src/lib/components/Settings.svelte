@@ -103,7 +103,7 @@
   ];
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
-  let standardCommand = $state(""); // prompt behind the backlog ⚡ Standard button
+  let standardCommand = $state(""); // prompt behind the backlog ↯ Standard button
   let scBusy = $state(false);
   let scSaved = $state(false); // brief "saved" confirmation after a successful save
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
@@ -392,7 +392,7 @@
         {:else if listing}
           {#each listing.entries as e (e.path)}
             <button type="button" class="row" onclick={() => browse(e.path)}>
-              <span class="ico">📁</span><span class="nm">{e.name}</span>
+              <span class="ico">▸</span><span class="nm">{e.name}</span>
               <span class="chev">›</span>
             </button>
           {/each}

@@ -52,8 +52,11 @@ import { attachSignalCapture } from "./signals";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { startLoopLagSampler } from "./instrument";
 
 const execFileAsync = promisify(execFile);
+
+startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 

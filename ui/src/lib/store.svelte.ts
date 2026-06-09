@@ -4,6 +4,7 @@ import type {
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
+  StarPromptStatus,
   GitState,
   SessionActivity,
   BacklogPayload,
@@ -34,6 +35,8 @@ export class HerdStore {
     to: string | null;
     error?: string;
   } | null>(null);
+  /** "Star us on GitHub?" nudge state; null until the first GET/push. */
+  starPrompt = $state<StarPromptStatus | null>(null);
   git = $state<Record<string, GitState>>({});
   /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
   activity = $state<Record<string, SessionActivity>>({});
@@ -261,6 +264,9 @@ export class HerdStore {
         break;
       case "herdr-update:status":
         this.herdrUpdate = ev.data;
+        break;
+      case "star-prompt:status":
+        this.starPrompt = ev.data;
         break;
       case "herdr-update:log":
         this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);

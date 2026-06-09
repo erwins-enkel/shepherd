@@ -13,6 +13,7 @@
     getUpdate,
     getUpdateLog,
     getHerdrUpdate,
+    getStarPrompt,
     gitStates,
     activityStates,
     previewStates,
@@ -67,6 +68,7 @@
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
+  import StarPrompt from "$lib/components/StarPrompt.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
@@ -449,6 +451,9 @@
       .catch(() => {});
     getHerdrUpdate()
       .then((u) => (store.herdrUpdate = u))
+      .catch(() => {});
+    getStarPrompt()
+      .then((s) => (store.starPrompt = s))
       .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
@@ -1051,6 +1056,10 @@
     {onlaunchtrain}
     onclose={() => (showBacklog = false)}
   />
+{/if}
+
+{#if store.starPrompt?.shouldPrompt}
+  <StarPrompt onresolve={(s) => (store.starPrompt = s)} />
 {/if}
 
 <Toasts />

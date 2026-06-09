@@ -42,6 +42,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
+import type { StarPromptStatus } from "./star-prompt";
 import type { Session, LearningStatus, SignalKind, SessionPreviewState } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
@@ -102,6 +103,14 @@ export interface AppDeps {
   updates?: Pick<UpdateService, "current" | "apply"> & Partial<Pick<UpdateService, "applyState">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
+  /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
+   *  via gh. Absent in tests that don't exercise it. */
+  starPrompt?: {
+    status(): StarPromptStatus;
+    dismiss(): StarPromptStatus;
+    snooze(): StarPromptStatus;
+    star(): Promise<StarPromptStatus>;
+  };
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
   herdr?: Pick<HerdrDriver, "list">;
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
@@ -1351,6 +1360,39 @@ function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
+/** GET → current "star us on GitHub?" nudge status (safe `{shouldPrompt:false}`
+ *  default when the service isn't wired). POST {action} → dismiss / snooze / star. */
+function handleStarPrompt({ req, parts, deps }: Ctx): Response | Promise<Response> | null {
+  if (!(parts[0] === "api" && parts[1] === "star-prompt" && !parts[2])) return null;
+  const sp = deps.starPrompt;
+  if (req.method === "GET") return json(sp ? sp.status() : { shouldPrompt: false, starred: false });
+  if (req.method !== "POST") return null;
+  if (!sp) return json({ error: "star prompt not available" }, 503);
+  return runStarPromptAction(req, sp);
+}
+
+async function runStarPromptAction(
+  req: Request,
+  sp: NonNullable<AppDeps["starPrompt"]>,
+): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { action?: string } | null;
+  switch (body?.action) {
+    case "dismiss":
+      return json(sp.dismiss());
+    case "snooze":
+      return json(sp.snooze());
+    case "star":
+      try {
+        return json(await sp.star());
+      } catch (e) {
+        // gh failed (e.g. not authenticated) — surface so the prompt can show it.
+        return json({ error: e instanceof Error ? e.message : "could not star repo" }, 502);
+      }
+    default:
+      return json({ error: "unknown action" }, 400);
+  }
+}
+
 function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
   if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
     if (req.method === "POST") {
@@ -2118,6 +2160,7 @@ const ROUTE_HANDLERS = [
   handleUsageLimits,
   handleUpdate,
   handleHerdrUpdate,
+  handleStarPrompt,
   handleUploads,
   handleRepos,
   handleSettings,

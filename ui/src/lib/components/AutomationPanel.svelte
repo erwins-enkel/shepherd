@@ -4,6 +4,7 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import type { Session, RepoRoles } from "$lib/types";
 
   let {
@@ -301,20 +302,26 @@
       <span class="knob"></span>
     </button>
   </div>
-  <div class="auto-row">
+  <div class={["auto-row", { disabled: flags.draftMode }]}>
     <div class="auto-meta">
       <div class="auto-name">
         🚀 {m.automation_automerge_name()}
         {@render info("auto-merge", m.automation_automerge_name())}
       </div>
-      <div class="auto-desc">{m.automation_automerge_desc()}</div>
+      <div class="auto-desc">
+        {flags.draftMode
+          ? m.automation_draftmode_excludes_automerge()
+          : m.automation_automerge_desc()}
+      </div>
       {@render detail("auto-merge", m.automation_automerge_detail())}
     </div>
     <button
-      class={["sw", { on: flags.autoMerge }]}
+      class={["sw", { on: flags.autoMerge && !flags.draftMode }]}
       type="button"
       role="switch"
-      aria-checked={flags.autoMerge}
+      aria-checked={flags.autoMerge && !flags.draftMode}
+      disabled={flags.draftMode}
+      title={flags.draftMode ? m.automation_draftmode_excludes_automerge() : undefined}
       aria-label={m.automation_automerge_name()}
       onclick={() => repoConfig.toggleAutoMerge(repoPath)}
     >
@@ -341,6 +348,54 @@
       <span class="knob"></span>
     </button>
   </div>
+  <div class={["auto-row", { disabled: flags.autoMerge }]} use:coachTarget={"draft-mode"}>
+    <div class="auto-meta">
+      <div class="auto-name">📋 {m.automation_draftmode_name()}</div>
+      <div class="auto-desc">
+        {flags.autoMerge
+          ? m.automation_draftmode_excludes_automerge()
+          : m.automation_draftmode_desc()}
+      </div>
+    </div>
+    <button
+      class={["sw", { on: flags.draftMode && !flags.autoMerge }]}
+      type="button"
+      role="switch"
+      aria-checked={flags.draftMode && !flags.autoMerge}
+      disabled={flags.autoMerge}
+      title={flags.autoMerge ? m.automation_draftmode_excludes_automerge() : undefined}
+      aria-label={m.automation_draftmode_name()}
+      onclick={() => repoConfig.toggleDraftMode(repoPath)}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
+  {#if flags.draftMode}
+    <div class="drain-fields">
+      <label class="drain-field">
+        <span class="drain-label">{m.automation_signoff_authority_label()}</span>
+        <select
+          class="num signoff-select"
+          aria-label={m.automation_signoff_authority_label()}
+          value={repoConfig.signoffAuthorityFor(repoPath)}
+          onchange={(e) =>
+            repoConfig.setSignoffAuthority(
+              repoPath,
+              (e.currentTarget as HTMLSelectElement).value as "human" | "critic" | "either",
+            )}
+        >
+          <option value="human">{m.signoff_authority_human()}</option>
+          <!-- Critic-reliant authorities are unusable with the Critic off (they could never
+               promote a draft → permanent-draft deadlock), so disable them. -->
+          <option value="critic" disabled={!flags.critic}>{m.signoff_authority_critic()}</option>
+          <option value="either" disabled={!flags.critic}>{m.signoff_authority_either()}</option>
+        </select>
+      </label>
+      {#if !flags.critic}
+        <div class="signoff-note">{m.automation_signoff_needs_critic()}</div>
+      {/if}
+    </div>
+  {/if}
   {#if flags.autoDrain}
     <div class="drain-fields">
       <label class="drain-field">
@@ -653,5 +708,19 @@
   }
   .roles-err {
     color: var(--color-red);
+  }
+  /* Sign-off authority selector — inherits .num token styling, left-aligned */
+  .signoff-select {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    text-align: left;
+    cursor: pointer;
+    appearance: auto;
+  }
+  .signoff-note {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    padding: 0 12px 6px;
   }
 </style>

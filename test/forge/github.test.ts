@@ -146,6 +146,21 @@ test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () =
   expect(calls[0]).toContain("o/r");
 });
 
+test("GithubForge.prStatus: maps isDraft from the json", async () => {
+  const draftJson = JSON.stringify([
+    { number: 7, url: "u", title: "feat", state: "OPEN", mergeable: "MERGEABLE", isDraft: true },
+  ]);
+  const draftForge = new GithubForge("o/r", {}, fakeRunner({ "pr list": draftJson }).run);
+  expect((await draftForge.prStatus("feature")).isDraft).toBe(true);
+
+  // isDraft absent in the json → defaults to false
+  const readyJson = JSON.stringify([
+    { number: 7, url: "u", title: "feat", state: "OPEN", mergeable: "MERGEABLE" },
+  ]);
+  const readyForge = new GithubForge("o/r", {}, fakeRunner({ "pr list": readyJson }).run);
+  expect((await readyForge.prStatus("feature")).isDraft).toBe(false);
+});
+
 test("GithubForge.prStatus: no PR → state none", async () => {
   const { run } = fakeRunner({ "pr list": "[]" });
   const forge = new GithubForge("o/r", { deployWorkflow: "x.yml" }, run);
@@ -794,4 +809,56 @@ test("GithubForge: a rejecting runner propagates as a rejected promise (fail-clo
   };
   const forge = new GithubForge("o/r", {}, run);
   await expect(forge.listIssues()).rejects.toThrow("gh: network error");
+});
+
+test("GithubForge.openPr: draft:true appends --draft to gh pr create args", async () => {
+  const prListJson = JSON.stringify([
+    {
+      number: 5,
+      url: "u",
+      title: "T",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [],
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prListJson });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.openPr({ head: "feat", base: "main", title: "T", body: "B", draft: true });
+  const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+  expect(createCall).toBeDefined();
+  expect(createCall).toContain("--draft");
+});
+
+test("GithubForge.openPr: draft:false (or omitted) does NOT pass --draft", async () => {
+  const prListJson = JSON.stringify([
+    {
+      number: 5,
+      url: "u",
+      title: "T",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [],
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prListJson });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.openPr({ head: "feat", base: "main", title: "T", body: "B" });
+  const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+  expect(createCall).toBeDefined();
+  expect(createCall).not.toContain("--draft");
+});
+
+test("GithubForge.markReady: invokes gh pr ready <n> --repo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.markReady!(42);
+  expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r"]);
+});
+
+test("GithubForge.convertToDraft: invokes gh pr ready <n> --repo --undo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.convertToDraft!(42);
+  expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r", "--undo"]);
 });

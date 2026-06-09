@@ -1142,6 +1142,8 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autoDrainEnabled: false,
     autoMergeEnabled: false,
     buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
@@ -1452,6 +1454,133 @@ test("PUT /api/repo-config empty body error message includes autoMergeEnabled", 
   expect(res.status).toBe(400);
   const body = await res.json();
   expect(body.error).toContain("autoMergeEnabled");
+});
+
+// ── draftMode + signoffAuthority repo-config ─────────────────────────────────
+
+test("PUT /api/repo-config accepts draftMode true", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { draftMode: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).draftMode).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean draftMode", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { draftMode: "yes" });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("draftMode");
+});
+
+test("PUT /api/repo-config draftMode + autoMergeEnabled together → 400 mutual exclusivity", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { draftMode: true, autoMergeEnabled: true });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("mutually exclusive");
+});
+
+test("PUT /api/repo-config enabling draftMode on an existing autoMerge repo → 400", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // first enable autoMerge
+  await putRepoConfig(app, validRepo, { autoMergeEnabled: true });
+  // now try to enable draftMode — should be rejected
+  const res = await putRepoConfig(app, validRepo, { draftMode: true });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("mutually exclusive");
+});
+
+test("PUT /api/repo-config enabling autoMerge on an existing draftMode repo → 400", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // first enable draftMode
+  await putRepoConfig(app, validRepo, { draftMode: true });
+  // now try to enable autoMerge — should be rejected
+  const res = await putRepoConfig(app, validRepo, { autoMergeEnabled: true });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("mutually exclusive");
+});
+
+test("PUT /api/repo-config accepts signoffAuthority valid values", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  for (const v of ["human", "critic", "either"] as const) {
+    const res = await putRepoConfig(app, validRepo, { signoffAuthority: v });
+    expect(res.status).toBe(200);
+    expect(deps.store.getRepoConfig(validRepo).signoffAuthority).toBe(v);
+  }
+});
+
+test("PUT /api/repo-config draftMode + critic authority while critic OFF → 400 (would deadlock)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "critic",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
+test("PUT /api/repo-config draftMode + either authority while critic OFF → 400", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "either",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
+test("PUT /api/repo-config draftMode + human authority while critic OFF → 200 (human needs no critic)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    draftMode: true,
+    signoffAuthority: "human",
+    criticEnabled: false,
+  });
+  expect(res.status).toBe(200);
+});
+
+test("PUT /api/repo-config turning critic OFF on a draftMode+critic-authority repo → 400 (both orderings)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // critic on by default → draftMode + critic authority is fine
+  await putRepoConfig(app, validRepo, { draftMode: true, signoffAuthority: "critic" });
+  // now disabling the critic would strand the draft → rejected
+  const res = await putRepoConfig(app, validRepo, { criticEnabled: false });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("requires criticEnabled");
+});
+
+test("PUT /api/repo-config rejects unknown signoffAuthority", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { signoffAuthority: "nobody" });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("signoffAuthority");
+});
+
+test("PUT /api/repo-config empty body error message includes draftMode and signoffAuthority", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {});
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("draftMode");
+  expect(body.error).toContain("signoffAuthority");
 });
 
 test("PUT /api/sessions/:id/automerge sets the override", async () => {

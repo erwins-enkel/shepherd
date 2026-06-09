@@ -80,9 +80,11 @@ function fakeForge(
 function makeDeps(
   forge: GitForge | null,
   session: Session | null = SESSION,
+  opts: { draftMode?: boolean } = {},
 ): AppDeps & { emitted: { event: string; data: unknown }[]; cacheWrites: string[] } {
   const store: Partial<SessionStore> = {
     get: (id) => (session && id === session.id ? session : null),
+    getRepoConfig: () => ({ draftMode: opts.draftMode ?? false }) as any,
   };
   const emitted: { event: string; data: unknown }[] = [];
   const cacheWrites: string[] = [];
@@ -273,4 +275,32 @@ test("POST git/merge writes cache + emits session:git", async () => {
   await app.fetch(post("/api/sessions/s1/git/merge", {}));
   const ev = deps.emitted.find((e) => e.event === "session:git");
   expect(ev?.data).toMatchObject({ id: "s1", git: { kind: "gitea" } });
+});
+
+// ── draft mode ───────────────────────────────────────────────────────────────
+
+test("POST git/pr passes draft=true to forge.openPr when repo draftMode=true", async () => {
+  const calls: any[] = [];
+  const f = fakeForge({
+    openPr: async (o) => {
+      calls.push(o);
+      return { state: "open", number: 5, checks: "pending", deployConfigured: true };
+    },
+  });
+  const app = makeApp(makeDeps(f, SESSION, { draftMode: true }));
+  await app.fetch(post("/api/sessions/s1/git/pr", {}));
+  expect(calls[0]?.draft).toBe(true);
+});
+
+test("POST git/pr passes draft=false to forge.openPr when repo draftMode=false", async () => {
+  const calls: any[] = [];
+  const f = fakeForge({
+    openPr: async (o) => {
+      calls.push(o);
+      return { state: "open", number: 5, checks: "pending", deployConfigured: true };
+    },
+  });
+  const app = makeApp(makeDeps(f, SESSION, { draftMode: false }));
+  await app.fetch(post("/api/sessions/s1/git/pr", {}));
+  expect(calls[0]?.draft).toBe(false);
 });

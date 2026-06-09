@@ -81,6 +81,8 @@ export interface PrStatus {
   headSha?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
+  /** true = PR is a draft / not ready-for-review. Optional; absent ⇒ treat as false downstream. */
+  isDraft?: boolean;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }
@@ -128,6 +130,7 @@ export interface OpenPrInput {
   base: string;
   title: string;
   body: string;
+  draft?: boolean;
 }
 
 export interface MergeInput {
@@ -197,6 +200,13 @@ export interface GitForge {
    *  with a comment API (GitHub) implement it; others omit it and the
    *  dependabot-rebase endpoint 400s. */
   comment?(prNumber: number, body: string): Promise<void>;
+  /** Flip an open draft PR to ready-for-review (`gh pr ready <n>`). Optional: only
+   *  hosts with a draft API implement it; the draft-reconcile service treats absence
+   *  as "cannot promote on this host". */
+  markReady?(prNumber: number): Promise<void>;
+  /** Convert an open ready PR back to draft (`gh pr ready <n> --undo`). Optional,
+   *  same host gating as {@link markReady}. */
+  convertToDraft?(prNumber: number): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
   /** Post a critic review (request-changes / comment) on a PR. Returns the
    *  review's URL when the host provides one. */

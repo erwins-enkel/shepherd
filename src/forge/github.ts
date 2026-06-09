@@ -70,6 +70,7 @@ interface GhPr {
   title: string;
   state: string; // OPEN | MERGED | CLOSED
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
+  isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
   reviews?: GhReview[];
@@ -372,7 +373,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,statusCheckRollup,headRefOid,reviews",
+      "number,url,title,state,mergeable,isDraft,statusCheckRollup,headRefOid,reviews",
       "--limit",
       "1",
     ]);
@@ -386,6 +387,7 @@ export class GithubForge implements GitForge {
       url: pr.url,
       title: pr.title,
       mergeable: mapMergeable(pr.mergeable),
+      isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,
       latestReview: latestHumanReview(pr.reviews),
@@ -437,7 +439,7 @@ export class GithubForge implements GitForge {
   }
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {
-    await this.run([
+    const args = [
       "pr",
       "create",
       "--repo",
@@ -450,8 +452,18 @@ export class GithubForge implements GitForge {
       o.title,
       "--body",
       o.body,
-    ]);
+    ];
+    if (o.draft) args.push("--draft");
+    await this.run(args);
     return this.prStatus(o.head);
+  }
+
+  async markReady(prNumber: number): Promise<void> {
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug]);
+  }
+
+  async convertToDraft(prNumber: number): Promise<void> {
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug, "--undo"]);
   }
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {

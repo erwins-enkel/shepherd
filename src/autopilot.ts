@@ -3,6 +3,7 @@ import type { Session, AutopilotVerdict } from "./types";
 import type { BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { DRAFT_PR_NOTE } from "./service";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -21,6 +22,11 @@ export const OPEN_PR_STEER = [
   "work, push the branch, and open a PR (gh pr create). If something genuinely blocks that,",
   "say specifically what you need.",
 ].join("\n");
+
+/** Returns the open-PR steer, appending the draft-mode note when `draftMode` is true. */
+export function openPrSteer(draftMode: boolean): string {
+  return draftMode ? `${OPEN_PR_STEER} ${DRAFT_PR_NOTE}` : OPEN_PR_STEER;
+}
 
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
@@ -152,7 +158,7 @@ export class AutopilotService {
         return;
       case "finished":
         if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
-        this.driveSteer(s, OPEN_PR_STEER);
+        this.driveSteer(s, openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode));
         return;
       case "complete":
         this.markComplete(s, v.summary || COMPLETE_MESSAGE);

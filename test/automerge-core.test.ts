@@ -13,6 +13,9 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     behind: false,
     reviewDecision: null,
     reviewHeadSha: null,
+    isDraft: false,
+    humanApproved: false,
+    findings: [],
     rebaseCount: 0,
     rebaseSteeredHead: null,
     mergeBlocked: false,
@@ -20,7 +23,15 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
   };
 }
 function state(sessions: MergeSessionView[], o: Partial<MergeRepoState> = {}): MergeRepoState {
-  return { enabled: true, criticEnabled: false, rebaseCap: 5, sessions, ...o };
+  return {
+    enabled: true,
+    criticEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    rebaseCap: 5,
+    sessions,
+    ...o,
+  };
 }
 
 test("disabled → hold", () => {
@@ -130,4 +141,50 @@ test("mergeBlocked → skipped; a ready sibling merges instead", () => {
 test("mergeBlocked lone session → hold (not merged)", () => {
   const d = computeMerge(state([sess({ mergeBlocked: true })]));
   expect(d.kind).toBe("hold");
+});
+
+// ── draftMode sign-off backstop (defense-in-depth; draft repos force auto-merge off) ────────
+
+test("draftMode unsigned → readyToMerge false even when otherwise ready", () => {
+  const d = computeMerge(
+    state([sess({ humanApproved: false })], { draftMode: true, signoffAuthority: "human" }),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("draftMode signed (human) → merge", () => {
+  const d = computeMerge(
+    state([sess({ humanApproved: true })], { draftMode: true, signoffAuthority: "human" }),
+  );
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("draftMode signed (clean critic) → merge", () => {
+  const d = computeMerge(
+    state([sess({ reviewDecision: "commented", reviewHeadSha: "h1", findings: [] })], {
+      draftMode: true,
+      signoffAuthority: "critic",
+    }),
+  );
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("draftMode + needsRebase skips an unsigned draft (no CI churn)", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, humanApproved: false })], {
+      draftMode: true,
+      signoffAuthority: "human",
+    }),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } }); // not "rebase"
+});
+
+test("draftMode + signed + behind → rebase (signed drafts still rebase to stay current)", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, humanApproved: true })], {
+      draftMode: true,
+      signoffAuthority: "human",
+    }),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1" });
 });

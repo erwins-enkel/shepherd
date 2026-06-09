@@ -805,3 +805,143 @@ test("GiteaForge.prStatus: surfaces head SHA from PR head.sha", async () => {
   const st = await forge.prStatus("feature");
   expect(st.headSha).toBe("def456");
 });
+
+// --- draft support (WIP-prefix convention) ---
+
+test("GiteaForge.openPr: draft:true prefixes title with 'WIP: '", async () => {
+  const { fn, calls } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls": {
+      status: 201,
+      json: {
+        number: 20,
+        title: "WIP: My Feature",
+        state: "open",
+        merged: false,
+        mergeable: true,
+        html_url: "u20",
+        head: { ref: "feat", sha: "s20" },
+      },
+    },
+    "GET /api/v1/repos/team/proj/commits/s20/status": { json: { state: "none" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.openPr({ head: "feat", base: "main", title: "My Feature", body: "B", draft: true });
+  const post = calls.find((c) => c.method === "POST")!;
+  expect(post.body).toMatchObject({ title: "WIP: My Feature" });
+});
+
+test("GiteaForge.openPr: draft:false (or omitted) does NOT prefix title", async () => {
+  const { fn, calls } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls": {
+      status: 201,
+      json: {
+        number: 21,
+        title: "My Feature",
+        state: "open",
+        merged: false,
+        mergeable: true,
+        html_url: "u21",
+        head: { ref: "feat", sha: "s21" },
+      },
+    },
+    "GET /api/v1/repos/team/proj/commits/s21/status": { json: { state: "none" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.openPr({ head: "feat", base: "main", title: "My Feature", body: "B" });
+  const post = calls.find((c) => c.method === "POST")!;
+  expect(post.body).toMatchObject({ title: "My Feature" });
+});
+
+test("GiteaForge.prStatus: WIP-prefixed title → isDraft true", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "WIP: feat",
+          state: "open",
+          merged: false,
+          mergeable: true,
+          html_url: "u9",
+          head: { ref: "feature", sha: "abc123" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/abc123/status": { json: { state: "success" } },
+  });
+  const st = await new GiteaForge("team/proj", CFG, fn).prStatus("feature");
+  expect(st.isDraft).toBe(true);
+});
+
+test("GiteaForge.prStatus: non-WIP title → isDraft false", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {
+      json: [
+        {
+          number: 9,
+          title: "feat",
+          state: "open",
+          merged: false,
+          mergeable: true,
+          html_url: "u9",
+          head: { ref: "feature", sha: "abc123" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/abc123/status": { json: { state: "success" } },
+  });
+  const st = await new GiteaForge("team/proj", CFG, fn).prStatus("feature");
+  expect(st.isDraft).toBe(false);
+});
+
+test("GiteaForge.markReady: strips WIP: prefix via PATCH", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/20": {
+      json: { number: 20, title: "WIP: My Feature", state: "open", html_url: "u20" },
+    },
+    "PATCH /api/v1/repos/team/proj/pulls/20": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.markReady!(20);
+  const patch = calls.find((c) => c.method === "PATCH")!;
+  expect(patch.body).toEqual({ title: "My Feature" });
+});
+
+test("GiteaForge.markReady: still PATCHes (title unchanged) when no WIP prefix present", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/21": {
+      json: { number: 21, title: "My Feature", state: "open", html_url: "u21" },
+    },
+    "PATCH /api/v1/repos/team/proj/pulls/21": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.markReady!(21);
+  // title unchanged (no WIP prefix to strip)
+  const patch = calls.find((c) => c.method === "PATCH")!;
+  expect(patch.body).toEqual({ title: "My Feature" });
+});
+
+test("GiteaForge.convertToDraft: adds WIP: prefix via PATCH when absent", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/21": {
+      json: { number: 21, title: "My Feature", state: "open", html_url: "u21" },
+    },
+    "PATCH /api/v1/repos/team/proj/pulls/21": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.convertToDraft!(21);
+  const patch = calls.find((c) => c.method === "PATCH")!;
+  expect(patch.body).toEqual({ title: "WIP: My Feature" });
+});
+
+test("GiteaForge.convertToDraft: no-ops when WIP: prefix already present", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls/20": {
+      json: { number: 20, title: "WIP: My Feature", state: "open", html_url: "u20" },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.convertToDraft!(20);
+  // already a draft → no PATCH
+  expect(calls.find((c) => c.method === "PATCH")).toBeUndefined();
+});

@@ -182,6 +182,8 @@ export class GiteaForge implements GitForge {
       url: pr.html_url,
       title: pr.title ?? "",
       mergeable: pr.mergeable ?? null,
+      // Gitea has no draft boolean; draft = the WIP-title-prefix convention (see WIP_PREFIX).
+      isDraft: (pr.title ?? "").startsWith(GiteaForge.WIP_PREFIX),
       checks: await this.checksFor(pr.head?.sha),
       headSha: pr.head?.sha,
       deployConfigured,
@@ -290,14 +292,52 @@ export class GiteaForge implements GitForge {
     return repo.default_branch;
   }
 
+  /** Gitea has no draft boolean in CreatePullRequestOption (confirmed via swagger.v1.json
+   *  on gitea.com). Draft PRs are signalled by prefixing the title with `WIP: `.
+   *  LIMITATIONS (Gitea is the secondary, non-production forge): (1) Gitea's WIP markers are
+   *  server-configurable (default also includes `[WIP]`); we only handle this one default, so a
+   *  repo using a custom marker won't be detected. (2) A PR whose real title legitimately starts
+   *  with `WIP: ` is indistinguishable from a draft — but that is exactly how Gitea itself treats
+   *  such a title, so `markReady` stripping the prefix matches Gitea's own semantics. */
+  private static WIP_PREFIX = "WIP: ";
+
+  private static addWip(title: string): string {
+    return GiteaForge.WIP_PREFIX + title;
+  }
+
+  private static removeWip(title: string): string {
+    return title.startsWith(GiteaForge.WIP_PREFIX)
+      ? title.slice(GiteaForge.WIP_PREFIX.length)
+      : title;
+  }
+
   async openPr(o: OpenPrInput): Promise<PrStatus> {
+    const title = o.draft ? GiteaForge.addWip(o.title) : o.title;
     const pr = (await this.req("POST", `/api/v1/repos/${this.slug}/pulls`, {
       head: o.head,
       base: o.base,
-      title: o.title,
+      title,
       body: o.body,
     })) as GiteaPr;
     return this.toStatus(pr);
+  }
+
+  async markReady(prNumber: number): Promise<void> {
+    const pr = (await this.req("GET", `/api/v1/repos/${this.slug}/pulls/${prNumber}`)) as GiteaPr;
+    // removeWip is idempotent — always send the PATCH (an already-ready PR just gets its
+    // unchanged title re-written), keeping this simpler than convertToDraft's skip guard.
+    const title = GiteaForge.removeWip(pr.title ?? "");
+    await this.req("PATCH", `/api/v1/repos/${this.slug}/pulls/${prNumber}`, { title });
+  }
+
+  async convertToDraft(prNumber: number): Promise<void> {
+    const pr = (await this.req("GET", `/api/v1/repos/${this.slug}/pulls/${prNumber}`)) as GiteaPr;
+    const title = pr.title ?? "";
+    if (!title.startsWith(GiteaForge.WIP_PREFIX)) {
+      await this.req("PATCH", `/api/v1/repos/${this.slug}/pulls/${prNumber}`, {
+        title: GiteaForge.addWip(title),
+      });
+    }
   }
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {

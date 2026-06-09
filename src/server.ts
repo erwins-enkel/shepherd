@@ -302,6 +302,15 @@ function parseUsageCeiling(v: unknown): number | { error: string } {
   return Math.floor(Math.min(100, Math.max(0, v)));
 }
 
+// signoffAuthority: one of the three valid enum values
+const SIGNOFF_AUTHORITY_VALUES = ["human", "critic", "either"] as const;
+function parseSignoffAuthority(v: unknown): "human" | "critic" | "either" | { error: string } {
+  if (!SIGNOFF_AUTHORITY_VALUES.includes(v as (typeof SIGNOFF_AUTHORITY_VALUES)[number])) {
+    return { error: `signoffAuthority must be one of: ${SIGNOFF_AUTHORITY_VALUES.join(", ")}` };
+  }
+  return v as "human" | "critic" | "either";
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -312,6 +321,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoDrainEnabled",
   "autoMergeEnabled",
   "buildQueueEnabled",
+  "draftMode",
 ] as const;
 
 type RepoCfgBody = {
@@ -323,6 +333,8 @@ type RepoCfgBody = {
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
+  draftMode?: unknown;
+  signoffAuthority?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -338,32 +350,16 @@ function hasBadBoolField(body: RepoCfgBody): boolean {
 
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
 // All fields optional but each present one must pass its type check; at least one present.
-async function parseRepoConfigPatch(req: Request): Promise<
+/** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
+ *  send. Pulled out of parseRepoConfigPatch so each adds no branch to that function. */
+function parseRepoCfgScalars(body: RepoCfgBody):
   | {
-      criticEnabled?: boolean;
-      autoAddressEnabled?: boolean;
-      learningsEnabled?: boolean;
-      autopilotEnabled?: boolean;
-      planGateEnabled?: boolean;
-      autoDrainEnabled?: boolean;
-      autoMergeEnabled?: boolean;
-      buildQueueEnabled?: boolean;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
+      signoffAuthority?: "human" | "critic" | "either";
     }
-  | Response
-> {
-  const body = (await req.json().catch(() => null)) as RepoCfgBody | null;
-  if (!body || hasBadBoolField(body)) {
-    return json(
-      {
-        error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled) must be booleans",
-      },
-      400,
-    );
-  }
+  | Response {
   let maxAuto: number | undefined;
   if (body.maxAuto !== undefined) {
     const r = parseMaxAuto(body.maxAuto);
@@ -382,16 +378,57 @@ async function parseRepoConfigPatch(req: Request): Promise<
     if (typeof r !== "number") return json(r, 400);
     usageCeilingPct = r;
   }
+  let signoffAuthority: "human" | "critic" | "either" | undefined;
+  if (body.signoffAuthority !== undefined) {
+    const r = parseSignoffAuthority(body.signoffAuthority);
+    if (typeof r !== "string") return json(r, 400);
+    signoffAuthority = r;
+  }
+  return { maxAuto, autoLabel, usageCeilingPct, signoffAuthority };
+}
+
+async function parseRepoConfigPatch(req: Request): Promise<
+  | {
+      criticEnabled?: boolean;
+      autoAddressEnabled?: boolean;
+      learningsEnabled?: boolean;
+      autopilotEnabled?: boolean;
+      planGateEnabled?: boolean;
+      autoDrainEnabled?: boolean;
+      autoMergeEnabled?: boolean;
+      buildQueueEnabled?: boolean;
+      draftMode?: boolean;
+      signoffAuthority?: "human" | "critic" | "either";
+      maxAuto?: number;
+      autoLabel?: string;
+      usageCeilingPct?: number;
+    }
+  | Response
+> {
+  const body = (await req.json().catch(() => null)) as RepoCfgBody | null;
+  if (!body || hasBadBoolField(body)) {
+    return json(
+      {
+        error:
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode) must be booleans",
+      },
+      400,
+    );
+  }
+  const scalars = parseRepoCfgScalars(body);
+  if (scalars instanceof Response) return scalars;
+  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||
     autoLabel !== undefined ||
-    usageCeilingPct !== undefined;
+    usageCeilingPct !== undefined ||
+    signoffAuthority !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -405,6 +442,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
+    draftMode: body.draftMode as boolean | undefined,
+    signoffAuthority,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -425,6 +464,8 @@ function mergeRepoConfig(
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
     buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
+    draftMode: patch.draftMode ?? cur.draftMode,
+    signoffAuthority: patch.signoffAuthority ?? cur.signoffAuthority,
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
@@ -440,7 +481,22 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
-  deps.store.setRepoConfig(dir, mergeRepoConfig(deps.store.getRepoConfig(dir), patch));
+  const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), patch);
+  if (merged.draftMode && merged.autoMergeEnabled) {
+    return json({ error: "draftMode and autoMergeEnabled are mutually exclusive" }, 400);
+  }
+  // A critic-reliant sign-off authority with the critic OFF can never promote a draft → it
+  // would deadlock as a permanent draft. (With the critic off, "either" also reduces to the
+  // human check, so it's equivalent to "human" anyway.) Force an explicit "human" authority.
+  if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human") {
+    return json(
+      {
+        error: `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
+      },
+      400,
+    );
+  }
+  deps.store.setRepoConfig(dir, merged);
   return json(deps.store.getRepoConfig(dir));
 }
 
@@ -1200,11 +1256,13 @@ async function forgeOpenPr(
 ): Promise<Response> {
   const head = session.branch ?? "";
   const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+  const cfg = deps.store.getRepoConfig(session.repoPath);
   const status = await forge.openPr({
     head,
     base: session.baseBranch,
     title: body.title?.trim() || session.name,
     body: body.body ?? session.prompt,
+    draft: cfg.draftMode,
   });
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);

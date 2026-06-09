@@ -118,6 +118,8 @@ export interface PrStatus {
     author: string;
     submittedAt: number;
   };
+  /** true = PR is a draft / not ready-for-review. Absent ⇒ treat as false. */
+  isDraft?: boolean;
 }
 
 /** An open PR row in the backlog PRs tab (mirrors server `PullRequest`). */
@@ -211,6 +213,10 @@ export interface RepoConfig {
   buildQueueEnabled: boolean;
   /** Pre-execution plan gate: grill + adversarial plan review before execution (default off). */
   planGateEnabled: boolean;
+  /** Open new PRs as drafts; mutually exclusive with autoMergeEnabled (default false). */
+  draftMode: boolean;
+  /** Who may promote a draft PR to ready-for-review (default "human"). */
+  signoffAuthority: "human" | "critic" | "either";
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
@@ -226,6 +232,15 @@ export interface AutoMergeStatus {
   detail: string | null;
   /** The affected session's id, so a deep-link selects it; null when none. */
   sessionId: string | null;
+}
+
+/** Live draft-reconcile result pushed per session (mirrors server DraftReconcileStatus).
+ *  state=null = success (clear any prior alert); state=promote_error/enforce_error = failure. */
+export interface DraftReconcileStatus {
+  repoPath: string;
+  sessionId: string;
+  state: "promote_error" | "enforce_error" | null;
+  detail: string | null;
 }
 
 export interface DrainStatus {
@@ -495,7 +510,8 @@ export type WsEvent =
   | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }
   | { event: "queue:update"; data: BuildQueue }
   | { event: "halt:done"; data: { halted: number } }
-  | { event: "mergetrain:landed"; data: { repoPath: string } };
+  | { event: "mergetrain:landed"; data: { repoPath: string } }
+  | { event: "draftreconcile:status"; data: DraftReconcileStatus };
 
 export interface CreateInput {
   repoPath: string;

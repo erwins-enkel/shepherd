@@ -102,16 +102,22 @@ export class DrainService {
     const snapshot = this.deps.prCache.snapshot();
     const autoSessions: AutoSessionView[] = allRepoSessions
       .filter((s) => s.status !== "archived" && s.auto)
-      .map((s) => ({
-        id: s.id,
-        desig: s.desig,
-        issueNumber: s.issueNumber,
-        status: s.status,
-        git: snapshot[s.id] ?? null,
-        reviewDecision: this.deps.store.getReview(s.id)?.decision ?? null,
-        reviewHeadSha: this.deps.store.getReview(s.id)?.headSha ?? null,
-        fullAuto: isFullAuto(s, cfg),
-      }));
+      .map((s) => {
+        const review = this.deps.store.getReview(s.id);
+        return {
+          id: s.id,
+          desig: s.desig,
+          issueNumber: s.issueNumber,
+          status: s.status,
+          git: snapshot[s.id] ?? null,
+          reviewDecision: review?.decision ?? null,
+          reviewHeadSha: review?.headSha ?? null,
+          findings: review?.findings ?? [],
+          humanApproved: snapshot[s.id]?.latestReview?.state === "approved",
+          isDraft: snapshot[s.id]?.isDraft ?? false,
+          fullAuto: isFullAuto(s, cfg),
+        };
+      });
     const mappedIssueNumbers = new Set(
       allRepoSessions.map((s) => s.issueNumber).filter((n): n is number => n != null),
     );
@@ -125,6 +131,8 @@ export class DrainService {
     return {
       enabled: cfg.autoDrainEnabled,
       criticEnabled: cfg.criticEnabled,
+      draftMode: cfg.draftMode,
+      signoffAuthority: cfg.signoffAuthority,
       maxAuto: cfg.maxAuto,
       usageCeilingPct: cfg.usageCeilingPct,
       usagePct,

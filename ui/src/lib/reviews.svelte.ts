@@ -150,7 +150,8 @@ export class PlanGateStore {
 }
 export const planGates = new PlanGateStore();
 
-/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue + plan-gate on/off, cached lazily by repoPath. */
+/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue +
+ *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
@@ -160,6 +161,8 @@ class RepoConfigStore {
   autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
+  draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
+  signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
@@ -176,6 +179,8 @@ class RepoConfigStore {
       this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
       this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
+      this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
+      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -198,6 +203,8 @@ class RepoConfigStore {
         | "autoMergeEnabled"
         | "buildQueueEnabled"
         | "planGateEnabled"
+        | "draftMode"
+        | "signoffAuthority"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -215,6 +222,8 @@ class RepoConfigStore {
       this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
       this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
       this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
+      this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
+      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
       this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
       this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
       this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -272,8 +281,41 @@ class RepoConfigStore {
     const prev = this.autoMerge[repoPath];
     const next = !this.isAutoMergeEnabled(repoPath);
     this.autoMerge = { ...this.autoMerge, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { autoMergeEnabled: next }, () => {
-      this.autoMerge = { ...this.autoMerge, [repoPath]: prev };
+    // mutual exclusivity: turning autoMerge ON forces draftMode OFF
+    const prevDraft = this.draftMode[repoPath];
+    if (next) this.draftMode = { ...this.draftMode, [repoPath]: false };
+    await this.apply(
+      repoPath,
+      next ? { autoMergeEnabled: true, draftMode: false } : { autoMergeEnabled: false },
+      () => {
+        this.autoMerge = { ...this.autoMerge, [repoPath]: prev };
+        if (next) this.draftMode = { ...this.draftMode, [repoPath]: prevDraft };
+      },
+    );
+  }
+
+  async toggleDraftMode(repoPath: string) {
+    const prev = this.draftMode[repoPath];
+    const next = !this.isDraftModeEnabled(repoPath);
+    this.draftMode = { ...this.draftMode, [repoPath]: next }; // optimistic
+    // mutual exclusivity: turning draftMode ON forces autoMerge OFF
+    const prevAutoMerge = this.autoMerge[repoPath];
+    if (next) this.autoMerge = { ...this.autoMerge, [repoPath]: false };
+    await this.apply(
+      repoPath,
+      next ? { draftMode: true, autoMergeEnabled: false } : { draftMode: false },
+      () => {
+        this.draftMode = { ...this.draftMode, [repoPath]: prev };
+        if (next) this.autoMerge = { ...this.autoMerge, [repoPath]: prevAutoMerge };
+      },
+    );
+  }
+
+  async setSignoffAuthority(repoPath: string, value: "human" | "critic" | "either") {
+    const prev = this.signoffAuthority[repoPath];
+    this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: value }; // optimistic
+    await this.apply(repoPath, { signoffAuthority: value }, () => {
+      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: prev };
     });
   }
 
@@ -351,6 +393,14 @@ class RepoConfigStore {
     return this.planGate[repoPath] ?? false;
   }
 
+  isDraftModeEnabled(repoPath: string): boolean {
+    return this.draftMode[repoPath] ?? false;
+  }
+
+  signoffAuthorityFor(repoPath: string): "human" | "critic" | "either" {
+    return this.signoffAuthority[repoPath] ?? "human";
+  }
+
   /** All automation on/off flags for a repo, in one read — shared by the pill's
    *  count (GitRail) and the panel's switch rows (AutomationPanel). */
   flags(repoPath: string): AutomationFlags {
@@ -363,6 +413,7 @@ class RepoConfigStore {
       autoMerge: this.isAutoMergeEnabled(repoPath),
       buildQueue: this.isBuildQueueEnabled(repoPath),
       planGate: this.isPlanGateEnabled(repoPath),
+      draftMode: this.isDraftModeEnabled(repoPath),
     };
   }
 

@@ -28,6 +28,9 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
     git: null,
     reviewDecision: null,
     reviewHeadSha: null,
+    isDraft: false,
+    humanApproved: false,
+    findings: [],
     fullAuto: false,
     ...over,
   };
@@ -37,6 +40,8 @@ function state(over: Partial<DrainRepoState> = {}): DrainRepoState {
   return {
     enabled: true,
     criticEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
     maxAuto: 2,
     usageCeilingPct: 80,
     usagePct: 0,
@@ -288,6 +293,176 @@ describe("computeNext", () => {
       sessionId: "s1",
       prNumber: 5,
     });
+  });
+});
+
+// MERGEABLE.headSha === "abc"; a critic-clean view matches reviewHeadSha to it.
+describe("computeNext — draftMode sign-off gate", () => {
+  test("born-ready race: draft repo, human authority, isDraft FALSE but unsigned → no retire", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: { ...MERGEABLE, isDraft: false }, // born ready (briefly flipped to ready)
+            humanApproved: false,
+          }),
+        ],
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
+  test("born-ready race AT CAP → hold awaiting_signoff (not cap)", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        maxAuto: 1,
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            desig: "TASK-42",
+            git: { ...MERGEABLE, isDraft: false },
+            humanApproved: false,
+          }),
+        ],
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "awaiting_signoff", detail: "TASK-42" } });
+  });
+
+  test("draft repo + humanApproved → retire", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, humanApproved: true })],
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+  });
+
+  test("human authority + only a clean critic verdict → NO retire (authority mismatch)", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: MERGEABLE,
+            humanApproved: false,
+            reviewDecision: "commented",
+            reviewHeadSha: MERGEABLE.headSha,
+            findings: [],
+          }),
+        ],
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
+  test("critic authority + same clean critic view → retire", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "critic",
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: MERGEABLE,
+            humanApproved: false,
+            reviewDecision: "commented",
+            reviewHeadSha: MERGEABLE.headSha,
+            findings: [],
+          }),
+        ],
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+  });
+
+  test("critic authority + commented WITH findings → NO retire (advisory, not sign-off)", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "critic",
+        autoSessions: [
+          autoSession({
+            id: "sX",
+            git: MERGEABLE,
+            reviewDecision: "commented",
+            reviewHeadSha: MERGEABLE.headSha,
+            findings: ["nit: rename x"],
+          }),
+        ],
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
+  test("cap with all sessions signed → still cap (not awaiting_signoff)", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        maxAuto: 1,
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, humanApproved: true })],
+        candidates: [issue(2)],
+      }),
+    );
+    // The signed session is retired first (priority over cap), so it never reaches the cap gate.
+    expect(d.kind).toBe("retire");
+  });
+
+  test("cap, one unsigned + one signed (signed retires first)", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        maxAuto: 2,
+        autoSessions: [
+          autoSession({ id: "unsigned", desig: "TASK-01", git: MERGEABLE, humanApproved: false }),
+          autoSession({
+            id: "signed",
+            issueNumber: 2,
+            desig: "TASK-02",
+            git: MERGEABLE,
+            humanApproved: true,
+          }),
+        ],
+      }),
+    );
+    // The signed one is retireable → retire wins over the cap/awaiting_signoff relabel.
+    expect(d).toEqual({ kind: "retire", sessionId: "signed", prNumber: 7 });
+  });
+
+  test("cap, only an unsigned retireable session → awaiting_signoff", () => {
+    const d = computeNext(
+      state({
+        draftMode: true,
+        signoffAuthority: "human",
+        maxAuto: 1,
+        autoSessions: [
+          autoSession({ id: "unsigned", desig: "TASK-01", git: MERGEABLE, humanApproved: false }),
+        ],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "awaiting_signoff", detail: "TASK-01" } });
+  });
+
+  test("non-draftMode regression: humanApproved irrelevant, critic-off green retires", () => {
+    const d = computeNext(
+      state({
+        draftMode: false,
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, humanApproved: false })],
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
   });
 });
 

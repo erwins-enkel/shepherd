@@ -257,12 +257,28 @@ const PLAN_GATE_DIRECTIVE_AUTO =
   "are told the plan is approved.";
 export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
 
+/**
+ * Appended to a draftMode repo's spawn prompt and PR-open steers. Agent-facing, NOT i18n'd.
+ * The reconcile service (draft-reconcile.ts) is the backstop that promotes drafts once signed
+ * off; this note is the primary, best-effort signal so the agent opens it correctly up front.
+ */
+export const DRAFT_PR_NOTE =
+  "This repo runs in draft mode: when you open the pull request, open it as a DRAFT (`gh pr create --draft`). " +
+  "Shepherd promotes it to ready-for-review automatically once it's signed off (a human approval and/or the " +
+  "critic, per repo config) — do NOT run `gh pr ready` yourself.";
+
 /** Steered into a planning session when its plan is approved and the operator hits Go (or an
- *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd. */
-const PLAN_GO_STEER =
+ *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd.
+ *  When `draftMode` is true, appends the draft-PR note so the agent opens a draft PR. */
+const PLAN_GO_STEER_BASE =
   "Plan approved. Execute `.shepherd-plan.md` now, autonomously — implement it fully, commit, push, " +
   "and open a pull request (`gh pr create`). Don't re-litigate the plan; if you hit a genuine product " +
   "decision that only the user can make, ask, otherwise keep going.";
+
+/** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
+export function planGoSteer(draftMode: boolean): string {
+  return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
+}
 
 /**
  * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
@@ -281,7 +297,9 @@ const PLAN_GO_STEER =
  * directive — orthogonal to the plan-gate/autopilot choice, so it always rides. `opts.previewHint`,
  * when true, appends the preview-hint notice AFTER the build-queue block (or after the
  * plan-gate/autopilot block when no build-queue is present) — isolated-only, orthogonal to all
- * other options.
+ * other options. `opts.draftMode`, when true, appends a `<draft-mode>` block instructing the agent
+ * to open PRs as drafts — independent of the plan-gate/autopilot/build-queue choice (harmless during
+ * planning; the agent only opens a PR later).
  */
 export function composeSystemPrompt(
   houseRules: string | null,
@@ -290,6 +308,7 @@ export function composeSystemPrompt(
     planGate?: "interactive" | "auto";
     buildQueue?: string | null;
     previewHint?: boolean;
+    draftMode?: boolean;
   } = {},
 ): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
@@ -312,6 +331,8 @@ export function composeSystemPrompt(
   if (opts.previewHint) {
     blocks.push(`<preview-hint-notice>\n${PREVIEW_HINT_NOTICE}\n</preview-hint-notice>`);
   }
+  // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
+  if (opts.draftMode) blocks.push(`<draft-mode>\n${DRAFT_PR_NOTE}\n</draft-mode>`);
   return blocks.join("\n\n");
 }
 
@@ -424,6 +445,7 @@ export class SessionService {
         planGate,
         buildQueue,
         previewHint: isolated,
+        draftMode: repoConfig.draftMode,
       }),
     );
     if (input.model) argv.push("--model", input.model);
@@ -855,7 +877,8 @@ export class SessionService {
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
     this.#enterExecution(id);
-    this.reply(id, PLAN_GO_STEER);
+    const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
+    this.reply(id, planGoSteer(draftMode));
     return true;
   }
 

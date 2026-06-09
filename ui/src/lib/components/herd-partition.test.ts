@@ -254,3 +254,63 @@ test("operator-parked ready wins over a merger handoff", () => {
   expect(waitingOnMerger).toHaveLength(0);
   expect(ready.map((s) => s.id)).toEqual(["r"]);
 });
+
+// ── draftAwaitingSignoff group ─────────────────────────────────────────────
+
+function gitDraft(checks: GitState["checks"] = "success"): GitState {
+  return { kind: "github", state: "open", checks, deployConfigured: false, isDraft: true };
+}
+
+test("draft + green CI + idle lands in draftAwaitingSignoff, not awaitingMerge", () => {
+  const list = [session("d", false, "idle")];
+  const { draftAwaitingSignoff, awaitingMerge } = partitionSessions(list, { d: gitDraft() });
+  expect(draftAwaitingSignoff.map((s) => s.id)).toEqual(["d"]);
+  expect(awaitingMerge).toHaveLength(0);
+});
+
+test("draft + green CI + running stays active (agent still in the loop)", () => {
+  const list = [session("d", false, "running")];
+  const { draftAwaitingSignoff, active, awaitingMerge } = partitionSessions(list, {
+    d: gitDraft(),
+  });
+  expect(draftAwaitingSignoff).toHaveLength(0);
+  expect(awaitingMerge).toHaveLength(0);
+  expect(active.map((s) => s.id)).toEqual(["d"]);
+});
+
+test("draft + green CI + blocked stays active (awaiting operator input, not handed off)", () => {
+  const list = [session("d", false, "blocked")];
+  const { draftAwaitingSignoff, active, awaitingMerge } = partitionSessions(list, {
+    d: gitDraft(),
+  });
+  expect(draftAwaitingSignoff).toHaveLength(0);
+  expect(awaitingMerge).toHaveLength(0);
+  expect(active.map((s) => s.id)).toEqual(["d"]);
+});
+
+test("non-draft + green CI + idle lands in awaitingMerge, not draftAwaitingSignoff (regression)", () => {
+  const list = [session("s", false, "idle")];
+  const { draftAwaitingSignoff, awaitingMerge } = partitionSessions(list, {
+    s: git("open", "success"),
+  });
+  expect(draftAwaitingSignoff).toHaveLength(0);
+  expect(awaitingMerge.map((s) => s.id)).toEqual(["s"]);
+});
+
+test("draft + pending CI lands in ciRunning, not draftAwaitingSignoff", () => {
+  const list = [session("d", false, "idle")];
+  const { ciRunning, draftAwaitingSignoff } = partitionSessions(list, {
+    d: gitDraft("pending"),
+  });
+  expect(ciRunning.map((s) => s.id)).toEqual(["d"]);
+  expect(draftAwaitingSignoff).toHaveLength(0);
+});
+
+test("draft + failed CI lands in ciFailed, not draftAwaitingSignoff", () => {
+  const list = [session("d", false, "idle")];
+  const { ciFailed, draftAwaitingSignoff } = partitionSessions(list, {
+    d: gitDraft("failure"),
+  });
+  expect(ciFailed.map((s) => s.id)).toEqual(["d"]);
+  expect(draftAwaitingSignoff).toHaveLength(0);
+});

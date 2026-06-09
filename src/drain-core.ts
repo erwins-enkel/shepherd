@@ -1,5 +1,6 @@
 import type { Issue, GitState } from "./forge/types";
 import type { SessionStatus, ReviewDecision } from "./types";
+import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 
 /** Issues carrying this label jump to the head of the drain queue. Fixed (the
  *  per-repo `autoLabel` is configurable, but the priority marker is a constant
@@ -31,6 +32,7 @@ export interface HoldReason {
     | "blocked" // an auto-agent is blocked (trouble pause)
     | "changes_requested" // an auto-agent's critic is blocking (trouble pause)
     | "error" // an auto-agent's critic verdict is an error (don't advance on uncertainty)
+    | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -53,6 +55,12 @@ export interface AutoSessionView {
   reviewDecision: ReviewDecision | null;
   /** The head SHA the latest verdict applies to, or null when no verdict. */
   reviewHeadSha: string | null;
+  /** The PR is a draft (not ready-for-review). false when unknown/no PR. */
+  isDraft: boolean;
+  /** A human submitted an APPROVED review on the PR (forge data). */
+  humanApproved: boolean;
+  /** The latest critic verdict's discrete findings ([] = clean / none). */
+  findings: string[];
   /** Effective full-auto (autopilot ∧ auto-merge). When true the merge train lands this
    *  session, so the drain must NOT retire it (that would foreclose rebase recovery). When
    *  false the drain retires it normally — even in an auto-merge repo — so it can't sit
@@ -65,6 +73,10 @@ export interface DrainRepoState {
   enabled: boolean;
   /** Per-repo critic toggle — when on, a clean verdict for the current head gates merges. */
   criticEnabled: boolean;
+  /** Per-repo draft mode — PRs open as drafts and retire is gated on sign-off. */
+  draftMode: boolean;
+  /** Who can sign off a draft-mode PR for retire/merge ("human"|"critic"|"either"). */
+  signoffAuthority: SignoffAuthority;
   maxAuto: number;
   usageCeilingPct: number;
   /** The worse of the 5h / weekly usage windows, 0–100. */
@@ -77,15 +89,43 @@ export interface DrainRepoState {
   candidates: Issue[];
 }
 
-/** True when this session's PR is ready to be retired / handed off for a human to merge:
- *  open, CI green, host-mergeable, and the critic is not blocking/uncertain. With the critic
- *  ENABLED we additionally require a clean verdict for the CURRENT head — so a first-time
- *  auto PR can't be retired in the same CI-green tick the critic fires on, before it's posted
- *  a verdict. */
-function readyToRetire(s: AutoSessionView, criticEnabled: boolean): boolean {
+/** True when this session's PR is ready to be retired / handed off for a human to merge.
+ *
+ *  Basic gate (both modes): open, CI green, host-mergeable, has a PR number.
+ *
+ *  draftMode: sign-off by the configured `authority` REPLACES the critic sub-gate — the
+ *  authority IS the gate, not the repo critic flag. This closes the born-ready retire race:
+ *  an unsigned green PR (draft OR briefly-flipped-ready) cannot retire until signed off.
+ *
+ *  non-draftMode: the original behavior — changes_requested/error blocks; with the critic
+ *  ENABLED we additionally require a clean verdict for the CURRENT head, so a first-time auto
+ *  PR can't be retired in the same CI-green tick the critic fires on, before it's posted a
+ *  verdict. */
+/** Sign-off view for a draft-mode gate, projected off the flat AutoSessionView (head from
+ *  the cached PR snapshot). Mirrors automerge-core's `signoffView` so the two cores read
+ *  identically and the literal lives in one place per core. */
+function signoffView(s: AutoSessionView): SignoffView {
+  return {
+    humanApproved: s.humanApproved,
+    reviewDecision: s.reviewDecision,
+    findings: s.findings,
+    reviewHeadSha: s.reviewHeadSha,
+    headSha: s.git?.headSha ?? null,
+  };
+}
+
+function readyToRetire(
+  s: AutoSessionView,
+  criticEnabled: boolean,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): boolean {
   const g = s.git;
   if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
     return false;
+  }
+  if (draftMode) {
+    return signedOff(authority, signoffView(s));
   }
   if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
   if (criticEnabled) {
@@ -93,6 +133,22 @@ function readyToRetire(s: AutoSessionView, criticEnabled: boolean): boolean {
     if (s.reviewHeadSha !== g.headSha) return false; // verdict is for an older head → wait
   }
   return true; // critic off → CI-green + mergeable; critic on → clean verdict for this head
+}
+
+/** True when a draft-mode session is retireable EXCEPT it lacks the required sign-off, i.e.
+ *  open + CI green + host-mergeable + has a PR number, but `signedOff` is false. Used only to
+ *  RELABEL the cap hold as `awaiting_signoff` (see computeNext). */
+function awaitingSignoff(
+  s: AutoSessionView,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): boolean {
+  if (!draftMode) return false;
+  const g = s.git;
+  if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
+    return false;
+  }
+  return !signedOff(authority, signoffView(s));
 }
 
 /**
@@ -113,7 +169,8 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // ensures a non-full-auto session in an auto-merge repo still retires instead of sitting
   // un-retired-and-un-merged on a maxAuto slot and deadlocking the drain.
   const toRetire = state.autoSessions.find(
-    (s) => !s.fullAuto && readyToRetire(s, state.criticEnabled),
+    (s) =>
+      !s.fullAuto && readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );
   if (toRetire) {
     return { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! };
@@ -127,8 +184,18 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   const err = state.autoSessions.find((s) => s.reviewDecision === "error");
   if (err) return { kind: "hold", reason: { code: "error", detail: err.desig } };
 
-  // 3. Concurrency cap.
+  // 3. Concurrency cap. In draftMode, if a session is retireable-but-unsigned it's the reason
+  //    the slot stays taken — relabel the hold `awaiting_signoff` (with that session's desig) so
+  //    the operator sees WHY the drain is stuck, not a bare `cap`. Relabel is CAP-ONLY by design:
+  //    below the cap the drain keeps spawning, and surfacing a pending sign-off there is the herd
+  //    UI's job, not a drain hold.
   if (state.autoSessions.length >= state.maxAuto) {
+    const awaiting = state.autoSessions.find((s) =>
+      awaitingSignoff(s, state.draftMode, state.signoffAuthority),
+    );
+    if (awaiting) {
+      return { kind: "hold", reason: { code: "awaiting_signoff", detail: awaiting.desig } };
+    }
     return { kind: "hold", reason: { code: "cap", detail: String(state.maxAuto) } };
   }
 

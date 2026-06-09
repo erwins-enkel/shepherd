@@ -52,6 +52,10 @@ export interface RepoConfig {
   autoMergeEnabled: boolean;
   /** Per-repo opt-in for the agent-authored build queue (default OFF). */
   buildQueueEnabled: boolean;
+  /** Open PRs as GitHub drafts; holds them out of merge/retire until sign-off (default OFF). */
+  draftMode: boolean;
+  /** Who must sign off a draft PR before it enters the merge path (default "human"). */
+  signoffAuthority: "human" | "critic" | "either";
   /** Concurrency cap on auto-spawned agents for this repo (default 1). */
   maxAuto: number;
   /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
@@ -250,7 +254,8 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
-                autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct
+                autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
+                maxAuto, autoLabel, usageCeilingPct
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -262,6 +267,8 @@ export class SessionStore implements CapStore {
       autoDrainEnabled: number;
       autoMergeEnabled: number;
       buildQueueEnabled: number;
+      draftMode: number;
+      signoffAuthority: string;
       maxAuto: number;
       autoLabel: string;
       usageCeilingPct: number;
@@ -277,6 +284,8 @@ export class SessionStore implements CapStore {
       autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
       autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
       buildQueueEnabled: r ? !!r.buildQueueEnabled : false,
+      draftMode: r ? !!r.draftMode : false,
+      signoffAuthority: r ? (r.signoffAuthority as RepoConfig["signoffAuthority"]) : "human",
       maxAuto: r ? r.maxAuto : 1,
       autoLabel: r ? r.autoLabel : "shepherd:auto",
       usageCeilingPct: r ? r.usageCeilingPct : 80,
@@ -287,8 +296,9 @@ export class SessionStore implements CapStore {
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
-          autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
+          maxAuto, autoLabel, usageCeilingPct, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
@@ -297,6 +307,8 @@ export class SessionStore implements CapStore {
          autoDrainEnabled = excluded.autoDrainEnabled,
          autoMergeEnabled = excluded.autoMergeEnabled,
          buildQueueEnabled = excluded.buildQueueEnabled,
+         draftMode = excluded.draftMode,
+         signoffAuthority = excluded.signoffAuthority,
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
@@ -311,6 +323,8 @@ export class SessionStore implements CapStore {
         cfg.autoDrainEnabled ? 1 : 0,
         cfg.autoMergeEnabled ? 1 : 0,
         cfg.buildQueueEnabled ? 1 : 0,
+        cfg.draftMode ? 1 : 0,
+        cfg.signoffAuthority,
         cfg.maxAuto,
         cfg.autoLabel,
         cfg.usageCeilingPct,
@@ -879,6 +893,8 @@ export class SessionStore implements CapStore {
     add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
     add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
+    add("draftMode", `draftMode INTEGER NOT NULL DEFAULT 0`);
+    add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
   }
 
   private migrateReviewColumns(): void {

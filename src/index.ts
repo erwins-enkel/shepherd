@@ -9,6 +9,8 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  parseServedPort,
+  validatePreviewPortRange,
 } from "./config";
 import { SessionStore } from "./store";
 import type { Session } from "./types";
@@ -105,6 +107,27 @@ if (savedPlan !== null)
     PLAN_REVIEW_CYCLES_MAX,
     config.planReviewCyclesCap,
   );
+
+// ── preview port range startup validation (hard-fail) ──────────────────────
+// Discover the public served port by parsing `tailscale serve status`; default
+// to 443 when tailscale is unavailable or the mapping isn't found. The parser
+// is pure and injected here so it's testable without tailscale.
+{
+  let servedPort = 443;
+  try {
+    const { stdout } = await execFileAsync("tailscale", ["serve", "status"], { timeout: 5000 });
+    const parsed = parseServedPort(stdout, config.port);
+    if (parsed !== null) servedPort = parsed;
+  } catch {
+    // tailscale not available or not set up — default to 443
+  }
+  validatePreviewPortRange({
+    previewPortBase: config.previewPortBase,
+    previewPortCount: config.previewPortCount,
+    localPort: config.port,
+    servedPort,
+  });
+}
 
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());

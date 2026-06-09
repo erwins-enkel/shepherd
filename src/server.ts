@@ -42,7 +42,13 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type { Session, LearningStatus, SignalKind } from "./types";
+import type {
+  Session,
+  LearningStatus,
+  SignalKind,
+  SessionPreviewEvent,
+  SessionPreviewState,
+} from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -107,6 +113,13 @@ export interface AppDeps {
   ownsPr?: (s: Session, headSha: string) => boolean | null;
   /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
   activity?: { snapshot(): Record<string, SessionActivity> };
+  /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
+   *  The server emits `session:preview` with a `SessionPreviewEvent` payload on each change. */
+  preview?: {
+    snapshot(): Record<string, SessionPreviewState>;
+    /** Callback fired by the poller when a session's preview port changes. */
+    onEvent?: (e: SessionPreviewEvent) => void;
+  };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
@@ -169,7 +182,8 @@ function checkAuth(req: Request): Response | null {
 function checkOrigin(req: Request): Response | null {
   const method = req.method;
   if (method !== "POST" && method !== "DELETE" && method !== "PUT") return null;
-  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts)) {
+  const previewRange = { base: config.previewPortBase, count: config.previewPortCount };
+  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, previewRange)) {
     return json({ error: "forbidden: origin not allowed" }, 403);
   }
   return null;

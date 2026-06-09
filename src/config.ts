@@ -37,6 +37,102 @@ export function clampCap(n: number, min: number, max: number, fallback: number):
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
+// ── preview-port range ─────────────────────────────────────────────────────
+// Single source of truth for the preview-port range; consumed by both the slot
+// allocator (future PreviewService) and checkOrigin (origin hardening). The range
+// is [previewPortBase, previewPortBase + previewPortCount).
+//
+// previewPortCount is BOTH the range size and the max concurrent previews — a
+// single number, no secondary "max" constant anywhere else.
+
+/**
+ * Pure parser: given the text of `tailscale serve status` and the HUD's local
+ * listen port, return the public-facing HTTPS port that Tailscale fronts that
+ * local port on. Returns null when no matching mapping is found.
+ *
+ * Example input lines:
+ *   https://host.ts.net:5191 (tailnet only)
+ *   |-- / proxy http://127.0.0.1:5190
+ *
+ * The HUD's default mapping has no port (=> 443):
+ *   https://host.ts.net (tailnet only)
+ *   |-- / proxy http://127.0.0.1:7330
+ */
+export function parseServedPort(serveStatusText: string, localPort: number): number | null {
+  const lines = serveStatusText.split("\n");
+  let currentServedPort: number | null = null;
+  for (const line of lines) {
+    const t = line.trim();
+    const served = extractServedPort(t);
+    if (served !== null) {
+      currentServedPort = served;
+    } else if (currentServedPort !== null && isProxyTarget(t, localPort)) {
+      return currentServedPort;
+    }
+  }
+  return null;
+}
+
+/** Extract the public HTTPS port from a `https://...` serve-status header line.
+ *  Returns 443 when no explicit port is present, null when the line isn't an
+ *  https header. */
+function extractServedPort(line: string): number | null {
+  const m = line.match(/^https:\/\/[^:/]+(?::(\d+))?(?:\s|$)/);
+  if (!m) return null;
+  return m[1] ? Number(m[1]) : 443;
+}
+
+/** True when a `|-- / proxy ...` line targets 127.0.0.1:<localPort>. */
+function isProxyTarget(line: string, localPort: number): boolean {
+  if (!line.startsWith("|--")) return false;
+  const m = line.match(/proxy\s+(?:https?:\/\/)?127\.0\.0\.1:(\d+)/);
+  return m !== null && Number(m[1]) === localPort;
+}
+
+export interface PreviewPortRangeParams {
+  previewPortBase: number;
+  previewPortCount: number;
+  /** The HUD's local listen port (config.port). */
+  localPort: number;
+  /** The HUD's public served origin port (443 if unknown). */
+  servedPort: number;
+}
+
+/**
+ * Hard-fail at startup if the configured preview port range overlaps either:
+ * - the HUD's local listen port (a bind conflict), or
+ * - the HUD's public served origin port (would lock out the HUD's own requests
+ *   once origin hardening is active, since its origin would look like a preview).
+ *
+ * The range is [previewPortBase, previewPortBase + previewPortCount).
+ *
+ * Throws an Error with a clear message on any overlap; returns void on success.
+ */
+export function validatePreviewPortRange({
+  previewPortBase,
+  previewPortCount,
+  localPort,
+  servedPort,
+}: PreviewPortRangeParams): void {
+  const rangeEnd = previewPortBase + previewPortCount; // exclusive
+
+  const inRange = (port: number) => port >= previewPortBase && port < rangeEnd;
+
+  if (inRange(localPort)) {
+    throw new Error(
+      `Preview port range [${previewPortBase}, ${rangeEnd}) overlaps the HUD local port ${localPort}. ` +
+        `Set SHEPHERD_PREVIEW_PORT_BASE / SHEPHERD_PREVIEW_PORT_COUNT to a non-overlapping range.`,
+    );
+  }
+
+  if (inRange(servedPort)) {
+    throw new Error(
+      `Preview port range [${previewPortBase}, ${rangeEnd}) overlaps the HUD served (public) port ${servedPort}. ` +
+        `Set SHEPHERD_PREVIEW_PORT_BASE / SHEPHERD_PREVIEW_PORT_COUNT to a non-overlapping range.`,
+    );
+  }
+}
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -132,6 +228,15 @@ export const config = {
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),
+  // ── live preview port range ──────────────────────────────────────────────
+  // Each active session's preview listener is assigned a slot from this range.
+  // previewPortCount is BOTH the range size AND the max concurrent previews
+  // (single source; the allocator derives the count from here — no magic numbers).
+  // Range: [previewPortBase, previewPortBase + previewPortCount).
+  previewPortBase: Number(process.env.SHEPHERD_PREVIEW_PORT_BASE ?? 8001),
+  previewPortCount: Number(process.env.SHEPHERD_PREVIEW_PORT_COUNT ?? 16),
+  // Throttle cadence for the preview sweep (ms); mitigates /proc scan cost.
+  previewSweepMs: Number(process.env.SHEPHERD_PREVIEW_SWEEP_MS ?? 4000),
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

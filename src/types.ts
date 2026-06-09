@@ -224,6 +224,29 @@ export interface BuildStepInput {
   status?: BuildStepStatus;
 }
 
+// ── live preview state ────────────────────────────────────────────────────────
+
+/**
+ * Payload for the `session:preview` WebSocket event.
+ * Carries only the assigned preview port (or null when no preview is active).
+ * The UI builds the full URL from `window.location` + this port so the URL
+ * auto-adapts to Tailscale vs. local-dev access modes.
+ *
+ * NOTE: this is live-derived ephemeral state — NOT persisted to the DB.
+ */
+export interface SessionPreviewEvent {
+  id: string;
+  previewPort: number | null;
+}
+
+/**
+ * Live preview state for one session — the per-session entry in the preview
+ * snapshot map (parallel to the activity snapshot). Never persisted.
+ */
+export interface SessionPreviewState {
+  previewPort: number | null;
+}
+
 // ── learnings flywheel ────────────────────────────────────────────────────────
 export type SignalKind = "reply" | "critic" | "block" | "stall";
 

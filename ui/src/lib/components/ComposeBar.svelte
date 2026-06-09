@@ -408,7 +408,7 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--color-scrim);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
   }

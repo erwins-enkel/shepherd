@@ -310,7 +310,7 @@
     color: var(--color-green);
   }
   .score-num {
-    font-size: 1.5rem;
+    font-size: var(--fs-2xl);
     font-weight: 600;
   }
   .score-pct {
@@ -379,7 +379,7 @@
   }
   .dot {
     line-height: 1.4;
-    font-size: 0.7rem;
+    font-size: var(--fs-meta);
   }
   .dot.present {
     color: var(--color-green);

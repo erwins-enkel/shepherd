@@ -584,7 +584,7 @@
     align-items: center;
     gap: 0;
     min-width: 0;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     line-height: 1.3;
     color: var(--color-muted);
   }

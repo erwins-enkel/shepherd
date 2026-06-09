@@ -641,13 +641,13 @@
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
-  /* the revealed long-form explanation: a quiet inset note, amber-keyed to its
-     open "ⓘ", with comfortable line length for a couple of sentences */
+  /* the revealed long-form explanation: a quiet tonal-step note (panel over the
+     popover's inset ground) with a full hairline border — no accent stripe */
   .auto-detail {
     margin: 6px 0 0;
     padding: 8px 10px;
     background: var(--color-panel);
-    border-left: 2px solid var(--color-amber);
+    border: 1px solid var(--color-line);
     border-radius: 2px;
     font-size: var(--fs-meta);
     line-height: 1.5;
@@ -671,7 +671,8 @@
     margin-top: 2px;
     width: 30px;
     height: 17px;
-    border-radius: 9px;
+    /* squared track + knob (2px, instrument hardware) — never pill-shaped */
+    border-radius: 2px;
     border: 1px solid var(--color-line);
     background: var(--color-faint);
     position: relative;
@@ -688,7 +689,7 @@
     left: 1px;
     width: 13px;
     height: 13px;
-    border-radius: 50%;
+    border-radius: 2px;
     background: var(--color-slate);
     transition:
       left 0.12s,

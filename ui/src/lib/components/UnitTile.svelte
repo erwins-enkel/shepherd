@@ -140,11 +140,11 @@
   // Right-click / long-press → a small action menu. On a tile only Resume applies
   // (decommission isn't wired into the grid view); skip the menu otherwise.
   const resumable = $derived(canResume(session));
-  let menu = $state<{ x: number; y: number } | null>(null);
+  let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenu(e: MouseEvent) {
     if (!resumable) return; // nothing to offer → leave the native menu
     e.preventDefault();
-    menu = { x: e.clientX, y: e.clientY };
+    menu = { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement };
   }
   async function resumeFromMenu() {
     menu = null;
@@ -200,6 +200,7 @@
     x={menu.x}
     y={menu.y}
     {resumable}
+    opener={menu.opener}
     onresume={resumeFromMenu}
     onclose={() => (menu = null)}
   />

@@ -147,11 +147,11 @@
   // action menu on the card. Resume is the headline action for a session parked at
   // a shell; decommission rides along where the parent wired it (mobile list).
   const resumable = $derived(canResume(session));
-  let menu = $state<{ x: number; y: number } | null>(null);
+  let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenu(e: MouseEvent) {
     if (!resumable && !ondecommission) return; // nothing to offer → leave native menu
     e.preventDefault();
-    menu = { x: e.clientX, y: e.clientY };
+    menu = { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement };
   }
   async function resumeFromMenu() {
     menu = null;
@@ -306,6 +306,7 @@
     x={menu.x}
     y={menu.y}
     {resumable}
+    opener={menu.opener}
     onresume={resumeFromMenu}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}

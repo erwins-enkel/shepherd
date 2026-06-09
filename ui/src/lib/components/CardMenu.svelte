@@ -10,6 +10,7 @@
     x,
     y,
     resumable,
+    opener,
     onresume,
     ondecommission,
     onclose,
@@ -19,6 +20,8 @@
     y: number;
     // whether the Resume action applies to this session right now
     resumable: boolean;
+    // the element that opened the menu (the card hit-target) — focus returns here on close
+    opener?: HTMLElement;
     onresume?: () => void;
     ondecommission?: () => void;
     onclose: () => void;
@@ -45,16 +48,21 @@
   function items(): HTMLButtonElement[] {
     return el ? Array.from(el.querySelectorAll<HTMLButtonElement>(".cm-item")) : [];
   }
-  // Arrow / Home / End roving focus, as a role="menu" is expected to support.
+  // Arrow / Home / End roving focus, as a role="menu" is expected to support. Tab
+  // is trapped (cycled like the arrows) so focus can't escape the open menu — the
+  // only ways out are Esc, an action, or an outside click, all of which close it.
   function onNav(e: KeyboardEvent) {
     const list = items();
     if (list.length === 0) return;
     const i = list.indexOf(document.activeElement as HTMLButtonElement);
+    const fwd = (i + 1) % list.length;
+    const back = (i - 1 + list.length) % list.length;
     let next: number;
-    if (e.key === "ArrowDown") next = (i + 1) % list.length;
-    else if (e.key === "ArrowUp") next = (i - 1 + list.length) % list.length;
+    if (e.key === "ArrowDown") next = fwd;
+    else if (e.key === "ArrowUp") next = back;
     else if (e.key === "Home") next = 0;
     else if (e.key === "End") next = list.length - 1;
+    else if (e.key === "Tab") next = e.shiftKey ? back : fwd;
     else return;
     e.preventDefault();
     list[next]!.focus();
@@ -75,6 +83,17 @@
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("scroll", onclose, true);
+      // Every close path (Esc / action / outside-click / scroll) unmounts the menu,
+      // so returning focus to the trigger here covers them all. Deferred to a
+      // microtask so the browser has applied any click-driven focus first, then
+      // only restore when focus actually fell to <body> — an outside-click on a
+      // focusable element keeps its focus, an action that moved focus (e.g. into the
+      // resumed terminal) keeps that, and a decommissioned row's detached button
+      // no-ops via isConnected.
+      const target = opener;
+      queueMicrotask(() => {
+        if (target?.isConnected && document.activeElement === document.body) target.focus();
+      });
     };
   });
 </script>

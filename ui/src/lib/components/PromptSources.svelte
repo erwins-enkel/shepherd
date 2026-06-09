@@ -27,6 +27,17 @@
 
   const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
 
+  // Label the drain stamps on a claimed issue (mirrors ACTIVE_LABEL in
+  // src/drain-core.ts and IssuesPanel.svelte). Surfaced first + highlighted so a
+  // taken issue reads as already-being-worked-on, same as the Issues panel.
+  const ACTIVE_LABEL = "shepherd:active";
+
+  // Active-first ordering so the claimed marker survives the 3-chip cap below.
+  const orderedLabels = (labels: string[]): string[] =>
+    labels.includes(ACTIVE_LABEL)
+      ? [ACTIVE_LABEL, ...labels.filter((l) => l !== ACTIVE_LABEL)]
+      : labels;
+
   // Resolve TODO.md eagerly per repo (independent of the active tab) so the To-Do
   // tab is hidden outright when the repo has no TODO.md, and the panel opens on
   // Issues instead of a dead empty To-Do tab.
@@ -182,17 +193,23 @@
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
       {#each issues as i (i.number)}
+        {@const ordered = orderedLabels(i.labels)}
         <button class="row" type="button" onclick={() => onpickissue(i)}>
           <span class="issue-num">#{i.number}</span>
           <span class="row-text">{i.title}</span>
-          {#if i.labels.length > 0}
+          {#if ordered.length > 0}
             <span class="chips">
-              {#each i.labels.slice(0, 3) as lbl (lbl)}
-                <span class="chip">{lbl}</span>
+              {#each ordered.slice(0, 3) as lbl (lbl)}
+                <span
+                  class="chip"
+                  class:active={lbl === ACTIVE_LABEL}
+                  title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
+                  >{lbl}</span
+                >
               {/each}
-              {#if i.labels.length > 3}
-                <span class="chip chip-more" title={i.labels.slice(3).join(", ")}>
-                  {m.promptsources_more_labels({ count: i.labels.length - 3 })}
+              {#if ordered.length > 3}
+                <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
+                  {m.promptsources_more_labels({ count: ordered.length - 3 })}
                 </span>
               {/if}
             </span>
@@ -374,6 +391,14 @@
     border: 1px solid var(--color-faint);
     border-radius: 2px;
     padding: 0 4px;
+  }
+
+  /* shepherd:active — claimed work. Same semantic running/in-progress token as
+     IssuesPanel so a taken issue stands out with the running-session hue. */
+  .chip.active {
+    color: var(--status-running);
+    border-color: var(--status-running);
+    background: color-mix(in srgb, var(--status-running) 14%, transparent);
   }
 
   .chip-more {

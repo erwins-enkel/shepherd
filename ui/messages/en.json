@@ -807,5 +807,7 @@
   "feat_draft_mode_title": "Draft-mode PRs with sign-off control",
   "feat_draft_mode_body": "Turn on draft mode to open every new PR as a draft — it stays out of the merge queue until signed off. Choose who may promote it: a human, the critic, or either. Mutually exclusive with full-auto merge.",
   "feat_preview_start_title": "Start a dev server from the HUD",
-  "feat_preview_start_body": "When an agent has no live preview yet, a Start control appears on its Viewport. Click it to have the agent launch its dev server — auto-detected from package.json, or type the command yourself — then preview the running app without waiting for the agent to start one on its own."
+  "feat_preview_start_body": "When an agent has no live preview yet, a Start control appears on its Viewport. Click it to have the agent launch its dev server — auto-detected from package.json, or type the command yourself — then preview the running app without waiting for the agent to start one on its own.",
+  "feat_active_label_newtask_title": "Claimed issues stand out in New Task",
+  "feat_active_label_newtask_body": "When you seed a New Task from a GitHub issue, any issue already claimed by an active Shepherd agent now shows its shepherd:active label highlighted — surfaced first and tinted with the running-session hue — so you can tell at a glance which issues are already being worked on."
 }

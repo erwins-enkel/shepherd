@@ -208,6 +208,7 @@
   "newtask_model_default": "default",
   "newtask_spawning": "Spawning…",
   "newtask_submit": "Create & Run",
+  "newtask_submit_in_repo": "Create & Run in {repo}",
   "newtask_upload_failed": "Image upload failed: {reason}. Retry the attach.",
   "newtask_create_failed": "Create failed: {reason}. Check repo and base branch, then retry.",
   "promptsources_title": "Seed From",
@@ -680,5 +681,7 @@
   "feat_plan_gate_title": "Plan gate",
   "feat_plan_gate_body": "Turn on the plan gate to align before the night starts: the agent grills you and writes a plan, then a second Claude adversarially reviews it until it holds up — only an approved plan runs. Enable it per task in New Task or per repo in the automation panel.",
   "feat_backlog_repo_filter_title": "Filter the repo list",
-  "feat_backlog_repo_filter_body": "Narrow the backlog's repo list to repos with open issues and/or open PRs using the new toggle chips."
+  "feat_backlog_repo_filter_body": "Narrow the backlog's repo list to repos with open issues and/or open PRs using the new toggle chips.",
+  "feat_newtask_repo_first_title": "Repo now leads the New Task form",
+  "feat_newtask_repo_first_body": "The repository you'll launch into now sits at the top of the New Task form and is named on the Create & Run button, so you never start a task against the wrong repo by accident."
 }

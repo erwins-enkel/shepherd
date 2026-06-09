@@ -465,7 +465,6 @@
       <button
         bind:this={gearBtn}
         class="gear tip"
-        class:has-update={herdrUpdateAvailable && mobile}
         type="button"
         onclick={toggleMenu}
         data-tip={working > 0 ? m.topbar_menu_aria() : m.settings_title()}
@@ -707,17 +706,15 @@
   .gear {
     position: relative;
     background: transparent;
-    border: 1px solid var(--color-line-bright);
+    border: none;
     color: var(--color-muted);
-    font-size: var(--fs-lg);
+    font-size: var(--fs-xl);
     line-height: 1;
     padding: 5px 8px;
-    border-radius: 2px;
     cursor: pointer;
   }
   .gear:hover {
     color: var(--color-amber);
-    border-color: var(--color-amber);
   }
   /* phone-only: the folded HERDR-update cue — a green pip on the gear that mirrors
      the calm green of the desktop badge and rings against the panel to stay legible */
@@ -736,9 +733,6 @@
   .gear-dot.shift {
     top: auto;
     bottom: 3px;
-  }
-  .gear.has-update {
-    border-color: var(--color-green);
   }
   /* What's New affordance — blue accent, distinct from green (herdr) and amber (app-update). */
   .whatsnew-badge {
@@ -1007,7 +1001,7 @@
     min-height: 44px;
     min-width: 44px;
     padding: 5px 11px;
-    font-size: var(--fs-lg);
+    font-size: var(--fs-xl);
   }
   .hud.mobile .gauge-btn {
     padding: 0 6px;

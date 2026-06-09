@@ -133,12 +133,12 @@
       <span class="caret" class:open={aboutOpen} aria-hidden="true">▸</span>
       {m.learnings_about_toggle()}
     </button>
-    {#if aboutOpen}
-      <div class="about-body" id="learnings-about">
-        <p>{m.learnings_about_lead()} <strong>{m.learnings_about_scope()}</strong></p>
-        <p>{m.learnings_about_flow()}</p>
-      </div>
-    {/if}
+    <!-- kept mounted (toggled via hidden) so the toggle's aria-controls reference
+         stays valid even when collapsed -->
+    <div class="about-body" id="learnings-about" hidden={!aboutOpen}>
+      <p>{m.learnings_about_lead()} <strong>{m.learnings_about_scope()}</strong></p>
+      <p>{m.learnings_about_flow()}</p>
+    </div>
   </section>
 
   {#if empty}
@@ -356,6 +356,10 @@
     gap: 8px;
     border-left: 1px solid var(--color-line);
     padding: 2px 0 2px 10px;
+  }
+  /* explicit display:flex would otherwise defeat the hidden attribute */
+  .about-body[hidden] {
+    display: none;
   }
   .about-body p {
     font-size: var(--fs-base);

@@ -149,10 +149,13 @@
         }}>{m.herd_ready_filter()}</button
       >
       {#if statusFilter != null}
+        <!-- aria-label carries status + clear action; the visible "✕" glyph would
+             otherwise be read aloud without conveying what the chip does -->
         <button
           type="button"
           class="micro fbtn active statchip"
           title={m.topbar_tally_clear_title()}
+          aria-label={m.herd_status_chip_aria({ status: statusLabel })}
           aria-pressed="true"
           onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
         >

@@ -235,7 +235,8 @@ describe("Herd status filter (TopBar tallies)", () => {
       statusFilter: "running" as const,
       onstatusfilter,
     });
-    const chip = page.getByRole("button", { name: "Busy ✕" });
+    // accessible name = aria-label (status + clear action), not the visible "Busy ✕"
+    const chip = page.getByRole("button", { name: "Busy filter active — show all sessions" });
     await expect.element(chip).toBeInTheDocument();
     await expect.element(chip).toHaveAttribute("aria-pressed", "true");
     await chip.click();

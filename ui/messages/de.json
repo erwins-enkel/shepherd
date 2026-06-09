@@ -203,6 +203,7 @@
   "herd_ready_title": "Nur Sitzungen anzeigen, die auf dich warten: inaktiv, blockiert oder fertig",
   "herd_ready_empty": "Nichts wartet. Alle sind beschäftigt",
   "herd_repo_filter_empty": "Keine Agenten für {repo}.",
+  "herd_status_chip_aria": "{status}-Filter aktiv — alle Sessions anzeigen",
   "herd_status_filter_empty": "Gerade keine Sessions mit Status {status}.",
   "herd_status_repo_filter_empty": "Keine Sessions mit Status {status} für {repo}.",
   "herd_ci_running_group": "CI läuft ({count})",

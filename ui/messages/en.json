@@ -203,6 +203,7 @@
   "herd_ready_title": "Show only sessions awaiting you: idle, blocked, or done",
   "herd_ready_empty": "Nothing waiting. All hands working",
   "herd_repo_filter_empty": "No agents for {repo}.",
+  "herd_status_chip_aria": "{status} filter active — show all sessions",
   "herd_status_filter_empty": "No {status} sessions right now.",
   "herd_status_repo_filter_empty": "No {status} sessions for {repo}.",
   "herd_ci_running_group": "CI running ({count})",

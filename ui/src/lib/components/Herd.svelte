@@ -45,11 +45,18 @@
     flow?: boolean;
   } = $props();
 
+  // a critic post-PR review or a pre-execution plan-gate review currently in flight —
+  // the reviewer is actively working the session, so it is NOT awaiting the operator.
+  const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+
   // sidebar list filter: "all" or "ready" (only sessions not actively working —
-  // anything but a running agent: idle, blocked, done → awaiting the operator)
+  // anything but a running agent: idle, blocked, done → awaiting the operator;
+  // in-review sessions are excluded too, since a reviewer is actively working them)
   let filter = $state<"all" | "ready">("all");
   const shown = $derived(
-    filter === "ready" ? sessions.filter((s) => s.status !== "running") : sessions,
+    filter === "ready"
+      ? sessions.filter((s) => s.status !== "running" && !inReview(s.id))
+      : sessions,
   );
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
   // PR-CI-running and critic-reviewing / plan-gate-reviewing in-flight groups, then
@@ -58,17 +65,11 @@
   // `session:reviewing` and `session:plangate-reviewing` events respectively.
   // nowMs (the reactive clock tick) is threaded in so the Merging group re-partitions
   // as the per-session merge TTL elapses, matching the badge/pip which also use nowMs.
-  const partition = $derived(
-    partitionSessions(
-      shown,
-      git,
-      (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
-      nowMs,
-    ),
-  );
+  const partition = $derived(partitionSessions(shown, git, inReview, nowMs));
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
-  const readyPrCount = $derived(collectReadyPrs(shown, git).length);
+  // In-review sessions are excluded so the link's count matches the launch action.
+  const readyPrCount = $derived(collectReadyPrs(shown, git, inReview).length);
 </script>
 
 <div class="panel bracket">

@@ -267,7 +267,11 @@
   // the repo with the most and surface a fail-loud notice for the rest rather
   // than silently folding them in. Mirrors onquickissue for branch + create.
   async function onmergetrain() {
-    const ready = collectReadyPrs(store.sessions, store.git);
+    const ready = collectReadyPrs(
+      store.sessions,
+      store.git,
+      (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+    );
     const { repoPath, prs, otherRepoCount } = pickTrainRepo(ready);
     if (!repoPath || prs.length === 0) {
       toasts.info(m.toast_merge_train_no_prs());

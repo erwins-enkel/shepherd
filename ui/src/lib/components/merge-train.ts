@@ -24,11 +24,20 @@ export interface ReadyPr {
 /** Ready-to-merge sessions that currently have an OPEN PR — the merge-train
  *  targets. Mirrors the `ready` partition (operator-parked `readyToMerge`),
  *  intersected with an open PR from git state so already-merged or PR-less
- *  parked sessions drop out (merged wins, fail-closed: no PR → nothing to run). */
-export function collectReadyPrs(sessions: Session[], git: Record<string, GitState>): ReadyPr[] {
+ *  parked sessions drop out (merged wins, fail-closed: no PR → nothing to run).
+ *  Sessions whose review is still in flight (`isReviewing`) are also excluded —
+ *  the work isn't settled, so the train must neither count nor land them; the
+ *  injected predicate (mirrors `partitionSessions`) keeps the link's count and
+ *  the launch action in agreement. Default `() => false` preserves 2-arg callers. */
+export function collectReadyPrs(
+  sessions: Session[],
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean = () => false,
+): ReadyPr[] {
   const out: ReadyPr[] = [];
   for (const s of sessions) {
     if (!s.readyToMerge) continue;
+    if (isReviewing(s.id)) continue; // review in flight → not settled, don't run the train over it
     const g = git[s.id];
     if (g?.state !== "open" || g.number == null) continue;
     out.push({

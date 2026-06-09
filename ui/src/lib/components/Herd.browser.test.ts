@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import Herd from "./Herd.svelte";
+import { reviews, planGates } from "$lib/reviews.svelte";
 import type { Session, GitState } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -126,5 +127,81 @@ describe("Herd merge-train link", () => {
       git: { a: openPr },
     });
     await expect.element(page.getByRole("button", { name: "Merge train" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Herd Ready filter", () => {
+  // reviews/planGates are module singletons — clear any state set per test so it
+  // doesn't bleed into the next one.
+  afterEach(() => {
+    reviews.setReviewing("rev", false);
+    planGates.applyReviewing("pg", false);
+    reviews.setReviewing("rm", false);
+    reviews.setReviewing("only", false);
+  });
+
+  it("hides a critic-reviewing session under Ready but keeps a plain idle one", async () => {
+    reviews.setReviewing("rev", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "rev", name: "reviewing one" }),
+        session({ id: "idle", name: "idle one" }),
+      ],
+      git: {},
+    });
+    // both visible under All (default)
+    await expect.element(page.getByText("reviewing one")).toBeInTheDocument();
+    await expect.element(page.getByText("idle one")).toBeInTheDocument();
+    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await expect.element(page.getByText("idle one")).toBeInTheDocument();
+    await expect.element(page.getByText("reviewing one")).not.toBeInTheDocument();
+  });
+
+  it("hides a plan-gate-reviewing session under Ready", async () => {
+    planGates.applyReviewing("pg", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "pg", name: "plan gate one" }),
+        session({ id: "idle", name: "idle one" }),
+      ],
+      git: {},
+    });
+    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await expect.element(page.getByText("idle one")).toBeInTheDocument();
+    await expect.element(page.getByText("plan gate one")).not.toBeInTheDocument();
+  });
+
+  it("hides a readyToMerge + in-review session under Ready", async () => {
+    reviews.setReviewing("rm", true);
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "rm", name: "ready merging", readyToMerge: true })],
+      git: { rm: openPr },
+    });
+    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await expect.element(page.getByText("ready merging")).not.toBeInTheDocument();
+  });
+
+  it("drops the Merge train link when the only ready+open-PR session is in review", async () => {
+    reviews.setReviewing("only", true);
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "only", name: "only one", readyToMerge: true })],
+      git: { only: openPr },
+      onmergetrain: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: "Merge train" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a plain idle non-review session visible under Ready", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "plain", name: "plain idle" })],
+      git: {},
+    });
+    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await expect.element(page.getByText("plain idle")).toBeInTheDocument();
   });
 });

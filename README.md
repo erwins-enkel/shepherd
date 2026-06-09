@@ -217,6 +217,12 @@ through Tailscale. Shepherd detects the port automatically (frontend servers lik
 take priority) and proxies HTTP and WebSocket (HMR) traffic through a dedicated loopback listener.
 Shepherd never starts or stops the agent's dev server — it is detect-and-proxy only.
 
+**Declaring the preview port explicitly:** A project or agent can drop a file named `.shepherd-preview`
+in the repo/worktree root containing a single bare port number (e.g. `3000`). Shepherd uses it
+only when that port is actually listening and answers HTTP — a stale or wrong hint self-heals by
+falling back to automatic detection. Useful for multi-listener apps or apps on uncommon ports. The
+file is optional; Shepherd is detect-and-proxy only regardless.
+
 **Routing: one port per agent, distinct origin.** Each preview is served on its own port
 (`SHEPHERD_PREVIEW_PORT_BASE`..+`COUNT`) via `tailscale serve`. Because each preview is a distinct
 web origin (`https://host.ts.net:8001` ≠ `https://host.ts.net:8002` ≠ the HUD at `:443`), the
@@ -258,8 +264,7 @@ per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel
   `hmr.clientPort` in the app's Vite config to the preview port Shepherd assigned. Page-load and
   manual refresh always work regardless.
 
-**Follow-ups:** multi-port apps (#396), agent-declared port hint (`shepherd.preview`, #397),
-idle-stop (#399), dynamic `tailscale serve` registration (#403), subdomain/full isolation (#398).
+**Follow-ups:** multi-port apps (#396), idle-stop (#399), dynamic `tailscale serve` registration (#403), subdomain/full isolation (#398).
 
 Install the unit (`deploy/shepherd.service`):
 

@@ -24,6 +24,9 @@ dist/
 .shepherd-plan.md
 .shepherd-plan-review.json
 
+# Agent-declared live-preview port hint (transient, never committed)
+.shepherd-preview
+
 # Self-hosted CI runner: never commit a filled-in env; keep the example tracked
 # (the global `.env.*` rule above would otherwise swallow .env.example).
 ci/self-hosted-runner/.env

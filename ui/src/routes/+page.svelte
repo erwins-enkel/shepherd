@@ -64,6 +64,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
+  import { repoStatusRows } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -112,6 +113,29 @@
   // When the learnings drawer is opened from a repo's status row, this carries that
   // repoPath so the drawer scrolls to the matching section; null = opened globally.
   let learningsRepo = $state<string | null>(null);
+  // Herd repo filter (full repo path) toggled from the repo-status band; null = all
+  // repos. Only repos that appear in the band (enabled drain or pending learnings) are
+  // filterable — the band IS the toggle, so a repo with agents but no drain/learnings
+  // can't be selected. Only narrows the herd list views — selection and global counts
+  // stay whole.
+  let repoFilter = $state<string | null>(null);
+  // The band's filterable repos, so the toggle and the auto-clear guard agree on scope.
+  const bandRepoPaths = $derived(
+    new Set(
+      repoStatusRows(store.drain, learnings.items, learnings.injectable).map((r) => r.repoPath),
+    ),
+  );
+  // A stale filter would otherwise strand the herd: when the filtered repo's band row
+  // disappears (drain disabled, learnings resolved) its toggle vanishes with no way to
+  // reset short of a reload. Clear it the moment its repo leaves the band.
+  $effect(() => {
+    if (repoFilter && !bandRepoPaths.has(repoFilter)) repoFilter = null;
+  });
+  const herdSessions = $derived(
+    repoFilter ? store.sessions.filter((s) => s.repoPath === repoFilter) : store.sessions,
+  );
+  // basename of the active filter for the herd's empty-state copy; null when unfiltered
+  const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
   let showUpdate = $state(false);
   // live state of a launched deploy → modal tails its log + surfaces failures
   let deploy = $state<DeployState | null>(null);
@@ -739,6 +763,8 @@
           learningsRepo = repoPath;
           showLearnings = true;
         }}
+        {repoFilter}
+        onrepofilter={(repoPath) => (repoFilter = repoPath)}
       />
     </div>
   {/if}
@@ -748,7 +774,8 @@
       {#if mobileScreen === "list"}
         <div class="col">
           <Herd
-            sessions={store.sessions}
+            sessions={herdSessions}
+            filteredRepo={repoFilterName}
             {selectedId}
             {nowMs}
             onselect={(id) => selectUnit(id)}
@@ -814,7 +841,8 @@
     {:else if viewMode === "all"}
       <div class="grid-all">
         <HerdGrid
-          sessions={store.sessions}
+          sessions={herdSessions}
+          filteredRepo={repoFilterName}
           {selectedId}
           {nowMs}
           git={store.git}
@@ -830,7 +858,8 @@
     {:else}
       <div class="grid" class:compact={touch.current}>
         <Herd
-          sessions={store.sessions}
+          sessions={herdSessions}
+          filteredRepo={repoFilterName}
           {selectedId}
           {nowMs}
           onselect={(id) => selectUnit(id)}

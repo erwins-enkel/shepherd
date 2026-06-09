@@ -24,12 +24,18 @@
     items = [],
     injectable = [],
     onlearnings,
+    repoFilter = null,
+    onrepofilter,
   }: {
     drain: Record<string, DrainStatus>;
     autoMerge?: Record<string, AutoMergeStatus>;
     items?: Learning[];
     injectable?: RepoInjectable[];
     onlearnings?: (repoPath: string) => void;
+    // active herd repo filter (full repo path), or null when showing all repos
+    repoFilter?: string | null;
+    // toggle the herd filter for a repo; null clears it. Absent → repo names are inert.
+    onrepofilter?: (repoPath: string | null) => void;
   } = $props();
 
   const rows = $derived(repoStatusRows(drain, items, injectable));
@@ -78,7 +84,23 @@
     <ul class="qs-rows">
       {#each rows as row (row.repoPath)}
         <li class="qs-row" class:paused={row.drain?.paused}>
-          <span class="qs-repo">{basename(row.repoPath)}</span>
+          {#if onrepofilter}
+            {@const active = repoFilter === row.repoPath}
+            <button
+              type="button"
+              class="qs-repo qs-repo-btn"
+              class:active
+              aria-pressed={active}
+              aria-label={active
+                ? m.repo_filter_active_aria({ repo: basename(row.repoPath) })
+                : m.repo_filter_apply_aria({ repo: basename(row.repoPath) })}
+              onclick={() => onrepofilter(active ? null : row.repoPath)}
+            >
+              {basename(row.repoPath)}
+            </button>
+          {:else}
+            <span class="qs-repo">{basename(row.repoPath)}</span>
+          {/if}
           {#if row.drain}
             {@const d = row.drain}
             <span class="qs-inflight">{m.drain_inflight({ count: d.inFlight, max: d.max })}</span>
@@ -183,7 +205,7 @@
 <style>
   .queue-strip {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     flex-wrap: wrap;
     padding: 5px 10px;
@@ -199,12 +221,16 @@
     color: var(--color-muted);
     white-space: nowrap;
     flex-shrink: 0;
+    /* top-aligned with the first stacked row */
+    padding-top: 2px;
   }
+  /* one repo per line — a clean vertical list instead of an inline wrap that
+     breaks mid-row at narrow widths */
   .qs-rows {
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 14px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -225,6 +251,28 @@
   .qs-repo {
     color: var(--color-ink-bright);
     font-weight: 500;
+  }
+  /* repo name doubles as the herd filter toggle — same inline-button chrome as the
+     queued/learnings buttons so the row reads as one band; amber when it's the
+     active filter, mirroring the herd's all/ready filter active tone. */
+  .qs-repo-btn {
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .qs-repo-btn:hover,
+  .qs-repo-btn:focus-visible {
+    color: var(--color-amber);
+  }
+  .qs-repo-btn.active {
+    color: var(--color-amber);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   .qs-inflight {
     color: var(--color-ink);
@@ -366,7 +414,8 @@
      Desktop (pointer: fine) sizing is untouched, so the band stays compact there. */
   @media (pointer: coarse) {
     .qs-queued-btn,
-    .qs-insights {
+    .qs-insights,
+    .qs-repo-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;

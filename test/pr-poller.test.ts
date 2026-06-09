@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { PrPoller } from "../src/pr-poller";
+import { PrPoller, trustsTerminal } from "../src/pr-poller";
 import type { GitForge, PrStatus } from "../src/forge/types";
 
 const baseSession = {
@@ -570,4 +570,139 @@ test("prunes cache entries for sessions no longer active", async () => {
   store.archive(s.id);
   await poller.tick(); // session no longer active → pruned
   expect(poller.snapshot()[s.id]).toBeUndefined();
+});
+
+// ── trustsTerminal unit tests ─────────────────────────────────────────────────
+
+test("trustsTerminal: signal (a) cold cache + marked → true", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "merged", number: 5, checks: "none", deployConfigured: false },
+      true,
+    ),
+  ).toBe(true);
+});
+
+test("trustsTerminal: marked but state none → false (terminal-state gate)", () => {
+  const noneState = {
+    kind: "github" as const,
+    state: "none" as const,
+    checks: "none" as const,
+    deployConfigured: false,
+  };
+  expect(trustsTerminal(undefined, noneState, true)).toBe(false);
+});
+
+test("trustsTerminal: marked but state open (non-terminal) → false (terminal-state gate)", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
+      true,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: signal (b) prev open #7, raw merged #7, unmarked → true", () => {
+  expect(
+    trustsTerminal(
+      { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
+      { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
+      false,
+    ),
+  ).toBe(true);
+});
+
+test("trustsTerminal: no prev, raw merged #7, unmarked → false", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
+      false,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: prev none, raw merged #7, unmarked → false", () => {
+  expect(
+    trustsTerminal(
+      { kind: "github", state: "none", checks: "none", deployConfigured: false },
+      { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
+      false,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: prev open #7, raw merged #8 (mismatched number), unmarked → false", () => {
+  expect(
+    trustsTerminal(
+      { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
+      { kind: "github", state: "merged", number: 8, checks: "success", deployConfigured: false },
+      false,
+    ),
+  ).toBe(false);
+});
+
+// ── refresh integration tests ─────────────────────────────────────────────────
+
+test("refresh signal (b): prior-owned PR transitions to merged, bypasses guard when ownsPr=false", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession); // unmarked (mergingSince=null by default)
+  const emitted: { state: string; number?: number }[] = [];
+  let cur: PrStatus = OPEN; // number 7
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => false, // ownsPr always returns false
+  );
+
+  await poller.tick(); // first tick caches open #7 (emits #1)
+  expect(emitted).toHaveLength(1);
+  expect(emitted[0]!.state).toBe("open");
+
+  // same PR number 7 now transitions to merged
+  cur = {
+    state: "merged",
+    number: 7,
+    checks: "success",
+    headSha: "newsha",
+    deployConfigured: false,
+  };
+  await poller.tick(); // prev cache owns #7, so trust the terminal result
+  expect(emitted).toHaveLength(2);
+  expect(emitted[1]!.state).toBe("merged"); // NOT "none"
+  expect(emitted[1]!.number).toBe(7);
+  expect(poller.snapshot()[s.id]?.state).toBe("merged");
+});
+
+test("refresh signal (a): cold cache + marked, ownsPr=false → merged passes through", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  // Mark the session as merge-train-flagged BEFORE any poll
+  store.update(s.id, { mergingSince: Date.now(), mergingTrainId: "t" });
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => MERGED), // number 344, headSha "deadbee"
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => false, // ownsPr always returns false
+  );
+
+  await poller.tick(); // cold cache, but marked → trust the terminal
+  expect(emitted).toHaveLength(1);
+  expect(emitted[0]!.state).toBe("merged"); // NOT "none"
+  expect(emitted[0]!.number).toBe(344);
+  expect(poller.snapshot()[s.id]?.state).toBe("merged");
 });

@@ -49,7 +49,7 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
-import { type PrCache, guardStaleTerminal } from "./pr-poller";
+import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
   writeRepoRoles,
@@ -1354,9 +1354,17 @@ async function dispatchForgeAction(
         session.repoPath,
         me,
       );
-      // Same guard as the background poller: a merged/closed PR matched only by a
-      // reused branch name is dropped to "none" so GitRail and the list agree.
-      return json(guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null));
+      // Same trust logic as the background poller (trustsTerminal): keep a genuinely-
+      // merged/closed PR when the session is merge-train-flagged or the cache already
+      // owned this PR, else drop a reused-branch-name collision to "none" so GitRail and
+      // the list overview agree.
+      const prev = deps.prCache?.get(session.id);
+      const trusted = trustsTerminal(prev, git, session.mergingSince != null);
+      return json(
+        trusted
+          ? git
+          : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null),
+      );
     }
     return null;
   }

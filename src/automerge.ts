@@ -49,6 +49,10 @@ export interface AutoMergeDeps {
     archive(id: string): number;
     reply(id: string, text: string): boolean;
     resume(id: string): unknown;
+    /** Clear the session's merge-train mark + credit the train tracker. Called directly
+     *  here because an autonomous merge emits no session:git event for the normal
+     *  resolveMerging path; a no-op unless the session was merge-train-flagged. */
+    resolveMerging(id: string, didMerge: boolean): void;
   };
   resolveForge: (repoPath: string) => GitForge | null;
   worktree: Pick<WorktreeMgr, "behindBase">;
@@ -288,6 +292,10 @@ export class AutoMergeService {
     this.mergeFail.delete(sessionId); // success clears any backoff
     // Clear the behind-cache so sibling sessions get a fresh read now that main has moved.
     this.behindCache.clear();
+    // Autonomous merge emits no session:git event, so clear the merge-train mark and
+    // credit the train tracker directly (the poller-driven resolveMerging never fires
+    // for this path). No-op unless the session was merge-train-flagged.
+    this.deps.service.resolveMerging(sessionId, true);
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
       archive: (id) => this.deps.service.archive(id),

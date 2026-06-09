@@ -167,6 +167,7 @@ function makeDeps(opts: {
   }
   const prCache: PrCache = {
     snapshot: () => snap,
+    get: (id) => snap[id],
     set: (id) => cacheWrites.push(id),
     drop: (id) => cacheWrites.push(`drop:${id}`),
   };

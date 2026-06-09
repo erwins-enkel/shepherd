@@ -32,7 +32,12 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
     } as any,
-    service: { archive: mock(() => 1), reply: mock(() => true), resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
     resolveForge: () =>
       ({
         kind: "github",
@@ -60,15 +65,17 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
 test("ready PR → forge.merge called with squash + delete-branch, then archived", async () => {
   const merge = mock(async () => {});
   const archive = mock(() => 1);
+  const resolveMerging = mock(() => {});
   const d = deps({
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
-    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true), resolveMerging } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
   expect(archive.mock.calls.length).toBe(1);
+  expect((resolveMerging as any).mock.calls).toEqual([["s1", true]]);
 });
 
 test("behind → steers a rebase + bumps the counter, does NOT merge", async () => {
@@ -77,7 +84,12 @@ test("behind → steers a rebase + bumps the counter, does NOT merge", async () 
   const merge = mock(async () => {});
   const d = deps({
     worktree: { behindBase: async () => true } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
   });
@@ -96,6 +108,7 @@ test("behind → steers a rebase + bumps the counter, does NOT merge", async () 
 
 test("forge.merge throws (non-conflict) → fail-closed: not archived", async () => {
   const archive = mock(() => 1);
+  const resolveMerging = mock(() => {});
   const d = deps({
     resolveForge: () =>
       ({
@@ -106,11 +119,12 @@ test("forge.merge throws (non-conflict) → fail-closed: not archived", async ()
         },
         closeIssue: mock(async () => {}),
       }) as any,
-    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+    service: { archive, reply: mock(() => true), resume: mock(() => true), resolveMerging } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect(archive.mock.calls.length).toBe(0);
+  expect(resolveMerging.mock.calls.length).toBe(0);
 });
 
 test("dead pane → resume attempted before steer; counter bumped once resumed", async () => {
@@ -120,7 +134,7 @@ test("dead pane → resume attempted before steer; counter bumped once resumed",
   const d = deps({
     worktree: { behindBase: async () => true } as any,
     paneAlive: () => false,
-    service: { archive: mock(() => 1), reply, resume } as any,
+    service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
   });
   d.store.setAutoMergeState = setState as any;
   const svc = new AutoMergeService(d);
@@ -135,7 +149,12 @@ test("rebase steer fails to deliver → counter NOT bumped", async () => {
   const setState = mock(() => {});
   const d = deps({
     worktree: { behindBase: async () => true } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   d.store.setAutoMergeState = setState as any;
   const svc = new AutoMergeService(d);
@@ -177,7 +196,7 @@ test("multi-session: merges ready A then steers rebase for behind B", async () =
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
     } as any,
-    service: { archive, reply, resume: mock(() => true) } as any,
+    service: { archive, reply, resume: mock(() => true), resolveMerging: mock(() => {}) } as any,
     resolveForge: () =>
       ({
         kind: "github",
@@ -247,7 +266,12 @@ test("rebase_cap: behind session at cap → no reply steer, emitStatus rebase_ca
       setAutopilotState: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
     emitStatus,
     rebaseCap: 5,
   });
@@ -280,7 +304,12 @@ test("reset-on-progress: behind=false + mergeable=true → rebaseCount reset to 
     worktree: { behindBase: async () => false } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
-    service: { archive: mock(() => 1), reply: mock(() => true), resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
@@ -313,7 +342,12 @@ test("reset-on-progress NEGATIVE: behind=false + mergeable=false → counter NOT
         s1: { state: "open", checks: "success", mergeable: false, number: 7, headSha: "h1" },
       }),
     } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
@@ -334,7 +368,12 @@ test("behind cache: two pumps with frozen clock call behindBase only once", asyn
 
   const d = deps({
     worktree: { behindBase } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
     now: () => nowVal,
     behindTtlMs: 10_000,
   });
@@ -376,7 +415,12 @@ test("tick: skips repo with no full-auto session (no merge/steer)", async () => 
         merge,
         closeIssue: mock(async () => {}),
       }) as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
 
   const svc = new AutoMergeService(d);
@@ -405,7 +449,12 @@ test("per-session override true + repo default false → merges (repoHasFullAuto
     } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
-    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.tick();
@@ -435,7 +484,12 @@ test("rebase outstanding: same head not re-steered / not re-bumped on a second p
       setAutopilotState: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
@@ -479,7 +533,12 @@ test("merge-error backoff: after CAP failures the stuck PR is skipped, a ready s
       setAutopilotState: mock(() => {}),
     } as any,
     resolveForge: () => forge as any,
-    service: { archive, reply: mock(() => true), resume: mock(() => true) } as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
     prCache: {
       snapshot: () => ({
         sA: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "hA" },
@@ -552,7 +611,12 @@ test("rebase steer references origin/<baseBranch> from the session", async () =>
       setAutopilotState: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
-    service: { archive: mock(() => 1), reply, resume: mock(() => true) } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");

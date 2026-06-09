@@ -91,6 +91,7 @@ function makeDeps(
   const snap: Record<string, GitState> = {};
   const prCache: PrCache = {
     snapshot: () => snap,
+    get: (id: string) => snap[id],
     set: (id: string) => cacheWrites.push(id),
     drop: (id: string) => cacheWrites.push(`drop:${id}`),
   };
@@ -242,6 +243,60 @@ test("GET /api/git returns the prCache snapshot", async () => {
   const res = await app.fetch(new Request("http://localhost/api/git"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({});
+});
+
+test("GET git trusts a merged PR when cache already showed it open (signal b)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 5,
+      headSha: "newsha",
+      checks: "success",
+      deployConfigured: true,
+    }),
+  });
+  const deps = Object.assign(makeDeps(f), { ownsPr: () => false });
+  const baseCache = deps.prCache!;
+  // Seed the prior cached state as an OPEN PR #5; the GET handler reads it via get().
+  const seeded: GitState = {
+    kind: "gitea",
+    state: "open",
+    number: 5,
+    checks: "success",
+    deployConfigured: true,
+  };
+  deps.prCache = {
+    snapshot: () => ({ s1: seeded }),
+    get: (id) => (id === "s1" ? seeded : undefined),
+    set: baseCache.set,
+    drop: baseCache.drop,
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(5);
+});
+
+test("GET git trusts a merged PR when session is merge-train-flagged, cold cache (signal a)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 344,
+      headSha: "somesha",
+      checks: "success",
+      deployConfigured: true,
+    }),
+  });
+  const mergeTrainSession = { ...SESSION, mergingSince: Date.now(), mergingTrainId: "t" };
+  const deps = Object.assign(makeDeps(f, mergeTrainSession), { ownsPr: () => false });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(344);
 });
 
 test("GET /api/activity returns the activity snapshot", async () => {

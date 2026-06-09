@@ -1436,21 +1436,23 @@
     {/if}
     <div class="spacer"></div>
     <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
-      <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
-        >{m.viewport_terminal_tab()}</button
-      >
-      <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
-        >{m.viewport_todo_tab()}</button
-      >
-      <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
-        >{m.viewport_issues_tab()}</button
-      >
-      <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
-        >{m.viewport_activity_tab()}</button
-      >
-      <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
-        >{m.viewport_diff_tab()}</button
-      >
+      <div class="tab-scroll">
+        <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
+          >{m.viewport_terminal_tab()}</button
+        >
+        <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
+          >{m.viewport_todo_tab()}</button
+        >
+        <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
+          >{m.viewport_issues_tab()}</button
+        >
+        <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
+          >{m.viewport_activity_tab()}</button
+        >
+        <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
+          >{m.viewport_diff_tab()}</button
+        >
+      </div>
       {#if hasPreview}
         <!-- only while the server reports a bound preview listener (single source of
              truth: the live port). Disappears when the dev server stops. -->
@@ -2590,6 +2592,13 @@
     gap: 2px;
   }
 
+  /* transparent pass-through on desktop (matches .tab-group's flex/gap so the
+     desktop layout is visually identical); scrolls on compact/mobile below */
+  .tab-scroll {
+    display: flex;
+    gap: 2px;
+  }
+
   .back {
     background: transparent;
     border: 1px solid var(--color-line-bright);
@@ -2740,11 +2749,34 @@
     flex-basis: 100%;
     gap: 4px;
   }
+  /* phone: nav tabs scroll horizontally so the pinned preview slot (Preview tab
+     / Start-dev-server control) stays visible at the row's right edge.
+     Matches BacklogView's .overlay-tabs idiom (hidden scrollbar). */
+  .tab-group.mobile .tab-scroll {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-group.mobile .tab-scroll::-webkit-scrollbar {
+    display: none;
+  }
   .vp-head.mobile .tab-btn {
-    flex: 1;
     text-align: center;
     padding: 10px 6px;
     font-size: var(--fs-meta);
+  }
+  /* grow:1 fills the strip when tabs fit (no dead gap, large tap targets);
+     shrink:0 + basis:auto forces overflow→scroll when they don't */
+  .vp-head.mobile .tab-scroll .tab-btn {
+    flex: 1 0 auto;
+  }
+  /* keep the preview slot (Preview tab / Start control) pinned + always visible */
+  .tab-group.mobile .preview-start-wrap,
+  .tab-group.mobile .preview-tab {
+    flex-shrink: 0;
   }
   /* finger-sized header controls on touch layouts (≥40px) */
   .vp-head.mobile .back,
@@ -2880,6 +2912,16 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     white-space: nowrap;
     min-width: 220px;
+  }
+  /* phone: the preview slot is pinned at the row's right edge, so a left:0
+     popover would open rightward off-screen — flip it to right-anchored and
+     width-cap it so it drops inside the (overflow:hidden) .viewport box instead
+     of past the viewport edge. It lives in the pinned .preview-start-wrap, not
+     the .tab-scroll scroller, so the strip's overflow-x:auto never clips it. */
+  .vp-head.mobile .preview-cmd-pop {
+    left: auto;
+    right: 0;
+    max-width: calc(100vw - 16px);
   }
   .pcp-label {
     font-size: var(--fs-meta);

@@ -16,3 +16,9 @@ export function prBadgeLabel(git: GitState | undefined): string | null {
       return m.prbadge_none();
   }
 }
+
+/** Whether to show the slate DRAFT marker: only on open PRs with isDraft=true.
+ *  Never returns true for merged/closed/none (not actionable, marker is for open drafts). */
+export function prBadgeIsDraft(git: GitState | undefined): boolean {
+  return git?.state === "open" && !!git.isDraft;
+}

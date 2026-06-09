@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { prBadgeLabel } from "./pr-badge";
+  import { prBadgeLabel, prBadgeIsDraft } from "./pr-badge";
 
   let { git }: { git?: GitState } = $props();
   const label = $derived(prBadgeLabel(git));
@@ -17,6 +17,8 @@
           ? m.prbadge_review_changes()
           : "",
   );
+  // Draft marker: only on open PRs; never green — always slate.
+  const showDraft = $derived(prBadgeIsDraft(git));
 </script>
 
 {#if label}
@@ -30,6 +32,9 @@
     {/if}
     {#if review}
       <span class="rdot rdot-{review.state}" title={reviewTitle} aria-label={reviewTitle}></span>
+    {/if}
+    {#if showDraft}
+      <span class="draft-marker" aria-label={m.prbadge_draft()}>{m.prbadge_draft()}</span>
     {/if}{label}
   </span>
 {/if}
@@ -96,5 +101,16 @@
   }
   .rdot-commented {
     background: var(--color-blue);
+  }
+
+  /* Slate DRAFT marker — parked/not-ready, must NEVER render green */
+  .draft-marker {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    color: var(--color-slate);
+    padding: 0 2px;
+    border: 1px solid color-mix(in srgb, var(--color-slate) 40%, transparent);
+    border-radius: 2px;
+    line-height: 1.2;
   }
 </style>

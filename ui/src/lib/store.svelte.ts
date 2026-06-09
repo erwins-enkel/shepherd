@@ -1,3 +1,4 @@
+import { SvelteMap } from "svelte/reactivity";
 import type {
   Session,
   WsEvent,
@@ -63,6 +64,8 @@ export class HerdStore {
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
   private runningVersion: string | null = null;
+  /** toast id keyed by sessionId for active draft-reconcile error alerts; used to dismiss on success. */
+  private draftReconcileToastIds = new SvelteMap<string, number>();
 
   setAll(list: Session[]) {
     this.sessions = list;
@@ -200,6 +203,7 @@ export class HerdStore {
         this.preview = dropKey(this.preview, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
+        this.clearDraftReconcileToast(ev.data.id);
         break;
       case "session:git":
         this.git = { ...this.git, [ev.data.id]: ev.data.git };
@@ -308,6 +312,44 @@ export class HerdStore {
       case "mergetrain:landed":
         offerUpdateMain(ev.data.repoPath);
         break;
+      case "draftreconcile:status":
+        this.applyDraftReconcile(ev.data);
+        break;
+    }
+  }
+
+  /** Handle a draft-reconcile status push. On error: raise a persistent, assertive
+   *  toast (keyed per session, stays until dismissed). On success (state=null):
+   *  dismiss the keyed toast for that session (if one is live). */
+  private applyDraftReconcile(data: {
+    repoPath: string;
+    sessionId: string;
+    state: "promote_error" | "enforce_error" | null;
+    detail: string | null;
+  }) {
+    const { sessionId, state, detail } = data;
+    const key = `draft-reconcile:${sessionId}`;
+    if (state === "promote_error" || state === "enforce_error") {
+      const text =
+        state === "promote_error"
+          ? m.draft_reconcile_promote_error({ desig: detail ?? "" })
+          : m.draft_reconcile_enforce_error({ desig: detail ?? "" });
+      const id = toasts.info(text, { key, duration: null, alert: true });
+      this.draftReconcileToastIds.set(sessionId, id);
+    } else {
+      // state === null: success — clear the alert if one is showing
+      this.clearDraftReconcileToast(sessionId);
+    }
+  }
+
+  /** Dismiss a session's persistent draft-reconcile error toast, if any. Called on a
+   *  success (state=null) and on archive, so an archived session never strands a
+   *  persistent error toast that can no longer self-resolve. */
+  private clearDraftReconcileToast(sessionId: string) {
+    const id = this.draftReconcileToastIds.get(sessionId);
+    if (id !== undefined) {
+      toasts.close(id);
+      this.draftReconcileToastIds.delete(sessionId);
     }
   }
 

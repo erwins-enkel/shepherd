@@ -558,3 +558,68 @@ test("mergetrain:landed calls offerUpdateMain with the repoPath", () => {
   expect(offerUpdateMain).toHaveBeenCalledOnce();
   expect(offerUpdateMain).toHaveBeenCalledWith("/repos/my-project");
 });
+
+// ── draftreconcile:status ──────────────────────────────────────────────────
+
+test("draftreconcile:status promote_error raises a persistent assertive keyed toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-promote-1", state: "promote_error", detail: "TASK-01" },
+  });
+  const t = toasts.items.find((x) => x.key === "draft-reconcile:dr-promote-1");
+  expect(t).toBeDefined();
+  expect(t?.alert).toBe(true);
+  // persistent: no auto-dismiss timer; item must still be present
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-promote-1")).toBe(true);
+});
+
+test("draftreconcile:status enforce_error raises a persistent assertive keyed toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-enforce-1", state: "enforce_error", detail: "TASK-02" },
+  });
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-enforce-1" && x.alert)).toBe(true);
+});
+
+test("draftreconcile:status null clears a prior error toast for that session", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  // first raise an error
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-clear-1", state: "promote_error", detail: "TASK-01" },
+  });
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-clear-1")).toBe(true);
+  // then clear it with success (state=null)
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-clear-1", state: null, detail: null },
+  });
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-clear-1")).toBe(false);
+});
+
+test("session:archived clears a session's lingering draft-reconcile error toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-arch-1", state: "promote_error", detail: "TASK-01" },
+  });
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-arch-1")).toBe(true);
+  s.apply({ event: "session:archived", data: { id: "dr-arch-1" } });
+  expect(toasts.items.some((x) => x.key === "draft-reconcile:dr-arch-1")).toBe(false);
+});
+
+test("draftreconcile:status null with no prior error toast is a no-op", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({
+    event: "draftreconcile:status",
+    data: { repoPath: "/r", sessionId: "dr-noop-1", state: null, detail: null },
+  });
+  expect(toasts.items.filter((x) => x.key?.startsWith("draft-reconcile:"))).toHaveLength(0);
+});

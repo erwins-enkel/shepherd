@@ -240,6 +240,22 @@
           />
         {/each}
       {/if}
+      {#if partition.draftAwaitingSignoff.length > 0}
+        <div class="draft-head micro">
+          {m.herd_draft_awaiting_signoff_group({ count: partition.draftAwaitingSignoff.length })}
+        </div>
+        {#each partition.draftAwaitingSignoff as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            activity={activity[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
       {#if partition.awaitingMerge.length > 0}
         <div class="awaiting-head micro">
           {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
@@ -422,6 +438,17 @@
     margin-top: 6px;
     color: var(--color-red);
     border-top: 1px solid color-mix(in srgb, var(--color-red) 30%, var(--color-line));
+  }
+
+  /* slate section header for a green-CI draft PR awaiting human sign-off —
+     parked but NOT actionable (must never read as the green "Your turn" state) */
+  .draft-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-slate);
+    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
   }
 
   /* green section headers for the "waiting for a human to merge" stages:

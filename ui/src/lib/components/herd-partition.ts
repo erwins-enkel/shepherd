@@ -6,13 +6,16 @@ import { isMerging } from "./merge-train";
  *  - ciRunning: open PR with CI checks in flight (`open` + `pending`)
  *  - ciFailed: open PR whose CI checks failed (`open` + `failure`) — done, needs a look
  *  - reviewerRunning: a critic run is in flight for the session
+ *  - draftAwaitingSignoff: open DRAFT PR, CI green (`open` + `success` + `isDraft`) AND
+ *    the agent is not actively in the loop — parked, awaiting human sign-off before merge.
+ *    Never reads as the green "Your turn" state; rendered in slate (parked, not actionable).
  *  - waitingOnReviewer / waitingOnMerger: same open+green+handed-off point as
  *    awaitingMerge, but `.shepherd/roles.json` names someone *other* than the
  *    operator as the reviewer (not yet approved) or merger. The server stamps
  *    `git.handoff` so the herd can say "waiting on scoop" instead of "your turn".
- *  - awaitingMerge: open PR, CI green (`open` + `success`) AND the agent is not actively
- *    in the loop (status not `running` and not `blocked`) — handed off, waiting on a
- *    human (repo owner) to merge. Distinct from `ready`, which is operator-flagged. An
+ *  - awaitingMerge: open non-draft PR, CI green (`open` + `success`) AND the agent is not
+ *    actively in the loop (status not `running` and not `blocked`) — handed off, waiting on
+ *    a human (repo owner) to merge. Distinct from `ready`, which is operator-flagged. An
  *    agent still in the loop is NOT handed off — e.g. mid auto-correct after a critic
  *    steered findings back (with the PR's green CI now stale), or blocked awaiting
  *    operator input — so it stays in `active` rather than flicker into "waiting for
@@ -24,12 +27,15 @@ import { isMerging } from "./merge-train";
  *
  *  First-match precedence (terminal states win; reviewing beats the CI/merge stages
  *  as the later in-flight stage):
- *    merged > merging > ready > reviewerRunning > ciRunning > ciFailed > awaitingMerge > active.
- *  An open PR with `none` checks (no CI reported yet) stays in `active` to avoid
- *  flicker into the "Your turn" group before CI registers as pending.
- *  The groups render top→bottom as active → ciRunning → ciFailed → reviewerRunning →
- *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing` is
- *  injected so this stays a pure function (the caller wires it to the reviews store). */
+ *    merged > merging > ready > reviewerRunning > ciRunning > ciFailed >
+ *    draftAwaitingSignoff > (waitingOnReviewer | waitingOnMerger | awaitingMerge) > active.
+ *  A draft outranks the handed-off groups: a green idle DRAFT is awaiting sign-off
+ *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
+ *  yet) stays in `active` to avoid flicker into the "Your turn" group before CI registers
+ *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
+ *  reviewerRunning → draftAwaitingSignoff → waitingOnReviewer → waitingOnMerger →
+ *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing`
+ *  is injected so this stays a pure function (the caller wires it to the reviews store). */
 /** Pick the bucket for a handed-off (open + green, idle) session: a foreign
  *  reviewer/merger named in `git.handoff` routes to its waiting group, else it's
  *  the operator's turn (`awaitingMerge`). */
@@ -52,6 +58,7 @@ export function partitionSessions(
   ciRunning: Session[];
   ciFailed: Session[];
   reviewerRunning: Session[];
+  draftAwaitingSignoff: Session[];
   waitingOnReviewer: Session[];
   waitingOnMerger: Session[];
   awaitingMerge: Session[];
@@ -63,6 +70,7 @@ export function partitionSessions(
   const ciRunning: Session[] = [];
   const ciFailed: Session[] = [];
   const reviewerRunning: Session[] = [];
+  const draftAwaitingSignoff: Session[] = [];
   const waitingOnReviewer: Session[] = [];
   const waitingOnMerger: Session[] = [];
   const awaitingMerge: Session[] = [];
@@ -80,6 +88,14 @@ export function partitionSessions(
     else if (
       g?.state === "open" &&
       g.checks === "success" &&
+      g.isDraft &&
+      s.status !== "running" &&
+      s.status !== "blocked"
+    )
+      draftAwaitingSignoff.push(s);
+    else if (
+      g?.state === "open" &&
+      g.checks === "success" &&
       s.status !== "running" &&
       s.status !== "blocked"
     ) {
@@ -93,6 +109,7 @@ export function partitionSessions(
     ciRunning,
     ciFailed,
     reviewerRunning,
+    draftAwaitingSignoff,
     waitingOnReviewer,
     waitingOnMerger,
     awaitingMerge,

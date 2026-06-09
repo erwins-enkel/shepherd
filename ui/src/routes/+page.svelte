@@ -1017,9 +1017,11 @@
 {/if}
 
 {#if showNew}
+  <!-- Preselect: explicit backlog/PR context first, else the repo the herd is
+       currently filtered to, else NewTask falls back to the most-recently-used repo. -->
   <NewTask
     {onsubmit}
-    initialRepoPath={composeRepoPath ?? undefined}
+    initialRepoPath={composeRepoPath ?? repoFilter ?? undefined}
     initialIssue={composeIssue ?? undefined}
     initialPrompt={composePrompt ?? undefined}
     onclose={() => {

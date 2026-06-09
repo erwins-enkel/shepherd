@@ -434,6 +434,52 @@ test("preview sweep: single scan per sweep regardless of session count", async (
   expect(scanCalls.count).toBe(1);
 });
 
+// ── pick receives worktreePath ────────────────────────────────────────────────
+
+test("preview sweep: pick is called with the session's worktreePath", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput); // worktreePath = "/wt-a"
+
+  const pickCalls: Array<{ ports: number[]; worktreePath: string }> = [];
+  const service = makePreviewService();
+  const clock = 100_000;
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, [5173]);
+        return m;
+      },
+      pick: async (ports, worktreePath) => {
+        pickCalls.push({ ports, worktreePath });
+        return 5173;
+      },
+    },
+  );
+
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+
+  expect(pickCalls.length).toBeGreaterThanOrEqual(1);
+  expect(pickCalls[0]!.worktreePath).toBe(s.worktreePath);
+});
+
 // ── GET /api/preview server endpoint ─────────────────────────────────────────
 
 test("GET /api/preview returns the preview snapshot", async () => {

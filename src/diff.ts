@@ -102,6 +102,79 @@ function appendBodyLine(cur: DiffFile, hunk: DiffHunk, cursor: LineCursor, raw: 
   return false;
 }
 
+/** Mutable parse state threaded through handleDiffLine. */
+interface ParseState {
+  files: DiffFile[];
+  cur: DiffFile | null;
+  hunk: DiffHunk | null;
+  cursor: LineCursor;
+  lineCount: number; // add/del/ctx lines accumulated for cur
+  totalLines: number; // global tally across all files
+  capped: boolean; // true once MAX_TOTAL_LINES is reached
+}
+
+/** Seal cur into files, marking truncated when over per-file cap. */
+function finishFile(state: ParseState): void {
+  if (!state.cur) return;
+  if (state.lineCount > MAX_FILE_LINES) {
+    state.cur.truncated = true;
+    state.cur.hunks = [];
+  }
+  state.files.push(state.cur);
+}
+
+/**
+ * Dispatch one raw diff line against the current parse state.
+ * Always processes file-header and hunk-header lines — O(files), not O(body-lines) —
+ * so over-cap files still carry correct status/path/rename metadata.
+ */
+function handleDiffLine(state: ParseState, raw: string): void {
+  if (raw.startsWith("diff --git ")) {
+    finishFile(state);
+    state.hunk = null;
+    state.lineCount = 0;
+    state.cur = startFile(raw);
+    return;
+  }
+  if (!state.cur) return;
+  if (applyFileHeader(state.cur, raw)) return;
+
+  if (raw.startsWith("@@")) {
+    const start = parseHunkHeader(raw);
+    state.cursor.oldNo = start.oldNo;
+    state.cursor.newNo = start.newNo;
+    // Under cap: accumulate. Over cap: body lines are skipped, no hunk slot needed.
+    if (!state.capped) {
+      state.hunk = { header: raw, lines: [] };
+      state.cur.hunks.push(state.hunk);
+    }
+    return;
+  }
+
+  // Skip body-line work once globally capped; mark file truncated on first visit.
+  if (state.capped) {
+    if (!state.cur.truncated) {
+      state.cur.truncated = true;
+      state.cur.hunks = [];
+    }
+    return;
+  }
+
+  if (!state.hunk) return;
+  if (raw.startsWith("\\")) return; // "\ No newline at end of file"
+
+  if (appendBodyLine(state.cur, state.hunk, state.cursor, raw)) {
+    state.lineCount++;
+    state.totalLines++;
+    // Transition: cap hit — mark current file and set flag.
+    if (state.totalLines >= MAX_TOTAL_LINES) {
+      state.capped = true;
+      state.cur.truncated = true;
+      state.cur.hunks = [];
+    }
+  }
+}
+
 /**
  * Parse `git diff --no-color` unified output into structured files.
  * Handles added / modified / deleted / renamed / binary, computes +/- counts,
@@ -112,77 +185,18 @@ function appendBodyLine(cur: DiffFile, hunk: DiffHunk, cursor: LineCursor, raw: 
  * status/path/rename metadata (O(files), not O(body-lines)).
  */
 export function parseUnifiedDiff(text: string): DiffFile[] {
-  const files: DiffFile[] = [];
-  let cur: DiffFile | null = null;
-  let hunk: DiffHunk | null = null;
-  const cursor: LineCursor = { oldNo: 0, newNo: 0 };
-  let lineCount = 0; // add/del/ctx lines accumulated for cur
-  let totalLines = 0; // global tally across all files
-  let capped = false; // true once MAX_TOTAL_LINES is reached
-
-  const finishFile = () => {
-    if (!cur) return;
-    if (lineCount > MAX_FILE_LINES) {
-      cur.truncated = true;
-      cur.hunks = [];
-    }
-    files.push(cur);
+  const state: ParseState = {
+    files: [],
+    cur: null,
+    hunk: null,
+    cursor: { oldNo: 0, newNo: 0 },
+    lineCount: 0,
+    totalLines: 0,
+    capped: false,
   };
-
-  for (const raw of text.split("\n")) {
-    if (raw.startsWith("diff --git ")) {
-      finishFile();
-      hunk = null;
-      lineCount = 0;
-      cur = startFile(raw);
-      continue;
-    }
-    if (!cur) continue;
-
-    // Always process file-header and hunk-header lines — they are O(files), bounded
-    // by the 64 MiB input cap, and keep metadata (status/path/rename) accurate even
-    // for files beyond the global cap.
-    if (applyFileHeader(cur, raw)) continue;
-
-    if (raw.startsWith("@@")) {
-      const start = parseHunkHeader(raw);
-      cursor.oldNo = start.oldNo;
-      cursor.newNo = start.newNo;
-      // Under the cap: accumulate normally. Over the cap: hunk slot is not needed
-      // (body lines will be skipped), so don't push to cur.hunks.
-      if (!capped) {
-        hunk = { header: raw, lines: [] };
-        cur.hunks.push(hunk);
-      }
-      continue;
-    }
-
-    // Skip body-line accumulation once globally capped.
-    if (capped) {
-      // Mark this file truncated once, at the point of transition or on first visit.
-      if (!cur.truncated) {
-        cur.truncated = true;
-        cur.hunks = [];
-      }
-      continue;
-    }
-
-    if (!hunk) continue;
-    if (raw.startsWith("\\")) continue; // "\ No newline at end of file"
-
-    if (appendBodyLine(cur, hunk, cursor, raw)) {
-      lineCount++;
-      totalLines++;
-      // Transition: cap hit on this line — mark current file and set flag.
-      if (totalLines >= MAX_TOTAL_LINES) {
-        capped = true;
-        cur.truncated = true;
-        cur.hunks = [];
-      }
-    }
-  }
-  finishFile();
-  return files;
+  for (const raw of text.split("\n")) handleDiffLine(state, raw);
+  finishFile(state);
+  return state.files;
 }
 
 const REMOTE = "origin";

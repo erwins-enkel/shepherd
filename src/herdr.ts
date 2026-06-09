@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
 import type { HerdrState, SessionStatus } from "./types";
+
+const execFileAsync = promisify(execFile);
 
 export interface HerdrAgent {
   agent: string;
@@ -25,6 +29,8 @@ export interface HerdrTab {
 }
 
 export type Runner = (args: string[]) => string;
+/** Async counterpart to `Runner` — spawns off Bun's single loop (no blocking). */
+export type AsyncRunner = (args: string[]) => Promise<string>;
 
 /** A herdr CLI call attempted while an update is in flight. Thrown WITHOUT
  *  spawning, so nothing resurrects the herdr server mid-update. */
@@ -53,6 +59,23 @@ export function makeHerdrRunner(exec: (args: string[]) => string): Runner {
 const defaultRunner: Runner = makeHerdrRunner((args) =>
   execFileSync(config.herdrBin, args, { encoding: "utf8", timeout: HERDR_TIMEOUT_MS }),
 );
+
+/** Async sibling of `makeHerdrRunner`: same maintenance guard, but the delegate
+ *  returns a promise so the spawn never blocks Bun's single loop. */
+export function makeHerdrAsyncRunner(exec: (args: string[]) => Promise<string>): AsyncRunner {
+  return async (args) => {
+    if (maintenance.active) throw new HerdrUnavailableError();
+    return exec(args);
+  };
+}
+
+const defaultAsyncRunner: AsyncRunner = makeHerdrAsyncRunner(async (args) => {
+  const { stdout } = await execFileAsync(config.herdrBin, args, {
+    encoding: "utf8",
+    timeout: HERDR_TIMEOUT_MS,
+  });
+  return stdout;
+});
 
 export function mapState(s: HerdrState): SessionStatus {
   switch (s) {
@@ -150,7 +173,10 @@ export function matchAgents(
 }
 
 export class HerdrDriver {
-  constructor(private runner: Runner = defaultRunner) {}
+  constructor(
+    private runner: Runner = defaultRunner,
+    private asyncRunner: AsyncRunner = defaultAsyncRunner,
+  ) {}
 
   list(): HerdrAgent[] {
     const parsed = JSON.parse(this.runner(["agent", "list"]));
@@ -259,9 +285,9 @@ export class HerdrDriver {
     this.runner(["agent", "send", target, text]);
   }
 
-  /** Read an agent's terminal buffer as plain text (default: the visible viewport). */
-  read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
-    const out = this.runner([
+  /** The `agent read` argv shared by the sync and async readers. */
+  private readArgs(target: string, source: "visible" | "recent", lines: number): string[] {
+    return [
       "agent",
       "read",
       target,
@@ -271,12 +297,36 @@ export class HerdrDriver {
       source,
       "--lines",
       String(lines),
-    ]);
+    ];
+  }
+
+  /** Extract the buffer text from a herdr `agent read` reply (raw output on a parse miss). */
+  private parseRead(out: string): string {
     try {
       return JSON.parse(out)?.result?.read?.text ?? "";
     } catch {
       return out;
     }
+  }
+
+  /** Read an agent's terminal buffer as plain text (default: the visible viewport). */
+  read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
+    return this.parseRead(this.runner(this.readArgs(target, source, lines)));
+  }
+
+  /**
+   * Async sibling of `read` — same args/timeout/maintenance guard, but spawns via
+   * `promisify(execFile)` so it never blocks Bun's single loop. Use this from the
+   * poll loop (the poller reads the visible buffer for EVERY running agent every
+   * probe cadence in the interim heartbeat path); the sync `read` would freeze the
+   * live web terminal under that fan-out.
+   */
+  async readAsync(
+    target: string,
+    source: "visible" | "recent" = "visible",
+    lines = 200,
+  ): Promise<string> {
+    return this.parseRead(await this.asyncRunner(this.readArgs(target, source, lines)));
   }
 
   /**

@@ -18,6 +18,12 @@ const baseSession = {
   herdrAgentId: "term_a",
 };
 
+/** A running agent with an empty transcript falls into the interim path, whose
+ *  terminal read is dispatched fire-and-forget (async `readAsync`) off the
+ *  synchronous tick — so its onActivity/onBlock effects (incl. the resume
+ *  block-clear) land on a later microtask. Flush a cycle before asserting them. */
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 test("tick maps herdr state to status and emits only on change", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
@@ -56,7 +62,7 @@ test("tick maps herdr state to status and emits only on change", () => {
   expect(emitted.length).toBe(2);
 });
 
-test("emits onBlock with a classified reason for blocked sessions, clears on resume", () => {
+test("emits onBlock with a classified reason for blocked sessions, clears on resume", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -76,6 +82,9 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
       },
     ],
     read: () => "❯ 1. Yes\n  2. No",
+    // resume runs the interim path (no injected transcript probe → empty signals),
+    // whose block-clear is async; provide the async read so it fires
+    readAsync: () => Promise.resolve("❯ 1. Yes\n  2. No"),
   };
 
   let clock = 100_000;
@@ -103,6 +112,7 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
   agentStatus = "working";
   clock += 5000;
   poller.tick();
+  await flush();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
@@ -213,8 +223,14 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
 
-  // a frozen terminal — the visible buffer never changes between probes, so the
-  // liveness gate confirms the transcript-silence candidate as a genuine stall.
+  // Transcript-path stall (evaluateStall) test: the transcript stays LIVE-WRITING
+  // throughout (its newest record advances each probe = `clock - 600_000`, a fixed
+  // 10m-old gap that always reads as a silence candidate), so every probe runs the
+  // transcript path. The recovery is driven by the live TERMINAL moving (not a
+  // fresh transcript), which keeps the snapshot ts monotonic and avoids spuriously
+  // flipping to the interim path. A frozen terminal confirms the candidate; a
+  // moving one clears it and re-arms the episode.
+  let visible = "still chewing on it";
   const herdr = {
     list: (): HerdrAgent[] => [
       {
@@ -228,11 +244,10 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
         workspaceId: "w",
       },
     ],
-    read: () => "still chewing on it",
+    read: () => visible,
   };
 
   let clock = 1_700_000_000_000; // realistic ms epoch so a past lastTs stays positive
-  let stalled = true;
   const poller = new StatusPoller(
     store,
     herdr as any,
@@ -243,15 +258,25 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
     classifyBlocked,
     () => clock,
     // combined probe: one read → both signals. activity null here (stall-only test).
+    // lastTs always advances with the clock (live-writing) yet stays a 10m-old
+    // silence candidate, so the transcript path runs every probe.
     () => ({
-      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      snapshot: { lastTs: clock - 600_000, pending: false },
       activity: null,
     }),
     { stallMs: 1, pendingStallMs: 1 }, // 10m-old activity counts as stalled; fresh does not
     7000, // probeCheckMs
   );
 
-  // first candidate probe only captures a terminal baseline — no emit yet
+  // priming probe: a first sighting (no baseline) is NOT live-writing, so it routes
+  // to interim and only RECORDS the transcript baseline (no readAsync injected → the
+  // interim read no-ops). The NEXT probe sees the newest record advance → transcript.
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+
+  // first transcript-path probe (newest record advanced) only captures a terminal
+  // baseline — no emit yet
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(0);
 
@@ -272,15 +297,16 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
   poller.tick();
   expect(blocks).toHaveLength(1);
 
-  // transcript progresses → one clear, then re-arms for the next episode
-  stalled = false;
+  // terminal resumes moving (live generation) → the liveness gate clears the stall
+  // and resets the baseline, re-arming the episode.
+  visible = "Computing… (1s)";
   clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
-  // stalled again: baseline was reset on resume, so the first probe defers again…
-  stalled = true;
+  // frozen again: baseline was reset on recovery, so the first probe defers again…
+  visible = "still chewing on it";
   clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(2);
@@ -380,8 +406,14 @@ test("fires a stall for a hung command (pending past the ceiling) even when the 
     7000,
   );
 
+  // priming probe: first sighting (no baseline) → interim, just records the
+  // transcript baseline (no readAsync → no-op). Next probe advances → transcript path.
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+
   // pending candidate fires immediately (no baseline defer) despite the moving terminal
   frame += 5;
+  clock += 7000;
   poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
@@ -432,7 +464,9 @@ test("clears an emitted stall when the terminal resumes moving even before the t
     7000,
   );
 
-  poller.tick(); // baseline
+  poller.tick(); // priming: first sighting → interim, just records transcript baseline
+  clock += 7000;
+  poller.tick(); // first transcript probe → terminal baseline
   clock += 7000;
   poller.tick(); // frozen → stall fires
   expect(blocks).toHaveLength(1);
@@ -451,6 +485,10 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
 
+  // transcript stays live-writing (lastTs always advances as a 10m-old silence
+  // candidate) → transcript path every probe; recovery is driven by the terminal
+  // moving, keeping the snapshot ts monotonic (no spurious interim flip).
+  let visible = "still chewing on it";
   const herdr = {
     list: (): HerdrAgent[] => [
       {
@@ -464,11 +502,10 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
         workspaceId: "w",
       },
     ],
-    read: () => "still chewing on it",
+    read: () => visible,
   };
 
   let clock = 1_700_000_000_000;
-  let stalled = true;
   const poller = new StatusPoller(
     store,
     herdr as any,
@@ -479,14 +516,17 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
     classifyBlocked,
     () => clock,
     () => ({
-      snapshot: { lastTs: stalled ? clock - 600_000 : clock, pending: false },
+      snapshot: { lastTs: clock - 600_000, pending: false },
       activity: null,
     }),
     { stallMs: 1, pendingStallMs: 1 },
     7000, // probeCheckMs
   );
 
-  poller.tick(); // baseline capture, no emit yet
+  poller.tick(); // priming: first sighting → interim, just records transcript baseline
+  expect(blocks).toHaveLength(0);
+  clock += 7000;
+  poller.tick(); // first transcript probe → terminal baseline, no emit yet
   expect(blocks).toHaveLength(0);
   clock += 7000;
   poller.tick(); // frozen terminal → stall fires
@@ -503,14 +543,14 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   poller.tick();
   expect(blocks).toHaveLength(2);
 
-  // transcript progresses → episode re-arms; acknowledgeStall now no-ops (no live stall)
-  stalled = false;
+  // terminal moves → episode re-arms; acknowledgeStall now no-ops (no live stall)
+  visible = "Computing… (1s)";
   clock += 7000;
   poller.tick();
   expect(poller.acknowledgeStall(s.id)).toBe(false);
 
-  // a later stall fires again (baseline reset on resume → defer one probe, then fire)
-  stalled = true;
+  // a later stall fires again (baseline reset on recovery → defer one probe, then fire)
+  visible = "still chewing on it";
   clock += 7000;
   poller.tick();
   clock += 7000;
@@ -656,6 +696,9 @@ const runningHerdr = {
     },
   ],
   read: () => "",
+  // a constant visible buffer: when a probe flips to the interim path (transcript
+  // not advancing), the unchanged terminal produces no heartbeat tick → no emit.
+  readAsync: () => Promise.resolve("const"),
 };
 
 test("maybeActivity emits via onActivity when the probe returns a signal", () => {
@@ -663,7 +706,10 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
   store.create(baseSession);
   const activities: { id: string; activity: unknown }[] = [];
 
-  const clock = 100_000;
+  let clock = 100_000;
+  // newest-record ts must ADVANCE across probes for the transcript path to engage:
+  // the first sighting (no baseline) routes to interim, the second (advanced) probe
+  // takes the transcript path and emits.
   const signal = {
     lastActivityTs: 999,
     summary: "edited poller.ts",
@@ -679,24 +725,34 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
     3000,
     classifyBlocked,
     () => clock,
-    () => ({ snapshot: null, activity: signal }), // combined probe — same signal
+    () => ({ snapshot: null, activity: signal }), // combined probe tracks the (mutating) signal
     DEFAULT_STALL,
     7000, // probeCheckMs
     () => {}, // onReady
     (id, activity) => activities.push({ id, activity }),
   );
 
+  poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
+  expect(activities).toHaveLength(0);
+
+  clock += 8000; // past throttle
+  signal.lastActivityTs = 1000; // newest record advanced → transcript path → emit
   poller.tick();
   expect(activities).toHaveLength(1);
   expect(activities[0]!.activity).toEqual(signal);
 });
 
-test("maybeActivity dedups identical signals — does not re-emit unchanged activity", () => {
+test("maybeActivity dedups identical signals — does not re-emit unchanged activity", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: unknown[] = [];
 
   let clock = 100_000;
+  // signal0 = the priming baseline (first sighting → interim, records lastTranscriptTs).
+  // signalA carries a NEWER ts → advances → transcript path emits. Repeating signalA
+  // (ts unchanged) → not advancing → interim path, constant terminal → no new emit.
+  // signalB carries a newer lastActivityTs → live-writing again → transcript path re-emits.
+  const signal0 = { lastActivityTs: 100, summary: "resumed", recentTs: [], recentErrTs: [] };
   const signalA = { lastActivityTs: 1234, summary: "$ bun test", recentTs: [], recentErrTs: [] };
   const signalB = {
     lastActivityTs: 5678,
@@ -704,7 +760,7 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
     recentTs: [],
     recentErrTs: [],
   };
-  let currentSignal: typeof signalA | typeof signalB = signalA;
+  let currentSignal: typeof signal0 | typeof signalA | typeof signalB = signal0;
 
   const poller = new StatusPoller(
     store,
@@ -722,18 +778,29 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // first emit — signalA
+  poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
+  await flush();
+  expect(activities).toHaveLength(0);
+
+  // newest record advances → transcript path → first emit (signalA)
+  clock += 8000;
+  currentSignal = signalA;
+  poller.tick();
+  await flush();
   expect(activities).toHaveLength(1);
 
-  // advance past throttle, same signal → dedup must suppress re-emit
+  // advance past throttle, SAME signal (ts unchanged) → not advancing → interim
+  // path, constant terminal → no new emit.
   clock += 8000;
   poller.tick();
+  await flush();
   expect(activities).toHaveLength(1);
 
-  // swap signal in place → same poller must detect the change and re-emit
+  // swap signal in place (newer ts) → live-writing again → transcript path re-emits
   clock += 8000;
   currentSignal = signalB;
   poller.tick();
+  await flush();
   expect(activities).toHaveLength(2);
   expect(activities[1]).toEqual(signalB);
 });
@@ -774,17 +841,18 @@ test("maybeActivity respects activityCheckMs throttle", () => {
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // probe called, signal emitted
+  poller.tick(); // probe called; first sighting → interim (constant terminal → no emit)
   expect(callCount).toBe(1);
-  expect(activities).toHaveLength(1);
+  expect(activities).toHaveLength(0);
 
   clock += 3000; // within probeCheckMs (7000) → throttled
   poller.tick();
   expect(callCount).toBe(1); // probe NOT called again yet
 
-  clock += 5000; // now past the 7000ms throttle
+  clock += 5000; // now past the 7000ms throttle; newest record advanced → transcript emit
   poller.tick();
   expect(callCount).toBe(2); // probe called again
+  expect(activities).toHaveLength(1);
 });
 
 test("maybeActivity skips emit when probe returns null", () => {
@@ -862,6 +930,683 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
   expect(activities).toHaveLength(0);
 });
 
+// ── interim terminal-diff path (transcript stopped live-writing) ───────────────
+
+import { STRIP_WINDOW_MS } from "../src/activity-signal";
+
+/** A running agent whose transcript probe yields NOTHING (the CC 2.1.169 case):
+ *  both snapshot and activity are null, so the poller falls back to the
+ *  terminal-diff interim path. `readAsync("visible")` resolves whatever `visible`
+ *  holds. */
+function interimHarness(opts: {
+  store: SessionStore;
+  visible: () => string;
+  now: () => number;
+  stallCfg?: { stallMs: number; pendingStallMs: number };
+  onBlock?: (id: string, block: unknown) => void;
+  onActivity?: (id: string, activity: unknown) => void;
+}) {
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => opts.visible(),
+    readAsync: () => Promise.resolve(opts.visible()),
+  };
+  return new StatusPoller(
+    opts.store,
+    herdr as any,
+    () => {},
+    (id, block) => opts.onBlock?.(id, block),
+    1000,
+    3000,
+    classifyBlocked,
+    opts.now,
+    () => ({ snapshot: null, activity: null }), // empty transcript → interim path
+    opts.stallCfg ?? { stallMs: 1, pendingStallMs: 1 },
+    7000, // probeCheckMs
+    () => {},
+    (id, activity) => opts.onActivity?.(id, activity),
+  );
+}
+
+test("interim: empty transcript + changing terminal accrues heartbeat ticks, never stalls", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  const blocks: unknown[] = [];
+
+  let clock = 1_700_000_000_000;
+  let frame = 0;
+  const poller = interimHarness({
+    store,
+    visible: () => `Computing… (${frame}s)`,
+    now: () => clock,
+    onActivity: (id, activity) => activities.push({ id, activity }),
+    onBlock: (_id, block) => blocks.push(block),
+  });
+
+  // first probe: captures baseline, no change to diff against yet → no tick, no emit
+  poller.tick();
+  await flush();
+  expect(activities).toHaveLength(0);
+
+  // subsequent probes: terminal changes each cadence → a tick accrues each time
+  for (let i = 0; i < 3; i++) {
+    frame += 7;
+    clock += 7000;
+    poller.tick();
+    await flush();
+  }
+  expect(blocks).toHaveLength(0); // moving terminal never stalls
+  expect(activities.length).toBeGreaterThan(0);
+  const last = activities[activities.length - 1]!.activity;
+  expect(last.recentTs.length).toBeGreaterThan(0);
+  expect(last.summary).toBeNull();
+  expect(last.recentErrTs).toEqual([]);
+  expect(last.lastActivityTs).toBe(last.recentTs[last.recentTs.length - 1]);
+  expect(last.id ?? s.id).toBe(s.id);
+});
+
+test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: any[] = [];
+
+  let clock = 1_700_000_000_000;
+  let frame = 0;
+  const poller = interimHarness({
+    store,
+    visible: () => `frame ${frame}`,
+    now: () => clock,
+    onActivity: (_id, activity) => activities.push(activity),
+  });
+
+  poller.tick(); // baseline
+  await flush();
+  // accrue ticks well past the window so the oldest must be dropped
+  const totalSpan = STRIP_WINDOW_MS * 2;
+  let elapsed = 0;
+  while (elapsed < totalSpan) {
+    frame += 1;
+    clock += 7000;
+    elapsed += 7000;
+    poller.tick();
+    await flush();
+  }
+  const last = activities[activities.length - 1]!;
+  for (const ts of last.recentTs) {
+    expect(ts).toBeGreaterThanOrEqual(clock - STRIP_WINDOW_MS);
+    expect(ts).toBeLessThanOrEqual(clock);
+  }
+});
+
+test("interim: static terminal for ≥ stallMs fires a stall once, then clears when it moves again", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: any }[] = [];
+
+  let clock = 1_700_000_000_000;
+  let visible = "frozen output";
+  const poller = interimHarness({
+    store,
+    visible: () => visible,
+    now: () => clock,
+    stallCfg: { stallMs: 10_000, pendingStallMs: 10_000 },
+    onBlock: (id, block) => blocks.push({ id, block }),
+  });
+
+  // first probe: baseline only — must NOT fire even though static
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(0);
+
+  // still static, but not yet past stallMs → no fire
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(0);
+
+  // past stallMs of no change → stall fires once
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+  expect((blocks[0]!.block as any).tail).toEqual(["frozen output"]);
+
+  // still static past throttle → once per episode, no re-fire
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(1);
+
+  // terminal moves again → stall clears
+  visible = "moving now";
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(2);
+  expect(blocks[1]).toEqual({ id: s.id, block: null });
+});
+
+test("interim: first static sample defers — does not fire immediately", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: unknown[] = [];
+
+  const clock = 1_700_000_000_000;
+  const poller = interimHarness({
+    store,
+    visible: () => "static",
+    now: () => clock,
+    stallCfg: { stallMs: 1, pendingStallMs: 1 }, // even with a 1ms window…
+    onBlock: (_id, block) => blocks.push(block),
+  });
+
+  // …the very first sample has no baseline to diff against → defer, no fire
+  poller.tick();
+  await flush();
+  expect(blocks).toHaveLength(0);
+});
+
+test("interim: terminal read throwing is best-effort — no throw, no emit", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: unknown[] = [];
+  const activities: unknown[] = [];
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    readAsync: () => Promise.reject(new Error("herdr down")),
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (_id, block) => blocks.push(block),
+    1000,
+    3000,
+    classifyBlocked,
+    () => 1_700_000_000_000,
+    () => ({ snapshot: null, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  expect(() => poller.tick()).not.toThrow();
+  await flush();
+  expect(blocks).toHaveLength(0);
+  expect(activities).toHaveLength(0);
+});
+
+test("interim: a second probe while the first read is in flight does not start a second read", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let reads = 0;
+  let resolveFirst!: (text: string) => void;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    // first read hangs (caller controls when it resolves); count every call
+    readAsync: () => {
+      reads++;
+      return new Promise<string>((r) => {
+        resolveFirst = r;
+      });
+    },
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({ snapshot: null, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    () => {},
+  );
+
+  // first tick dispatches a read that never resolves yet
+  poller.tick();
+  await flush();
+  expect(reads).toBe(1);
+
+  // advance past the throttle so the throttle alone wouldn't block a second probe,
+  // tick again → the in-flight guard must suppress a second read
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(reads).toBe(1);
+
+  // let the first read finish → the next probe is free to read again
+  resolveFirst("done");
+  await flush();
+  clock += 7000;
+  poller.tick();
+  await flush();
+  expect(reads).toBe(2);
+});
+
+test("interim path is NOT used when the transcript probe returns a non-null signal", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  const blocks: unknown[] = [];
+  let visibleReads = 0;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    // a healthy (non-stalled) transcript signal must not read the terminal by
+    // EITHER path — the interim uses readAsync, evaluateStall the sync read
+    read: () => {
+      visibleReads++;
+      return "irrelevant";
+    },
+    readAsync: () => {
+      visibleReads++;
+      return Promise.resolve("irrelevant");
+    },
+  };
+
+  let clock = 1_700_000_000_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (_id, block) => blocks.push(block),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    // transcript yields data and KEEPS advancing (newest record ts climbs with the
+    // clock = live-writing) → existing path, interim path stays dormant every probe.
+    () => ({
+      snapshot: { lastTs: clock, pending: false },
+      activity: {
+        lastActivityTs: clock,
+        summary: "edited poller.ts",
+        recentTs: [clock],
+        recentErrTs: [],
+      },
+    }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (id, activity) => activities.push({ id, activity }),
+  );
+
+  poller.tick(); // priming: first sighting → interim (records the transcript baseline)
+  await flush();
+  // discount any terminal read from the priming interim probe; from here every probe
+  // sees the newest record advance → transcript path, which must never touch the terminal.
+  visibleReads = 0;
+  const activitiesBefore = activities.length;
+
+  for (let i = 0; i < 2; i++) {
+    clock += 7000;
+    poller.tick();
+    await flush();
+  }
+
+  // the transcript-driven emit still happens (real summary, not interim's null)
+  const transcriptEmits = activities.slice(activitiesBefore);
+  expect(transcriptEmits.length).toBeGreaterThan(0);
+  expect(transcriptEmits[0]!.activity.summary).toBe("edited poller.ts");
+  expect(transcriptEmits[0]!.id).toBe(s.id);
+  // a non-stalled transcript snapshot clears the block path without reading the
+  // terminal → the interim heartbeat/stall maps never get touched, no visible read
+  expect(visibleReads).toBe(0);
+  expect(blocks.every((b) => b === null || b === undefined)).toBe(true);
+});
+
+test("interim engages when the transcript parses but its newest record is FROZEN (resumed stale JSONL)", async () => {
+  // Finding 2: a resumed session inherits an OLD frozen JSONL, so parseActivity
+  // returns stale entries → signals come back NON-null but their newest record ts
+  // never advances. The old "both signals null" trigger missed this and left the
+  // session on the dead transcript path forever (strip stays empty). The liveness
+  // check must flip it to the interim terminal-diff — and since a first sighting (no
+  // baseline) is treated as NOT live-writing, that flip happens from the VERY FIRST probe.
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  let visibleReads = 0;
+  let frame = 0;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "irrelevant",
+    // the interim path's heartbeat reads the live terminal (changing each cadence)
+    readAsync: () => {
+      visibleReads++;
+      return Promise.resolve(`Computing… (${frame}s)`);
+    },
+  };
+
+  let clock = 1_700_000_000_000;
+  // NON-null but FROZEN: lastActivityTs/lastTs are a fixed PAST value, never advancing.
+  const staleTs = clock - 600_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({
+      snapshot: { lastTs: staleTs, pending: false },
+      activity: { lastActivityTs: staleTs, summary: "old", recentTs: [], recentErrTs: [] },
+    }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (id, activity) => activities.push({ id, activity }),
+  );
+
+  // first probe: no baseline → NOT live-writing → interim terminal-diff engages
+  // immediately, reading the live terminal (captures the change-baseline this cycle).
+  poller.tick();
+  await flush();
+  expect(visibleReads).toBe(1);
+
+  // subsequent probes: newest record still does NOT advance → interim stays engaged,
+  // reading the (changing) live terminal and accruing heartbeat ticks.
+  for (let i = 0; i < 3; i++) {
+    frame += 7;
+    clock += 7000;
+    poller.tick();
+    await flush();
+  }
+  expect(visibleReads).toBeGreaterThan(0);
+  // the heartbeat now comes from the terminal: a null summary (the diff can't name
+  // a tool-use) and non-empty recentTs.
+  const last = activities[activities.length - 1]!.activity;
+  expect(last.summary).toBeNull();
+  expect(last.recentTs.length).toBeGreaterThan(0);
+});
+
+test("a resumed stale transcript engages the interim path on the FIRST probe (no baseline = not live)", async () => {
+  // A resumed session inherits an OLD frozen JSONL whose newest record is already
+  // outside the client strip window. The first-sighting gate must treat "no
+  // baseline" as NOT live-writing, so the very FIRST probe routes to the interim
+  // terminal-diff (engaging the live heat-strip immediately) rather than taking
+  // the transcript path once and emitting one stale, already-out-of-window signal.
+  // Reverting the gate (first sighting counts as live) makes this fail: probe 1
+  // would take the transcript path, read nothing async, and emit the stale signal.
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  let visibleReads = 0;
+
+  const clock = 1_700_000_000_000;
+  // NON-null but constant (non-advancing) — the stale-resumed-JSONL shape.
+  const staleTs = clock - 600_000;
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "irrelevant",
+    readAsync: () => {
+      visibleReads++;
+      return Promise.resolve("frozen output");
+    },
+  };
+
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({
+      snapshot: { lastTs: staleTs, pending: false },
+      activity: { lastActivityTs: staleTs, summary: "old", recentTs: [], recentErrTs: [] },
+    }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (id, activity) => activities.push({ id, activity }),
+  );
+
+  // FIRST probe: no baseline → NOT live → interim engages (reads the terminal async).
+  poller.tick();
+  await flush(); // the interim read is async
+  expect(visibleReads).toBe(1); // interim path ran on probe 1
+  // and crucially the stale transcript activity was NOT emitted (its "old" summary
+  // would be out-of-window noise on the heat-strip).
+  expect(activities.some((a) => a.activity.summary === "old")).toBe(false);
+});
+
+test("a frozen resumed transcript with a frozen terminal fires an interim stall", async () => {
+  // The flip-to-interim must also own the stall for a stale-frozen transcript: a
+  // non-advancing JSONL + a frozen terminal is a real stall, surfaced by the
+  // interim frozen-TUI logic (with its first-sample baseline deferral).
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: any }[] = [];
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "frozen",
+    readAsync: () => Promise.resolve("frozen output"),
+  };
+
+  let clock = 1_700_000_000_000;
+  const staleTs = clock - 600_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    () => ({
+      snapshot: { lastTs: staleTs, pending: false },
+      activity: { lastActivityTs: staleTs, summary: "old", recentTs: [], recentErrTs: [] },
+    }),
+    { stallMs: 5_000, pendingStallMs: 5_000 }, // < probe cadence so one frozen gap trips it
+    7000,
+    () => {},
+    () => {},
+  );
+
+  poller.tick(); // probe 1: no baseline → interim engages, captures terminal baseline → defer
+  await flush();
+  expect(blocks).toHaveLength(0);
+  clock += 7000;
+  poller.tick(); // probe 2: terminal still frozen past stallMs → interim stall fires
+  await flush();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+  expect((blocks[0]!.block as any).tail).toEqual(["frozen output"]);
+});
+
+test("a live-writing probe resets a stale interim stall baseline (Finding 1)", async () => {
+  // Finding 1: when the transcript path runs, nothing used to clear the interim
+  // baseline maps. A later re-entry into the interim path could then read a stale
+  // `lastInterimChangeAt` from a PRIOR interim episode and fire a false stall
+  // immediately, skipping the intended first-sample deferral. The fix calls
+  // resetInterim on every live-writing probe; this test drives the session into
+  // interim to set a stall baseline far in the past, runs ONE live-writing probe,
+  // then re-enters interim and asserts it DEFERS rather than firing off the old
+  // baseline — even though wall-clock minus that baseline far exceeds stallMs.
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: any }[] = [];
+
+  let live = false; // toggles the transcript between frozen-stale and live-writing
+  let clock = 1_700_000_000_000;
+  const baseTs = clock;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "frozen",
+    // terminal stays frozen the whole time → the interim stall is driven purely by
+    // the change-baseline, which is exactly what resetInterim must clear.
+    readAsync: () => Promise.resolve("frozen terminal"),
+  };
+
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    // live=true → newest record advances (live-writing); live=false → frozen-stale
+    () =>
+      live
+        ? {
+            snapshot: { lastTs: clock, pending: false },
+            activity: { lastActivityTs: clock, summary: "live", recentTs: [], recentErrTs: [] },
+          }
+        : {
+            snapshot: { lastTs: baseTs - 600_000, pending: false },
+            activity: {
+              lastActivityTs: baseTs - 600_000,
+              summary: "old",
+              recentTs: [],
+              recentErrTs: [],
+            },
+          },
+    { stallMs: 5_000, pendingStallMs: 5_000 }, // < probe cadence so one frozen gap trips it
+    7000,
+    () => {},
+    () => {},
+  );
+
+  // Episode 1 (interim): establish a stall baseline, then fire. A first sighting (no
+  // baseline) is NOT live-writing, so interim engages from probe 1.
+  poller.tick(); // probe 1: stale-frozen, no baseline → interim → terminal baseline (defer)
+  await flush();
+  clock += 7000;
+  poller.tick(); // probe 2: frozen past stallMs → interim stall fires
+  await flush();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+
+  // One live-writing probe: newest record advances → transcript path → resetInterim
+  // clears lastInterimChangeAt/ticks/visible. A non-stalled snapshot also clears the
+  // stall block (the clear emit).
+  live = true;
+  clock += 7000;
+  poller.tick();
+  await flush();
+  const afterLive = blocks.length;
+  expect(blocks[afterLive - 1]).toEqual({ id: store.list()[0]!.id, block: null });
+
+  // Re-enter interim. The wall-clock gap from the OLD (episode-1) baseline far
+  // exceeds stallMs, so WITHOUT resetInterim this FIRST re-entry sample would fire
+  // immediately off the stale baseline. With the reset it has no baseline → defers.
+  live = false;
+  clock += 7000;
+  poller.tick(); // first interim sample post-reset → MUST defer, not fire
+  await flush();
+  expect(blocks.length).toBe(afterLive); // no new stall fired off the stale baseline
+});
+
 test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
   // A session that was only ever running (never blocked) populates lastProbeAt
   // and lastActivitySig but never lastSig — the old pruneInactive iterated only
@@ -904,7 +1649,10 @@ test("pruneInactive clears activity tracking for a running-only session that goe
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // populates lastProbeAt + lastActivitySig
+  poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
+  expect(activities).toHaveLength(0);
+  clock += 8000;
+  poller.tick(); // newest record advanced → transcript path → emit; populates the maps
   expect(activities).toHaveLength(1);
 
   // session is archived — poller sees empty store list → pruneInactive fires
@@ -927,8 +1675,14 @@ test("pruneInactive clears activity tracking for a running-only session that goe
       workspaceId: "w",
     },
   ];
+  // prune cleared lastTranscriptTs too, so the resurrected session is a fresh first
+  // sighting → priming interim probe (no readAsync → no emit), then the advancing probe
+  // re-emits via the transcript path (proving the activity sig map was cleared by prune).
   clock += 8000;
-  poller.tick(); // must re-emit — activity sig map was cleared by prune
+  poller.tick(); // priming: first sighting post-resurrection → interim, no emit
+  expect(activities).toHaveLength(1);
+  clock += 8000;
+  poller.tick(); // newest record advanced → transcript path → must re-emit
   expect(activities).toHaveLength(2);
 });
 
@@ -1016,9 +1770,13 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
     () => {},
   );
 
-  poller.tick(); // probe emits → caches the signal
+  poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
+  expect(poller.activitySnapshot()).toEqual({});
+
+  clock += 8000;
+  poller.tick(); // newest record advanced → transcript path emits → caches the signal
   expect(poller.activitySnapshot()).toEqual({
-    [s.id]: { lastActivityTs: 100_000, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
+    [s.id]: { lastActivityTs: 108_000, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
   });
 
   // session archived → next tick prunes it out of the snapshot too
@@ -1042,6 +1800,7 @@ test("tick() is a no-op while maintenance is active (no herdr call, no reap)", (
       return [];
     },
     read: () => "",
+    readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
     store,
@@ -1076,6 +1835,7 @@ test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
       throw new Error("herdr list timed out"); // simulate HERDR_TIMEOUT_MS firing
     },
     read: () => "",
+    readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
     store,

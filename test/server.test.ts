@@ -172,9 +172,10 @@ test("DELETE /api/sessions/:id archives", async () => {
 
 // Build an app whose service is backed by a stub reaper, so we can drive the
 // /leftovers + reap-on-DELETE paths without touching real /proc.
-function harnessWithReaper(reaper: { detect: any; reap: any }) {
+function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort?: any }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
+  const fullReaper = { stopListenersOnPort: () => 0, ...reaper };
   const service = new SessionService({
     store,
     namer: async () => "x",
@@ -183,7 +184,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any }) {
       remove: () => {},
     } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
-    reaper,
+    reaper: fullReaper,
   });
   const usageLimits = {
     limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
@@ -1180,7 +1181,11 @@ function clearMergedHarness() {
     namer: async () => "x",
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
-    reaper: { detect, reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)) },
+    reaper: {
+      detect,
+      reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
+      stopListenersOnPort: () => 0,
+    },
     events,
   });
   const cache = new Map<string, any>();
@@ -1709,4 +1714,141 @@ test("GET /api/preview without previewServe dep returns unchanged snapshot (back
   const body = (await res.json()) as Record<string, { previewPort: number; serve?: string }>;
   expect(body.s1).toEqual({ previewPort: 8001 });
   expect((body.s1 as any).serve).toBeUndefined();
+});
+
+// ── POST /api/sessions/:id/preview/stop ──────────────────────────────────────
+
+// Build a harness that wires service-level reaper + preview deps so stopPreview
+// returns controllable outcomes. devPortFor returns the configured port (or null),
+// stopListenersOnPort returns the configured killed count.
+function harnessWithPreviewStop({
+  devPortFor,
+  stopListenersOnPort,
+}: {
+  devPortFor: (id: string) => number | null;
+  stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => number;
+}) {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    reaper: { detect: () => [], reap: () => {}, stopListenersOnPort },
+    preview: { devPortFor },
+  });
+  const usageLimits = {
+    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+  };
+  const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
+  return { app, store };
+}
+
+const previewStop = (app: ReturnType<typeof makeApp>, id: string) =>
+  app.fetch(
+    new Request(`http://x/api/sessions/${id}/preview/stop`, {
+      method: "POST",
+    }),
+  );
+
+test("POST /api/sessions/:id/preview/stop → 404 for unknown session id", async () => {
+  const { app } = harnessWithPreviewStop({
+    devPortFor: () => null,
+    stopListenersOnPort: () => 0,
+  });
+  const res = await previewStop(app, "does-not-exist");
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: "not found" });
+});
+
+test("POST /api/sessions/:id/preview/stop → 409 when no live preview bound", async () => {
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => null, // no preview bound
+    stopListenersOnPort: () => 0,
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "not_bound" });
+});
+
+test("POST /api/sessions/:id/preview/stop → 200 with killed count (happy path)", async () => {
+  const signalCalls: { worktreePath: string; port: number; signal: NodeJS.Signals }[] = [];
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    stopListenersOnPort: (worktreePath, port, signal) => {
+      signalCalls.push({ worktreePath, port, signal });
+      return 2;
+    },
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ killed: 2 });
+  expect(signalCalls).toEqual([{ worktreePath: "/wt/x", port: 5173, signal: "SIGKILL" }]);
+});
+
+test("POST /api/sessions/:id/preview/stop → 200 {killed:0} is not an error", async () => {
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    stopListenersOnPort: () => 0,
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ killed: 0 });
+});
+
+test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router (non-200)", async () => {
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    stopListenersOnPort: () => 0,
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/preview/stop`));
+  expect(res.status).not.toBe(200);
 });

@@ -9,6 +9,7 @@ import type { CreateSessionInput, Session } from "./types";
 import { moveStagedIntoWorktree } from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
+import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
@@ -38,7 +39,9 @@ export interface ServiceDeps {
   /** Inject point for tests; defaults to the real fs move. */
   moveUploads?: (images: string[], worktreePath: string) => string[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
-  reaper?: Pick<ProcessReaper, "detect" | "reap">;
+  reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
+  /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
+  preview?: Pick<PreviewService, "devPortFor">;
   /** Fast-poll one session's PR (= prPoller.pollSession), to nudge merge detection
    *  when a merge train archives before the 120s sweep surfaces its members' merges.
    *  Fire-and-forget, debounced, no-ops on archived sessions. Absent → no nudge. */
@@ -796,6 +799,35 @@ export class SessionService {
    */
   startPreview(id: string, command: string): boolean {
     return this.reply(id, PREVIEW_START_STEER(command));
+  }
+
+  /**
+   * Stop the previewed dev server for session `id` by SIGNALLING its process to
+   * terminate. UNLIKE startPreview (which steers the agent to *start* its dev
+   * server — Shepherd can't start it itself), this really signals the process,
+   * because Shepherd can find the worktree process listening on the dev port.
+   *
+   * `killed` is a signals-SENT count, NOT a death confirmation (a process may
+   * ignore the signal or take time to exit). This method does NOT release the
+   * preview listener — teardown happens via the poller sweep when the port stops
+   * listening (that port-gone event is the only real "RAM-freed" signal). Idle-stop
+   * passes "SIGTERM" then escalates to "SIGKILL"; force-stop passes "SIGKILL".
+   *
+   * Returns:
+   *  - { result: "not_found", killed: 0 } — unknown id, or deps not wired.
+   *  - { result: "not_bound", killed: 0 } — no live preview for this session.
+   *  - { result: "stopped", killed } — signal dispatched to `killed` process(es).
+   */
+  stopPreview(
+    id: string,
+    signal: NodeJS.Signals = "SIGTERM",
+  ): { result: "stopped" | "not_bound" | "not_found"; killed: number } {
+    const s = this.deps.store.get(id);
+    if (!s || !this.deps.reaper || !this.deps.preview) return { result: "not_found", killed: 0 };
+    const devPort = this.deps.preview.devPortFor(id);
+    if (devPort == null) return { result: "not_bound", killed: 0 };
+    const killed = this.deps.reaper.stopListenersOnPort(s.worktreePath, devPort, signal);
+    return { result: "stopped", killed };
   }
 
   /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.

@@ -185,6 +185,150 @@ test("reap kills process pids and runs counter-commands; survives a throw", () =
   expect(ran).toEqual([{ bin: "tailscale", args: ["serve", "--https=5174", "off"] }]);
 });
 
+// ── stopListenersOnPort ───────────────────────────────────────────────────────
+
+test("stopListenersOnPort: signals matching proc and returns correct count", () => {
+  const killed: { pid: number; signal: NodeJS.Signals | undefined }[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [
+        { pid: 4242, cwd: "/wt/repo-x", comm: "vite" },
+        { pid: 4243, cwd: "/wt/repo-x", comm: "bun" },
+      ],
+      portsForPid: (pid) => {
+        if (pid === 4242) return [5174];
+        if (pid === 4243) return [5174];
+        return [];
+      },
+      killPid: (pid, signal) => {
+        killed.push({ pid, signal });
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(2);
+  expect(killed.map((k) => k.pid).sort()).toEqual([4242, 4243]);
+});
+
+test("stopListenersOnPort: excludes current process (self-pid)", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [
+        { pid: process.pid, cwd: "/wt/repo-x", comm: "bun" },
+        { pid: 4242, cwd: "/wt/repo-x", comm: "vite" },
+      ],
+      portsForPid: (pid) => (pid === process.pid || pid === 4242 ? [5174] : []),
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(1);
+  expect(killed).toEqual([4242]);
+});
+
+test("stopListenersOnPort: excludes claude-comm processes", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [
+        { pid: 1, cwd: "/wt/repo-x", comm: "claude" },
+        { pid: 4242, cwd: "/wt/repo-x", comm: "vite" },
+      ],
+      portsForPid: () => [5174],
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(1);
+  expect(killed).toEqual([4242]);
+});
+
+test("stopListenersOnPort: ignores processes on a different port (returns 0)", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [3000],
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(0);
+  expect(killed).toEqual([]);
+});
+
+test("stopListenersOnPort: passes the given signal through to killPid", () => {
+  const received: { pid: number; signal: NodeJS.Signals | undefined }[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      killPid: (pid, signal) => {
+        received.push({ pid, signal });
+      },
+    }),
+  );
+  reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGKILL");
+  expect(received).toEqual([{ pid: 4242, signal: "SIGKILL" }]);
+});
+
+test("stopListenersOnPort: default signal is SIGTERM", () => {
+  const received: { pid: number; signal: NodeJS.Signals | undefined }[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      killPid: (pid, signal) => {
+        received.push({ pid, signal });
+      },
+    }),
+  );
+  reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(received).toEqual([{ pid: 4242, signal: "SIGTERM" }]);
+});
+
+test("stopListenersOnPort: a throwing killPid is not counted", () => {
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      killPid: () => {
+        throw new Error("ESRCH");
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(0);
+});
+
+test("stopListenersOnPort: returns 0 when no process matches", () => {
+  const reaper = new ProcessReaper(makeProbes());
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174)).toBe(0);
+});
+
+test("stopListenersOnPort: ignores processes outside the worktree", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 9000, cwd: "/wt/other-repo", comm: "vite" }],
+      portsForPid: () => [5174],
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+  );
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  expect(count).toBe(0);
+  expect(killed).toEqual([]);
+});
+
 test("leftoverKey is stable per kind", () => {
   expect(leftoverKey({ kind: "process", name: "vite", port: 5174, pid: 7 })).toBe("process:7");
   expect(leftoverKey({ kind: "system", name: "tailscale serve", port: 5174 })).toBe(

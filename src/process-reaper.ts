@@ -43,8 +43,8 @@ export interface ReaperProbes {
   listeningPorts(): Set<number>;
   /** Transcript text for a path; "" when missing/unreadable. */
   readTranscript(path: string): string;
-  /** Terminate a pid (SIGTERM). */
-  killPid(pid: number): void;
+  /** Terminate a pid (defaults to SIGTERM). */
+  killPid(pid: number, signal?: NodeJS.Signals): void;
   /** Run a counter-command. */
   run(bin: string, args: string[]): void;
   /**
@@ -218,8 +218,8 @@ const defaultProbes: ReaperProbes = {
       return "";
     }
   },
-  killPid(pid) {
-    process.kill(pid);
+  killPid(pid, signal) {
+    process.kill(pid, signal);
   },
   run(bin, args) {
     execFileSync(bin, args, { stdio: "ignore" });
@@ -269,6 +269,45 @@ export class ProcessReaper {
     const listening = this.probes.listeningPorts();
     // drop any whose port no longer listens — already stopped by hand
     return scanTranscript(text).filter((hit) => hit.port == null || listening.has(hit.port));
+  }
+
+  /**
+   * Signal every process under `worktreePath` that is currently listening on
+   * exactly `port`, to terminate it. Excludes the shepherd process itself and
+   * the `claude` agent. Returns the count of processes signalled (a signals-SENT
+   * count — NOT a death confirmation; a process may ignore the signal or take
+   * time to exit). Used by preview stop (idle-stop sends SIGTERM then escalates
+   * to SIGKILL; force-stop sends SIGKILL).
+   *
+   * SCOPE: only the process actually LISTENING on `port` is signalled — that is
+   * the RAM-heavy bundler/server (Vite/Next/esbuild/node), so the bulk of memory
+   * is reclaimed. A lightweight parent WRAPPER that merely spawned it (e.g.
+   * `npm run dev` → vite) is not under this port and may linger holding its own
+   * (small) footprint until the agent's shell reaps it. We deliberately don't
+   * walk the process tree: the wrapper is often the agent's own backgrounded job,
+   * and killing up the tree risks disrupting the agent's pane/job control — the
+   * exact harm the opt-in, agent-idle-gated design avoids.
+   */
+  stopListenersOnPort(
+    worktreePath: string,
+    port: number,
+    signal: NodeJS.Signals = "SIGTERM",
+  ): number {
+    const root = worktreePath.replace(/\/+$/, "");
+    let count = 0;
+    for (const proc of this.probes.scanProcs()) {
+      if (proc.pid === process.pid) continue;
+      if (!isUnder(proc.cwd, root) || AGENT_COMMS.has(proc.comm)) continue;
+      const ports = this.probes.portsForPid(proc.pid);
+      if (!ports.includes(port)) continue;
+      try {
+        this.probes.killPid(proc.pid, signal);
+        count++;
+      } catch {
+        /* best-effort: process may have already exited */
+      }
+    }
+    return count;
   }
 
   /** Best-effort terminate each leftover (kill pid / run counter-command). */

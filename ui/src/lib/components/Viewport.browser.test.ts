@@ -9,14 +9,16 @@ import "../../app.css";
 // without mocking them).
 // The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
 const startPreviewFn = vi.fn(async () => ({ ok: true as const, command: "npm run dev" }));
+const stopPreviewFn = vi.fn(async () => ({ killed: 1 }) as { killed: number } | { notBound: true });
 
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
-  return { ...actual, startPreview: startPreviewFn };
+  return { ...actual, startPreview: startPreviewFn, stopPreview: stopPreviewFn };
 });
 
 // Component must be imported AFTER the mock is registered.
 const { default: Viewport } = await import("./Viewport.svelte");
+import { toasts } from "$lib/toasts.svelte";
 import type { Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -190,5 +192,73 @@ describe("Viewport preview start — re-entrancy guard", () => {
         "Start button disabled while pending",
       ).toBe(true),
     );
+  });
+});
+
+// ── Stop-preview confirmation resolves per-session, not per-focused-unit ──────
+// Regression: the success/timeout resolution must key off the authoritative
+// per-session preview map (the whole store.preview record), NOT the single focused
+// `previewPort`. Otherwise stopping unit A then navigating to unit B before the
+// sweep clears A's port strands A's pending entry — its 15s timer then fires a FALSE
+// "couldn't stop" warning on an actually-successful stop. The fix captures A's name
+// at stop time and resolves it when A's entry clears in `previewMap`, whatever unit
+// is currently focused.
+describe("Viewport preview stop — per-session pending resolution", () => {
+  it("confirms a stop after navigating to another unit, with the right name and no false warning", async () => {
+    stopPreviewFn.mockResolvedValue({ killed: 1 });
+    const infoSpy = vi.spyOn(toasts, "info");
+
+    const base = {
+      previewHost: null,
+      openPreviewTick: 1, // open the Preview tab so the pane (+ Stop button) mounts
+    };
+
+    // Render unit A ("task one") with a live preview, tab open.
+    const { rerender } = render(Viewport, {
+      session: session({ id: "A", name: "task one", status: "idle" }),
+      previewPort: 8001,
+      previewMap: { A: 8001 },
+      ...base,
+    });
+
+    // Two-step arm: first click arms ("Confirm stop?"), second confirms. Use a
+    // direct DOM .click() (not a pointer click): the cramped test viewport overlaps
+    // the footer button with sibling chrome, so a coordinate click lands on the
+    // wrong element — a layout artifact of the tiny harness, not a real-app bug
+    // (the preview pane is full-size in situ). We're exercising resolution logic.
+    const stopBtn = page.getByRole("button", { name: /stop dev server/i });
+    await expect.element(stopBtn).toBeInTheDocument();
+    (stopBtn.element() as HTMLButtonElement).click();
+    const confirmBtn = page.getByRole("button", { name: /confirm stop/i });
+    await expect.element(confirmBtn).toBeInTheDocument();
+    (confirmBtn.element() as HTMLButtonElement).click();
+
+    // killed > 0 → a neutral "stopping" toast, and the stop is now pending for A.
+    await vi.waitFor(() =>
+      expect(infoSpy.mock.calls.some(([text]) => /stopping/i.test(String(text)))).toBe(true),
+    );
+    infoSpy.mockClear();
+
+    // Operator navigates to unit B ("task two") BEFORE the sweep clears A's port.
+    // Then the sweep clears A's port: previewMap drops A. (B remains bound.)
+    await rerender({
+      session: session({ id: "B", name: "task two", status: "idle" }),
+      previewPort: 8002,
+      previewMap: { B: 8002 },
+      ...base,
+    });
+
+    // Success toast fires for A — naming "task one" (captured at stop time), NOT the
+    // now-focused "task two" — and NO assertive warning toast is raised.
+    await vi.waitFor(() =>
+      expect(infoSpy.mock.calls.some(([text]) => /task one/.test(String(text)))).toBe(true),
+    );
+    expect(infoSpy.mock.calls.some(([text]) => /task two/.test(String(text)))).toBe(false);
+    expect(
+      infoSpy.mock.calls.some(([, opts]) => (opts as { alert?: boolean } | undefined)?.alert),
+      "no assertive warning toast on a successful stop",
+    ).toBe(false);
+
+    infoSpy.mockRestore();
   });
 });

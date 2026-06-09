@@ -261,6 +261,11 @@ export const config = {
   // to map the range manually (e.g. via `tailscale serve --bg --https=<port>`).
   // Requires tailnet HTTPS certificates to be enabled for the node.
   previewAutoServe: process.env.SHEPHERD_PREVIEW_AUTO_SERVE !== "0",
+  // Opt-in idle-stop (default OFF): when > 0, a previewed dev server with no proxy
+  // traffic for this many ms — AND whose agent is idle — is killed to reclaim RAM.
+  // 0/unset = disabled. Suggested when enabled: 1800000 (30 min). No auto-wake; the
+  // operator/agent restarts the dev server manually afterward.
+  previewIdleStopMs: Math.max(0, Number(process.env.SHEPHERD_PREVIEW_IDLE_STOP_MS ?? 0) || 0),
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

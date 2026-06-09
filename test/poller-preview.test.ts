@@ -620,3 +620,567 @@ test("GET /api/preview → {} when no preview dep is wired", async () => {
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({});
 });
+
+// ── idle-stop tests ───────────────────────────────────────────────────────────
+
+/** Helper: build a poller with full idle-stop wiring for idle-stop tests. */
+function makeIdleStopPoller(opts: {
+  store: SessionStore;
+  agents: HerdrAgent[];
+  /** Controllable clock (mutate `.v` between sweeps). */
+  clock: { v: number };
+  /** idleSince return value per session (null = unbound). */
+  idleSinceMs: number | null;
+  pickResult: number | null;
+  idleMs: number;
+  stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }>;
+  /** Override pick to be dynamic — takes precedence over pickResult. */
+  pickFn?: () => Promise<number | null>;
+}) {
+  const { store, agents, clock, idleSinceMs, pickResult, idleMs, stopCalls, pickFn } = opts;
+
+  const convergeArgs: Array<Array<{ sessionId: string; devPort: number }>> = [];
+
+  const service = {
+    ensure: () => null as number | null,
+    release: () => {},
+    converge(active: Array<{ sessionId: string; devPort: number }>) {
+      convergeArgs.push([...active]);
+    },
+    snapshot: () => ({}) as Record<string, { previewPort: number | null }>,
+    idleSince: () => idleSinceMs,
+  };
+
+  return {
+    convergeArgs,
+    poller: new StatusPoller(
+      store,
+      { list: () => agents, read: () => "" } as any,
+      () => {},
+      () => {},
+      1000, // intervalMs
+      3000, // reclassifyMs
+      undefined, // classify
+      () => clock.v,
+      undefined, // probe
+      undefined, // stallCfg
+      undefined, // probeCheckMs
+      undefined, // onReady
+      undefined, // onActivity
+      {
+        service,
+        sweepMs: 4000,
+        scan: (worktrees) => {
+          const m = new Map<string, number[]>();
+          for (const wt of worktrees) m.set(wt, [5173]);
+          return m;
+        },
+        pick: pickFn ?? (async () => pickResult),
+        idleStop: {
+          idleMs,
+          stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+        },
+      },
+    ),
+  };
+}
+
+/** Drive a fresh sweep: advance clock past sweepMs, call tick(), await microtasks. */
+async function runSweep(clock: { v: number }, poller: StatusPoller): Promise<void> {
+  clock.v += 5000; // past the 4000ms sweepMs
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+}
+
+test("idle-stop: disabled by default — no stop called even when idle+stale", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+
+  // No idleStop wired (use makePollerWithPreview without idleStop)
+  const service = makePreviewService();
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, [5173]);
+        return m;
+      },
+      pick: async () => 5173,
+      // no idleStop
+    },
+  );
+
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(0); // no stop, ever
+  expect(service._convergeArgs[0]).toContainEqual({ sessionId: s.id, devPort: 5173 });
+});
+
+test("idle-stop: fires SIGTERM when idle+stale and stays in converge active set", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { convergeArgs, poller } = makeIdleStopPoller({
+    store,
+    agents: [baseHerdrAgent],
+    clock,
+    idleSinceMs: 60_000, // 60s idle
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  await runSweep(clock, poller);
+
+  expect(stopCalls.length).toBe(1);
+  expect(stopCalls[0]!.sessionId).toBe(s.id);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+  // Session stays in active set (port still up; converge will clear only when port dies)
+  expect(convergeArgs[0]).toContainEqual({ sessionId: s.id, devPort: 5173 });
+});
+
+test("idle-stop: fires for status=done as well as idle", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "done" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [{ ...baseHerdrAgent, agentStatus: "done" }],
+    clock,
+    idleSinceMs: 60_000,
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  await runSweep(clock, poller);
+
+  expect(stopCalls.length).toBe(1);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+});
+
+test("idle-stop: stale-status guard — s.status is idle (stale snapshot) but store.get says running → no stop", async () => {
+  // Scenario: store starts with status "idle" so store.list() returns sessions with status "idle".
+  // The herdr agent reports "working" (HerdrState that maps to SessionStatus "running"), so
+  // reconcileAgent() updates store to "running" during tick().
+  // The async runPreviewSweep fires after reconcileAgent, so store.get(id).status = "running".
+  // A naive read of s.status (from the captured sessions list) would be "idle" → would wrongly stop.
+  // The correct impl reads store.get(id).status (fresh) → "running" → no stop.
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  // Pre-set status to "idle" so that store.list() returns sessions with status "idle"
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+
+  const convergeArgs: Array<Array<{ sessionId: string; devPort: number }>> = [];
+  const service = {
+    ensure: () => null as number | null,
+    release: () => {},
+    converge(active: Array<{ sessionId: string; devPort: number }>) {
+      convergeArgs.push([...active]);
+    },
+    snapshot: () => ({}) as Record<string, { previewPort: number | null }>,
+    idleSince: (): number | null => 60_000, // 60s idle — would trigger stop if status check is wrong
+  };
+
+  const poller = new StatusPoller(
+    store,
+    // Agent reports "working" (HerdrState) → mapState → "running" → reconcileAgent updates store
+    // to "running" before async sweep fires, so store.get(id).status = "running"
+    { list: () => [{ ...baseHerdrAgent, agentStatus: "working" as const }], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, [5173]);
+        return m;
+      },
+      pick: async () => 5173,
+      idleStop: {
+        idleMs: 30_000,
+        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+      },
+    },
+  );
+
+  await runSweep(clock, poller);
+
+  // Fresh store says "running" → no stop (proves it reads fresh store status, not the stale s.status)
+  expect(stopCalls.length).toBe(0);
+  void convergeArgs;
+});
+
+test("idle-stop: not stale enough — idleSince < idleMs → no stop", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [baseHerdrAgent],
+    clock,
+    idleSinceMs: 10_000, // only 10s, below idleMs=30s
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(0);
+});
+
+test("idle-stop: wrong status (running/blocked fresh) → no stop even if very stale", async () => {
+  // HerdrState "working" maps to SessionStatus "running"; "blocked" maps to "blocked".
+  // Neither is "idle" or "done", so idle-stop must not fire regardless of idleSince.
+
+  // Test "running" (via HerdrState "working")
+  const store = new SessionStore(":memory:");
+  store.create(baseSessionInput); // default status "running"
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [{ ...baseHerdrAgent, agentStatus: "working" as const }], // maps to "running"
+    clock,
+    idleSinceMs: 999_999, // extremely stale
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(0);
+
+  // Test "blocked"
+  const store2 = new SessionStore(":memory:");
+  const s2 = store2.create(baseSessionInput);
+  store2.update(s2.id, { status: "blocked" }); // pre-set to blocked
+
+  const stopCalls2: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock2 = { v: 100_000 };
+  const { poller: poller2 } = makeIdleStopPoller({
+    store: store2,
+    agents: [{ ...baseHerdrAgent, agentStatus: "blocked" as const }], // maps to "blocked"
+    clock: clock2,
+    idleSinceMs: 999_999,
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls: stopCalls2,
+  });
+
+  await runSweep(clock2, poller2);
+  expect(stopCalls2.length).toBe(0);
+});
+
+test("idle-stop: idleSince null (unbound/absent) → no stop", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [baseHerdrAgent],
+    clock,
+    idleSinceMs: null, // unbound
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(0);
+});
+
+test("idle-stop: escalation — SIGTERM→SIGKILL→give-up across sweeps", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [baseHerdrAgent],
+    clock,
+    idleSinceMs: 60_000,
+
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+  });
+
+  // 1st sweep → SIGTERM
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(1);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+
+  // 2nd sweep (port still up, still idle) → SIGKILL
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(2);
+  expect(stopCalls[1]!.signal).toBe("SIGKILL");
+
+  // 3rd sweep → no further stop, console.warn emitted once
+  const warnCalls: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnCalls.push(args.join(" "));
+  try {
+    await runSweep(clock, poller);
+    expect(stopCalls.length).toBe(2); // no 3rd stop call
+    expect(warnCalls.some((w) => w.includes("idle-stop could not reclaim"))).toBe(true);
+
+    // 4th sweep → still no further stop (gaveUp stays)
+    await runSweep(clock, poller);
+    expect(stopCalls.length).toBe(2);
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+test("idle-stop: reset on recovery — after SIGTERM, next sweep with low idleSince resets to fresh SIGTERM", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  let currentIdleSince: number | null = 60_000;
+
+  // Build manually to control idleSince dynamically
+  const convergeArgs: Array<Array<{ sessionId: string; devPort: number }>> = [];
+  const service = {
+    ensure: () => null as number | null,
+    release: () => {},
+    converge(active: Array<{ sessionId: string; devPort: number }>) {
+      convergeArgs.push([...active]);
+    },
+    snapshot: () => ({}) as Record<string, { previewPort: number | null }>,
+    idleSince: (): number | null => currentIdleSince,
+  };
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, [5173]);
+        return m;
+      },
+      pick: async () => 5173,
+      idleStop: {
+        idleMs: 30_000,
+        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+      },
+    },
+  );
+
+  // 1st sweep → SIGTERM (stale)
+  await runSweep(clock, poller);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+
+  // Recovery: someone viewed it, idleSince drops below threshold
+  currentIdleSince = 5_000;
+  await runSweep(clock, poller);
+  // No further stop during recovery
+  expect(stopCalls.length).toBe(1);
+
+  // Goes stale again → fresh SIGTERM (not SIGKILL), proving escalation was reset
+  currentIdleSince = 60_000;
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(2);
+  expect(stopCalls[1]!.signal).toBe("SIGTERM"); // fresh episode, not SIGKILL
+
+  void convergeArgs;
+});
+
+test("idle-stop: reset on port death — after SIGTERM, port disappears then reappears → fresh SIGTERM", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  let currentPick: number | null = 5173;
+
+  const service = {
+    ensure: () => null as number | null,
+    release: () => {},
+    converge: () => {},
+    snapshot: () => ({}) as Record<string, { previewPort: number | null }>,
+    idleSince: (): number | null => 60_000, // always stale
+  };
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, currentPick !== null ? [5173] : []);
+        return m;
+      },
+      pick: async () => currentPick,
+      idleStop: {
+        idleMs: 30_000,
+        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+      },
+    },
+  );
+
+  // 1st sweep → SIGTERM
+  await runSweep(clock, poller);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+
+  // Port dies → previewStopState cleared
+  currentPick = null;
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(1); // no signal when port is gone
+
+  // New server appears → fresh SIGTERM (not SIGKILL)
+  currentPick = 5173;
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(2);
+  expect(stopCalls[1]!.signal).toBe("SIGTERM");
+});
+
+test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not SIGKILL)", async () => {
+  // A session in "term" escalation state (already received SIGTERM) whose dev server
+  // restarts on a DIFFERENT port triggers the else branch of the devPort === devPort
+  // guard in escalateIdleStop, producing a fresh SIGTERM rather than escalating to SIGKILL.
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  let currentDevPort: number = 5173;
+
+  const service = {
+    ensure: () => null as number | null,
+    release: () => {},
+    converge: () => {},
+    snapshot: () => ({}) as Record<string, { previewPort: number | null }>,
+    idleSince: (): number | null => 60_000, // always stale
+  };
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, number[]>();
+        for (const wt of worktrees) m.set(wt, [currentDevPort]);
+        return m;
+      },
+      pick: async () => currentDevPort,
+      idleStop: {
+        idleMs: 30_000,
+        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+      },
+    },
+  );
+
+  // Sweep 1: devPort=5173, idle+stale → SIGTERM (enters "term" escalation state)
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(1);
+  expect(stopCalls[0]!.sessionId).toBe(s.id);
+  expect(stopCalls[0]!.signal).toBe("SIGTERM");
+
+  // Dev server restarts on a different port (devPort=5174).
+  // The "term" escalation state stored devPort=5173; the new port doesn't match,
+  // so escalateIdleStop falls to the else branch → fresh SIGTERM, not SIGKILL.
+  currentDevPort = 5174;
+  await runSweep(clock, poller);
+  expect(stopCalls.length).toBe(2);
+  expect(stopCalls[1]!.sessionId).toBe(s.id);
+  expect(stopCalls[1]!.signal).toBe("SIGTERM"); // fresh episode, NOT SIGKILL
+});

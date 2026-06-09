@@ -950,6 +950,7 @@
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             claudeAlive={store.claudeAlive[selected.id]}
+            previewMap={store.preview}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
@@ -1029,6 +1030,7 @@
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             claudeAlive={store.claudeAlive[selected.id]}
+            previewMap={store.preview}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}

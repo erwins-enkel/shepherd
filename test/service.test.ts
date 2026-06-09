@@ -816,7 +816,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       currentBranch: () => null,
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
-    reaper: { detect: detect as any, reap: () => {} },
+    reaper: { detect: detect as any, reap: () => {}, stopListenersOnPort: () => 0 },
   });
   const s = store.create({
     name: "x",
@@ -861,6 +861,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     reaper: {
       detect: () => detected as any,
       reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
+      stopListenersOnPort: () => 0,
     },
   });
   const s = store.create({
@@ -905,6 +906,7 @@ test("archive with no reap keys never calls the reaper", () => {
       reap: () => {
         reapCalls++;
       },
+      stopListenersOnPort: () => 0,
     },
   });
   const s = store.create({
@@ -1492,7 +1494,11 @@ test("archiveMany clears each session, reaping all its leftovers", () => {
       list: () => [],
       stop: (t: string) => calls.stopped.push(t),
     } as any,
-    reaper: { detect, reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)) },
+    reaper: {
+      detect,
+      reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)),
+      stopListenersOnPort: () => 0,
+    },
   });
   const mk = (name: string, term: string) =>
     store.create({
@@ -1810,7 +1816,7 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
       },
     } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
-    reaper: { detect, reap: () => {} },
+    reaper: { detect, reap: () => {}, stopListenersOnPort: () => 0 },
   });
   const mk = (name: string) =>
     store.create({
@@ -2484,4 +2490,146 @@ test("startPreview: returns false for a dead pane (session in store but pane not
   const { svc, s, sent } = makePreviewSvc({ terminalId: "term_dead", liveIds: ["term_other"] });
   expect(svc.startPreview(s.id, "bun run dev")).toBe(false);
   expect(sent).toHaveLength(0);
+});
+
+// ── stopPreview ───────────────────────────────────────────────────────────────
+
+function makeStopPreviewSvc(opts: {
+  hasSession?: boolean;
+  devPort?: number | null;
+  stopReturn?: number;
+  omitReaper?: boolean;
+  omitPreview?: boolean;
+}) {
+  const store = new SessionStore(":memory:");
+  const stopCalls: { worktreePath: string; port: number; signal: NodeJS.Signals }[] = [];
+  let s: ReturnType<typeof store.create> | undefined;
+  if (opts.hasSession !== false) {
+    s = store.create({
+      name: "stop-preview-test",
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: "shepherd/stop-preview-test",
+      worktreePath: "/wt/stop-preview-test",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_sp",
+    });
+  }
+  const reaper = opts.omitReaper
+    ? undefined
+    : {
+        detect: () => [],
+        reap: () => {},
+        stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => {
+          stopCalls.push({ worktreePath, port, signal });
+          return opts.stopReturn ?? 1;
+        },
+      };
+  const preview = opts.omitPreview
+    ? undefined
+    : {
+        devPortFor: (): number | null => opts.devPort ?? null,
+      };
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    reaper: reaper as any,
+    preview: preview as any,
+  });
+  return { svc, store, s, stopCalls };
+}
+
+test("stopPreview: not_found when session id is unknown", () => {
+  const { svc, stopCalls } = makeStopPreviewSvc({ devPort: 3000 });
+  const result = svc.stopPreview("no-such-id");
+  expect(result).toEqual({ result: "not_found", killed: 0 });
+  expect(stopCalls).toHaveLength(0);
+});
+
+test("stopPreview: not_found when reaper dep is absent", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 3000, omitReaper: true });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "not_found", killed: 0 });
+  expect(stopCalls).toHaveLength(0);
+});
+
+test("stopPreview: not_found when preview dep is absent", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 3000, omitPreview: true });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "not_found", killed: 0 });
+  expect(stopCalls).toHaveLength(0);
+});
+
+test("stopPreview: not_bound when devPortFor returns null", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: null });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "not_bound", killed: 0 });
+  expect(stopCalls).toHaveLength(0);
+});
+
+test("stopPreview: stopped happy path — calls stopListenersOnPort with default SIGTERM", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 3000, stopReturn: 1 });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "stopped", killed: 1 });
+  expect(stopCalls).toEqual([
+    { worktreePath: "/wt/stop-preview-test", port: 3000, signal: "SIGTERM" },
+  ]);
+});
+
+test("stopPreview: stopped with explicit SIGKILL", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 4321, stopReturn: 2 });
+  const result = svc.stopPreview(s!.id, "SIGKILL");
+  expect(result).toEqual({ result: "stopped", killed: 2 });
+  expect(stopCalls).toEqual([
+    { worktreePath: "/wt/stop-preview-test", port: 4321, signal: "SIGKILL" },
+  ]);
+});
+
+test("stopPreview: honest zero — stopListenersOnPort returning 0 yields stopped/0, not downgraded", () => {
+  const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 3000, stopReturn: 0 });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "stopped", killed: 0 });
+  expect(stopCalls).toHaveLength(1);
+});
+
+test("stopPreview: does NOT call any release method on the preview dep", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "stop-preview-release",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/stop-preview-release",
+    worktreePath: "/wt/stop-preview-release",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_spr",
+  });
+  const previewCalls: string[] = [];
+  // fake preview exposes only devPortFor — any extra method calls would be a type error
+  const preview = {
+    devPortFor: (): number | null => {
+      previewCalls.push("devPortFor");
+      return 3000;
+    },
+  };
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    reaper: {
+      detect: () => [],
+      reap: () => {},
+      stopListenersOnPort: () => 1,
+    } as any,
+    preview,
+  });
+  svc.stopPreview(s.id);
+  // only devPortFor was called — no release/unbind/etc.
+  expect(previewCalls).toEqual(["devPortFor"]);
 });

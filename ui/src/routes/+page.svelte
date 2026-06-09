@@ -64,7 +64,7 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
-  import { repoStatusRows } from "$lib/components/queue-strip";
+  import { bandHasValue, repoStatusRows } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -124,13 +124,14 @@
   // band IS the toggle. Only narrows the herd list views — selection and global counts
   // stay whole.
   let repoFilter = $state<string | null>(null);
-  // The band's filterable repos, so the toggle and the auto-clear guard agree on scope.
+  // Mirrors QueueStrip's own derived rows (same four inputs); kept here so +page can gate bandRepoPaths on band visibility without reaching into the child's state.
+  const bandRows = $derived(
+    repoStatusRows(store.drain, learnings.items, learnings.injectable, runningRepoPaths),
+  );
+  // Filterable repos = the band's rows, but ONLY while the band is actually shown. When the
+  // band hides (no value), this is empty so the stale-filter $effect below clears repoFilter.
   const bandRepoPaths = $derived(
-    new Set(
-      repoStatusRows(store.drain, learnings.items, learnings.injectable, runningRepoPaths).map(
-        (r) => r.repoPath,
-      ),
-    ),
+    new Set(bandHasValue(bandRows) ? bandRows.map((r) => r.repoPath) : []),
   );
   // A stale filter would otherwise strand the herd: when the filtered repo's band row
   // disappears (its last agent stopped running) its toggle vanishes with no way to

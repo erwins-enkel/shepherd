@@ -331,10 +331,11 @@
     {/if}
     {#if learnings > 0 || overBudget > 0}
       <button
-        class="learnings-badge"
+        class="learnings-badge tip tip-wide"
         class:compact={mobile || compactBadges}
         class:curate={learnings === 0}
         onclick={() => onlearnings?.()}
+        data-tip={m.learnings_badge_tip()}
         aria-label={learnings > 0
           ? m.learnings_open_aria({ count: learnings })
           : m.learnings_open_curate_aria({ count: overBudget })}
@@ -1179,6 +1180,14 @@
     .tip:focus-visible::after {
       opacity: 1;
       transform: translateY(0);
+    }
+    /* Wide variant for explanatory tooltips: let the sentence wrap instead of
+       forcing a single very-wide line. Right-anchored like the base .tip. */
+    .tip-wide::after {
+      white-space: normal;
+      width: max-content;
+      max-width: 260px;
+      line-height: 1.45;
     }
   }
 </style>

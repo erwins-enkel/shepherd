@@ -529,6 +529,7 @@
   "viewport_resume_failed": "Couldn't resume. Tap to retry",
   "cardmenu_label": "Session actions",
   "cardmenu_resume": "Resume session",
+  "cardmenu_decommission": "Decommission",
   "cardmenu_resume_short": "Resume",
   "cardmenu_resume_failed": "Couldn't resume {name}",
   "viewport_herdr_unreachable": "── herdr unreachable — reconnect paused ──",

@@ -576,6 +576,15 @@ export class SessionService {
    * "bring claude back" action (header / card-menu button) for the case the re-use
    * path can't see — claude exited but its herdr tab survived as a bare shell, so the
    * agent still lists as live (idle) and a plain resume would only re-adopt the shell.
+   *
+   * We force unconditionally rather than only on a detected husk because herdr ≥0.6
+   * `agent list` exposes no command/liveness field, so a husk shell and an idle
+   * claude are indistinguishable here (see ui canResume). The tradeoff: if invoked on
+   * a genuinely-live idle claude it respawns one needlessly, resetting that pane's
+   * terminal scrollback — but `--resume` restores the FULL conversation, so no work is
+   * lost, and the control is only surfaced/clicked when the user believes they're
+   * stranded. Guaranteeing the husk case works (always respawn) beats preserving
+   * scrollback in the rare misclick-on-live-claude case.
    */
   resume(id: string, opts: { force?: boolean } = {}): Session | null {
     const s = this.deps.store.get(id);

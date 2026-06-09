@@ -75,7 +75,7 @@
   {/if}
   {#if ondecommission}
     <button class="cm-item danger" type="button" role="menuitem" onclick={ondecommission}>
-      <span class="cm-icon" aria-hidden="true">✕</span>{m.viewport_decommission()}
+      <span class="cm-icon" aria-hidden="true">✕</span>{m.cardmenu_decommission()}
     </button>
   {/if}
 </div>

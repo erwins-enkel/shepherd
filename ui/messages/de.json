@@ -529,6 +529,7 @@
   "viewport_resume_failed": "Konnte nicht fortsetzen. Nochmal tippen",
   "cardmenu_label": "Sitzungs-Aktionen",
   "cardmenu_resume": "Sitzung fortsetzen",
+  "cardmenu_decommission": "Stilllegen",
   "cardmenu_resume_short": "Fortsetzen",
   "cardmenu_resume_failed": "{name} konnte nicht fortgesetzt werden",
   "viewport_herdr_unreachable": "── herdr nicht erreichbar — Neuverbindung pausiert ──",

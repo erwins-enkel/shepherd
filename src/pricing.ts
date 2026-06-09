@@ -25,8 +25,8 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
   },
   {
     // Fable 5 — list price $10 in / $50 out per Mtok (cache derived at the same
-    // 0.1× / 1.25× / 2× ratios as the other tiers). Appended after sonnet so the
-    // DEFAULT index below stays sonnet-like.
+    // 0.1× / 1.25× / 2× ratios as the other tiers). Appended at the end (after
+    // haiku) so the DEFAULT index (TABLE[1]) below stays sonnet-like.
     match: /fable/i,
     w: { input: 10, output: 50, cacheRead: 1, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },

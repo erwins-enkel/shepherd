@@ -106,6 +106,11 @@
     return t || null;
   }
 
+  // GitHub logins are case-insensitive — fold so a differently-cased stored login
+  // isn't treated as a distinct person (duplicate option / wrong "self" match).
+  const eqLogin = (a: string | null, b: string | null) =>
+    !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const prev = roles;
     roles = { ...roles, [role]: value }; // optimistic
@@ -392,10 +397,10 @@
         >
           <option value="">{m.roles_unset_option()}</option>
           {#if me}<option value={me}>{m.roles_self_option()} (@{me})</option>{/if}
-          {#each collaborators.filter((c) => c !== me) as login (login)}
+          {#each collaborators.filter((c) => !eqLogin(c, me)) as login (login)}
             <option value={login}>@{login}</option>
           {/each}
-          {#if value && value !== me && !collaborators.includes(value)}
+          {#if value && !eqLogin(value, me) && !collaborators.some((c) => eqLogin(c, value))}
             <option {value}>@{value}</option>
           {/if}
         </select>

@@ -463,6 +463,10 @@ async function setRepoRoles(
     reviewer: "reviewer" in body ? normalizeLogin(body.reviewer) : cur.reviewer,
     merger: "merger" in body ? normalizeLogin(body.merger) : cur.merger,
   };
+  // No change → don't author a redundant commit (and CI run) on the default branch.
+  if (next.reviewer === cur.reviewer && next.merger === cur.merger) {
+    return json({ roles: next, me });
+  }
   try {
     if (!forge) throw new Error("no forge configured for repo");
     writeRepoRoles(dir, next, await forge.defaultBranch());

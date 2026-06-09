@@ -44,8 +44,12 @@ export function computeHandoff(
   me: string | null,
   latestReview: PrStatus["latestReview"],
 ): { handoff: HandoffRole; handoffWho: string | null } {
-  const reviewerIsOther = !!roles.reviewer && roles.reviewer !== me;
-  const mergerIsOther = !!roles.merger && roles.merger !== me;
+  // GitHub logins are case-insensitive, so compare folded — else a free-text
+  // entry whose casing differs from the operator's own login would mis-read as
+  // "someone else" and show "waiting on yourself".
+  const meLc = me?.toLowerCase() ?? null;
+  const reviewerIsOther = !!roles.reviewer && roles.reviewer.toLowerCase() !== meLc;
+  const mergerIsOther = !!roles.merger && roles.merger.toLowerCase() !== meLc;
   const reviewApproved = latestReview?.state === "approved";
   if (reviewerIsOther && !reviewApproved)
     return { handoff: "reviewer", handoffWho: roles.reviewer };
@@ -134,6 +138,14 @@ export function annotateHandoff(state: GitState, repoPath: string, me: string | 
  *  read back immediately. */
 export function writeRepoRoles(repoPath: string, roles: RepoRoles, defaultBranch: string): void {
   const content = `${JSON.stringify(roles, null, 2)}\n`;
+  // Refresh the remote-tracking ref so we base off the *current* remote tip — else
+  // an advanced default branch yields a spurious non-fast-forward rejection on push.
+  // Best-effort: offline just falls back to the local ref below.
+  try {
+    git(repoPath, ["fetch", "origin", defaultBranch]);
+  } catch {
+    /* offline / no remote — base off whatever local ref we have */
+  }
   let base = "";
   for (const ref of [`origin/${defaultBranch}`, defaultBranch]) {
     try {

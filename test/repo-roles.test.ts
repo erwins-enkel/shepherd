@@ -35,6 +35,12 @@ test("any human approve satisfies the reviewer step (human-in-the-loop)", () => 
   expect(r.handoff).toBe("self");
 });
 
+test("login comparison is case-insensitive — own login in any casing is still self", () => {
+  // GitHub logins are case-insensitive; a free-text "Kai" must match operator "kai".
+  expect(computeHandoff({ reviewer: null, merger: "Kai" }, "kai", undefined).handoff).toBe("self");
+  expect(computeHandoff({ reviewer: "KAI", merger: null }, "kai", undefined).handoff).toBe("self");
+});
+
 test("no roles → self", () => {
   expect(computeHandoff({ reviewer: null, merger: null }, "kai", undefined).handoff).toBe("self");
 });

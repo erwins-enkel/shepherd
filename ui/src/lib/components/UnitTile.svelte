@@ -296,6 +296,11 @@
     position: relative;
     flex: 1;
     overflow: hidden;
+    /* The read-only monitor terminal is positioned (relative), so without this
+       it would paint above the .tile-hit overlay (same stack level, later in
+       source) and swallow body clicks. Let clicks fall through to the overlay so
+       the whole tile selects; the terminal needs no pointer interaction. */
+    pointer-events: none;
   }
   .t-mount {
     position: absolute;

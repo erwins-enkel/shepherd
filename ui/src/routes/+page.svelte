@@ -982,8 +982,10 @@
 
 <style>
   .shell {
-    max-width: 1480px;
-    margin: 0 auto;
+    /* No max-width cap: the desktop layout fills the viewport so widening the
+       browser scales the terminal column (1fr) instead of leaving dead space at
+       the sides. The session picker stays compact; the terminal absorbs the gain. */
+    width: 100%;
     /* max(base, inset): on devices/browsers without safe areas env() is 0 so the
        base padding wins (no regression); in an iOS standalone PWA the Dynamic Island
        (top) and home indicator (bottom) insets win. Everything flows inside .shell,
@@ -1053,7 +1055,6 @@
   }
 
   .shell.mobile {
-    max-width: none;
     padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
       max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
     gap: 10px;

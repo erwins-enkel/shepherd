@@ -15,6 +15,11 @@
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const planReviewing = $derived(planGates.isReviewing(sessionId));
 
+  // Which row's long-form "ⓘ" explanation is currently expanded. One at a time —
+  // this panel is a narrow popover, so a single open detail keeps it readable.
+  let openDetail = $state<string | null>(null);
+  const toggleDetail = (id: string) => (openDetail = openDetail === id ? null : id);
+
   // The panel's switches are repo-level defaults; the plan gate is also a per-task
   // one-shot set at creation. Surface THIS task's actual gate phase so a tick in
   // New Task doesn't read as "off" just because the repo default is off. Shown only
@@ -75,12 +80,37 @@
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>
 
+  <!-- Clickable "ⓘ" that toggles a row's long-form explanation, and the detail
+       block it reveals. Reused by every row so each function carries a thorough,
+       newcomer-friendly description of what it does, how, and when it fires. -->
+  {#snippet info(id: string, name: string)}
+    <button
+      class={["info", { open: openDetail === id }]}
+      type="button"
+      aria-expanded={openDetail === id}
+      aria-controls="auto-detail-{id}"
+      aria-label={m.automation_info_aria({ name })}
+      onclick={() => toggleDetail(id)}
+    >
+      <span aria-hidden="true">i</span>
+    </button>
+  {/snippet}
+  {#snippet detail(id: string, text: string)}
+    <!-- always in the DOM so the button's aria-controls target always resolves;
+         toggled with `hidden` rather than {#if} for assistive tech -->
+    <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={openDetail !== id}>{text}</p>
+  {/snippet}
+
   <!-- Code review -->
   <div class="auto-group">{m.automation_group_review()}</div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🔍 {m.automation_critic_name()}</div>
+      <div class="auto-name">
+        🔍 {m.automation_critic_name()}
+        {@render info("critic", m.automation_critic_name())}
+      </div>
       <div class="auto-desc">{m.automation_critic_desc()}</div>
+      {@render detail("critic", m.automation_critic_detail())}
     </div>
     <button
       class={["sw", { on: flags.critic, reviewing }]}
@@ -96,10 +126,14 @@
   </div>
   <div class={["auto-row", { disabled: !flags.critic }]}>
     <div class="auto-meta">
-      <div class="auto-name">🤖 {m.automation_autoaddress_name()}</div>
+      <div class="auto-name">
+        🤖 {m.automation_autoaddress_name()}
+        {@render info("auto-address", m.automation_autoaddress_name())}
+      </div>
       <div class="auto-desc">
         {flags.critic ? m.automation_autoaddress_desc() : m.automation_autoaddress_needs_critic()}
       </div>
+      {@render detail("auto-address", m.automation_autoaddress_detail())}
     </div>
     <button
       class={["sw", { on: flags.autoAddress && flags.critic }]}
@@ -115,11 +149,15 @@
   </div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🪧 {m.automation_plan_gate_name()}</div>
+      <div class="auto-name">
+        🪧 {m.automation_plan_gate_name()}
+        {@render info("plan-gate", m.automation_plan_gate_name())}
+      </div>
       <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
       {#if planPhase != null}
         <div class="auto-task">{planGateTaskLabel}</div>
       {/if}
+      {@render detail("plan-gate", m.automation_plan_gate_detail())}
     </div>
     <button
       class={["sw", { on: flags.planGate, reviewing: planReviewing }]}
@@ -138,8 +176,12 @@
   <div class="auto-group">{m.automation_group_behavior()}</div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🎓 {m.automation_learnings_name()}</div>
+      <div class="auto-name">
+        🎓 {m.automation_learnings_name()}
+        {@render info("learnings", m.automation_learnings_name())}
+      </div>
       <div class="auto-desc">{m.automation_learnings_desc()}</div>
+      {@render detail("learnings", m.automation_learnings_detail())}
     </div>
     <button
       class={["sw", { on: flags.learnings }]}
@@ -154,8 +196,12 @@
   </div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🛫 {m.automation_autopilot_name()}</div>
+      <div class="auto-name">
+        🛫 {m.automation_autopilot_name()}
+        {@render info("autopilot", m.automation_autopilot_name())}
+      </div>
       <div class="auto-desc">{m.automation_autopilot_desc()}</div>
+      {@render detail("autopilot", m.automation_autopilot_detail())}
     </div>
     <button
       class={["sw", { on: flags.autopilot }]}
@@ -173,8 +219,12 @@
   <div class="auto-group">{m.automation_group_queue()}</div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🚰 {m.automation_autodrain_name()}</div>
+      <div class="auto-name">
+        🚰 {m.automation_autodrain_name()}
+        {@render info("auto-drain", m.automation_autodrain_name())}
+      </div>
       <div class="auto-desc">{m.automation_autodrain_desc()}</div>
+      {@render detail("auto-drain", m.automation_autodrain_detail())}
     </div>
     <button
       class={["sw", { on: flags.autoDrain }]}
@@ -189,8 +239,12 @@
   </div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🚀 {m.automation_automerge_name()}</div>
+      <div class="auto-name">
+        🚀 {m.automation_automerge_name()}
+        {@render info("auto-merge", m.automation_automerge_name())}
+      </div>
       <div class="auto-desc">{m.automation_automerge_desc()}</div>
+      {@render detail("auto-merge", m.automation_automerge_detail())}
     </div>
     <button
       class={["sw", { on: flags.autoMerge }]}
@@ -205,8 +259,12 @@
   </div>
   <div class="auto-row">
     <div class="auto-meta">
-      <div class="auto-name">🧱 {m.automation_buildqueue_name()}</div>
+      <div class="auto-name">
+        🧱 {m.automation_buildqueue_name()}
+        {@render info("build-queue", m.automation_buildqueue_name())}
+      </div>
       <div class="auto-desc">{m.automation_buildqueue_desc()}</div>
+      {@render detail("build-queue", m.automation_buildqueue_detail())}
     </div>
     <button
       class={["sw", { on: flags.buildQueue }]}
@@ -276,7 +334,10 @@
     border-radius: 2px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     color: var(--color-ink);
-    overflow: hidden;
+    /* long-form details can expand a row tall; keep the popover within the
+       viewport and scroll instead of overflowing off-screen */
+    max-height: 85vh;
+    overflow-y: auto;
   }
   .auto-head {
     font-size: var(--fs-micro);
@@ -312,9 +373,54 @@
     min-width: 0;
   }
   .auto-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
+  }
+  /* clickable "ⓘ" — small circular affordance that toggles the long explanation */
+  .info {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    border: 1px solid var(--color-line);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    font-style: italic;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .info:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-faint);
+  }
+  .info.open {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  /* the revealed long-form explanation: a quiet inset note, amber-keyed to its
+     open "ⓘ", with comfortable line length for a couple of sentences */
+  .auto-detail {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    background: var(--color-panel);
+    border-left: 2px solid var(--color-amber);
+    border-radius: 2px;
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    color: var(--color-ink);
   }
   .auto-desc {
     font-size: var(--fs-meta);

@@ -450,6 +450,8 @@
   }
   .rs-row.recent.kbd-active {
     background: var(--color-sel);
+    outline: 1.5px solid var(--color-amber);
+    outline-offset: -1.5px;
   }
   .rs-row.recent.active {
     background: color-mix(in srgb, var(--color-amber) 12%, var(--color-panel));

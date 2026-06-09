@@ -1460,6 +1460,10 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // instead of hardcoding a mirror of the server constants.
       sessionRetentionDays: SESSION_RETENTION_DAYS,
       sessionRetentionKeep: SESSION_RETENTION_KEEP,
+      // display-only: the agent node's own tailnet hostname; the UI builds preview iframe
+      // URLs from it when the HUD is fronted on a different host than the agent node.
+      // Null when tailscale is absent → UI falls back to the operator's connection host.
+      previewHost: config.previewHost,
     });
   }
   if (req.method === "PUT") {

@@ -70,8 +70,18 @@ default to the rootless socket — otherwise it talks to the rootful `/var/run/d
 
 - `docker context use rootless` — writes `~/.docker`, which the units read because they
   set `HOME=%h`. Recommended (one-time, nothing per-unit). Confirm with `docker context show`.
-- or add `DOCKER_HOST=unix://${XDG_RUNTIME_DIR}/docker.sock` to your `.env` — the unit
-  loads it via `EnvironmentFile`, so `run-runner.sh`'s `docker` inherits it.
+- or a systemd drop-in (`systemctl --user edit shepherd-ci-runner@.service`) with
+
+  ```ini
+  [Service]
+  Environment=DOCKER_HOST=unix://%t/docker.sock
+  ```
+
+  `%t` is expanded by systemd to your runtime dir. **Do not** put
+  `DOCKER_HOST=unix://${XDG_RUNTIME_DIR}/docker.sock` in `.env` — `EnvironmentFile` passes
+  values literally and never expands variables, so `docker` would receive a literal
+  `${XDG_RUNTIME_DIR}`. A concrete literal path in `.env` works
+  (`DOCKER_HOST=unix:///run/user/<your-uid>/docker.sock`).
 
 **Verify the resource caps actually enforce.** `--cpus`/`--memory` are no-ops unless the
 kernel cgroup controllers are delegated. Confirm a memory cap really lands:
@@ -232,10 +242,15 @@ run concurrently. More replicas raise the host load ceiling — keep an eye on t
 - Per-replica caps live in `~/.config/shepherd-ci-runner/.env`: `RUNNER_CPUS` (default
   `4`) and `RUNNER_MEMORY` (default `8g`) become the container's `--cpus`/`--memory`
   (the _suspenders_).
-- The host-wide ceiling is `shepherd-ci.slice` (`CPUQuota=600%`, `MemoryMax=16G`) — the
-  enforcing _belt_ that caps **all** replicas combined, leaving prod Shepherd + the OS
-  headroom on the shared box. Tune both together: per-replica caps × replicas should sit
-  at or under the slice.
+- The host-wide ceiling is `shepherd-ci.slice` (`CPUQuota=600%`, `MemoryMax=16G`) — a
+  _belt_ meant to cap **all** replicas combined. `run-runner.sh` binds containers to it
+  with `--cgroup-parent=shepherd-ci.slice`, but that only takes effect under **rootless**
+  Docker (daemon in the user systemd tree). Under **rootful** Docker the containers land
+  in the system tree, so this user slice does **not** enforce — install the slice as a
+  system unit (`/etc/systemd/system`) for the belt there, or rely on the per-container
+  `--cpus`/`--memory` caps. Tune both together: per-replica caps × replicas should sit at
+  or under the slice. (CPU is capped below the aggregate; `MemoryMax` only equals it —
+  lower it for real prod memory headroom, per the comment in `shepherd-ci.slice`.)
 
 ### Playwright version-sync
 

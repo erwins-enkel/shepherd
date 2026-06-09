@@ -10,7 +10,11 @@
 #   - default bridge network, NEVER --network host / --pid host
 #   - NO docker socket mount, NOT --privileged
 #   - --shm-size=1g so Chromium doesn't OOM on the default 64M /dev/shm
-#   - per-replica --cpus / --memory caps
+#   - per-replica --cpus / --memory caps, plus --cgroup-parent=shepherd-ci.slice so the
+#     container's cgroup nests under the slice's combined host ceiling. NB: this only
+#     binds the container to OUR slice under rootless Docker, where the daemon places
+#     containers in the user systemd tree. Under rootful Docker the daemon uses the
+#     system tree, so the (user) shepherd-ci.slice won't govern it — see README.
 #   - only the short-lived RUNNER_TOKEN crosses in — never a PAT
 #   - NO --security-opt no-new-privileges: the in-job
 #     `playwright install --with-deps` needs the image's passwordless sudo.
@@ -51,6 +55,7 @@ exec docker run --rm \
   --shm-size=1g \
   --cpus="${RUNNER_CPUS}" \
   --memory="${RUNNER_MEMORY}" \
+  --cgroup-parent=shepherd-ci.slice \
   -e RUNNER_SCOPE=repo \
   -e REPO_URL="${REPO_URL}" \
   -e RUNNER_NAME="${runner_name}" \

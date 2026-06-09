@@ -13,7 +13,7 @@ import {
   validatePreviewPortRange,
 } from "./config";
 import { SessionStore } from "./store";
-import type { Session } from "./types";
+import type { Session, SessionPreviewEvent } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
@@ -190,7 +190,8 @@ const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
 const previewService = new PreviewService({
   base: config.previewPortBase,
   count: config.previewPortCount,
-  onChange: (id, previewPort) => events.emit("session:preview", { id, previewPort }),
+  onChange: (id, previewPort) =>
+    events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
 });
 
 const poller = new StatusPoller(

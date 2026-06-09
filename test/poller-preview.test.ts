@@ -458,6 +458,103 @@ test("GET /api/preview returns the preview snapshot", async () => {
   expect(await res.json()).toEqual(snap);
 });
 
+// ── swallowed-throw paths ─────────────────────────────────────────────────────
+
+test("preview sweep: throwing scan → no crash + previewSweeping resets → later tick sweeps again", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSessionInput);
+  const service = makePreviewService();
+
+  let shouldThrow = true;
+  let clock = 100_000;
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: () => {
+        if (shouldThrow) throw new Error("scan boom");
+        return new Map([["/wt-a", [5173]]]);
+      },
+      pick: async () => 5173,
+    },
+  );
+
+  // First tick: scan throws → poller must not crash
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+  // no converge called (threw before reaching it)
+  expect(service._convergeArgs.length).toBe(0);
+
+  // previewSweeping must have been reset (finally ran) → a later tick past sweepMs must sweep
+  shouldThrow = false;
+  clock += 5000; // past sweepMs
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+  // second sweep succeeded
+  expect(service._convergeArgs.length).toBe(1);
+});
+
+test("preview sweep: rejecting pick → no crash + previewSweeping resets → later tick sweeps again", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSessionInput);
+  const service = makePreviewService();
+
+  let shouldReject = true;
+  let clock = 100_000;
+
+  const poller = new StatusPoller(
+    store,
+    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: () => new Map([["/wt-a", [5173]]]),
+      pick: async () => {
+        if (shouldReject) throw new Error("pick boom");
+        return 5173;
+      },
+    },
+  );
+
+  // First tick: pick rejects → poller must not crash
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(service._convergeArgs.length).toBe(0);
+
+  // previewSweeping must have reset → later tick past sweepMs must sweep normally
+  shouldReject = false;
+  clock += 5000;
+  poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(service._convergeArgs.length).toBe(1);
+  expect(service._convergeArgs[0]).toContainEqual({ sessionId: expect.any(String), devPort: 5173 });
+});
+
 test("GET /api/preview → {} when no preview dep is wired", async () => {
   const store = new SessionStore(":memory:");
   const usageLimits = {

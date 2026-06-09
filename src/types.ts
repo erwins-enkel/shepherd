@@ -234,7 +234,6 @@ export interface BuildStepInput {
  *
  * NOTE: this is live-derived ephemeral state — NOT persisted to the DB.
  */
-// fallow-ignore-next-line unused-type
 export interface SessionPreviewEvent {
   id: string;
   previewPort: number | null;

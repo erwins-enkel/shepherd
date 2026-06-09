@@ -3,6 +3,11 @@
   import type { Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
+  // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
+  // issue it has claimed (auto session or human-linked task). Highlighted so a
+  // claimed issue reads as "already taken" at a glance in the backlog.
+  const ACTIVE_LABEL = "shepherd:active";
+
   let {
     repoPath,
     onnewtask,
@@ -78,7 +83,12 @@
           {#if issue.labels.length > 0 || age}
             <div class="label-row">
               {#each issue.labels as label (label)}
-                <span class="label-chip">{label}</span>
+                <span
+                  class="label-chip"
+                  class:active={label === ACTIVE_LABEL}
+                  title={label === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
+                  >{label}</span
+                >
               {/each}
               {#if age}
                 <span class="age-chip"
@@ -203,6 +213,14 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 1px 5px;
+  }
+
+  /* shepherd:active — claimed work. Amber per the design system's running/in-progress
+     hue (--status-running), so a taken issue stands out from neutral labels. */
+  .label-chip.active {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
   }
 
   .body-preview {

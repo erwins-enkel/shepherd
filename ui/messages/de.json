@@ -215,6 +215,7 @@
   "issuespanel_task_button": "+ Aufgabe",
   "issuespanel_quick_button": "⚡ Standard",
   "issuespanel_quick_button_title": "Standard-Befehl auf dieses Issue anwenden; überspringt den Aufgaben-Dialog",
+  "issuespanel_active_label_title": "Von einem aktiven Shepherd-Agenten beansprucht – an diesem Issue wird bereits gearbeitet",
   "newtask_title": "Neue Aufgabe",
   "newtask_prompt_label": "Prompt",
   "newtask_prompt_placeholder": "füge eine Funktion hinzu, die…",
@@ -759,5 +760,7 @@
   "feat_preview_title": "Live-App-Vorschau",
   "feat_preview_body": "Wenn der Dev-Server eines Agenten läuft, erscheint ein Vorschau-Badge in seiner Zeile. Beim Öffnen zeigt sich die laufende App in einem HUD-Pane — erreichbar von Desktop oder Handy über Tailscale.",
   "feat_repo_roles_title": "Repo-Zuständigkeiten",
-  "feat_repo_roles_body": "Lege im Automations-Panel fest, wer ein Repo reviewt und wer merged. Ist der Merge jemand anderes (z. B. ein Teammitglied, das PRs landet), zeigt ein grüner PR \"Warten auf …\" statt \"Du bist dran\"."
+  "feat_repo_roles_body": "Lege im Automations-Panel fest, wer ein Repo reviewt und wer merged. Ist der Merge jemand anderes (z. B. ein Teammitglied, das PRs landet), zeigt ein grüner PR \"Warten auf …\" statt \"Du bist dran\".",
+  "feat_backlog_active_highlight_title": "Sieh auf einen Blick, welche Issues schon beansprucht sind",
+  "feat_backlog_active_highlight_body": "Issues, die ein Shepherd-Agent beansprucht hat, tragen das Label „shepherd:active“. In der Issue-Liste des Backlogs hebt es sich jetzt in Amber ab, sodass du beanspruchte von freier Arbeit auf einen Blick unterscheidest, statt jedes Chip zu lesen."
 }

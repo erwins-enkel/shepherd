@@ -21,6 +21,8 @@ import {
   actionsTabLabel,
   actionsTabState,
   filterProjects,
+  partitionRecents,
+  RECENT_LIMIT,
 } from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
@@ -242,6 +244,66 @@ describe("filterProjects", () => {
   it("returns an empty array when every project is excluded", () => {
     const allEmpty = [project("/repos/a", 0, 0), project("/repos/b", null, null)];
     expect(filterProjects(allEmpty, { hasIssues: true, hasPRs: true })).toEqual([]);
+  });
+});
+
+describe("partitionRecents", () => {
+  // Same ranking criteria as the New Task repo picker (RepoSelect): recent agent
+  // count desc, then lastUsedAt desc, then name asc — capped at RECENT_LIMIT.
+  function recentProject(
+    path: string,
+    recentAgentCount: number | null,
+    lastUsedAt?: number,
+  ): BacklogProject {
+    return { ...project(path, 0, 0), recentAgentCount, lastUsedAt };
+  }
+
+  it("hoists repos with recent agents, most agents first", () => {
+    const a = recentProject("/repos/a", 2);
+    const b = recentProject("/repos/b", 9);
+    const c = recentProject("/repos/c", null);
+    const { recents, rest } = partitionRecents([a, b, c]);
+    expect(recents).toEqual([b, a]);
+    expect(rest).toEqual([c]);
+  });
+
+  it("tie-breaks equal counts by most-recently-used", () => {
+    const older = recentProject("/repos/older", 3, 100);
+    const newer = recentProject("/repos/newer", 3, 200);
+    expect(partitionRecents([older, newer]).recents).toEqual([newer, older]);
+  });
+
+  it("tie-breaks equal count + lastUsedAt by name (path basename) ascending", () => {
+    const zeta = recentProject("/repos/zeta", 3, 100);
+    const alpha = recentProject("/repos/alpha", 3, 100);
+    expect(partitionRecents([zeta, alpha]).recents).toEqual([alpha, zeta]);
+  });
+
+  it("caps the group at RECENT_LIMIT and leaves the overflow in rest", () => {
+    const ps = [5, 4, 3, 2, 1].map((n, i) => recentProject(`/repos/p${i}`, n));
+    const { recents, rest } = partitionRecents(ps);
+    expect(RECENT_LIMIT).toBe(3);
+    expect(recents).toEqual(ps.slice(0, 3));
+    expect(rest).toEqual(ps.slice(3));
+  });
+
+  it("excludes zero/null/missing counts — no recent agents, no pin", () => {
+    const zero = recentProject("/repos/zero", 0);
+    const nul = recentProject("/repos/null", null);
+    const missing = project("/repos/missing", 1, 1);
+    const { recents, rest } = partitionRecents([zero, nul, missing]);
+    expect(recents).toEqual([]);
+    expect(rest).toEqual([zero, nul, missing]);
+  });
+
+  it("keeps rest in the original (server-sorted) order and never duplicates a repo", () => {
+    const a = recentProject("/repos/a", null);
+    const b = recentProject("/repos/b", 7);
+    const c = recentProject("/repos/c", null);
+    const { recents, rest } = partitionRecents([a, b, c]);
+    expect(rest).toEqual([a, c]);
+    const all = [...recents, ...rest].map((p) => p.path);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 

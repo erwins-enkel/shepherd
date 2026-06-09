@@ -2103,6 +2103,9 @@ export interface BacklogProject {
   slug: string | null;
   kind: string;
   lastUsedAt: number | null;
+  /** Agents run on this repo in the last {@link RECENT_WINDOW_DAYS} days — same
+   *  metric the New Task repo picker pins its "recently worked on" group by. */
+  recentAgentCount: number | null;
   openIssues: number | null;
   openPRs: number | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
@@ -2129,6 +2132,8 @@ export interface BacklogPayloadInputs {
   counts: (repoDir: string) => Promise<RepoCounts>;
   resolveForge: (repoDir: string) => GitForge | null;
   lastUsedByRepo: () => Record<string, number>;
+  /** repoPath → agents run since `since` (ms epoch) — store.recentSessionCountsByRepo. */
+  recentCountsByRepo: (since: number) => Record<string, number>;
   repoRoot: string;
 }
 
@@ -2141,6 +2146,11 @@ export interface BacklogPayloadInputs {
 export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise<BacklogPayload> {
   const repos = listRepos(inputs.repoRoot);
   const lastUsed = inputs.lastUsedByRepo();
+  // Same window the repo picker's "recently worked on" group is computed over,
+  // so the backlog's recent-repos group ranks by identical criteria.
+  const recentCounts = inputs.recentCountsByRepo(
+    Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  );
 
   // Keep only forge-backed repos
   const forgeRepos = repos
@@ -2164,6 +2174,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       slug: r.forge.slug,
       kind: r.forge.kind,
       lastUsedAt: lastUsed[r.path] ?? null,
+      recentAgentCount: recentCounts[r.path] ?? null,
       openIssues: counts.openIssues,
       openPRs: counts.openPRs,
       // GitHub-only: the Actions panel is github-gated, so other forges get null
@@ -2227,6 +2238,7 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       counts: (p) => backlog.counts(p),
       resolveForge: (p) => deps.resolveForge?.(p) ?? null,
       lastUsedByRepo: () => deps.store.lastUsedByRepo(),
+      recentCountsByRepo: (since) => deps.store.recentSessionCountsByRepo(since),
       repoRoot: config.repoRoot,
     }),
   );

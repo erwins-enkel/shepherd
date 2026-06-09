@@ -66,7 +66,8 @@ function fakeForge(slug: string, kind: "github" | "gitea" = "github"): GitForge 
 /**
  * Build AppDeps. `resolveForge` recognises only repoA and repoB; all others
  * (including repoNonForge and whatever else is in repoRoot) get null.
- * `backlogCounts` maps repoPath → RepoCounts; `lastUsed` maps repoPath → ms.
+ * `backlogCounts` maps repoPath → RepoCounts; `lastUsed` maps repoPath → ms;
+ * `recentCounts` maps repoPath → agents run in the recent window.
  */
 function makeDeps(
   backlogCounts: Record<
@@ -75,10 +76,12 @@ function makeDeps(
   >,
   lastUsed: Record<string, number> = {},
   overrideForge?: AppDeps["resolveForge"],
+  recentCounts: Record<string, number> = {},
 ): AppDeps {
   return {
     store: {
       lastUsedByRepo: () => lastUsed,
+      recentSessionCountsByRepo: () => recentCounts,
     } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
@@ -231,7 +234,10 @@ test("buildBacklogPayload: surfaces per-repo ciStatus onto each project", async 
 
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {
   const deps: AppDeps = {
-    store: { lastUsedByRepo: () => ({}) } as unknown as SessionStore,
+    store: {
+      lastUsedByRepo: () => ({}),
+      recentSessionCountsByRepo: () => ({}),
+    } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
     usageLimits: { limits: () => ({}) } as never,
@@ -295,4 +301,24 @@ test("GET /api/backlog pinnedPath falls back to first sorted project when no las
   const body = await app.fetch(req()).then((r) => r.json());
   // With no lastUsedAt, pinnedPath falls back to the first project after sort (most issues = repoA)
   expect(body.pinnedPath).toBe(repoA);
+});
+
+test("GET /api/backlog surfaces per-repo recentAgentCount (null when none)", async () => {
+  const app = makeApp(
+    makeDeps(
+      { [repoA]: { openIssues: 1, openPRs: 0 }, [repoB]: { openIssues: 1, openPRs: 0 } },
+      {},
+      undefined,
+      { [repoA]: 4 }, // repoB has no recent agents → null
+    ),
+  );
+  const body = await app.fetch(req()).then((r) => r.json());
+  const byPath = Object.fromEntries(
+    body.projects.map((p: { path: string; recentAgentCount: number | null }) => [
+      p.path,
+      p.recentAgentCount,
+    ]),
+  );
+  expect(byPath[repoA]).toBe(4);
+  expect(byPath[repoB]).toBeNull();
 });

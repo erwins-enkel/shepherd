@@ -421,6 +421,9 @@ export interface BacklogProject {
   slug: string | null;
   kind: "github" | "gitea";
   lastUsedAt?: number;
+  /** Agents run on this repo in the server's recent window — same metric the
+   *  New Task repo picker pins its "recently worked on" group by. */
+  recentAgentCount?: number | null;
   openIssues: number | null;
   openPRs: number | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */

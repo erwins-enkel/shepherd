@@ -717,6 +717,7 @@ const broadcastBacklog = async () =>
       counts: (p) => backlog.counts(p),
       resolveForge,
       lastUsedByRepo: () => store.lastUsedByRepo(),
+      recentCountsByRepo: (since) => store.recentSessionCountsByRepo(since),
       repoRoot: config.repoRoot,
     }),
   );

@@ -401,9 +401,16 @@
     border-bottom: 0;
   }
 
-  .rs-row:hover,
-  .rs-row.kbd-active {
+  .rs-row:hover {
     background: var(--color-hover);
+  }
+
+  /* Virtual keyboard cursor — same amber inset ring as EmojiPicker's .ep-cell.active;
+     a background shift alone is invisible on desktop (--hover ≈ --panel). */
+  .rs-row.kbd-active {
+    background: var(--color-sel);
+    outline: 1.5px solid var(--color-amber);
+    outline-offset: -1.5px;
   }
 
   .rs-row.active {
@@ -438,9 +445,13 @@
   .rs-row.recent {
     background: color-mix(in srgb, var(--color-amber) 5%, var(--color-panel));
   }
-  .rs-row.recent:hover,
-  .rs-row.recent.kbd-active {
+  .rs-row.recent:hover {
     background: var(--color-hover);
+  }
+  .rs-row.recent.kbd-active {
+    background: var(--color-sel);
+    outline: 1.5px solid var(--color-amber);
+    outline-offset: -1.5px;
   }
   .rs-row.recent.active {
     background: color-mix(in srgb, var(--color-amber) 12%, var(--color-panel));

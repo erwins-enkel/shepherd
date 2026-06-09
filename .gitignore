@@ -23,3 +23,8 @@ dist/
 # Plan-gate working artifacts written into the live worktree (never committed)
 .shepherd-plan.md
 .shepherd-plan-review.json
+
+# Self-hosted CI runner: never commit a filled-in env; keep the example tracked
+# (the global `.env.*` rule above would otherwise swallow .env.example).
+ci/self-hosted-runner/.env
+!ci/self-hosted-runner/.env.example

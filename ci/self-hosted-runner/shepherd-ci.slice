@@ -1,0 +1,13 @@
+# Host-level resource ceiling for ALL Shepherd CI runner replicas.
+#
+# This is the enforcing belt to the per-container `--cpus`/`--memory` suspenders
+# in run-runner.sh: even if both replicas spike, the slice caps their combined
+# CPU + memory so production shepherd.service keeps headroom on the same box.
+#
+# Sizing (tune for the host): with default per-replica caps of 4 CPUs / 8G and
+# two replicas, the worst case is ~800% CPU / 16G. We deliberately cap BELOW
+# that aggregate so the two runners can't simultaneously max out and starve
+# prod — 600% CPU and 16G total leave room for shepherd + the OS.
+[Slice]
+CPUQuota=600%
+MemoryMax=16G

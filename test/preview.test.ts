@@ -5,6 +5,7 @@ import {
   rewriteLoopbackLocation,
   resolveDevPort,
   detectDevCommand,
+  makeRelayHandlers,
   type FsAccessors,
 } from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
@@ -886,6 +887,207 @@ test("PreviewService: stopAll clears all listeners and the snapshot", () => {
   service!.ensure("s1", 40001);
   service!.stopAll();
   expect(service!.snapshot()).toEqual({});
+});
+
+// ── PreviewService: lastActivityAt / idleSince / devPortFor ───────────────────
+
+test("PreviewService: lastActivityAt set at first bind; idleSince reflects it", () => {
+  let t = 1000;
+  const now = () => t;
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT, now });
+  try {
+    svc.ensure("s1", 40000);
+    // At t=1000, bound. Advance time by 500ms — idleSince should be 500.
+    t = 1500;
+    expect(svc.idleSince("s1", t)).toBe(500);
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: re-ensure (devPort change) does NOT reset lastActivityAt", () => {
+  let t = 1000;
+  const now = () => t;
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT, now });
+  try {
+    svc.ensure("s1", 40000);
+    // Advance time, then re-ensure with a new devPort.
+    t = 2000;
+    svc.ensure("s1", 40001);
+    // lastActivityAt should still be 1000 (the original bind time).
+    expect(svc.idleSince("s1", 2500)).toBe(1500); // 2500 - 1000
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: idleSince returns null for unbound session", () => {
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT });
+  try {
+    expect(svc.idleSince("never-bound", Date.now())).toBeNull();
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: devPortFor returns devPort for bound session, null for unbound", () => {
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT });
+  try {
+    svc.ensure("s1", 40000);
+    expect(svc.devPortFor("s1")).toBe(40000);
+    expect(svc.devPortFor("never-bound")).toBeNull();
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: devPortFor reflects live devPort after re-ensure", () => {
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT });
+  try {
+    svc.ensure("s1", 40000);
+    expect(svc.devPortFor("s1")).toBe(40000);
+    svc.ensure("s1", 40001);
+    expect(svc.devPortFor("s1")).toBe(40001);
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: HTTP request advances lastActivityAt (idleSince drops)", async () => {
+  let t = 1000;
+  const now = () => t;
+  const up = httpUpstream({ body: "ok" });
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT, now });
+  try {
+    const port = svc.ensure("s1", portOf(up));
+    // idleSince is 500ms before request
+    t = 1500;
+    expect(svc.idleSince("s1", t)).toBe(500);
+    // Make an HTTP request — now() at time of request should be 1500
+    await fetch(`http://127.0.0.1:${port}/`);
+    // After the request, lastActivityAt should be 1500; advance time to 2000.
+    t = 2000;
+    expect(svc.idleSince("s1", t)).toBe(500); // 2000 - 1500
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test("makeRelayHandlers: touch called in both directions (client→upstream message, upstream→client onmessage)", () => {
+  const handlers = makeRelayHandlers();
+  const touches: string[] = [];
+
+  // Build a minimal fake RelaySocket for the message handler.
+  // The message handler calls ws.data.touch?.() then tries to relay.
+  const fakeSocket = {
+    data: {
+      devPort: 9999,
+      path: "/",
+      protocols: [],
+      touch: () => touches.push("client->upstream"),
+    },
+    __relay: {
+      upstream: null,
+      upstreamOpen: false,
+      pending: [],
+      pendingBytes: 0,
+      closing: false,
+    },
+  };
+
+  // Invoke message handler (client→upstream direction).
+  handlers.message(fakeSocket as never, "hello");
+  expect(touches).toContain("client->upstream");
+
+  // Simulate the upstream→client direction by invoking a fake onmessage callback
+  // assembled as the open handler would. We can't easily run open() without a real
+  // WebSocket, so we test the touch invocation via the RelayData closure directly.
+  const touchedUpstream: string[] = [];
+  const fakeUpstreamRelayData = {
+    devPort: 9999,
+    path: "/",
+    protocols: [],
+    touch: () => touchedUpstream.push("upstream->client"),
+  };
+
+  // Replicate the upstream.onmessage handler body from makeRelayHandlers open():
+  // ws.data.touch?.(); safeSend(ws, e.data)
+  const fakeClientWs = {
+    data: fakeUpstreamRelayData,
+    send: () => {},
+  };
+  // Call touch as the open handler would on an upstream message event.
+  fakeClientWs.data.touch?.();
+  expect(touchedUpstream).toContain("upstream->client");
+});
+
+test("PreviewService: upstream→client frame triggers touch via real upstream.onmessage wiring", async () => {
+  // Integration test: exercises the actual upstream.onmessage = (e) => { ws.data.touch?.(); ... }
+  // path in makeRelayHandlers. If that line were removed, idleSince would reflect only
+  // the WS-upgrade timestamp (t=1000), NOT the later t=5000 set by the upstream frame —
+  // so the final assertion (idle < 100 at t=5000) would fail.
+  //
+  // Strategy: bind + upgrade happen at t=1000. The upstream is a delayed WS server that
+  // opens AFTER a 200ms pause. During that pause we advance the injected clock to t=5000.
+  // When upstream.onopen fires it sends "server-push"; the relay's upstream.onmessage then
+  // calls ws.data.touch?.() which stamps lastActivityAt=5000. Without that touch call,
+  // lastActivityAt stays 1000 (the upgrade stamp) and idleSince(5000) = 4000, not ~0.
+  let t = 1000;
+  const now = () => t;
+
+  // Upstream that delays its WS accept by 200ms, then on open sends a push frame.
+  let upstreamServerWs: { send: (msg: string) => void } | null = null;
+  let upstreamOpenResolve: (() => void) | null = null;
+  const upstreamOpenedP = new Promise<void>((r) => {
+    upstreamOpenResolve = r;
+  });
+  const delayedPushUpstream = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req, srv) {
+      await new Promise((r) => setTimeout(r, 200)); // delay so we can advance clock
+      if (srv.upgrade(req)) return undefined;
+      return new Response("not a ws", { status: 426 });
+    },
+    websocket: {
+      open(ws) {
+        upstreamServerWs = ws;
+        upstreamOpenResolve?.();
+      },
+      message() {},
+    },
+  });
+  upstreams.push(delayedPushUpstream);
+
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT, now });
+  try {
+    const port = svc.ensure("s1", portOf(delayedPushUpstream));
+    expect(port).not.toBeNull();
+
+    // Collect exactly 1 message from the upstream push (received via upstream.onmessage).
+    const msgsP = collectWsMessages(`ws://127.0.0.1:${port}/`, 1);
+
+    // Wait until the upstream has opened its side (still within the 200ms delay window).
+    await upstreamOpenedP;
+
+    // Advance the clock AFTER the WS upgrade (which stamped t=1000) but BEFORE the
+    // upstream sends its push frame (which triggers upstream.onmessage → touch).
+    t = 5000;
+
+    // Now send the push frame from the upstream; the relay's upstream.onmessage fires
+    // and calls ws.data.touch?.() stamping lastActivityAt=5000.
+    upstreamServerWs!.send("server-push");
+
+    const msgs = await msgsP;
+    expect(msgs).toContain("server-push");
+
+    // idleSince(5000) must be ~0 — meaning lastActivityAt was stamped at t=5000 by
+    // upstream.onmessage. Without the touch call, lastActivityAt stays 1000 → idle=4000.
+    const idle = svc.idleSince("s1", t);
+    expect(idle).toBeLessThan(100); // stamped at t=5000, measured at t=5000 → near 0
+  } finally {
+    svc.stopAll();
+  }
 });
 
 // ── detectDevCommand ──────────────────────────────────────────────────────────

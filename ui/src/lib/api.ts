@@ -881,3 +881,16 @@ export async function startPreview(
   if (r.status === 409 && body.error === "already_bound") return { alreadyBound: true };
   throw new Error(body.error ?? `startPreview failed: ${r.status}`);
 }
+
+/** Force-stop the previewed dev server (SIGKILL on the server side).
+ *  - `{killed}` — signal dispatched to `killed` process(es) (signals-sent, NOT a death
+ *    confirmation; the preview clears via the sweep when the port stops listening).
+ *  - `{notBound:true}` — no live preview (benign race; already gone).
+ *  Throws on 404 (unknown session) or any other unexpected failure. */
+export async function stopPreview(id: string): Promise<{ killed: number } | { notBound: true }> {
+  const r = await fetch(`/api/sessions/${id}/preview/stop`, { method: "POST" });
+  const body = (await r.json().catch(() => ({}))) as { killed?: number; error?: string };
+  if (r.ok) return { killed: body.killed ?? 0 };
+  if (r.status === 409 && body.error === "not_bound") return { notBound: true };
+  throw new Error(body.error ?? `stopPreview failed: ${r.status}`);
+}

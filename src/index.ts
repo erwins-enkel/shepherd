@@ -146,6 +146,12 @@ sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
 const herdr = new HerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();
+const previewService = new PreviewService({
+  base: config.previewPortBase,
+  count: config.previewPortCount,
+  onChange: (id, previewPort) =>
+    events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
+});
 const service = new SessionService({
   store,
   worktree,
@@ -156,6 +162,7 @@ const service = new SessionService({
     : undefined,
   events,
   reaper: new ProcessReaper(),
+  preview: previewService,
   // Fast-poll a queue member to surface its merge promptly when the train session
   // archives before the 120s PR sweep credits it (the merge-train completion race).
   // prPoller is defined below; this closure is only invoked at runtime, after init.
@@ -198,13 +205,6 @@ const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
   return forge;
 };
 
-const previewService = new PreviewService({
-  base: config.previewPortBase,
-  count: config.previewPortCount,
-  onChange: (id, previewPort) =>
-    events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
-});
-
 const tailscaleServe = new TailscaleServeService({
   base: config.previewPortBase,
   count: config.previewPortCount,
@@ -227,7 +227,14 @@ const poller = new StatusPoller(
   undefined, // probeCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
   (id, activity) => events.emit("session:activity", { id, activity }),
-  { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
+  {
+    service: previewService,
+    sweepMs: config.previewSweepMs,
+    idleStop: {
+      idleMs: config.previewIdleStopMs,
+      stop: (id, signal) => service.stopPreview(id, signal),
+    },
+  }, // preview sweep wiring
   // claude-liveness sweep wiring: lets the UI gate its Resume affordance on the
   // claude process actually being gone instead of offering it on every idle/done.
   { onChange: (id, claudeAlive) => events.emit("session:claude-alive", { id, claudeAlive }) },

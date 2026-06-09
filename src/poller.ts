@@ -25,6 +25,9 @@ export interface PreviewWiring {
     release(sessionId: string): void;
     converge(active: Array<{ sessionId: string; devPort: number }>): void;
     snapshot(): Record<string, { previewPort: number | null }>;
+    /** Ms since last proxy activity for a bound session, null if unbound.
+     *  Optional so existing fake `service` literals in tests still compile. */
+    idleSince?(sessionId: string, now: number): number | null;
   };
   sweepMs: number;
   /** Batched /proc scan: builds the inode→port map ONCE and resolves all worktrees.
@@ -34,6 +37,9 @@ export interface PreviewWiring {
    *  Defaults to `resolveDevPort`, which honors the agent-declared `.shepherd-preview`
    *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic. */
   pick: (ports: number[], worktreePath: string) => Promise<number | null>;
+  /** Opt-in idle-stop. idleMs > 0 enables it; `stop` signals a session's dev-server
+   *  process (wired to SessionService.stopPreview in index.ts). Absent = disabled. */
+  idleStop?: { idleMs: number; stop: (sessionId: string, signal: NodeJS.Signals) => void };
 }
 
 /**
@@ -88,6 +94,13 @@ export class StatusPoller {
   private lastPreviewSweepAt = 0;
   /** True while an async preview sweep is in flight (re-entrancy guard). */
   private previewSweeping = false;
+  /** Per-session idle-stop escalation state: which devPort we've signalled and how
+   *  far we've escalated. Reset when the server dies, the session is viewed again,
+   *  or the agent resumes. */
+  private previewStopState = new Map<
+    string,
+    { devPort: number; level: "term" | "kill"; gaveUp: boolean }
+  >();
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
@@ -144,10 +157,12 @@ export class StatusPoller {
         release: () => {},
         converge: () => {},
         snapshot: () => ({}),
+        idleSince: () => null,
       },
       sweepMs: preview?.sweepMs ?? config.previewSweepMs,
       scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
       pick: preview?.pick ?? ((ports, worktreePath) => resolveDevPort(ports, worktreePath)),
+      idleStop: preview?.idleStop,
     };
     this.livenessWiring = {
       scan: liveness?.scan ?? ((worktrees) => scanClaudeAliveByWorktree(worktrees)),
@@ -281,6 +296,7 @@ export class StatusPoller {
       ...this.lastInterimChangeAt.keys(),
       ...this.interimInFlight.keys(),
       ...this.lastTranscriptTs.keys(),
+      ...this.previewStopState.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -295,6 +311,7 @@ export class StatusPoller {
         this.lastInterimChangeAt.delete(id);
         this.interimInFlight.delete(id);
         this.lastTranscriptTs.delete(id);
+        this.previewStopState.delete(id);
       }
     }
   }
@@ -655,6 +672,7 @@ export class StatusPoller {
    * does NOT dedupe or emit directly.
    */
   private async runPreviewSweep(isolated: Session[]): Promise<void> {
+    const now = this.now();
     const worktrees = isolated.map((s) => s.worktreePath);
     // Single /proc scan for ALL sessions — never once per session.
     const portsMap = this.previewWiring.scan(worktrees);
@@ -663,12 +681,65 @@ export class StatusPoller {
     for (const s of isolated) {
       const ports = portsMap.get(s.worktreePath) ?? [];
       const devPort = await this.previewWiring.pick(ports, s.worktreePath);
-      if (devPort !== null) active.push({ sessionId: s.id, devPort });
+      if (devPort === null) {
+        // Server is gone — clear any escalation state and skip (converge will release it).
+        this.previewStopState.delete(s.id);
+        continue;
+      }
+
+      const idleMs = this.previewWiring.idleStop?.idleMs ?? 0;
+      if (idleMs > 0) {
+        // FRESH read from store — NOT s.status (stale: store.update doesn't mutate the hydrated object)
+        const status = this.store.get(s.id)?.status;
+        const idle = this.previewWiring.service.idleSince?.(s.id, now) ?? null;
+        if ((status === "idle" || status === "done") && idle !== null && idle >= idleMs) {
+          this.escalateIdleStop(s.id, devPort);
+          // Keep the session in `active` so the next sweep can observe whether the port
+          // died and escalate; the preview clears only when the port actually disappears.
+        } else {
+          this.previewStopState.delete(s.id); // recovered: viewed again / resumed / not stale → reset episode
+        }
+      }
+
+      active.push({ sessionId: s.id, devPort });
     }
 
     // converge releases sessions absent from `active` and ensures those present.
     // onChange (wired in index.ts) emits session:preview on real transitions only.
     this.previewWiring.service.converge(active);
+  }
+
+  /** Advance the SIGTERM→SIGKILL→give-up escalation for an idle, no-viewer preview.
+   *  First sighting (or a changed devPort) → SIGTERM. Still up after SIGTERM → SIGKILL.
+   *  Still up after SIGKILL → log once and stop signalling (leave it bound/viewable).
+   *  `idleStop` is guaranteed present (caller checks idleMs > 0, which requires it).
+   *
+   *  GRACE WINDOW: one step advances per preview sweep, so the gap between SIGTERM
+   *  and SIGKILL is ~one sweep cadence (`previewSweepMs`, default 4s) — the dev
+   *  server's window to exit gracefully. That's ample for typical dev servers
+   *  (Vite/Next/webpack exit promptly on SIGTERM; the SIGKILL is a safety net for
+   *  ones that ignore it). The window is coupled to the sweep cadence by design —
+   *  lowering `previewSweepMs` shrinks it; if a future caller needs a fixed grace
+   *  independent of the cadence, stamp the SIGTERM time in `previewStopState` and
+   *  gate the SIGKILL on elapsed-ms instead of next-sweep. */
+  private escalateIdleStop(sessionId: string, devPort: number): void {
+    const idleStop = this.previewWiring.idleStop!;
+    const st = this.previewStopState.get(sessionId);
+    if (st && st.devPort === devPort) {
+      if (st.level === "term") {
+        idleStop.stop(sessionId, "SIGKILL");
+        st.level = "kill";
+      } else if (st.level === "kill" && !st.gaveUp) {
+        console.warn(
+          `[preview] idle-stop could not reclaim ${sessionId} on :${devPort} after SIGKILL`,
+        );
+        st.gaveUp = true;
+      }
+      // level "kill" && gaveUp → no further signals
+    } else {
+      idleStop.stop(sessionId, "SIGTERM");
+      this.previewStopState.set(sessionId, { devPort, level: "term", gaveUp: false });
+    }
   }
 
   start(): void {

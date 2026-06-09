@@ -21,6 +21,7 @@
     getLeftovers,
     setSessionAutopilot,
     startPreview as apiStartPreview,
+    stopPreview as apiStopPreview,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
@@ -70,6 +71,7 @@
     previewPort = null,
     claudeAlive = undefined,
     previewServeFailed = false,
+    previewMap = {},
     openPreviewTick = 0,
     buildQueue = null,
     onSeedBuildQueue,
@@ -111,6 +113,11 @@
     /** true when the server's tailscale serve registration failed for this session's
      *  preview port — the preview is reachable on loopback only, not over Tailscale. */
     previewServeFailed?: boolean;
+    /** Authoritative per-session preview-port map (the whole store.preview record).
+     *  Stop-pending resolution reads THIS (not the single focused `previewPort`) so a
+     *  stop confirmed after the operator navigates to another unit still resolves the
+     *  right session — otherwise the old unit's timeout fires a false "couldn't stop". */
+    previewMap?: Record<string, number | null>;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
     /** Current build queue for this session; updated live by WS queue:update events. */
@@ -660,6 +667,126 @@
       previewArmed = false;
       clearTimeout(previewArmTimer);
     }
+  }
+
+  // ── stop preview ──────────────────────────────────────────────────────────
+  // Per-session "stop in flight" guard: keyed by session id. The 15s timer fires
+  // a warning toast if the sweep hasn't cleared the port yet (signals-sent ≠ dead).
+  // Cleared on port-clear (via $effect), error/throw, or the 15s timeout. The entry
+  // captures the session NAME at stop time so the success toast names the right unit
+  // even if the operator has since navigated to a different session.
+  const previewStopPending = new SvelteMap<
+    string,
+    { timer: ReturnType<typeof setTimeout>; name: string }
+  >();
+  // Teardown: clear all outstanding guard timers so they can't fire after unmount.
+  $effect(() => () => {
+    for (const { timer } of previewStopPending.values()) clearTimeout(timer);
+  });
+  // Two-step confirm for stop (always — stopping is destructive).
+  let previewStopArmed = $state(false);
+  let previewStopArmTimer: ReturnType<typeof setTimeout> | undefined;
+  // Disarm on unit switch; clean up arm timer on unmount.
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    unitId;
+    previewStopArmed = false;
+    clearTimeout(previewStopArmTimer);
+  });
+  $effect(() => () => clearTimeout(previewStopArmTimer));
+
+  function setStopPending(id: string, name: string) {
+    clearStopPending(id); // clear any stale timer first
+    const timer = setTimeout(() => {
+      if (!previewStopPending.has(id)) return; // already resolved
+      // If the port has actually cleared, this is a success the resolver will/just
+      // handled — never warn on it. Otherwise the signals didn't take: warn.
+      if (previewMap[id] == null) {
+        clearStopPending(id);
+        return;
+      }
+      clearStopPending(id);
+      toasts.info(m.viewport_preview_stop_failed(), {
+        duration: null,
+        alert: true,
+        key: `preview-stop-warn-${id}`,
+      });
+    }, 15_000);
+    previewStopPending.set(id, { timer, name });
+  }
+
+  function clearStopPending(id: string) {
+    const entry = previewStopPending.get(id);
+    if (entry !== undefined) clearTimeout(entry.timer);
+    previewStopPending.delete(id);
+  }
+
+  const isPreviewStopPending = $derived(previewStopPending.has(unitId));
+
+  // Success resolver: a stop is confirmed only when the session's port actually
+  // clears in the authoritative store map (RAM freed) — NOT from the 200 response.
+  // Keyed off `previewMap` (the whole store record), not the focused `previewPort`,
+  // so a stop confirmed AFTER the operator navigates away still resolves the right
+  // session (the captured name) instead of stranding its 15s timer into a false
+  // "couldn't stop" warning. Resolved entries are removed first (clearStopPending),
+  // so the success toast fires at most once per stop episode.
+  $effect(() => {
+    // Collect first (don't mutate the map mid-iteration), then resolve.
+    const resolved: Array<{ id: string; name: string }> = [];
+    for (const [id, { name }] of previewStopPending) {
+      if (previewMap[id] == null) resolved.push({ id, name });
+    }
+    for (const { id, name } of resolved) {
+      clearStopPending(id);
+      toasts.info(m.viewport_preview_stopped({ name }));
+    }
+  });
+
+  async function handleStopPreview() {
+    let res;
+    try {
+      res = await apiStopPreview(session.id);
+    } catch {
+      toasts.info(m.viewport_preview_stop_failed(), {
+        duration: null,
+        alert: true,
+        key: `preview-stop-fail-${unitId}`,
+      });
+      return;
+    }
+
+    if ("notBound" in res) return; // benign race — preview already gone; pane clears on its own
+
+    if (res.killed === 0) {
+      toasts.info(m.viewport_preview_stop_nothing(), {
+        duration: null,
+        alert: true,
+        key: `preview-stop-warn-${unitId}`,
+      });
+      return;
+    }
+
+    // killed > 0: signals dispatched; wait for the sweep to clear the port.
+    setStopPending(unitId, session.name);
+    toasts.info(m.viewport_preview_stopping());
+  }
+
+  async function onStopPreviewClick() {
+    if (isPreviewStopPending) return; // re-entrancy guard
+
+    // Always two-step confirm: stopping kills the dev server (destructive).
+    if (!previewStopArmed) {
+      previewStopArmed = true;
+      clearTimeout(previewStopArmTimer);
+      previewStopArmTimer = setTimeout(() => (previewStopArmed = false), 3000);
+      return;
+    }
+    clearTimeout(previewStopArmTimer);
+    previewStopArmed = false;
+    // Re-check pending at the moment of the confirming click.
+    if (isPreviewStopPending) return;
+
+    await handleStopPreview();
   }
 
   // upload image(s) into this session's worktree, then inject their paths into
@@ -1851,6 +1978,17 @@
                frame usually means the preview port isn't tailscale-served yet, or the
                app refuses to frame via in-HTML CSP — both handled by open-in-new-tab. -->
           <span class="preview-hint">{m.viewport_preview_setup_hint()}</span>
+          <button
+            class="preview-stop"
+            class:armed={previewStopArmed}
+            type="button"
+            disabled={isPreviewStopPending}
+            title={m.viewport_preview_stop_note()}
+            onclick={onStopPreviewClick}
+            >{previewStopArmed
+              ? m.viewport_preview_stop_confirm()
+              : m.viewport_preview_stop()}</button
+          >
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external preview origin (distinct port), not an app route -->
           <a class="preview-open" href={previewUrl} target="_blank" rel="noopener"
             >{m.viewport_preview_open_new_tab()}</a
@@ -2993,6 +3131,39 @@
   .preview-open:hover,
   .preview-open:focus-visible {
     text-decoration: underline;
+  }
+  /* stop-preview button: borrows .decom's danger-arm color treatment (faint base →
+     --color-red on hover/armed) but keeps mixed-case at a tighter letter-spacing
+     (0.08em vs .decom's 0.12em) because the label is multi-word ("Stop dev server" /
+     "Confirm stop?") and all-caps would be too aggressive in the footer. */
+  .preview-stop {
+    flex: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .preview-stop:hover:not(:disabled) {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+  }
+  .preview-stop:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .preview-stop.armed {
+    color: var(--color-red);
+    border-color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
   /* preview tab marker: the non-reserved blue accent ties it to the row badge */
   .tab-btn.preview-tab.active {

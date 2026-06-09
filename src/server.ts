@@ -1041,6 +1041,24 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   return ok ? json({ ok: true, command }) : json({ error: "not found" }, 404);
 }
 
+// POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.
+// Signals the worktree dev-server process (SIGKILL) to terminate and reclaim RAM.
+// The preview clears via the poller sweep once the port stops listening (that
+// port-gone event is the real confirmation) — this endpoint only dispatches the
+// signal and reports how many processes it signalled.
+//   unknown id   → 404 { error: "not found" }
+//   not bound    → 409 { error: "not_bound" }
+//   stopped      → 200 { killed: <n> }   (killed is a signals-SENT count)
+function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "preview" && parts[4] === "stop"))
+    return null;
+  const id = parts[2];
+  const { result, killed } = deps.service.stopPreview(id, "SIGKILL");
+  if (result === "not_found") return json({ error: "not found" }, 404);
+  if (result === "not_bound") return json({ error: "not_bound" }, 409);
+  return json({ killed });
+}
+
 // POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
 // 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
 // `status` tells the caller whether a reviewer actually spawned ("started"), the plan was a
@@ -1288,6 +1306,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionGo,
     handleSessionReviewPlan,
     handlePreviewStart,
+    handlePreviewStop,
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,

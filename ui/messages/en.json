@@ -460,6 +460,13 @@
   "viewport_preview_command_prompt": "Dev-server start command",
   "viewport_preview_command_placeholder": "e.g. npm run dev",
   "viewport_preview_command_send": "Send",
+  "viewport_preview_stop": "Stop dev server",
+  "viewport_preview_stop_confirm": "Confirm stop?",
+  "viewport_preview_stop_note": "Stop the previewed dev server to free its memory",
+  "viewport_preview_stopping": "Stopping dev server…",
+  "viewport_preview_stopped": "Stopped the dev server for {name}",
+  "viewport_preview_stop_nothing": "No running dev-server process was found to stop; the preview is still attached.",
+  "viewport_preview_stop_failed": "Couldn't stop the dev server — it may be ignoring the stop signal.",
   "unitrow_preview_badge": "Preview",
   "unitrow_preview_badge_degraded": "Preview — Tailscale registration failed; reachable on loopback only",
   "viewport_preview_serve_failed": "Tailscale registration failed for this preview port — it's reachable on loopback only. Use Open in new tab if the frame is blank.",
@@ -850,5 +857,7 @@
   "feat_product_story_title": "The story, stated",
   "feat_product_story_body": "Shepherd now says what it is: opinionated mission control for interactive Claude Code. The About section in Settings carries the two-pillar story — genuine sessions you steer by typing, and firm opinions on how agent-built software ships — and the README leads with it.",
   "feat_herd_keynav_title": "Herd keyboard navigation",
-  "feat_herd_keynav_body": "Reach any session without the mouse: j/k (or the arrow keys) cycle through the herd in rail order, 1–9 jump straight to the Nth session, and g hops to the next session that needs you. The keys stay out of the way while you type in the terminal or a form."
+  "feat_herd_keynav_body": "Reach any session without the mouse: j/k (or the arrow keys) cycle through the herd in rail order, 1–9 jump straight to the Nth session, and g hops to the next session that needs you. The keys stay out of the way while you type in the terminal or a form.",
+  "feat_preview_stop_title": "Stop a preview to reclaim RAM",
+  "feat_preview_stop_body": "Force-stop a previewed dev server from the preview pane to free its memory. Operators can also enable opt-in idle-stop (SHEPHERD_PREVIEW_IDLE_STOP_MS) to auto-stop idle, unwatched previews."
 }

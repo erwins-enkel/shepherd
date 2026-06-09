@@ -460,6 +460,13 @@
   "viewport_preview_command_prompt": "Startbefehl für Entwicklungsserver",
   "viewport_preview_command_placeholder": "z.B. npm run dev",
   "viewport_preview_command_send": "Senden",
+  "viewport_preview_stop": "Devserver stoppen",
+  "viewport_preview_stop_confirm": "Stopp bestätigen?",
+  "viewport_preview_stop_note": "Vorschau-Devserver stoppen, um Arbeitsspeicher freizugeben",
+  "viewport_preview_stopping": "Devserver wird gestoppt…",
+  "viewport_preview_stopped": "Devserver für {name} gestoppt",
+  "viewport_preview_stop_nothing": "Kein laufender Devserver-Prozess zum Stoppen gefunden; die Vorschau ist weiterhin aktiv.",
+  "viewport_preview_stop_failed": "Devserver konnte nicht gestoppt werden — er ignoriert möglicherweise das Stoppsignal.",
   "unitrow_preview_badge": "Vorschau",
   "unitrow_preview_badge_degraded": "Vorschau — Tailscale-Registrierung fehlgeschlagen; nur über Loopback erreichbar",
   "viewport_preview_serve_failed": "Tailscale-Registrierung für diesen Vorschau-Port fehlgeschlagen — nur über Loopback erreichbar. Nutze 'In neuem Tab öffnen', wenn der Frame leer bleibt.",
@@ -850,5 +857,7 @@
   "feat_product_story_title": "Die Geschichte, auf den Punkt",
   "feat_product_story_body": "Shepherd sagt jetzt klar, was es ist: ein meinungsstarker Leitstand für interaktiven Claude Code. Der Info-Bereich in den Einstellungen enthält die Zwei-Säulen-Geschichte — echte Sitzungen, die du durch Tippen lenkst, und klare Vorstellungen davon, wie agentengebaute Software ausgeliefert wird — und das README steigt damit ein.",
   "feat_herd_keynav_title": "Tastaturnavigation durch die Herde",
-  "feat_herd_keynav_body": "Erreiche jede Session ohne Maus: j/k (oder die Pfeiltasten) wechseln in Listenreihenfolge durch die Herde, 1–9 springt direkt zur n-ten Session und g springt zur nächsten Session, die dich braucht. Beim Tippen im Terminal oder in einem Formular bleiben die Tasten inaktiv."
+  "feat_herd_keynav_body": "Erreiche jede Session ohne Maus: j/k (oder die Pfeiltasten) wechseln in Listenreihenfolge durch die Herde, 1–9 springt direkt zur n-ten Session und g springt zur nächsten Session, die dich braucht. Beim Tippen im Terminal oder in einem Formular bleiben die Tasten inaktiv.",
+  "feat_preview_stop_title": "Vorschau stoppen, um RAM freizugeben",
+  "feat_preview_stop_body": "Stoppe einen Vorschau-Devserver direkt aus dem Preview-Pane, um Arbeitsspeicher freizugeben. Operatoren können auch den optionalen Auto-Stop bei Inaktivität aktivieren (SHEPHERD_PREVIEW_IDLE_STOP_MS), um unbeobachtete, inaktive Vorschauen automatisch zu beenden."
 }

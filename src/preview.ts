@@ -414,6 +414,8 @@ interface RelayData {
   path: string;
   /** Requested subprotocols, forwarded to the upstream client socket. */
   protocols: string[];
+  /** Stamp session activity on a relayed frame. */
+  touch?: () => void;
 }
 
 /** Bound listener record: the running server + the live (mutable) dev port.
@@ -423,6 +425,9 @@ interface Listener {
   previewPort: number;
   devPort: number;
   server: Server<RelayData> | null;
+  /** Timestamp (ms) of the last proxied HTTP request or relayed WS frame. Set at
+   *  first bind; updated on every HTTP request and relayed WS frame (both directions). */
+  lastActivityAt: number;
 }
 
 export interface PreviewServiceOptions {
@@ -433,12 +438,15 @@ export interface PreviewServiceOptions {
   /** Fired ONLY on a real previewPort transition: null→port (first bind) and
    *  port→null (release). NOT fired when only the devPort changes. */
   onChange?: (sessionId: string, previewPort: number | null) => void;
+  /** Injectable clock for activity timestamps; defaults to Date.now. */
+  now?: () => number;
 }
 
 export class PreviewService {
   private readonly base: number;
   private readonly count: number;
   private readonly onChange?: (sessionId: string, previewPort: number | null) => void;
+  private readonly now: () => number;
 
   /** sessionId → bound listener. */
   private readonly listeners = new Map<string, Listener>();
@@ -449,6 +457,7 @@ export class PreviewService {
     this.base = opts.base;
     this.count = opts.count;
     this.onChange = opts.onChange;
+    this.now = opts.now ?? Date.now;
   }
 
   /**
@@ -478,7 +487,7 @@ export class PreviewService {
     }
 
     for (const previewPort of candidates) {
-      const listener: Listener = { previewPort, devPort, server: null };
+      const listener: Listener = { previewPort, devPort, server: null, lastActivityAt: this.now() };
       try {
         // bind reads listener.devPort live (re-ensure mutates it), so the record
         // must exist first — server is the only field bind fills in.
@@ -577,12 +586,20 @@ export class PreviewService {
     server: Server<RelayData>,
     listener: Listener,
   ): Response | Promise<Response> | undefined {
+    listener.lastActivityAt = this.now(); // stamp on every HTTP request and WS upgrade
     const devPort = listener.devPort; // live read — re-ensure may have updated it
     if (isWebSocketUpgrade(req)) {
       const url = new URL(req.url);
       const protocols = parseSubprotocols(req.headers.get("sec-websocket-protocol"));
       const upgraded = server.upgrade(req, {
-        data: { devPort, path: url.pathname + url.search, protocols },
+        data: {
+          devPort,
+          path: url.pathname + url.search,
+          protocols,
+          touch: () => {
+            listener.lastActivityAt = this.now();
+          },
+        },
         // Deliberately echo NO subprotocol here. Bun commits this 101 synchronously,
         // BEFORE the relay's `open` handler opens the upstream socket and learns which
         // subprotocol it actually negotiated — so echoing the client's first offer could
@@ -595,6 +612,34 @@ export class PreviewService {
       return new Response("WebSocket upgrade failed", { status: 426 });
     }
     return proxyHttp(req, devPort);
+  }
+
+  /**
+   * Returns the number of milliseconds since the last proxied HTTP request or
+   * relayed WS frame for `sessionId`, measured against `now`. Returns `null`
+   * when the session is not bound (no listener exists).
+   *
+   * CALLER CONTRACT: `now` MUST share a time base with the clock this service
+   * stamps `lastActivityAt` with (the injectable `now` in PreviewServiceOptions).
+   * In production both are `Date.now`, so callers (the poller) just pass their own
+   * `Date.now()`. In tests, inject the SAME clock into PreviewService AND pass its
+   * value here — mixing a fake service clock with a real `Date.now()` here yields
+   * a nonsense delta (a test footgun, not a prod bug).
+   */
+  idleSince(sessionId: string, now: number): number | null {
+    const listener = this.listeners.get(sessionId);
+    if (!listener) return null;
+    return now - listener.lastActivityAt;
+  }
+
+  /**
+   * Returns the live dev port that the bound listener for `sessionId` is
+   * currently targeting, or `null` when the session is not bound.
+   */
+  devPortFor(sessionId: string): number | null {
+    const listener = this.listeners.get(sessionId);
+    if (!listener) return null;
+    return listener.devPort;
   }
 }
 
@@ -728,7 +773,7 @@ interface RelayContext {
 /** WS client→server messages are typed loosely; this is the relay's view of one socket. */
 type RelaySocket = ServerWebSocket<RelayData> & { __relay?: RelayContext };
 
-function makeRelayHandlers() {
+export function makeRelayHandlers() {
   return {
     open(ws: RelaySocket) {
       const ctx: RelayContext = {
@@ -758,7 +803,10 @@ function makeRelayHandlers() {
         ctx.pendingBytes = 0;
         for (const frame of ctx.pending.splice(0)) safeSend(upstream, frame);
       };
-      upstream.onmessage = (e: MessageEvent) => safeSend(ws, e.data);
+      upstream.onmessage = (e: MessageEvent) => {
+        ws.data.touch?.();
+        safeSend(ws, e.data);
+      };
       upstream.onclose = (e: CloseEvent) => {
         ctx.closing = true;
         safeClose(ws, e.code, e.reason);
@@ -769,6 +817,7 @@ function makeRelayHandlers() {
     message(ws: RelaySocket, msg: string | Buffer) {
       const ctx = ws.__relay;
       if (!ctx || ctx.closing) return;
+      ws.data.touch?.();
       const frame = typeof msg === "string" ? msg : new Uint8Array(msg);
       if (ctx.upstream && ctx.upstreamOpen) {
         safeSend(ctx.upstream, frame);

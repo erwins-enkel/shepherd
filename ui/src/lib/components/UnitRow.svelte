@@ -150,6 +150,10 @@
   // Right-click (desktop) / long-press (touch) opens a small action menu on the
   // card. Resume is the headline action for a session parked at a shell;
   // decommission rides along where the parent wired it (mobile list).
+  // Deliberately NOT liveness-gated (no claudeAlive arg, unlike the Viewport
+  // header): the menu only opens on an explicit gesture, so it doesn't add bar
+  // noise — and it stays the force-resume escape hatch should the /proc sweep
+  // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
   let hitEl = $state<HTMLButtonElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);

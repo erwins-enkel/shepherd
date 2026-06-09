@@ -140,6 +140,10 @@
 
   // Right-click / long-press → a small action menu. On a tile only Resume applies
   // (decommission isn't wired into the grid view); skip the menu otherwise.
+  // Deliberately NOT liveness-gated (no claudeAlive arg, unlike the Viewport
+  // header): the menu only opens on an explicit gesture, so it doesn't add bar
+  // noise — and it stays the force-resume escape hatch should the /proc sweep
+  // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
   let hitEl = $state<HTMLButtonElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);

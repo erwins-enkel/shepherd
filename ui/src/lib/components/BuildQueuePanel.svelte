@@ -305,7 +305,6 @@
     max-height: 40vh;
     overflow-y: auto;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
   }
 

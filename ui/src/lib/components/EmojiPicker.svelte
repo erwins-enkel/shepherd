@@ -130,6 +130,9 @@
         if (e.key === "Enter") commitCustom();
       }}
     />
+    <button type="button" class="ep-set" disabled={!customOk} onclick={commitCustom}>
+      {m.emojipicker_set()}
+    </button>
     <button type="button" class="ep-clear" onclick={() => onpick(null)}>
       {m.emojipicker_clear()}
     </button>
@@ -201,7 +204,7 @@
   }
   .ep-custom {
     flex: 1;
-    min-width: 0;
+    min-width: 5ch;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
@@ -227,5 +230,24 @@
   .ep-clear:hover {
     color: var(--color-ink-bright);
     border-color: var(--color-amber);
+  }
+  .ep-set {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 0 8px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .ep-set:hover:not(:disabled) {
+    color: var(--color-ink-bright);
+    border-color: var(--color-amber);
+  }
+  .ep-set:disabled {
+    cursor: default;
+    opacity: 0.5;
   }
 </style>

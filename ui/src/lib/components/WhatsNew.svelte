@@ -67,11 +67,12 @@
     {:else}
       <ul class="list">
         {#each entries as entry (entry.id)}
+          {@const date = entryDate(entry.sinceVersion)}
           <li class="entry">
             <div class="entry-meta">
               <span class="entry-version">v{entry.sinceVersion}</span>
-              {#if entryDate(entry.sinceVersion)}
-                <span class="entry-date">{entryDate(entry.sinceVersion)}</span>
+              {#if date}
+                <span class="entry-date">{date}</span>
               {/if}
             </div>
             <h3 class="entry-title">

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readFile as fsReadFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { SessionPreviewState } from "./types";
 
@@ -44,6 +44,30 @@ async function defaultHttpProbe(port: number): Promise<boolean> {
 const PREVIEW_HINT_FILE = ".shepherd-preview";
 
 /**
+ * Max bytes read from a `.shepherd-preview` file. A valid hint is a short port
+ * number (≤5 digits) plus optional surrounding whitespace, so 64 bytes is ample.
+ * Capping the read keeps a pathologically large hint file from being slurped into
+ * memory on every preview sweep.
+ */
+const MAX_HINT_BYTES = 64;
+
+/**
+ * Default hint reader: reads at most MAX_HINT_BYTES from the file via a file
+ * handle, never the whole file. Matches the injectable
+ * `(path, enc) => Promise<string>` shape so tests can substitute a plain reader.
+ */
+async function readHintFileBounded(path: string, enc: "utf8"): Promise<string> {
+  const handle = await open(path, "r");
+  try {
+    const buf = Buffer.alloc(MAX_HINT_BYTES);
+    const { bytesRead } = await handle.read(buf, 0, MAX_HINT_BYTES, 0);
+    return buf.toString(enc, 0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
  * Read a `.shepherd-preview` hint file from the worktree root.
  *
  * Returns the declared port (integer in [1, 65535]) or null on any failure:
@@ -51,13 +75,14 @@ const PREVIEW_HINT_FILE = ".shepherd-preview";
  * pure run of decimal digits (e.g. "3000abc", "3000 5173", "3000.5"), NaN,
  * or out-of-range. Never throws.
  *
- * The file must contain only a base-10 port number (optionally surrounded by
- * whitespace) — no trailing characters, no decimal points, no spaces between
- * digits.
+ * Only the first MAX_HINT_BYTES of the file are read (see `readHintFileBounded`),
+ * so the file must put the port number (optionally surrounded by whitespace)
+ * within that prefix — no trailing characters, no decimal points, no spaces
+ * between digits.
  */
 async function readPreviewHint(
   worktreePath: string,
-  readFile: (path: string, enc: "utf8") => Promise<string> = fsReadFile,
+  readFile: (path: string, enc: "utf8") => Promise<string> = readHintFileBounded,
 ): Promise<number | null> {
   const hintPath = join(worktreePath, PREVIEW_HINT_FILE);
   let text: string;

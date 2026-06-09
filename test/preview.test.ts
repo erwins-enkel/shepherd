@@ -6,6 +6,9 @@ import {
   resolveDevPort,
 } from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── pickPrimaryPort ───────────────────────────────────────────────────────────
 
@@ -192,6 +195,26 @@ test("resolveDevPort: hint not in ports → falls back, hint port never probed",
 test("resolveDevPort: no hint (readFile rejects) → falls back to pickPrimaryPort", async () => {
   const result = await resolveDevPort([5173], "/any", rejectReadFile, neverProbe);
   expect(result).toBe(5173);
+});
+
+// The DEFAULT reader (no injected readFile) reads at most MAX_HINT_BYTES (64) from
+// disk. This file's first 64 bytes are a clean non-curated port (9000) + whitespace,
+// with a stray "x" far past the cap. With the cap, the hint parses to 9000 and (probe
+// passing) wins over the curated 5173 the heuristic would otherwise pick. WITHOUT the
+// cap an unbounded read would see the trailing "x", reject the content as non-numeric,
+// and fall back to pickPrimaryPort → curated 5173 — so a 9000 result proves only the
+// bounded prefix was read.
+test("resolveDevPort: default reader caps the read at MAX_HINT_BYTES", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-preview-hint-"));
+  try {
+    writeFileSync(join(dir, ".shepherd-preview"), `9000${" ".repeat(200)}x`);
+    const alwaysLive = async (): Promise<boolean> => true;
+    // Default readFile (undefined) → bounded reader.
+    const result = await resolveDevPort([9000, 5173], dir, undefined, alwaysLive);
+    expect(result).toBe(9000);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ── sanitizeCloseCode ─────────────────────────────────────────────────────────

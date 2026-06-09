@@ -5,6 +5,8 @@
   import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
   import { offerUpdateMain } from "$lib/pull-offer";
   import { showRebaseOffer } from "./pr-row";
+  import { relativeAge } from "$lib/format";
+  import { clock } from "$lib/now.svelte";
 
   let {
     repoPath,
@@ -178,11 +180,7 @@
       {/if}
       {#if pr.author}<span class="author">@{pr.author}</span>{/if}
       {#if age}
-        <span class="age-chip"
-          >{m.backlog_open_since_days({
-            days: Math.floor((Date.now() - pr.createdAt) / 86_400_000),
-          })}</span
-        >
+        <span class="age-chip">{relativeAge(pr.createdAt, clock.current)}</span>
       {/if}
     </div>
 

@@ -2,6 +2,8 @@
   import { listIssues } from "$lib/api";
   import type { Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { relativeAge } from "$lib/format";
+  import { clock } from "$lib/now.svelte";
 
   // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
   // issue it has claimed (auto session or human-linked task). Highlighted so a
@@ -91,11 +93,7 @@
                 >
               {/each}
               {#if age}
-                <span class="age-chip"
-                  >{m.backlog_open_since_days({
-                    days: Math.floor((Date.now() - issue.createdAt) / 86_400_000),
-                  })}</span
-                >
+                <span class="age-chip">{relativeAge(issue.createdAt, clock.current)}</span>
               {/if}
             </div>
           {/if}

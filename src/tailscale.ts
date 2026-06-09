@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { timedAsync } from "./instrument";
+import { execFileSync, timedAsync } from "./instrument";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,7 +11,9 @@ const execFileAsync = promisify(execFile);
 export type TailscaleRunner = (args: string[]) => Promise<{ stdout: string }>;
 
 const defaultRun: TailscaleRunner = (args) =>
-  timedAsync("tailscale " + args[0], () => execFileAsync("tailscale", args, { encoding: "utf8" }));
+  timedAsync("tailscale " + args[0], () =>
+    execFileAsync("tailscale", args, { encoding: "utf8", timeout: 5000 }),
+  );
 
 // ── resolveNodeHost ───────────────────────────────────────────────────────────
 
@@ -50,31 +52,123 @@ export async function resolveNodeHost(run: TailscaleRunner = defaultRun): Promis
   }
 }
 
-// ── serveRange ────────────────────────────────────────────────────────────────
+// ── TailscaleServeService ─────────────────────────────────────────────────────
+
+export type ServeState = "ok" | "failed";
+export type TailscaleRunnerSync = (args: string[]) => void;
+
+const SYNC_TIMEOUT_MS = 3000;
+const defaultRunSync: TailscaleRunnerSync = (args) => {
+  execFileSync("tailscale", args, { timeout: SYNC_TIMEOUT_MS, stdio: "ignore" });
+};
+
+export interface TailscaleServeOpts {
+  base: number;
+  count: number;
+  /** true = config.previewAutoServe && config.previewHost != null */
+  readonly enabled: boolean;
+  /** Fires after a register/unregister settles, so the change can be surfaced
+   *  (wiring emits it as session:preview-serve). serve: "ok"|"failed" on register, null on release. */
+  onChange?: (id: string, previewPort: number | null, serve: ServeState | null) => void;
+  /** Async hot path; default defaultRun */
+  run?: TailscaleRunner;
+  /** Sync shutdown path; default defaultRunSync */
+  runSync?: TailscaleRunnerSync;
+}
 
 /**
- * Registers each port in `[base, base + count)` with `tailscale serve --bg --https=<port>`.
- *
- * WHY sequential: `tailscale serve` does a read-modify-write on tailscaled's shared
- * serve config. Concurrent execs can race and lose each other's writes — one port's
- * config entry silently disappears. The `for` loop with `await` inside prevents that.
- *
- * WHY `--bg` and bare `127.0.0.1:<port>` target (no `--yes`, no `http://` prefix):
- * this is the form proven to work in README.md:231 and matched by the reaper at
- * src/process-reaper.ts:110 (`/\btailscale\s+serve\b/.test(cmd) && /--bg\b/.test(cmd)`).
- *
- * Best-effort: a failing port logs a warning and the loop continues.
+ * Dynamically (un)registers per-slot `tailscale serve` mappings as preview
+ * listeners bind/tear down. ALL mutations run through ONE sequential queue
+ * because `tailscale serve` read-modify-writes shared config — concurrent
+ * execs race and lose entries (see serveRange history / removed eager path).
  */
-export async function serveRange(
-  base: number,
-  count: number,
-  run: TailscaleRunner = defaultRun,
-): Promise<void> {
-  for (let port = base; port < base + count; port++) {
+export class TailscaleServeService {
+  private byId = new Map<string, { port: number; state: ServeState }>();
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(private opts: TailscaleServeOpts) {}
+
+  private get run() {
+    return this.opts.run ?? defaultRun;
+  }
+
+  private enqueue(op: () => Promise<void>): Promise<void> {
+    const next = this.queue.catch(() => {}).then(op);
+    this.queue = next;
+    return next;
+  }
+
+  private fire(id: string, port: number | null, serve: ServeState | null) {
     try {
-      await run(["serve", "--bg", `--https=${port}`, `127.0.0.1:${port}`]);
+      this.opts.onChange?.(id, port, serve);
     } catch (err) {
-      console.warn(`[tailscale] serveRange: failed to serve port ${port}:`, err);
+      console.warn(`[tailscale-serve] onChange threw for ${id}:`, err);
     }
+  }
+
+  register(id: string, port: number): Promise<void> {
+    if (!this.opts.enabled) return Promise.resolve();
+    return this.enqueue(async () => {
+      try {
+        await this.run(["serve", "--bg", `--https=${port}`, `127.0.0.1:${port}`]);
+        this.byId.set(id, { port, state: "ok" });
+        this.fire(id, port, "ok");
+      } catch (err) {
+        console.warn(`[tailscale-serve] register failed for ${id} port ${port}:`, err);
+        this.byId.set(id, { port, state: "failed" });
+        this.fire(id, port, "failed");
+      }
+    });
+  }
+
+  unregister(id: string): Promise<void> {
+    if (!this.opts.enabled) return Promise.resolve();
+    return this.enqueue(async () => {
+      const entry = this.byId.get(id);
+      if (!entry) return;
+      try {
+        await this.run(["serve", `--https=${entry.port}`, "off"]);
+      } catch (err) {
+        console.warn(`[tailscale-serve] unregister failed for ${id} port ${entry.port}:`, err);
+      }
+      this.byId.delete(id);
+      this.fire(id, null, null);
+    });
+  }
+
+  /**
+   * Clear the whole preview range at boot (recover stale mappings from a crashed
+   * prior run). One queued op running the offs sequentially; tolerates per-port failure.
+   */
+  reconcileStartup(): Promise<void> {
+    if (!this.opts.enabled) return Promise.resolve();
+    return this.enqueue(async () => {
+      for (let port = this.opts.base; port < this.opts.base + this.opts.count; port++) {
+        try {
+          await this.run(["serve", `--https=${port}`, "off"]);
+        } catch {
+          /* benign */
+        }
+      }
+    });
+  }
+
+  /** Synchronous shutdown teardown (process exit/SIGTERM): off only what we registered. */
+  stopAll(): void {
+    if (!this.opts.enabled) return;
+    const runSync = this.opts.runSync ?? defaultRunSync;
+    for (const { port } of this.byId.values()) {
+      try {
+        runSync(["serve", `--https=${port}`, "off"]);
+      } catch {
+        /* best effort */
+      }
+    }
+    this.byId.clear();
+  }
+
+  snapshot(): Record<string, ServeState> {
+    if (!this.opts.enabled) return {};
+    return Object.fromEntries([...this.byId].map(([id, e]) => [id, e.state]));
   }
 }

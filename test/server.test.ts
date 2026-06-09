@@ -1671,3 +1671,42 @@ test("claimLinkedIssue swallows an addIssueLabel rejection", async () => {
   } as unknown as GitForge;
   await expect(claimLinkedIssue(forge, 42)).resolves.toBeUndefined();
 });
+
+// ── GET /api/preview — serve status merge ─────────────────────────────────────
+
+test("GET /api/preview merges serve status into preview snapshot", async () => {
+  const deps = makeDeps() as AppDeps;
+  deps.preview = {
+    snapshot: () => ({
+      s1: { previewPort: 8001 },
+      s2: { previewPort: 8002 },
+    }),
+  };
+  (deps as any).previewServe = {
+    snapshot: () => ({ s1: "failed" }),
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/preview"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, { previewPort: number; serve?: string }>;
+  expect(body.s1).toEqual({ previewPort: 8001, serve: "failed" });
+  // s2 has no serve entry — field should be absent
+  expect(body.s2).toEqual({ previewPort: 8002 });
+  expect((body.s2 as any).serve).toBeUndefined();
+});
+
+test("GET /api/preview without previewServe dep returns unchanged snapshot (back-compat)", async () => {
+  const deps = makeDeps() as AppDeps;
+  deps.preview = {
+    snapshot: () => ({
+      s1: { previewPort: 8001 },
+    }),
+  };
+  // previewServe intentionally absent
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/preview"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, { previewPort: number; serve?: string }>;
+  expect(body.s1).toEqual({ previewPort: 8001 });
+  expect((body.s1 as any).serve).toBeUndefined();
+});

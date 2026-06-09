@@ -253,12 +253,14 @@ export const config = {
   // node's host — not the operator's connection host — to remain reachable from the
   // tailnet. Null when tailscale is absent or the hostname cannot be resolved.
   previewHost: null as string | null,
-  // Opt-in (default OFF): when true AND tailscale is present, shepherd runs
-  // `tailscale serve --bg --https=<port>` for every slot in the preview range at
-  // startup so ephemeral slots are tailnet-reachable without manual setup.
-  // With this off, the operator must manually `tailscale serve` each slot (see README).
+  // Dynamic per-slot tailscale serve registration (default ON): when true AND
+  // tailscale is present (previewHost resolved), shepherd registers
+  // `tailscale serve --bg --https=<port>` as each preview listener binds and
+  // removes it on teardown — only in-use ports are exposed.
+  // No-ops when tailscale/previewHost is absent. Set SHEPHERD_PREVIEW_AUTO_SERVE=0
+  // to map the range manually (e.g. via `tailscale serve --bg --https=<port>`).
   // Requires tailnet HTTPS certificates to be enabled for the node.
-  previewAutoServe: process.env.SHEPHERD_PREVIEW_AUTO_SERVE === "1",
+  previewAutoServe: process.env.SHEPHERD_PREVIEW_AUTO_SERVE !== "0",
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

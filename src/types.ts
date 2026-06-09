@@ -246,6 +246,17 @@ export interface SessionPreviewEvent {
  */
 export interface SessionPreviewState {
   previewPort: number | null;
+  /** Tailscale serve registration status for this slot; absent when not managed
+   *  (auto disabled / tailscale absent) or no mapping yet. "failed" → degraded. */
+  serve?: "ok" | "failed";
+}
+
+/** Emitted by TailscaleServeService when a slot's `tailscale serve` mapping
+ *  settles. Distinct from SessionPreviewEvent to avoid a register/emit feedback
+ *  loop. serve: "ok"|"failed" after register, null after release. */
+export interface SessionPreviewServeEvent {
+  id: string;
+  serve: "ok" | "failed" | null;
 }
 
 // ── learnings flywheel ────────────────────────────────────────────────────────

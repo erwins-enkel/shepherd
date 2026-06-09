@@ -86,8 +86,8 @@ export interface CreateSessionInput {
   planGateEnabled?: boolean | null;
 }
 
-/** Selectable claude model aliases; absent/"default" means no --model flag. */
-export const MODELS = ["opus", "sonnet", "haiku"] as const;
+/** Selectable claude model aliases (Fable, Opus, Sonnet, Haiku); absent/"default" means no --model flag. */
+export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 
 export interface Steer {
   id: string;

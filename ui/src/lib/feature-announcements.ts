@@ -253,4 +253,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_active_label_newtask_title",
     bodyKey: "feat_active_label_newtask_body",
   },
+  {
+    id: "fable-5-model",
+    sinceVersion: "1.21.0",
+    titleKey: "feat_fable5_model_title",
+    bodyKey: "feat_fable5_model_body",
+  },
 ];

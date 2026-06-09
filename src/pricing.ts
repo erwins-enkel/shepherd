@@ -23,6 +23,11 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     match: /haiku/i,
     w: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
   },
+  {
+    // Fable 5: mirrors opus deliberately, pending a verified Fable/Opus list-price ratio.
+    match: /fable/i,
+    w: { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 },
+  },
 ];
 
 const DEFAULT: ModelWeights = TABLE[1]!.w; // sonnet-like

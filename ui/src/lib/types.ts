@@ -527,8 +527,8 @@ export interface CreateInput {
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
 }
 
-/** Selectable claude model aliases; null = claude's own default. */
-export const MODELS = ["opus", "sonnet", "haiku"] as const;
+/** Selectable claude model aliases (Fable, Opus, Sonnet, Haiku); null = claude's own default. */
+export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 
 export interface Steer {
   id: string;

@@ -266,10 +266,11 @@
     const h = hotterGauge(limits);
     return h && h.w.pct >= 70 ? h : null;
   });
+  // Two-step ladder shared with TopBar: neutral muted fill at rest, amber once
+  // the window runs hot — usage is telemetry, so red/green stay status-only
+  // (Four-Light Rule, DESIGN.md).
   function gaugeColor(pct: number): string {
-    if (pct >= 90) return "var(--color-red)";
-    if (pct >= 70) return "var(--color-amber)";
-    return "var(--color-green)";
+    return pct >= 90 ? "var(--color-amber)" : "var(--color-muted)";
   }
 
   // "needs you" queue paging: only on compact layouts (the list isn't visible there),
@@ -2233,9 +2234,11 @@
   .ap-toggle:hover {
     color: var(--color-ink);
   }
+  /* ON is an active mode, not a completion — amber per the active-toolbar
+     convention (DESIGN.md); green stays reserved for ready-to-merge */
   .ap-toggle.on {
-    color: var(--color-green);
-    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
   }
 
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */

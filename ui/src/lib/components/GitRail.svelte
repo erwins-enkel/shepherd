@@ -570,11 +570,13 @@
     align-items: center;
     gap: 6px;
   }
+  /* active-count is informational telemetry, not a status light: it steps from
+     faint (nothing on) to plain ink, never green (Four-Light Rule, DESIGN.md) */
   .auto-count {
     color: var(--color-faint);
   }
   .auto-count.on {
-    color: var(--color-green);
+    color: var(--color-ink);
   }
 
   /* "new" discovery pip — separate element, distinct hue (accent blue ring).

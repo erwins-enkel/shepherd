@@ -665,7 +665,8 @@
     color: var(--color-amber);
     margin-top: 3px;
   }
-  /* switch: track + knob, green when on, amber pulse while reviewing */
+  /* switch: track + knob, amber when on (active mode, not a completion —
+     Four-Light Rule), pulsing while actively reviewing */
   .sw {
     flex: 0 0 auto;
     margin-top: 2px;
@@ -696,7 +697,7 @@
       background 0.12s;
   }
   .sw.on {
-    background: var(--color-green);
+    background: var(--color-amber);
   }
   .sw.on .knob {
     left: 15px;

@@ -156,10 +156,11 @@
     connected ? m.topbar_clock_tip_connected() : m.topbar_clock_tip_disconnected(),
   );
 
+  // Two-step ladder: neutral muted fill at rest, amber once the window runs hot.
+  // Usage level is telemetry, not agent state — red stays reserved for "blocked,
+  // needs you" and green for "ready to ship" (Four-Light Rule, DESIGN.md).
   function gaugeColor(pct: number): string {
-    if (pct >= 90) return "var(--color-red)";
-    if (pct >= 70) return "var(--color-amber)";
-    return "var(--color-green)";
+    return pct >= 90 ? "var(--color-amber)" : "var(--color-muted)";
   }
 
   const periodLabel = (k: GaugeKey) =>
@@ -413,7 +414,7 @@
       </button>
     {/if}
     <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         (green dot below) to free a slot in the single-row control cluster. The
+         (blue dot below) to free a slot in the single-row control cluster. The
          touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
          it named) so two stacked update badges still fit. -->
     {#if herdrUpdateAvailable && !mobile}
@@ -459,7 +460,7 @@
          working) plus the Settings entry. A pip on the gear is the only at-rest
          cue that there's a herd to halt: amber while agents simply work (matches the
          working colour), escalating to red only when something is blocked — so red
-         keeps meaning "needs you", consistent with the rest of the bar. The green
+         keeps meaning "needs you", consistent with the rest of the bar. The blue
          herdr-update dot (mobile) shifts to the opposite corner when both want the gear. -->
     <div class="gear-wrap" bind:this={gearWrap}>
       <button
@@ -525,7 +526,8 @@
   .hud {
     position: relative;
     border: 1px solid var(--color-line);
-    background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
+    /* flat tonal step + hairline; depth never comes from gradients (DESIGN.md) */
+    background: var(--color-panel);
     padding: 12px 16px;
     display: flex;
     align-items: center;
@@ -716,8 +718,9 @@
   .gear:hover {
     color: var(--color-amber);
   }
-  /* phone-only: the folded HERDR-update cue — a green pip on the gear that mirrors
-     the calm green of the desktop badge and rings against the panel to stay legible */
+  /* phone-only: the folded HERDR-update cue — a blue pip on the gear that mirrors
+     the calm informational blue of the desktop badge and rings against the panel
+     to stay legible */
   .gear-dot {
     position: absolute;
     top: 3px;
@@ -725,16 +728,17 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--color-green);
+    background: var(--color-blue);
     box-shadow: 0 0 0 2px var(--color-panel);
   }
-  /* When the red halt pip owns the top-right corner, the green herdr dot drops to the
+  /* When the red halt pip owns the top-right corner, the blue herdr dot drops to the
      bottom-right so the two cues never overlap. */
   .gear-dot.shift {
     top: auto;
     bottom: 3px;
   }
-  /* What's New affordance — blue accent, distinct from green (herdr) and amber (app-update). */
+  /* What's New affordance — blue informational accent (shared with the herdr cue),
+     distinct from amber (app-update). */
   .whatsnew-badge {
     display: flex;
     align-items: center;
@@ -846,7 +850,7 @@
     z-index: 50;
     min-width: 200px;
     max-width: min(280px, 85vw);
-    background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
+    background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
@@ -912,12 +916,13 @@
     gap: 4px;
     letter-spacing: 0.08em;
   }
-  /* herdr badge: informational (operator updates manually), so it reads as a
-     calmer green and doesn't pulse like the actionable self-update badge */
+  /* herdr badge: informational (operator updates manually), so it reads as calm
+     blue — the informational accent — and doesn't pulse like the actionable
+     self-update badge */
   .update-badge.herdr {
-    background: color-mix(in srgb, var(--color-green) 14%, transparent);
-    border-color: var(--color-green);
-    color: var(--color-green);
+    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+    border-color: var(--color-blue);
+    color: var(--color-blue);
     animation: none;
   }
   @keyframes update-pulse {
@@ -945,11 +950,14 @@
   .clock.no-time .time {
     display: none;
   }
+  /* connection dot: informational, so it stays in the neutral ink ramp — bright
+     when connected vs faint when dropped (brightness, not a status hue, carries
+     the cue; the tooltip/aria text names the state). */
   .clock .dot {
     color: var(--color-faint);
   }
   .clock .dot.on {
-    color: var(--color-green);
+    color: var(--color-ink-bright);
   }
   .hud.mobile {
     /* wrap instead of overflowing: on fold-cover (~280px) and phones the
@@ -1077,7 +1085,7 @@
       top: calc(100% + 9px);
       right: 0;
       white-space: nowrap;
-      background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
+      background: var(--color-panel);
       border: 1px solid var(--color-line-bright);
       box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
       color: var(--color-ink-bright);

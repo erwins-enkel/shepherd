@@ -133,6 +133,7 @@
       type="button"
       aria-label={m.unit_open_aria({ name: session.name })}
       aria-describedby="u-repo-{session.id} u-sub-{session.id} u-status-{session.id}"
+      title={session.repoPath}
       onclick={() => onselect(session.id)}
     ></button>
     <div class="pip-col">
@@ -147,7 +148,9 @@
       <div class="u-top">
         <span class="name">{session.name}</span>
       </div>
-      <div class="u-repo" id="u-repo-{session.id}" title={session.repoPath}>
+      <!-- repoPath tooltip lives on .unit-hit (overlay covers this line), so it
+           still surfaces on row hover; describedby reads this line's repo name -->
+      <div class="u-repo" id="u-repo-{session.id}">
         <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
         >{repoName}
       </div>

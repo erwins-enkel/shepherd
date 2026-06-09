@@ -1387,6 +1387,8 @@
         status={session.status}
         showReady={compact}
         planPhase={session.planPhase}
+        isolated={session.isolated}
+        baseBranch={session.baseBranch}
         mobile
       />
     </div>

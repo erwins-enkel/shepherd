@@ -835,5 +835,7 @@
   "feat_whatsnew_versiondate_title": "Each update is now dated and versioned",
   "feat_whatsnew_versiondate_body": "Every entry in this What's-New drawer now carries the release version it shipped in and the date that release went out, so you can see at a glance how recent each change is and which version introduced it.",
   "feat_backlog_recent_repos_title": "Recent repos pinned in the backlog",
-  "feat_backlog_recent_repos_body": "The backlog's repo list now starts with the three repos you've recently run the most agents on — ranked by the same criteria as the New Task repo picker's \"recently worked on\" group."
+  "feat_backlog_recent_repos_body": "The backlog's repo list now starts with the three repos you've recently run the most agents on — ranked by the same criteria as the New Task repo picker's \"recently worked on\" group.",
+  "feat_product_story_title": "The story, stated",
+  "feat_product_story_body": "Shepherd now says what it is: opinionated mission control for interactive Claude Code. The About section in Settings carries the two-pillar pitch — genuine sessions you steer by typing, and firm opinions on how agent-built software ships — and the README leads with it."
 }

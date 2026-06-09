@@ -213,6 +213,10 @@ export interface RepoConfig {
   buildQueueEnabled: boolean;
   /** Pre-execution plan gate: grill + adversarial plan review before execution (default off). */
   planGateEnabled: boolean;
+  /** Open new PRs as drafts; mutually exclusive with autoMergeEnabled (default false). */
+  draftMode: boolean;
+  /** Who may promote a draft PR to ready-for-review (default "human"). */
+  signoffAuthority: "human" | "critic" | "either";
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;

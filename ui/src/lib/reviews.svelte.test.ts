@@ -21,6 +21,8 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autoMergeEnabled: false,
   buildQueueEnabled: false,
   planGateEnabled: false,
+  draftMode: false,
+  signoffAuthority: "human",
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,
@@ -50,7 +52,11 @@ beforeEach(() => {
   repoConfig.learnings = {};
   repoConfig.autopilot = {};
   repoConfig.autoDrain = {};
+  repoConfig.autoMerge = {};
   repoConfig.buildQueue = {};
+  repoConfig.planGate = {};
+  repoConfig.draftMode = {};
+  repoConfig.signoffAuthority = {};
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
   repoConfig.usageCeiling = {};
@@ -333,4 +339,101 @@ test("repoConfig.setUsageCeiling reverts on error", async () => {
   repoConfig.usageCeiling = { "/repo": 80 };
   await repoConfig.setUsageCeiling("/repo", 50);
   expect(repoConfig.usageCeilingFor("/repo")).toBe(80); // reverted
+});
+
+// ── draft mode ─────────────────────────────────────────────────────────────
+
+test("repoConfig.isDraftModeEnabled defaults to false for unknown repo", () => {
+  expect(repoConfig.isDraftModeEnabled("/unknown")).toBe(false);
+});
+
+test("repoConfig.signoffAuthorityFor defaults to human for unknown repo", () => {
+  expect(repoConfig.signoffAuthorityFor("/unknown")).toBe("human");
+});
+
+test("repoConfig.ensure caches draftMode and signoffAuthority", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue(rc({ draftMode: true, signoffAuthority: "critic" }));
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true);
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("critic");
+});
+
+test("repoConfig.toggleDraftMode flips draftMode and sends the field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true }));
+  repoConfig.draftMode = { "/repo": false };
+  await repoConfig.toggleDraftMode("/repo");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true);
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: true, autoMergeEnabled: false });
+});
+
+test("repoConfig.toggleDraftMode ON forces autoMerge OFF", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true, autoMergeEnabled: false }));
+  repoConfig.draftMode = { "/repo": false };
+  repoConfig.autoMerge = { "/repo": true };
+  await repoConfig.toggleDraftMode("/repo");
+  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false);
+});
+
+test("repoConfig.toggleDraftMode OFF does NOT touch autoMerge", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: false, autoMergeEnabled: false }));
+  repoConfig.draftMode = { "/repo": true };
+  repoConfig.autoMerge = { "/repo": false };
+  await repoConfig.toggleDraftMode("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: false });
+});
+
+test("repoConfig.toggleDraftMode reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.draftMode = { "/repo": false };
+  await repoConfig.toggleDraftMode("/repo");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false); // reverted
+});
+
+test("repoConfig.toggleDraftMode ON reverts the paired autoMerge:false on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.draftMode = { "/repo": false };
+  repoConfig.autoMerge = { "/repo": true };
+  await repoConfig.toggleDraftMode("/repo");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false); // reverted
+  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(true); // paired field restored
+});
+
+test("repoConfig.toggleAutoMerge ON reverts the paired draftMode:false on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.autoMerge = { "/repo": false };
+  repoConfig.draftMode = { "/repo": true };
+  await repoConfig.toggleAutoMerge("/repo");
+  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false); // reverted
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true); // paired field restored
+});
+
+test("repoConfig.toggleAutoMerge ON forces draftMode OFF", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoMergeEnabled: true, draftMode: false }));
+  repoConfig.autoMerge = { "/repo": false };
+  repoConfig.draftMode = { "/repo": true };
+  await repoConfig.toggleAutoMerge("/repo");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false);
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoMergeEnabled: true, draftMode: false });
+});
+
+test("repoConfig.toggleAutoMerge OFF does NOT touch draftMode", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoMergeEnabled: false }));
+  repoConfig.autoMerge = { "/repo": true };
+  repoConfig.draftMode = { "/repo": false };
+  await repoConfig.toggleAutoMerge("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoMergeEnabled: false });
+});
+
+test("repoConfig.setSignoffAuthority updates the value", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ signoffAuthority: "either" }));
+  await repoConfig.setSignoffAuthority("/repo", "either");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { signoffAuthority: "either" });
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("either");
+});
+
+test("repoConfig.setSignoffAuthority reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.signoffAuthority = { "/repo": "human" };
+  await repoConfig.setSignoffAuthority("/repo", "critic");
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("human"); // reverted
 });

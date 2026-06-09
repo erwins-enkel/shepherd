@@ -229,4 +229,11 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_resume_session_title",
     bodyKey: "feat_resume_session_body",
   },
+  {
+    id: "draft-mode",
+    sinceVersion: "1.20.0",
+    titleKey: "feat_draft_mode_title",
+    bodyKey: "feat_draft_mode_body",
+    targetId: "draft-mode",
+  },
 ];

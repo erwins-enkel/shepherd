@@ -110,8 +110,11 @@
   let conn = $state<PtyConn | undefined>();
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
-  // true once the agent is gone (claude quit / ctrl-c) — show a "resume" prompt
+  // true once the connection stopped for good — show a recovery prompt. endReason
+  // splits the two cases: "gone" = the agent exited (offer claude --resume),
+  // "unreachable" = herdr itself is down (offer a plain re-attach).
   let ended = $state(false);
+  let endReason = $state<"gone" | "unreachable">("gone");
   let resuming = $state(false);
   let resumeFailed = $state(false);
   // bumped on a successful resume to tear down the dead terminal + re-attach to the
@@ -494,6 +497,15 @@
     }
   }
 
+  // herdr was unreachable (not the agent quitting) — there's nothing to respawn,
+  // the live agent is still there once herdr is back. Just rebuild the terminal so
+  // it re-attaches. If herdr is still down the fast-fail loop re-surfaces this.
+  function reattach() {
+    ended = false;
+    resumeFailed = false;
+    resumeEpoch++;
+  }
+
   // mobile compose bar submit. Routing the composed line through here (as an
   // atomic bracketed paste) instead of xterm's textarea sidesteps the Android
   // IME duplication bug. See composeKeystrokes for the byte mapping.
@@ -630,10 +642,14 @@
       () => {
         parked = true;
       },
-      // the session ended (agent gone) — note it in the buffer + surface a "resume"
-      // prompt; the status badge already flips to "done" via the session:status event
-      () => {
-        term.write(`\r\n\x1b[2m${m.viewport_session_ended()}\x1b[0m\r\n`);
+      // the connection stopped for good — note it in the buffer + surface a
+      // recovery prompt. "gone" → claude exited (status badge already flipped to
+      // "done" via session:status); "unreachable" → herdr is down, just re-attach.
+      (reason) => {
+        endReason = reason;
+        term.write(
+          `\r\n\x1b[2m${reason === "unreachable" ? m.viewport_herdr_unreachable() : m.viewport_session_ended()}\x1b[0m\r\n`,
+        );
         ended = true;
       },
     );
@@ -1320,7 +1336,14 @@
         <span class="parked-sub">{m.viewport_parked_sub()}</span>
       </button>
     {/if}
-    {#if ended && !parked && tab === "term" && session.claudeSessionId}
+    {#if ended && !parked && tab === "term" && endReason === "unreachable"}
+      <!-- herdr is down, not the agent — re-attach (no claudeSessionId needed) -->
+      <button class="parked resume" type="button" onclick={reattach}>
+        <span class="parked-icon" aria-hidden="true">↻</span>
+        <span class="parked-title">{m.viewport_reconnect_title()}</span>
+        <span class="parked-sub">{m.viewport_reconnect_sub()}</span>
+      </button>
+    {:else if ended && !parked && tab === "term" && session.claudeSessionId}
       <button class="parked resume" type="button" onclick={resumeSession} disabled={resuming}>
         <span class="parked-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
         <span class="parked-title"

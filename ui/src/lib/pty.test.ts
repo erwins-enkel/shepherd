@@ -152,6 +152,7 @@ describe("connectPty", () => {
 
     last().gone(); // server says the agent is gone (close code 4001)
     expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onEnded).toHaveBeenCalledWith("gone");
 
     vi.advanceTimersByTime(5000);
     expect(FakeWs.instances).toHaveLength(1); // never reconnected — no attach loop
@@ -176,7 +177,8 @@ describe("connectPty", () => {
       last().drop(); // closes immediately — never lived past the fast-fail window
       vi.advanceTimersByTime(1000); // let the scheduled retry fire
     }
-    expect(onEnded).toHaveBeenCalledTimes(1); // surfaced the Resume affordance, once
+    expect(onEnded).toHaveBeenCalledTimes(1); // surfaced the affordance, once
+    expect(onEnded).toHaveBeenCalledWith("unreachable"); // herdr down, not agent gone
     vi.useRealTimers();
   });
 

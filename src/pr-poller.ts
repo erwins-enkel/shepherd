@@ -39,6 +39,28 @@ export function guardStaleTerminal(
   return git;
 }
 
+/** Whether a terminal (`merged`/`closed`) `raw` is this session's genuine PR transition and should
+ *  bypass `guardStaleTerminal` (which would mis-downgrade it to "none" when the merge train
+ *  rebased/force-pushed the head out of the session's worktree, so the ownership check can't see it).
+ *  Returns false immediately for any non-terminal `raw` — `guardStaleTerminal` is a no-op off-terminal
+ *  anyway, and this prevents a malformed `{state:"none"}` from ever being trusted.
+ *  True (for a terminal `raw`) when either:
+ *   - `marked`  — the session is currently merge-train-flagged (mergingSince set): a marked session
+ *                 always had an open PR, so its terminal result is the train landing it (this holds
+ *                 even when the PR was never cached open — the cold-cache case); or
+ *   - `prev` already cached THIS PR (same number, non-"none" state) — a PR we already owned.
+ *  When this returns false, `raw` may be a reused-branch-name collision and must run through
+ *  `guardStaleTerminal`. */
+export function trustsTerminal(
+  prev: GitState | undefined,
+  raw: GitState,
+  marked: boolean,
+): boolean {
+  if (raw.state !== "merged" && raw.state !== "closed") return false; // guardStaleTerminal is a no-op off-terminal anyway
+  if (marked) return true;
+  return !!prev && prev.number != null && prev.number === raw.number && prev.state !== "none";
+}
+
 /**
  * Polls PR status for active sessions and caches it in memory. One `gh` process
  * runs at a time (sequential awaits) to bound the synchronous `execFileSync`
@@ -172,9 +194,13 @@ export class PrPoller implements PrCache {
     const forge = s.branch ? this.resolveForge(s.repoPath) : null;
     if (!forge || !s.branch) return; // no PR possible — leave uncached
     const me = (await forge.currentUser?.()) ?? null;
+    const prev = this.cache.get(s.id);
+    const marked = s.mergingSince != null;
+    const guard = (raw: GitState): GitState =>
+      trustsTerminal(prev, raw, marked) ? raw : this.rejectStaleTerminal(s, raw);
     let git: GitState;
     try {
-      git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(s.branch)) });
+      git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch)) });
     } catch {
       return; // transient gh failure → keep last cached value
     }
@@ -186,7 +212,7 @@ export class PrPoller implements PrCache {
       const live = this.reconcileBranch(s);
       if (live) {
         try {
-          git = this.rejectStaleTerminal(s, { kind: forge.kind, ...(await forge.prStatus(live)) });
+          git = guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
         } catch {
           return;
         }
@@ -195,7 +221,6 @@ export class PrPoller implements PrCache {
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     git = annotateHandoff(git, s.repoPath, me);
-    const prev = this.cache.get(s.id);
     if (
       !prev ||
       prev.state !== git.state ||

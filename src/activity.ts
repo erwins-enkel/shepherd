@@ -148,8 +148,8 @@ export function readTranscriptTail(path: string, maxBytes = MAX_TAIL_BYTES): str
       const { size } = fstatSync(fd);
       const readBytes = Math.min(size, maxBytes);
       const buf = Buffer.allocUnsafe(readBytes);
-      readSync(fd, buf, 0, readBytes, size - readBytes);
-      const text = buf.toString("utf8");
+      const n = readSync(fd, buf, 0, readBytes, size - readBytes);
+      const text = buf.subarray(0, n).toString("utf8");
       // started mid-file → drop the leading partial line
       if (size > maxBytes) {
         const nl = text.indexOf("\n");

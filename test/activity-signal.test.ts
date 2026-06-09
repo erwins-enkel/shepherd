@@ -12,6 +12,7 @@ import {
 } from "../src/activity-signal";
 import { snapshotFromText } from "../src/stall";
 import type { ActivityEntry } from "../src/activity";
+import { MAX_TAIL_BYTES } from "../src/activity";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -300,7 +301,7 @@ test("readTranscriptSignals parity: signals from tail read equal signals from re
     // Verify the file is actually larger than MAX_TAIL_BYTES so the truncation
     // path is exercised (not the whole-file-fits path).
     const fileSize = statSync(path).size;
-    expect(fileSize).toBeGreaterThan(512 * 1024);
+    expect(fileSize).toBeGreaterThan(MAX_TAIL_BYTES);
 
     // Derive expected signals from ONLY the recent lines (what the tail should cover
     // after the filler is cut). The filler uses "2020-01-01" timestamps and
@@ -316,7 +317,8 @@ test("readTranscriptSignals parity: signals from tail read equal signals from re
     expect(snapshot).not.toBeNull();
     // heartbeat must match the recent records, not the filler's 2020 timestamp
     expect(activity!.lastActivityTs).toBe(expectedActivity!.lastActivityTs);
-    // summary must be from the recent edit/bash, not "$ echo filler-N"
+    // summary must be exactly the known recent tool — not any "$ echo filler-N" value
+    expect(activity!.summary).toBe("$ bun test");
     expect(activity!.summary).toBe(expectedActivity!.summary);
     // stall snapshot must reflect recent records only
     expect(snapshot!.lastTs).toBe(expectedSnapshot!.lastTs);

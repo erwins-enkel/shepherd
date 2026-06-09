@@ -7,7 +7,8 @@
 // it never executes the target repo's code.
 //
 // Scope: the JS/TS baseline we dogfood (presence of a package.json — at the
-// root or in a first-level subdirectory — gates applicability). Other stacks
+// root or exactly one directory level down — gates applicability; deeper
+// layouts like `apps/web/package.json` are not detected). Other stacks
 // (Python/ruff/mypy) are a later generalization.
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
@@ -208,6 +209,11 @@ export const GUARDRAILS: GuardrailDef[] = [
  * Package roots relative to `dir`: `""` when the root has a manifest, else
  * first-level subdirectories with one (mixed-stack repos whose JS/TS lives in
  * a subproject, e.g. `ui/` next to Python). Empty → not a JS/TS repo.
+ *
+ * Known limits, accepted to keep the scan cheap: detection descends exactly
+ * one level (`apps/web/package.json` is missed), and a root manifest
+ * short-circuits the subproject scan — a workspaces-only root whose tooling
+ * lives in subpackages is scored from the root manifest alone.
  */
 function findPackageRoots(dir: string): string[] {
   if (existsSync(join(dir, "package.json"))) return [""];
@@ -234,7 +240,8 @@ function collectManifest(file: string, deps: Set<string>, scripts: Record<string
   try {
     pkg = JSON.parse(readFileSync(file, "utf8"));
   } catch {
-    // Missing or malformed package.json: still a JS/TS repo, just no resolvable deps/scripts.
+    // Malformed package.json (findPackageRoots guarantees the file exists):
+    // still a JS/TS repo, just no resolvable deps/scripts.
   }
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);

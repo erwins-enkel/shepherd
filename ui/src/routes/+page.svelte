@@ -451,7 +451,10 @@
       store.git,
       (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
       nowMs,
-      herdFilter,
+      // a page-level status filter short-circuits the rail's all/ready filter in
+      // Herd's shown set (one filter at a time) — mirror that here so keynav walks
+      // exactly the visible rows, never a "ready" subset of the status-filtered list
+      statusFilter != null ? "all" : herdFilter,
     );
   }
 

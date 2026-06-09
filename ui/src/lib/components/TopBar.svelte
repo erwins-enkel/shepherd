@@ -711,7 +711,6 @@
     font-size: var(--fs-xl);
     line-height: 1;
     padding: 5px 8px;
-    border-radius: 2px;
     cursor: pointer;
   }
   .gear:hover {

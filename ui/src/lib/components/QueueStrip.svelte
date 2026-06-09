@@ -23,6 +23,7 @@
     autoMerge = {},
     items = [],
     injectable = [],
+    runningRepoPaths = new Set(),
     onlearnings,
     repoFilter = null,
     onrepofilter,
@@ -31,6 +32,8 @@
     autoMerge?: Record<string, AutoMergeStatus>;
     items?: Learning[];
     injectable?: RepoInjectable[];
+    // repo paths that currently have a running agent — the band lists only these.
+    runningRepoPaths?: Set<string>;
     onlearnings?: (repoPath: string) => void;
     // active herd repo filter (full repo path), or null when showing all repos
     repoFilter?: string | null;
@@ -38,7 +41,7 @@
     onrepofilter?: (repoPath: string | null) => void;
   } = $props();
 
-  const rows = $derived(repoStatusRows(drain, items, injectable));
+  const rows = $derived(repoStatusRows(drain, items, injectable, runningRepoPaths));
   const mergeRows = $derived(activeMergeTrain(autoMerge));
 
   // Lazy queue popover: at most one open at a time, fetched fresh on open.
@@ -230,7 +233,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
+    gap: 2px;
     margin: 0;
     padding: 0;
     list-style: none;

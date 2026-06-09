@@ -190,37 +190,69 @@ describe("mergeTrainLabel", () => {
 // ─── repoStatusRows (generalized per-repo band) ──────────────────────────────
 
 describe("repoStatusRows", () => {
-  it("unions enabled-drain repos with learnings repos, sorted by path", () => {
+  // shorthand for the running-agent set the band gates on
+  const running = (...paths: string[]) => new Set(paths);
+
+  it("lists running-agent repos, enriched with drain/learnings, sorted by path", () => {
     const rows = repoStatusRows(
       { z: drain({ repoPath: "/repos/z" }) },
       [learning({ repoPath: "/repos/a" })],
       [],
+      running("/repos/a", "/repos/z"),
     );
     expect(rows.map((r) => r.repoPath)).toEqual(["/repos/a", "/repos/z"]);
   });
 
-  it("an insight-only repo gets a row with drain:null and the proposal count", () => {
+  it("excludes a repo with an enabled drain but no running agent", () => {
+    const rows = repoStatusRows(
+      { a: drain({ repoPath: "/repos/a", inFlight: 0 }) },
+      [],
+      [],
+      running(),
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("excludes a repo with pending learnings but no running agent", () => {
+    const rows = repoStatusRows({}, [learning({ repoPath: "/repos/a" })], [], running());
+    expect(rows).toEqual([]);
+  });
+
+  it("a running repo with learnings gets the proposal count, drain:null when not drained", () => {
     const rows = repoStatusRows(
       {},
       [learning({ id: "1", repoPath: "/repos/a" }), learning({ id: "2", repoPath: "/repos/a" })],
       [],
+      running("/repos/a"),
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 2, curate: 0 });
   });
 
-  it("a drain-only repo has insights:0 and curate:0 and carries its drain", () => {
-    const rows = repoStatusRows({ a: drain({ repoPath: "/repos/a", inFlight: 1 }) }, [], []);
+  it("a running repo with a drain but no learnings carries its drain, insights:0", () => {
+    const rows = repoStatusRows(
+      { a: drain({ repoPath: "/repos/a", inFlight: 1 }) },
+      [],
+      [],
+      running("/repos/a"),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].drain?.inFlight).toBe(1);
     expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
   });
 
-  it("a disabled drain never produces a row or leaks into an insight-only row", () => {
+  it("a running repo with neither drain nor learnings still gets a name-only row", () => {
+    const rows = repoStatusRows({}, [], [], running("/repos/a"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 });
+  });
+
+  it("a disabled drain never leaks into a running repo's row", () => {
     const rows = repoStatusRows(
       { a: drain({ repoPath: "/repos/a", enabled: false, inFlight: 5 }) },
       [learning({ repoPath: "/repos/a" })],
       [],
+      running("/repos/a"),
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].drain).toBeNull(); // disabled drain stays out of the row
@@ -231,6 +263,7 @@ describe("repoStatusRows", () => {
       {},
       [],
       [injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] })],
+      running("/repos/a"),
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ insights: 0, curate: 2 });
@@ -241,8 +274,10 @@ describe("repoStatusRows", () => {
       {},
       [],
       [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
+      running("/repos/a"),
     );
-    expect(rows).toEqual([]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
   });
 
   it("proposals suppress the curate fallback (badge showed the count, not curate)", () => {
@@ -250,11 +285,12 @@ describe("repoStatusRows", () => {
       {},
       [learning({ repoPath: "/repos/a" })],
       [injectable({ repoPath: "/repos/a", rules: [rule(false)] })],
+      running("/repos/a"),
     );
     expect(rows[0]).toMatchObject({ insights: 1, curate: 0 });
   });
 
-  it("returns an empty list when nothing is drained, proposed, or over budget", () => {
-    expect(repoStatusRows({ a: drain({ enabled: false }) }, [], [])).toEqual([]);
+  it("returns an empty list when no repo has a running agent", () => {
+    expect(repoStatusRows({ a: drain({}) }, [learning({})], [], running())).toEqual([]);
   });
 });

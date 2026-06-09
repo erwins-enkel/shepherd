@@ -131,6 +131,8 @@
   "automation_plan_gate_task_planning": "This task: gate active — planning",
   "automation_plan_gate_task_executing": "This task: plan approved — executing",
   "repo_status_label": "Repo status",
+  "repo_filter_apply_aria": "Filter the herd to {repo} agents only",
+  "repo_filter_active_aria": "Showing {repo} agents only — click to show all repos",
   "automation_info_aria": "Show a detailed explanation of {name}",
   "automation_critic_detail": "With the Critic on, Shepherd watches every pull request an agent opens. The moment its CI checks all pass (turn green), a separate, read-only review agent starts up in an isolated copy of the repo. It reads the pull request's full diff, hunts for bugs, security problems and anything that doesn't actually satisfy the task, and writes back a verdict — either \"looks good\" or a list of concrete findings, each tied to a file and line. The review never edits your code; it only reports. A diff that was merely rebased and force-pushed is recognised as identical and is not reviewed twice.",
   "automation_autoaddress_detail": "Auto-Address closes the loop after the Critic. Whenever the Critic returns findings, the agent that wrote the pull request is automatically handed a tidy list of them and asked to fix them — you don't relay anything by hand. The agent pushes a fix, CI runs again, the Critic re-reviews the new version, and the cycle repeats until the findings list comes back empty. To stop it running forever, the loop is capped — three rounds by default, adjustable in Settings. If the agent already explained on the PR why it declined a point, that note is passed to the Critic on the next pass so the same objection isn't raised blindly again. This only works while the Critic itself is on.",
@@ -192,6 +194,7 @@
   "herd_all_title": "Show every session in the herd",
   "herd_ready_title": "Show only sessions awaiting you: idle, blocked, or done",
   "herd_ready_empty": "Nothing waiting. All hands working",
+  "herd_repo_filter_empty": "No agents for {repo}.",
   "herd_ci_running_group": "CI running ({count})",
   "herd_ci_failed_group": "CI failed ({count})",
   "herd_reviewer_running_group": "Reviewing ({count})",
@@ -771,5 +774,7 @@
   "feat_repo_roles_title": "Repo responsibilities",
   "feat_repo_roles_body": "Set who reviews and who merges a repo in its automation panel. When the merger is someone else (e.g. a teammate who lands PRs), a green PR reads \"Waiting on them\" instead of \"Your turn\".",
   "feat_backlog_active_highlight_title": "See at a glance which issues are already claimed",
-  "feat_backlog_active_highlight_body": "Issues a Shepherd agent has claimed carry a “shepherd:active” label. In the backlog's issue list it now stands out in amber, so you can tell taken work from free work at a glance instead of reading every chip."
+  "feat_backlog_active_highlight_body": "Issues a Shepherd agent has claimed carry a “shepherd:active” label. In the backlog's issue list it now stands out in amber, so you can tell taken work from free work at a glance instead of reading every chip.",
+  "feat_repo_filter_title": "Filter the herd by repo",
+  "feat_repo_filter_body": "The repo-status band now stacks one repo per line. Click a repo name to show only its agents in the herd below; click it again to show every repo."
 }

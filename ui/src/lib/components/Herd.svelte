@@ -23,6 +23,7 @@
     standardCommandUnset = false,
     onsettings = undefined,
     flow = false,
+    filteredRepo = null,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -49,6 +50,10 @@
     // when true, the session list renders at natural height (no internal scroll)
     // so the parent page can drive scrolling; default false preserves existing behavior
     flow?: boolean;
+    // basename of an active repo filter; when set and the (already-filtered) session
+    // list is empty, show a neutral "no agents for this repo" note instead of the
+    // first-run EmptyHerd nudge. null = unfiltered.
+    filteredRepo?: string | null;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -118,7 +123,11 @@
   </div>
   <div class="units" class:flow>
     {#if sessions.length === 0}
-      <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
+      {#if filteredRepo}
+        <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
+      {:else}
+        <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
+      {/if}
     {:else if shown.length === 0}
       <div class="empty micro static">{m.herd_ready_empty()}</div>
     {:else}

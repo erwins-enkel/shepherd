@@ -112,6 +112,14 @@
   // When the learnings drawer is opened from a repo's status row, this carries that
   // repoPath so the drawer scrolls to the matching section; null = opened globally.
   let learningsRepo = $state<string | null>(null);
+  // Herd repo filter (full repo path) toggled from the repo-status band; null = all
+  // repos. Only narrows the herd list views — selection and global counts stay whole.
+  let repoFilter = $state<string | null>(null);
+  const herdSessions = $derived(
+    repoFilter ? store.sessions.filter((s) => s.repoPath === repoFilter) : store.sessions,
+  );
+  // basename of the active filter for the herd's empty-state copy; null when unfiltered
+  const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
   let showUpdate = $state(false);
   // live state of a launched deploy → modal tails its log + surfaces failures
   let deploy = $state<DeployState | null>(null);
@@ -739,6 +747,8 @@
           learningsRepo = repoPath;
           showLearnings = true;
         }}
+        {repoFilter}
+        onrepofilter={(repoPath) => (repoFilter = repoPath)}
       />
     </div>
   {/if}
@@ -748,7 +758,8 @@
       {#if mobileScreen === "list"}
         <div class="col">
           <Herd
-            sessions={store.sessions}
+            sessions={herdSessions}
+            filteredRepo={repoFilterName}
             {selectedId}
             {nowMs}
             onselect={(id) => selectUnit(id)}
@@ -814,7 +825,8 @@
     {:else if viewMode === "all"}
       <div class="grid-all">
         <HerdGrid
-          sessions={store.sessions}
+          sessions={herdSessions}
+          filteredRepo={repoFilterName}
           {selectedId}
           {nowMs}
           git={store.git}
@@ -830,7 +842,8 @@
     {:else}
       <div class="grid" class:compact={touch.current}>
         <Herd
-          sessions={store.sessions}
+          sessions={herdSessions}
+          filteredRepo={repoFilterName}
           {selectedId}
           {nowMs}
           onselect={(id) => selectUnit(id)}

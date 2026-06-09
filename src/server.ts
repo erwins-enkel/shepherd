@@ -42,13 +42,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type {
-  Session,
-  LearningStatus,
-  SignalKind,
-  SessionPreviewEvent,
-  SessionPreviewState,
-} from "./types";
+import type { Session, LearningStatus, SignalKind, SessionPreviewState } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -114,11 +108,9 @@ export interface AppDeps {
   /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
   activity?: { snapshot(): Record<string, SessionActivity> };
   /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
-   *  The server emits `session:preview` with a `SessionPreviewEvent` payload on each change. */
+   *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
-    /** Callback fired by the poller when a session's preview port changes. */
-    onEvent?: (e: SessionPreviewEvent) => void;
   };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
@@ -218,6 +210,13 @@ function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "activity" && !parts[2]) {
     return json(deps.activity?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handlePreviewSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "preview" && !parts[2]) {
+    return json(deps.preview?.snapshot() ?? {});
   }
   return null;
 }
@@ -2007,6 +2006,7 @@ const ROUTE_HANDLERS = [
   handlePing,
   handleGitSnapshot,
   handleActivitySnapshot,
+  handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,
   handleDrain,

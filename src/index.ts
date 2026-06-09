@@ -47,6 +47,7 @@ import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
+import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
@@ -186,6 +187,12 @@ const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
   return forge;
 };
 
+const previewService = new PreviewService({
+  base: config.previewPortBase,
+  count: config.previewPortCount,
+  onChange: (id, previewPort) => events.emit("session:preview", { id, previewPort }),
+});
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -200,6 +207,7 @@ const poller = new StatusPoller(
   undefined, // probeCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
   (id, activity) => events.emit("session:activity", { id, activity }),
+  { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
 );
 poller.start();
 
@@ -651,6 +659,7 @@ const server = serve(
     prCache: prPoller,
     ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
+    preview: { snapshot: () => previewService.snapshot() },
     push,
     presence,
     poller,
@@ -690,3 +699,9 @@ const server = serve(
   config.port,
 );
 console.log(`shepherd core on http://localhost:${server.port}`);
+
+// Best-effort teardown of preview listeners on process exit / SIGTERM.
+// Mirrors the existing pattern for other teardown (e.g. poller.stop()).
+const shutdownPreview = () => previewService.stopAll();
+process.on("exit", shutdownPreview);
+process.on("SIGTERM", shutdownPreview);

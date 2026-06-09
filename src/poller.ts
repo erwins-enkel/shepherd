@@ -6,11 +6,34 @@ import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, type SessionActivity } from "./activity-signal";
 import { maintenance } from "./maintenance";
+import { scanListeningPortsByWorktree } from "./process-reaper";
+import { pickPrimaryPort } from "./preview";
+import { config } from "./config";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
 /** Both transcript-derived signals from a single read; the unified probe's result. */
 type TranscriptSignals = { snapshot: ActivitySnapshot | null; activity: SessionActivity | null };
+
+/**
+ * Injectable preview wiring: service + throttle cadence + scan/pick overrides.
+ * Defaults to the real implementations; tests inject fakes to avoid /proc + network.
+ */
+export interface PreviewWiring {
+  service: {
+    ensure(sessionId: string, devPort: number): number | null;
+    release(sessionId: string): void;
+    converge(active: Array<{ sessionId: string; devPort: number }>): void;
+    snapshot(): Record<string, { previewPort: number | null }>;
+  };
+  sweepMs: number;
+  /** Batched /proc scan: builds the inode→port map ONCE and resolves all worktrees.
+   *  Defaults to the real `scanListeningPortsByWorktree`. */
+  scan: (worktrees: string[]) => Map<string, number[]>;
+  /** Pick the primary dev port from a set of listening ports.
+   *  Defaults to the real `pickPrimaryPort`. */
+  pick: (ports: number[]) => Promise<number | null>;
+}
 
 export class StatusPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -25,6 +48,13 @@ export class StatusPoller {
    *  still generating keeps its spinner/elapsed/token counter ticking, so the
    *  buffer changes between probes; a wedged or idle turn leaves it frozen. */
   private lastVisible = new Map<string, string>();
+
+  /** Timestamp of the last completed preview sweep start (0 = never). */
+  private lastPreviewSweepAt = 0;
+  /** True while an async preview sweep is in flight (re-entrancy guard). */
+  private previewSweeping = false;
+  /** The resolved preview wiring (with real defaults filled in). */
+  private readonly previewWiring: PreviewWiring;
 
   constructor(
     private store: SessionStore,
@@ -51,7 +81,27 @@ export class StatusPoller {
     private onReady: (id: string, ready: boolean) => void = () => {},
     /** Pushed when a running session's heartbeat or current activity changes. */
     private onActivity: (id: string, activity: SessionActivity) => void = () => {},
-  ) {}
+    /**
+     * Preview wiring: injectable for tests; defaults to real PreviewService +
+     * real scan/pick + config.previewSweepMs. Omit to leave preview disabled
+     * (existing poller tests that don't pass this still work).
+     */
+    preview?: Partial<PreviewWiring>,
+  ) {
+    // Merge supplied overrides with real defaults. When preview is omitted entirely
+    // we create a no-op wiring so tick() never throws on undefined access.
+    this.previewWiring = {
+      service: preview?.service ?? {
+        ensure: () => null,
+        release: () => {},
+        converge: () => {},
+        snapshot: () => ({}),
+      },
+      sweepMs: preview?.sweepMs ?? config.previewSweepMs,
+      scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
+      pick: preview?.pick ?? ((ports) => pickPrimaryPort(ports)),
+    };
+  }
 
   tick(): void {
     // herdr is mid-update: don't poll — a list() here would resurrect the herdr
@@ -81,6 +131,8 @@ export class StatusPoller {
       else this.reconcileAgent(s, agent);
     }
     this.pruneInactive(activeIds);
+    // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
+    this.maybeRunPreviewSweep(sessions);
   }
 
   /**
@@ -303,6 +355,61 @@ export class StatusPoller {
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);
     this.onBlock(id, null);
+  }
+
+  /**
+   * Throttle + re-entrancy gate for the async preview sweep.
+   * Called from tick() after the session loop with the already-fetched sessions list
+   * (no second store.list()). Fire-and-forget — never awaited, never throws to the caller.
+   */
+  private maybeRunPreviewSweep(sessions: Session[]): void {
+    const t = this.now();
+    if (t - this.lastPreviewSweepAt < this.previewWiring.sweepMs) return;
+    if (this.previewSweeping) return;
+
+    // Isolated sessions with a worktreePath are the candidates.
+    const isolated = sessions.filter((s) => s.isolated && s.worktreePath);
+
+    if (isolated.length === 0) {
+      // No candidates: converge([]) cheap-tears-down any stale listeners.
+      // No /proc scan needed.
+      this.lastPreviewSweepAt = t;
+      this.previewWiring.service.converge([]);
+      return;
+    }
+
+    this.lastPreviewSweepAt = t;
+    this.previewSweeping = true;
+    void this.runPreviewSweep(isolated)
+      .catch((err) => {
+        console.warn("[poller] preview sweep failed:", err);
+      })
+      .finally(() => {
+        this.previewSweeping = false;
+      });
+  }
+
+  /**
+   * Async core of the preview sweep. Builds the /proc map ONCE, picks a primary
+   * port per session, then calls converge() on the full active set. The PreviewService
+   * handles bind/teardown transitions and fires onChange on real changes — the poller
+   * does NOT dedupe or emit directly.
+   */
+  private async runPreviewSweep(isolated: Session[]): Promise<void> {
+    const worktrees = isolated.map((s) => s.worktreePath);
+    // Single /proc scan for ALL sessions — never once per session.
+    const portsMap = this.previewWiring.scan(worktrees);
+
+    const active: Array<{ sessionId: string; devPort: number }> = [];
+    for (const s of isolated) {
+      const ports = portsMap.get(s.worktreePath) ?? [];
+      const devPort = await this.previewWiring.pick(ports);
+      if (devPort !== null) active.push({ sessionId: s.id, devPort });
+    }
+
+    // converge releases sessions absent from `active` and ensures those present.
+    // onChange (wired in index.ts) emits session:preview on real transitions only.
+    this.previewWiring.service.converge(active);
   }
 
   start(): void {

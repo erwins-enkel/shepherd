@@ -107,6 +107,13 @@ function projectName(p: BacklogProject): string {
  * {@link RECENT_LIMIT}. Unlike the picker (a transient dropdown that repeats
  * pinned rows below), this persistent list hoists the recents — `rest` keeps
  * the parent's order minus the hoisted entries, so no repo appears twice.
+ *
+ * Deliberate divergence from RepoSelect, which drops its recents group while
+ * the user types: there the filter is a *search* for one specific repo, so the
+ * shortcut only gets in the way. The backlog chips are persistent *scope*
+ * filters (has issues / has PRs) — running on the already-filtered list keeps
+ * the group useful while a scope is active, and never re-surfaces a repo the
+ * active chips exclude (which would break the filter's promise).
  */
 export function partitionRecents(projects: readonly BacklogProject[]): {
   recents: BacklogProject[];

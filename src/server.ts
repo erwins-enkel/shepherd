@@ -464,8 +464,12 @@ async function setRepoRoles(
     merger: "merger" in body ? normalizeLogin(body.merger) : cur.merger,
   };
   // No change → don't author a redundant commit (and CI run) on the default branch.
-  if (next.reviewer === cur.reviewer && next.merger === cur.merger) {
-    return json({ roles: next, me });
+  // Fold case to match handoff: a casing-only edit is a no-op (logins are
+  // case-insensitive). Return the persisted `cur` so the response keeps on-disk casing.
+  const sameLogin = (a: string | null, b: string | null) =>
+    (a?.toLowerCase() ?? null) === (b?.toLowerCase() ?? null);
+  if (sameLogin(next.reviewer, cur.reviewer) && sameLogin(next.merger, cur.merger)) {
+    return json({ roles: cur, me });
   }
   try {
     if (!forge) throw new Error("no forge configured for repo");

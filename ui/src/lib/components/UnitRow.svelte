@@ -146,6 +146,7 @@
   <div
     class="unit"
     class:sel={selected}
+    class:has-activity={live}
     class:decommissioning
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
   >
@@ -181,15 +182,6 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
-      {#if live}
-        <div class="u-activity">
-          <HeartbeatStrip {activity} {nowMs} />
-          {#if summary}
-            <span class="act-sep" aria-hidden="true">·</span>
-            <span class="act-sum">{summary}</span>
-          {/if}
-        </div>
-      {/if}
     </div>
 
     <div class="u-right">
@@ -230,6 +222,16 @@
       {/if}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     </div>
+
+    {#if live}
+      <div class="u-activity">
+        <HeartbeatStrip {activity} {nowMs} />
+        {#if summary}
+          <span class="act-sep" aria-hidden="true">·</span>
+          <span class="act-sum">{summary}</span>
+        {/if}
+      </div>
+    {/if}
 
     <span class="meta">
       <span class="meta-text"
@@ -296,6 +298,17 @@
     text-align: left;
     width: 100%;
     transition: opacity 0.18s ease;
+  }
+
+  /* Live rows insert a dedicated full-width `act` track between main and meta so
+     the heartbeat spans main+right (identical width on every card, independent of
+     the badge column). Non-live rows keep the 2-row template above — no extra
+     track / row-gap. */
+  .unit.has-activity {
+    grid-template-areas:
+      "pip main  right"
+      "pip act   act"
+      "pip meta  meta";
   }
 
   /* deferred decommission: row is doomed but still listed during the undo
@@ -502,10 +515,10 @@
      single-line, ellipsized — the priority signal for a working row without
      adding a colored badge. */
   .u-activity {
+    grid-area: act;
     display: flex;
     align-items: center;
     gap: 0;
-    margin-top: 3px;
     min-width: 0;
     font-size: 11px;
     line-height: 1.3;

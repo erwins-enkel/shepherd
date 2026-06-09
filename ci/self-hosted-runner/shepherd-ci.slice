@@ -12,6 +12,11 @@
 # (/etc/systemd/system) instead. Without --cgroup-parent the containers run under the
 # daemon's own cgroup and this slice governs nothing.
 #
+# It ALSO requires the docker daemon to use the systemd cgroup driver
+# (native.cgroupdriver=systemd, the default here). Under the cgroupfs driver the
+# `.slice` name is treated as a literal cgroup path, not this systemd unit, so the
+# belt won't engage even rootless.
+#
 # Sizing (tune for the host): with default per-replica caps of 4 CPUs / 8G and
 # two replicas, the worst case is ~800% CPU / 16G.
 #   - CPUQuota=600% is deliberately BELOW the 800% aggregate, so the two runners

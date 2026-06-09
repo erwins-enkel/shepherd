@@ -248,9 +248,13 @@ run concurrently. More replicas raise the host load ceiling — keep an eye on t
   Docker (daemon in the user systemd tree). Under **rootful** Docker the containers land
   in the system tree, so this user slice does **not** enforce — install the slice as a
   system unit (`/etc/systemd/system`) for the belt there, or rely on the per-container
-  `--cpus`/`--memory` caps. Tune both together: per-replica caps × replicas should sit at
-  or under the slice. (CPU is capped below the aggregate; `MemoryMax` only equals it —
-  lower it for real prod memory headroom, per the comment in `shepherd-ci.slice`.)
+  `--cpus`/`--memory` caps. It further requires the docker daemon to use the **systemd
+  cgroup driver** (`native.cgroupdriver=systemd`, the default here; check
+  `docker info | grep "Cgroup Driver"`) — under the `cgroupfs` driver the `.slice` name is
+  a literal cgroup path, not this systemd unit, so the belt won't engage even rootless.
+  Tune both together: per-replica caps × replicas should sit at or under the slice. (CPU is
+  capped below the aggregate; `MemoryMax` only equals it — lower it for real prod memory
+  headroom, per the comment in `shepherd-ci.slice`.)
 
 ### Playwright version-sync
 

@@ -709,11 +709,11 @@ async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response>
   return json(path ? await sessionActivity(path) : []);
 }
 
-function sessionDiffRead(id: string, deps: AppDeps): Response {
+async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
   try {
-    return json(computeDiff(s.worktreePath, s.baseBranch, s.branch));
+    return json(await computeDiff(s.worktreePath, s.baseBranch, s.branch));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
   }

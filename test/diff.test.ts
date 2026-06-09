@@ -100,7 +100,7 @@ test("parses multiple files in one diff", () => {
   expect(files.map((f) => f.path)).toEqual(["new.ts", "gone.ts"]);
 });
 
-test("truncates files over the line cap", () => {
+test("truncates files over the per-file line cap", () => {
   const big = Array.from({ length: 2100 }, (_, i) => `+line ${i}`).join("\n");
   const text = `diff --git a/big.ts b/big.ts
 --- /dev/null
@@ -112,6 +112,33 @@ ${big}
   expect(f.truncated).toBe(true);
   expect(f.hunks).toHaveLength(0);
   expect(f.additions).toBe(2100);
+});
+
+test("MAX_TOTAL_LINES: stops parsing after global cap, marks over-cap file truncated", () => {
+  // Each file has 1000 lines (under per-file cap of 2000). Generate 102 files →
+  // 102k total lines, exceeding MAX_TOTAL_LINES (100k). Files 1-100 parse clean;
+  // file 101+ gets marked truncated by the global cap.
+  const makeFile = (name: string, n: number) => {
+    const lines = Array.from({ length: n }, (_, i) => `+line ${i}`).join("\n");
+    return `diff --git a/${name} b/${name}\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${n} @@\n${lines}\n`;
+  };
+  const text = Array.from({ length: 102 }, (_, i) => makeFile(`file${i}.ts`, 1000)).join("");
+  const files = parseUnifiedDiff(text);
+  expect(files).toHaveLength(102);
+  // Files within the first 100k lines are untruncated
+  const cleanFiles = files.filter((f) => !f.truncated);
+  const truncatedFiles = files.filter((f) => f.truncated);
+  expect(cleanFiles.length).toBeGreaterThan(0);
+  expect(truncatedFiles.length).toBeGreaterThan(0);
+  // The truncated files have no hunks
+  for (const f of truncatedFiles) {
+    expect(f.hunks).toHaveLength(0);
+  }
+});
+
+test("MAX_TOTAL_LINES: small diff unaffected", () => {
+  const files = parseUnifiedDiff(ADDED + DELETED + MODIFIED);
+  expect(files.every((f) => !f.truncated)).toBe(true);
 });
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -133,7 +160,7 @@ const GIT_ENV = {
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, env: GIT_ENV, stdio: "pipe" }).toString();
 
-test("computeDiff: branch vs base shows committed changes, local fallback when no remote", () => {
+test("computeDiff: branch vs base shows committed changes, local fallback when no remote", async () => {
   const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-"));
   try {
     git(repo, "init", "-q", "-b", "main");
@@ -145,7 +172,7 @@ test("computeDiff: branch vs base shows committed changes, local fallback when n
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "feature change");
 
-    const r = computeDiff(repo, "main", "feature");
+    const r = await computeDiff(repo, "main", "feature");
     expect(r.head).toBe("feature");
     expect(r.fetchFailed).toBe(true);
     expect(r.baseRef).toBe("main");
@@ -157,7 +184,7 @@ test("computeDiff: branch vs base shows committed changes, local fallback when n
   }
 });
 
-test("computeDiff: diffs against origin/<base> when a remote exists", () => {
+test("computeDiff: diffs against origin/<base> when a remote exists", async () => {
   const remote = mkdtempSync(join(tmpdir(), "shepherd-remote-"));
   const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-origin-"));
   try {
@@ -173,7 +200,7 @@ test("computeDiff: diffs against origin/<base> when a remote exists", () => {
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "feature change");
 
-    const r = computeDiff(repo, "main", "feature");
+    const r = await computeDiff(repo, "main", "feature");
     expect(r.fetchFailed).toBe(false);
     expect(r.baseRef).toBe("origin/main");
     expect(r.files).toHaveLength(1);
@@ -184,8 +211,8 @@ test("computeDiff: diffs against origin/<base> when a remote exists", () => {
   }
 });
 
-test("computeDiff: non-isolated session (no branch) → empty result", () => {
-  const r = computeDiff("/nonexistent", "main", null);
+test("computeDiff: non-isolated session (no branch) → empty result", async () => {
+  const r = await computeDiff("/nonexistent", "main", null);
   expect(r.files).toEqual([]);
   expect(r.head).toBeNull();
   expect(r.fetchFailed).toBe(false);

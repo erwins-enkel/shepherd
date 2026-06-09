@@ -66,6 +66,8 @@
     return msg || fallback;
   }
   let repos = $state<RepoEntry[]>([]);
+  // Echoed on the submit button so the destination repo is visible at commit time.
+  const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);
   let images = $state<{ path: string; name: string }[]>([]);
   let dragging = $state(false);
@@ -341,6 +343,11 @@
       >
     </div>
 
+    <div class="repo-field" use:coachTarget={"nt-repo"}>
+      <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
+      <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} {onclone} />
+    </div>
+
     <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
     <div class="prompt-wrap">
       <textarea
@@ -430,9 +437,6 @@
       />
     {/if}
 
-    <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
-    <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} {onclone} />
-
     <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
     {#if branches.length > 0}
       <select id="nt-base" bind:value={baseBranch}>
@@ -475,7 +479,13 @@
       disabled={submitting}
       title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
     >
-      <span>{submitting ? m.newtask_spawning() : m.newtask_submit()}</span>
+      <span
+        >{submitting
+          ? m.newtask_spawning()
+          : selectedRepoName
+            ? m.newtask_submit_in_repo({ repo: selectedRepoName })
+            : m.newtask_submit()}</span
+      >
       {#if !submitting}
         <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
       {/if}
@@ -499,6 +509,11 @@
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .repo-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -643,6 +658,12 @@
     font-size: var(--fs-meta);
     cursor: pointer;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  .run span {
+    max-width: 28ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .run:disabled {
     opacity: 0.6;

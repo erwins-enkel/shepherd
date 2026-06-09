@@ -209,6 +209,7 @@
   "newtask_model_default": "Standard",
   "newtask_spawning": "Wird gestartet…",
   "newtask_submit": "Erstellen & Starten",
+  "newtask_submit_in_repo": "Erstellen & Starten in {repo}",
   "newtask_upload_failed": "Bild-Upload fehlgeschlagen: {reason}. Anhängen erneut versuchen.",
   "newtask_create_failed": "Erstellen fehlgeschlagen: {reason}. Repo und Base-Branch prüfen, dann erneut versuchen.",
   "promptsources_title": "Übernehmen aus",
@@ -693,5 +694,7 @@
   "feat_plan_gate_title": "Plan-Gate",
   "feat_plan_gate_body": "Aktiviere das Plan-Gate, um dich vor dem Start abzustimmen: Der Agent befragt dich und schreibt einen Plan, dann prüft ein zweiter Claude diesen kritisch, bis er standhält — nur ein freigegebener Plan läuft. Pro Aufgabe im Neue-Aufgabe-Dialog oder pro Repo im Automatisierungs-Panel einschaltbar.",
   "feat_backlog_repo_filter_title": "Repo-Liste filtern",
-  "feat_backlog_repo_filter_body": "Grenze die Repo-Liste des Backlogs mit den neuen Umschalt-Chips auf Repos mit offenen Issues und/oder offenen PRs ein."
+  "feat_backlog_repo_filter_body": "Grenze die Repo-Liste des Backlogs mit den neuen Umschalt-Chips auf Repos mit offenen Issues und/oder offenen PRs ein.",
+  "feat_newtask_repo_first_title": "Repo steht jetzt oben im Neue-Aufgabe-Formular",
+  "feat_newtask_repo_first_body": "Das Repository, in dem die Aufgabe startet, steht jetzt oben im Neue-Aufgabe-Formular und wird auf dem „Erstellen & Starten“-Button genannt – so startest du nie versehentlich im falschen Repo."
 }

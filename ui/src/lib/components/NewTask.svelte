@@ -67,7 +67,10 @@
   }
   let repos = $state<RepoEntry[]>([]);
   // Day count the server computed recentAgentCount over; drives the picker's label.
-  let recentRepoWindowDays = $state(3);
+  // 0 until listRepos() resolves — the recents group (and its label) only render
+  // once repo data has loaded, which sets this from the server in the same step,
+  // so the sentinel is never shown and there's no duplicated window literal.
+  let recentRepoWindowDays = $state(0);
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);

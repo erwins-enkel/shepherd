@@ -9,14 +9,14 @@
     value,
     onchange,
     onclone,
-    windowDays = 3,
+    windowDays,
   }: {
     repos: RepoEntry[];
     value: string;
     onchange: (path: string) => void;
     onclone?: () => void;
     /** Day count the server computed recentAgentCount over — named in the per-row label. */
-    windowDays?: number;
+    windowDays: number;
   } = $props();
 
   let open = $state(false);

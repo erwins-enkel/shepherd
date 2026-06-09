@@ -1,6 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { hideStatusBadge, relativeAge, formatAgo, heartbeatTone } from "./format";
-import type { SessionStatus } from "./types";
+import { hideStatusBadge, relativeAge, formatAgo, heartbeatTone, canResume } from "./format";
+import type { Session, SessionStatus } from "./types";
+
+describe("canResume", () => {
+  const session = (over: Partial<Session>): Session =>
+    ({ claudeSessionId: "c-1", status: "idle", ...over }) as Session;
+
+  it("offers Resume for idle/done with a pinned claude id", () => {
+    expect(canResume(session({ status: "idle" }))).toBe(true);
+    expect(canResume(session({ status: "done" }))).toBe(true);
+  });
+
+  it("never offers without a pinned claude id or while live (running/blocked)", () => {
+    expect(canResume(session({ claudeSessionId: "" }))).toBe(false);
+    expect(canResume(session({ status: "running" }))).toBe(false);
+    expect(canResume(session({ status: "blocked" }))).toBe(false);
+  });
+
+  it("hides Resume when the claude process is verifiably alive", () => {
+    expect(canResume(session({}), true)).toBe(false);
+  });
+
+  it("keeps offering when liveness is unknown or the process is gone (husk)", () => {
+    expect(canResume(session({}), undefined)).toBe(true);
+    expect(canResume(session({}), false)).toBe(true);
+  });
+});
 
 describe("hideStatusBadge", () => {
   const cases: [SessionStatus, boolean, boolean][] = [

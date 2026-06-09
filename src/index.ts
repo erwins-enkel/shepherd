@@ -228,6 +228,9 @@ const poller = new StatusPoller(
   (id, ready) => events.emit("session:ready", { id, ready }),
   (id, activity) => events.emit("session:activity", { id, activity }),
   { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
+  // claude-liveness sweep wiring: lets the UI gate its Resume affordance on the
+  // claude process actually being gone instead of offering it on every idle/done.
+  { onChange: (id, claudeAlive) => events.emit("session:claude-alive", { id, claudeAlive }) },
 );
 // Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
 // single FIFO queue already guarantees this op completes before any register/unregister
@@ -741,6 +744,7 @@ const server = serve(
     prCache: prPoller,
     ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
+    claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
     preview: { snapshot: () => previewService.snapshot() },
     previewServe: { snapshot: () => tailscaleServe.snapshot() },
     push,

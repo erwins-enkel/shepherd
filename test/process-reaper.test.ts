@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { ProcessReaper, leftoverKey, type ReaperProbes } from "../src/process-reaper";
+import {
+  ProcessReaper,
+  leftoverKey,
+  scanClaudeAliveByWorktree,
+  type ReaperProbes,
+} from "../src/process-reaper";
 import { jsonlPathFor } from "../src/usage";
 
 // Build a transcript line carrying one Bash tool command (the shape the reaper scans).
@@ -185,4 +190,42 @@ test("leftoverKey is stable per kind", () => {
   expect(leftoverKey({ kind: "system", name: "tailscale serve", port: 5174 })).toBe(
     "system:tailscale serve:5174",
   );
+});
+
+// ── scanClaudeAliveByWorktree ───────────────────────────────────────────────
+
+test("claude-alive: a claude process rooted in the worktree marks it alive", () => {
+  const out = scanClaudeAliveByWorktree(
+    ["/wt/repo-x", "/wt/repo-y"],
+    makeProbes({
+      scanProcs: () => [
+        { pid: 1, cwd: "/wt/repo-x", comm: "claude" },
+        { pid: 2, cwd: "/wt/repo-y", comm: "bash" }, // husk shell — not claude
+      ],
+    }),
+  );
+  expect(out.get("/wt/repo-x")).toBe(true);
+  expect(out.get("/wt/repo-y")).toBe(false);
+});
+
+test("claude-alive: a claude in an unrelated cwd counts for no worktree", () => {
+  const out = scanClaudeAliveByWorktree(
+    ["/wt/repo-x"],
+    makeProbes({ scanProcs: () => [{ pid: 1, cwd: "/elsewhere", comm: "claude" }] }),
+  );
+  expect(out.get("/wt/repo-x")).toBe(false);
+});
+
+test("claude-alive: a claude in a subdir of the worktree still counts", () => {
+  const out = scanClaudeAliveByWorktree(
+    ["/wt/repo-x"],
+    makeProbes({ scanProcs: () => [{ pid: 1, cwd: "/wt/repo-x/sub", comm: "claude" }] }),
+  );
+  expect(out.get("/wt/repo-x")).toBe(true);
+});
+
+test("claude-alive: every supplied worktree appears as a key; empty input is fine", () => {
+  expect(scanClaudeAliveByWorktree([], makeProbes()).size).toBe(0);
+  const out = scanClaudeAliveByWorktree(["/wt/a"], makeProbes());
+  expect(out.get("/wt/a")).toBe(false);
 });

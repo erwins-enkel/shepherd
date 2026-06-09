@@ -41,6 +41,11 @@ export class HerdStore {
   git = $state<Record<string, GitState>>({});
   /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
   activity = $state<Record<string, SessionActivity>>({});
+  /** Live per-session claude-process liveness (sessionId → alive), pushed by the
+   *  server's `session:claude-alive` event. `false` = claude exited and left a
+   *  husk shell → the Resume affordance applies; `true` = claude still runs.
+   *  Absent = not swept yet (treated as unknown → Resume stays offered). */
+  claudeAlive = $state<Record<string, boolean>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
@@ -81,6 +86,10 @@ export class HerdStore {
   }
   setActivity(map: Record<string, SessionActivity>) {
     this.activity = map;
+  }
+  /** Seed (or replace) the claude-liveness map after a bootstrap GET. */
+  setClaudeAlive(map: Record<string, boolean>) {
+    this.claudeAlive = map;
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -218,6 +227,7 @@ export class HerdStore {
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
+        this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
@@ -229,6 +239,9 @@ export class HerdStore {
         break;
       case "session:activity":
         this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
+        break;
+      case "session:claude-alive":
+        this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };
         break;
       case "session:preview":
         this.setPreviewPort(ev.data.id, ev.data.previewPort);

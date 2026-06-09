@@ -6,7 +6,7 @@ import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { maintenance } from "./maintenance";
-import { scanListeningPortsByWorktree } from "./process-reaper";
+import { scanListeningPortsByWorktree, scanClaudeAliveByWorktree } from "./process-reaper";
 import { resolveDevPort } from "./preview";
 import { config } from "./config";
 
@@ -34,6 +34,17 @@ export interface PreviewWiring {
    *  Defaults to `resolveDevPort`, which honors the agent-declared `.shepherd-preview`
    *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic. */
   pick: (ports: number[], worktreePath: string) => Promise<number | null>;
+}
+
+/**
+ * Injectable claude-liveness wiring: emits when a session's worktree gains/loses
+ * a live `claude` process. Defaults to the real /proc scan; tests inject fakes.
+ */
+export interface LivenessWiring {
+  /** Single /proc pass answering "does a claude process live in this worktree?". */
+  scan: (worktrees: string[]) => Map<string, boolean>;
+  sweepMs: number;
+  onChange: (id: string, alive: boolean) => void;
 }
 
 export class StatusPoller {
@@ -80,6 +91,13 @@ export class StatusPoller {
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
+  /** Timestamp of the last claude-liveness sweep (0 = never). */
+  private lastLivenessSweepAt = 0;
+  /** Last-swept per-session claude liveness; onChange fires on flips only. */
+  private lastClaudeAlive = new Map<string, boolean>();
+  /** The resolved liveness wiring (with real defaults filled in). */
+  private readonly livenessWiring: LivenessWiring;
+
   constructor(
     private store: SessionStore,
     private herdr: Pick<HerdrDriver, "list" | "read" | "readAsync">,
@@ -111,6 +129,12 @@ export class StatusPoller {
      * (existing poller tests that don't pass this still work).
      */
     preview?: Partial<PreviewWiring>,
+    /**
+     * Claude-liveness wiring: injectable for tests; defaults to the real /proc scan
+     * with a no-op onChange. Drives `session:claude-alive` so the UI only offers
+     * Resume when the claude process is actually gone (husk shell).
+     */
+    liveness?: Partial<LivenessWiring>,
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -124,6 +148,11 @@ export class StatusPoller {
       sweepMs: preview?.sweepMs ?? config.previewSweepMs,
       scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
       pick: preview?.pick ?? ((ports, worktreePath) => resolveDevPort(ports, worktreePath)),
+    };
+    this.livenessWiring = {
+      scan: liveness?.scan ?? ((worktrees) => scanClaudeAliveByWorktree(worktrees)),
+      sweepMs: liveness?.sweepMs ?? config.previewSweepMs,
+      onChange: liveness?.onChange ?? (() => {}),
     };
   }
 
@@ -157,6 +186,47 @@ export class StatusPoller {
     this.pruneInactive(activeIds);
     // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
     this.maybeRunPreviewSweep(sessions);
+    // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
+    this.maybeRunLivenessSweep(sessions);
+  }
+
+  /**
+   * Throttled sweep: does each session's worktree still host a live `claude`
+   * process? Detects the husk case herdr's agent_status can't (claude exited to a
+   * bare shell keeps the agent listed as idle). Emits onChange on flips only;
+   * tracking for sessions no longer active is pruned in place.
+   */
+  private maybeRunLivenessSweep(sessions: Session[]): void {
+    const t = this.now();
+    if (t - this.lastLivenessSweepAt < this.livenessWiring.sweepMs) return;
+    this.lastLivenessSweepAt = t;
+    const candidates = sessions.filter((s) => s.worktreePath);
+    let byWorktree: Map<string, boolean>;
+    try {
+      byWorktree = this.livenessWiring.scan(candidates.map((s) => s.worktreePath));
+    } catch (err) {
+      // tick() runs on a bare setInterval — a throw here would crash shepherd.
+      // Skip the sweep and retry next cadence, same stance as the preview sweep.
+      console.warn("[poller] claude-liveness sweep failed:", err);
+      return;
+    }
+    const activeIds = new Set<string>();
+    for (const s of candidates) {
+      activeIds.add(s.id);
+      const alive = byWorktree.get(s.worktreePath) ?? false;
+      if (this.lastClaudeAlive.get(s.id) !== alive) {
+        this.lastClaudeAlive.set(s.id, alive);
+        this.livenessWiring.onChange(s.id, alive);
+      }
+    }
+    for (const id of [...this.lastClaudeAlive.keys()]) {
+      if (!activeIds.has(id)) this.lastClaudeAlive.delete(id);
+    }
+  }
+
+  /** Last-swept claude-process liveness per session, for client bootstrap. */
+  claudeAliveSnapshot(): Record<string, boolean> {
+    return Object.fromEntries(this.lastClaudeAlive);
   }
 
   /**

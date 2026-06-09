@@ -458,6 +458,16 @@ export async function activityStates(): Promise<Record<string, SessionActivity>>
   return r.json();
 }
 
+/** Snapshot of per-session claude-process liveness, keyed by session id (for
+ *  client bootstrap). `true` = a `claude` process still lives in the session's
+ *  worktree; `false` = it exited (husk shell — Resume applies). A session absent
+ *  from the map hasn't been swept yet. */
+export async function claudeAliveStates(): Promise<Record<string, boolean>> {
+  const r = await fetch("/api/claude-alive");
+  if (!r.ok) throw await failed(r, "claude liveness");
+  return r.json();
+}
+
 /** Snapshot of the bound preview-listener port per session, keyed by session id
  *  (for client bootstrap). `previewPort` is null when the server knows of no
  *  live dev-server listener. Empty object when nothing is bound. */

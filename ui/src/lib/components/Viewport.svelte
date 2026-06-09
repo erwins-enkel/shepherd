@@ -68,6 +68,7 @@
     connected = true,
     git = null,
     previewPort = null,
+    claudeAlive = undefined,
     previewServeFailed = false,
     openPreviewTick = 0,
     buildQueue = null,
@@ -103,6 +104,10 @@
     /** Live preview-listener port for this session (server-driven). Non-null → the
      *  Preview tab + pane are available; the iframe URL is built from window.location. */
     previewPort?: number | null;
+    /** Server-swept claude-process liveness for this session: true = a `claude`
+     *  process still lives in the worktree (hide Resume), false = husk shell
+     *  (offer Resume), undefined = not swept yet (offer Resume, fail-safe). */
+    claudeAlive?: boolean;
     /** true when the server's tailscale serve registration failed for this session's
      *  preview port — the preview is reachable on loopback only, not over Tailscale. */
     previewServeFailed?: boolean;
@@ -208,10 +213,11 @@
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
 
-  // a parked (idle/done) session with a pinned claude id can be brought back —
-  // surface a header Resume button so the user isn't stranded at a bare shell with
-  // no affordance (the in-terminal overlay only shows once the PTY closes for good).
-  const resumable = $derived(canResume(session));
+  // a parked (idle/done) session whose claude process is actually gone can be
+  // brought back — surface a header Resume button so the user isn't stranded at a
+  // bare shell with no affordance (the in-terminal overlay only shows once the PTY
+  // closes for good). A verifiably-alive claude (server /proc sweep) hides it.
+  const resumable = $derived(canResume(session, claudeAlive));
   // a11y: the fold button's aria-controls points at the tab switcher — the always-
   // mounted primary region it collapses (the git rail + build queue come and go with
   // the fold, so they can't carry a stable controlled-region id). Per-session id so

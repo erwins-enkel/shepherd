@@ -188,9 +188,12 @@ export class PlanGateService {
 
     // Disposable detached worktree at the base: read-only codebase inspection that can't race
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.
+    // Key the path on session.id: every session detaches at the SAME base sha, so without this
+    // discriminator concurrent plan reviews would share one worktree path and read each other's
+    // verdict file (cross-session findings). See createDetached's `slug` doc.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha);
+      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha, session.id);
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return;

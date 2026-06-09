@@ -207,6 +207,45 @@ test("createDetached: rejects a branch that could smuggle a git flag", () => {
   expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
 });
 
+test("createDetached: distinct slugs at the SAME sha get distinct worktrees (no plan-review collision)", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  execFileSync("git", ["checkout", "-b", "feat/x"], { cwd: repo });
+  writeFileSync(join(repo, "feat.txt"), "hello");
+  execFileSync("git", ["add", "feat.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+
+  const mgr = new WorktreeMgr();
+  // Two sessions' plan reviews both detach at the same base sha — they must NOT share a path,
+  // else a second begin() destroys the first's worktree and both read one verdict file.
+  const a = mgr.createDetached(repo, "feat/x", sha, "session-aaaa");
+  const b = mgr.createDetached(repo, "feat/x", sha, "session-bbbb");
+  expect(a.worktreePath).not.toBe(b.worktreePath);
+  expect(existsSync(a.worktreePath)).toBe(true);
+  expect(existsSync(b.worktreePath)).toBe(true);
+  // a slugless detach (the PR critic) stays distinct from the slugged ones too
+  const c = mgr.createDetached(repo, "feat/x", sha);
+  expect(c.worktreePath).not.toBe(a.worktreePath);
+  expect(c.worktreePath).not.toBe(b.worktreePath);
+
+  mgr.remove(a.worktreePath);
+  mgr.remove(b.worktreePath);
+  mgr.remove(c.worktreePath);
+});
+
+test("createDetached: rejects a slug that could escape the worktree dir", () => {
+  const mgr = new WorktreeMgr();
+  const sha = "0".repeat(40);
+  expect(() => mgr.createDetached(repo, "main", sha, "../escape")).toThrow("invalid slug");
+  expect(() => mgr.createDetached(repo, "main", sha, "a/b")).toThrow("invalid slug");
+});
+
 test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
   execFileSync("git", ["checkout", "-b", "feat"], { cwd: repo, stdio: "pipe" });
   const wt = new WorktreeMgr();

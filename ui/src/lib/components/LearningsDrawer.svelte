@@ -55,6 +55,28 @@
   // Which rules have their evidence-source list expanded, keyed by learning id.
   let expanded = $state<Record<string, boolean>>({});
 
+  // "What is this?" explainer at the top of the drawer. Default open so a first-time
+  // user gets the plain-language explanation; collapsing is remembered (localStorage)
+  // so it stays out of the way once read. SSR-safe: the stored flag is only read after
+  // mount, matching the SteerBar coachmark pattern.
+  const ABOUT_KEY = "shepherd:learnings-about-collapsed";
+  let aboutOpen = $state(true);
+  $effect(() => {
+    try {
+      if (localStorage.getItem(ABOUT_KEY) === "1") aboutOpen = false;
+    } catch {
+      // private mode / blocked storage: keep the explainer open rather than hide it
+    }
+  });
+  function toggleAbout() {
+    aboutOpen = !aboutOpen;
+    try {
+      localStorage.setItem(ABOUT_KEY, aboutOpen ? "0" : "1");
+    } catch {
+      // ignore: best-effort persistence
+    }
+  }
+
   let {
     items,
     injectable,
@@ -99,6 +121,25 @@
     <span class="title">{m.learnings_title()}</span>
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
   </header>
+
+  <section class="about">
+    <button
+      class="about-toggle"
+      type="button"
+      aria-expanded={aboutOpen}
+      aria-controls="learnings-about"
+      onclick={toggleAbout}
+    >
+      <span class="caret" class:open={aboutOpen} aria-hidden="true">▸</span>
+      {m.learnings_about_toggle()}
+    </button>
+    {#if aboutOpen}
+      <div class="about-body" id="learnings-about">
+        <p>{m.learnings_about_lead()} <strong>{m.learnings_about_scope()}</strong></p>
+        <p>{m.learnings_about_flow()}</p>
+      </div>
+    {/if}
+  </section>
 
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>
@@ -286,6 +327,44 @@
     color: var(--color-muted);
     cursor: pointer;
     font-size: var(--fs-lg);
+  }
+  /* "What is this?" explainer — collapsible, default open, state remembered. */
+  .about {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .about-toggle {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .about-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .about-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-left: 1px solid var(--color-line);
+    padding: 2px 0 2px 10px;
+  }
+  .about-body p {
+    font-size: var(--fs-base);
+    color: var(--color-muted);
+    line-height: 1.5;
+  }
+  .about-body strong {
+    color: var(--color-ink-bright);
+    font-weight: 600;
   }
   .empty {
     color: var(--color-muted);

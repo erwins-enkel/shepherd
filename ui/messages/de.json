@@ -122,7 +122,7 @@
   "automation_plan_gate_desc": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
   "automation_plan_gate_task_planning": "Dieser Task: Gate aktiv — Planung",
   "automation_plan_gate_task_executing": "Dieser Task: Plan genehmigt — Ausführung",
-  "drain_strip_label": "Queue",
+  "repo_status_label": "Repo-Status",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} in Warteschlange",
   "drain_paused_blocked": "Pausiert: {desig} ist blockiert",
@@ -712,5 +712,7 @@
   "feat_backlog_pr_merge_train_title": "Merge-Train aus ausgewählten PRs starten",
   "feat_backlog_pr_merge_train_body": "Mehrere offene PRs im Backlog-PRs-Tab eines Repos auswählen und einen Merge-Train starten, der auf genau diese PRs beschränkt ist.",
   "feat_header_fold_title": "Kopfbereich einklappen für mehr Terminal",
-  "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten."
+  "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten.",
+  "feat_learnings_per_repo_title": "Erkenntnisse in der Repo-Zeile",
+  "feat_learnings_per_repo_body": "Der Glühbirnen-Zähler ist aus der oberen Leiste in die Status-Zeile jedes Repos gewandert — neben dessen Automatismus-Status. So erscheinen die vorgeschlagenen Hausregeln eines Repos genau dort, wo auch seine übrige Aktivität sichtbar ist. Klick auf die 💡 öffnet den Drawer bei diesem Repo."
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, test } from "vitest";
 import {
   basename,
+  repoAnchorId,
   groupByRepo,
   mergeRepoGroups,
   injectionBadge,
@@ -45,6 +46,18 @@ function IR(
 describe("basename", () => {
   it("takes the last path segment", () => expect(basename("/home/u/acme")).toBe("acme"));
   it("tolerates trailing slash", () => expect(basename("/home/u/acme/")).toBe("acme"));
+});
+
+describe("repoAnchorId", () => {
+  it("is a stable, DOM-id-safe slug of the full path", () => {
+    expect(repoAnchorId("/home/u/acme")).toBe("learnings-repo-home-u-acme");
+  });
+  it("distinguishes repos that share a basename (no collision)", () => {
+    expect(repoAnchorId("/work/a/api")).not.toBe(repoAnchorId("/work/b/api"));
+  });
+  it("is deterministic for the same path", () => {
+    expect(repoAnchorId("/x/Y/Z")).toBe(repoAnchorId("/x/Y/Z"));
+  });
 });
 
 describe("groupByRepo", () => {

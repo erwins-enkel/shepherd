@@ -122,7 +122,7 @@
   "automation_plan_gate_desc": "Grill + adversarial plan review before the agent runs",
   "automation_plan_gate_task_planning": "This task: gate active — planning",
   "automation_plan_gate_task_executing": "This task: plan approved — executing",
-  "drain_strip_label": "Drain",
+  "repo_status_label": "Repo status",
   "drain_inflight": "{count}/{max} auto",
   "drain_queued": "{count} queued",
   "drain_paused_blocked": "Paused: {desig} is blocked",
@@ -712,5 +712,7 @@
   "feat_backlog_pr_merge_train_title": "Launch a merge train from selected PRs",
   "feat_backlog_pr_merge_train_body": "Multi-select open PRs in a repo's backlog PRs tab and launch a merge train scoped to just those PRs.",
   "feat_header_fold_title": "Fold the header for more terminal",
-  "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions."
+  "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions.",
+  "feat_learnings_per_repo_title": "Learnings live on the repo row",
+  "feat_learnings_per_repo_body": "The lightbulb count moved off the top bar onto each repo's status row, next to its automation state — so a repo's proposed house rules show right where its other activity does. Click the 💡 to open the drawer at that repo."
 }

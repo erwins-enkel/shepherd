@@ -89,6 +89,9 @@
   let clearMergedLeftovers = $state(0);
   let showTriage = $state(false);
   let showLearnings = $state(false);
+  // When the learnings drawer is opened from a repo's status row, this carries that
+  // repoPath so the drawer scrolls to the matching section; null = opened globally.
+  let learningsRepo = $state<string | null>(null);
   let showUpdate = $state(false);
   // live state of a launched deploy → modal tails its log + surfaces failures
   let deploy = $state<DeployState | null>(null);
@@ -112,15 +115,6 @@
     if (showLearnings && learnings.items.length === 0 && learnings.injectable.length === 0)
       showLearnings = false;
   });
-  // Active/promoted rules that an enabled repo wants to inject but couldn't fit in
-  // the budget — the #253 case. Drives a TopBar entry point even with zero proposals
-  // (disabled repos are excluded: pruning won't help, re-enabling injection would).
-  const overBudgetRules = $derived(
-    learnings.injectable.reduce(
-      (n, repo) => n + (repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0),
-      0,
-    ),
-  );
   let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
@@ -700,9 +694,6 @@
         onhalt={haltHerd}
         needsYou={blockedEntries.length}
         ontriage={() => (showTriage = true)}
-        learnings={learnings.items.length}
-        overBudget={overBudgetRules}
-        onlearnings={() => (showLearnings = true)}
         update={store.update}
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}
@@ -710,7 +701,16 @@
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
       />
-      <QueueStrip drain={store.drain} autoMerge={store.autoMerge} />
+      <QueueStrip
+        drain={store.drain}
+        autoMerge={store.autoMerge}
+        items={learnings.items}
+        injectable={learnings.injectable}
+        onlearnings={(repoPath) => {
+          learningsRepo = repoPath;
+          showLearnings = true;
+        }}
+      />
     </div>
   {/if}
 
@@ -872,6 +872,7 @@
     <LearningsDrawer
       items={learnings.items}
       injectable={learnings.injectable}
+      focusRepo={learningsRepo}
       onapprove={(id, rule) =>
         approveLearning(id, rule)
           .then(() => learnings.load())
@@ -891,7 +892,10 @@
             return learnings.load();
           })
           .catch(() => toasts.info(m.learnings_promote_failed()))}
-      onclose={() => (showLearnings = false)}
+      onclose={() => {
+        showLearnings = false;
+        learningsRepo = null;
+      }}
     />
   {/if}
 </div>

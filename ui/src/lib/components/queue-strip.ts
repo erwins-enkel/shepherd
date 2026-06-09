@@ -1,10 +1,72 @@
-import type { AutoMergeStatus, DrainStatus } from "../types";
+import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable } from "../types";
 import { m } from "$lib/paraglide/messages";
 
 /** Enabled drains only, sorted by repo path — the rows the QueueStrip renders. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
   return Object.values(drain)
     .filter((d) => d.enabled)
+    .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
+}
+
+/** One row in the generalized per-repo status band: the repo's drain (only when
+ *  enabled), plus its learnings footprint. A row exists when the repo has an enabled
+ *  drain OR something to surface in the learnings drawer (proposals or curate need). */
+export interface RepoStatusRow {
+  repoPath: string;
+  /** The enabled drain for this repo, or null for an insight-only row. */
+  drain: DrainStatus | null;
+  /** Count of pending (proposed) learnings for this repo. */
+  insights: number;
+  /** Over-budget rule count surfaced ONLY when there are no proposals — the #253
+   *  "curate" case the old TopBar badge fell back to. 0 = nothing to curate. */
+  curate: number;
+}
+
+/** Count of an injectable repo's active rules that didn't fit its budget — only
+ *  meaningful when injection is enabled (pruning can free room; disabled → 0). */
+function overBudgetCount(repo: RepoInjectable): number {
+  return repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0;
+}
+
+/**
+ * Build the per-repo status rows for the QueueStrip's first band: the union of
+ * repos with an ENABLED drain and repos with a learnings footprint (pending
+ * proposals or an over-budget curate need). `drain` is taken only from
+ * `enabledDrains` — a disabled drain entry never produces a row or leaks its
+ * inflight/queue/popover into an insight-only row. Sorted by repoPath.
+ */
+export function repoStatusRows(
+  drain: Record<string, DrainStatus>,
+  items: Learning[],
+  injectable: RepoInjectable[],
+): RepoStatusRow[] {
+  const drains = new Map(enabledDrains(drain).map((d) => [d.repoPath, d]));
+
+  const insightsByRepo = new Map<string, number>();
+  for (const l of items) insightsByRepo.set(l.repoPath, (insightsByRepo.get(l.repoPath) ?? 0) + 1);
+
+  const curateByRepo = new Map<string, number>();
+  for (const r of injectable) {
+    const n = overBudgetCount(r);
+    if (n > 0) curateByRepo.set(r.repoPath, n);
+  }
+
+  const repoPaths = new Set<string>([
+    ...drains.keys(),
+    ...insightsByRepo.keys(),
+    ...curateByRepo.keys(),
+  ]);
+
+  return [...repoPaths]
+    .map((repoPath) => {
+      const insights = insightsByRepo.get(repoPath) ?? 0;
+      return {
+        repoPath,
+        drain: drains.get(repoPath) ?? null,
+        insights,
+        curate: insights === 0 ? (curateByRepo.get(repoPath) ?? 0) : 0,
+      };
+    })
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 

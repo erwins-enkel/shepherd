@@ -5,6 +5,16 @@ export function basename(p: string): string {
   return p.split("/").filter(Boolean).at(-1) ?? p;
 }
 
+/** Stable DOM anchor id for a repo's drawer section, derived from the FULL repoPath
+ *  (not basename — two repos can share a basename, which would collide). Used to
+ *  deep-link the drawer to a repo when opened from the per-repo status row. */
+export function repoAnchorId(repoPath: string): string {
+  return `learnings-repo-${repoPath
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`;
+}
+
 /** Group learnings by repoPath, preserving first-seen order. */
 export function groupByRepo(items: Learning[]): [string, Learning[]][] {
   const map = new Map<string, Learning[]>();

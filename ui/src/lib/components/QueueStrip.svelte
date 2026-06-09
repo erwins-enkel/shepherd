@@ -1,28 +1,43 @@
 <script lang="ts">
-  import type { AutoMergeStatus, DrainStatus, QueuedItem } from "$lib/types";
+  import type {
+    AutoMergeStatus,
+    DrainStatus,
+    Learning,
+    QueuedItem,
+    RepoInjectable,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { getDrainQueue } from "$lib/api";
   import { basename } from "./learnings-drawer";
   import {
     activeMergeTrain,
-    enabledDrains,
     mergeTrainIsAttention,
     mergeTrainLabel,
     pausedText,
     queueOpenable,
+    repoStatusRows,
   } from "./queue-strip";
 
   let {
     drain,
     autoMerge = {},
-  }: { drain: Record<string, DrainStatus>; autoMerge?: Record<string, AutoMergeStatus> } = $props();
+    items = [],
+    injectable = [],
+    onlearnings,
+  }: {
+    drain: Record<string, DrainStatus>;
+    autoMerge?: Record<string, AutoMergeStatus>;
+    items?: Learning[];
+    injectable?: RepoInjectable[];
+    onlearnings?: (repoPath: string) => void;
+  } = $props();
 
-  const rows = $derived(enabledDrains(drain));
+  const rows = $derived(repoStatusRows(drain, items, injectable));
   const mergeRows = $derived(activeMergeTrain(autoMerge));
 
   // Lazy queue popover: at most one open at a time, fetched fresh on open.
   let openRepo = $state<string | null>(null);
-  let items = $state<QueuedItem[]>([]);
+  let queueItems = $state<QueuedItem[]>([]);
   let loading = $state(false);
   let failed = $state(false);
   let stripEl = $state<HTMLElement | null>(null);
@@ -34,12 +49,12 @@
     }
     const repo = d.repoPath;
     openRepo = repo;
-    items = [];
+    queueItems = [];
     failed = false;
     loading = true;
     try {
       const q = await getDrainQueue(repo);
-      if (openRepo === repo) items = q; // ignore a response for a since-switched popover
+      if (openRepo === repo) queueItems = q; // ignore a response for a since-switched popover
     } catch {
       if (openRepo === repo) failed = true;
     } finally {
@@ -58,32 +73,55 @@
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
 {#if rows.length > 0}
-  <div class="queue-strip" role="status" aria-label={m.drain_strip_label()} bind:this={stripEl}>
-    <span class="qs-label">🚰 {m.drain_strip_label()}</span>
+  <div class="queue-strip" role="status" aria-label={m.repo_status_label()} bind:this={stripEl}>
+    <span class="qs-label">{m.repo_status_label()}</span>
     <ul class="qs-rows">
-      {#each rows as d (d.repoPath)}
-        <li class="qs-row" class:paused={d.paused}>
-          <span class="qs-repo">{basename(d.repoPath)}</span>
-          <span class="qs-inflight">{m.drain_inflight({ count: d.inFlight, max: d.max })}</span>
-          {#if queueOpenable(d)}
-            <button
-              type="button"
-              class="qs-queued qs-queued-btn"
-              aria-haspopup="dialog"
-              aria-expanded={openRepo === d.repoPath}
-              aria-label={m.drain_queue_open_aria({ count: d.queued, repo: basename(d.repoPath) })}
-              onclick={() => toggle(d)}
-            >
-              {m.drain_queued({ count: d.queued })}
-            </button>
-          {:else}
-            <span class="qs-queued">{m.drain_queued({ count: d.queued })}</span>
-          {/if}
-          {#if d.paused}
-            <span class="qs-pause" title={pausedText(d)}>{pausedText(d)}</span>
+      {#each rows as row (row.repoPath)}
+        <li class="qs-row" class:paused={row.drain?.paused}>
+          <span class="qs-repo">{basename(row.repoPath)}</span>
+          {#if row.drain}
+            {@const d = row.drain}
+            <span class="qs-inflight">{m.drain_inflight({ count: d.inFlight, max: d.max })}</span>
+            {#if queueOpenable(d)}
+              <button
+                type="button"
+                class="qs-queued qs-queued-btn"
+                aria-haspopup="dialog"
+                aria-expanded={openRepo === d.repoPath}
+                aria-label={m.drain_queue_open_aria({
+                  count: d.queued,
+                  repo: basename(d.repoPath),
+                })}
+                onclick={() => toggle(d)}
+              >
+                {m.drain_queued({ count: d.queued })}
+              </button>
+            {:else}
+              <span class="qs-queued">{m.drain_queued({ count: d.queued })}</span>
+            {/if}
+            {#if d.paused}
+              <span class="qs-pause" title={pausedText(d)}>{pausedText(d)}</span>
+            {/if}
           {/if}
 
-          {#if openRepo === d.repoPath}
+          {#if row.insights > 0 || row.curate > 0}
+            <button
+              type="button"
+              class="qs-insights"
+              title={m.learnings_badge_tip()}
+              aria-label={row.insights > 0
+                ? m.learnings_open_aria({ count: row.insights })
+                : m.learnings_open_curate_aria({ count: row.curate })}
+              onclick={() => onlearnings?.(row.repoPath)}
+            >
+              <span class="qs-insights-icon" aria-hidden="true">💡</span>{#if row.insights > 0}<span
+                  class="qs-insights-n">{row.insights}</span
+                >{/if}
+            </button>
+          {/if}
+
+          {#if row.drain && openRepo === row.repoPath}
+            {@const d = row.drain}
             <div
               class="qs-pop"
               role="dialog"
@@ -94,11 +132,11 @@
                 <div class="qs-pop-state">{m.common_loading()}</div>
               {:else if failed}
                 <div class="qs-pop-state qs-pop-fail">{m.drain_queue_error()}</div>
-              {:else if items.length === 0}
+              {:else if queueItems.length === 0}
                 <div class="qs-pop-state">{m.drain_queue_empty()}</div>
               {:else}
                 <ul class="qs-pop-list">
-                  {#each items as it (it.number)}
+                  {#each queueItems as it (it.number)}
                     <li>
                       <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
                       <a
@@ -212,6 +250,28 @@
   .qs-queued-btn:hover,
   .qs-queued-btn:focus-visible {
     color: var(--color-ink-bright);
+  }
+  /* per-repo learnings entry point — 💡 + count, same inline-button chrome as the
+     queued button so the row reads as one band. */
+  .qs-insights {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: var(--color-faint);
+  }
+  .qs-insights:hover,
+  .qs-insights:focus-visible {
+    color: var(--color-ink-bright);
+  }
+  .qs-insights-n {
+    font-variant-numeric: tabular-nums;
   }
   /* merge-train state: active tone (merging/rebasing) matches inflight color */
   .qs-mt-state {

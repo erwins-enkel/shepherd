@@ -13,14 +13,12 @@
 
 export type Mode = "mobile" | "touch-desktop" | "desktop";
 
-/** The five already-computed badge-presence inputs the bar counts for crowding.
+/** The already-computed badge-presence inputs the bar counts for crowding.
  * The halt e-stop is NOT among them — it lives in the always-present gear menu,
  * never in the right-side cluster, so `working` doesn't affect bar crowding. */
 export interface ChromeState {
   updateAvailable: boolean;
   herdrUpdateAvailable: boolean;
-  learnings: number;
-  overBudget: number;
   needsYou: number;
   whatsNew: boolean;
 }
@@ -44,7 +42,6 @@ export function badgeCount(s: ChromeState): number {
   return (
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
-    (s.learnings > 0 || s.overBudget > 0 ? 1 : 0) +
     (s.needsYou > 0 ? 1 : 0) +
     (s.whatsNew ? 1 : 0)
   );

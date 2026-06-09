@@ -136,11 +136,11 @@ export class GithubForge implements GitForge {
     // Fresh, uncached single-issue read for the drain's pre-spawn claim re-check
     // (see GitForge.getIssue). Best-effort: a gone/closed issue or a transient gh
     // error yields null so the caller falls back to spawning, never loses the issue.
-    // COST: one synchronous `gh issue view` subprocess per spawn candidate per pump
-    // (this.run is execFileSync). The drain spawns at most maxAuto per pump, so the
+    // COST: one `gh issue view` subprocess per spawn candidate per pump. `this.run`
+    // is async (non-blocking) and the drain spawns at most maxAuto per pump, so the
     // fan-out is bounded and small; not worth caching/batching for the claim re-check.
     try {
-      const out = this.run([
+      const out = await this.run([
         "issue",
         "view",
         String(issueNumber),

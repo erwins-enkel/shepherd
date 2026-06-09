@@ -18,6 +18,8 @@ export interface RepoEntry {
   display: string;
   /** Most-recent session createdAt for this repo; undefined if never used. */
   lastUsedAt?: number;
+  /** Count of sessions (agents) run on this repo within the recent window; undefined if none. */
+  recentAgentCount?: number;
 }
 
 /** Collapse the user's home directory to `~` in a display path, matching listRepos's convention. */

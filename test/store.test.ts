@@ -41,6 +41,19 @@ test("lastUsedByRepo returns max createdAt per repoPath", () => {
   expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
 });
 
+test("recentSessionCountsByRepo counts sessions per repo within the window", () => {
+  const s = mk();
+  s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });
+  s.create({ ...base, repoPath: "/b", herdrAgentId: "t2" });
+  s.create({ ...base, repoPath: "/b", herdrAgentId: "t3" });
+  s.create({ ...base, repoPath: "/b", herdrAgentId: "t4" });
+  const counts = s.recentSessionCountsByRepo(0);
+  expect(counts["/a"]).toBe(1);
+  expect(counts["/b"]).toBe(3);
+  // A future `since` excludes every session — the window bound is applied.
+  expect(s.recentSessionCountsByRepo(Date.now() + 60_000)["/b"]).toBeUndefined();
+});
+
 test("repo_config: defaults to critic on + auto-address off + learnings on, persists toggles", () => {
   const store = new SessionStore(":memory:");
   // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)

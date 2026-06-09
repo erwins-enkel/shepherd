@@ -262,6 +262,8 @@
   "reposelect_placeholder": "Repo auswählen…",
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",
+  "reposelect_recent_heading": "zuletzt bearbeitet",
+  "reposelect_recent_agents": "{count} Agenten in den letzten 3 Tagen hier ausgeführt",
   "clonerepo_title": "Repo per URL klonen",
   "clonerepo_url_label": "Git-URL",
   "clonerepo_url_placeholder": "https://github.com/owner/repo.git",
@@ -809,5 +811,7 @@
   "feat_preview_start_title": "Dev-Server direkt aus dem HUD starten",
   "feat_preview_start_body": "Hat ein Agent noch keine Live-Vorschau, erscheint ein Start-Steuerelement in seinem Viewport. Ein Klick genügt, damit der Agent seinen Dev-Server startet — automatisch erkannt aus der package.json oder per eigenem Befehl — und du die laufende App sofort vorschauen kannst, ohne zu warten, bis der Agent selbst auf die Idee kommt.",
   "feat_active_label_newtask_title": "Beanspruchte Issues fallen in Neue Aufgabe auf",
-  "feat_active_label_newtask_body": "Wenn du eine Neue Aufgabe aus einem GitHub-Issue erstellst, wird ein bereits von einem aktiven Shepherd-Agenten beanspruchtes Issue jetzt mit hervorgehobenem shepherd:active-Label angezeigt — zuerst gelistet und im Farbton laufender Sessions getönt — sodass du auf einen Blick siehst, an welchen Issues schon gearbeitet wird."
+  "feat_active_label_newtask_body": "Wenn du eine Neue Aufgabe aus einem GitHub-Issue erstellst, wird ein bereits von einem aktiven Shepherd-Agenten beanspruchtes Issue jetzt mit hervorgehobenem shepherd:active-Label angezeigt — zuerst gelistet und im Farbton laufender Sessions getönt — sodass du auf einen Blick siehst, an welchen Issues schon gearbeitet wird.",
+  "feat_recent_repos_title": "Zuletzt bearbeitete Repos oben im Picker angeheftet",
+  "feat_recent_repos_body": "Die Repo-Auswahl in Neue Aufgabe heftet jetzt die drei Repos, auf denen du in den letzten 3 Tagen die meisten Agenten ausgeführt hast, oben an — abgesetzt und nach Agenten-Anzahl sortiert — damit die Repos, an denen du gerade aktiv arbeitest, mit einem Klick erreichbar sind statt in der alphabetischen Liste begraben."
 }

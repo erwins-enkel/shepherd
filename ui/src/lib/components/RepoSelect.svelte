@@ -30,10 +30,39 @@
     pickerFor = null;
   }
 
+  // How many repos to pin in the "recently worked on" shortcut group at the top.
+  const RECENT_LIMIT = 3;
+
   const selected = $derived(repos.find((r) => r.path === value) ?? null);
-  const shown = $derived(
+
+  const filtered = $derived(
     repos.filter((r) => (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase())),
   );
+
+  // The top few repos we've run the most agents on lately (desc by count, then by
+  // most-recently-used). Only shown when the list isn't being filtered — once the
+  // user types, the shortcut just gets in the way of the search they asked for.
+  const recents = $derived(
+    filter.trim() === ""
+      ? repos
+          .filter((r) => (r.recentAgentCount ?? 0) > 0)
+          .sort(
+            (a, b) =>
+              (b.recentAgentCount ?? 0) - (a.recentAgentCount ?? 0) ||
+              (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) ||
+              a.name.localeCompare(b.name),
+          )
+          .slice(0, RECENT_LIMIT)
+      : [],
+  );
+
+  // Single option sequence the keyboard cursor walks: pinned recents first, then the
+  // full list. Pinned repos intentionally re-appear below — the group is a shortcut,
+  // not a filter. `pinned` tags which section a row belongs to for keying + styling.
+  const shown = $derived([
+    ...recents.map((r) => ({ repo: r, pinned: true })),
+    ...filtered.map((r) => ({ repo: r, pinned: false })),
+  ]);
 
   function toggle() {
     open = !open;
@@ -77,7 +106,7 @@
         break;
       case "Enter": {
         e.preventDefault();
-        const r = shown[activeIdx];
+        const r = shown[activeIdx]?.repo;
         if (r) pick(r.path);
         break;
       }
@@ -86,7 +115,9 @@
   }
 
   function scrollActiveIntoView() {
-    const row = listEl?.children[activeIdx] as HTMLElement | undefined;
+    // Rows are looked up by id, not child index — the list interleaves non-option
+    // section headers/dividers, so child index no longer tracks the option index.
+    const row = listEl?.querySelector(`#rs-opt-${activeIdx}`) as HTMLElement | null;
     row?.scrollIntoView({ block: "nearest" });
   }
 
@@ -151,12 +182,20 @@
         onkeydown={onFilterKey}
       />
       <ul class="rs-list" id="rs-listbox" role="listbox" bind:this={listEl}>
-        {#each shown as r, i (r.path)}
+        {#each shown as row, i (row.pinned ? "p:" + row.repo.path : "a:" + row.repo.path)}
+          {#if row.pinned && i === 0}
+            <li class="rs-group-label" role="presentation">{m.reposelect_recent_heading()}</li>
+          {/if}
+          {#if !row.pinned && recents.length > 0 && i === recents.length}
+            <li class="rs-group-sep" role="presentation"></li>
+          {/if}
+          {@const r = row.repo}
           <li
             id={`rs-opt-${i}`}
             class="rs-row"
             class:active={r.path === value}
             class:kbd-active={i === activeIdx}
+            class:recent={row.pinned}
             role="option"
             aria-selected={i === activeIdx}
             tabindex="-1"
@@ -179,6 +218,15 @@
             </button>
             <b>{r.name}</b>
             <span class="dim">{r.display}</span>
+            {#if row.pinned}
+              <span
+                class="rs-count"
+                title={m.reposelect_recent_agents({ count: r.recentAgentCount ?? 0 })}
+                aria-label={m.reposelect_recent_agents({ count: r.recentAgentCount ?? 0 })}
+              >
+                {r.recentAgentCount}
+              </span>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -358,6 +406,47 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+
+  /* "recently worked on" shortcut group — pinned rows at the top, set apart from
+     the full alphabetical list by a heading, a tinted background and a divider. */
+  .rs-group-label {
+    padding: 6px 10px 4px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .rs-group-sep {
+    height: 0;
+    border-top: 1px solid var(--color-line-bright);
+  }
+
+  .rs-row.recent {
+    background: color-mix(in srgb, var(--color-amber) 5%, var(--color-panel));
+  }
+  .rs-row.recent:hover,
+  .rs-row.recent.kbd-active {
+    background: var(--color-hover);
+  }
+  .rs-row.recent.active {
+    background: color-mix(in srgb, var(--color-amber) 12%, var(--color-panel));
+  }
+
+  /* Agent-count badge on a pinned recent row — the metric the group is ranked by. */
+  .rs-count {
+    flex-shrink: 0;
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 5px;
+    text-align: center;
+    font-size: var(--fs-meta);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+    border-radius: 999px;
   }
 
   .rs-empty {

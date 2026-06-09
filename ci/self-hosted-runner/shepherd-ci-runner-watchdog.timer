@@ -1,0 +1,20 @@
+# Shepherd self-hosted CI runner — watchdog timer.
+#
+# Periodically fires shepherd-ci-runner-watchdog.service so a silently-down runner
+# (PR jobs queueing pending, never red) gets surfaced in the journal + a desktop
+# toast within a few minutes. Enable with:
+#   systemctl --user enable --now shepherd-ci-runner-watchdog.timer
+[Unit]
+Description=Periodic liveness check for the Shepherd self-hosted CI runner
+Documentation=https://github.com/erwins-enkel/shepherd
+
+[Timer]
+# First check shortly after boot (let the runner units + network settle), then
+# every 5 minutes. Persistent=true runs a missed check on resume if the host was
+# asleep/off across a scheduled tick.
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

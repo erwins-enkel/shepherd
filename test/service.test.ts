@@ -5,6 +5,7 @@ import {
   spawnSettingsOverlay,
   composeSystemPrompt,
   MERGE_STALE_MS,
+  TRAIN_TRACKER_MAX_MS,
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config } from "../src/config";
@@ -2013,6 +2014,39 @@ test("slow/long run: a still-running train is never swept, however long it takes
   service.resolveMerging(a.id, true);
   service.clearMergingForTrain("train-Slow", t0 + 5 * MERGE_STALE_MS + 1);
   expect(landed(emitted)).toHaveLength(1);
+});
+
+test("repeat archive is idempotent: doesn't restart the await window or re-nudge members", async () => {
+  const { service, emitted, refreshed } = mergeSvc();
+  const a = await mkSession(service);
+  service.setMerging([a.id], "train-Re");
+  const t0 = Date.now();
+  service.clearMergingForTrain("train-Re", t0); // archived, awaiting (merged false) → window starts at t0
+  // A second session:archived for the same train must be ignored — it must NOT
+  // restart the await window or fire refreshPr again.
+  service.clearMergingForTrain("train-Re", t0 + MERGE_STALE_MS / 2);
+  expect(refreshed).toEqual([a.id]); // nudged exactly once across both calls
+  // Window stays anchored at t0, so a sweep at t0+TTL+1 evicts (it would NOT have if reset).
+  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
+  service.resolveMerging(a.id, true); // entry gone → no late credit
+  expect(landed(emitted)).toHaveLength(0);
+});
+
+test("dead-train backstop: a live entry orphaned past TRAIN_TRACKER_MAX_MS is reclaimed (no emit)", async () => {
+  const { service, emitted } = mergeSvc();
+  const a = await mkSession(service);
+  // `base` is captured BEFORE setMerging, so launchedAt >= base; the ±1min margins
+  // dwarf any sub-ms drift, keeping the boundary checks non-flaky.
+  const base = Date.now();
+  service.setMerging([a.id], "train-Dead"); // launchedAt ≈ base; train session then dies w/o session:archived
+  // Below the backstop while live → NOT reclaimed.
+  service.sweepStaleMerging(base + TRAIN_TRACKER_MAX_MS - 60_000);
+  // Past the backstop → reclaimed with no emit (no session:archived ever arrived).
+  service.sweepStaleMerging(base + TRAIN_TRACKER_MAX_MS + 60_000);
+  // Entry gone: a later merge + archive can no longer fire an offer.
+  service.resolveMerging(a.id, true);
+  service.clearMergingForTrain("train-Dead", base + TRAIN_TRACKER_MAX_MS + 120_000);
+  expect(landed(emitted)).toHaveLength(0);
 });
 
 test("setMerging with all-unknown ids creates no entry; later archive is a no-op", async () => {

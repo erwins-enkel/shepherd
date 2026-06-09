@@ -16,6 +16,13 @@ import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
  *  "Merging" forever. Mirrored in ui/src/lib/components/merge-train.ts. */
 export const MERGE_STALE_MS = 30 * 60_000;
 
+/** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
+ *  train session that dies without ever emitting `session:archived` would orphan
+ *  its live entry forever, so the sweep reclaims a live entry this long after launch.
+ *  Set far beyond any realistic run (no merge train runs for a day) so it can only
+ *  reclaim a genuinely dead train, never one still landing PRs. */
+export const TRAIN_TRACKER_MAX_MS = 24 * 60 * 60_000;
+
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
@@ -309,11 +316,14 @@ export class SessionService {
       repoPath: string;
       merged: boolean;
       archived: boolean;
-      // null while the train is still running — a LIVE entry is never swept (however
-      // long the run / a slow first CI takes), only cleaned when the train archives.
-      // Set to archive time when the train archives awaiting a late credit; the TTL
-      // sweep then reclaims it once that post-archive window lapses.
+      // null while the train is still running — a LIVE entry is never swept on the
+      // normal path (however long the run / a slow first CI takes), only cleaned when
+      // the train archives; the sole exception is the TRAIN_TRACKER_MAX_MS absolute
+      // backstop below, for a train that died without a session:archived. Set to
+      // archive time when the train archives awaiting a late credit; the sweep then
+      // reclaims it once that post-archive window lapses.
       awaitingSince: number | null;
+      launchedAt: number; // for the dead-train absolute backstop only
       members: Set<string>;
     }
   >();
@@ -840,6 +850,7 @@ export class SessionService {
         merged: false,
         archived: false,
         awaitingSince: null,
+        launchedAt: since,
         members,
       });
     }
@@ -896,7 +907,7 @@ export class SessionService {
       if (s.mergingTrainId === trainId) this.clearMerging(s.id);
     }
     const entry = this.#trainOffers.get(trainId);
-    if (!entry) return; // untracked train → no-op (unchanged behaviour)
+    if (!entry || entry.archived) return; // untracked, or a repeat archive → keep the await window monotonic
     entry.archived = true;
     entry.awaitingSince = now; // start the post-archive await window (only awaiting entries are swept)
     if (entry.merged) {
@@ -921,14 +932,18 @@ export class SessionService {
         this.clearMerging(s.id);
       }
     }
-    // Reclaim only AWAITING entries (train archived, awaiting a late credit) once
-    // their post-archive window lapses — directly, NOT via activeOnly (which excludes
-    // archived trains). A still-running train (awaitingSince null) is NEVER swept,
-    // however long its run / first-PR CI takes; it's cleaned only when it archives.
-    // Total entries stay bounded: live ones track live train sessions, awaiting ones
-    // lapse after TTL. No emit on eviction — fail-safe no-offer.
+    // Reclaim tracker entries directly (NOT via activeOnly, which excludes archived
+    // trains). Two cases, both no-emit (fail-safe no-offer):
+    //  - AWAITING (archived, awaiting a late credit): once the post-archive window lapses.
+    //  - LIVE (awaitingSince null): NEVER on a normal run, however long it takes — only
+    //    the TRAIN_TRACKER_MAX_MS absolute backstop, which bounds an entry orphaned by a
+    //    train that died without a session:archived. Real runs finish far inside it.
     for (const [trainId, entry] of this.#trainOffers) {
-      if (entry.awaitingSince !== null && now - entry.awaitingSince > MERGE_STALE_MS) {
+      const awaitingStale =
+        entry.awaitingSince !== null && now - entry.awaitingSince > MERGE_STALE_MS;
+      const deadTrainOrphan =
+        entry.awaitingSince === null && now - entry.launchedAt > TRAIN_TRACKER_MAX_MS;
+      if (awaitingStale || deadTrainOrphan) {
         for (const id of entry.members) this.#memberToTrain.delete(id);
         this.#trainOffers.delete(trainId);
       }

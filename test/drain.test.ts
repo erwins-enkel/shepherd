@@ -969,7 +969,9 @@ test("merge on a forge WITHOUT closeIssue retains the claim — the issue stays 
   expect(h.forgeRec.removed).toHaveLength(0); // claim kept: issue is still open
 });
 
-test("archiving a NON-auto session never touches labels", async () => {
+test("archiving a manually-linked (non-auto) session releases its claim", async () => {
+  // A human linking an issue at task creation stamps the claim (via the create
+  // route), so archiving that manual session must ALSO release it.
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({
     name: "manual",
@@ -983,6 +985,26 @@ test("archiving a NON-auto session never touches labels", async () => {
     herdrAgentId: "t",
     auto: false,
     issueNumber: 5,
+  });
+  h.store.archive(s.id);
+  await h.drain.onArchived(s.id);
+  expect(h.forgeRec.removed).toEqual([{ number: 5, label: ACTIVE_LABEL }]);
+});
+
+test("archiving a non-auto session WITHOUT an issue never touches labels", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "manual",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "feature/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: false,
+    issueNumber: null,
   });
   h.store.archive(s.id);
   await h.drain.onArchived(s.id);

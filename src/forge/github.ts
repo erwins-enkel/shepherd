@@ -457,7 +457,7 @@ export class GithubForge implements GitForge {
         "--color",
         "5319e7",
         "--description",
-        "Claimed by a Shepherd auto-drain session",
+        "Claimed by a Shepherd session (auto-drain or linked issue)",
       ]);
     } catch {
       // already exists (or a transient gh error) — ignore.

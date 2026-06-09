@@ -194,7 +194,12 @@ export class ReviewService {
     // it's checked out), and it's exactly the tree the critic would review.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
+      wt = this.deps.worktree.createDetached(
+        session.repoPath,
+        session.branch!,
+        git.headSha!,
+        session.id,
+      );
     } catch (err) {
       console.warn(`[review] worktree failed for ${session.id}:`, err);
       return;

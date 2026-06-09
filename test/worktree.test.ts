@@ -52,7 +52,7 @@ test("currentBranch reports the worktree's checked-out branch and follows a rena
 test("currentBranch returns null on a detached HEAD", () => {
   const wt = new WorktreeMgr();
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
-  const r = wt.createDetached(repo, "main", sha);
+  const r = wt.createDetached(repo, "main", sha, "sess-detached");
   expect(wt.currentBranch(r.worktreePath)).toBeNull();
   wt.remove(r.worktreePath);
 });
@@ -186,7 +186,7 @@ test("createDetached: checks out a detached worktree at the given sha", () => {
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
 
   const mgr = new WorktreeMgr();
-  const wt = mgr.createDetached(repo, "feat/x", sha);
+  const wt = mgr.createDetached(repo, "feat/x", sha, "sess-1");
 
   expect(existsSync(wt.worktreePath)).toBe(true);
   expect(wt.branch).toBeNull();
@@ -203,8 +203,8 @@ test("createDetached: checks out a detached worktree at the given sha", () => {
 test("createDetached: rejects a branch that could smuggle a git flag", () => {
   const mgr = new WorktreeMgr();
   const sha = "0".repeat(40);
-  expect(() => mgr.createDetached(repo, "--upload-pack=evil", sha)).toThrow("invalid branch");
-  expect(() => mgr.createDetached(repo, "-x", sha)).toThrow("invalid branch");
+  expect(() => mgr.createDetached(repo, "--upload-pack=evil", sha, "s")).toThrow("invalid branch");
+  expect(() => mgr.createDetached(repo, "-x", sha, "s")).toThrow("invalid branch");
 });
 
 test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
@@ -240,10 +240,11 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
 
   const mgr = new WorktreeMgr();
-  const first = mgr.createDetached(repo, "feat/x", sha);
+  const first = mgr.createDetached(repo, "feat/x", sha, "sess-1");
   // simulate a restart: the in-memory inflight record is gone but the worktree
-  // dir + registration remain. A re-spawn for the same head must still succeed.
-  const second = mgr.createDetached(repo, "feat/x", sha);
+  // dir + registration remain. The SAME session re-spawning for the same head
+  // (same key+sha) must reclaim its tree rather than fail on an occupied dir.
+  const second = mgr.createDetached(repo, "feat/x", sha, "sess-1");
   expect(second.worktreePath).toBe(first.worktreePath);
   expect(existsSync(second.worktreePath)).toBe(true);
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: second.worktreePath })
@@ -252,6 +253,34 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
   expect(head).toBe(sha);
 
   mgr.remove(second.worktreePath);
+});
+
+test("createDetached: distinct keys never share a path (no cross-streamed verdict)", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  execFileSync("git", ["checkout", "-b", "feat/x"], { cwd: repo });
+  writeFileSync(join(repo, "feat.txt"), "hello");
+  execFileSync("git", ["add", "feat.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+
+  const mgr = new WorktreeMgr();
+  // Two sessions branched off the SAME base resolve the SAME sha — the exact
+  // 267/272 case. Their reviewer worktrees (and thus their verdict files) must
+  // stay separate so one session's review can't land in the other's pane.
+  const a = mgr.createDetached(repo, "feat/x", sha, "sess-267");
+  const b = mgr.createDetached(repo, "feat/x", sha, "sess-272");
+  expect(a.worktreePath).not.toBe(b.worktreePath);
+  expect(existsSync(a.worktreePath)).toBe(true);
+  expect(existsSync(b.worktreePath)).toBe(true);
+
+  mgr.remove(a.worktreePath);
+  mgr.remove(b.worktreePath);
 });
 
 test("behindBase: false when up-to-date, true when base advanced", () => {

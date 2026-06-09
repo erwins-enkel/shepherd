@@ -235,14 +235,25 @@ export class WorktreeMgr {
 
   /** Detached worktree at a specific commit, fetching it from origin first so a
    *  PR head pushed by the agent is present even when the local repo is behind.
-   *  Used by the critic to review the exact PR head. */
-  createDetached(repoPath: string, branch: string, sha: string): WorktreeResult {
+   *  Used by the critic to review the exact PR head and by the plan gate to inspect
+   *  the base.
+   *
+   *  `key` (the owning session id) namespaces the path so two concurrent reviewers
+   *  in the SAME repo can't share a worktree — and thus can't read each other's
+   *  verdict file. Without it, the path collapsed to `<repo>-review-<sha8>`: two
+   *  sessions branched off the same base produced the identical base-sha path, so
+   *  one reviewer's verdict was steered into the other's pane (cross-streamed). The
+   *  same `key`+`sha` still reclaims a stale path so a session re-spawning its own
+   *  review after a restart re-pairs to its tree. */
+  createDetached(repoPath: string, branch: string, sha: string, key: string): WorktreeResult {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
     // same refname grammar as create(); rejecting a leading "-" also blocks argv
     // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
+    const slug = key.replace(/[^A-Za-z0-9_-]/g, "");
+    if (!slug) throw new Error("invalid key");
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
-    const worktreePath = join(parent, `${basename(repoPath)}-review-${sha.slice(0, 8)}`);
+    const worktreePath = join(parent, `${basename(repoPath)}-review-${slug}-${sha.slice(0, 8)}`);
     mkdirSync(parent, { recursive: true });
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)

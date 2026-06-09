@@ -190,7 +190,7 @@ export class PlanGateService {
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha);
+      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha, session.id);
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return;

@@ -10,6 +10,7 @@ import {
   readTranscriptSignals,
   STRIP_WINDOW_MS,
 } from "../src/activity-signal";
+import { snapshotFromText } from "../src/stall";
 import type { ActivityEntry } from "../src/activity";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -261,4 +262,52 @@ test("signalFrom: pending entries count in recentTs but never in recentErrTs", (
   const signal = signalFrom([entry("Bash", "$ in flight", last - 5_000, "pending")], last);
   expect(signal!.recentTs).toEqual([last - 5_000]);
   expect(signal!.recentErrTs).toEqual([]);
+});
+
+// ── parity: tail-bounded read produces same signals as a full parse ────────────
+
+test("readTranscriptSignals parity: signals from tail read equal signals from recent records only", () => {
+  const dir = mkdtempSync(join(tmpdir(), "parity-signal-"));
+  const path = join(dir, "parity.jsonl");
+  try {
+    // Build a transcript: 5 "old" tool lines that will be cropped by the tail cap,
+    // then 4 "recent" lines that must survive the tail read. Recent records all
+    // fall within the default MAX_TAIL_BYTES window so accuracy is preserved.
+    const oldLines: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      oldLines.push(
+        toolLine("Read", { file_path: `/old/file${i}.ts` }, `old${i}`, "2026-01-01T00:00:00.000Z"),
+      );
+      oldLines.push(resultLine(`old${i}`, "2026-01-01T00:00:01.000Z"));
+    }
+    const recentLines = [
+      toolLine("Edit", { file_path: "/a/server.ts" }, "r1", "2026-05-31T10:00:00.000Z"),
+      resultLine("r1", "2026-05-31T10:00:01.000Z"),
+      toolLine("Bash", { command: "bun test" }, "r2", "2026-05-31T10:01:00.000Z"),
+      resultLine("r2", "2026-05-31T10:05:00.000Z"),
+    ];
+
+    const fullContent = [...oldLines, ...recentLines].join("\n");
+    writeFileSync(path, fullContent);
+
+    // derive expected signals from ONLY the recent lines (what the tail should cover)
+    const recentText = recentLines.join("\n");
+    const expectedActivity = signalFromText(recentText);
+    const expectedSnapshot = snapshotFromText(recentText);
+
+    // actual read via readTranscriptSignals (uses readTranscriptTail internally)
+    const { snapshot, activity } = readTranscriptSignals(path);
+
+    expect(activity).not.toBeNull();
+    expect(snapshot).not.toBeNull();
+    // heartbeat must match
+    expect(activity!.lastActivityTs).toBe(expectedActivity!.lastActivityTs);
+    // summary must match
+    expect(activity!.summary).toBe(expectedActivity!.summary);
+    // stall snapshot must match
+    expect(snapshot!.lastTs).toBe(expectedSnapshot!.lastTs);
+    expect(snapshot!.pending).toBe(expectedSnapshot!.pending);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

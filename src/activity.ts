@@ -1,3 +1,5 @@
+import { openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { timed } from "./instrument";
 import { eachJsonlObject } from "./jsonl";
 
 export interface ActivityEntry {
@@ -121,6 +123,43 @@ function collectEntries(records: ParsedRecord[], errored: Map<string, boolean>):
     }
   }
   return entries;
+}
+
+/**
+ * 512 KB is far larger than the stall window's worth of JSONL records (a few
+ * hundred bytes each × the last few hundred turns), so signal accuracy is fully
+ * preserved while bounding the bytes fed to JSON.parse on every poll tick.
+ */
+export const MAX_TAIL_BYTES = 512 * 1024;
+
+/**
+ * Read only the last `maxBytes` bytes of a JSONL transcript file.
+ *
+ * When the file is larger than `maxBytes` the read starts mid-file; the leading
+ * partial line (up to and including the first `\n`) is dropped so a truncated
+ * record is never fed to the parser. When the whole file fits, the content is
+ * returned intact. Throws on read errors (e.g. missing file) so callers can
+ * handle with their existing try/catch → null patterns.
+ */
+export function readTranscriptTail(path: string, maxBytes = MAX_TAIL_BYTES): string {
+  return timed(`transcript-tail ${basename(path)}`, () => {
+    const fd = openSync(path, "r");
+    try {
+      const { size } = fstatSync(fd);
+      const readBytes = Math.min(size, maxBytes);
+      const buf = Buffer.allocUnsafe(readBytes);
+      readSync(fd, buf, 0, readBytes, size - readBytes);
+      const text = buf.toString("utf8");
+      // started mid-file → drop the leading partial line
+      if (size > maxBytes) {
+        const nl = text.indexOf("\n");
+        return nl === -1 ? "" : text.slice(nl + 1);
+      }
+      return text;
+    } finally {
+      closeSync(fd);
+    }
+  });
 }
 
 /**

@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { parseActivity, latestRecordTs, type ActivityEntry } from "./activity";
+import { parseActivity, latestRecordTs, readTranscriptTail, type ActivityEntry } from "./activity";
 import { snapshotFrom, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 
 /** Per-agent liveness + current-activity signal pushed to UI clients. */
@@ -77,11 +76,13 @@ export function signalFromText(text: string): SessionActivity | null {
  * Synchronously derive an activity signal from a session JSONL transcript.
  * Missing/unreadable file → null ("no signal yet"). Also returns null when the
  * transcript has no parseable records at all (e.g. a brand-new session).
+ * Reads only the tail of the file (bounded by MAX_TAIL_BYTES) to avoid blocking
+ * the event loop on large transcripts.
  */
 export function readActivitySignal(path: string): SessionActivity | null {
   let text: string;
   try {
-    text = readFileSync(path, "utf8");
+    text = readTranscriptTail(path);
   } catch {
     return null;
   }
@@ -91,7 +92,7 @@ export function readActivitySignal(path: string): SessionActivity | null {
 /**
  * Read a session JSONL transcript ONCE and derive BOTH the stall snapshot and
  * the activity signal from a SINGLE parse — the per-tick probe for a running
- * agent. Missing/unreadable file → both null. One `readFileSync`, one
+ * agent. Missing/unreadable file → both null. One tail-bounded read, one
  * `parseActivity`, one `latestRecordTs`, both builders fed from the result —
  * no duplicate disk read or in-memory parse per tick.
  */
@@ -101,7 +102,7 @@ export function readTranscriptSignals(path: string): {
 } {
   let text: string;
   try {
-    text = readFileSync(path, "utf8");
+    text = readTranscriptTail(path);
   } catch {
     return { snapshot: null, activity: null };
   }

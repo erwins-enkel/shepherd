@@ -22,47 +22,35 @@ full rationale.
 
 ## Sharing a repo's queue across people
 
-Several people can drive the **same repo's** auto-drain queue together — each on their **own**
-Claude subscription. This is the multi-person form of the ToS model above: not one shared account,
-but **N independent single-operator instances**. Each person runs their own Shepherd against their
-own `~/.claude` login; no token relay, no impersonation. The shared GitHub/Gitea repo is the only
-thing in common.
+Several people can drive the same repo's auto-drain queue together, each on their own Claude
+subscription. This is the multi-person form of the ToS model above — not one shared account but N
+independent single-operator instances, each running against its own `~/.claude` login (no token
+relay, no impersonation). The shared git-host repo is the only thing in common; the `shepherd:active`
+label keeps two instances off the same issue.
 
-**How the work splits (it is _not_ a capacity-weighted load balancer).** Each instance drains
-**greedily** up to its own `maxAuto` and its own `usageCeilingPct`, and claims issues **first-come
-by polling timing** — whoever's drain pumps first stamps the `shepherd:active` label first and gets
-the issue. Below the ceiling, issues split by _when each instance happens to poll_, not by who has
-more headroom. The `usageCeilingPct` is a **hard per-operator STOP**, not a balancer: when an
-instance reaches its ceiling it simply stops spawning and leaves the rest of the queue to the others.
+How the work splits: each instance drains greedily up to its own `maxAuto` and `usageCeilingPct`,
+claiming issues first-come by polling timing (whoever pumps first stamps `shepherd:active` first).
+It is not a capacity-weighted load balancer — below the ceiling, issues split by when each instance
+happens to poll, not by who has more headroom. `usageCeilingPct` is a hard per-operator stop: an
+instance that hits its ceiling stops spawning and leaves the rest to the others. So "Patrick is at
+80%, Kai isn't" just means Patrick's ceiling stops his instance (or he turns auto-drain off) and
+Kai's keeps pulling up to Kai's own ceiling — nobody lends capacity.
 
-So the "Patrick is at 80%, Kai isn't" hand-off works like this: Patrick sets his `usageCeilingPct`
-so **his** instance stops (or flips auto-drain off) — and from then on only **Kai's** instance pulls
-the labeled issues, up to **Kai's** own ceiling. Nobody "lends" capacity; the work just keeps flowing
-on the instance that's still draining. "Only if you have the time/limit" is exactly the auto-drain
-toggle plus the ceiling.
+Setup, per person:
 
-**Setup, per person:**
+1. Run your own instance logged into your own `~/.claude`.
+2. Use a separate `~/.claude` login (in practice: a separate machine or `HOME`). Usage is scraped
+   locally from `~/.claude` (`src/usage.ts`), so two instances sharing one login see the same usage
+   and their ceilings move in lockstep — the per-person hand-off then doesn't work.
+3. Register the same repo with auto-drain on and the same `autoLabel` (default `shepherd:auto`),
+   pointed at the shared git host (see [Git host integration](#git-host-integration)).
+4. Set your own `usageCeilingPct` and `maxAuto`.
 
-1. Run your own Shepherd instance, logged into your **own** `~/.claude`.
-2. **Separate `~/.claude` logins are required for per-person usage isolation.** Shepherd scrapes
-   usage **locally from `~/.claude`** (`src/usage.ts`), so two instances sharing one `~/.claude` see
-   the **same** usage and their ceilings move in lockstep — the "Patrick stops, Kai keeps going"
-   hand-off then does **not** work. In practice this means a **separate machine or a separate home /
-   `HOME` directory per person**, each with its own `claude` login.
-3. Register the **same** repo and turn **auto-drain on** for it.
-4. Use the **same** `autoLabel` (default `shepherd:auto`) so everyone's drain selects the same
-   backlog, and point at the shared git-host repo (see [Git host integration](#git-host-integration)).
-5. Set your **own** `usageCeilingPct` to taste — that's your personal "only while I have limit" stop.
-6. Set `maxAuto` to your own capacity.
+Done for the day? Turn auto-drain off (or shut the machine down) and your instance pulls nothing.
 
-**Behavior & guarantees:** "I'm done for the day" = flip auto-drain off (or shut the machine down) →
-your instance pulls nothing. The shared `shepherd:active` label keeps two instances off the same
-issue: an issue another instance has claimed is filtered out of everyone else's candidate set.
-
-**Known edge:** in the rare case where two instances grab the **exact same** issue in the same
-instant — before either claim is visible to the other — both can spawn against it (two PRs; a human
-closes one). A pre-spawn re-check narrows this window to the truly-simultaneous case; it is not yet
-eliminated.
+Known edge: if two instances grab the exact same issue in the same instant — before either claim is
+visible to the other — both can spawn against it (two PRs; a human closes one). A pre-spawn re-check
+narrows this to the truly-simultaneous case but does not eliminate it.
 
 ## Your `/commands` come with you
 

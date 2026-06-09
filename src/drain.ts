@@ -282,6 +282,11 @@ export class DrainService {
     // fresh-and-unclaimed in the same instant still both stamp (see drain-core's
     // ACTIVE_LABEL note). That residual is accepted; closing it fully needs a
     // server-ordered claim (out of scope here).
+    // SCOPE: the re-check inspects ONLY the claim label (ACTIVE_LABEL), not whether
+    // the opt-in autoLabel is still present. A candidate another operator un-labeled
+    // (opted out) between the cached list read and now is NOT caught here — it still
+    // spawns. Re-validating the opt-in is a separate concern from the claim race this
+    // closes, and the next tick's fresh listIssues drops a de-labeled issue anyway.
     try {
       const fresh = await forge.getIssue?.(number);
       if (fresh?.labels.includes(ACTIVE_LABEL)) return;

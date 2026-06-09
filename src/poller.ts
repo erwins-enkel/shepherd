@@ -7,7 +7,7 @@ import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { maintenance } from "./maintenance";
 import { scanListeningPortsByWorktree } from "./process-reaper";
-import { pickPrimaryPort } from "./preview";
+import { resolveDevPort } from "./preview";
 import { config } from "./config";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
@@ -30,9 +30,10 @@ export interface PreviewWiring {
   /** Batched /proc scan: builds the inode→port map ONCE and resolves all worktrees.
    *  Defaults to the real `scanListeningPortsByWorktree`. */
   scan: (worktrees: string[]) => Map<string, number[]>;
-  /** Pick the primary dev port from a set of listening ports.
-   *  Defaults to the real `pickPrimaryPort`. */
-  pick: (ports: number[]) => Promise<number | null>;
+  /** Pick the primary dev port from a set of listening ports for a given worktree.
+   *  Defaults to `resolveDevPort`, which honors the agent-declared `.shepherd-preview`
+   *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic. */
+  pick: (ports: number[], worktreePath: string) => Promise<number | null>;
 }
 
 export class StatusPoller {
@@ -122,7 +123,7 @@ export class StatusPoller {
       },
       sweepMs: preview?.sweepMs ?? config.previewSweepMs,
       scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
-      pick: preview?.pick ?? ((ports) => pickPrimaryPort(ports)),
+      pick: preview?.pick ?? ((ports, worktreePath) => resolveDevPort(ports, worktreePath)),
     };
   }
 
@@ -591,7 +592,7 @@ export class StatusPoller {
     const active: Array<{ sessionId: string; devPort: number }> = [];
     for (const s of isolated) {
       const ports = portsMap.get(s.worktreePath) ?? [];
-      const devPort = await this.previewWiring.pick(ports);
+      const devPort = await this.previewWiring.pick(ports, s.worktreePath);
       if (devPort !== null) active.push({ sessionId: s.id, devPort });
     }
 

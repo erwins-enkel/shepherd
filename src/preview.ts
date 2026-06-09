@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { open } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { SessionPreviewState } from "./types";
 
@@ -37,6 +39,107 @@ async function defaultHttpProbe(port: number): Promise<boolean> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const PREVIEW_HINT_FILE = ".shepherd-preview";
+
+/**
+ * Max bytes read from a `.shepherd-preview` file. A valid hint is a short port
+ * number (≤5 digits) plus optional surrounding whitespace, so 64 bytes is ample.
+ * Capping the read keeps a pathologically large hint file from being slurped into
+ * memory on every preview sweep.
+ */
+const MAX_HINT_BYTES = 64;
+
+/**
+ * Default hint reader: reads at most MAX_HINT_BYTES from the file via a file
+ * handle, never the whole file. Matches the injectable
+ * `(path, enc) => Promise<string>` shape so tests can substitute a plain reader.
+ */
+async function readHintFileBounded(path: string, enc: "utf8"): Promise<string> {
+  const handle = await open(path, "r");
+  try {
+    const buf = Buffer.alloc(MAX_HINT_BYTES);
+    const { bytesRead } = await handle.read(buf, 0, MAX_HINT_BYTES, 0);
+    return buf.toString(enc, 0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Read a `.shepherd-preview` hint file from the worktree root.
+ *
+ * Returns the declared port (integer in [1, 65535]) or null on any failure:
+ * missing/unreadable file, empty/whitespace content, content that is not a
+ * pure run of decimal digits (e.g. "3000abc", "3000 5173", "3000.5"), NaN,
+ * or out-of-range. Never throws.
+ *
+ * Only the first MAX_HINT_BYTES of the file are read (see `readHintFileBounded`),
+ * so the file must put the port number (optionally surrounded by whitespace)
+ * within that prefix — no trailing characters, no decimal points, no spaces
+ * between digits.
+ */
+async function readPreviewHint(
+  worktreePath: string,
+  readFile: (path: string, enc: "utf8") => Promise<string> = readHintFileBounded,
+): Promise<number | null> {
+  const hintPath = join(worktreePath, PREVIEW_HINT_FILE);
+  let text: string;
+  try {
+    text = await readFile(hintPath, "utf8");
+  } catch {
+    return null;
+  }
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const port = Number.parseInt(trimmed, 10);
+  if (port < 1 || port > 65535) return null;
+  return port;
+}
+
+/**
+ * Resolve the active dev port for a worktree, honoring an optional
+ * `.shepherd-preview` hint file.
+ *
+ * Honor rule: the hint is used ONLY when the declared port is in `ports`
+ * (confirmed listening) AND passes the HTTP liveness check — the same check
+ * `pickPrimaryPort` uses for non-curated ports (curated ports are trusted
+ * unprobed). This preserves every invariant from #345:
+ *   - never surface a dead port or a port owned by another process/worktree
+ *   - never surface a non-HTTP socket (DB port, debugger, etc.)
+ *   - the hint's purpose is to disambiguate WHICH live HTTP port wins over
+ *     the heuristic for multi-listener apps or apps on uncommon ports
+ *
+ * Falls through to `pickPrimaryPort` when the hint is absent, unreadable,
+ * not in `ports`, or not an HTTP server.
+ *
+ * @param ports        Listening ports for this worktree (from /proc scan).
+ * @param worktreePath Absolute path to the worktree root (hint file location).
+ * @param readFile     Injectable file reader (forwarded to readPreviewHint).
+ * @param httpProbe    Injectable HTTP liveness probe (default: real network call).
+ */
+export async function resolveDevPort(
+  ports: number[],
+  worktreePath: string,
+  readFile?: (path: string, enc: "utf8") => Promise<string>,
+  httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
+): Promise<number | null> {
+  const hint = await readPreviewHint(worktreePath, readFile);
+  if (hint !== null && ports.includes(hint)) {
+    // Curated ports are trusted HTTP servers — no probe needed.
+    // Non-curated declared ports must still pass the HTTP probe to be surfaced.
+    if (CURATED_SET.has(hint) || (await httpProbe(hint))) return hint;
+    // Declared port is listening but not an HTTP server (DB/debugger) — the probe just
+    // failed. Drop it from the fallback set so pickPrimaryPort doesn't re-probe the same
+    // known-dead port (a wasted ~500ms timeout when no curated port is present). The hint
+    // is always non-curated here (curated short-circuits above), so removing it is safe.
+    return pickPrimaryPort(
+      ports.filter((p) => p !== hint),
+      httpProbe,
+    );
+  }
+  return pickPrimaryPort(ports, httpProbe);
 }
 
 /**

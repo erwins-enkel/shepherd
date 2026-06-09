@@ -64,7 +64,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    composeSystemPrompt(null), // no learnings → engineering-posture + branch-rename notice, no house-rules block
+    composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -445,7 +445,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     "--settings",
     spawnSettingsOverlay(),
     "--append-system-prompt",
-    composeSystemPrompt(null), // no learnings → engineering-posture + branch-rename notice, no house-rules block
+    composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "--model",
     "opus",
     "go",
@@ -1489,15 +1489,15 @@ test("archiveMany clears each session, reaping all its leftovers", () => {
   expect(store.get(b.id)?.status).toBe("archived");
 });
 
-function injectDeps(store: SessionStore, captured: { argv?: string[] }) {
+function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated = true) {
   return {
     store,
     namer: async () => "repo-task",
     worktree: {
       create: () => ({
         worktreePath: "/wt/repo-task",
-        branch: "shepherd/repo-task",
-        isolated: true,
+        branch: isolated ? "shepherd/repo-task" : null,
+        isolated,
       }),
       remove: () => {},
     } as any,
@@ -1566,7 +1566,7 @@ test("create omits the house-rules block when no active rules exist", async () =
   });
   expect(captured.argv!.at(-1)).toBe("do the thing");
   // System prompt carries posture + branch-rename notice, no house-rules tag.
-  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
+  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null, false, { previewHint: true }));
 });
 
 test("create omits house rules when learnings disabled for the repo", async () => {
@@ -1596,7 +1596,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     images: [],
   });
   expect(captured.argv!.at(-1)).toBe("do the thing");
-  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null));
+  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null, false, { previewHint: true }));
 });
 
 test("composeSystemPrompt adds the autopilot directive only when active", () => {
@@ -2100,6 +2100,64 @@ test("composeSystemPrompt places <build-queue> after branch-rename-notice (no au
   expect(branchPos).toBeGreaterThan(-1);
   expect(bqPos).toBeGreaterThan(branchPos);
   expect(sp).not.toContain("<autopilot-directive>");
+});
+
+test("composeSystemPrompt omits <preview-hint-notice> when previewHint is unset/false", () => {
+  expect(composeSystemPrompt(null)).not.toContain("<preview-hint-notice>");
+  expect(composeSystemPrompt(null, false)).not.toContain("<preview-hint-notice>");
+  expect(composeSystemPrompt(null, true)).not.toContain("<preview-hint-notice>");
+});
+
+test("composeSystemPrompt includes <preview-hint-notice> when previewHint is true", () => {
+  const sp = composeSystemPrompt(null, false, { previewHint: true });
+  expect(sp).toContain("<preview-hint-notice>");
+  expect(sp).toContain(".shepherd-preview");
+  expect(sp).toContain("</preview-hint-notice>");
+});
+
+test("composeSystemPrompt places <preview-hint-notice> after <build-queue> when both present", () => {
+  const sp = composeSystemPrompt(null, true, { buildQueue: "bq-text", previewHint: true });
+  const bqPos = sp.indexOf("<build-queue>");
+  const phPos = sp.indexOf("<preview-hint-notice>");
+  expect(bqPos).toBeGreaterThan(-1);
+  expect(phPos).toBeGreaterThan(bqPos);
+});
+
+test("composeSystemPrompt places <preview-hint-notice> after <branch-rename-notice> when no build-queue", () => {
+  const sp = composeSystemPrompt(null, false, { previewHint: true });
+  const branchPos = sp.indexOf("<branch-rename-notice>");
+  const phPos = sp.indexOf("<preview-hint-notice>");
+  expect(branchPos).toBeGreaterThan(-1);
+  expect(phPos).toBeGreaterThan(branchPos);
+  expect(sp).not.toContain("<build-queue>");
+});
+
+test("isolated spawn argv carries <preview-hint-notice> in system prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  expect(sysPrompt(captured.argv!)).toContain("<preview-hint-notice>");
+});
+
+test("non-isolated spawn argv does NOT carry <preview-hint-notice> in system prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured, false) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+  });
+  expect(sysPrompt(captured.argv!)).not.toContain("<preview-hint-notice>");
 });
 
 function buildQueueDeps(

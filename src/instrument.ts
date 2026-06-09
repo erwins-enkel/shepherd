@@ -118,6 +118,28 @@ export function logRemainingOnLoopBlockers(): void {
   );
 }
 
+// ── PTY event gap tracker ─────────────────────────────────────────────────────
+
+let _lastPtyEventTime = 0;
+
+/**
+ * Record a PTY I/O event and log the wall-clock gap since the previous one.
+ * Logs `[profile] pty-gap <label> <N>ms` when the gap exceeds 150ms.
+ * No-op when profiling is off. Input and output events share one timeline so
+ * a large gap pinpoints where the loop was blocked.
+ */
+export function markPtyEvent(label: string): void {
+  if (!isProfiling()) return;
+  const now = Date.now();
+  if (_lastPtyEventTime !== 0) {
+    const gap = now - _lastPtyEventTime;
+    if (gap > LAG_THRESHOLD_MS) {
+      console.warn(`[profile] pty-gap ${label} ${gap}ms`);
+    }
+  }
+  _lastPtyEventTime = now;
+}
+
 // ── readFileSync passthrough ──────────────────────────────────────────────────
 
 /**

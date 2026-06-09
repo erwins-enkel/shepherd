@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { isValidTerminalId } from "./validate";
+import { markPtyEvent } from "./instrument";
 
 export interface PtySocket {
   send(data: string | Uint8Array): void;
@@ -32,6 +33,7 @@ export class PtyBridge {
     ) as NodeProc;
     (async () => {
       for await (const chunk of this.proc!.stdout as ReadableStream<Uint8Array>) {
+        markPtyEvent("out");
         this.ws.send(chunk);
       }
     })();

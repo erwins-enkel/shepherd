@@ -58,6 +58,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
+import { markPtyEvent } from "./instrument";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -2207,6 +2208,7 @@ export function serve(deps: AppDeps, port: number) {
           }
           return;
         }
+        markPtyEvent("in");
         ws.data.bridge?.write(typeof msg === "string" ? msg : msg.toString());
       },
       close(ws) {

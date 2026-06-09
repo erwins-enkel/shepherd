@@ -293,7 +293,7 @@ test("createDetached: distinct keys never share a path (no cross-streamed verdic
   mgr.remove(b.worktreePath);
 });
 
-test("createDetached: sweeps a legacy <repo>-review-<sha8> worktree left pre-upgrade", () => {
+test("createDetached: sweeps ALL legacy <repo>-review-<sha8> orphans, keeps namespaced", () => {
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "t",
@@ -306,20 +306,31 @@ test("createDetached: sweeps a legacy <repo>-review-<sha8> worktree left pre-upg
   execFileSync("git", ["add", "feat.txt"], { cwd: repo });
   execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
   const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+  // a second commit → a second, unrelated head that's never re-reviewed
+  execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "second"], { cwd: repo, env });
+  const otherSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
 
-  // Recreate the pre-namespacing path an interrupted old run would have left behind.
   const parent = join(dirname(repo), ".shepherd-worktrees");
   mkdirSync(parent, { recursive: true });
-  const legacyPath = join(parent, `${basename(repo)}-review-${sha.slice(0, 8)}`);
-  execFileSync("git", ["worktree", "add", "--detach", legacyPath, sha], { cwd: repo });
-  expect(existsSync(legacyPath)).toBe(true);
+  // Two pre-namespacing orphans: this head AND an unrelated one. Both must go even
+  // though only `sha` is being re-reviewed now.
+  const legacyHere = join(parent, `${basename(repo)}-review-${sha.slice(0, 8)}`);
+  const legacyOther = join(parent, `${basename(repo)}-review-${otherSha.slice(0, 8)}`);
+  execFileSync("git", ["worktree", "add", "--detach", legacyHere, sha], { cwd: repo });
+  execFileSync("git", ["worktree", "add", "--detach", legacyOther, otherSha], { cwd: repo });
+  // A namespaced sibling for an unrelated session must NOT be swept.
+  const keep = join(parent, `${basename(repo)}-review-sessZ-${otherSha.slice(0, 8)}`);
+  execFileSync("git", ["worktree", "add", "--detach", keep, otherSha], { cwd: repo });
 
   const mgr = new WorktreeMgr();
   const wt = mgr.createDetached(repo, "feat/x", sha, "sess-1");
-  expect(existsSync(legacyPath)).toBe(false); // swept
-  expect(wt.worktreePath).not.toBe(legacyPath);
+  expect(existsSync(legacyHere)).toBe(false); // swept
+  expect(existsSync(legacyOther)).toBe(false); // swept (different sha, never re-reviewed)
+  expect(existsSync(keep)).toBe(true); // namespaced → preserved
+  expect(wt.worktreePath).not.toBe(legacyHere);
 
   mgr.remove(wt.worktreePath);
+  mgr.remove(keep);
 });
 
 test("behindBase: false when up-to-date, true when base advanced", () => {

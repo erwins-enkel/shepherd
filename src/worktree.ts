@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
 
 export interface WorktreeResult {
@@ -250,20 +250,25 @@ export class WorktreeMgr {
    *  unsafe chars, so distinct keys can never slug to the same path (silent stripping
    *  would map e.g. `s/1` and `s1` onto one tree — reintroducing the cross-stream).
    *  Session ids are uuids, so this never fires in practice; a malformed key fails
-   *  closed. */
+   *  closed.
+   *
+   *  Also sweeps any pre-upgrade legacy-format reviewer worktrees (see
+   *  `sweepLegacyReviewWorktrees`) so they don't leak now that the path is keyed. */
   createDetached(repoPath: string, branch: string, sha: string, key: string): WorktreeResult {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
     // same refname grammar as create(); rejecting a leading "-" also blocks argv
     // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
     if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error("invalid key");
+    const base = basename(repoPath);
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
-    const worktreePath = join(parent, `${basename(repoPath)}-review-${key}-${sha.slice(0, 8)}`);
-    // Pre-namespacing path for this same head. No current code writes it, so any dir
-    // here is an orphan left by an interrupted pre-upgrade run — sweep it as we pass
-    // so legacy reviewer worktrees don't leak under .shepherd-worktrees.
-    const legacyPath = join(parent, `${basename(repoPath)}-review-${sha.slice(0, 8)}`);
+    const worktreePath = join(parent, `${base}-review-${key}-${sha.slice(0, 8)}`);
     mkdirSync(parent, { recursive: true });
+    // Sweep every pre-namespacing `<repo>-review-<sha8>` orphan (any sha, not just
+    // this head's). No current code writes that format, so each is a leftover from an
+    // interrupted pre-upgrade run; without this they'd leak under .shepherd-worktrees
+    // forever, since the new namespaced path never reclaims them.
+    this.sweepLegacyReviewWorktrees(parent, base);
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)
       execFileSync("git", ["fetch", "origin", "--", branch], { cwd: repoPath, stdio: "pipe" });
@@ -274,13 +279,32 @@ export class WorktreeMgr {
     // reclaim it (git worktree remove + fs cleanup) so a re-spawned review for
     // the same head isn't permanently blocked by `worktree add` hitting an
     // occupied directory.
-    if (existsSync(legacyPath)) this.remove(legacyPath);
     if (existsSync(worktreePath)) this.remove(worktreePath);
     execFileSync("git", ["worktree", "add", "--detach", worktreePath, sha], {
       cwd: repoPath,
       stdio: "pipe",
     });
     return { worktreePath, branch: null, isolated: true };
+  }
+
+  /** Remove every pre-namespacing reviewer worktree (`<repo>-review-<sha8>`, with no
+   *  session segment) under `parent`. Current code only writes the namespaced form
+   *  `<repo>-review-<key>-<sha8>` (whose remainder after the prefix always carries a
+   *  `-`, so it never matches the bare-8-hex test below), meaning every match here is
+   *  an orphan from an interrupted pre-upgrade run. Best-effort: a missing dir or a
+   *  remove that git refuses is tolerated. */
+  private sweepLegacyReviewWorktrees(parent: string, base: string): void {
+    const prefix = `${base}-review-`;
+    let entries: string[];
+    try {
+      entries = readdirSync(parent);
+    } catch {
+      return; // parent not present yet → nothing to sweep
+    }
+    for (const name of entries) {
+      if (!name.startsWith(prefix)) continue;
+      if (/^[0-9a-fA-F]{8}$/.test(name.slice(prefix.length))) this.remove(join(parent, name));
+    }
   }
 
   /** Delete `branch` iff it is fully merged into `baseBranch`; otherwise retain it. */

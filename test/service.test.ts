@@ -2358,7 +2358,6 @@ test("create with buildQueueEnabled=true + autopilot off: queue is NOT auto-appr
   });
   expect(store.getBuildQueue(s.id).approved).toBe(false);
 });
-<<<<<<< HEAD
 
 // ── draft mode ───────────────────────────────────────────────────────────────
 

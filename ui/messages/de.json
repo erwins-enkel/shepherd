@@ -806,5 +806,7 @@
   "feat_resume_session_title": "Eine geparkte Session fortsetzen",
   "feat_resume_session_body": "Wenn Claude sich beendet und die Session an einer nackten Shell zurücklässt (z. B. nach einem herdr-Neustart), stehst du nicht mehr ohne Weg zurück da. Im Session-Kopf erscheint jetzt ein ↻ Fortsetzen-Knopf – und ein Rechtsklick (oder langes Drücken) auf eine Session-Karte bietet Fortsetzen ebenfalls an –, der `claude --resume` neu startet und dich direkt zurück ins Gespräch bringt.",
   "feat_draft_mode_title": "Entwurfs-PRs mit Freigabesteuerung",
-  "feat_draft_mode_body": "Aktiviere den Entwurfsmodus, damit jeder neue PR als Entwurf geöffnet wird — er bleibt aus der Merge-Queue heraus, bis er freigegeben ist. Wähle, wer ihn promoten darf: ein Mensch, der Critic oder beide. Schließt Voll-Auto-Merge aus."
+  "feat_draft_mode_body": "Aktiviere den Entwurfsmodus, damit jeder neue PR als Entwurf geöffnet wird — er bleibt aus der Merge-Queue heraus, bis er freigegeben ist. Wähle, wer ihn promoten darf: ein Mensch, der Critic oder beide. Schließt Voll-Auto-Merge aus.",
+  "feat_preview_start_title": "Dev-Server direkt aus dem HUD starten",
+  "feat_preview_start_body": "Hat ein Agent noch keine Live-Vorschau, erscheint ein Start-Steuerelement in seinem Viewport. Ein Klick genügt, damit der Agent seinen Dev-Server startet — automatisch erkannt aus der package.json oder per eigenem Befehl — und du die laufende App sofort vorschauen kannst, ohne zu warten, bis der Agent selbst auf die Idee kommt."
 }

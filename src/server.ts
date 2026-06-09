@@ -1358,7 +1358,7 @@ async function dispatchForgeAction(
       // merged/closed PR when the session is merge-train-flagged or the cache already
       // owned this PR, else drop a reused-branch-name collision to "none" so GitRail and
       // the list overview agree.
-      const prev = deps.prCache?.snapshot()[session.id];
+      const prev = deps.prCache?.get(session.id);
       const trusted = trustsTerminal(prev, git, session.mergingSince != null);
       return json(
         trusted

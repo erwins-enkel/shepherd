@@ -7,6 +7,9 @@ import { annotateHandoff } from "./repo-roles";
  *  updates from PR actions. `PrPoller` implements it. */
 export interface PrCache {
   snapshot(): Record<string, GitState>;
+  /** Read one session's cached state without materializing the whole map — O(1) for
+   *  per-request callers (e.g. GET /git) that only need a single key. */
+  get(id: string): GitState | undefined;
   set(id: string, git: GitState): void;
   drop(id: string): void;
 }
@@ -47,7 +50,10 @@ export function guardStaleTerminal(
  *  True (for a terminal `raw`) when either:
  *   - `marked`  — the session is currently merge-train-flagged (mergingSince set): a marked session
  *                 always had an open PR, so its terminal result is the train landing it (this holds
- *                 even when the PR was never cached open — the cold-cache case); or
+ *                 even when the PR was never cached open — the cold-cache case). NOTE this trusts ANY
+ *                 terminal result while marked, relying on the invariant that `setMerging` only flags
+ *                 `readyToMerge` sessions whose own PR is genuinely open (see `collectReadyPrs`); were
+ *                 that invariant to break, a name-collision terminal hit could be trusted here; or
  *   - `prev` already cached THIS PR (same number, non-"none" state) — a PR we already owned.
  *  When this returns false, `raw` may be a reused-branch-name collision and must run through
  *  `guardStaleTerminal`. */
@@ -271,6 +277,9 @@ export class PrPoller implements PrCache {
 
   snapshot(): Record<string, GitState> {
     return Object.fromEntries(this.cache);
+  }
+  get(id: string): GitState | undefined {
+    return this.cache.get(id);
   }
   set(id: string, git: GitState): void {
     this.cache.set(id, git);

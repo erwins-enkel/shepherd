@@ -91,6 +91,7 @@ function makeDeps(
   const snap: Record<string, GitState> = {};
   const prCache: PrCache = {
     snapshot: () => snap,
+    get: (id: string) => snap[id],
     set: (id: string) => cacheWrites.push(id),
     drop: (id: string) => cacheWrites.push(`drop:${id}`),
   };
@@ -256,16 +257,17 @@ test("GET git trusts a merged PR when cache already showed it open (signal b)", 
   });
   const deps = Object.assign(makeDeps(f), { ownsPr: () => false });
   const baseCache = deps.prCache!;
+  // Seed the prior cached state as an OPEN PR #5; the GET handler reads it via get().
+  const seeded: GitState = {
+    kind: "gitea",
+    state: "open",
+    number: 5,
+    checks: "success",
+    deployConfigured: true,
+  };
   deps.prCache = {
-    snapshot: () => ({
-      s1: {
-        kind: "gitea",
-        state: "open",
-        number: 5,
-        checks: "success",
-        deployConfigured: true,
-      } as any,
-    }),
+    snapshot: () => ({ s1: seeded }),
+    get: (id) => (id === "s1" ? seeded : undefined),
     set: baseCache.set,
     drop: baseCache.drop,
   };

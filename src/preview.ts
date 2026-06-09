@@ -130,7 +130,14 @@ export async function resolveDevPort(
     // Curated ports are trusted HTTP servers — no probe needed.
     // Non-curated declared ports must still pass the HTTP probe to be surfaced.
     if (CURATED_SET.has(hint) || (await httpProbe(hint))) return hint;
-    // Declared port is listening but not an HTTP server (DB/debugger) → ignore, fall through.
+    // Declared port is listening but not an HTTP server (DB/debugger) — the probe just
+    // failed. Drop it from the fallback set so pickPrimaryPort doesn't re-probe the same
+    // known-dead port (a wasted ~500ms timeout when no curated port is present). The hint
+    // is always non-curated here (curated short-circuits above), so removing it is safe.
+    return pickPrimaryPort(
+      ports.filter((p) => p !== hint),
+      httpProbe,
+    );
   }
   return pickPrimaryPort(ports, httpProbe);
 }

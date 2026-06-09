@@ -180,6 +180,20 @@ test("resolveDevPort: hint non-curated, in ports, probe fails → falls back to 
   expect(result).toBe(5173);
 });
 
+test("resolveDevPort: failed non-curated hint is NOT re-probed in the fallback", async () => {
+  // hint=9000 (non-curated, in ports), no curated port present so the fallback reaches
+  // the probe loop. 9000 fails its probe in the hint branch; it must be excluded from the
+  // fallback set so it isn't probed a second time. 9500 answers and wins.
+  const probed: number[] = [];
+  const probe = async (port: number): Promise<boolean> => {
+    probed.push(port);
+    return port === 9500;
+  };
+  const result = await resolveDevPort([9000, 9500], "/any", makeReadFile("9000"), probe);
+  expect(result).toBe(9500);
+  expect(probed.filter((p) => p === 9000).length).toBe(1); // probed once (hint branch), not re-probed
+});
+
 test("resolveDevPort: hint not in ports → falls back, hint port never probed", async () => {
   // hint=9000, ports=[5173] — 9000 not listening
   const probedPorts: number[] = [];

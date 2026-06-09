@@ -6,7 +6,8 @@
     putRemoteControl,
     putStandardCommand,
     putSessionHousekeeping,
-    putReviewCyclesCap,
+    putPrReviewCyclesCap,
+    putPlanReviewCyclesCap,
     listDirs,
   } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
@@ -109,11 +110,16 @@
   let hkBusy = $state(false);
   let retentionDays = $state(30); // display-only, from the settings payload
   let retentionKeep = $state(250); // display-only, from the settings payload
-  let reviewCycles = $state(3); // global max critic auto-address rounds (stepper value)
-  let reviewCyclesMin = $state(1); // bounds from the settings payload (drive min/max)
-  let reviewCyclesMax = $state(8);
-  let reviewCyclesSaved = 3; // last server-confirmed value, for revert on failure
-  let rcyBusy = $state(false);
+  let prReviewCycles = $state(3); // global max PR-critic auto-address rounds (stepper value)
+  let prReviewCyclesMin = $state(1); // bounds from the settings payload (drive min/max)
+  let prReviewCyclesMax = $state(8);
+  let prReviewCyclesSaved = 3; // last server-confirmed value, for revert on failure
+  let prRcyBusy = $state(false);
+  let planReviewCycles = $state(5); // global max plan-gate revise rounds (stepper value)
+  let planReviewCyclesMin = $state(1); // bounds from the settings payload (drive min/max)
+  let planReviewCyclesMax = $state(12);
+  let planReviewCyclesSaved = 5; // last server-confirmed value, for revert on failure
+  let planRcyBusy = $state(false);
 
   async function saveStandardCommand() {
     if (scBusy) return;
@@ -128,31 +134,59 @@
     }
   }
 
-  async function saveReviewCycles() {
-    if (rcyBusy) return;
-    rcyBusy = true;
+  async function savePrReviewCycles() {
+    if (prRcyBusy) return;
+    prRcyBusy = true;
     // Clamp client-side to the server bounds before sending (the server clamps too);
     // an empty/NaN field falls back to the minimum rather than posting garbage.
-    const n = Math.round(Number(reviewCycles));
+    const n = Math.round(Number(prReviewCycles));
     const clamped = Number.isFinite(n)
-      ? Math.min(reviewCyclesMax, Math.max(reviewCyclesMin, n))
-      : reviewCyclesMin;
-    reviewCycles = clamped;
+      ? Math.min(prReviewCyclesMax, Math.max(prReviewCyclesMin, n))
+      : prReviewCyclesMin;
+    prReviewCycles = clamped;
     try {
-      const r = await putReviewCyclesCap(clamped);
-      reviewCycles = r.reviewCyclesCap;
-      reviewCyclesSaved = r.reviewCyclesCap;
+      const r = await putPrReviewCyclesCap(clamped);
+      prReviewCycles = r.prReviewCyclesCap;
+      prReviewCyclesSaved = r.prReviewCyclesCap;
     } catch {
       // revert to the last server-confirmed value; surface the failure as a persistent,
       // deduped alert so the no-op never looks like a save.
-      reviewCycles = reviewCyclesSaved;
-      toasts.info(m.settings_review_cycles_save_failed(), {
-        key: "review-cycles-cap",
+      prReviewCycles = prReviewCyclesSaved;
+      toasts.info(m.settings_pr_review_cycles_save_failed(), {
+        key: "pr-review-cycles-cap",
         duration: null,
         alert: true,
       });
     } finally {
-      rcyBusy = false;
+      prRcyBusy = false;
+    }
+  }
+
+  async function savePlanReviewCycles() {
+    if (planRcyBusy) return;
+    planRcyBusy = true;
+    // Clamp client-side to the server bounds before sending (the server clamps too);
+    // an empty/NaN field falls back to the minimum rather than posting garbage.
+    const n = Math.round(Number(planReviewCycles));
+    const clamped = Number.isFinite(n)
+      ? Math.min(planReviewCyclesMax, Math.max(planReviewCyclesMin, n))
+      : planReviewCyclesMin;
+    planReviewCycles = clamped;
+    try {
+      const r = await putPlanReviewCyclesCap(clamped);
+      planReviewCycles = r.planReviewCyclesCap;
+      planReviewCyclesSaved = r.planReviewCyclesCap;
+    } catch {
+      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // deduped alert so the no-op never looks like a save.
+      planReviewCycles = planReviewCyclesSaved;
+      toasts.info(m.settings_plan_review_cycles_save_failed(), {
+        key: "plan-review-cycles-cap",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      planRcyBusy = false;
     }
   }
 
@@ -230,10 +264,14 @@
       housekeeping = s.sessionHousekeepingEnabled;
       retentionDays = s.sessionRetentionDays;
       retentionKeep = s.sessionRetentionKeep;
-      reviewCyclesMin = s.reviewCyclesMin;
-      reviewCyclesMax = s.reviewCyclesMax;
-      reviewCycles = s.reviewCyclesCap;
-      reviewCyclesSaved = s.reviewCyclesCap;
+      prReviewCyclesMin = s.prReviewCyclesMin;
+      prReviewCyclesMax = s.prReviewCyclesMax;
+      prReviewCycles = s.prReviewCyclesCap;
+      prReviewCyclesSaved = s.prReviewCyclesCap;
+      planReviewCyclesMin = s.planReviewCyclesMin;
+      planReviewCyclesMax = s.planReviewCyclesMax;
+      planReviewCycles = s.planReviewCyclesCap;
+      planReviewCyclesSaved = s.planReviewCyclesCap;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -451,22 +489,45 @@
         </button>
       </div>
       <div class="rc">
-        <span class="micro">{m.settings_review_cycles_title()}</span>
+        <span class="micro">{m.settings_pr_review_cycles_title()}</span>
         <p class="hint">
-          {m.settings_review_cycles_hint({ min: reviewCyclesMin, max: reviewCyclesMax })}
+          {m.settings_pr_review_cycles_hint({ min: prReviewCyclesMin, max: prReviewCyclesMax })}
         </p>
         <label class="cycles">
           <span class="cycles-label">{m.settings_review_cycles_label()}</span>
           <input
             class="num"
             type="number"
-            min={reviewCyclesMin}
-            max={reviewCyclesMax}
+            min={prReviewCyclesMin}
+            max={prReviewCyclesMax}
             step="1"
-            disabled={rcyBusy}
-            bind:value={reviewCycles}
-            aria-label={m.settings_review_cycles_label()}
-            onchange={saveReviewCycles}
+            disabled={prRcyBusy}
+            bind:value={prReviewCycles}
+            aria-label={m.settings_pr_review_cycles_title()}
+            onchange={savePrReviewCycles}
+          />
+        </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_plan_review_cycles_title()}</span>
+        <p class="hint">
+          {m.settings_plan_review_cycles_hint({
+            min: planReviewCyclesMin,
+            max: planReviewCyclesMax,
+          })}
+        </p>
+        <label class="cycles">
+          <span class="cycles-label">{m.settings_review_cycles_label()}</span>
+          <input
+            class="num"
+            type="number"
+            min={planReviewCyclesMin}
+            max={planReviewCyclesMax}
+            step="1"
+            disabled={planRcyBusy}
+            bind:value={planReviewCycles}
+            aria-label={m.settings_plan_review_cycles_title()}
+            onchange={savePlanReviewCycles}
           />
         </label>
       </div>

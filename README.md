@@ -240,7 +240,10 @@ range that does not conflict.
 
 **Security:** previews run on a distinct origin, behind the same Tailscale gate. The `checkOrigin`
 guard explicitly rejects any request origin whose port falls in the preview range, even when the
-hostname is allowlisted — closing the blind-mutation vector. Residual: cookies are host-scoped
+hostname is allowlisted — closing the blind-mutation vector. The preview `<iframe>` is sandboxed
+`allow-same-origin allow-scripts …` (everything the app needs to run) but withholds every
+`allow-top-navigation*` token, so untrusted agent JS can't redirect the operator's HUD tab.
+Residual: cookies are host-scoped
 (shared across ports on one host), which is acceptable because the HUD has no cookie auth. Full
 per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel/shepherd/issues/398).
 

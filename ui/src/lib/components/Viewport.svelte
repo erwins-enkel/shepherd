@@ -284,8 +284,9 @@
   // source of truth for both the tab and the pane — no iframe-load inference.
   const hasPreview = $derived(previewPort != null);
   // Build the URL from how the operator actually connected (Tailscale https host
-  // or localhost dev) + the assigned port — a distinct origin, so no sandbox is
-  // needed and the app is same-origin to its own backend. SSR-guarded.
+  // or localhost dev) + the assigned port — a distinct origin, so the app is
+  // same-origin to its own backend (the frame keeps `allow-same-origin`; see the
+  // sandbox note on the iframe). SSR-guarded.
   const previewUrl = $derived(
     hasPreview && typeof location !== "undefined"
       ? `${location.protocol}//${location.hostname}:${previewPort}/`
@@ -1532,15 +1533,20 @@
     {#if tab === "preview" && previewUrl}
       <div class="panel-wrap preview-pane">
         <!-- Cross-origin iframe: the previewed app runs on its own origin:port, so
-             that distinct origin IS the trust boundary — NO sandbox attribute (a
-             sandbox would re-break the app's own same-origin fetches/storage). We
-             never infer load success from onload/onerror (a cross-origin frame gives
-             no reliable signal); availability is the server-driven port above. -->
+             that distinct origin IS the trust boundary (it can't script the HUD).
+             The sandbox keeps `allow-same-origin` so the app stays at its REAL origin
+             and its own fetches/storage/HMR keep working (omitting it would force an
+             opaque origin and break them); it deliberately withholds every
+             `allow-top-navigation*` token so untrusted agent JS can't redirect the
+             operator's HUD tab on a user gesture. We never infer load success from
+             onload/onerror (a cross-origin frame gives no reliable signal);
+             availability is the server-driven port above. -->
         <iframe
           class="preview-frame"
           src={previewUrl}
           title={m.viewport_preview_tab()}
           referrerpolicy="no-referrer"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
         ></iframe>
         <div class="preview-foot">
           <!-- Persistent static setup hint (NOT an auto-detected error): a blank

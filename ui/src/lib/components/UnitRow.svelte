@@ -122,14 +122,19 @@
 </script>
 
 {#snippet row()}
-  <button
+  <div
     class="unit"
     class:sel={selected}
     class:decommissioning
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
-    onclick={() => onselect(session.id)}
-    type="button"
   >
+    <button
+      class="unit-hit"
+      type="button"
+      aria-label={m.unit_open_aria({ name: session.name })}
+      aria-describedby="u-repo-{session.id} u-sub-{session.id} u-status-{session.id}"
+      onclick={() => onselect(session.id)}
+    ></button>
     <div class="pip-col">
       <StatusPip
         status={session.status}
@@ -142,14 +147,14 @@
       <div class="u-top">
         <span class="name">{session.name}</span>
       </div>
-      <div class="u-repo" title={session.repoPath}>
+      <div class="u-repo" id="u-repo-{session.id}" title={session.repoPath}>
         <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
         >{repoName}
       </div>
-      <div class="u-sub">
+      <div class="u-sub" id="u-sub-{session.id}">
         {session.prompt}
         {#if session.status === "running"}
-          <span class="car">▏</span>
+          <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
       {#if live}
@@ -169,11 +174,11 @@
       <PlanGateBadge {session} />
       <AutopilotBadge {session} />
       {#if isMerging(session, nowMs)}
-        <span class="badge merging">{m.status_merging()}</span>
+        <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
       {:else if session.readyToMerge}
-        <span class="badge">{m.status_ready_to_merge()}</span>
+        <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
       {:else if !hideStatus}
-        <span class="badge">{statusLabel(session.status)}</span>
+        <span class="badge" id="u-status-{session.id}">{statusLabel(session.status)}</span>
       {/if}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     </div>
@@ -188,7 +193,7 @@
         </span>
       {/if}
     </span>
-  </button>
+  </div>
 {/snippet}
 
 {#if swipe}
@@ -249,6 +254,35 @@
      window — fade it so it visibly recedes; restored instantly on UNDO */
   .unit.decommissioning {
     opacity: 0.4;
+  }
+
+  /* Transparent overlay that IS the row's click/keyboard target — keeps the
+     card a <div> so the interactive PlanGate badge can sit as a sibling instead
+     of an (invalid) nested <button>. */
+  .unit-hit {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    border-radius: inherit;
+    font: inherit;
+    color: inherit;
+  }
+  .unit-hit:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
+  }
+
+  /* Raise the interactive badge above the overlay so it's clickable. */
+  .u-right > :global(button),
+  .u-right > :global([role="button"]) {
+    position: relative;
+    z-index: 1;
   }
 
   :global(.unit + .unit),
@@ -314,6 +348,7 @@
     bottom: 8px;
     width: 1px;
     background: var(--rule, var(--color-faint));
+    pointer-events: none;
   }
 
   .unit:hover {
@@ -343,6 +378,7 @@
     border: 1px solid var(--color-line-bright);
     border-left: 0;
     border-top: 0;
+    pointer-events: none;
   }
 
   .pip-col {
@@ -465,12 +501,12 @@
         opacity 0.14s ease;
     }
     .unit:hover .act-sep,
-    .unit:focus-visible .act-sep {
+    .unit:focus-within .act-sep {
       display: inline;
       margin: 0 5px;
     }
     .unit:hover .act-sum,
-    .unit:focus-visible .act-sum {
+    .unit:focus-within .act-sum {
       max-width: 34ch;
       opacity: 1;
     }
@@ -582,7 +618,7 @@
        later in source → wins) so a hovered narrow row doesn't show a dangling
        "·" with no summary after it. */
     .unit:hover .act-sep,
-    .unit:focus-visible .act-sep {
+    .unit:focus-within .act-sep {
       display: none;
     }
     /* the strip IS the heartbeat here — keep it, just narrower. Scoped under

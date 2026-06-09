@@ -6,9 +6,11 @@ import {
   config,
   SESSION_RETENTION_DAYS,
   SESSION_RETENTION_KEEP,
-  clampReviewCyclesCap,
-  REVIEW_CYCLES_MIN,
-  REVIEW_CYCLES_MAX,
+  clampCap,
+  PR_REVIEW_CYCLES_MIN,
+  PR_REVIEW_CYCLES_MAX,
+  PLAN_REVIEW_CYCLES_MIN,
+  PLAN_REVIEW_CYCLES_MAX,
 } from "./config";
 import {
   validateCreate,
@@ -1287,11 +1289,14 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       remoteControlAtStartup: config.remoteControlAtStartup,
       standardCommand: config.standardCommand,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
-      reviewCyclesCap: config.reviewCyclesCap,
-      // display-only: the cap's valid bounds, so the UI stepper reads min/max off the
+      prReviewCyclesCap: config.prReviewCyclesCap,
+      planReviewCyclesCap: config.planReviewCyclesCap,
+      // display-only: each cap's valid bounds, so the UI steppers read min/max off the
       // payload instead of hardcoding a mirror of the server constants.
-      reviewCyclesMin: REVIEW_CYCLES_MIN,
-      reviewCyclesMax: REVIEW_CYCLES_MAX,
+      prReviewCyclesMin: PR_REVIEW_CYCLES_MIN,
+      prReviewCyclesMax: PR_REVIEW_CYCLES_MAX,
+      planReviewCyclesMin: PLAN_REVIEW_CYCLES_MIN,
+      planReviewCyclesMax: PLAN_REVIEW_CYCLES_MAX,
       // display-only: the real retention thresholds, so the UI shows the actual numbers
       // instead of hardcoding a mirror of the server constants.
       sessionRetentionDays: SESSION_RETENTION_DAYS,
@@ -1318,7 +1323,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["remoteControlAtStartup", putRemoteControl],
   ["standardCommand", putStandardCommand],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
-  ["reviewCyclesCap", putReviewCyclesCap],
+  ["prReviewCyclesCap", putPrReviewCyclesCap],
+  ["planReviewCyclesCap", putPlanReviewCyclesCap],
 ];
 
 // max length for the persisted standard command; mirrors the 8000-char human-prompt
@@ -1355,14 +1361,29 @@ function putSessionHousekeeping(value: unknown, deps: Ctx["deps"]): Response {
   return json({ sessionHousekeepingEnabled: config.sessionHousekeepingEnabled });
 }
 
-function putReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
+function putPrReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return json({ error: "reviewCyclesCap must be a number" }, 400);
+    return json({ error: "prReviewCyclesCap must be a number" }, 400);
   }
-  const cap = clampReviewCyclesCap(value); // snap out-of-range into [MIN,MAX]
-  config.reviewCyclesCap = cap; // live: the next critic run reads it
-  deps.store.setSetting("reviewCyclesCap", String(cap)); // persist across restarts
-  return json({ reviewCyclesCap: config.reviewCyclesCap });
+  const cap = clampCap(value, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX, config.prReviewCyclesCap); // snap into [MIN,MAX]
+  config.prReviewCyclesCap = cap; // live: the next critic run reads it
+  deps.store.setSetting("prReviewCyclesCap", String(cap)); // persist across restarts
+  return json({ prReviewCyclesCap: config.prReviewCyclesCap });
+}
+
+function putPlanReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "planReviewCyclesCap must be a number" }, 400);
+  }
+  const cap = clampCap(
+    value,
+    PLAN_REVIEW_CYCLES_MIN,
+    PLAN_REVIEW_CYCLES_MAX,
+    config.planReviewCyclesCap,
+  ); // snap into [MIN,MAX]
+  config.planReviewCyclesCap = cap; // live: the next plan-gate run reads it
+  deps.store.setSetting("planReviewCyclesCap", String(cap)); // persist across restarts
+  return json({ planReviewCyclesCap: config.planReviewCyclesCap });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

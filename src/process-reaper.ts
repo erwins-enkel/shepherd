@@ -296,17 +296,18 @@ function matchWorktreePath(cwd: string, roots: string[], paths: string[]): strin
 }
 
 /**
- * Resolve listening ports for a single PID using a pre-built inode→port map.
- * Falls back to `probes.portsForPid` when the batch probe methods are absent.
+ * Resolve listening ports for a single PID.
+ * Uses the batched path (inode→port map + socketInodesForPid) when `inodeMap`
+ * is non-null; otherwise falls back to `probes.portsForPid`.
+ * Supply both `inodeToPortMap` + `socketInodesForPid` or neither.
  */
 function portsForProcBatched(
   pid: number,
-  inodeMap: Map<number, number>,
+  inodeMap: Map<number, number> | null,
   probes: ReaperProbes,
 ): number[] {
-  if (typeof probes.socketInodesForPid === "function") {
-    return probes
-      .socketInodesForPid(pid)
+  if (inodeMap !== null) {
+    return probes.socketInodesForPid!(pid)
       .map((inode) => inodeMap.get(inode))
       .filter((p): p is number => p != null);
   }
@@ -333,10 +334,12 @@ export function scanListeningPortsByWorktree(
   const roots = worktreePaths.map((p) => p.replace(/\/+$/, ""));
 
   // Build the inode→port map exactly once for all PIDs.
+  // Both inodeToPortMap + socketInodesForPid must be supplied together;
+  // a partial pair falls back to portsForPid for the whole scan.
   const inodeMap =
-    typeof probes.inodeToPortMap === "function"
+    typeof probes.inodeToPortMap === "function" && typeof probes.socketInodesForPid === "function"
       ? probes.inodeToPortMap()
-      : new Map<number, number>();
+      : null;
 
   const portSets = new Map<string, Set<number>>(worktreePaths.map((p) => [p, new Set()]));
 

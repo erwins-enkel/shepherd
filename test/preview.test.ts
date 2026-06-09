@@ -242,3 +242,33 @@ test("scanListeningPortsByWorktree: multiple worktrees get independent port sets
   expect(result.get("/wt/alpha")).toEqual([5173]);
   expect(result.get("/wt/beta")).toEqual([4321]);
 });
+
+test("scanListeningPortsByWorktree: mismatched probe config (socketInodesForPid only) falls back to portsForPid", () => {
+  // Only socketInodesForPid supplied — inodeToPortMap absent.
+  // Supply both or neither; partial pair must not silently return [].
+  let portsForPidCalled = false;
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 88, cwd: "/wt/app", comm: "vite" }],
+    // inodeToPortMap intentionally omitted
+    socketInodesForPid: () => [999],
+    portsForPid: (pid) => {
+      portsForPidCalled = true;
+      return pid === 88 ? [5173] : [];
+    },
+  });
+  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
+  expect(portsForPidCalled).toBe(true);
+  expect(result.get("/wt/app")).toEqual([5173]);
+});
+
+test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /wt/app", () => {
+  // Prefix-sibling boundary: /wt/app must not match /wt/appold/src
+  const inodeMap = new Map([[1, 3000]]);
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 55, cwd: "/wt/appold/src", comm: "node" }],
+    inodeToPortMap: () => inodeMap,
+    socketInodesForPid: () => [1],
+  });
+  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
+  expect(result.get("/wt/app")).toEqual([]);
+});

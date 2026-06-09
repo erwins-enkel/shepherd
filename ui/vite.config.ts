@@ -25,10 +25,33 @@ function appVersion(): string {
   }
 }
 
+// Map each release tag to its date (`{ "1.20.0": "2026-06-09", … }`) so the
+// What's-New drawer can show when an entry's `sinceVersion` shipped. Keyed
+// without the leading `v` to match `FeatureAnnouncement.sinceVersion`. Empty
+// map when git is unavailable — the drawer falls back to version-only.
+function releaseDates(): Record<string, string> {
+  try {
+    const out = execFileSync(
+      "git",
+      ["tag", "--list", "v*.*.*", "--format=%(refname:short) %(creatordate:short)"],
+      { encoding: "utf8" },
+    );
+    const map: Record<string, string> = {};
+    for (const line of out.split("\n")) {
+      const [tag, date] = line.trim().split(/\s+/);
+      if (tag && date) map[tag.replace(/^v/, "")] = date;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export default defineConfig({
   define: {
     __GIT_SHA__: JSON.stringify(gitSha()),
     __APP_VERSION__: JSON.stringify(appVersion()),
+    __RELEASE_DATES__: JSON.stringify(releaseDates()),
   },
   plugins: [
     paraglideVitePlugin({

@@ -2,6 +2,8 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import { getLocale } from "$lib/i18n";
+  import { releaseDates } from "$lib/build-info";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
 
   let {
@@ -22,6 +24,21 @@
   function dismiss() {
     ondismiss();
     onclose();
+  }
+
+  // Localized release date for an entry's `sinceVersion`, or "" if the version
+  // isn't tagged yet (e.g. the in-development release) — then only the version
+  // badge shows. Date is data formatted via Intl, so it needs no message key.
+  function entryDate(sinceVersion: string): string {
+    const iso = releaseDates[sinceVersion];
+    if (!iso) return "";
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return "";
+    return new Intl.DateTimeFormat(getLocale() === "de" ? "de-DE" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(d);
   }
 </script>
 
@@ -50,7 +67,14 @@
     {:else}
       <ul class="list">
         {#each entries as entry (entry.id)}
+          {@const date = entryDate(entry.sinceVersion)}
           <li class="entry">
+            <div class="entry-meta">
+              <span class="entry-version">v{entry.sinceVersion}</span>
+              {#if date}
+                <span class="entry-date">{date}</span>
+              {/if}
+            </div>
             <h3 class="entry-title">
               {(m as unknown as Record<string, () => string>)[entry.titleKey]()}
             </h3>
@@ -131,6 +155,20 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+  .entry-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+  }
+  .entry-version {
+    color: var(--color-amber);
+    font-variant-numeric: tabular-nums;
+  }
+  .entry-date {
+    color: var(--color-muted);
   }
   .entry-title {
     margin: 0;

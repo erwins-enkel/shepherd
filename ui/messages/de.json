@@ -826,5 +826,7 @@
   "fable_arrival_try": "Fable 5 ausprobieren",
   "fable_arrival_dismiss": "Vielleicht später",
   "feat_preview_tailscale_title": "Automatische Vorschau-Freigabe",
-  "feat_preview_tailscale_body": "Live-Vorschauen registrieren sich jetzt automatisch über Tailscale, sobald der Dev-Server eines Agenten startet — und melden sich beim Stoppen wieder ab, sodass nur tatsächlich genutzte Ports freigegeben werden. Kein einmaliges tailscale-serve-Port-Setup mehr."
+  "feat_preview_tailscale_body": "Live-Vorschauen registrieren sich jetzt automatisch über Tailscale, sobald der Dev-Server eines Agenten startet — und melden sich beim Stoppen wieder ab, sodass nur tatsächlich genutzte Ports freigegeben werden. Kein einmaliges tailscale-serve-Port-Setup mehr.",
+  "feat_whatsnew_versiondate_title": "Jede Neuerung ist jetzt datiert und versioniert",
+  "feat_whatsnew_versiondate_body": "Jeder Eintrag in diesem „Was ist neu“-Bereich trägt jetzt die Release-Version, mit der er ausgeliefert wurde, sowie das Datum dieses Releases — so siehst du auf einen Blick, wie aktuell jede Änderung ist und welche Version sie eingeführt hat."
 }

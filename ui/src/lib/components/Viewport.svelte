@@ -2531,17 +2531,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     border: 1px solid var(--color-line-bright);
-    background: color-mix(in srgb, var(--color-head) 90%, transparent);
+    background: color-mix(in srgb, var(--color-head) 96%, transparent);
     backdrop-filter: blur(2px);
-    color: var(--color-ink);
-    font-size: var(--fs-lg);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-xl);
     line-height: 1;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
     transition:
       background 0.12s ease,
       color 0.12s ease,
@@ -2556,7 +2556,7 @@
   /* Coarse pointers (touch): grow the free-floating affordance to a ≥44px tap
      target. It sits in the terminal corner with room to spare, so enlarging the
      element itself is simplest — stays round, stays flat. Desktop (fine pointer)
-     keeps the dense 30px glyph. */
+     keeps the 38px glyph. */
   @media (pointer: coarse) {
     .scroll-bottom {
       min-width: 44px;

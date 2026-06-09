@@ -13,7 +13,8 @@ export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[]
  *  has a RUNNING agent; the drain/learnings data merely enriches that row. */
 export interface RepoStatusRow {
   repoPath: string;
-  /** The enabled drain for this repo, or null for an insight-only row. */
+  /** The enabled drain for this repo, or null when the repo has no enabled drain
+   *  (a name-only or insight-only row). */
   drain: DrainStatus | null;
   /** Count of pending (proposed) learnings for this repo. */
   insights: number;

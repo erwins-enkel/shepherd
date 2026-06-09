@@ -33,8 +33,9 @@ import { isMerging } from "./merge-train";
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
  *  yet) stays in `active` to avoid flicker into the "Your turn" group before CI registers
  *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
- *  reviewerRunning → draftAwaitingSignoff → waitingOnReviewer → waitingOnMerger →
- *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing`
+ *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
+ *  awaitingMerge → merging → ready → merged (Herd.svelte's template order, mirrored
+ *  by herd-keynav's RAIL_GROUP_ORDER), tracking the session lifecycle. `isReviewing`
  *  is injected so this stays a pure function (the caller wires it to the reviews store). */
 type Stage =
   | "merged"

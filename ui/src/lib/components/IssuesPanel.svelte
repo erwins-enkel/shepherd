@@ -4,6 +4,7 @@
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
+  import { filterIssues } from "./issues-panel";
 
   // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
   // issue it has claimed (auto session or human-linked task). Highlighted so a
@@ -29,10 +30,13 @@
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);
   let loading = $state(true);
+  let filter = $state("");
+  let visibleIssues = $derived(filterIssues(issues, filter));
 
   $effect(() => {
     const rp = repoPath;
     loading = true;
+    filter = "";
     listIssues(rp)
       .then((r) => {
         if (rp !== repoPath) return;
@@ -59,7 +63,17 @@
     {:else if issues.length === 0}
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
-      {#each issues as issue (issue.number)}
+      <input
+        class="issue-filter"
+        type="search"
+        bind:value={filter}
+        placeholder={m.issuespanel_filter_placeholder()}
+        aria-label={m.issuespanel_filter_placeholder()}
+      />
+      {#if visibleIssues.length === 0}
+        <div class="muted">{m.issuespanel_no_match()}</div>
+      {/if}
+      {#each visibleIssues as issue (issue.number)}
         <div class="issue-row">
           <div class="issue-top">
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
@@ -153,6 +167,27 @@
   .issues-list::-webkit-scrollbar-thumb {
     background: var(--color-faint);
     border-radius: 2px;
+  }
+
+  /* Search field pinned above the scrolling rows — same recipe as the
+     command filter in PromptSources (.cmd-filter). */
+  .issue-filter {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    flex-shrink: 0;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    padding: 4px 8px;
+    border-radius: 2px;
+  }
+
+  .issue-filter:focus {
+    outline: none;
+    border-color: var(--color-line-bright);
   }
 
   .issue-row {

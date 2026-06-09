@@ -37,6 +37,10 @@ export class HerdStore {
   git = $state<Record<string, GitState>>({});
   /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
   activity = $state<Record<string, SessionActivity>>({});
+  /** Live per-session preview-listener port (sessionId → port), pushed by the
+   *  server's `session:preview` event. A present, non-null value is the single
+   *  source of truth for "this agent has a live preview"; absent/null = none. */
+  preview = $state<Record<string, number | null>>({});
   /** Live backlog overview, pushed over the WS by the server's warm poller
    *  (`backlog:update`, ~every 45s). Stays null until the first push arrives —
    *  the page's instant first paint comes from a separate one-shot GET
@@ -65,6 +69,10 @@ export class HerdStore {
   }
   setActivity(map: Record<string, SessionActivity>) {
     this.activity = map;
+  }
+  /** Seed (or replace) the preview-port map after a bootstrap GET. */
+  setPreview(map: Record<string, number | null>) {
+    this.preview = map;
   }
   setDrain(list: DrainStatus[]) {
     this.drain = Object.fromEntries(list.map((d) => [d.repoPath, d]));
@@ -115,6 +123,14 @@ export class HerdStore {
     }
     const prev = this.blocks[id];
     this.blocks = { ...this.blocks, [id]: { reason, since: prev?.since ?? Date.now() } };
+  }
+
+  /** Set or clear a session's live preview-listener port (null tears the entry
+   *  down so `preview[id] != null` reads false and the badge/tab clear). Extracted
+   *  from apply() to keep that dispatch switch under the complexity gate. */
+  private setPreviewPort(id: string, port: number | null) {
+    if (port == null) this.preview = dropKey(this.preview, id);
+    else this.preview = { ...this.preview, [id]: port };
   }
 
   /** Patch a session's name + branch, then surface the rename (esp. the async
@@ -178,6 +194,7 @@ export class HerdStore {
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
+        this.preview = dropKey(this.preview, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
         break;
@@ -186,6 +203,9 @@ export class HerdStore {
         break;
       case "session:activity":
         this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
+        break;
+      case "session:preview":
+        this.setPreviewPort(ev.data.id, ev.data.previewPort);
         break;
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);

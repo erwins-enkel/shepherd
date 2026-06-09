@@ -36,6 +36,8 @@
     onselect,
     git,
     activity,
+    previewPort = null,
+    onpreview,
     ondecommission,
   }: {
     session: Session;
@@ -45,6 +47,10 @@
     git?: GitState;
     // live per-session signal (heartbeat + current tool summary); undefined until first event
     activity?: SessionActivity;
+    // live preview-listener port; non-null surfaces the Preview badge (server-driven, no iframe inference)
+    previewPort?: number | null;
+    // Preview badge clicked → select this session + open its Viewport preview pane
+    onpreview?: (id: string) => void;
     // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
     ondecommission?: (id: string) => void;
   } = $props();
@@ -187,6 +193,30 @@
     </div>
 
     <div class="u-right">
+      {#if previewPort != null}
+        <!-- Live preview available (server reports a bound listener). Selecting +
+             opening the pane is an action distinct from the row's own select, so
+             this is an actionable control; rendered as role=button (not a nested
+             <button>, which would be invalid inside the row's own button) with
+             stopPropagation so the row's select doesn't also fire. -->
+        <span
+          class="preview-badge"
+          role="button"
+          tabindex="0"
+          title={m.unitrow_preview_badge()}
+          onclick={(e) => {
+            e.stopPropagation();
+            onpreview?.(session.id);
+          }}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onpreview?.(session.id);
+            }
+          }}>{m.unitrow_preview_badge()}</span
+        >
+      {/if}
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
       <PlanGateBadge {session} />
@@ -555,6 +585,27 @@
     text-transform: uppercase;
     color: var(--color-muted);
     white-space: nowrap;
+  }
+
+  /* PREVIEW: an actionable, navigational badge — opens the live app pane. Blue is
+     the non-reserved informational accent (green = READY, amber = running/critic,
+     red = blocked, slate = done are all taken), so it reads as "go look" without
+     colliding with any status hue. Outlined + pointer to signal it's clickable. */
+  .preview-badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-blue);
+    border-radius: 2px;
+    color: var(--color-blue);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+  }
+  .preview-badge:hover,
+  .preview-badge:focus-visible {
+    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
   }
 
   /* MERGING: the one colored, moving badge — amber + pulse marks the in-flight

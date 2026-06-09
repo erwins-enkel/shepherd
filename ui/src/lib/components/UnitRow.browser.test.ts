@@ -71,3 +71,46 @@ describe("UnitRow merging badge", () => {
     await expect.element(page.getByText("MERGING")).not.toBeInTheDocument();
   });
 });
+
+describe("UnitRow preview badge", () => {
+  // The badge text bubbles into the row button's accessible name too, so match the
+  // badge precisely by its title attribute rather than the ambiguous role+name.
+  it("renders the Preview badge only when a preview port is bound", async () => {
+    render(UnitRow, {
+      session: session({ id: "p1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8001,
+    });
+    await expect.element(page.getByTitle("Preview")).toBeInTheDocument();
+  });
+
+  it("omits the Preview badge when no preview port is bound", async () => {
+    render(UnitRow, {
+      session: session({ id: "p2" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: null,
+    });
+    await expect.element(page.getByTitle("Preview")).not.toBeInTheDocument();
+  });
+
+  it("clicking the badge calls onpreview with the session id (not onselect twice)", async () => {
+    let previewed: string | null = null;
+    let selects = 0;
+    render(UnitRow, {
+      session: session({ id: "p3" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      previewPort: 8002,
+      onpreview: (id: string) => (previewed = id),
+    });
+    await page.getByTitle("Preview").click();
+    expect(previewed).toBe("p3");
+    // the badge stops propagation, so the row's own select doesn't also fire
+    expect(selects).toBe(0);
+  });
+});

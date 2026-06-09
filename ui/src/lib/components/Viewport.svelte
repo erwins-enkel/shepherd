@@ -62,6 +62,8 @@
     limits = null,
     connected = true,
     git = null,
+    previewPort = null,
+    openPreviewTick = 0,
     buildQueue = null,
     onSeedBuildQueue,
   }: {
@@ -91,6 +93,11 @@
     // PR/git state for this session; once a PR exists the work is effectively done,
     // so the header promotes its decommission button into a "ready to clean up" nudge
     git?: GitState | null;
+    /** Live preview-listener port for this session (server-driven). Non-null → the
+     *  Preview tab + pane are available; the iframe URL is built from window.location. */
+    previewPort?: number | null;
+    /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
+    openPreviewTick?: number;
     /** Current build queue for this session; updated live by WS queue:update events. */
     buildQueue?: BuildQueue | null;
     /** Called when the panel bootstrap-GETs or mutates a queue, to seed the store. */
@@ -103,7 +110,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "issues" | "activity" | "diff">("term");
+  let tab = $state<"term" | "todo" | "issues" | "activity" | "diff" | "preview">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -272,6 +279,19 @@
   // so effects keyed on it re-run on an actual unit switch — not on status churn.
   const unitId = $derived(session.id);
 
+  // Live preview availability is purely server-driven: a non-null port means the
+  // server bound a reverse-proxy listener for this session's dev server. Single
+  // source of truth for both the tab and the pane — no iframe-load inference.
+  const hasPreview = $derived(previewPort != null);
+  // Build the URL from how the operator actually connected (Tailscale https host
+  // or localhost dev) + the assigned port — a distinct origin, so no sandbox is
+  // needed and the app is same-origin to its own backend. SSR-guarded.
+  const previewUrl = $derived(
+    hasPreview && typeof location !== "undefined"
+      ? `${location.protocol}//${location.hostname}:${previewPort}/`
+      : null,
+  );
+
   // per-session token usage from ~/.claude JSONL; refresh on select + every 5s
   let usage = $state<SessionUsage | null>(null);
   $effect(() => {
@@ -380,6 +400,24 @@
     renaming = false; // close a half-open rename editor when switching units
     renameError = null;
     gitOpen = false; // collapse the PR-actions disclosure on unit switch
+  });
+  // A row's Preview badge was clicked (tick bumped) → open the Preview tab. Defined
+  // AFTER the unit-switch reset above so that when a click both selects a new unit
+  // (resetting tab→term) and bumps the tick in one update, this effect runs last in
+  // the flush and wins. Keyed only on the tick, so re-running it never depends on
+  // unitId; the leading `> 0` skips the initial mount (tick starts at 0).
+  let lastPreviewTick = -1;
+  $effect(() => {
+    if (openPreviewTick > 0 && openPreviewTick !== lastPreviewTick && hasPreview) {
+      tab = "preview";
+    }
+    lastPreviewTick = openPreviewTick;
+  });
+  // The preview listener can vanish (dev server stopped / session archived) while
+  // the Preview tab is open → server-driven availability drops, so fall back to the
+  // terminal rather than stranding a dead iframe.
+  $effect(() => {
+    if (!hasPreview && tab === "preview") tab = "term";
   });
   $effect(() => () => clearTimeout(armTimer));
   async function decommission() {
@@ -1242,6 +1280,15 @@
       <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
         >{m.viewport_diff_tab()}</button
       >
+      {#if hasPreview}
+        <!-- only while the server reports a bound preview listener (single source of
+             truth: the live port). Disappears when the dev server stops. -->
+        <button
+          class="tab-btn preview-tab"
+          class:active={tab === "preview"}
+          onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
+        >
+      {/if}
     </div>
     {#if !compact}
       <span class="sep">·</span>
@@ -1480,6 +1527,31 @@
     {#if tab === "diff"}
       <div class="panel-wrap">
         <DiffPanel sessionId={session.id} />
+      </div>
+    {/if}
+    {#if tab === "preview" && previewUrl}
+      <div class="panel-wrap preview-pane">
+        <!-- Cross-origin iframe: the previewed app runs on its own origin:port, so
+             that distinct origin IS the trust boundary — NO sandbox attribute (a
+             sandbox would re-break the app's own same-origin fetches/storage). We
+             never infer load success from onload/onerror (a cross-origin frame gives
+             no reliable signal); availability is the server-driven port above. -->
+        <iframe
+          class="preview-frame"
+          src={previewUrl}
+          title={m.viewport_preview_tab()}
+          referrerpolicy="no-referrer"
+        ></iframe>
+        <div class="preview-foot">
+          <!-- Persistent static setup hint (NOT an auto-detected error): a blank
+               frame usually means the preview port isn't tailscale-served yet, or the
+               app refuses to frame via in-HTML CSP — both handled by open-in-new-tab. -->
+          <span class="preview-hint">{m.viewport_preview_setup_hint()}</span>
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external preview origin (distinct port), not an app route -->
+          <a class="preview-open" href={previewUrl} target="_blank" rel="noopener"
+            >{m.viewport_preview_open_new_tab()}</a
+          >
+        </div>
       </div>
     {/if}
   </div>
@@ -2454,6 +2526,53 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+  }
+
+  /* live preview pane: the iframe fills the body; a thin footer carries the
+     always-visible setup hint + the open-in-new-tab fallback. */
+  .preview-pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+  }
+  .preview-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    border: 0;
+    background: var(--color-bg);
+  }
+  .preview-foot {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 12px;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .preview-hint {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .preview-open {
+    margin-left: auto;
+    flex: none;
+    color: var(--color-blue);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+  .preview-open:hover,
+  .preview-open:focus-visible {
+    text-decoration: underline;
+  }
+  /* preview tab marker: the non-reserved blue accent ties it to the row badge */
+  .tab-btn.preview-tab.active {
+    border-color: var(--color-blue);
+    color: var(--color-blue);
   }
 
   .vp-foot {

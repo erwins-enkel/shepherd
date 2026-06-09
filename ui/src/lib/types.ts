@@ -449,6 +449,7 @@ export type WsEvent =
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
+  | { event: "session:preview"; data: { id: string; previewPort: number | null } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
   | { event: "herdr-update:log"; data: { line: string } }

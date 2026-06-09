@@ -1,5 +1,22 @@
 import { m } from "$lib/paraglide/messages";
-import type { SessionStatus } from "./types";
+import type { Session, SessionStatus } from "./types";
+
+/**
+ * Whether to offer a Resume control for a session. True for any idle/done session
+ * with a pinned claude id — deliberately ALL of them, not just husks.
+ *
+ * We'd love to show it only when claude has actually exited to a bare shell, but
+ * herdr ≥0.6 `agent list` exposes no per-agent command/liveness field (just
+ * agent_status/name/cwd), so a husk shell and an idle-at-prompt claude are
+ * indistinguishable from the API, and scraping the TUI is fragile (stale
+ * scrollback fools it). So the control is a user-initiated escape hatch shown
+ * whenever it *could* be needed; a user looking at a live claude pane has no
+ * reason to click it. Running (working) / blocked (awaiting input) are
+ * unambiguously live, so they're excluded.
+ */
+export function canResume(s: Session): boolean {
+  return !!s.claudeSessionId && (s.status === "idle" || s.status === "done");
+}
 
 /**
  * Live elapsed label for the session list, scaled so multi-day runs stay

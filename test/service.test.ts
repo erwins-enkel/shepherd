@@ -1008,6 +1008,33 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", () => 
   expect(out?.herdrAgentId).toBe("term_old");
 });
 
+test("resume force=true stops the live husk agent and respawns claude", () => {
+  const store = new SessionStore(":memory:");
+  let started = 0;
+  const stopped: string[] = [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    herdr: {
+      start: () => {
+        started++;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      // agent still listed (claude exited but its herdr tab survives as a shell)
+      list: () => [{ terminalId: "term_old", cwd: "/wt/x", name: "x" }] as any,
+      stop: (id: string) => stopped.push(id),
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store);
+  const out = svc.resume(s.id, { force: true });
+  expect(stopped).toEqual(["term_old"]); // tore down the husk first
+  expect(started).toBe(1); // then respawned a fresh claude
+  expect(out?.herdrAgentId).toBe("term_new");
+  expect(out?.status).toBe("running");
+});
+
 test("resume returns null for unknown, archived, or pre-feature sessions", () => {
   const store = new SessionStore(":memory:");
   const svc = new SessionService({

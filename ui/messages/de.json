@@ -527,6 +527,11 @@
   "viewport_resume_title": "Session zurückholen",
   "viewport_resume_sub": "Tippen zum Fortsetzen",
   "viewport_resume_failed": "Konnte nicht fortsetzen. Nochmal tippen",
+  "cardmenu_label": "Sitzungs-Aktionen",
+  "cardmenu_resume": "Sitzung fortsetzen",
+  "cardmenu_decommission": "Stilllegen",
+  "cardmenu_resume_short": "Fortsetzen",
+  "cardmenu_resume_failed": "{name} konnte nicht fortgesetzt werden",
   "viewport_herdr_unreachable": "── herdr nicht erreichbar — Neuverbindung pausiert ──",
   "viewport_reconnect_title": "Neu verbinden",
   "viewport_reconnect_sub": "herdr ist offline — tippen, sobald es zurück ist",
@@ -776,5 +781,7 @@
   "feat_backlog_active_highlight_title": "Sieh auf einen Blick, welche Issues schon beansprucht sind",
   "feat_backlog_active_highlight_body": "Issues, die ein Shepherd-Agent beansprucht hat, tragen das Label „shepherd:active“. In der Issue-Liste des Backlogs hebt es sich jetzt in Amber ab, sodass du beanspruchte von freier Arbeit auf einen Blick unterscheidest, statt jedes Chip zu lesen.",
   "feat_repo_filter_title": "Herde nach Repo filtern",
-  "feat_repo_filter_body": "Das Repo-Status-Band stapelt jetzt ein Repo pro Zeile. Klicke einen Repo-Namen an, um darunter nur dessen Agenten zu zeigen; erneut klicken zeigt wieder alle Repos."
+  "feat_repo_filter_body": "Das Repo-Status-Band stapelt jetzt ein Repo pro Zeile. Klicke einen Repo-Namen an, um darunter nur dessen Agenten zu zeigen; erneut klicken zeigt wieder alle Repos.",
+  "feat_resume_session_title": "Eine geparkte Session fortsetzen",
+  "feat_resume_session_body": "Wenn Claude sich beendet und die Session an einer nackten Shell zurücklässt (z. B. nach einem herdr-Neustart), stehst du nicht mehr ohne Weg zurück da. Im Session-Kopf erscheint jetzt ein ↻ Fortsetzen-Knopf – und ein Rechtsklick (oder langes Drücken) auf eine Session-Karte bietet Fortsetzen ebenfalls an –, der `claude --resume` neu startet und dich direkt zurück ins Gespräch bringt."
 }

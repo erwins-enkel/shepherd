@@ -193,12 +193,13 @@
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
       {#each issues as i (i.number)}
+        {@const ordered = orderedLabels(i.labels)}
         <button class="row" type="button" onclick={() => onpickissue(i)}>
           <span class="issue-num">#{i.number}</span>
           <span class="row-text">{i.title}</span>
-          {#if i.labels.length > 0}
+          {#if ordered.length > 0}
             <span class="chips">
-              {#each orderedLabels(i.labels).slice(0, 3) as lbl (lbl)}
+              {#each ordered.slice(0, 3) as lbl (lbl)}
                 <span
                   class="chip"
                   class:active={lbl === ACTIVE_LABEL}
@@ -206,9 +207,9 @@
                   >{lbl}</span
                 >
               {/each}
-              {#if i.labels.length > 3}
-                <span class="chip chip-more" title={i.labels.slice(3).join(", ")}>
-                  {m.promptsources_more_labels({ count: i.labels.length - 3 })}
+              {#if ordered.length > 3}
+                <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
+                  {m.promptsources_more_labels({ count: ordered.length - 3 })}
                 </span>
               {/if}
             </span>

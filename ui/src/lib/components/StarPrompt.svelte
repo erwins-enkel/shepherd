@@ -1,16 +1,21 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { actStarPrompt } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import type { StarPromptStatus } from "$lib/types";
 
   // A gentle, non-blocking nudge: it floats bottom-left, doesn't seize the app,
   // and carries no scrim (per the design-system rule for non-modal popovers).
   // Three exits: star with the operator's gh account, snooze 3 days, or dismiss.
   // The resolved status bubbles up via `onresolve` so the page owns store state.
+  //
+  // The card closes the instant the nudge resolves (on every connected client,
+  // via the store's star-prompt:status push). The thank-you is therefore a toast,
+  // not an in-card phase — it survives the card unmounting and only the operator
+  // who actually starred sees it.
 
   let { onresolve }: { onresolve: (status: StarPromptStatus) => void } = $props();
 
-  let phase = $state<"ask" | "thanks">("ask");
   let busy = $state(false);
   let errored = $state(false);
 
@@ -20,14 +25,8 @@
     errored = false;
     try {
       const next = await actStarPrompt(action);
-      if (action === "star") {
-        // Linger on a brief thank-you, then resolve (which unmounts the card).
-        // Dismiss/snooze unmount immediately.
-        phase = "thanks";
-        setTimeout(() => onresolve(next), 2600);
-      } else {
-        onresolve(next);
-      }
+      if (action === "star") toasts.info(m.star_prompt_thanks(), { key: "star-prompt-thanks" });
+      onresolve(next);
     } catch {
       errored = true;
     } finally {
@@ -37,30 +36,23 @@
 </script>
 
 <div class="star-prompt" role="dialog" aria-label={m.star_prompt_title()}>
-  {#if phase === "thanks"}
-    <p class="sp-title">
-      <span class="sp-star" aria-hidden="true">★</span>
-      {m.star_prompt_thanks()}
-    </p>
-  {:else}
-    <p class="sp-title">{m.star_prompt_title()}</p>
-    <p class="sp-body">{m.star_prompt_body()}</p>
-    {#if errored}
-      <p class="sp-error">{m.star_prompt_error()}</p>
-    {/if}
-    <div class="sp-actions">
-      <button class="sp-btn" disabled={busy} onclick={() => run("dismiss")}>
-        {m.star_prompt_dismiss()}
-      </button>
-      <button class="sp-btn" disabled={busy} onclick={() => run("snooze")}>
-        {m.star_prompt_snooze()}
-      </button>
-      <button class="sp-btn primary" disabled={busy} onclick={() => run("star")}>
-        <span class="sp-star" aria-hidden="true">★</span>
-        {m.star_prompt_star()}
-      </button>
-    </div>
+  <p class="sp-title">{m.star_prompt_title()}</p>
+  <p class="sp-body">{m.star_prompt_body()}</p>
+  {#if errored}
+    <p class="sp-error">{m.star_prompt_error()}</p>
   {/if}
+  <div class="sp-actions">
+    <button class="sp-btn" disabled={busy} onclick={() => run("dismiss")}>
+      {m.star_prompt_dismiss()}
+    </button>
+    <button class="sp-btn" disabled={busy} onclick={() => run("snooze")}>
+      {m.star_prompt_snooze()}
+    </button>
+    <button class="sp-btn primary" disabled={busy} onclick={() => run("star")}>
+      <span class="sp-star" aria-hidden="true">★</span>
+      {m.star_prompt_star()}
+    </button>
+  </div>
 </div>
 
 <style>

@@ -20,7 +20,8 @@ export const STAR_SETTING_KEY = "starPrompt";
 export interface StarPromptStatus {
   /** Show the nudge right now? False once dismissed/starred/snoozed or still inside the grace window. */
   shouldPrompt: boolean;
-  /** Already starred — the prompt never returns, but the client can show a one-time thank-you. */
+  /** Already starred — terminal state, so the nudge never returns. (The thank-you
+   *  is shown client-side off the star action's result, not this flag.) */
   starred: boolean;
 }
 

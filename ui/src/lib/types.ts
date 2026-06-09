@@ -385,7 +385,8 @@ export interface HerdrUpdateStatus {
 export interface StarPromptStatus {
   /** Render the nudge now? False once dismissed/starred/snoozed or still in the grace window. */
   shouldPrompt: boolean;
-  /** Repo already starred — used to show a one-time thank-you. */
+  /** Repo already starred — terminal state, so the nudge never returns. (The
+   *  thank-you toast is driven by the star action's result, not this flag.) */
   starred: boolean;
 }
 

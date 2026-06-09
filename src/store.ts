@@ -568,6 +568,20 @@ export class SessionStore implements CapStore {
     return out;
   }
 
+  /**
+   * Map of repoPath → count of sessions (agents) created since `since` (ms epoch).
+   * Drives the "recently worked on" shortcut in the repo picker — a measure of how
+   * many agents were run on each repo in the recent window, across all sessions.
+   */
+  recentSessionCountsByRepo(since: number): Record<string, number> {
+    const rows = this.db
+      .query(`SELECT repoPath, COUNT(*) AS n FROM sessions WHERE createdAt >= ? GROUP BY repoPath`)
+      .all(since) as { repoPath: string; n: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.repoPath] = r.n;
+    return out;
+  }
+
   archive(id: string) {
     const now = Date.now();
     this.db.run(`UPDATE sessions SET status='archived', archivedAt=?, updatedAt=? WHERE id=?`, [

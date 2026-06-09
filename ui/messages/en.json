@@ -262,6 +262,9 @@
   "reposelect_placeholder": "select a repo…",
   "reposelect_filter_placeholder": "filter…",
   "reposelect_no_matches": "no matches",
+  "reposelect_recent_heading": "recently worked on",
+  "reposelect_recent_agents_one": "{count} agent run here in the last {days} days",
+  "reposelect_recent_agents_other": "{count} agents run here in the last {days} days",
   "clonerepo_title": "Clone repo by URL",
   "clonerepo_url_label": "Git URL",
   "clonerepo_url_placeholder": "https://github.com/owner/repo.git",
@@ -809,5 +812,7 @@
   "feat_preview_start_title": "Start a dev server from the HUD",
   "feat_preview_start_body": "When an agent has no live preview yet, a Start control appears on its Viewport. Click it to have the agent launch its dev server — auto-detected from package.json, or type the command yourself — then preview the running app without waiting for the agent to start one on its own.",
   "feat_active_label_newtask_title": "Claimed issues stand out in New Task",
-  "feat_active_label_newtask_body": "When you seed a New Task from a GitHub issue, any issue already claimed by an active Shepherd agent now shows its shepherd:active label highlighted — surfaced first and tinted with the running-session hue — so you can tell at a glance which issues are already being worked on."
+  "feat_active_label_newtask_body": "When you seed a New Task from a GitHub issue, any issue already claimed by an active Shepherd agent now shows its shepherd:active label highlighted — surfaced first and tinted with the running-session hue — so you can tell at a glance which issues are already being worked on.",
+  "feat_recent_repos_title": "Recent repos pinned to the top of the picker",
+  "feat_recent_repos_body": "The repo picker in New Task now pins the three repos you've run the most agents on over the last 3 days to the top, set apart and ranked by agent count — so the repos you're actively working on are one click away instead of buried in the alphabetical list."
 }

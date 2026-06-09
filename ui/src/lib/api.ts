@@ -128,7 +128,7 @@ export async function clearMerged(
   return r.json();
 }
 
-export async function listRepos(): Promise<RepoEntry[]> {
+export async function listRepos(): Promise<{ repos: RepoEntry[]; recentWindowDays: number }> {
   const r = await fetch("/api/repos");
   if (!r.ok) throw await failed(r, "repos");
   return r.json();

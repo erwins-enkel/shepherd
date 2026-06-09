@@ -1,8 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import Viewport from "./Viewport.svelte";
+
+// Mock startPreview so it resolves to "ok" without a backend. All other
+// named exports from $lib/api are preserved (getSessionUsage etc. are used
+// by subcomponents; they can fail silently under test — existing tests pass
+// without mocking them).
+// The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
+const startPreviewFn = vi.fn(async () => ({ ok: true as const, command: "npm run dev" }));
+
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  return { ...actual, startPreview: startPreviewFn };
+});
+
+// Component must be imported AFTER the mock is registered.
+const { default: Viewport } = await import("./Viewport.svelte");
 import type { Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -137,5 +151,44 @@ describe("Viewport preview tab", () => {
       openPreviewTick: 2,
     });
     await expect.element(previewTab()).toHaveClass(/active/);
+  });
+});
+
+// ── Start-preview re-entrancy guard ──────────────────────────────────────────
+// Regression: the original code used $state<Set<string>> which Svelte 5 does
+// NOT proxy, so .add()/.delete() never triggered reactivity and the disabled
+// guard never engaged in the DOM. The fix collapses to a single SvelteMap whose
+// .has() is reactive. This test asserts the guard actually disables the button.
+describe("Viewport preview start — re-entrancy guard", () => {
+  it("disables the Start button after a successful start (isPreviewStartPending)", async () => {
+    startPreviewFn.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          // Resolve after a short delay so the pending flag is live while we check.
+          setTimeout(() => resolve({ ok: true, command: "npm run dev" }), 50),
+        ),
+    );
+
+    render(Viewport, {
+      session: session({ id: "rg1", status: "idle" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const startBtn = page.getByRole("button", { name: /Start dev server/i });
+    await expect.element(startBtn).toBeInTheDocument();
+    expect((startBtn.element() as HTMLButtonElement).disabled).toBe(false);
+
+    // Click — startPreview is in flight but hasn't resolved yet.
+    await startBtn.click();
+
+    // The button must be disabled immediately after the click (flag set on {ok}).
+    // Wait for the mock to resolve (flag is set in setPreviewPending after {ok}).
+    await vi.waitFor(() =>
+      expect(
+        (startBtn.element() as HTMLButtonElement).disabled,
+        "Start button disabled while pending",
+      ).toBe(true),
+    );
   });
 });

@@ -229,7 +229,14 @@ const poller = new StatusPoller(
   (id, activity) => events.emit("session:activity", { id, activity }),
   { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
 );
-await tailscaleServe.reconcileStartup();
+// Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
+// single FIFO queue already guarantees this op completes before any register/unregister
+// enqueued after poller.start(), so awaiting only risks stalling boot up to count×5s
+// (16 ports × 5s timeout ≈ 80s) when tailscaled is unresponsive. Reconcile swallows its
+// own per-port failures; the .catch is a belt-and-suspenders guard on the queue chain.
+void tailscaleServe
+  .reconcileStartup()
+  .catch((err) => console.warn("[tailscale-serve] startup reconcile failed:", err));
 poller.start();
 
 // background Web Push: turn F3 state events into notifications for subscribed devices.

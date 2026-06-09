@@ -57,7 +57,10 @@ export async function resolveNodeHost(run: TailscaleRunner = defaultRun): Promis
 export type ServeState = "ok" | "failed";
 export type TailscaleRunnerSync = (args: string[]) => void;
 
-const SYNC_TIMEOUT_MS = 3000;
+// Kept tight on purpose: a healthy local `tailscale serve … off` is sub-second, so this
+// only bites when tailscaled hangs — exactly when we want to bail fast on shutdown rather
+// than block `systemctl stop`. Anything skipped self-heals on the next boot's reconcile.
+const SYNC_TIMEOUT_MS = 1500;
 const defaultRunSync: TailscaleRunnerSync = (args) => {
   execFileSync("tailscale", args, { timeout: SYNC_TIMEOUT_MS, stdio: "ignore" });
 };
@@ -139,9 +142,19 @@ export class TailscaleServeService {
   /**
    * Clear the whole preview range at boot (recover stale mappings from a crashed
    * prior run). One queued op running the offs sequentially; tolerates per-port failure.
+   * NOTE: this also removes any pre-existing MANUAL `tailscale serve` mappings in the
+   * range — by design, since with SHEPHERD_PREVIEW_AUTO_SERVE on (default) Shepherd owns
+   * the range and registers slots dynamically. The startup log below makes that explicit
+   * so the ownership transfer isn't silent for operators upgrading from a manual setup.
    */
   reconcileStartup(): Promise<void> {
     if (!this.opts.enabled) return Promise.resolve();
+    const last = this.opts.base + this.opts.count - 1;
+    console.info(
+      `[tailscale-serve] clearing preview range ${this.opts.base}-${last} for dynamic ` +
+        `management (removes any manual \`tailscale serve\` mappings in this range; set ` +
+        `SHEPHERD_PREVIEW_AUTO_SERVE=0 to manage the range manually instead)`,
+    );
     return this.enqueue(async () => {
       for (let port = this.opts.base; port < this.opts.base + this.opts.count; port++) {
         try {
@@ -153,7 +166,14 @@ export class TailscaleServeService {
     });
   }
 
-  /** Synchronous shutdown teardown (process exit/SIGTERM): off only what we registered. */
+  /**
+   * Synchronous shutdown teardown (process exit/SIGTERM): off only the slots we
+   * registered (≤ active previews, capped at `count`). Worst-case wall time is
+   * registered-slots × SYNC_TIMEOUT_MS (≤ 16 × 1.5s = 24s) and only approaches that
+   * if tailscaled is hung; a healthy daemon offs each slot in well under a second.
+   * Best-effort: any slot that errors/times out is skipped and self-heals on the next
+   * boot's reconcileStartup (which clears the whole range), so we never block exit on it.
+   */
   stopAll(): void {
     if (!this.opts.enabled) return;
     const runSync = this.opts.runSync ?? defaultRunSync;

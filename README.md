@@ -2,15 +2,15 @@
 
 > Self-hosted mission control for **interactive** Claude Code — and opinionated about how
 > agent-built software should ship. Spawn, watch, and steer a herd of real `claude` sessions from
-> your browser or phone, with best-practice guardrails — plan gate, adversarial review, house
-> rules, merge train — built in. On your own server, on your own subscription.
+> your browser or phone, with best-practice guardrails built in. On your own server, on your own
+> subscription.
 
 Shepherd spawns genuine interactive `claude` sessions in isolated git worktrees (via `herdr`, the
 interactive-pane manager), bridges each PTY to an `xterm.js` pane in the browser, and lets one
 operator run many agents in parallel — observing their status and steering them by typing, exactly
-like a human at a terminal. Around those sessions it builds in the engineering discipline that
-parallel agent work otherwise erodes: plans are challenged before agents run, PRs are reviewed
-before a human sees them, and nothing merges without a rebase and re-verification.
+like a human at a terminal. Around those sessions it adds the engineering discipline that parallel
+agent work otherwise erodes: every plan and PR faces adversarial review, and nothing merges while
+behind its base — a stale PR is rebased and re-verified first.
 
 > The repo directory is `tank/` for historical reasons; the product is **Shepherd**.
 
@@ -18,10 +18,12 @@ before a human sees them, and nothing merges without a rebase and re-verificatio
 
 Running many agents is the easy half; keeping their output shippable is the actual product.
 Shepherd institutionalizes the practices a careful team would otherwise have to enforce by hand,
-as built-in, per-repo automation:
+as per-repo automation:
 
+- **Readiness** — Shepherd scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house
+  rules) before you point agents at it, and turns the gaps into an install task.
 - **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
-  reviewer grills it adversarially; only a plan that survives the rounds is released to implement.
+  reviewer grills it adversarially; only a plan that survives review is released to implement.
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff
   and posts a verdict; with Auto-Address on, findings flow back to the authoring agent until the
   list comes back empty.
@@ -30,14 +32,12 @@ as built-in, per-repo automation:
   repeating.
 - **Merge train** — a finished PR lands only when it is open, CI-green, conflict-free, and up to
   date with the base branch; one that has fallen behind is rebased and fully re-verified first.
-- **Hygiene gates** — Shepherd's own repo ships behind the same bar: CI and the pre-push hook
-  enforce linear branches, locale-catalog parity, feature-catalog completeness, and a
-  dead-code/complexity audit (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
-- **Readiness** — scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house rules)
-  before you point agents at it, and turns the gaps into an install task.
+- **Hygiene gates** — CI and the pre-push hook enforce linear branches, locale-catalog parity,
+  feature-catalog completeness, and a dead-code/complexity audit
+  (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
 
-All of it obeys the same constraint as the rest of the product: it works by observing and typing
-into real terminals — see the compliance model below.
+Shepherd's own repo ships behind the same bar. All of it obeys the same constraint as the rest of
+the product: it works by observing and typing into real terminals — see the compliance model below.
 
 ## ToS compliance model
 
@@ -391,7 +391,7 @@ PRD.md              product vision + ToS-compliance model (source of truth)
 Actively developed and run in production by its authors. Shipped: the interactive core (spawn →
 live PTY → browser, status lights, persistence/resume, repo + branch + model pickers, per-repo TODO
 sync, issue intake and git-host actions for GitHub and Gitea/Forgejo, usage tracking); the
-automation suite (Plan gate, Critic, Autopilot, Auto-Drain, Merge train, Build queue); Learnings;
+automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue); Learnings;
 Readiness; live previews of agents' dev servers; and a browser capture extension that turns a page
 into a spawned session or filed issue. See the [GitHub issues][issues] for the open backlog and
 `PRD.md` for the full feature set and roadmap.

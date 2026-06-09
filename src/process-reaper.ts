@@ -47,6 +47,18 @@ export interface ReaperProbes {
   killPid(pid: number): void;
   /** Run a counter-command. */
   run(bin: string, args: string[]): void;
+  /**
+   * Build the full listening inode→port map from /proc/net/tcp[6].
+   * Optional: used by `scanListeningPortsByWorktree` to build the map ONCE per sweep
+   * rather than re-building it per-PID. Falls back to `portsForPid` when absent.
+   */
+  inodeToPortMap?(): Map<number, number>;
+  /**
+   * Return the socket inodes owned by a single pid (reads its fd table).
+   * Optional: used alongside `inodeToPortMap` for the single-map batched scan.
+   * Falls back to `portsForPid` when absent.
+   */
+  socketInodesForPid?(pid: number): number[];
 }
 
 // The agent itself runs `claude` with cwd == worktree; never offer to kill it.
@@ -133,6 +145,28 @@ function listeningInodeToPort(): Map<number, number> {
   return map;
 }
 
+/** Read the socket inodes held open by a single process from /proc/<pid>/fd. */
+function readSocketInodes(pid: number): number[] {
+  let fds: string[];
+  try {
+    fds = readdirSync(`/proc/${pid}/fd`);
+  } catch {
+    return [];
+  }
+  const inodes: number[] = [];
+  for (const fd of fds) {
+    let target: string;
+    try {
+      target = readlinkSync(`/proc/${pid}/fd/${fd}`);
+    } catch {
+      continue;
+    }
+    const m = target.match(/^socket:\[(\d+)\]$/);
+    if (m) inodes.push(Number(m[1]));
+  }
+  return inodes;
+}
+
 const defaultProbes: ReaperProbes = {
   scanProcs() {
     let entries: string[];
@@ -163,29 +197,19 @@ const defaultProbes: ReaperProbes = {
   },
   portsForPid(pid) {
     const listen = listeningInodeToPort();
-    const ports = new Set<number>();
-    let fds: string[];
-    try {
-      fds = readdirSync(`/proc/${pid}/fd`);
-    } catch {
-      return [];
-    }
-    for (const fd of fds) {
-      let target: string;
-      try {
-        target = readlinkSync(`/proc/${pid}/fd/${fd}`);
-      } catch {
-        continue;
-      }
-      const m = target.match(/^socket:\[(\d+)\]$/);
-      if (!m) continue;
-      const port = listen.get(Number(m[1]));
-      if (port != null) ports.add(port);
-    }
-    return [...ports].sort((a, b) => a - b);
+    const ports = readSocketInodes(pid)
+      .map((inode) => listen.get(inode))
+      .filter((p): p is number => p != null);
+    return [...new Set(ports)].sort((a, b) => a - b);
   },
   listeningPorts() {
     return new Set(listeningInodeToPort().values());
+  },
+  inodeToPortMap() {
+    return listeningInodeToPort();
+  },
+  socketInodesForPid(pid) {
+    return readSocketInodes(pid);
   },
   readTranscript(path) {
     try {
@@ -258,4 +282,80 @@ export class ProcessReaper {
       }
     }
   }
+}
+
+// ── batched port scan ─────────────────────────────────────────────────────────
+
+/** Find the first worktree path whose normalised root contains `cwd`, or null. */
+function matchWorktreePath(cwd: string, roots: string[], paths: string[]): string | null {
+  for (let i = 0; i < roots.length; i++) {
+    if (isUnder(cwd, roots[i]!)) return paths[i]!;
+  }
+  return null;
+}
+
+/**
+ * Resolve listening ports for a single PID.
+ * Uses the batched path (inode→port map + socketInodesForPid) when `inodeMap`
+ * is non-null; otherwise falls back to `probes.portsForPid`.
+ * Supply both `inodeToPortMap` + `socketInodesForPid` or neither.
+ */
+function portsForProcBatched(
+  pid: number,
+  inodeMap: Map<number, number> | null,
+  probes: ReaperProbes,
+): number[] {
+  if (inodeMap !== null) {
+    return probes.socketInodesForPid!(pid)
+      .map((inode) => inodeMap.get(inode))
+      .filter((p): p is number => p != null);
+  }
+  return probes.portsForPid(pid);
+}
+
+/**
+ * Scan listening ports for a set of worktree paths in a single pass.
+ *
+ * Builds the listening inode→port map EXACTLY ONCE, then resolves each
+ * candidate PID's socket inodes against it — never rebuilds per-PID.
+ * Excludes `claude` agent processes and the current process (process.pid).
+ *
+ * Returns a Map from worktreePath → sorted unique listening port numbers.
+ * Every supplied worktreePath appears as a key (empty array when no ports found).
+ */
+export function scanListeningPortsByWorktree(
+  worktreePaths: string[],
+  probes: ReaperProbes = defaultProbes,
+): Map<string, number[]> {
+  const result = new Map<string, number[]>(worktreePaths.map((p) => [p, []]));
+  if (worktreePaths.length === 0) return result;
+
+  const roots = worktreePaths.map((p) => p.replace(/\/+$/, ""));
+
+  // Build the inode→port map exactly once for all PIDs.
+  // Both inodeToPortMap + socketInodesForPid must be supplied together;
+  // a partial pair falls back to portsForPid for the whole scan.
+  const inodeMap =
+    typeof probes.inodeToPortMap === "function" && typeof probes.socketInodesForPid === "function"
+      ? probes.inodeToPortMap()
+      : null;
+
+  const portSets = new Map<string, Set<number>>(worktreePaths.map((p) => [p, new Set()]));
+
+  for (const proc of probes.scanProcs()) {
+    if (proc.pid === process.pid || AGENT_COMMS.has(proc.comm)) continue;
+    const matchedPath = matchWorktreePath(proc.cwd, roots, worktreePaths);
+    if (matchedPath === null) continue;
+    const ports = portsForProcBatched(proc.pid, inodeMap, probes);
+    const set = portSets.get(matchedPath)!;
+    for (const port of ports) set.add(port);
+  }
+
+  for (const [path, set] of portSets) {
+    result.set(
+      path,
+      [...set].sort((a, b) => a - b),
+    );
+  }
+  return result;
 }

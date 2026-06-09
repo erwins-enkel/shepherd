@@ -15,6 +15,8 @@
     onnew,
     git,
     activity,
+    preview = {},
+    onpreview = undefined,
     ondecommission,
     onclearmerged = undefined,
     onmergetrain = undefined,
@@ -29,6 +31,10 @@
     onnew: () => void;
     git: Record<string, GitState>;
     activity: Record<string, SessionActivity>;
+    // live sessionId → preview-listener port; a non-null entry surfaces the row's Preview badge
+    preview?: Record<string, number | null>;
+    // a row's Preview badge was clicked → select the session + open its Viewport preview pane
+    onpreview?: (id: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, the merged group header gains a "clear all" action
@@ -108,6 +114,8 @@
           {onselect}
           git={git[session.id]}
           activity={activity[session.id]}
+          previewPort={preview[session.id] ?? null}
+          {onpreview}
           {ondecommission}
         />
       {/each}
@@ -123,6 +131,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -139,6 +149,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -155,6 +167,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -171,6 +185,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -187,6 +203,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -211,6 +229,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}
@@ -235,6 +255,8 @@
             {onselect}
             git={git[session.id]}
             activity={activity[session.id]}
+            previewPort={preview[session.id] ?? null}
+            {onpreview}
             {ondecommission}
           />
         {/each}

@@ -1,0 +1,540 @@
+import type { Server, ServerWebSocket } from "bun";
+import type { SessionPreviewState } from "./types";
+
+// ── dev-port detection primitives ─────────────────────────────────────────────
+//
+// Task 2: primary-port selection for agent preview detection.
+// Preview listener lifecycle, slot allocation, poller sweep, and UI are later tasks.
+
+/**
+ * Priority-ordered curated list of well-known frontend/full-stack dev-server ports.
+ * List-order is the selection priority — NOT numeric order.
+ * Curated ports are trusted HTTP servers; they are NEVER probed via HTTP.
+ */
+const CURATED_PORTS: readonly number[] = [5173, 5174, 4321, 4173, 3000, 8000, 8080];
+
+const CURATED_SET = new Set<number>(CURATED_PORTS);
+
+/**
+ * HTTP liveness probe: returns true when a plain HTTP GET/HEAD to 127.0.0.1:<port>
+ * yields any well-formed HTTP response within ~500 ms.
+ *
+ * This ensures non-HTTP sockets (debugger 9229, DB ports, etc.) are never surfaced.
+ * Injectable for tests (pass a custom probe to avoid real network calls).
+ */
+async function defaultHttpProbe(port: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 500);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/`, {
+      method: "HEAD",
+      signal: controller.signal,
+    });
+    // Any well-formed HTTP response counts — even 4xx/5xx confirms an HTTP server.
+    return typeof res.status === "number";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Pick the primary dev-server port from a set of listening ports, using this rule:
+ *
+ * 1. If any port from the curated list is present, return the one that appears FIRST
+ *    in CURATED_PORTS (list-order priority, NOT numeric). No HTTP probe for curated ports.
+ * 2. Otherwise, among non-curated ports, return the numerically LOWEST that passes
+ *    the HTTP liveness probe.
+ * 3. If nothing answers → null.
+ *
+ * @param ports      Listening ports detected in the worktree (any order).
+ * @param httpProbe  Injectable probe; defaults to real network call.
+ */
+export async function pickPrimaryPort(
+  ports: number[],
+  httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
+): Promise<number | null> {
+  if (ports.length === 0) return null;
+
+  // Step 1: curated-first by list order.
+  for (const candidate of CURATED_PORTS) {
+    if (ports.includes(candidate)) return candidate;
+  }
+
+  // Step 2: non-curated fallback — numerically lowest HTTP-answering port.
+  const nonCurated = ports.filter((p) => !CURATED_SET.has(p)).sort((a, b) => a - b);
+  for (const port of nonCurated) {
+    if (await httpProbe(port)) return port;
+  }
+
+  return null;
+}
+
+// ── PreviewService: per-session reverse-proxy listeners ───────────────────────
+//
+// Each active session gets a stable loopback `Bun.serve` listener on a slot from
+// the configured preview-port range. The listener reverse-proxies HTTP **and**
+// relays WebSocket frames to the session's CURRENT dev port (read live, so a
+// devPort change needs no rebind). The proxy target is ALWAYS the session's own
+// dev port — never derived from the request path/host/query (no SSRF surface).
+//
+// Lifecycle: detect-and-proxy only. Shepherd never owns the dev-server process;
+// it binds a listener when a dev port appears and tears it down when the session
+// is gone (release) or absent from a converge set.
+
+/** Hop-by-hop headers (RFC 7230 §6.1) plus `host`, dropped before forwarding. */
+const STRIPPED_REQUEST_HEADERS = new Set([
+  "host",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+// Hop-by-hop + content-framing headers stripped from the UPSTREAM RESPONSE. Bun's
+// fetch transparently DECODES a compressed body but leaves `content-encoding` and the
+// original `content-length` in place — forwarding them makes the browser try to decode
+// an already-decoded body (ERR_CONTENT_DECODING_FAILED) or truncate at the wrong length.
+// So drop both, plus the hop-by-hop headers that mustn't be proxied end-to-end.
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  "content-encoding",
+  "content-length",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+/** Per-WS-connection relay state attached via `server.upgrade(req, { data })`. */
+interface RelayData {
+  devPort: number;
+  /** Path + query to dial on the upstream (e.g. "/?token=…"). */
+  path: string;
+  /** Requested subprotocols, forwarded to the upstream client socket. */
+  protocols: string[];
+}
+
+/** Bound listener record: the running server + the live (mutable) dev port.
+ *  `server` is null only for the brief window between record creation and a
+ *  successful `bind`; a listener is never stored in the service while null. */
+interface Listener {
+  previewPort: number;
+  devPort: number;
+  server: Server<RelayData> | null;
+}
+
+export interface PreviewServiceOptions {
+  /** Preview-port range base (config.previewPortBase). */
+  base: number;
+  /** Range size AND max concurrent previews (config.previewPortCount). */
+  count: number;
+  /** Fired ONLY on a real previewPort transition: null→port (first bind) and
+   *  port→null (release). NOT fired when only the devPort changes. */
+  onChange?: (sessionId: string, previewPort: number | null) => void;
+}
+
+export class PreviewService {
+  private readonly base: number;
+  private readonly count: number;
+  private readonly onChange?: (sessionId: string, previewPort: number | null) => void;
+
+  /** sessionId → bound listener. */
+  private readonly listeners = new Map<string, Listener>();
+  /** previewPort → sessionId, so a freed slot is reclaimable. */
+  private readonly slotOwner = new Map<number, string>();
+
+  constructor(opts: PreviewServiceOptions) {
+    this.base = opts.base;
+    this.count = opts.count;
+    this.onChange = opts.onChange;
+  }
+
+  /**
+   * Ensure a listener exists for `sessionId` proxying to `devPort`.
+   *
+   * - Already bound → UPDATE the stored devPort live (no rebind, no onChange);
+   *   returns the existing preview port.
+   * - Not bound → allocate a free slot, bind a loopback `Bun.serve`, fire
+   *   `onChange(sessionId, previewPort)`, return the port.
+   * - Range exhausted → log + return null (never throws).
+   * - Bind error on a slot → try the next free slot; null if all fail.
+   */
+  ensure(sessionId: string, devPort: number): number | null {
+    const existing = this.listeners.get(sessionId);
+    if (existing) {
+      existing.devPort = devPort; // live target update — the fetch/relay read this
+      return existing.previewPort;
+    }
+
+    const candidates = this.freeSlots();
+    if (candidates.length === 0) {
+      console.warn(
+        `[preview] port range [${this.base}, ${this.base + this.count}) exhausted ` +
+          `(${this.count} concurrent previews) — no slot for session ${sessionId}`,
+      );
+      return null;
+    }
+
+    for (const previewPort of candidates) {
+      const listener: Listener = { previewPort, devPort, server: null };
+      try {
+        // bind reads listener.devPort live (re-ensure mutates it), so the record
+        // must exist first — server is the only field bind fills in.
+        listener.server = this.bind(previewPort, listener);
+      } catch (err) {
+        console.warn(`[preview] failed to bind ${previewPort} for ${sessionId}: ${String(err)}`);
+        continue; // try the next free slot
+      }
+      this.listeners.set(sessionId, listener);
+      this.slotOwner.set(previewPort, sessionId);
+      try {
+        this.onChange?.(sessionId, previewPort);
+      } catch {
+        /* observer side-effect must not break allocation */
+      }
+      return previewPort;
+    }
+
+    console.warn(`[preview] all free slots failed to bind for session ${sessionId}`);
+    return null;
+  }
+
+  /** Tear down a session's listener and reclaim its slot. Idempotent. */
+  release(sessionId: string): void {
+    const listener = this.listeners.get(sessionId);
+    if (!listener) return;
+    this.listeners.delete(sessionId);
+    this.slotOwner.delete(listener.previewPort);
+    try {
+      listener.server?.stop(true);
+    } catch {
+      /* already gone */
+    }
+    try {
+      this.onChange?.(sessionId, null);
+    } catch {
+      /* observer side-effect must not break teardown */
+    }
+  }
+
+  /** Reconcile to `active`: ensure each entry, release any bound session absent from it. */
+  converge(active: Array<{ sessionId: string; devPort: number }>): void {
+    const wanted = new Set(active.map((a) => a.sessionId));
+    for (const sessionId of [...this.listeners.keys()]) {
+      if (!wanted.has(sessionId)) this.release(sessionId);
+    }
+    for (const { sessionId, devPort } of active) this.ensure(sessionId, devPort);
+  }
+
+  /** Live preview snapshot for client bootstrap: bound sessions only. */
+  snapshot(): Record<string, SessionPreviewState> {
+    const out: Record<string, SessionPreviewState> = {};
+    for (const [sessionId, listener] of this.listeners) {
+      out[sessionId] = { previewPort: listener.previewPort };
+    }
+    return out;
+  }
+
+  /** Stop every listener (shutdown / tests). Does NOT fire onChange. */
+  stopAll(): void {
+    for (const listener of this.listeners.values()) {
+      try {
+        listener.server?.stop(true);
+      } catch {
+        /* already gone */
+      }
+    }
+    this.listeners.clear();
+    this.slotOwner.clear();
+  }
+
+  /** Free ports in the range, in ascending order. */
+  private freeSlots(): number[] {
+    const free: number[] = [];
+    for (let port = this.base; port < this.base + this.count; port++) {
+      if (!this.slotOwner.has(port)) free.push(port);
+    }
+    return free;
+  }
+
+  /** Bind the loopback reverse-proxy `Bun.serve` for one listener record.
+   *  Takes `previewPort` explicitly + the `listener` whose live `devPort` the
+   *  fetch handler reads on every request (re-ensure mutates it in place). */
+  private bind(previewPort: number, listener: Listener): Server<RelayData> {
+    return Bun.serve<RelayData>({
+      port: previewPort,
+      hostname: "127.0.0.1",
+      fetch: (req, server) => this.handleFetch(req, server, listener),
+      websocket: makeRelayHandlers(),
+    });
+  }
+
+  /** HTTP request handler: WS upgrades go to the relay; everything else proxies. */
+  private handleFetch(
+    req: Request,
+    server: Server<RelayData>,
+    listener: Listener,
+  ): Response | Promise<Response> | undefined {
+    const devPort = listener.devPort; // live read — re-ensure may have updated it
+    if (isWebSocketUpgrade(req)) {
+      const url = new URL(req.url);
+      const protocols = parseSubprotocols(req.headers.get("sec-websocket-protocol"));
+      const upgraded = server.upgrade(req, {
+        data: { devPort, path: url.pathname + url.search, protocols },
+        // Deliberately echo NO subprotocol here. Bun commits this 101 synchronously,
+        // BEFORE the relay's `open` handler opens the upstream socket and learns which
+        // subprotocol it actually negotiated — so echoing the client's first offer could
+        // claim one the upstream never selected. Selecting none is spec-valid (RFC 6455
+        // §4.1 — the client connection still succeeds) and never mismatches; the upstream
+        // still negotiates the client's offered `protocols` on the relay's own socket,
+        // and frames relay verbatim regardless of the label.
+      });
+      if (upgraded) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 426 });
+    }
+    return proxyHttp(req, devPort);
+  }
+}
+
+/** True when the request is a WebSocket upgrade (case-insensitive `Upgrade: websocket`). */
+function isWebSocketUpgrade(req: Request): boolean {
+  return (req.headers.get("upgrade") ?? "").toLowerCase() === "websocket";
+}
+
+/** Split a `Sec-WebSocket-Protocol` header into trimmed, non-empty subprotocols. */
+function parseSubprotocols(header: string | null): string[] {
+  if (!header) return [];
+  return header
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Reverse-proxy a plain HTTP request to `127.0.0.1:<devPort>` with the same path,
+ * query, method, headers (minus host + hop-by-hop) and a streamed body. Strips
+ * content-framing + hop-by-hop + framing-blocking headers from the response (Bun's
+ * fetch decodes the body, so a forwarded content-encoding/length would break it).
+ * Fails closed with a 502 if upstream throws.
+ */
+async function proxyHttp(req: Request, devPort: number): Promise<Response> {
+  const url = new URL(req.url);
+  const target = `http://127.0.0.1:${devPort}${url.pathname}${url.search}`;
+
+  const headers = new Headers(req.headers);
+  for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
+
+  const hasBody = req.body !== null && req.method !== "GET" && req.method !== "HEAD";
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method: req.method,
+      headers,
+      body: hasBody ? req.body : undefined,
+      redirect: "manual",
+      // Streaming a request body through Bun's fetch requires half-duplex.
+      ...(hasBody ? { duplex: "half" } : {}),
+    } as RequestInit);
+  } catch {
+    // Dev server gone / refused — fail closed, never a silent empty 200.
+    return new Response("Preview upstream unavailable", { status: 502 });
+  }
+
+  const respHeaders = new Headers(upstream.headers);
+  for (const h of STRIPPED_RESPONSE_HEADERS) respHeaders.delete(h);
+  stripFramingHeaders(respHeaders);
+  rewriteLoopbackLocation(respHeaders, devPort);
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: respHeaders,
+  });
+}
+
+/**
+ * Rewrite an upstream redirect whose `Location` points back at the loopback dev server
+ * (`http://127.0.0.1:<devPort>/…` or `localhost:<devPort>`) to a PATH-RELATIVE form, so
+ * the browser resolves it against the preview origin (`host.ts.net:<previewPort>`) rather
+ * than following an unreachable loopback URL. The redirect: "manual" proxy passes Location
+ * through verbatim, so a dev server's own absolute self-redirect (trailing-slash, base
+ * path, post-login) would otherwise strand the browser. Already-relative Locations and
+ * genuinely cross-origin redirects (OAuth providers, CDNs) are left untouched.
+ */
+export function rewriteLoopbackLocation(headers: Headers, devPort: number): void {
+  const loc = headers.get("location");
+  if (loc === null) return;
+  let u: URL;
+  try {
+    u = new URL(loc);
+  } catch {
+    return; // relative Location — already resolves against the preview origin
+  }
+  const isLoopbackHost = u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  if (isLoopbackHost && u.port === String(devPort)) {
+    headers.set("location", u.pathname + u.search + u.hash);
+  }
+}
+
+/** Delete `X-Frame-Options`; remove only the `frame-ancestors` directive from CSP. */
+function stripFramingHeaders(headers: Headers): void {
+  headers.delete("x-frame-options");
+  const csp = headers.get("content-security-policy");
+  if (csp === null) return;
+  const kept = csp
+    .split(";")
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0 && !/^frame-ancestors\b/i.test(d));
+  if (kept.length === 0) headers.delete("content-security-policy");
+  else headers.set("content-security-policy", kept.join("; "));
+}
+
+// ── WebSocket relay ───────────────────────────────────────────────────────────
+//
+// Bun.serve does NOT auto-proxy an upstream socket. We accept the client WS, open
+// a `new WebSocket` CLIENT to the upstream dev port, and relay frames both ways.
+// Client→upstream frames that arrive before the upstream opens are buffered and
+// flushed on upstream open.
+
+/**
+ * Cap on bytes buffered client→upstream before the upstream socket opens. The
+ * relay carries UNTRUSTED agent apps; a client flooding frames during the open
+ * window would otherwise grow the heap without bound. On overflow we fail safe —
+ * close both sockets — rather than buffer forever. ~1 MiB.
+ */
+const MAX_PENDING_WS_BYTES = 1024 * 1024;
+
+/** Byte length of a buffered client→upstream frame (string or binary). */
+function frameByteLength(frame: string | ArrayBufferLike | Uint8Array): number {
+  if (typeof frame === "string") return Buffer.byteLength(frame);
+  if (frame instanceof Uint8Array) return frame.byteLength;
+  return frame.byteLength;
+}
+
+/** Mutable per-socket relay context, stashed on the ServerWebSocket. */
+interface RelayContext {
+  upstream: WebSocket | null;
+  upstreamOpen: boolean;
+  /** client→upstream frames buffered until the upstream socket opens. */
+  pending: Array<string | ArrayBufferLike | Uint8Array>;
+  /** bytes currently held in `pending`; capped by MAX_PENDING_WS_BYTES. */
+  pendingBytes: number;
+  /** true once either side initiated a close, so handlers stop relaying. */
+  closing: boolean;
+}
+
+/** WS client→server messages are typed loosely; this is the relay's view of one socket. */
+type RelaySocket = ServerWebSocket<RelayData> & { __relay?: RelayContext };
+
+function makeRelayHandlers() {
+  return {
+    open(ws: RelaySocket) {
+      const ctx: RelayContext = {
+        upstream: null,
+        upstreamOpen: false,
+        pending: [],
+        pendingBytes: 0,
+        closing: false,
+      };
+      ws.__relay = ctx;
+      const { devPort, path, protocols } = ws.data;
+      let upstream: WebSocket;
+      try {
+        upstream = new WebSocket(
+          `ws://127.0.0.1:${devPort}${path}`,
+          protocols.length > 0 ? protocols : undefined,
+        );
+      } catch {
+        safeClose(ws);
+        return;
+      }
+      upstream.binaryType = "arraybuffer";
+      ctx.upstream = upstream;
+
+      upstream.onopen = () => {
+        ctx.upstreamOpen = true;
+        ctx.pendingBytes = 0;
+        for (const frame of ctx.pending.splice(0)) safeSend(upstream, frame);
+      };
+      upstream.onmessage = (e: MessageEvent) => safeSend(ws, e.data);
+      upstream.onclose = (e: CloseEvent) => {
+        ctx.closing = true;
+        safeClose(ws, e.code, e.reason);
+      };
+      upstream.onerror = () => safeClose(ws);
+    },
+
+    message(ws: RelaySocket, msg: string | Buffer) {
+      const ctx = ws.__relay;
+      if (!ctx || ctx.closing) return;
+      const frame = typeof msg === "string" ? msg : new Uint8Array(msg);
+      if (ctx.upstream && ctx.upstreamOpen) {
+        safeSend(ctx.upstream, frame);
+        return;
+      }
+      // Pre-open buffering: bound the heap. A flooding client (untrusted app)
+      // during the open window would otherwise grow `pending` forever → fail safe.
+      if (ctx.pendingBytes + frameByteLength(frame) > MAX_PENDING_WS_BYTES) {
+        ctx.closing = true;
+        if (ctx.upstream) safeClose(ctx.upstream);
+        safeClose(ws);
+        return;
+      }
+      ctx.pendingBytes += frameByteLength(frame);
+      ctx.pending.push(frame);
+    },
+
+    close(ws: RelaySocket, code: number, reason: string) {
+      const ctx = ws.__relay;
+      if (!ctx) return;
+      ctx.closing = true;
+      if (ctx.upstream) safeClose(ctx.upstream, code, reason);
+    },
+  };
+}
+
+/** A WebSocket close code the client/upstream WS API will accept without throwing:
+ *  1000 (normal) or the application range 3000–4999. Reserved/abnormal codes
+ *  (1005/1006/1011/…) are mapped to a safe no-arg close. */
+export function sanitizeCloseCode(code: number | undefined): number | null {
+  if (code === undefined) return null;
+  if (code === 1000) return 1000;
+  if (code >= 3000 && code <= 4999) return code;
+  return null; // reserved/abnormal → safe no-arg close
+}
+
+/** Send on either peer; the socket may already be gone, so swallow throws. */
+function safeSend(
+  sock: WebSocket | ServerWebSocket<RelayData>,
+  data: string | ArrayBufferLike | Uint8Array | Blob,
+): void {
+  try {
+    // Both Bun's ServerWebSocket and the client WebSocket expose `.send`.
+    (sock as { send: (d: unknown) => void }).send(data);
+  } catch {
+    /* peer gone */
+  }
+}
+
+/** Close either peer with a sanitized code (preserving reason when present). */
+function safeClose(
+  sock: WebSocket | ServerWebSocket<RelayData>,
+  code?: number,
+  reason?: string,
+): void {
+  const safe = sanitizeCloseCode(code);
+  try {
+    if (safe === null) (sock as { close: (c?: number, r?: string) => void }).close();
+    else (sock as { close: (c?: number, r?: string) => void }).close(safe, reason || undefined);
+  } catch {
+    /* peer gone */
+  }
+}

@@ -42,7 +42,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
-import type { Session, LearningStatus, SignalKind } from "./types";
+import type { Session, LearningStatus, SignalKind, SessionPreviewState } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -107,6 +107,11 @@ export interface AppDeps {
   ownsPr?: (s: Session, headSha: string) => boolean | null;
   /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
   activity?: { snapshot(): Record<string, SessionActivity> };
+  /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
+   *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
+  preview?: {
+    snapshot(): Record<string, SessionPreviewState>;
+  };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
@@ -169,7 +174,8 @@ function checkAuth(req: Request): Response | null {
 function checkOrigin(req: Request): Response | null {
   const method = req.method;
   if (method !== "POST" && method !== "DELETE" && method !== "PUT") return null;
-  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts)) {
+  const previewRange = { base: config.previewPortBase, count: config.previewPortCount };
+  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, previewRange)) {
     return json({ error: "forbidden: origin not allowed" }, 403);
   }
   return null;
@@ -204,6 +210,13 @@ function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "activity" && !parts[2]) {
     return json(deps.activity?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handlePreviewSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "preview" && !parts[2]) {
+    return json(deps.preview?.snapshot() ?? {});
   }
   return null;
 }
@@ -1993,6 +2006,7 @@ const ROUTE_HANDLERS = [
   handlePing,
   handleGitSnapshot,
   handleActivitySnapshot,
+  handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,
   handleDrain,
@@ -2126,7 +2140,12 @@ export function serve(deps: AppDeps, port: number) {
       const url = new URL(req.url);
       if (url.pathname === "/events") {
         const origin = req.headers.get("Origin");
-        if (!originAllowed(origin, config.allowedOriginHosts)) {
+        if (
+          !originAllowed(origin, config.allowedOriginHosts, {
+            base: config.previewPortBase,
+            count: config.previewPortCount,
+          })
+        ) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
         return server.upgrade(req, { data: { kind: "events" } })
@@ -2136,7 +2155,12 @@ export function serve(deps: AppDeps, port: number) {
       const m = url.pathname.match(/^\/pty\/([^/]+)$/);
       if (m) {
         const origin = req.headers.get("Origin");
-        if (!originAllowed(origin, config.allowedOriginHosts)) {
+        if (
+          !originAllowed(origin, config.allowedOriginHosts, {
+            base: config.previewPortBase,
+            count: config.previewPortCount,
+          })
+        ) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
         const s = deps.store.get(m[1]!);

@@ -15,6 +15,7 @@
     getHerdrUpdate,
     gitStates,
     activityStates,
+    previewStates,
     getBacklog,
     getSettings,
     listBranches,
@@ -79,6 +80,23 @@
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
+  // Monotonic tick bumped when a row's Preview badge is clicked; passed to the
+  // Viewport so it switches to its Preview tab. A counter (not a boolean) so a
+  // repeat click on the already-selected session still re-triggers the open.
+  let openPreviewTick = $state(0);
+  // Flatten the /api/preview snapshot ({ id: { previewPort } }) into the store's
+  // flat sessionId → port|null map.
+  function flattenPreview(
+    map: Record<string, { previewPort: number | null }>,
+  ): Record<string, number | null> {
+    return Object.fromEntries(Object.entries(map).map(([id, v]) => [id, v.previewPort]));
+  }
+  // A row asked to open its live preview: select the session, then bump the tick
+  // so the Viewport flips to its Preview tab (after its own unit-switch reset).
+  function openPreview(id: string) {
+    selectUnit(id);
+    openPreviewTick++;
+  }
   let showNew = $state(false);
   let showSettings = $state(false);
   let showClone = $state(false);
@@ -160,6 +178,9 @@
       .catch(() => {});
     activityStates()
       .then((m) => store.setActivity(m))
+      .catch(() => {});
+    previewStates()
+      .then((m) => store.setPreview(flattenPreview(m)))
       .catch(() => {});
     getBacklog()
       .then((p) => (backlog = p))
@@ -434,6 +455,9 @@
       .catch(() => {});
     activityStates()
       .then((m) => store.setActivity(m))
+      .catch(() => {});
+    previewStates()
+      .then((m) => store.setPreview(flattenPreview(m)))
       .catch(() => {});
     getDrain()
       .then((l) => store.setDrain(l))
@@ -726,6 +750,8 @@
             onnew={() => (showNew = true)}
             git={store.git}
             activity={store.activity}
+            preview={store.preview}
+            onpreview={openPreview}
             ondecommission={onarchive}
             {onclearmerged}
             {onmergetrain}
@@ -759,6 +785,8 @@
             connected={store.connected}
             limits={store.usageLimits}
             git={store.git[selected.id]}
+            previewPort={store.preview[selected.id] ?? null}
+            {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
@@ -804,6 +832,8 @@
           onnew={() => (showNew = true)}
           git={store.git}
           activity={store.activity}
+          preview={store.preview}
+          onpreview={openPreview}
           {onclearmerged}
           {onmergetrain}
           {standardCommandUnset}
@@ -824,6 +854,8 @@
             session={selected}
             touch={touch.current}
             git={store.git[selected.id]}
+            previewPort={store.preview[selected.id] ?? null}
+            {openPreviewTick}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}

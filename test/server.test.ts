@@ -377,6 +377,50 @@ test("WS /pty/:id with evil Origin → 403", async () => {
   }
 });
 
+test("WS /events with preview-port Origin → 403 (CSRF guard covers WS upgrade)", async () => {
+  const deps = makeDeps();
+  const server = serve(deps, 0);
+  try {
+    const port = server.port;
+    // config.allowedOriginHosts includes "localhost"; config.previewPortBase=8001,
+    // count=16 → [8001,8017). Port 8005 ∈ that range — must be rejected even though
+    // the hostname is allowlisted.
+    const res = await fetch(`http://localhost:${port}/events`, {
+      headers: { Origin: `http://localhost:${config.previewPortBase + 4}` },
+    });
+    expect(res.status).toBe(403);
+  } finally {
+    server.stop();
+  }
+});
+
+test("WS /pty/:id with preview-port Origin → 403 (CSRF guard covers WS upgrade)", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "test",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_65306e7cb9451a",
+  });
+  const server = serve(deps, 0);
+  try {
+    const port = server.port;
+    // A preview-port origin on the allowlisted hostname must still be rejected —
+    // /pty is bidirectional (keystrokes reach the agent terminal).
+    const res = await fetch(`http://localhost:${port}/pty/${session.id}`, {
+      headers: { Origin: `http://localhost:${config.previewPortBase + 4}` },
+    });
+    expect(res.status).toBe(403);
+  } finally {
+    server.stop();
+  }
+});
+
 // ── PTY: terminated session must not attach (would loop on agent_not_found) ────
 
 // Build a herdr stub whose live list contains exactly the given terminal ids.

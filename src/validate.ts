@@ -311,18 +311,45 @@ export function safeRepoDir(repoPathRaw: string, repoRoot: string): string | nul
   }
 }
 
-/** Returns true when the request should be allowed through the CSRF origin check. */
+/**
+ * Returns true when the request should be allowed through the CSRF origin check.
+ *
+ * When `previewRange` is supplied, any Origin whose port falls in
+ * [base, base + count) is **rejected** even if its hostname is allowlisted —
+ * a preview app running on that port shares the HUD's hostname and could
+ * otherwise forge `/api` mutations (CSRF via blind cross-origin POST).
+ * CLI / curl clients (no Origin header) are always allowed through.
+ */
 export function originAllowed(
   originHeader: string | null | undefined,
   allowedHosts: string[],
+  previewRange?: { base: number; count: number },
 ): boolean {
   if (!originHeader) return true; // no-browser client (curl, CLI)
+  let parsed: URL;
   try {
-    const hostname = new URL(originHeader).hostname;
-    return allowedHosts.includes(hostname);
+    parsed = new URL(originHeader);
   } catch {
     return false; // malformed origin
   }
+
+  // Reject preview-port origins before the hostname check so a previewed app
+  // can never forge state-changing requests against the HUD's API, even when its
+  // hostname is in the allowlist.
+  if (previewRange) {
+    const { base, count } = previewRange;
+    // URL.port is "" when the URL uses its scheme's default port (80/443).
+    // A missing port means HTTPS default (443) or HTTP default (80) — neither
+    // should be in a preview range; treat "" as the default (not a preview port).
+    if (parsed.port !== "") {
+      const port = Number(parsed.port);
+      if (port >= base && port < base + count) {
+        return false; // preview-port origin → reject
+      }
+    }
+  }
+
+  return allowedHosts.includes(parsed.hostname);
 }
 
 const STEER_LABEL_MAX = 60;

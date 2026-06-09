@@ -407,6 +407,45 @@ test("session:critic-activity routes to the reviews store", async () => {
   expect(reviews.activityFor("s1")).toBe("$ git diff");
 });
 
+// ── session:preview ────────────────────────────────────────────────────────
+
+test("setPreview seeds the preview map for bootstrap", () => {
+  const s = new HerdStore();
+  s.setPreview({ s1: 8001, s2: null });
+  expect(s.preview["s1"]).toBe(8001);
+  expect(s.preview["s2"]).toBeNull();
+});
+
+test("session:preview sets the port for that session", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: 8002 } });
+  expect(s.preview["s1"]).toBe(8002);
+});
+
+test("session:preview replaces an existing port (latest wins)", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: 8001 } });
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: 8005 } });
+  expect(s.preview["s1"]).toBe(8005);
+});
+
+test("session:preview with a null port drops the entry (listener torn down)", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: 8001 } });
+  expect(s.preview["s1"]).toBe(8001);
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: null } });
+  expect(s.preview["s1"]).toBeUndefined();
+});
+
+test("session:archived drops the preview entry for that session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({ event: "session:preview", data: { id: "s1", previewPort: 8001 } });
+  expect(s.preview["s1"]).toBe(8001);
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.preview["s1"]).toBeUndefined();
+});
+
 test("session:merging sets and clears the mark", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

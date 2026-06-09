@@ -9,9 +9,11 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  parseServedPort,
+  validatePreviewPortRange,
 } from "./config";
 import { SessionStore } from "./store";
-import type { Session } from "./types";
+import type { Session, SessionPreviewEvent } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
@@ -45,6 +47,7 @@ import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
+import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
@@ -106,6 +109,27 @@ if (savedPlan !== null)
     config.planReviewCyclesCap,
   );
 
+// ── preview port range startup validation (hard-fail) ──────────────────────
+// Discover the public served port by parsing `tailscale serve status`; default
+// to 443 when tailscale is unavailable or the mapping isn't found. The parser
+// is pure and injected here so it's testable without tailscale.
+{
+  let servedPort = 443;
+  try {
+    const { stdout } = await execFileAsync("tailscale", ["serve", "status"], { timeout: 5000 });
+    const parsed = parseServedPort(stdout, config.port);
+    if (parsed !== null) servedPort = parsed;
+  } catch {
+    // tailscale not available or not set up — default to 443
+  }
+  validatePreviewPortRange({
+    previewPortBase: config.previewPortBase,
+    previewPortCount: config.previewPortCount,
+    localPort: config.port,
+    servedPort,
+  });
+}
+
 // drop abandoned New-Task uploads (attached but never submitted) older than 24h
 sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
 const herdr = new HerdrDriver();
@@ -163,6 +187,13 @@ const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
   return forge;
 };
 
+const previewService = new PreviewService({
+  base: config.previewPortBase,
+  count: config.previewPortCount,
+  onChange: (id, previewPort) =>
+    events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
+});
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -177,6 +208,7 @@ const poller = new StatusPoller(
   undefined, // probeCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
   (id, activity) => events.emit("session:activity", { id, activity }),
+  { service: previewService, sweepMs: config.previewSweepMs }, // preview sweep wiring
 );
 poller.start();
 
@@ -628,6 +660,7 @@ const server = serve(
     prCache: prPoller,
     ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
+    preview: { snapshot: () => previewService.snapshot() },
     push,
     presence,
     poller,
@@ -667,3 +700,14 @@ const server = serve(
   config.port,
 );
 console.log(`shepherd core on http://localhost:${server.port}`);
+
+// Best-effort teardown of preview listeners on process exit / SIGTERM.
+process.on("exit", () => previewService.stopAll());
+// Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we
+// must exit explicitly — otherwise `systemctl stop/restart shepherd` hangs until the
+// stop-timeout SIGKILL. Tear down, then exit (the `exit` handler's second stopAll is a
+// no-op since stopAll is idempotent).
+process.on("SIGTERM", () => {
+  previewService.stopAll();
+  process.exit(0);
+});

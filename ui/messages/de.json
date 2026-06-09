@@ -442,6 +442,7 @@
   "criticbadge_title": "Kritiker-Review für diesen PR-Stand",
   "criticbadge_reviewing": "PRÜFT…",
   "criticbadge_reviewing_title": "Kritiker prüft diese Sitzung",
+  "criticbadge_reviewing_activity_title": "Kritiker prüft — gerade: {activity}",
   "criticbadge_round": "↻ {round}/{cap}",
   "criticbadge_round_title": "Kritiker-Befunde werden bearbeitet — Runde {round} von {cap}",
   "criticbadge_stalled": "STECKT {round}/{cap}",
@@ -736,5 +737,7 @@
   "feat_update_checkout_title": "Lokalen Checkout nach Merge aktualisieren",
   "feat_update_checkout_body": "Wenn du einen PR über einen der Merge-Buttons der App mergst, bietet ein Toast an, den lokalen Default-Branch des Repos per Fast-Forward auf den frisch gemergten Stand zu bringen — kein manuelles Pull nötig.",
   "feat_automation_help_title": "Jede Automatisierung erklärt",
-  "feat_automation_help_body": "Jeder Schalter im Automatisierungs-Panel hat jetzt ein anklickbares „ⓘ“, das eine ausführliche, verständliche Erklärung öffnet — was die Funktion macht, wie sie arbeitet und wann genau sie auslöst. So versteht jeder, nicht nur das Team, den Kritiker, das Plan-Gate, Autopilot, Auto-Abarbeitung und den Rest, bevor er sie einschaltet."
+  "feat_automation_help_body": "Jeder Schalter im Automatisierungs-Panel hat jetzt ein anklickbares „ⓘ“, das eine ausführliche, verständliche Erklärung öffnet — was die Funktion macht, wie sie arbeitet und wann genau sie auslöst. So versteht jeder, nicht nur das Team, den Kritiker, das Plan-Gate, Autopilot, Auto-Abarbeitung und den Rest, bevor er sie einschaltet.",
+  "feat_critic_activity_title": "Sieh dem Kritiker live bei der Arbeit zu",
+  "feat_critic_activity_body": "Der PR-Kritiker läuft als eigene Claude-Code-Session. Fahr mit der Maus über das PRÜFT-Badge und sieh seine letzte Aktion live – „$ git diff“, „read review.ts“ – statt nur, dass er beschäftigt ist."
 }

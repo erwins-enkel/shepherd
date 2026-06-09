@@ -10,6 +10,8 @@ import type { GitForge, GitState } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import { jsonlPathFor } from "./usage";
+import { readActivitySignal } from "./activity-signal";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,6 +90,7 @@ interface InFlight {
   repoPath: string;
   worktreePath: string;
   terminalId: string;
+  criticSessionId: string; // the critic's claude session id → locates its transcript for live activity
   startedAt: number;
   priorRound: number; // auto-address steers already spent on this findings streak
   priorErrorRound: number; // consecutive critic error/timeout verdicts before this run
@@ -114,6 +117,14 @@ export interface ReviewServiceDeps {
   /** Fired when a critic run starts (true) and when it ends (false) for a session. */
   onReviewing?: (id: string, reviewing: boolean) => void;
   /**
+   * Fired each tick a critic is still running, with its latest *meaningful* tool-use
+   * summary (e.g. "$ git diff", "read review.ts") — surfaced live in the UI badge
+   * tooltip so the operator can see what the critic is doing, not just that it's busy.
+   * Only fired when a summary is available; the run-ended (onReviewing false) signal
+   * clears it client-side.
+   */
+  onActivity?: (id: string, summary: string) => void;
+  /**
    * Steer critic findings into a session's live PTY (typically SessionService.reply).
    * Returns false (or throws — both treated as not-delivered) when the steer can't
    * land; only a true return advances the round. Absent → the auto-address loop is
@@ -134,6 +145,9 @@ export interface ReviewServiceDeps {
   /** Injectable content fingerprint of `git diff base...HEAD` in the worktree (default:
    *  real `git patch-id`). Returns null when there's no diff or git fails → never skips. */
   computePatchId?: (worktreePath: string, base: string) => Promise<string | null>;
+  /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL
+   *  transcript via readActivitySignal). null = no parseable activity yet. */
+  readActivity?: (worktreePath: string, criticSessionId: string) => string | null;
 }
 
 interface RawVerdict {
@@ -160,6 +174,7 @@ export class ReviewService {
   }
   private readVerdict: (worktreePath: string) => RawVerdict | null;
   private computePatchId: (worktreePath: string, base: string) => Promise<string | null>;
+  private readActivity: (worktreePath: string, criticSessionId: string) => string | null;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -169,6 +184,7 @@ export class ReviewService {
     this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
+    this.readActivity = deps.readActivity ?? defaultReadActivity;
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. */
@@ -225,7 +241,11 @@ export class ReviewService {
       return;
     }
 
-    const argv = this.criticArgv(session, prior?.findings ?? [], authorNotes);
+    const { argv, sessionId: criticSessionId } = this.criticArgv(
+      session,
+      prior?.findings ?? [],
+      authorNotes,
+    );
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -247,6 +267,7 @@ export class ReviewService {
       repoPath: session.repoPath,
       worktreePath: wt.worktreePath,
       terminalId,
+      criticSessionId,
       startedAt: this.now(),
       priorRound: prior?.addressRound ?? 0,
       priorErrorRound: prior?.errorRound ?? 0,
@@ -313,7 +334,11 @@ export class ReviewService {
    *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
    *  (an unattended PTY would otherwise hang on a permission prompt); the allowlist is
    *  read-only inspection + read-only git + writing files in its own disposable worktree. */
-  private criticArgv(session: Session, priorFindings: string[], authorNotes: string[]): string[] {
+  private criticArgv(
+    session: Session,
+    priorFindings: string[],
+    authorNotes: string[],
+  ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part.
     return readonlyReviewerArgv(
@@ -360,7 +385,14 @@ export class ReviewService {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
       const raw = this.readVerdict(f.worktreePath);
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
-      if (!raw && !timedOut) continue;
+      if (!raw && !timedOut) {
+        // still running, no verdict yet — surface what the critic is doing right now.
+        // Emit every tick (not only on change) so a reloaded client repopulates within
+        // one tick; the client dedups identical summaries to stay quiet.
+        const summary = this.readActivity(f.worktreePath, f.criticSessionId);
+        if (summary) this.deps.onActivity?.(f.sessionId, summary);
+        continue;
+      }
       f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
       // Always drop the entry, even if finalize throws — otherwise it stays
       // `finalizing=true` and every later tick `continue`s past it, wedging the
@@ -611,6 +643,13 @@ async function defaultComputePatchId(worktreePath: string, base: string): Promis
   } catch {
     return null; // git missing / bad base / empty → don't skip
   }
+}
+
+/** Latest meaningful tool-use summary from the critic's JSONL transcript (its claude
+ *  session id forces a predictable path under the disposable worktree). null when the
+ *  transcript is missing or has no parseable activity yet. */
+function defaultReadActivity(worktreePath: string, criticSessionId: string): string | null {
+  return readActivitySignal(jsonlPathFor(worktreePath, criticSessionId))?.summary ?? null;
 }
 
 function defaultReadVerdict(worktreePath: string): RawVerdict | null {

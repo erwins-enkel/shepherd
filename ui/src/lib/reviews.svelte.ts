@@ -15,6 +15,9 @@ class ReviewsStore {
   map = $state<Record<string, ReviewVerdict>>({});
   // session ids with a critic run currently in flight; driven by `session:reviewing`
   reviewing = $state<Record<string, boolean>>({});
+  // latest tool-use summary of the in-flight critic, keyed by session id; driven by
+  // `session:critic-activity`. Surfaced in the badge tooltip; cleared when the run ends.
+  activity = $state<Record<string, string>>({});
 
   async load() {
     try {
@@ -48,7 +51,26 @@ class ReviewsStore {
       const copy = { ...this.reviewing };
       delete copy[id];
       this.reviewing = copy;
+      this.clearActivity(id); // run ended → its live activity is stale
     }
+  }
+
+  /** Record the in-flight critic's latest tool-use summary; ignores an unchanged value
+   *  so the server re-emitting the same line every tick causes no reactive churn. */
+  setActivity(id: string, summary: string) {
+    if (this.activity[id] === summary) return;
+    this.activity = { ...this.activity, [id]: summary };
+  }
+
+  private clearActivity(id: string) {
+    if (!(id in this.activity)) return;
+    const copy = { ...this.activity };
+    delete copy[id];
+    this.activity = copy;
+  }
+
+  activityFor(id: string): string | null {
+    return this.activity[id] ?? null;
   }
 
   isReviewing(id: string): boolean {

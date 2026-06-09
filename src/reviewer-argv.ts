@@ -8,11 +8,18 @@ import { randomUUID } from "node:crypto";
  *  inspection + read-only git + writing files in its own disposable worktree. The sandbox is also
  *  MCP-isolated via --safe-mode (no MCP servers load, so no "trust this server?" prompt can hang
  *  the unattended pane — dontAsk does not suppress that gate). */
-export function readonlyReviewerArgv(model: string | null, prompt: string): string[] {
+export function readonlyReviewerArgv(
+  model: string | null,
+  prompt: string,
+): { argv: string[]; sessionId: string } {
+  // The reviewer's claude session id, forced so the transcript lands at a path we can
+  // predict (jsonlPathFor(worktree, sessionId)) — that's how the critic's live tool-use
+  // gets surfaced in the UI badge tooltip. Returned to the caller alongside the argv.
+  const sessionId = randomUUID();
   const argv = [
     "claude",
     "--session-id",
-    randomUUID(),
+    sessionId,
     // Run the reviewer in a CLEAN context. It's a fresh `claude` startup, so it
     // would otherwise inherit the user's global hooks + plugins — notably the
     // superpowers SessionStart hook, which injects a forceful "you MUST invoke
@@ -65,5 +72,5 @@ export function readonlyReviewerArgv(model: string | null, prompt: string): stri
   // with no task, and hangs until timeout (every review). Don't reorder.
   argv.push("--permission-mode", "dontAsk");
   argv.push(prompt);
-  return argv;
+  return { argv, sessionId };
 }

@@ -696,7 +696,7 @@
   "feat_backlog_repo_filter_title": "Repo-Liste filtern",
   "feat_backlog_repo_filter_body": "Grenze die Repo-Liste des Backlogs mit den neuen Umschalt-Chips auf Repos mit offenen Issues und/oder offenen PRs ein.",
   "feat_newtask_repo_first_title": "Repo steht jetzt oben im Neue-Aufgabe-Formular",
-  "feat_newtask_repo_first_body": "Das Repository, in dem die Aufgabe startet, steht jetzt oben im Neue-Aufgabe-Formular und wird auf dem „Erstellen & Starten”-Button genannt – so startest du nie versehentlich im falschen Repo.",
+  "feat_newtask_repo_first_body": "Das Repository, in dem die Aufgabe startet, steht jetzt oben im Neue-Aufgabe-Formular und wird auf dem „Erstellen & Starten“-Button genannt – so startest du nie versehentlich im falschen Repo.",
   "prspanel_select_pr": "PR #{number} auswählen",
   "prspanel_select_all": "Alle auswählen",
   "prspanel_clear_all": "Auswahl aufheben",

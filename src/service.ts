@@ -32,6 +32,10 @@ export interface ServiceDeps {
   moveUploads?: (images: string[], worktreePath: string) => string[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap">;
+  /** Fast-poll one session's PR (= prPoller.pollSession), to nudge merge detection
+   *  when a merge train archives before the 120s sweep surfaces its members' merges.
+   *  Fire-and-forget, debounced, no-ops on archived sessions. Absent → no nudge. */
+  refreshPr?: (id: string) => void;
 }
 
 /**
@@ -286,6 +290,30 @@ function agentBaseUrl(): string {
 
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
+
+  /**
+   * Merge-train completion tracker (issue #426). A train that lands ≥1 of its
+   * queue PRs should offer a local-checkout fast-forward once, per repo. We track
+   * each launched train so we can emit `mergetrain:landed` exactly when the run
+   * COMPLETES (the train session archives) — not on the first member merge.
+   *
+   * `memberToTrain` is the crux of race-safety: a member's merge-credit is looked
+   * up by THIS map, never by the session's `mergingTrainId` field, because
+   * `clearMergingForTrain` nulls that field at train archive — so a member that
+   * merges AFTER the train archived (the poller-gated race) would otherwise be
+   * unmappable to its train and its credit lost.
+   */
+  #trainOffers = new Map<
+    string,
+    {
+      repoPath: string;
+      merged: boolean;
+      archived: boolean;
+      createdAt: number;
+      members: Set<string>;
+    }
+  >();
+  #memberToTrain = new Map<string, string>();
 
   /**
    * Build the human-turn prompt: the user's text plus any attached images and the
@@ -788,10 +816,28 @@ export class SessionService {
    */
   setMerging(ids: string[], trainId: string): void {
     const since = Date.now();
+    const members = new Set<string>();
+    let repoPath: string | null = null;
     for (const id of ids) {
-      if (!this.deps.store.get(id)) continue;
+      const s = this.deps.store.get(id);
+      if (!s) continue;
       this.deps.store.update(id, { mergingSince: since, mergingTrainId: trainId });
       this.deps.events?.emit("session:merging", { id, since, trainId });
+      // Register the resolvable member for the completion tracker. repoPath is read
+      // off the FIRST resolvable member (never a skipped id) — the train is per-repo.
+      members.add(id);
+      this.#memberToTrain.set(id, trainId);
+      if (repoPath === null) repoPath = s.repoPath;
+    }
+    // No resolvable member → create no entry (so repoPath is never read off a skip).
+    if (repoPath !== null) {
+      this.#trainOffers.set(trainId, {
+        repoPath,
+        merged: false,
+        archived: false,
+        createdAt: since,
+        members,
+      });
     }
   }
 
@@ -803,11 +849,61 @@ export class SessionService {
     this.deps.events?.emit("session:merging", { id, since: null, trainId: null });
   }
 
-  /** Clear every session marked by a given train (its session was archived). */
+  /**
+   * A queue member's PR resolved (`session:git` merged/closed). Replaces the bare
+   * per-member `clearMerging` call: clears the UI mark exactly as before, then
+   * credits the completion tracker. Credit is keyed by `#memberToTrain` (NOT the
+   * session's `mergingTrainId`, which archive may already have nulled).
+   *
+   * A merge only counts toward the offer when the session is `isolated` — a
+   * non-isolated session works in the canonical clone, so its fast-forward would
+   * always report `wrong_branch` (mirrors the parent feature's guard). We read
+   * `isolated`/`trainId` before clearing, since the mark must be cleared either way.
+   * Emits only via the LATE-CREDIT path: if the train already archived awaiting a
+   * merge, this credit completes it. A credit while the train is still live never
+   * emits — the offer fires on run completion, not first merge.
+   */
+  resolveMerging(id: string, didMerge: boolean): void {
+    const isolated = this.deps.store.get(id)?.isolated ?? false;
+    this.clearMerging(id);
+    const trainId = this.#memberToTrain.get(id);
+    if (trainId === undefined) return; // untracked → behaves exactly like the old clearMerging
+    const entry = this.#trainOffers.get(trainId);
+    this.#memberToTrain.delete(id);
+    if (!entry) return;
+    entry.members.delete(id);
+    entry.merged ||= didMerge && isolated;
+    if (entry.archived && entry.merged) this.#finalizeTrain(trainId, entry.repoPath);
+  }
+
+  /**
+   * The train session was archived (run complete). Clear any of its members still
+   * marked (unchanged), then drive the offer. If a merge was already credited →
+   * emit + finalize now. Else DEFER: mark the entry archived and fast-poll each
+   * still-tracked member via `refreshPr` so a poller-gated merge surfaces within
+   * seconds and routes through `resolveMerging` → late-credit emit. A never-merging
+   * deferred entry is reclaimed by `sweepStaleMerging` with no emit.
+   */
   clearMergingForTrain(trainId: string): void {
     for (const s of this.deps.store.list({ activeOnly: true })) {
       if (s.mergingTrainId === trainId) this.clearMerging(s.id);
     }
+    const entry = this.#trainOffers.get(trainId);
+    if (!entry) return; // untracked train → no-op (unchanged behaviour)
+    entry.archived = true;
+    if (entry.merged) {
+      this.#finalizeTrain(trainId, entry.repoPath);
+      return;
+    }
+    for (const id of entry.members) this.deps.refreshPr?.(id);
+  }
+
+  /** Emit `mergetrain:landed` once (caller has decided merged) and drop all tracker state. */
+  #finalizeTrain(trainId: string, repoPath: string): void {
+    this.deps.events?.emit("mergetrain:landed", { repoPath });
+    const entry = this.#trainOffers.get(trainId);
+    if (entry) for (const id of entry.members) this.#memberToTrain.delete(id);
+    this.#trainOffers.delete(trainId);
   }
 
   /** Backstop: clear marks older than MERGE_STALE_MS. `now` injectable for tests. */
@@ -815,6 +911,14 @@ export class SessionService {
     for (const s of this.deps.store.list({ activeOnly: true })) {
       if (s.mergingSince !== null && now - s.mergingSince > MERGE_STALE_MS) {
         this.clearMerging(s.id);
+      }
+    }
+    // Evict stale completion-tracker entries directly (NOT via activeOnly, which
+    // excludes archived trains). No emit on TTL eviction — fail-safe no-offer.
+    for (const [trainId, entry] of this.#trainOffers) {
+      if (now - entry.createdAt > MERGE_STALE_MS) {
+        for (const id of entry.members) this.#memberToTrain.delete(id);
+        this.#trainOffers.delete(trainId);
       }
     }
   }

@@ -81,6 +81,8 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     autoDrainEnabled: false,
     autoMergeEnabled: false,
     buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,

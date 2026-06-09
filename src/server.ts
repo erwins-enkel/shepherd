@@ -302,6 +302,15 @@ function parseUsageCeiling(v: unknown): number | { error: string } {
   return Math.floor(Math.min(100, Math.max(0, v)));
 }
 
+// signoffAuthority: one of the three valid enum values
+const SIGNOFF_AUTHORITY_VALUES = ["human", "critic", "either"] as const;
+function parseSignoffAuthority(v: unknown): "human" | "critic" | "either" | { error: string } {
+  if (!SIGNOFF_AUTHORITY_VALUES.includes(v as (typeof SIGNOFF_AUTHORITY_VALUES)[number])) {
+    return { error: `signoffAuthority must be one of: ${SIGNOFF_AUTHORITY_VALUES.join(", ")}` };
+  }
+  return v as "human" | "critic" | "either";
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -312,6 +321,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoDrainEnabled",
   "autoMergeEnabled",
   "buildQueueEnabled",
+  "draftMode",
 ] as const;
 
 type RepoCfgBody = {
@@ -323,6 +333,8 @@ type RepoCfgBody = {
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
+  draftMode?: unknown;
+  signoffAuthority?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -348,6 +360,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
       buildQueueEnabled?: boolean;
+      draftMode?: boolean;
+      signoffAuthority?: "human" | "critic" | "either";
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -359,7 +373,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode) must be booleans",
       },
       400,
     );
@@ -382,16 +396,23 @@ async function parseRepoConfigPatch(req: Request): Promise<
     if (typeof r !== "number") return json(r, 400);
     usageCeilingPct = r;
   }
+  let signoffAuthority: "human" | "critic" | "either" | undefined;
+  if (body.signoffAuthority !== undefined) {
+    const r = parseSignoffAuthority(body.signoffAuthority);
+    if (typeof r !== "string") return json(r, 400);
+    signoffAuthority = r;
+  }
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||
     autoLabel !== undefined ||
-    usageCeilingPct !== undefined;
+    usageCeilingPct !== undefined ||
+    signoffAuthority !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -405,6 +426,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
+    draftMode: body.draftMode as boolean | undefined,
+    signoffAuthority,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -425,6 +448,8 @@ function mergeRepoConfig(
     autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
     autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
     buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
+    draftMode: patch.draftMode ?? cur.draftMode,
+    signoffAuthority: patch.signoffAuthority ?? cur.signoffAuthority,
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
@@ -440,7 +465,11 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
-  deps.store.setRepoConfig(dir, mergeRepoConfig(deps.store.getRepoConfig(dir), patch));
+  const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), patch);
+  if (merged.draftMode && merged.autoMergeEnabled) {
+    return json({ error: "draftMode and autoMergeEnabled are mutually exclusive" }, 400);
+  }
+  deps.store.setRepoConfig(dir, merged);
   return json(deps.store.getRepoConfig(dir));
 }
 

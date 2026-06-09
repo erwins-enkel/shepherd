@@ -5,9 +5,13 @@
 # CPU + memory so production shepherd.service keeps headroom on the same box.
 #
 # Sizing (tune for the host): with default per-replica caps of 4 CPUs / 8G and
-# two replicas, the worst case is ~800% CPU / 16G. We deliberately cap BELOW
-# that aggregate so the two runners can't simultaneously max out and starve
-# prod — 600% CPU and 16G total leave room for shepherd + the OS.
+# two replicas, the worst case is ~800% CPU / 16G.
+#   - CPUQuota=600% is deliberately BELOW the 800% aggregate, so the two runners
+#     can't pin every core and starve prod.
+#   - MemoryMax=16G equals the aggregate (2x8G): a hard host ceiling that stops the
+#     runners overcommitting past their combined caps, but it does NOT by itself
+#     reserve memory headroom for prod. On a RAM-constrained box, LOWER this
+#     (e.g. 12G) to carve out an explicit reserve for shepherd + the OS.
 [Slice]
 CPUQuota=600%
 MemoryMax=16G

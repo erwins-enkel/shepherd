@@ -63,6 +63,16 @@ Rootless Docker maps container-root to your unprivileged host user, shrinking th
 radius of untrusted root-in-container code (see Security model). Install/enable it per
 the [rootless docs](https://docs.docker.com/engine/security/rootless/).
 
+**Make the rootless socket resolvable under systemd user units.** The units set
+`XDG_RUNTIME_DIR=%t` but do **not** set `DOCKER_HOST`, so the `docker` CLI must already
+default to the rootless socket — otherwise it talks to the rootful `/var/run/docker.sock`
+(or fails), silently defeating the rootless recommendation. Persist one of:
+
+- `docker context use rootless` — writes `~/.docker`, which the units read because they
+  set `HOME=%h`. Recommended (one-time, nothing per-unit). Confirm with `docker context show`.
+- or add `DOCKER_HOST=unix://${XDG_RUNTIME_DIR}/docker.sock` to your `.env` — the unit
+  loads it via `EnvironmentFile`, so `run-runner.sh`'s `docker` inherits it.
+
 **Verify the resource caps actually enforce.** `--cpus`/`--memory` are no-ops unless the
 kernel cgroup controllers are delegated. Confirm a memory cap really lands:
 

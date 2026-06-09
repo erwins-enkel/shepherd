@@ -622,7 +622,6 @@
   "actionspanel_history_empty": "no older runs",
   "actionspanel_history_failed": "failed to load — retry",
   "backlog_pinned_label": "Pinned",
-  "backlog_open_since_days": "{days} d",
   "prspanel_title": "PULL REQUESTS",
   "prspanel_title_with_slug": "PULL REQUESTS · {slug}",
   "prspanel_no_open": "no open PRs",

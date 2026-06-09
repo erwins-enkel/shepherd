@@ -450,6 +450,46 @@
       ?.scrollIntoView({ block: "nearest" });
   }
 
+  // Herd keyboard navigation (the rail-selection half of onShortcut):
+  // j/k (vim) + arrows cycle selection through the rail's visible order
+  // (wrapping at the ends; preventDefault keeps arrows from also scrolling),
+  // g jumps to the next session that needs you (cycling among blocked ones,
+  // silently a no-op when nothing is blocked), 1-9 select the Nth visible
+  // session in rail order. Returns true when the key belonged to keynav.
+  function handleHerdKeyNav(key: string, e: KeyboardEvent): boolean {
+    switch (key) {
+      case "j":
+      case "arrowdown":
+        e.preventDefault();
+        keyNavSelect(cycleId(railIds(), selectedId, 1));
+        return true;
+      case "k":
+      case "arrowup":
+        e.preventDefault();
+        keyNavSelect(cycleId(railIds(), selectedId, -1));
+        return true;
+      case "g":
+        e.preventDefault();
+        keyNavSelect(
+          nextNeedsYou(
+            blockedEntries.map((entry) => entry.session.id),
+            selectedId,
+          ),
+        );
+        return true;
+      default:
+        if (key >= "1" && key <= "9") {
+          const id = nthId(railIds(), Number(key));
+          if (id) {
+            e.preventDefault();
+            keyNavSelect(id);
+          }
+          return true;
+        }
+        return false;
+    }
+  }
+
   // Global single-key shortcuts (no modifier → zero browser/terminal conflict,
   // works on every platform). Desktop only, and suppressed while typing or while
   // any modal/overlay is open so a stray "n"/"b" can't stack dialogs.
@@ -481,38 +521,8 @@
           showBacklog = true;
         }
         break;
-      // j/k (vim) + arrows cycle selection through the rail's visible order,
-      // wrapping at the ends. preventDefault keeps arrows from also scrolling.
-      case "j":
-      case "arrowdown":
-        e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, 1));
-        break;
-      case "k":
-      case "arrowup":
-        e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, -1));
-        break;
-      // g jumps to the next session that needs you (cycling among blocked ones);
-      // silently a no-op when nothing is blocked.
-      case "g":
-        e.preventDefault();
-        keyNavSelect(
-          nextNeedsYou(
-            blockedEntries.map((entry) => entry.session.id),
-            selectedId,
-          ),
-        );
-        break;
       default:
-        // 1-9 select the Nth visible session in rail order
-        if (key >= "1" && key <= "9") {
-          const id = nthId(railIds(), Number(key));
-          if (id) {
-            e.preventDefault();
-            keyNavSelect(id);
-          }
-        }
+        handleHerdKeyNav(key, e);
     }
   }
 

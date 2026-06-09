@@ -203,6 +203,8 @@
   .coach-text {
     flex: 1 1 auto;
     min-width: 0;
+    /* full instructional sentence, not chrome — body size, not the 11px label rung */
+    font-size: var(--fs-base);
   }
   .coach-dismiss {
     flex: 0 0 auto;

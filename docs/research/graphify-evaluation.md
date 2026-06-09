@@ -92,3 +92,17 @@ For Shepherd's AST-only, spawn-in-worktree model the measured benefit (median ~1
 3. We're willing to spend on the **semantic pass** (the published 71–79× numbers are multi-modal and depend on it; AST-only on a mostly-TS repo does not reproduce them).
 
 No follow-up implementation issue is filed (verdict is park). Evidence is reproducible from this note alone: the frozen method/question-set/thresholds are in **Pre-registration** above, and the build is `uv tool install graphifyy` → `graphify extract . --no-cluster --exclude '*.md' '*.yaml' '*.svg' …` (exclude non-code) → the `query`/`path`/`explain` invocations per question.
+
+## Follow-up — would preloading the graph cut mean time-to-planning / -implementation?
+
+**Question (2026-06-09):** instead of querying on demand, _preload_ an AST-graph "understanding" so a task agent skips its own exploration phase before planning/implementing — does that reduce mean time-to-plan or -implement?
+
+**Answer: no material reduction for the general task agent; the win is confined to read-only structural-comprehension work (already re-visit condition #1).** This reframes the spike along two axes it didn't separate — _preload_ vs _query-on-demand_, and _wall-clock time_ vs _tokens_ — but the existing evidence settles it:
+
+1. **The cheap graph can't be preloaded.** `graph.json` is 5.5 MB (~1.4M tokens) — past any context budget. "Have a graph to understand the repo" therefore collapses to either inject a _summary_ or query on demand; the latter is the measured median **1.15×** (PARK).
+2. **The injectable summary is structural, not semantic.** AST-only (our no-key constraint) + `--no-cluster` yields import/call/contains topology, not "what each module does." The comprehension an agent needs before planning is the semantic layer the cheap graph omits (it needs the LLM pass — re-visit #3).
+3. **It's the _locate_ that's cheap, not the _read_.** Exploration is task-scoped (~5–10 files), and those must be read to edit regardless — exactly why the edit-flow questions (Q-E1/Q-E2, the typical task shape) collapsed to ~1.1–1.2×. Preloading topology shaves grep round-trips off the front, not the reading that dominates time-to-implement.
+4. **Staleness is worst for the code under edit.** A preloaded map reflects the last commit while the agent edits continuously, so it is stalest for precisely the files being changed — misleading during planning (the `pump→pumpRenamed` demo).
+5. **Fuzzy resolution can poison a plan.** Without exact node ids a cold agent gets authoritative-looking wrong answers (the confidently-wrong "drain" path); a wrong premise baked into a plan costs more re-planning time than the exploration it saved.
+
+**Where it _would_ pay off:** a dedicated **read-only** structural/impact agent (architecture mapping, impact analysis) or a **plan-gate scoping check** ("does this plan touch the right consumers?") — there the 10–60× who-calls/what-path wins compound and staleness/edit-collision don't apply. That is re-visit condition #1, not the general plan/implement loop. The experiment that would settle _that_ case is measuring **plan-gate scoping accuracy** (a quality/time axis) with vs without a graph-derived consumer map — distinct from this spike's token measurement. Verdict unchanged: **PARK**.

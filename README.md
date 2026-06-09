@@ -20,6 +20,50 @@ live pane). Auth is the operator's own login; no token relay, no impersonation, 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
 
+## Sharing a repo's queue across people
+
+Several people can drive the **same repo's** auto-drain queue together — each on their **own**
+Claude subscription. This is the multi-person form of the ToS model above: not one shared account,
+but **N independent single-operator instances**. Each person runs their own Shepherd against their
+own `~/.claude` login; no token relay, no impersonation. The shared GitHub/Gitea repo is the only
+thing in common.
+
+**How the work splits (it is _not_ a capacity-weighted load balancer).** Each instance drains
+**greedily** up to its own `maxAuto` and its own `usageCeilingPct`, and claims issues **first-come
+by polling timing** — whoever's drain pumps first stamps the `shepherd:active` label first and gets
+the issue. Below the ceiling, issues split by _when each instance happens to poll_, not by who has
+more headroom. The `usageCeilingPct` is a **hard per-operator STOP**, not a balancer: when an
+instance reaches its ceiling it simply stops spawning and leaves the rest of the queue to the others.
+
+So the "Patrick is at 80%, Kai isn't" hand-off works like this: Patrick sets his `usageCeilingPct`
+so **his** instance stops (or flips auto-drain off) — and from then on only **Kai's** instance pulls
+the labeled issues, up to **Kai's** own ceiling. Nobody "lends" capacity; the work just keeps flowing
+on the instance that's still draining. "Only if you have the time/limit" is exactly the auto-drain
+toggle plus the ceiling.
+
+**Setup, per person:**
+
+1. Run your own Shepherd instance, logged into your **own** `~/.claude`.
+2. **Separate `~/.claude` logins are required for per-person usage isolation.** Shepherd scrapes
+   usage **locally from `~/.claude`** (`src/usage.ts`), so two instances sharing one `~/.claude` see
+   the **same** usage and their ceilings move in lockstep — the "Patrick stops, Kai keeps going"
+   hand-off then does **not** work. In practice this means a **separate machine or a separate home /
+   `HOME` directory per person**, each with its own `claude` login.
+3. Register the **same** repo and turn **auto-drain on** for it.
+4. Use the **same** `autoLabel` (default `shepherd:auto`) so everyone's drain selects the same
+   backlog, and point at the shared git-host repo (see [Git host integration](#git-host-integration)).
+5. Set your **own** `usageCeilingPct` to taste — that's your personal "only while I have limit" stop.
+6. Set `maxAuto` to your own capacity.
+
+**Behavior & guarantees:** "I'm done for the day" = flip auto-drain off (or shut the machine down) →
+your instance pulls nothing. The shared `shepherd:active` label keeps two instances off the same
+issue: an issue another instance has claimed is filtered out of everyone else's candidate set.
+
+**Known edge:** in the rare case where two instances grab the **exact same** issue in the same
+instant — before either claim is visible to the other — both can spawn against it (two PRs; a human
+closes one). A pre-spawn re-check narrows this window to the truly-simultaneous case; it is not yet
+eliminated.
+
 ## Your `/commands` come with you
 
 Because Shepherd attaches to a **genuine interactive `claude` session** running against your own

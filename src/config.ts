@@ -247,6 +247,18 @@ export const config = {
   previewPortCount: Number(process.env.SHEPHERD_PREVIEW_PORT_COUNT ?? 16),
   // Throttle cadence for the preview sweep (ms); mitigates /proc scan cost.
   previewSweepMs: Number(process.env.SHEPHERD_PREVIEW_SWEEP_MS ?? 4000),
+  // The agent node's own tailnet hostname (e.g. "mynode.ts.net"), resolved ONCE
+  // at startup and stored here. When the HUD is fronted on a different host/identity
+  // than the agent node (e.g. a Tailscale Service), the preview URL must target THIS
+  // node's host — not the operator's connection host — to remain reachable from the
+  // tailnet. Null when tailscale is absent or the hostname cannot be resolved.
+  previewHost: null as string | null,
+  // Opt-in (default OFF): when true AND tailscale is present, shepherd runs
+  // `tailscale serve --bg --https=<port>` for every slot in the preview range at
+  // startup so ephemeral slots are tailnet-reachable without manual setup.
+  // With this off, the operator must manually `tailscale serve` each slot (see README).
+  // Requires tailnet HTTPS certificates to be enabled for the node.
+  previewAutoServe: process.env.SHEPHERD_PREVIEW_AUTO_SERVE === "1",
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

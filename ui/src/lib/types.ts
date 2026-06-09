@@ -48,6 +48,10 @@ export interface Settings {
   sessionRetentionDays: number;
   /** Display-only: newest archived sessions kept regardless of age. */
   sessionRetentionKeep: number;
+  /** The agent node's own tailnet hostname; the UI builds preview iframe URLs from it
+   *  when the HUD is fronted on a different host than the node. Null when tailscale is
+   *  absent → fall back to the operator's own connection host. */
+  previewHost: string | null;
 }
 
 export interface DirEntry {

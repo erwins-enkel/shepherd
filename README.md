@@ -237,8 +237,29 @@ certificates enabled):
 for p in $(seq 8001 8016); do tailscale serve --bg --https=$p 127.0.0.1:$p; done
 ```
 
+**Automated alternative:** set `SHEPHERD_PREVIEW_AUTO_SERVE=1` and Shepherd runs that same
+`tailscale serve --bg --https=<port> 127.0.0.1:<port>` loop over the configured slot range at
+startup. The same prerequisite applies — tailnet HTTPS certificates must be provisioned, or the
+loop fails. Without this flag (the default) the operator must run the manual loop above; the
+iframe URL fix alone makes the preview target the correct host but does **not** make the slot
+ports tailnet-reachable.
+
 > **Funnel vs Serve:** the 443/8443/10000 port restriction applies to **Funnel** only. `tailscale serve`
 > (tailnet-internal) accepts arbitrary HTTPS ports — the snippet above uses that.
+> **Never add the preview slot range (8001–8016) to a Tailscale Service's advertised port list.**
+> A Service requires every member host to advertise all listed ports; ephemeral preview ports
+> would silently drop the node from rotation and take the HUD down.
+
+**Split-front / `previewHost`:** the preview iframe URL is built from the **agent node's own
+tailnet hostname** (server-reported `previewHost`), not the operator's connection host. This means
+the preview works when the HUD is fronted under a different Tailscale identity than the agent node
+— e.g. a Tailscale Service `svc:shepherd` at `:443` while agents run on `backontop`. The slot is
+served at the node, so the iframe correctly targets `https://backontop.<tailnet>.ts.net:<port>`
+rather than the Service address. On localhost dev and single-host tailnets behavior is unchanged.
+
+**Scope / precondition:** the operator's browser must be on the tailnet, and tailnet ACLs must
+permit operator→agent-node traffic on the slot ports. This does **not** help a Funnel /
+public-fronted HUD — the agent node's MagicDNS hostname is unresolvable off-tailnet.
 
 **Startup validation:** Shepherd hard-fails at startup if the configured preview range overlaps the
 HUD's local listen port (`SHEPHERD_PORT`, default 7330) or its public served port (443). Choose a

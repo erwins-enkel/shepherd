@@ -862,6 +862,291 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
   expect(activities).toHaveLength(0);
 });
 
+// ── interim terminal-diff path (transcript stopped live-writing) ───────────────
+
+import { STRIP_WINDOW_MS } from "../src/activity-signal";
+
+/** A running agent whose transcript probe yields NOTHING (the CC 2.1.169 case):
+ *  both snapshot and activity are null, so the poller falls back to the
+ *  terminal-diff interim path. `read("visible")` returns whatever `visible` holds. */
+function interimHarness(opts: {
+  store: SessionStore;
+  visible: () => string;
+  now: () => number;
+  stallCfg?: { stallMs: number; pendingStallMs: number };
+  onBlock?: (id: string, block: unknown) => void;
+  onActivity?: (id: string, activity: unknown) => void;
+}) {
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => opts.visible(),
+  };
+  return new StatusPoller(
+    opts.store,
+    herdr as any,
+    () => {},
+    (id, block) => opts.onBlock?.(id, block),
+    1000,
+    3000,
+    classifyBlocked,
+    opts.now,
+    () => ({ snapshot: null, activity: null }), // empty transcript → interim path
+    opts.stallCfg ?? { stallMs: 1, pendingStallMs: 1 },
+    7000, // probeCheckMs
+    () => {},
+    (id, activity) => opts.onActivity?.(id, activity),
+  );
+}
+
+test("interim: empty transcript + changing terminal accrues heartbeat ticks, never stalls", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  const blocks: unknown[] = [];
+
+  let clock = 1_700_000_000_000;
+  let frame = 0;
+  const poller = interimHarness({
+    store,
+    visible: () => `Computing… (${frame}s)`,
+    now: () => clock,
+    onActivity: (id, activity) => activities.push({ id, activity }),
+    onBlock: (_id, block) => blocks.push(block),
+  });
+
+  // first probe: captures baseline, no change to diff against yet → no tick, no emit
+  poller.tick();
+  expect(activities).toHaveLength(0);
+
+  // subsequent probes: terminal changes each cadence → a tick accrues each time
+  for (let i = 0; i < 3; i++) {
+    frame += 7;
+    clock += 7000;
+    poller.tick();
+  }
+  expect(blocks).toHaveLength(0); // moving terminal never stalls
+  expect(activities.length).toBeGreaterThan(0);
+  const last = activities[activities.length - 1]!.activity;
+  expect(last.recentTs.length).toBeGreaterThan(0);
+  expect(last.summary).toBeNull();
+  expect(last.recentErrTs).toEqual([]);
+  expect(last.lastActivityTs).toBe(last.recentTs[last.recentTs.length - 1]);
+  expect(last.id ?? s.id).toBe(s.id);
+});
+
+test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const activities: any[] = [];
+
+  let clock = 1_700_000_000_000;
+  let frame = 0;
+  const poller = interimHarness({
+    store,
+    visible: () => `frame ${frame}`,
+    now: () => clock,
+    onActivity: (_id, activity) => activities.push(activity),
+  });
+
+  poller.tick(); // baseline
+  // accrue ticks well past the window so the oldest must be dropped
+  const totalSpan = STRIP_WINDOW_MS * 2;
+  let elapsed = 0;
+  while (elapsed < totalSpan) {
+    frame += 1;
+    clock += 7000;
+    elapsed += 7000;
+    poller.tick();
+  }
+  const last = activities[activities.length - 1]!;
+  for (const ts of last.recentTs) {
+    expect(ts).toBeGreaterThanOrEqual(clock - STRIP_WINDOW_MS);
+    expect(ts).toBeLessThanOrEqual(clock);
+  }
+});
+
+test("interim: static terminal for ≥ stallMs fires a stall once, then clears when it moves again", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: any }[] = [];
+
+  let clock = 1_700_000_000_000;
+  let visible = "frozen output";
+  const poller = interimHarness({
+    store,
+    visible: () => visible,
+    now: () => clock,
+    stallCfg: { stallMs: 10_000, pendingStallMs: 10_000 },
+    onBlock: (id, block) => blocks.push({ id, block }),
+  });
+
+  // first probe: baseline only — must NOT fire even though static
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+
+  // still static, but not yet past stallMs → no fire
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+
+  // past stallMs of no change → stall fires once
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("stall");
+  expect((blocks[0]!.block as any).tail).toEqual(["frozen output"]);
+
+  // still static past throttle → once per episode, no re-fire
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+
+  // terminal moves again → stall clears
+  visible = "moving now";
+  clock += 7000;
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  expect(blocks[1]).toEqual({ id: s.id, block: null });
+});
+
+test("interim: first static sample defers — does not fire immediately", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: unknown[] = [];
+
+  const clock = 1_700_000_000_000;
+  const poller = interimHarness({
+    store,
+    visible: () => "static",
+    now: () => clock,
+    stallCfg: { stallMs: 1, pendingStallMs: 1 }, // even with a 1ms window…
+    onBlock: (_id, block) => blocks.push(block),
+  });
+
+  // …the very first sample has no baseline to diff against → defer, no fire
+  poller.tick();
+  expect(blocks).toHaveLength(0);
+});
+
+test("interim: terminal read throwing is best-effort — no throw, no emit", () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: unknown[] = [];
+  const activities: unknown[] = [];
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => {
+      throw new Error("herdr down");
+    },
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (_id, block) => blocks.push(block),
+    1000,
+    3000,
+    classifyBlocked,
+    () => 1_700_000_000_000,
+    () => ({ snapshot: null, activity: null }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (_id, activity) => activities.push(activity),
+  );
+
+  expect(() => poller.tick()).not.toThrow();
+  expect(blocks).toHaveLength(0);
+  expect(activities).toHaveLength(0);
+});
+
+test("interim path is NOT used when the transcript probe returns a non-null signal", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  const blocks: unknown[] = [];
+  let visibleReads = 0;
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "working" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => {
+      visibleReads++; // a healthy (non-stalled) transcript signal must not read the terminal
+      return "irrelevant";
+    },
+  };
+
+  let clock = 1_700_000_000_000;
+  const transcriptSignal = {
+    lastActivityTs: 1234,
+    summary: "edited poller.ts",
+    recentTs: [1234],
+    recentErrTs: [],
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (_id, block) => blocks.push(block),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    // transcript yields data → existing path, interim path stays dormant
+    () => ({ snapshot: { lastTs: clock, pending: false }, activity: transcriptSignal }),
+    { stallMs: 1, pendingStallMs: 1 },
+    7000,
+    () => {},
+    (id, activity) => activities.push({ id, activity }),
+  );
+
+  poller.tick();
+  clock += 7000;
+  poller.tick();
+
+  // the transcript-driven emit still happens (real summary, not interim's null)
+  expect(activities.length).toBeGreaterThan(0);
+  expect(activities[0]!.activity.summary).toBe("edited poller.ts");
+  expect(activities[0]!.id).toBe(s.id);
+  // a non-stalled transcript snapshot clears the block path without reading the
+  // terminal → the interim heartbeat/stall maps never get touched, no visible read
+  expect(visibleReads).toBe(0);
+  expect(blocks.every((b) => b === null || b === undefined)).toBe(true);
+});
+
 test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
   // A session that was only ever running (never blocked) populates lastProbeAt
   // and lastActivitySig but never lastSig — the old pruneInactive iterated only

@@ -124,7 +124,8 @@
   // band IS the toggle. Only narrows the herd list views — selection and global counts
   // stay whole.
   let repoFilter = $state<string | null>(null);
-  // Mirrors QueueStrip's own derived rows (same four inputs); kept here so +page can gate bandRepoPaths on band visibility without reaching into the child's state.
+  // Single source for the repo-status band: computed once here, passed to QueueStrip as
+  // `rows` and reused for bandRepoPaths so band visibility and filter scope can't drift.
   const bandRows = $derived(
     repoStatusRows(store.drain, learnings.items, learnings.injectable, runningRepoPaths),
   );
@@ -763,11 +764,8 @@
         onwhatsnew={() => (showWhatsNew = true)}
       />
       <QueueStrip
-        drain={store.drain}
+        rows={bandRows}
         autoMerge={store.autoMerge}
-        items={learnings.items}
-        injectable={learnings.injectable}
-        {runningRepoPaths}
         onlearnings={(repoPath) => {
           learningsRepo = repoPath;
           showLearnings = true;

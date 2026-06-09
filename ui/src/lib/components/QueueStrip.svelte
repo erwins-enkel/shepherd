@@ -1,11 +1,5 @@
 <script lang="ts">
-  import type {
-    AutoMergeStatus,
-    DrainStatus,
-    Learning,
-    QueuedItem,
-    RepoInjectable,
-  } from "$lib/types";
+  import type { AutoMergeStatus, DrainStatus, QueuedItem } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { getDrainQueue } from "$lib/api";
   import { basename } from "./learnings-drawer";
@@ -16,33 +10,25 @@
     mergeTrainLabel,
     pausedText,
     queueOpenable,
-    repoStatusRows,
   } from "./queue-strip";
+  import type { RepoStatusRow } from "./queue-strip";
 
   let {
-    drain,
+    // precomputed repo-status rows (single source lives in +page); the band lists these.
+    rows = [],
     autoMerge = {},
-    items = [],
-    injectable = [],
-    runningRepoPaths = new Set(),
     onlearnings,
     repoFilter = null,
     onrepofilter,
   }: {
-    drain: Record<string, DrainStatus>;
+    rows?: RepoStatusRow[];
     autoMerge?: Record<string, AutoMergeStatus>;
-    items?: Learning[];
-    injectable?: RepoInjectable[];
-    // repo paths that currently have a running agent — the band lists only these.
-    runningRepoPaths?: Set<string>;
     onlearnings?: (repoPath: string) => void;
     // active herd repo filter (full repo path), or null when showing all repos
     repoFilter?: string | null;
     // toggle the herd filter for a repo; null clears it. Absent → repo names are inert.
     onrepofilter?: (repoPath: string | null) => void;
   } = $props();
-
-  const rows = $derived(repoStatusRows(drain, items, injectable, runningRepoPaths));
   const mergeRows = $derived(activeMergeTrain(autoMerge));
   // Only render when the band carries value (info row, or ≥2 repos so the herd
   // filter is useful); a single bare name-only row is suppressed.

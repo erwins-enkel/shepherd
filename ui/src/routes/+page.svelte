@@ -1072,11 +1072,12 @@
   .shell.mobile.list {
     height: auto;
     min-height: 100dvh;
-    /* the pinned chrome/ActionBar own the top/bottom safe-area insets (see below),
-       so drop the shell's own top+bottom padding — otherwise a stuck header would
-       inset twice (notch + shell), and a blank gap would sit below the pinned bar */
+    /* the pinned chrome owns the top safe-area inset (see below), so drop the
+       shell's own top padding — otherwise a stuck header would inset twice
+       (notch + shell). The bottom reserves room for the fixed ActionBar (~56px
+       bar + its own safe-area inset) so the last list row never hides behind it. */
     padding-top: 0;
-    padding-bottom: 0;
+    padding-bottom: calc(56px + max(10px, env(safe-area-inset-bottom)));
   }
   .shell.mobile.list .chrome {
     position: sticky;

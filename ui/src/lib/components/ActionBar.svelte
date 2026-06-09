@@ -229,15 +229,21 @@
     background: var(--color-inset);
     border-color: var(--color-amber);
   }
-  /* Mobile list document-scrolls: the herd/backlog above flex-fills the viewport
-     when the list is short, keeping the bar at the bottom; position:sticky pins
-     the bar to the viewport bottom while scrolling a long list. padding-bottom
-     clears the gesture-nav safe-area inset. */
+  /* Mobile list document-scrolls. position:fixed pins the bar to the viewport
+     bottom unconditionally — sticky failed here because its containing block
+     (.main-region) doesn't span the full overflowing herd height, so the bar
+     came unstuck and scrolled away on long lists. The list reserves matching
+     padding-bottom (see .shell.mobile.list) so no row hides behind the bar.
+     Side + bottom insets clear the gesture-nav / landscape-notch safe areas. */
   .actions.mobile {
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
     z-index: 5;
     padding: 10px;
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   .actions.mobile .btn.primary {

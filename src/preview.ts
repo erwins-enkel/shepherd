@@ -289,9 +289,13 @@ export class PreviewService {
       const protocols = parseSubprotocols(req.headers.get("sec-websocket-protocol"));
       const upgraded = server.upgrade(req, {
         data: { devPort, path: url.pathname + url.search, protocols },
-        // Echo the client's first requested subprotocol so subprotocol-sensitive
-        // clients (Vite HMR) are satisfied by the upgrade response.
-        headers: protocols[0] ? { "Sec-WebSocket-Protocol": protocols[0] } : undefined,
+        // Deliberately echo NO subprotocol here. Bun commits this 101 synchronously,
+        // BEFORE the relay's `open` handler opens the upstream socket and learns which
+        // subprotocol it actually negotiated — so echoing the client's first offer could
+        // claim one the upstream never selected. Selecting none is spec-valid (RFC 6455
+        // §4.1 — the client connection still succeeds) and never mismatches; the upstream
+        // still negotiates the client's offered `protocols` on the relay's own socket,
+        // and frames relay verbatim regardless of the label.
       });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 426 });
@@ -348,11 +352,36 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
   const respHeaders = new Headers(upstream.headers);
   for (const h of STRIPPED_RESPONSE_HEADERS) respHeaders.delete(h);
   stripFramingHeaders(respHeaders);
+  rewriteLoopbackLocation(respHeaders, devPort);
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: respHeaders,
   });
+}
+
+/**
+ * Rewrite an upstream redirect whose `Location` points back at the loopback dev server
+ * (`http://127.0.0.1:<devPort>/…` or `localhost:<devPort>`) to a PATH-RELATIVE form, so
+ * the browser resolves it against the preview origin (`host.ts.net:<previewPort>`) rather
+ * than following an unreachable loopback URL. The redirect: "manual" proxy passes Location
+ * through verbatim, so a dev server's own absolute self-redirect (trailing-slash, base
+ * path, post-login) would otherwise strand the browser. Already-relative Locations and
+ * genuinely cross-origin redirects (OAuth providers, CDNs) are left untouched.
+ */
+export function rewriteLoopbackLocation(headers: Headers, devPort: number): void {
+  const loc = headers.get("location");
+  if (loc === null) return;
+  let u: URL;
+  try {
+    u = new URL(loc);
+  } catch {
+    return; // relative Location — already resolves against the preview origin
+  }
+  const isLoopbackHost = u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  if (isLoopbackHost && u.port === String(devPort)) {
+    headers.set("location", u.pathname + u.search + u.hash);
+  }
 }
 
 /** Delete `X-Frame-Options`; remove only the `frame-ancestors` directive from CSP. */

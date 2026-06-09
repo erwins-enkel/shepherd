@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { pickPrimaryPort, sanitizeCloseCode } from "../src/preview";
+import { pickPrimaryPort, sanitizeCloseCode, rewriteLoopbackLocation } from "../src/preview";
 import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
 
 // ── pickPrimaryPort ───────────────────────────────────────────────────────────
@@ -112,6 +112,45 @@ test("sanitizeCloseCode: reserved/abnormal codes → null (no-arg close sentinel
 
 test("sanitizeCloseCode: undefined (no code) → null", () => {
   expect(sanitizeCloseCode(undefined)).toBeNull();
+});
+
+// ── rewriteLoopbackLocation ───────────────────────────────────────────────────
+
+test("rewriteLoopbackLocation: absolute 127.0.0.1:<devPort> redirect → path-relative", () => {
+  const h = new Headers({ location: "http://127.0.0.1:5173/dashboard?x=1#top" });
+  rewriteLoopbackLocation(h, 5173);
+  expect(h.get("location")).toBe("/dashboard?x=1#top");
+});
+
+test("rewriteLoopbackLocation: localhost:<devPort> redirect → path-relative", () => {
+  const h = new Headers({ location: "http://localhost:3000/app/" });
+  rewriteLoopbackLocation(h, 3000);
+  expect(h.get("location")).toBe("/app/");
+});
+
+test("rewriteLoopbackLocation: loopback on a DIFFERENT port is left untouched", () => {
+  // not our dev server (e.g. an API on another port) — out of scope (multi-port #396)
+  const h = new Headers({ location: "http://127.0.0.1:9999/api" });
+  rewriteLoopbackLocation(h, 5173);
+  expect(h.get("location")).toBe("http://127.0.0.1:9999/api");
+});
+
+test("rewriteLoopbackLocation: cross-origin redirect (OAuth) is left untouched", () => {
+  const h = new Headers({ location: "https://accounts.google.com/o/oauth2?id=1" });
+  rewriteLoopbackLocation(h, 5173);
+  expect(h.get("location")).toBe("https://accounts.google.com/o/oauth2?id=1");
+});
+
+test("rewriteLoopbackLocation: already-relative Location is left untouched", () => {
+  const h = new Headers({ location: "/login?next=/x" });
+  rewriteLoopbackLocation(h, 5173);
+  expect(h.get("location")).toBe("/login?next=/x");
+});
+
+test("rewriteLoopbackLocation: no Location header is a no-op", () => {
+  const h = new Headers({ "x-other": "1" });
+  rewriteLoopbackLocation(h, 5173);
+  expect(h.get("location")).toBeNull();
 });
 
 // ── scanListeningPortsByWorktree ──────────────────────────────────────────────

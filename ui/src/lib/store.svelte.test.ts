@@ -446,7 +446,6 @@ test("session:archived drops the preview entry for that session", () => {
   expect(s.preview["s1"]).toBeUndefined();
 });
 
->>>>>>> e9faa52e (feat(ui): live preview pane + badge per agent (#345))
 test("session:merging sets and clears the mark", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

@@ -25,3 +25,11 @@ test("interactive directive references both reviewer and not-implementing-yet", 
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE).toContain("reviewer");
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("aligned");
 });
+test("interactive directive makes the agent ask actively, not park questions in the plan", () => {
+  // names AskUserQuestion as the choice-style mechanism (but not the exclusive channel)
+  expect(PLAN_GATE_DIRECTIVE_INTERACTIVE).toContain("AskUserQuestion");
+  // forbids parking open/unresolved questions in the plan file
+  expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("unresolved");
+  // but explicitly still permits stated assumptions / resolved decisions
+  expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("assumption");
+});

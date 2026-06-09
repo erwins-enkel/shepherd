@@ -36,16 +36,63 @@ import { isMerging } from "./merge-train";
  *  reviewerRunning → draftAwaitingSignoff → waitingOnReviewer → waitingOnMerger →
  *  awaitingMerge → merging → ready → merged, mirroring the session lifecycle. `isReviewing`
  *  is injected so this stays a pure function (the caller wires it to the reviews store). */
-/** Pick the bucket for a handed-off (open + green, idle) session: a foreign
- *  reviewer/merger named in `git.handoff` routes to its waiting group, else it's
- *  the operator's turn (`awaitingMerge`). */
-function handedOff(
-  g: GitState,
-  buckets: { waitingOnReviewer: Session[]; waitingOnMerger: Session[]; awaitingMerge: Session[] },
-): Session[] {
-  if (g.handoff === "reviewer") return buckets.waitingOnReviewer;
-  if (g.handoff === "merger") return buckets.waitingOnMerger;
-  return buckets.awaitingMerge;
+type Stage =
+  | "merged"
+  | "merging"
+  | "ready"
+  | "reviewerRunning"
+  | "ciRunning"
+  | "ciFailed"
+  | "draftAwaitingSignoff"
+  | "waitingOnReviewer"
+  | "waitingOnMerger"
+  | "awaitingMerge"
+  | "active";
+
+/** Terminal / in-flight stages that win before the green-idle handoff decision, or null
+ *  when none apply (the session is then either active or handed off). Split out of stageOf
+ *  to keep each branch-set small. */
+function terminalStage(
+  s: Session,
+  g: GitState | undefined,
+  isReviewing: (id: string) => boolean,
+  now: number,
+): Stage | null {
+  if (g?.state === "merged") return "merged";
+  if (isMerging(s, now)) return "merging";
+  if (s.readyToMerge) return "ready";
+  if (isReviewing(s.id)) return "reviewerRunning";
+  if (g?.state === "open" && g.checks === "pending") return "ciRunning";
+  if (g?.state === "open" && g.checks === "failure") return "ciFailed";
+  return null;
+}
+
+/** Bucket a green, idle (handed-off) PR: a draft awaits sign-off; otherwise a foreign
+ *  reviewer/merger named in `git.handoff` routes to its waiting group, else it's the
+ *  operator's turn (`awaitingMerge`). */
+function handoffStage(g: GitState): Stage {
+  if (g.isDraft) return "draftAwaitingSignoff";
+  if (g.handoff === "reviewer") return "waitingOnReviewer";
+  if (g.handoff === "merger") return "waitingOnMerger";
+  return "awaitingMerge";
+}
+
+/** Classify ONE session into its lifecycle stage (first-match precedence). Pure + flat so
+ *  partitionSessions stays a trivial loop. */
+function stageOf(
+  s: Session,
+  g: GitState | undefined,
+  isReviewing: (id: string) => boolean,
+  now: number,
+): Stage {
+  const terminal = terminalStage(s, g, isReviewing, now);
+  if (terminal) return terminal;
+  const greenIdle =
+    g?.state === "open" &&
+    g.checks === "success" &&
+    s.status !== "running" &&
+    s.status !== "blocked";
+  return greenIdle ? handoffStage(g) : "active";
 }
 
 export function partitionSessions(
@@ -66,55 +113,21 @@ export function partitionSessions(
   ready: Session[];
   merged: Session[];
 } {
-  const active: Session[] = [];
-  const ciRunning: Session[] = [];
-  const ciFailed: Session[] = [];
-  const reviewerRunning: Session[] = [];
-  const draftAwaitingSignoff: Session[] = [];
-  const waitingOnReviewer: Session[] = [];
-  const waitingOnMerger: Session[] = [];
-  const awaitingMerge: Session[] = [];
-  const merging: Session[] = [];
-  const ready: Session[] = [];
-  const merged: Session[] = [];
-  for (const s of sessions) {
-    const g = git[s.id];
-    if (g?.state === "merged") merged.push(s);
-    else if (isMerging(s, now)) merging.push(s);
-    else if (s.readyToMerge) ready.push(s);
-    else if (isReviewing(s.id)) reviewerRunning.push(s);
-    else if (g?.state === "open" && g.checks === "pending") ciRunning.push(s);
-    else if (g?.state === "open" && g.checks === "failure") ciFailed.push(s);
-    else if (
-      g?.state === "open" &&
-      g.checks === "success" &&
-      g.isDraft &&
-      s.status !== "running" &&
-      s.status !== "blocked"
-    )
-      draftAwaitingSignoff.push(s);
-    else if (
-      g?.state === "open" &&
-      g.checks === "success" &&
-      s.status !== "running" &&
-      s.status !== "blocked"
-    ) {
-      // The server stamps `handoff` when the repo's roles name someone other than
-      // the operator: route to "waiting on <reviewer/merger>" instead of "your turn".
-      handedOff(g, { waitingOnReviewer, waitingOnMerger, awaitingMerge }).push(s);
-    } else active.push(s);
-  }
-  return {
-    active,
-    ciRunning,
-    ciFailed,
-    reviewerRunning,
-    draftAwaitingSignoff,
-    waitingOnReviewer,
-    waitingOnMerger,
-    awaitingMerge,
-    merging,
-    ready,
-    merged,
+  const groups: Record<Stage, Session[]> = {
+    active: [],
+    ciRunning: [],
+    ciFailed: [],
+    reviewerRunning: [],
+    draftAwaitingSignoff: [],
+    waitingOnReviewer: [],
+    waitingOnMerger: [],
+    awaitingMerge: [],
+    merging: [],
+    ready: [],
+    merged: [],
   };
+  for (const s of sessions) {
+    groups[stageOf(s, git[s.id], isReviewing, now)].push(s);
+  }
+  return groups;
 }

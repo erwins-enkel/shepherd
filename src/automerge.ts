@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
-import type { Session } from "./types";
+import type { ReviewVerdict, Session } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
   computeMerge,
@@ -117,31 +117,45 @@ export class AutoMergeService {
     );
   }
 
+  /** PR-derived view fields (defaults for an absent/closed snapshot). Pulled out so toView
+   *  stays flat — every `git?.x ?? y` here is a branch that would otherwise inflate it. */
+  private static prFields(git: GitState | null) {
+    return {
+      state: git?.state ?? ("none" as const),
+      checks: git?.checks ?? ("none" as const),
+      mergeable: git?.mergeable ?? null,
+      number: git?.number ?? null,
+      headSha: git?.headSha ?? null,
+      humanApproved: git?.latestReview?.state === "approved",
+      isDraft: git?.isDraft ?? false,
+    };
+  }
+
+  /** Critic-verdict view fields (defaults when no verdict yet). */
+  private static reviewFields(review: ReviewVerdict | null) {
+    return {
+      reviewDecision: review?.decision ?? null,
+      reviewHeadSha: review?.headSha ?? null,
+      findings: review?.findings ?? [],
+    };
+  }
+
   /** Project one full-auto session + its cached PR snapshot into the core's view. */
   private async toView(s: Session, git: GitState | null): Promise<MergeSessionView> {
-    const headSha = git?.headSha ?? null;
+    const pr = AutoMergeService.prFields(git);
     const behind =
       git?.state === "open" && s.worktreePath && s.branch
         ? await this.cachedBehind(s.worktreePath, s.baseBranch)
         : null;
-    const review = this.deps.store.getReview(s.id);
     return {
       id: s.id,
       desig: s.desig,
-      state: git?.state ?? "none",
-      checks: git?.checks ?? "none",
-      mergeable: git?.mergeable ?? null,
-      number: git?.number ?? null,
-      headSha,
+      ...pr,
       behind,
-      reviewDecision: review?.decision ?? null,
-      reviewHeadSha: review?.headSha ?? null,
-      findings: review?.findings ?? [],
-      humanApproved: git?.latestReview?.state === "approved",
-      isDraft: git?.isDraft ?? false,
+      ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
-      mergeBlocked: this.computeMergeBlocked(s.id, headSha),
+      mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
     };
   }
 

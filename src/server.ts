@@ -350,6 +350,43 @@ function hasBadBoolField(body: RepoCfgBody): boolean {
 
 // Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
 // All fields optional but each present one must pass its type check; at least one present.
+/** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
+ *  send. Pulled out of parseRepoConfigPatch so each adds no branch to that function. */
+function parseRepoCfgScalars(body: RepoCfgBody):
+  | {
+      maxAuto?: number;
+      autoLabel?: string;
+      usageCeilingPct?: number;
+      signoffAuthority?: "human" | "critic" | "either";
+    }
+  | Response {
+  let maxAuto: number | undefined;
+  if (body.maxAuto !== undefined) {
+    const r = parseMaxAuto(body.maxAuto);
+    if (typeof r !== "number") return json(r, 400);
+    maxAuto = r;
+  }
+  let autoLabel: string | undefined;
+  if (body.autoLabel !== undefined) {
+    const r = parseAutoLabel(body.autoLabel);
+    if (typeof r !== "string") return json(r, 400);
+    autoLabel = r;
+  }
+  let usageCeilingPct: number | undefined;
+  if (body.usageCeilingPct !== undefined) {
+    const r = parseUsageCeiling(body.usageCeilingPct);
+    if (typeof r !== "number") return json(r, 400);
+    usageCeilingPct = r;
+  }
+  let signoffAuthority: "human" | "critic" | "either" | undefined;
+  if (body.signoffAuthority !== undefined) {
+    const r = parseSignoffAuthority(body.signoffAuthority);
+    if (typeof r !== "string") return json(r, 400);
+    signoffAuthority = r;
+  }
+  return { maxAuto, autoLabel, usageCeilingPct, signoffAuthority };
+}
+
 async function parseRepoConfigPatch(req: Request): Promise<
   | {
       criticEnabled?: boolean;
@@ -378,30 +415,9 @@ async function parseRepoConfigPatch(req: Request): Promise<
       400,
     );
   }
-  let maxAuto: number | undefined;
-  if (body.maxAuto !== undefined) {
-    const r = parseMaxAuto(body.maxAuto);
-    if (typeof r !== "number") return json(r, 400);
-    maxAuto = r;
-  }
-  let autoLabel: string | undefined;
-  if (body.autoLabel !== undefined) {
-    const r = parseAutoLabel(body.autoLabel);
-    if (typeof r !== "string") return json(r, 400);
-    autoLabel = r;
-  }
-  let usageCeilingPct: number | undefined;
-  if (body.usageCeilingPct !== undefined) {
-    const r = parseUsageCeiling(body.usageCeilingPct);
-    if (typeof r !== "number") return json(r, 400);
-    usageCeilingPct = r;
-  }
-  let signoffAuthority: "human" | "critic" | "either" | undefined;
-  if (body.signoffAuthority !== undefined) {
-    const r = parseSignoffAuthority(body.signoffAuthority);
-    if (typeof r !== "string") return json(r, 400);
-    signoffAuthority = r;
-  }
+  const scalars = parseRepoCfgScalars(body);
+  if (scalars instanceof Response) return scalars;
+  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||

@@ -215,6 +215,7 @@
   "issuespanel_task_button": "+ Task",
   "issuespanel_quick_button": "⚡ Standard",
   "issuespanel_quick_button_title": "Run the configured standard command on this issue; skips the New Task dialog",
+  "issuespanel_active_label_title": "Claimed by an active Shepherd agent — this issue is already being worked on",
   "newtask_title": "New Task",
   "newtask_prompt_label": "Prompt",
   "newtask_prompt_placeholder": "add a feature that…",
@@ -759,5 +760,7 @@
   "feat_preview_title": "Live app preview",
   "feat_preview_body": "When an agent's dev server is running, a Preview badge appears on its row. Opening it shows the live app in an in-HUD pane — reachable from desktop or phone over Tailscale.",
   "feat_repo_roles_title": "Repo responsibilities",
-  "feat_repo_roles_body": "Set who reviews and who merges a repo in its automation panel. When the merger is someone else (e.g. a teammate who lands PRs), a green PR reads \"Waiting on them\" instead of \"Your turn\"."
+  "feat_repo_roles_body": "Set who reviews and who merges a repo in its automation panel. When the merger is someone else (e.g. a teammate who lands PRs), a green PR reads \"Waiting on them\" instead of \"Your turn\".",
+  "feat_backlog_active_highlight_title": "See at a glance which issues are already claimed",
+  "feat_backlog_active_highlight_body": "Issues a Shepherd agent has claimed carry a “shepherd:active” label. In the backlog's issue list it now stands out in amber, so you can tell taken work from free work at a glance instead of reading every chip."
 }

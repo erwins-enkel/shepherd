@@ -570,14 +570,20 @@ export class SessionService {
    * If the herdr agent is still live (a "done" session that's merely idle at the
    * prompt), there's nothing to respawn — the current session is handed back so the
    * caller just re-attaches, avoiding a duplicate claude process.
+   *
+   * `force` overrides that re-use: it tears down whatever agent currently backs the
+   * worktree and spawns a fresh `claude --resume` regardless. This is the explicit
+   * "bring claude back" action (header / card-menu button) for the case the re-use
+   * path can't see — claude exited but its herdr tab survived as a bare shell, so the
+   * agent still lists as live (idle) and a plain resume would only re-adopt the shell.
    */
-  resume(id: string): Session | null {
+  resume(id: string, opts: { force?: boolean } = {}): Session | null {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived" || !s.claudeSessionId) return null;
     const agent =
       matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
       null;
-    if (agent) {
+    if (agent && !opts.force) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new
       // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.
       if (agent.terminalId !== s.herdrAgentId) {
@@ -586,6 +592,9 @@ export class SessionService {
       }
       return s;
     }
+    // Forced respawn over a live agent: close the stale husk tab first so it doesn't
+    // leak alongside the fresh one. (No-op when the agent is already gone.)
+    if (agent) this.deps.herdr.stop(agent.terminalId);
     const argv = ["claude", "--dangerously-skip-permissions", "--resume", s.claudeSessionId];
     argv.push("--settings", spawnSettingsOverlay());
     if (s.model) argv.push("--model", s.model);

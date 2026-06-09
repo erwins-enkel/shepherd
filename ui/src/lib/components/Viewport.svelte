@@ -4,7 +4,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import type { GitState, Issue, Leftover, Session, SessionUsage, UsageLimits } from "$lib/types";
-  import { STATUS_COLOR, statusLabel, formatTokens } from "$lib/format";
+  import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
@@ -194,6 +194,11 @@
   // the fold only applies on the compact layout (it's the mobile space-saver);
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
+
+  // a parked (idle/done) session with a pinned claude id can be brought back —
+  // surface a header Resume button so the user isn't stranded at a bare shell with
+  // no affordance (the in-terminal overlay only shows once the PTY closes for good).
+  const resumable = $derived(canResume(session));
   // a11y: the fold button's aria-controls points at the tab switcher — the always-
   // mounted primary region it collapses (the git rail + build queue come and go with
   // the fold, so they can't carry a stable controlled-region id). Per-session id so
@@ -558,14 +563,16 @@
   // bring a finished session back: ask the server to respawn `claude --resume` in
   // the worktree, then bump the epoch so the terminal effect rebuilds and attaches
   // to the fresh agent (the old PtyConn stopped for good on the ended-close).
-  async function resumeSession() {
+  // force=true (header button) tears down a surviving husk shell and respawns
+  // claude; force=false (the agent-gone overlay) just respawns into the empty tab.
+  async function resumeSession(force = false) {
     if (resuming) return;
     resuming = true;
     resumeFailed = false;
     try {
-      await apiResumeSession(session.id);
+      await apiResumeSession(session.id, force);
       ended = false;
-      resumeEpoch++;
+      resumeEpoch++; // rebuild the terminal + attach to the fresh agent
     } catch {
       resumeFailed = true;
     } finally {
@@ -1403,6 +1410,21 @@
           <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
         </button>
       {/if}
+      {#if resumable}
+        <!-- bring claude back when the session is parked (idle/done) — e.g. claude
+             exited to a shell after a herdr restart. Forces a fresh claude --resume. -->
+        <button
+          class="vp-resume"
+          type="button"
+          onclick={() => resumeSession(true)}
+          disabled={resuming}
+          title={m.viewport_resume_title()}
+          aria-label={m.viewport_resume_title()}
+        >
+          <span class="vp-resume-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
+          {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
+        </button>
+      {/if}
       <button
         class="decom"
         class:armed
@@ -1498,7 +1520,12 @@
         <span class="parked-sub">{m.viewport_reconnect_sub()}</span>
       </button>
     {:else if ended && !parked && tab === "term" && session.claudeSessionId}
-      <button class="parked resume" type="button" onclick={resumeSession} disabled={resuming}>
+      <button
+        class="parked resume"
+        type="button"
+        onclick={() => resumeSession()}
+        disabled={resuming}
+      >
         <span class="parked-icon" aria-hidden="true">{resuming ? "⏳" : "↻"}</span>
         <span class="parked-title"
           >{resumeFailed ? m.viewport_resume_failed() : m.viewport_resume_title()}</span
@@ -2078,6 +2105,39 @@
       color 0.12s,
       border-color 0.12s,
       background 0.12s;
+  }
+
+  /* Resume: a quiet neutral action (not destructive, not "ready-complete" → no
+     green/red), brightening to ink on hover. Sits left of the decommission ✕. */
+  .vp-resume {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .vp-resume:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+  }
+  .vp-resume:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .vp-resume-icon {
+    font-size: var(--fs-meta);
   }
 
   /* PR delivered → the work is done. Lift the otherwise-faint ✕ into a bright,

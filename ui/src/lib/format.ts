@@ -1,5 +1,15 @@
 import { m } from "$lib/paraglide/messages";
-import type { SessionStatus } from "./types";
+import type { Session, SessionStatus } from "./types";
+
+/**
+ * Whether a session can be brought back with `claude --resume`. True only when it
+ * has a pinned claude session id AND isn't actively engaged (idle or done) — the
+ * states where the user may be parked at a bare shell with no way back in.
+ * Running (claude working) and blocked (claude awaiting input) are live, so no.
+ */
+export function canResume(s: Session): boolean {
+  return !!s.claudeSessionId && (s.status === "idle" || s.status === "done");
+}
 
 /**
  * Live elapsed label for the session list, scaled so multi-day runs stay

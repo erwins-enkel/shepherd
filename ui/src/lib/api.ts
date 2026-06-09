@@ -257,9 +257,18 @@ export async function replySession(id: string, text: string): Promise<void> {
   if (!r.ok) throw await failed(r, "reply");
 }
 
-/** Bring a finished session back — re-spawns `claude --resume` in its worktree. */
-export async function resumeSession(id: string): Promise<Session> {
-  const r = await fetch(`/api/sessions/${id}/resume`, { method: "POST" });
+/**
+ * Bring a finished session back — re-spawns `claude --resume` in its worktree.
+ * `force` tears down a surviving husk shell first, for the case claude exited but
+ * its herdr tab is still alive (so the session lists as idle, not gone).
+ */
+export async function resumeSession(id: string, force = false): Promise<Session> {
+  const init: RequestInit = { method: "POST" };
+  if (force) {
+    init.headers = JSON_HEADERS;
+    init.body = JSON.stringify({ force: true });
+  }
+  const r = await fetch(`/api/sessions/${id}/resume`, init);
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
     throw new Error((msg as { error?: string }).error ?? `resume failed: ${r.status}`);

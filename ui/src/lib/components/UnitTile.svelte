@@ -3,12 +3,15 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import type { Session, GitState } from "$lib/types";
-  import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge } from "$lib/format";
+  import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge, canResume } from "$lib/format";
   import { connectPty } from "$lib/pty";
+  import { resumeSession } from "$lib/api";
   import { theme, xtermTheme } from "$lib/theme.svelte";
+  import CardMenu from "./CardMenu.svelte";
   import PrBadge from "./PrBadge.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
+  import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
   import PlanGateBadge from "./PlanGateBadge.svelte";
@@ -133,6 +136,25 @@
     term.options.theme = xtermTheme(resolved);
     term.refresh(0, Math.max(0, term.rows - 1));
   });
+
+  // Right-click / long-press → a small action menu. On a tile only Resume applies
+  // (decommission isn't wired into the grid view); skip the menu otherwise.
+  const resumable = $derived(canResume(session));
+  let menu = $state<{ x: number; y: number } | null>(null);
+  function openMenu(e: MouseEvent) {
+    if (!resumable) return; // nothing to offer → leave the native menu
+    e.preventDefault();
+    menu = { x: e.clientX, y: e.clientY };
+  }
+  async function resumeFromMenu() {
+    menu = null;
+    onselect(session.id); // focus it so the rebuilt terminal lands in the viewport
+    try {
+      await resumeSession(session.id, true);
+    } catch {
+      toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    }
+  }
 </script>
 
 <div
@@ -146,6 +168,7 @@
     aria-label={m.unit_open_aria({ name: session.name })}
     aria-describedby={describedBy}
     onclick={() => onselect(session.id)}
+    oncontextmenu={openMenu}
   ></button>
   <div class="t-head">
     <span class="name">{session.name}</span>
@@ -171,6 +194,16 @@
     <div class="t-mount" bind:this={el}></div>
   </div>
 </div>
+
+{#if menu}
+  <CardMenu
+    x={menu.x}
+    y={menu.y}
+    {resumable}
+    onresume={resumeFromMenu}
+    onclose={() => (menu = null)}
+  />
+{/if}
 
 <style>
   .tile {

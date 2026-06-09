@@ -6,7 +6,9 @@
 
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
-  import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge } from "$lib/format";
+  import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge, canResume } from "$lib/format";
+  import { resumeSession } from "$lib/api";
+  import CardMenu from "./CardMenu.svelte";
   import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
@@ -140,6 +142,30 @@
   // Decommission is deferred behind an undo window: while it's open, the row is
   // doomed-but-still-present. Dim it so the operator sees it's on its way out.
   const decommissioning = $derived(toasts.pendingUndo(session.id));
+
+  // Right-click (desktop) / long-press (touch → native contextmenu) opens a small
+  // action menu on the card. Resume is the headline action for a session parked at
+  // a shell; decommission rides along where the parent wired it (mobile list).
+  const resumable = $derived(canResume(session));
+  let menu = $state<{ x: number; y: number } | null>(null);
+  function openMenu(e: MouseEvent) {
+    if (!resumable && !ondecommission) return; // nothing to offer → leave native menu
+    e.preventDefault();
+    menu = { x: e.clientX, y: e.clientY };
+  }
+  async function resumeFromMenu() {
+    menu = null;
+    onselect(session.id); // focus it so the rebuilt terminal lands in view
+    try {
+      await resumeSession(session.id, true);
+    } catch {
+      toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    }
+  }
+  function decommissionFromMenu() {
+    menu = null;
+    ondecommission?.(session.id);
+  }
 </script>
 
 {#snippet row()}
@@ -157,6 +183,7 @@
       aria-describedby={describedBy}
       title={session.repoPath}
       onclick={() => onselect(session.id)}
+      oncontextmenu={openMenu}
     ></button>
     <div class="pip-col">
       <StatusPip
@@ -272,6 +299,17 @@
   </div>
 {:else}
   {@render row()}
+{/if}
+
+{#if menu}
+  <CardMenu
+    x={menu.x}
+    y={menu.y}
+    {resumable}
+    onresume={resumeFromMenu}
+    ondecommission={ondecommission ? decommissionFromMenu : undefined}
+    onclose={() => (menu = null)}
+  />
 {/if}
 
 <style>

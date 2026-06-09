@@ -12,8 +12,6 @@ like a human at a terminal. Around those sessions it adds the engineering discip
 agent work otherwise erodes: every plan and PR faces adversarial review, and nothing merges while
 behind its base — a stale PR is rebased and re-verified first.
 
-> The repo directory is `tank/` for historical reasons; the product is **Shepherd**.
-
 ## Opinionated by design
 
 Running many agents is the easy half; keeping their output shippable is the actual product.

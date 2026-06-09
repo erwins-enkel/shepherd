@@ -401,6 +401,41 @@ export class GithubForge implements GitForge {
     return name;
   }
 
+  private cachedUser: string | null | undefined;
+  /** The authenticated gh login (`gh api user`), cached for the forge's lifetime —
+   *  it never changes mid-session, so one call serves every handoff computation. */
+  async currentUser(): Promise<string | null> {
+    if (this.cachedUser !== undefined) return this.cachedUser;
+    try {
+      this.cachedUser = (await this.run(["api", "user", "--jq", ".login"])).trim() || null;
+    } catch {
+      this.cachedUser = null; // unauth / offline → treat as "unknown me"
+    }
+    return this.cachedUser;
+  }
+
+  async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
+    try {
+      // --paginate so a repo with >30 collaborators isn't silently truncated.
+      const out = await this.run([
+        "api",
+        "--paginate",
+        `repos/${this.slug}/collaborators`,
+        "--jq",
+        ".[].login",
+      ]);
+      const logins = out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      return { logins, unavailable: false };
+    } catch {
+      // The endpoint needs push access; GitHub 403s otherwise → let the dialog
+      // fall back to free-text rather than show an empty/partial list.
+      return { logins: [], unavailable: true };
+    }
+  }
+
   async openPr(o: OpenPrInput): Promise<PrStatus> {
     await this.run([
       "pr",

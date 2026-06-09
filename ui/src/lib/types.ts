@@ -250,6 +250,17 @@ export interface QueuedItem {
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
+  /** Who is up once the PR is open + green, when it isn't the operator (computed
+   *  server-side from `.shepherd/roles.json`). Absent = the operator's turn. */
+  handoff?: "reviewer" | "merger";
+  /** The login to display for {@link handoff} (e.g. "scoop"). */
+  handoffWho?: string;
+}
+
+/** Per-repo reviewer + merger logins, from `.shepherd/roles.json`. */
+export interface RepoRoles {
+  reviewer: string | null;
+  merger: string | null;
 }
 
 export interface SessionActivity {

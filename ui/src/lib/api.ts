@@ -21,6 +21,7 @@ import type {
   ReviewVerdict,
   PlanGate,
   RepoConfig,
+  RepoRoles,
   ReadinessReport,
   DrainStatus,
   AutoMergeStatus,
@@ -675,6 +676,45 @@ export async function putRepoConfig(
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();
+}
+
+export async function getRepoRoles(
+  repoPath: string,
+): Promise<{ roles: RepoRoles; me: string | null }> {
+  return getJson(`/api/repo-roles?repo=${encodeURIComponent(repoPath)}`, "repo-roles");
+}
+
+export async function putRepoRoles(
+  repoPath: string,
+  patch: Partial<RepoRoles>,
+): Promise<{ roles: RepoRoles; me: string | null; pushError?: string }> {
+  const r = await fetch(`/api/repo-roles?repo=${encodeURIComponent(repoPath)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+  const data = (await r.json().catch(() => ({}))) as {
+    roles?: RepoRoles;
+    me?: string | null;
+    pushError?: string;
+  };
+  // 502 carries a pushError (protected branch / no auth) — return it so the dialog
+  // can surface the failure rather than throwing an opaque error.
+  if (!r.ok && !data.pushError) throw new Error(`repo-roles put failed: ${r.status}`);
+  return {
+    roles: data.roles ?? { reviewer: null, merger: null },
+    me: data.me ?? null,
+    pushError: data.pushError,
+  };
+}
+
+export async function getRepoCollaborators(
+  repoPath: string,
+): Promise<{ logins: string[]; me: string | null; collaboratorsUnavailable: boolean }> {
+  return getJson(
+    `/api/repo-collaborators?repo=${encodeURIComponent(repoPath)}`,
+    "repo-collaborators",
+  );
 }
 
 export async function getDrain(): Promise<DrainStatus[]> {

@@ -3,7 +3,8 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
-  import type { Session } from "$lib/types";
+  import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
+  import type { Session, RepoRoles } from "$lib/types";
 
   let {
     repoPath,
@@ -73,6 +74,69 @@
     drainCeiling = n;
     await repoConfig.setUsageCeiling(repoPath, n);
     drainCeiling = repoConfig.usageCeilingFor(repoPath);
+  }
+
+  // Repo responsibilities (.shepherd/roles.json): who reviews, who merges. Loaded
+  // lazily when the panel mounts / the repo changes — the herd reads the computed
+  // handoff off the cached git state, so this fetch is panel-only.
+  let roles = $state<RepoRoles>({ reviewer: null, merger: null });
+  let me = $state<string | null>(null);
+  let collaborators = $state<string[]>([]);
+  let collaboratorsUnavailable = $state(false);
+  let rolesError = $state<string | null>(null);
+  $effect(() => {
+    const repo = repoPath;
+    rolesError = null;
+    void (async () => {
+      try {
+        const [r, c] = await Promise.all([getRepoRoles(repo), getRepoCollaborators(repo)]);
+        if (repo !== repoPath) return; // repo switched mid-flight — drop stale result
+        roles = r.roles;
+        me = r.me ?? c.me;
+        collaborators = c.logins;
+        collaboratorsUnavailable = c.collaboratorsUnavailable;
+      } catch {
+        /* leave defaults; the free-text fallback still lets the user set roles */
+      }
+    })();
+  });
+
+  function normalizeLogin(v: string): string | null {
+    const t = v.trim().replace(/^@/, "");
+    return t || null;
+  }
+
+  // GitHub logins are case-insensitive — fold so a differently-cased stored login
+  // isn't treated as a distinct person (duplicate option / wrong "self" match).
+  const eqLogin = (a: string | null, b: string | null) =>
+    !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+  // Map a stored login onto the exact casing of its <option> so the dropdown
+  // reflects it — a casing-only difference (stored "Kai" vs me/collaborator "kai")
+  // would otherwise match no option and fall back to "— anyone / me —".
+  function optionValue(value: string | null): string {
+    if (!value) return "";
+    if (eqLogin(value, me)) return me ?? value;
+    return collaborators.find((c) => eqLogin(c, value)) ?? value;
+  }
+
+  async function setRole(role: "reviewer" | "merger", value: string | null) {
+    const prev = roles;
+    roles = { ...roles, [role]: value }; // optimistic
+    rolesError = null;
+    try {
+      const res = await putRepoRoles(repoPath, { [role]: value });
+      if (res.pushError) {
+        roles = prev; // push rejected (protected branch / auth) → revert + surface
+        rolesError = res.pushError;
+        return;
+      }
+      roles = res.roles;
+      if (res.me) me = res.me;
+    } catch (e) {
+      roles = prev;
+      rolesError = String((e as Error)?.message ?? e);
+    }
   }
 </script>
 
@@ -316,6 +380,51 @@
       </label>
     </div>
   {/if}
+
+  <!-- Repo responsibilities: reviewer + merger (committed to .shepherd/roles.json) -->
+  <div class="auto-group" id="repo-roles">{m.automation_group_roles()}</div>
+  {#snippet roleRow(label: string, role: "reviewer" | "merger", value: string | null)}
+    <div class="auto-row">
+      <div class="auto-meta">
+        <div class="auto-name">{label}</div>
+      </div>
+      {#if collaboratorsUnavailable}
+        <input
+          class="role-input"
+          type="text"
+          placeholder={m.roles_freetext_placeholder()}
+          value={value ?? ""}
+          aria-label={label}
+          onchange={(e) => setRole(role, normalizeLogin(e.currentTarget.value))}
+        />
+      {:else}
+        <select
+          class="role-select"
+          aria-label={label}
+          value={optionValue(value)}
+          onchange={(e) => setRole(role, e.currentTarget.value || null)}
+        >
+          <option value="">{m.roles_unset_option()}</option>
+          {#if me}<option value={me}>{m.roles_self_option()} (@{me})</option>{/if}
+          {#each collaborators.filter((c) => !eqLogin(c, me)) as login (login)}
+            <option value={login}>@{login}</option>
+          {/each}
+          {#if value && !eqLogin(value, me) && !collaborators.some((c) => eqLogin(c, value))}
+            <option {value}>@{value}</option>
+          {/if}
+        </select>
+      {/if}
+    </div>
+  {/snippet}
+  {@render roleRow(m.roles_reviewer_label(), "reviewer", roles.reviewer)}
+  {@render roleRow(m.roles_merger_label(), "merger", roles.merger)}
+  <div class="roles-note">
+    {#if rolesError}
+      <span class="roles-err">{m.roles_push_failed()}: {rolesError}</span>
+    {:else}
+      {m.automation_roles_hint()}
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -523,5 +632,26 @@
     width: auto;
     min-width: 0;
     text-align: left;
+  }
+  .role-select,
+  .role-input {
+    flex: 0 0 auto;
+    width: 140px;
+    max-width: 50%;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    padding: 3px 6px;
+  }
+  .roles-note {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    padding: 6px 12px 12px;
+  }
+  .roles-err {
+    color: var(--color-red);
   }
 </style>

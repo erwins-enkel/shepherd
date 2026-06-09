@@ -76,6 +76,22 @@
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   // In-review sessions are excluded so the link's count matches the launch action.
   const readyPrCount = $derived(collectReadyPrs(shown, git, inReview).length);
+
+  // The waiting-on-* group headers name the responsible person when the whole
+  // group shares one (the common case: one repo, one merger). The herd can span
+  // repos, so a mixed group falls back to a name-less header.
+  function uniqueWho(list: Session[]): string | null {
+    let who: string | null = null;
+    for (const s of list) {
+      const w = git[s.id]?.handoffWho;
+      if (!w) continue;
+      if (who === null) who = w;
+      else if (who !== w) return null; // mixed repos → no single name in the header
+    }
+    return who;
+  }
+  const reviewerWho = $derived(uniqueWho(partition.waitingOnReviewer));
+  const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
 </script>
 
 <div class="panel bracket">
@@ -169,6 +185,48 @@
             activity={activity[session.id]}
             previewPort={preview[session.id] ?? null}
             {onpreview}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.waitingOnReviewer.length > 0}
+        <div class="waiting-head micro">
+          {reviewerWho
+            ? m.herd_waiting_reviewer_group({
+                who: reviewerWho,
+                count: partition.waitingOnReviewer.length,
+              })
+            : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length })}
+        </div>
+        {#each partition.waitingOnReviewer as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            activity={activity[session.id]}
+            {ondecommission}
+          />
+        {/each}
+      {/if}
+      {#if partition.waitingOnMerger.length > 0}
+        <div class="waiting-head micro">
+          {mergerWho
+            ? m.herd_waiting_merger_group({
+                who: mergerWho,
+                count: partition.waitingOnMerger.length,
+              })
+            : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length })}
+        </div>
+        {#each partition.waitingOnMerger as session (session.id)}
+          <UnitRow
+            {session}
+            selected={session.id === selectedId}
+            {nowMs}
+            {onselect}
+            git={git[session.id]}
+            activity={activity[session.id]}
             {ondecommission}
           />
         {/each}
@@ -367,6 +425,17 @@
     margin-top: 6px;
     color: var(--color-green);
     border-top: 1px solid color-mix(in srgb, var(--color-green) 30%, var(--color-line));
+  }
+
+  /* slate section header for "waiting on someone else" (a foreign reviewer/merger):
+     NOT the operator's turn, so it must read as parked, not actionable-green. */
+  .waiting-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-slate);
+    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
   }
 
   /* blue section header for the landed "merged PR" group */

@@ -112,6 +112,67 @@ export async function detectDevCommand(
   }
 }
 
+/**
+ * Extract the workspace patterns array from a root package.json object.
+ * Supports both array form (["packages/*"]) and npm/yarn-classic object
+ * form ({ packages: ["packages/*"] }). Any other shape returns [].
+ */
+function extractWsPatterns(rootPkg: Record<string, unknown>): string[] {
+  const ws = rootPkg["workspaces"];
+  if (Array.isArray(ws)) return ws.filter((x): x is string => typeof x === "string");
+  if (ws !== null && typeof ws === "object") {
+    const pkgs = (ws as Record<string, unknown>)["packages"];
+    if (Array.isArray(pkgs)) return pkgs.filter((x): x is string => typeof x === "string");
+  }
+  return [];
+}
+
+/**
+ * Expand a single workspace pattern into relative subdir paths.
+ * `packages/*` → one-level readdir of `packages/`; exact paths (no `*`) → [pattern].
+ * Patterns with `*` other than a trailing `/*` are skipped (unsupported glob).
+ */
+async function expandWsPattern(
+  pattern: string,
+  worktreePath: string,
+  fs: FsAccessors,
+): Promise<string[]> {
+  if (pattern.endsWith("/*")) {
+    const prefix = pattern.slice(0, -2); // strip "/*"
+    const entries = await fs.readdir(`${worktreePath}/${prefix}`);
+    return entries.map((entry) => `${prefix}/${entry}`);
+  }
+  if (!pattern.includes("*")) return [pattern];
+  return []; // unsupported glob shape — skip
+}
+
+/**
+ * Build the full candidate-subdir set (curated + workspace globs) and return only
+ * those relative paths whose package.json contains a non-empty `scripts.dev`.
+ */
+async function collectDevSubdirs(
+  worktreePath: string,
+  rootPkg: Record<string, unknown>,
+  fs: FsAccessors,
+): Promise<string[]> {
+  const subdirs = new Set<string>(CURATED_SUBDIRS);
+
+  for (const pattern of extractWsPatterns(rootPkg)) {
+    for (const rel of await expandWsPattern(pattern, worktreePath, fs)) {
+      subdirs.add(rel);
+    }
+  }
+
+  const matches: string[] = [];
+  for (const rel of subdirs) {
+    const pkgText = await fs.readText(`${worktreePath}/${rel}/package.json`);
+    if (pkgText === null) continue;
+    const pkg = parsePkg(pkgText);
+    if (pkg !== null && hasDev(pkg)) matches.push(rel);
+  }
+  return matches;
+}
+
 async function detectDevCommandImpl(worktreePath: string, fs: FsAccessors): Promise<string | null> {
   // Step 1: root package.json
   const rootPkgText = await fs.readText(`${worktreePath}/package.json`);
@@ -124,44 +185,8 @@ async function detectDevCommandImpl(worktreePath: string, fs: FsAccessors): Prom
     return pmDevCmd(pm);
   }
 
-  // Step 2: scan subdirs — curated list + workspace globs
-  const subdirs = new Set<string>(CURATED_SUBDIRS);
-
-  // Add workspace globs from root package.json.
-  // Supports both array form (["packages/*", "apps/*"]) and npm/yarn-classic object
-  // form ({ packages: ["packages/*", ...] }). Any other shape is skipped.
-  const ws = rootPkg["workspaces"];
-  const wsArray: unknown[] = Array.isArray(ws)
-    ? ws
-    : ws !== null &&
-        typeof ws === "object" &&
-        Array.isArray((ws as Record<string, unknown>)["packages"])
-      ? ((ws as Record<string, unknown>)["packages"] as unknown[])
-      : [];
-  const wsPatterns: string[] = wsArray.filter((x): x is string => typeof x === "string");
-
-  for (const pattern of wsPatterns) {
-    // Handle `packages/*` style globs: scan the prefix dir one level deep
-    const slashStar = pattern.endsWith("/*");
-    if (slashStar) {
-      const prefix = pattern.slice(0, -2); // strip "/*"
-      const entries = await fs.readdir(`${worktreePath}/${prefix}`);
-      for (const entry of entries) subdirs.add(`${prefix}/${entry}`);
-    } else if (!pattern.includes("*")) {
-      subdirs.add(pattern);
-    }
-  }
-
-  // Collect subdirs that have a dev script
-  const matches: string[] = [];
-  for (const rel of subdirs) {
-    const pkgText = await fs.readText(`${worktreePath}/${rel}/package.json`);
-    if (pkgText === null) continue;
-    const pkg = parsePkg(pkgText);
-    if (pkg === null) continue;
-    if (hasDev(pkg)) matches.push(rel);
-  }
-
+  // Step 2: scan subdirs — curated list + workspace globs; exactly one match wins.
+  const matches = await collectDevSubdirs(worktreePath, rootPkg, fs);
   if (matches.length !== 1) return null; // 0 = none, >1 = ambiguous
 
   const subdir = matches[0];

@@ -1229,11 +1229,13 @@ async function forgeOpenPr(
 ): Promise<Response> {
   const head = session.branch ?? "";
   const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+  const cfg = deps.store.getRepoConfig(session.repoPath);
   const status = await forge.openPr({
     head,
     base: session.baseBranch,
     title: body.title?.trim() || session.name,
     body: body.body ?? session.prompt,
+    draft: cfg.draftMode,
   });
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);

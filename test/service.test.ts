@@ -6,6 +6,8 @@ import {
   composeSystemPrompt,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
+  DRAFT_PR_NOTE,
+  planGoSteer,
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config } from "../src/config";
@@ -2354,4 +2356,68 @@ test("create with buildQueueEnabled=true + autopilot off: queue is NOT auto-appr
     images: [],
   });
   expect(store.getBuildQueue(s.id).approved).toBe(false);
+});
+
+// ── draft mode ───────────────────────────────────────────────────────────────
+
+test("composeSystemPrompt includes <draft-mode> block when draftMode=true", () => {
+  const sp = composeSystemPrompt(null, false, { draftMode: true });
+  expect(sp).toContain("<draft-mode>");
+  expect(sp).toContain(DRAFT_PR_NOTE);
+  expect(sp).toContain("</draft-mode>");
+});
+
+test("composeSystemPrompt omits <draft-mode> block when draftMode false/omitted", () => {
+  expect(composeSystemPrompt(null)).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(null, false)).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(null, true)).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(null, false, { draftMode: false })).not.toContain("<draft-mode>");
+});
+
+test("composeSystemPrompt <draft-mode> block is present alongside autopilot directive", () => {
+  const sp = composeSystemPrompt(null, true, { draftMode: true });
+  expect(sp).toContain("<autopilot-directive>");
+  expect(sp).toContain("<draft-mode>");
+});
+
+test("planGoSteer(false) matches the base text exactly (no draft note)", () => {
+  const steer = planGoSteer(false);
+  expect(steer).toContain("gh pr create");
+  expect(steer).not.toContain(DRAFT_PR_NOTE);
+});
+
+test("planGoSteer(true) appends the draft note to the base text", () => {
+  const steer = planGoSteer(true);
+  expect(steer).toContain("gh pr create");
+  expect(steer).toContain(DRAFT_PR_NOTE);
+});
+
+test("create with draftMode=true: system prompt contains <draft-mode> block", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(buildQueueDeps(store, captured, { draftMode: true }) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("<draft-mode>");
+  expect(sp).toContain(DRAFT_PR_NOTE);
+});
+
+test("create with draftMode=false: system prompt has no <draft-mode> block", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(buildQueueDeps(store, captured, { draftMode: false }) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(sysPrompt(captured.argv!)).not.toContain("<draft-mode>");
 });

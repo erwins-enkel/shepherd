@@ -1,5 +1,6 @@
 import { test, expect, mock } from "bun:test";
-import { AutopilotService, PROCEED_STEER, OPEN_PR_STEER } from "../src/autopilot";
+import { AutopilotService, PROCEED_STEER, OPEN_PR_STEER, openPrSteer } from "../src/autopilot";
+import { DRAFT_PR_NOTE } from "../src/service";
 import type { AutopilotVerdict, Session } from "../src/types";
 import type { BlockReason } from "../src/blocked";
 
@@ -50,6 +51,7 @@ function harness(opts: {
   session: Session;
   verdict?: AutopilotVerdict;
   repoEnabled?: boolean;
+  repoDraftMode?: boolean;
   openPr?: boolean;
   paneAlive?: boolean;
   resumeOk?: boolean;
@@ -68,6 +70,7 @@ function harness(opts: {
           autoAddressEnabled: false,
           learningsEnabled: true,
           autopilotEnabled: opts.repoEnabled ?? false,
+          draftMode: opts.repoDraftMode ?? false,
         }) as any,
       setAutopilotState: (
         _id: string,
@@ -136,6 +139,39 @@ test("finished verdict → open-PR steer", async () => {
   await h.svc.onBlock("s1", block(["I'm done."]));
   expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("openPrSteer(false) equals OPEN_PR_STEER (no draft note)", () => {
+  expect(openPrSteer(false)).toBe(OPEN_PR_STEER);
+  expect(openPrSteer(false)).not.toContain(DRAFT_PR_NOTE);
+});
+
+test("openPrSteer(true) appends the draft note", () => {
+  const steer = openPrSteer(true);
+  expect(steer).toContain(OPEN_PR_STEER);
+  expect(steer).toContain(DRAFT_PR_NOTE);
+});
+
+test("finished verdict + draftMode=true → open-PR steer includes draft note", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done" },
+    repoDraftMode: true,
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  const steerEv = h.events.find((e) => "steer" in e);
+  expect(steerEv).toBeDefined();
+  expect(steerEv.steer).toContain(DRAFT_PR_NOTE);
+});
+
+test("finished verdict + draftMode=false → open-PR steer equals OPEN_PR_STEER", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done" },
+    repoDraftMode: false,
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
 });
 
 test("complete verdict → markComplete + onComplete, no steer, not paused", async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { SessionService } from "../src/service";
+import { SessionService, DRAFT_PR_NOTE } from "../src/service";
 
 /** A full-enough Session row for the release-gate path (only the fields the method touches). */
 function sess(over: Record<string, unknown> = {}) {
@@ -28,6 +28,7 @@ function harness(opts: {
   session: ReturnType<typeof sess> | null;
   gate: { approved: boolean } | null;
   paneLive?: boolean;
+  draftMode?: boolean;
 }) {
   const setPhaseCalls: { id: string; phase: string }[] = [];
   const emitted: { event: string; data: unknown }[] = [];
@@ -38,6 +39,7 @@ function harness(opts: {
     getPlanGate: () => opts.gate,
     setPlanPhase: (id: string, phase: string) => setPhaseCalls.push({ id, phase }),
     addSignal: () => {},
+    getRepoConfig: () => ({ draftMode: opts.draftMode ?? false }) as any,
   };
   const svc = new SessionService({
     store: store as any,
@@ -85,4 +87,18 @@ test("releasePlanGate is a no-op for unknown id", () => {
   const h = harness({ session: null, gate: { approved: true } });
   expect(h.svc.releasePlanGate("ghost")).toBe(false);
   expect(h.setPhaseCalls).toHaveLength(0);
+});
+
+test("releasePlanGate steers WITHOUT draft note when draftMode=false", () => {
+  const h = harness({ session: sess(), gate: { approved: true }, draftMode: false });
+  expect(h.svc.releasePlanGate("s1")).toBe(true);
+  const steerText = h.sent.map((s) => s.text).join("");
+  expect(steerText).not.toContain(DRAFT_PR_NOTE);
+});
+
+test("releasePlanGate steers WITH draft note when draftMode=true", () => {
+  const h = harness({ session: sess(), gate: { approved: true }, draftMode: true });
+  expect(h.svc.releasePlanGate("s1")).toBe(true);
+  const steerText = h.sent.map((s) => s.text).join("");
+  expect(steerText).toContain(DRAFT_PR_NOTE);
 });

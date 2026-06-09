@@ -206,6 +206,14 @@ export interface GitForge {
   /** Remove a label from an issue (best-effort; releases the drain's claim when an
    *  auto session is abandoned, returning the issue to the pool). Optional. */
   removeIssueLabel?(issueNumber: number, label: string): Promise<void>;
+  /** Fetch ONE issue fresh (UNCACHED) by number, for the drain's pre-spawn claim
+   *  re-check. The cached `listIssues` view a candidate is selected from can be up to
+   *  `issuesTtlMs` stale, so a second instance may still see an issue another instance
+   *  stamped `ACTIVE_LABEL` on seconds ago. A fresh single-issue read closes that
+   *  stale-cache window: if it already carries the claim, the spawn is yielded. Returns
+   *  null when the issue is gone/unreadable. Best-effort and optional — hosts without it
+   *  (or a transient failure → null) fall back to the cached candidate set + local dedup. */
+  getIssue?(issueNumber: number): Promise<Issue | null>;
   /** Open a new issue (capture-extension delivery path). Returns the created
    *  issue's number + URL. Optional: hosts without an issue-create API omit it
    *  and POST /api/issues 400s. */

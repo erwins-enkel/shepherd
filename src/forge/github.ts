@@ -125,6 +125,43 @@ export class GithubForge implements GitForge {
     });
   }
 
+  async getIssue(issueNumber: number): Promise<Issue | null> {
+    // Fresh, uncached single-issue read for the drain's pre-spawn claim re-check
+    // (see GitForge.getIssue). Best-effort: a gone/closed issue or a transient gh
+    // error yields null so the caller falls back to spawning, never loses the issue.
+    try {
+      const out = this.run([
+        "issue",
+        "view",
+        String(issueNumber),
+        "--repo",
+        this.slug,
+        "--json",
+        "number,title,body,url,labels,createdAt",
+      ]);
+      const i = JSON.parse(out || "null") as {
+        number: number;
+        title: string;
+        body?: string;
+        url: string;
+        labels?: Array<{ name: string }>;
+        createdAt?: string;
+      } | null;
+      if (!i) return null;
+      const ts = Date.parse(i.createdAt ?? "");
+      return {
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        url: i.url,
+        labels: (i.labels ?? []).map((l) => l.name),
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async listPullRequests(): Promise<PullRequest[]> {
     const out = this.run([
       "pr",

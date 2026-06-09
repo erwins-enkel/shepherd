@@ -121,6 +121,34 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  async getIssue(issueNumber: number): Promise<Issue | null> {
+    // Fresh, uncached single-issue read for the drain's pre-spawn claim re-check
+    // (see GitForge.getIssue). Best-effort: a gone/closed issue or a transient error
+    // yields null so the caller falls back to spawning, never loses the issue.
+    try {
+      const i = (await this.req("GET", `/api/v1/repos/${this.slug}/issues/${issueNumber}`)) as {
+        number: number;
+        title: string;
+        body?: string;
+        html_url: string;
+        labels?: Array<{ name: string }>;
+        created_at?: string;
+      } | null;
+      if (!i) return null;
+      const ts = Date.parse(i.created_at ?? "");
+      return {
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        url: i.html_url,
+        labels: (i.labels ?? []).map((l) => l.name),
+        createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** One combined-status call yields both the worst-of rollup (top-level `state`)
    *  and the per-context breakdown (`statuses[]`) for the PRs-tab expand view. */
   private async commitChecks(

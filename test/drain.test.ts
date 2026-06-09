@@ -29,6 +29,7 @@ interface ForgeRec {
   closedIssues: number[];
   added: { number: number; label: string }[];
   removed: { number: number; label: string }[];
+  getIssueCalls: number[];
 }
 
 function fakeForge(
@@ -40,7 +41,9 @@ function fakeForge(
     closeIssue?: (n: number) => Promise<void>;
     ensureIssueLink?: (prNumber: number, issueNumber: number) => Promise<void>;
     addIssueLabel?: (n: number, label: string) => Promise<void>;
+    getIssue?: (n: number) => Promise<Issue | null>;
     omitCloseIssue?: boolean;
+    omitGetIssue?: boolean;
   } = {},
 ): GitForge {
   return {
@@ -81,6 +84,17 @@ function fakeForge(
     removeIssueLabel: async (number: number, label: string) => {
       rec.removed.push({ number, label });
     },
+    // omitGetIssue models a forge that doesn't implement the optional method (the
+    // pre-spawn re-check then degrades to the cached candidate set + local dedup).
+    // The default returns the fresh issue from the same list source, so an
+    // unclaimed candidate spawns as before.
+    getIssue: opts.omitGetIssue
+      ? undefined
+      : async (number: number) => {
+          rec.getIssueCalls.push(number);
+          if (opts.getIssue) return opts.getIssue(number);
+          return issues.find((i) => i.number === number) ?? null;
+        },
   };
 }
 
@@ -109,7 +123,9 @@ function makeHarness(
     onArchived?: (h: Harness, id: string) => void;
     addIssueLabelImpl?: (n: number, label: string) => Promise<void>;
     closeIssueImpl?: (n: number) => Promise<void>;
+    getIssueImpl?: (n: number) => Promise<Issue | null>;
     omitCloseIssue?: boolean;
+    omitGetIssue?: boolean;
     createImpl?: () => Promise<void>;
   } = {},
 ): Harness {
@@ -135,13 +151,16 @@ function makeHarness(
     closedIssues: [],
     added: [],
     removed: [],
+    getIssueCalls: [],
   };
   const forge = fakeForge(opts.issues ?? [], forgeRec, {
     merge: opts.mergeImpl,
     listIssues: opts.listIssuesImpl,
     addIssueLabel: opts.addIssueLabelImpl,
     closeIssue: opts.closeIssueImpl,
+    getIssue: opts.getIssueImpl,
     omitCloseIssue: opts.omitCloseIssue,
+    omitGetIssue: opts.omitGetIssue,
   });
 
   const prCache: Record<string, GitState> = {};
@@ -649,6 +668,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     closedIssues: [],
     added: [],
     removed: [],
+    getIssueCalls: [],
   };
   const forge = fakeForge([issue(1)], forgeRec);
   const creates: CreateSessionInput[] = [];
@@ -817,6 +837,48 @@ test("queue: [] when drain disabled, never hits the forge", async () => {
 
 test("spawn claims the issue: stamps ACTIVE_LABEL on the host", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [issue(1)] });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1);
+  expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+});
+
+test("pre-spawn re-check: a fresh read showing ACTIVE_LABEL (claimed by another instance) yields — no spawn, no stamp", async () => {
+  // The cached candidate list still shows #1 unclaimed, but a fresh read reveals
+  // another instance stamped it since (the stale-cache race). doSpawn must yield.
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [issue(1)],
+    getIssueImpl: async (n) => issue(n, { labels: ["shepherd:auto", ACTIVE_LABEL] }),
+  });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0); // did not spawn
+  expect(h.forgeRec.added).toHaveLength(0); // did not even stamp its own claim
+  expect(h.forgeRec.getIssueCalls).toContain(1); // the re-check actually ran
+});
+
+test("pre-spawn re-check: a fresh read showing the issue unclaimed spawns normally (stamp + create)", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [issue(1)] });
+  await h.drain.pump(REPO);
+  expect(h.forgeRec.getIssueCalls).toContain(1); // re-check consulted
+  expect(h.creates).toHaveLength(1);
+  expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+});
+
+test("pre-spawn re-check is best-effort: getIssue throwing still spawns (drain never stalls)", async () => {
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [issue(1)],
+    getIssueImpl: async () => {
+      throw new Error("getIssue boom");
+    },
+  });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1); // fell through to spawn
+  expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+});
+
+test("pre-spawn re-check on a forge WITHOUT getIssue degrades to spawning (no regress)", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [issue(1)], omitGetIssue: true });
   await h.drain.pump(REPO);
   expect(h.creates).toHaveLength(1);
   expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);

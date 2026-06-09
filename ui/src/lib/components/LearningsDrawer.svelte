@@ -109,6 +109,8 @@
   const empty = $derived(groups.length === 0);
 </script>
 
+<div class="scrim" aria-hidden="true" onclick={() => onclose()}></div>
+
 <div
   class="drawer"
   role="dialog"
@@ -295,6 +297,10 @@
 </div>
 
 <style>
+  /* backdrop sits just below the panel; .scrim (app.css) supplies dim + blur */
+  .scrim {
+    z-index: 49;
+  }
   .drawer {
     position: fixed;
     top: 0;

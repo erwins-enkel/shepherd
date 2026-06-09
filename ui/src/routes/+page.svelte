@@ -50,6 +50,7 @@
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
+  import { railOrder, cycleId, nthId, nextNeedsYou } from "$lib/components/herd-keynav";
   import {
     collectReadyPrs,
     mergeTrainCreateInput,
@@ -426,6 +427,29 @@
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
   }
 
+  // The herd rail's visible session order (same partition + group order
+  // Herd.svelte renders) — the j/k/1-9 navigation space. Computed on demand at
+  // keypress time, not $derived: re-partitioning on every nowMs tick would be
+  // wasted work for a value only keystrokes read.
+  function railIds(): string[] {
+    return railOrder(
+      herdSessions,
+      store.git,
+      (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      nowMs,
+    );
+  }
+
+  // Keyboard-driven selection: route through the same selectUnit a rail click
+  // uses, then keep the now-selected row visible in the rail's scroll area.
+  function keyNavSelect(id: string | null) {
+    if (!id) return;
+    selectUnit(id);
+    document
+      .querySelector(`[data-unit-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }
+
   // Global single-key shortcuts (no modifier → zero browser/terminal conflict,
   // works on every platform). Desktop only, and suppressed while typing or while
   // any modal/overlay is open so a stray "n"/"b" can't stack dialogs.
@@ -444,7 +468,8 @@
       showWhatsNew
     )
       return;
-    switch (e.key.toLowerCase()) {
+    const key = e.key.toLowerCase();
+    switch (key) {
       case "n":
         e.preventDefault();
         showNew = true;
@@ -456,6 +481,38 @@
           showBacklog = true;
         }
         break;
+      // j/k (vim) + arrows cycle selection through the rail's visible order,
+      // wrapping at the ends. preventDefault keeps arrows from also scrolling.
+      case "j":
+      case "arrowdown":
+        e.preventDefault();
+        keyNavSelect(cycleId(railIds(), selectedId, 1));
+        break;
+      case "k":
+      case "arrowup":
+        e.preventDefault();
+        keyNavSelect(cycleId(railIds(), selectedId, -1));
+        break;
+      // g jumps to the next session that needs you (cycling among blocked ones);
+      // silently a no-op when nothing is blocked.
+      case "g":
+        e.preventDefault();
+        keyNavSelect(
+          nextNeedsYou(
+            blockedEntries.map((entry) => entry.session.id),
+            selectedId,
+          ),
+        );
+        break;
+      default:
+        // 1-9 select the Nth visible session in rail order
+        if (key >= "1" && key <= "9") {
+          const id = nthId(railIds(), Number(key));
+          if (id) {
+            e.preventDefault();
+            keyNavSelect(id);
+          }
+        }
     }
   }
 
@@ -465,18 +522,14 @@
 
   // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
   // as the NEEDS YOU badge) starting after the current one, wrapping around.
+  // Same pure helper the "g" shortcut uses, so button and key can't drift.
   function jumpNextNeedsYou() {
-    const entries = blockedEntries;
-    if (entries.length === 0) return;
-    const idx = entries.findIndex((e) => e.session.id === selectedId);
-    const start = idx === -1 ? 0 : idx + 1;
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[(start + i) % entries.length];
-      if (e.session.id !== selectedId) {
-        selectUnit(e.session.id);
-        return;
-      }
-    }
+    keyNavSelect(
+      nextNeedsYou(
+        blockedEntries.map((entry) => entry.session.id),
+        selectedId,
+      ),
+    );
   }
 
   // if the selected unit disappears while in mobile detail, fall back to the list

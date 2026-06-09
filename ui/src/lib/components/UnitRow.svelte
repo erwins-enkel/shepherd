@@ -190,6 +190,7 @@
     class:sel={selected}
     class:has-activity={live}
     class:decommissioning
+    data-unit-id={session.id}
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
   >
     <button

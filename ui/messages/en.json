@@ -548,6 +548,8 @@
   "viewport_type_steer_hint": "⌁ type to steer",
   "viewport_detach_hint": "⇥ detach",
   "viewport_select_hint": "{key} drag to copy",
+  "viewport_keynav_hint": "j/k/1–9 switch session",
+  "viewport_keynav_needsyou_hint": "g needs you",
   "viewport_parked_title": "Active on another device",
   "viewport_parked_sub": "Tap to take over",
   "viewport_session_ended": "── session ended ──",
@@ -837,5 +839,7 @@
   "feat_backlog_recent_repos_title": "Recent repos pinned in the backlog",
   "feat_backlog_recent_repos_body": "The backlog's repo list now starts with the three repos you've recently run the most agents on — ranked by the same criteria as the New Task repo picker's \"recently worked on\" group.",
   "feat_product_story_title": "The story, stated",
-  "feat_product_story_body": "Shepherd now says what it is: opinionated mission control for interactive Claude Code. The About section in Settings carries the two-pillar story — genuine sessions you steer by typing, and firm opinions on how agent-built software ships — and the README leads with it."
+  "feat_product_story_body": "Shepherd now says what it is: opinionated mission control for interactive Claude Code. The About section in Settings carries the two-pillar story — genuine sessions you steer by typing, and firm opinions on how agent-built software ships — and the README leads with it.",
+  "feat_herd_keynav_title": "Herd keyboard navigation",
+  "feat_herd_keynav_body": "Reach any session without the mouse: j/k (or the arrow keys) cycle through the herd in rail order, 1–9 jump straight to the Nth session, and g hops to the next session that needs you. The keys stay out of the way while you type in the terminal or a form."
 }

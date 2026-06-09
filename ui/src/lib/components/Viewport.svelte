@@ -1403,6 +1403,8 @@
         type="button"
         onclick={onnextneedsyou}
         aria-label={m.viewport_next_needs_you_aria()}
+        title={!compact ? m.actionbar_shortcut_hint({ key: "G" }) : undefined}
+        aria-keyshortcuts={!compact ? "g" : undefined}
       >
         {#if compact}
           <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{nextNeedsYou}</span>
@@ -1936,6 +1938,10 @@
       <span>{m.viewport_detach_hint()}</span>
       <span class="sep">·</span>
       <span>{m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}</span>
+      <span class="sep">·</span>
+      <span>{m.viewport_keynav_hint()}</span>
+      <span class="sep">·</span>
+      <span>{m.viewport_keynav_needsyou_hint()}</span>
     </div>
   {/if}
 </div>

@@ -1,5 +1,5 @@
 import { readdirSync, readlinkSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { jsonlPathFor } from "./usage";
 import { eachJsonlObject } from "./jsonl";
 

@@ -1,4 +1,5 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
 import { promisify } from "node:util";

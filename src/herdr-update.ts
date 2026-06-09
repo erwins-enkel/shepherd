@@ -1,4 +1,5 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import type { HerdrUpdateStatus } from "./types";

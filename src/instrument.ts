@@ -101,6 +101,23 @@ export const execFileSync: typeof nodeExecFileSync = ((
   return timed(label, () => nodeExecFileSync(...(args as Parameters<typeof nodeExecFileSync>)));
 }) as typeof nodeExecFileSync;
 
+// ── startup blocker map ───────────────────────────────────────────────────────
+
+/**
+ * Emit a one-time operator map of sync calls intentionally left on the event
+ * loop (local/fast). Called once at startup regardless of the profile flag.
+ */
+export function logRemainingOnLoopBlockers(): void {
+  console.info(
+    "[profile] on-loop sync calls remaining (local/fast, instrumented):" +
+      " herdr list/read (local daemon IPC)," +
+      " local git in branch-pruner/repos/branches/worktree/plan-gate/review," +
+      " herdr --version (herdr-update)," +
+      " git remote get-url (forge/index, backlog)," +
+      " process-reaper kill.",
+  );
+}
+
 // ── readFileSync passthrough ──────────────────────────────────────────────────
 
 /**

@@ -50,9 +50,23 @@ export function connectPty(
   // (the viewport may have changed — rotation, keyboard — while backgrounded)
   let lastCols = cols;
   let lastRows = rows;
+  // Tell a herdr server that's gone for good (e.g. its server was stopped by a
+  // failed `herdr update`) apart from a momentary blip. Every attach against a
+  // dead herdr opens then drops within milliseconds, and reconnecting just spews
+  // `Error: Os { code: 2, … NotFound }` forever (no agent socket to attach to).
+  // We count consecutive attaches that die within FAST_FAIL_MS of opening; once
+  // they pass MAX_FAST_FAILS we stop and surface the ended/Resume affordance
+  // instead of looping. A connection that lived past the window (a real session
+  // that later dropped) resets the counter, so a single herdr restart/handoff
+  // rides through normally.
+  let openedAt = 0;
+  let fastFails = 0;
+  const FAST_FAIL_MS = 4000;
+  const MAX_FAST_FAILS = 8;
 
   const open = () => {
     parked = false;
+    openedAt = 0;
     if (retry) {
       clearTimeout(retry);
       retry = null;
@@ -62,6 +76,7 @@ export function connectPty(
     ws.onmessage = (e) =>
       onData(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data));
     ws.onopen = () => {
+      openedAt = Date.now();
       if (everOpened) onReconnect();
       everOpened = true;
     };
@@ -80,7 +95,20 @@ export function connectPty(
         onEnded();
         return;
       }
-      if (!stopped && !parked && !retry) retry = setTimeout(open, 1000);
+      // conn.close() / a terminal state already stopped us → don't revive
+      if (stopped || parked) return;
+      // herdr unreachable? a dead-herdr attach opens then drops at once; a
+      // connection that lived past the window was a real session → reset.
+      const livedMs = openedAt ? Date.now() - openedAt : 0;
+      fastFails = livedMs >= FAST_FAIL_MS ? 0 : fastFails + 1;
+      if (fastFails >= MAX_FAST_FAILS) {
+        // herdr is gone for good (not a blip) — stop the attach loop and let the
+        // caller surface the ended/Resume affordance instead of error spam.
+        stopped = true;
+        onEnded();
+        return;
+      }
+      if (!retry) retry = setTimeout(open, 1000);
     };
     ws.onerror = () => ws.close();
   };

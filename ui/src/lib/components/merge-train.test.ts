@@ -100,6 +100,69 @@ describe("collectReadyPrs", () => {
       { sessionId: "a", number: 9, title: "", url: "", repoPath: "/repo/a" },
     ]);
   });
+
+  it("excludes an in-review ready-to-merge session with an open PR", () => {
+    const sessions = [session({ id: "a", readyToMerge: true, repoPath: "/repo/a" })];
+    const git: Record<string, GitState> = { a: openPr(11, "feat: a", "https://h/pull/11") };
+    // review in flight → not settled, drop it even though the PR is open
+    expect(collectReadyPrs(sessions, git, (id) => id === "a")).toEqual([]);
+  });
+
+  it("includes the same session once its review clears (predicate false)", () => {
+    const sessions = [session({ id: "a", readyToMerge: true, repoPath: "/repo/a" })];
+    const git: Record<string, GitState> = { a: openPr(11, "feat: a", "https://h/pull/11") };
+    expect(collectReadyPrs(sessions, git, () => false)).toEqual([
+      {
+        sessionId: "a",
+        number: 11,
+        title: "feat: a",
+        url: "https://h/pull/11",
+        repoPath: "/repo/a",
+      },
+    ]);
+  });
+
+  it("count==action: display subset and full set agree on dropping the in-review PR", () => {
+    // display path (Herd.svelte) collects from a filtered `shown` subset; the
+    // action path (+page.svelte) collects from the full session list. With the
+    // same predicate both must drop the in-review session so the link can never
+    // advertise a train target the click then merges.
+    const inReview = session({ id: "a", readyToMerge: true, repoPath: "/repo/a" });
+    const settled = session({ id: "b", readyToMerge: true, repoPath: "/repo/a" });
+    const full = [inReview, settled];
+    const subset = [settled]; // `a` filtered out of the displayed list
+    const git: Record<string, GitState> = {
+      a: openPr(11, "feat: a", "https://h/pull/11"),
+      b: openPr(22, "feat: b", "https://h/pull/22"),
+    };
+    const isReviewing = (id: string) => id === "a";
+    const expected = [
+      {
+        sessionId: "b",
+        number: 22,
+        title: "feat: b",
+        url: "https://h/pull/22",
+        repoPath: "/repo/a",
+      },
+    ];
+    expect(collectReadyPrs(full, git, isReviewing)).toEqual(expected);
+    expect(collectReadyPrs(subset, git, isReviewing)).toEqual(expected);
+  });
+
+  it("default 2-arg call keeps current behavior (no review exclusion)", () => {
+    const sessions = [session({ id: "a", readyToMerge: true, repoPath: "/repo/a" })];
+    const git: Record<string, GitState> = { a: openPr(11, "feat: a", "https://h/pull/11") };
+    // omitting the predicate defaults to () => false → in-review state irrelevant
+    expect(collectReadyPrs(sessions, git)).toEqual([
+      {
+        sessionId: "a",
+        number: 11,
+        title: "feat: a",
+        url: "https://h/pull/11",
+        repoPath: "/repo/a",
+      },
+    ]);
+  });
 });
 
 describe("formatReadyPrs", () => {

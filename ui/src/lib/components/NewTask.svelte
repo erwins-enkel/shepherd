@@ -660,7 +660,7 @@
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .run span {
-    max-width: 28ch;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -673,6 +673,7 @@
     box-shadow: none;
   }
   .kbd {
+    flex-shrink: 0;
     font: inherit;
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;

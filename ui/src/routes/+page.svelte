@@ -16,6 +16,7 @@
     getStarPrompt,
     gitStates,
     activityStates,
+    claudeAliveStates,
     previewStates,
     getBacklog,
     getSettings,
@@ -228,6 +229,9 @@
       .catch(() => {});
     activityStates()
       .then((m) => store.setActivity(m))
+      .catch(() => {});
+    claudeAliveStates()
+      .then((m) => store.setClaudeAlive(m))
       .catch(() => {});
     previewStates()
       .then((m) => {
@@ -511,6 +515,9 @@
       .catch(() => {});
     activityStates()
       .then((m) => store.setActivity(m))
+      .catch(() => {});
+    claudeAliveStates()
+      .then((m) => store.setClaudeAlive(m))
       .catch(() => {});
     previewStates()
       .then((m) => {
@@ -856,6 +863,7 @@
             limits={store.usageLimits}
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
+            claudeAlive={store.claudeAlive[selected.id]}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
@@ -930,6 +938,7 @@
             touch={touch.current}
             git={store.git[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
+            claudeAlive={store.claudeAlive[selected.id]}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}

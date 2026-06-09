@@ -124,6 +124,10 @@ export interface AppDeps {
   ownsPr?: (s: Session, headSha: string) => boolean | null;
   /** Last-emitted activity signal per running session, for client bootstrap; absent in tests that skip it. */
   activity?: { snapshot(): Record<string, SessionActivity> };
+  /** Last-swept claude-process liveness per session (does a `claude` process still
+   *  live in the worktree?), for client bootstrap; updates flow via the
+   *  `session:claude-alive` event. Absent in tests that skip it. */
+  claudeAlive?: { snapshot(): Record<string, boolean> };
   /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
    *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
@@ -230,6 +234,13 @@ function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "activity" && !parts[2]) {
     return json(deps.activity?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "claude-alive" && !parts[2]) {
+    return json(deps.claudeAlive?.snapshot() ?? {});
   }
   return null;
 }
@@ -2271,6 +2282,7 @@ const ROUTE_HANDLERS = [
   handlePing,
   handleGitSnapshot,
   handleActivitySnapshot,
+  handleClaudeAliveSnapshot,
   handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,

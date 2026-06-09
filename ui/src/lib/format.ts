@@ -2,20 +2,22 @@ import { m } from "$lib/paraglide/messages";
 import type { Session, SessionStatus } from "./types";
 
 /**
- * Whether to offer a Resume control for a session. True for any idle/done session
- * with a pinned claude id — deliberately ALL of them, not just husks.
+ * Whether to offer a Resume control for a session: idle/done with a pinned
+ * claude id, and the claude process verifiably gone.
  *
- * We'd love to show it only when claude has actually exited to a bare shell, but
- * herdr ≥0.6 `agent list` exposes no per-agent command/liveness field (just
- * agent_status/name/cwd), so a husk shell and an idle-at-prompt claude are
- * indistinguishable from the API, and scraping the TUI is fragile (stale
- * scrollback fools it). So the control is a user-initiated escape hatch shown
- * whenever it *could* be needed; a user looking at a live claude pane has no
- * reason to click it. Running (working) / blocked (awaiting input) are
- * unambiguously live, so they're excluded.
+ * herdr ≥0.6 `agent list` exposes no per-agent command/liveness field, so a husk
+ * shell and an idle-at-prompt claude are indistinguishable from its API. The
+ * server fills that gap with a /proc scan (is a `claude` process still rooted in
+ * the session's worktree?) pushed as `session:claude-alive` and passed in here as
+ * `claudeAlive`. Only a confirmed-alive claude (`true`) hides the control;
+ * `undefined` (not swept yet / older server) keeps the old offer-always behavior
+ * so a husk is never left without an affordance. Running (working) / blocked
+ * (awaiting input) are unambiguously live, so they're excluded regardless.
  */
-export function canResume(s: Session): boolean {
-  return !!s.claudeSessionId && (s.status === "idle" || s.status === "done");
+export function canResume(s: Session, claudeAlive?: boolean): boolean {
+  return (
+    !!s.claudeSessionId && (s.status === "idle" || s.status === "done") && claudeAlive !== true
+  );
 }
 
 /**

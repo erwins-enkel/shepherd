@@ -314,6 +314,32 @@ function portsForProcBatched(
 }
 
 /**
+ * Which of the given worktrees currently host a live `claude` agent process
+ * (comm == "claude", cwd under the worktree). A single scanProcs() pass with no
+ * per-pid fd reads — cheap enough for a frequent poller sweep. This is the
+ * husk detector herdr's `agent list` can't provide: a claude that exited to a
+ * bare shell keeps its agent listed as idle, but its process is gone from /proc.
+ * Sessions sharing a cwd (non-isolated, same repo) share one verdict — any
+ * claude in the dir counts for all of them.
+ *
+ * Returns a Map with every supplied worktreePath as a key (false when no claude).
+ */
+export function scanClaudeAliveByWorktree(
+  worktreePaths: string[],
+  probes: ReaperProbes = defaultProbes,
+): Map<string, boolean> {
+  const result = new Map<string, boolean>(worktreePaths.map((p) => [p, false]));
+  if (worktreePaths.length === 0) return result;
+  const roots = worktreePaths.map((p) => p.replace(/\/+$/, ""));
+  for (const proc of probes.scanProcs()) {
+    if (!AGENT_COMMS.has(proc.comm)) continue;
+    const matchedPath = matchWorktreePath(proc.cwd, roots, worktreePaths);
+    if (matchedPath !== null) result.set(matchedPath, true);
+  }
+  return result;
+}
+
+/**
  * Scan listening ports for a set of worktree paths in a single pass.
  *
  * Builds the listening inode→port map EXACTLY ONCE, then resolves each

@@ -166,7 +166,6 @@
   .entry-version {
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
-    text-transform: uppercase;
   }
   .entry-date {
     color: var(--color-muted);

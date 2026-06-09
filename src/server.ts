@@ -1527,9 +1527,13 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
   if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
     if (req.method === "GET") {
       const lastUsed = deps.store.lastUsedByRepo();
-      // "recently worked on" shortcut: agents run per repo over the last 3 days.
-      const RECENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-      const recentCounts = deps.store.recentSessionCountsByRepo(Date.now() - RECENT_WINDOW_MS);
+      // "recently worked on" shortcut: agents run per repo over a recent window.
+      // Keep RECENT_WINDOW_DAYS in sync with the UI's copy in RepoSelect.svelte —
+      // the picker labels the count with the same day count.
+      const RECENT_WINDOW_DAYS = 3;
+      const recentCounts = deps.store.recentSessionCountsByRepo(
+        Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      );
       const repos = listRepos(config.repoRoot).map((r) => ({
         ...r,
         lastUsedAt: lastUsed[r.path],

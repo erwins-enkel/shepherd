@@ -438,6 +438,15 @@
   "viewport_preview_tab": "Vorschau",
   "viewport_preview_open_new_tab": "In neuem Tab öffnen",
   "viewport_preview_setup_hint": "Leer? Stelle sicher, dass der Vorschau-Port über Tailscale erreichbar ist — siehe Setup.",
+  "viewport_preview_start": "▶ Devserver starten",
+  "viewport_preview_start_note": "Tippt einen Entwicklungsserver-Startbefehl in das aktive Terminal des Agenten",
+  "viewport_preview_start_sent": "Vorschau-Start an {name} gesendet — läuft: {command}",
+  "viewport_preview_start_failed": "Vorschau konnte nicht gestartet werden — Terminal auf Details prüfen",
+  "viewport_preview_start_confirm_working": "▶ Start bestätigen (Agent aktiv)",
+  "viewport_preview_already_bound": "Vorschau ist bereits aktiv",
+  "viewport_preview_command_prompt": "Startbefehl für Entwicklungsserver",
+  "viewport_preview_command_placeholder": "z.B. npm run dev",
+  "viewport_preview_command_send": "Senden",
   "unitrow_preview_badge": "Vorschau",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, Merge, Kritiker & Merge-Freigabe",
@@ -796,5 +805,7 @@
   "feat_resume_session_title": "Eine geparkte Session fortsetzen",
   "feat_resume_session_body": "Wenn Claude sich beendet und die Session an einer nackten Shell zurücklässt (z. B. nach einem herdr-Neustart), stehst du nicht mehr ohne Weg zurück da. Im Session-Kopf erscheint jetzt ein ↻ Fortsetzen-Knopf – und ein Rechtsklick (oder langes Drücken) auf eine Session-Karte bietet Fortsetzen ebenfalls an –, der `claude --resume` neu startet und dich direkt zurück ins Gespräch bringt.",
   "feat_draft_mode_title": "Entwurfs-PRs mit Freigabesteuerung",
-  "feat_draft_mode_body": "Aktiviere den Entwurfsmodus, damit jeder neue PR als Entwurf geöffnet wird — er bleibt aus der Merge-Queue heraus, bis er freigegeben ist. Wähle, wer ihn promoten darf: ein Mensch, der Critic oder beide. Schließt Voll-Auto-Merge aus."
+  "feat_draft_mode_body": "Aktiviere den Entwurfsmodus, damit jeder neue PR als Entwurf geöffnet wird — er bleibt aus der Merge-Queue heraus, bis er freigegeben ist. Wähle, wer ihn promoten darf: ein Mensch, der Critic oder beide. Schließt Voll-Auto-Merge aus.",
+  "feat_preview_start_title": "Dev-Server direkt aus dem HUD starten",
+  "feat_preview_start_body": "Hat ein Agent noch keine Live-Vorschau, erscheint ein Start-Steuerelement in seinem Viewport. Ein Klick genügt, damit der Agent seinen Dev-Server startet — automatisch erkannt aus der package.json oder per eigenem Befehl — und du die laufende App sofort vorschauen kannst, ohne zu warten, bis der Agent selbst auf die Idee kommt."
 }

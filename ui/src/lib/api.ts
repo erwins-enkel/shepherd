@@ -843,3 +843,29 @@ export async function actStarPrompt(
   if (!r.ok) throw await failed(r, "star prompt");
   return r.json();
 }
+
+/** Steer the agent to start its dev-server preview.
+ *  - `{ok, command}` — directive sent; the agent will start the server.
+ *  - `{needCommand}` — no command auto-detected; caller must collect one and retry.
+ *  - `{alreadyBound}` — a preview port is already live (benign race).
+ *  Throws on 404 (unknown/dead session) or any other unexpected failure. */
+export async function startPreview(
+  id: string,
+  command?: string,
+): Promise<{ needCommand: true } | { alreadyBound: true } | { ok: true; command: string }> {
+  const r = await fetch(`/api/sessions/${id}/preview/start`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(command ? { command } : {}),
+  });
+  // Read the body exactly once — both 409 variants and ok all need it.
+  const body = (await r.json().catch(() => ({}))) as {
+    ok?: boolean;
+    command?: string;
+    error?: string;
+  };
+  if (r.ok) return { ok: true, command: body.command ?? "" };
+  if (r.status === 409 && body.error === "command_unknown") return { needCommand: true };
+  if (r.status === 409 && body.error === "already_bound") return { alreadyBound: true };
+  throw new Error(body.error ?? `startPreview failed: ${r.status}`);
+}

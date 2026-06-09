@@ -37,6 +37,7 @@ import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
 import { sessionTokens, jsonlPathFor } from "./usage";
+import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
 import type { UsageLimitsService } from "./usage-limits";
@@ -988,6 +989,38 @@ function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
     : json({ error: "plan not approved or not in planning phase" }, 409);
 }
 
+// POST /api/sessions/:id/preview/start — steer the agent to start its dev server.
+// Flow: already_bound? → 409. Resolve command (body.command ?? detectDevCommand). No
+// command? → 409. Steer → true → 200; false (dead pane / unknown) → 404.
+async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "preview" && parts[4] === "start"))
+    return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+
+  const id = parts[2];
+
+  // 1. Already-bound check FIRST, before any fs work.
+  if (deps.preview?.snapshot()[id]?.previewPort != null) {
+    return json({ error: "already_bound" }, 409);
+  }
+
+  const s = deps.store.get(id);
+  if (!s) return json({ error: "not found" }, 404);
+
+  const body = (await req.json().catch(() => null)) as { command?: unknown } | null;
+  const rawCommand = body && typeof body.command === "string" ? body.command.trim() : undefined;
+  const bodyCommand = rawCommand || undefined;
+
+  // 2. Resolve command: explicit body.command OR auto-detect.
+  const command = bodyCommand ?? (await detectDevCommand(s.worktreePath));
+  if (!command) return json({ error: "command_unknown" }, 409);
+
+  // 3. Steer the agent.
+  const ok = deps.service.startPreview(id, command);
+  return ok ? json({ ok: true, command }) : json({ error: "not found" }, 404);
+}
+
 // POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
 // 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
 // `status` tells the caller whether a reviewer actually spawned ("started"), the plan was a
@@ -1234,6 +1267,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReply,
     handleSessionGo,
     handleSessionReviewPlan,
+    handlePreviewStart,
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,

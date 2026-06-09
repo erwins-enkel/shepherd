@@ -187,6 +187,19 @@
   // the fold only applies on the compact layout (it's the mobile space-saver);
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
+  // a11y: the fold button's aria-controls points at the tab switcher — the always-
+  // mounted primary region it collapses (the git rail + build queue come and go with
+  // the fold, so they can't carry a stable controlled-region id). Per-session id so
+  // it stays unique if ever more than one viewport mounts.
+  const foldRegionId = $derived(`vp-fold-region-${session.id}`);
+
+  function toggleFold() {
+    headerCollapsed = !headerCollapsed;
+    // folding hides the tab switcher, so a non-terminal tab would be stranded with no
+    // way back except unfolding — and its panel would keep filling the body, reclaiming
+    // nothing. Land on the terminal (the view this fold exists to enlarge).
+    if (headerCollapsed) tab = "term";
+  }
 
   // phone merged header: the repo + session that used to live in the top bar
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
@@ -1213,7 +1226,7 @@
       {@render renameControl()}
     {/if}
     <div class="spacer"></div>
-    <div class="tab-group" class:mobile={compact} class:folded={headerFolded}>
+    <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
       <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
         >{m.viewport_terminal_tab()}</button
       >
@@ -1329,11 +1342,17 @@
           class="vp-fold"
           type="button"
           aria-expanded={!headerCollapsed}
+          aria-controls={foldRegionId}
           aria-label={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
           title={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
-          onclick={() => (headerCollapsed = !headerCollapsed)}
+          onclick={toggleFold}
         >
-          <span aria-hidden="true">{headerCollapsed ? "▾" : "▴"}</span>
+          <!-- chevron points the way the secondary chrome moves, per the user's
+               explicit "Pfeil nach unten" request: ▾ while expanded (tap to fold it
+               down/away), ▴ once folded (tap to bring it back up). This intentionally
+               inverts the desktop git-toggle's disclosure caret, which is a separate
+               control that never co-renders with this one. -->
+          <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
         </button>
       {/if}
       <button

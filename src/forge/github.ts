@@ -407,7 +407,7 @@ export class GithubForge implements GitForge {
   async currentUser(): Promise<string | null> {
     if (this.cachedUser !== undefined) return this.cachedUser;
     try {
-      this.cachedUser = this.run(["api", "user", "--jq", ".login"]).trim() || null;
+      this.cachedUser = (await this.run(["api", "user", "--jq", ".login"])).trim() || null;
     } catch {
       this.cachedUser = null; // unauth / offline → treat as "unknown me"
     }
@@ -417,7 +417,7 @@ export class GithubForge implements GitForge {
   async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
     try {
       // --paginate so a repo with >30 collaborators isn't silently truncated.
-      const out = this.run([
+      const out = await this.run([
         "api",
         "--paginate",
         `repos/${this.slug}/collaborators`,

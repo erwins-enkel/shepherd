@@ -619,8 +619,9 @@
     border-color: var(--color-line-bright);
   }
   .opts-row {
+    /* flex-start: plan-gate label and MODEL caption share a top edge */
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
     margin-top: 10px;
   }

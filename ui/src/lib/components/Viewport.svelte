@@ -763,11 +763,23 @@
     };
     el.addEventListener("click", onTap);
 
-    // copy-on-select: Ctrl+C in a focused terminal sends SIGINT to the agent rather
-    // than copying. Copy the xterm selection to the clipboard on mouseup so users can
-    // get selected text out. A plain click clears xterm's selection first, so
-    // getSelection() is empty on a non-drag click → no spurious copy.
-    const onCopyMouseUp = () => {
+    // copy-on-select: Ctrl+C in a focused terminal sends SIGINT to the agent
+    // rather than copying, so copy the xterm selection to the clipboard when a
+    // drag-select finishes. xterm tracks the drag with document-level listeners,
+    // so the pointer can be released outside the terminal element — listen for
+    // mouseup on the document (gated to drags that began in the terminal) rather
+    // than on el, so those releases still copy. The mousedown gate is capture-
+    // phase: xterm stops the mousedown from bubbling to el, so a bubble-phase
+    // listener never sees it — capture fires top-down before xterm can swallow
+    // it. A plain click clears xterm's selection first, so getSelection() is
+    // empty → no spurious copy.
+    let selectingInTerm = false;
+    const onTermMouseDown = () => {
+      selectingInTerm = true;
+    };
+    const onDocMouseUp = () => {
+      if (!selectingInTerm) return;
+      selectingInTerm = false;
       const sel = term.getSelection();
       if (sel) {
         navigator.clipboard?.writeText(sel)?.catch((err) => {
@@ -775,7 +787,8 @@
         });
       }
     };
-    el.addEventListener("mouseup", onCopyMouseUp);
+    el.addEventListener("mousedown", onTermMouseDown, true);
+    document.addEventListener("mouseup", onDocMouseUp);
 
     // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
     // silently dropped. Intercept in the capture phase (before xterm's textarea
@@ -910,7 +923,8 @@
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
-      el?.removeEventListener("mouseup", onCopyMouseUp);
+      el?.removeEventListener("mousedown", onTermMouseDown, true);
+      document.removeEventListener("mouseup", onDocMouseUp);
       el?.removeEventListener("paste", onPaste, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);

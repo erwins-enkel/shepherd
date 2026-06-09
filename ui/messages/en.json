@@ -814,5 +814,13 @@
   "feat_active_label_newtask_title": "Claimed issues stand out in New Task",
   "feat_active_label_newtask_body": "When you seed a New Task from a GitHub issue, any issue already claimed by an active Shepherd agent now shows its shepherd:active label highlighted — surfaced first and tinted with the running-session hue — so you can tell at a glance which issues are already being worked on.",
   "feat_recent_repos_title": "Recent repos pinned to the top of the picker",
-  "feat_recent_repos_body": "The repo picker in New Task now pins the three repos you've run the most agents on over the last 3 days to the top, set apart and ranked by agent count — so the repos you're actively working on are one click away instead of buried in the alphabetical list."
+  "feat_recent_repos_body": "The repo picker in New Task now pins the three repos you've run the most agents on over the last 3 days to the top, set apart and ranked by agent count — so the repos you're actively working on are one click away instead of buried in the alphabetical list.",
+  "feat_fable_title": "Claude Fable 5 is here",
+  "feat_fable_body": "Anthropic's most powerful model is now selectable in New Task. Pick \"fable\" for the hardest, longest-horizon work. Heads-up: it's the premium tier with higher token costs than Opus — reach for it when the task is worth it.",
+  "fable_arrival_aria": "Claude Fable 5 has arrived",
+  "fable_arrival_eyebrow": "New model",
+  "fable_arrival_title": "Fable 5 has arrived",
+  "fable_arrival_body": "Anthropic's most powerful model is now available in Shepherd. Pick \"fable\" in New Task for the most demanding work. It's the premium tier — higher token costs than Opus — so save it for the tasks that earn it.",
+  "fable_arrival_try": "Try Fable 5",
+  "fable_arrival_dismiss": "Maybe later"
 }

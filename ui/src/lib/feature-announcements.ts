@@ -15,6 +15,11 @@ export type FeatureAnnouncement = {
   targetId?: string;
 };
 
+/** The catalog id for the Fable 5 launch. When this entry is "new" for an
+ *  upgrading user, +page.svelte fires the one-time FableArrival celebration
+ *  in addition to listing it in the What's-New drawer. */
+export const FABLE_FEATURE_ID = "fable-5";
+
 export const featureAnnouncements: readonly FeatureAnnouncement[] = [
   {
     id: "critic",
@@ -261,5 +266,16 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     sinceVersion: "1.21.0",
     titleKey: "feat_recent_repos_title",
     bodyKey: "feat_recent_repos_body",
+  },
+  {
+    // No targetId: the model picker lives in the New Task dialog (closed by default).
+    // Beyond this drawer line, an upgrading user also gets the one-time FableArrival
+    // celebration overlay — see FABLE_FEATURE_ID + FableArrival.svelte.
+    // v1.20.0 is already tagged, so this ships in the next release (1.21.0):
+    // computeNewEntries only surfaces entries with sinceVersion > lastSeen.
+    id: FABLE_FEATURE_ID,
+    sinceVersion: "1.21.0",
+    titleKey: "feat_fable_title",
+    bodyKey: "feat_fable_body",
   },
 ];

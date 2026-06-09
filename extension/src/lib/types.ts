@@ -61,7 +61,7 @@ export interface CaptureConfig {
   token: string;
   repoPath: string;
   baseBranch: string;
-  model: "opus" | "sonnet" | "haiku" | "default";
+  model: "fable" | "opus" | "sonnet" | "haiku" | "default";
   /** Per-signal toggles; persisted defaults, overridable per-capture in the popup. */
   signals: SignalToggles;
   /** URL→repo rules; first match overrides `repoPath`. Empty = always fall back. */

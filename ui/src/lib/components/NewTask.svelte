@@ -3,6 +3,7 @@
   import { listRepos, listBranches, getCommands, uploadImage } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
   import { MODELS, type Issue, type IssueRef, type RepoEntry, type SlashCommand } from "$lib/types";
+  import { defaultModel } from "$lib/fable-promo";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
@@ -19,6 +20,7 @@
     initialPrompt,
     initialRepoPath,
     initialIssue,
+    initialModel,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -34,6 +36,7 @@
     initialPrompt?: string;
     initialRepoPath?: string;
     initialIssue?: Issue;
+    initialModel?: string;
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -51,7 +54,12 @@
   // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
   let baseBranch = $state("main");
-  let model = $state("default"); // "default" → claude's own model (no --model flag)
+  // intentional one-time seed; NewTask remounts per open. During the Fable 5
+  // launch window defaultModel() preselects "fable"; after it, the prior
+  // "default" (claude's own model, no --model flag). An explicit initialModel
+  // (e.g. the celebration's "Try Fable" CTA) always wins.
+  // svelte-ignore state_referenced_locally
+  let model = $state(initialModel ?? defaultModel());
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   let planGate = $state(false);

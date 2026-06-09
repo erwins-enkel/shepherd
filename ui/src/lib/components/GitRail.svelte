@@ -775,7 +775,7 @@
     position: fixed;
     inset: 0;
     z-index: 50;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--color-scrim);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
   }

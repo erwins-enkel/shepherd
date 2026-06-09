@@ -5,7 +5,9 @@ import { randomUUID } from "node:crypto";
  *  or agent-written plan text), so a prompt-injection hidden there must not be able to run commands
  *  or escape its disposable worktree. `dontAsk` auto-denies anything off the allowlist (an
  *  unattended PTY would otherwise hang on a permission prompt); the allowlist is read-only
- *  inspection + read-only git + writing files in its own disposable worktree. */
+ *  inspection + read-only git + writing files in its own disposable worktree. The sandbox is also
+ *  MCP-isolated via --safe-mode (no MCP servers load, so no "trust this server?" prompt can hang
+ *  the unattended pane — dontAsk does not suppress that gate). */
 export function readonlyReviewerArgv(model: string | null, prompt: string): string[] {
   const argv = [
     "claude",
@@ -24,6 +26,20 @@ export function readonlyReviewerArgv(model: string | null, prompt: string): stri
     "--settings",
     '{"disableAllHooks":true}',
     "--disable-slash-commands",
+    // MCP isolation. A fresh `claude` startup loads MCP servers from THREE
+    // sources: file (.mcp.json / global ~/.claude.json), plugin-bundled, and
+    // claude.ai account connectors. A not-yet-trusted server triggers a "trust
+    // this MCP server?" prompt — a SEPARATE gate that dontAsk does NOT suppress;
+    // each review's fresh disposable-worktree path makes servers look "newly
+    // discovered", so the pane hangs invisibly to the Shepherd UI. --safe-mode
+    // disables ALL customizations incl. MCP servers (all three sources) while
+    // keeping Auth/tools/permissions normal — the OAuth-safe alternative to
+    // --bare (--strict-mcp-config would only cover the file class, insufficient).
+    // Must sit BEFORE --allowedTools: it's a boolean flag and --allowedTools is
+    // variadic, swallowing every following token until the next flag.
+    // Side effect (acceptable): safe-mode also stops auto-loading the repo
+    // CLAUDE.md — fine, the review/plan prompts are self-contained.
+    "--safe-mode",
     "--allowedTools",
     "Read",
     "Grep",

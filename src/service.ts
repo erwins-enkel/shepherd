@@ -121,6 +121,24 @@ const RESEARCH_FIRST_NOTICE =
   "files against a stale or assumed API with no human to correct course.";
 
 /**
+ * Injected into the system prompt only for isolated sessions (worktree-backed). Non-isolated
+ * sessions share the main repo directory and have no dedicated worktree, so the file would be
+ * ambiguous and the hint would be misleading — it is intentionally omitted there.
+ *
+ * The hint is advisory and safe: Shepherd uses the declared port only when it is actually
+ * listening (auto-detection still fires otherwise), and it explicitly never starts or stops the
+ * dev server. Agent-facing prompt text (not operator UI), so fixed English — same precedent as
+ * BRANCH_RENAME_NOTICE and the other spawn-constant notices. No i18n.
+ */
+const PREVIEW_HINT_NOTICE =
+  "If you start a long-running dev server in this worktree and want Shepherd's live preview to " +
+  "target a specific port, write that port — a bare number, nothing else — to a file named " +
+  "`.shepherd-preview` in the repository root. Shepherd uses it only when that port is actually " +
+  "listening; otherwise it auto-detects the port. This is optional: skip it if you have no dev " +
+  "server or the default detection already targets the right port. Shepherd never starts or stops " +
+  "your dev server.";
+
+/**
  * Seeded into the system prompt at spawn when the repo has autopilot on, so the agent knows
  * up front it's running unattended. Without it autopilot is purely reactive — the agent stops
  * to ask "commit + open a PR?", and a steer only lands after a stop is detected and classified
@@ -260,12 +278,19 @@ const PLAN_GO_STEER =
  * plan-gate directive (interactive/auto) is appended INSTEAD of the autopilot directive, even when
  * `autopilotActive` is true — planning must suppress autopilot so the agent stops to plan/grill
  * rather than driving straight to a PR. `opts.buildQueue`, when set, appends the build-queue
- * directive — orthogonal to the plan-gate/autopilot choice, so it always rides.
+ * directive — orthogonal to the plan-gate/autopilot choice, so it always rides. `opts.previewHint`,
+ * when true, appends the preview-hint notice AFTER the build-queue block (or after the
+ * plan-gate/autopilot block when no build-queue is present) — isolated-only, orthogonal to all
+ * other options.
  */
 export function composeSystemPrompt(
   houseRules: string | null,
   autopilotActive = false,
-  opts: { planGate?: "interactive" | "auto"; buildQueue?: string | null } = {},
+  opts: {
+    planGate?: "interactive" | "auto";
+    buildQueue?: string | null;
+    previewHint?: boolean;
+  } = {},
 ): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
@@ -282,6 +307,11 @@ export function composeSystemPrompt(
   }
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config).
   if (opts.buildQueue != null) blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
+  // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
+  // and have no dedicated worktree, so the hint would be misleading there.
+  if (opts.previewHint) {
+    blocks.push(`<preview-hint-notice>\n${PREVIEW_HINT_NOTICE}\n</preview-hint-notice>`);
+  }
   return blocks.join("\n\n");
 }
 
@@ -364,13 +394,15 @@ export class SessionService {
    *  turn) so every spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the
    *  repo's learned corrections without bleeding into the task text. The autopilot directive rides
    *  the same prompt when the repo has autopilot on; the plan-gate directive when planGateOn; the
-   *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled. */
+   *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled;
+   *  and the preview-hint notice when the session is `isolated`. */
   private buildSpawnArgv(
     input: CreateSessionInput,
     claudeSessionId: string,
     sessionId: string,
     promptArg: string,
     planGateOn: boolean | undefined,
+    isolated: boolean,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const houseRules = this.houseRules(input.repoPath);
@@ -388,7 +420,11 @@ export class SessionService {
     argv.push("--settings", spawnSettingsOverlay());
     argv.push(
       "--append-system-prompt",
-      composeSystemPrompt(houseRules, autopilotActive, { planGate, buildQueue }),
+      composeSystemPrompt(houseRules, autopilotActive, {
+        planGate,
+        buildQueue,
+        previewHint: isolated,
+      }),
     );
     if (input.model) argv.push("--model", input.model);
     argv.push(promptArg);
@@ -415,7 +451,14 @@ export class SessionService {
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
       // plan. Session-level override wins over the repo default.
       const planGateOn = input.planGateEnabled ?? repoConfig.planGateEnabled;
-      const argv = this.buildSpawnArgv(input, claudeSessionId, sessionId, promptArg, planGateOn);
+      const argv = this.buildSpawnArgv(
+        input,
+        claudeSessionId,
+        sessionId,
+        promptArg,
+        planGateOn,
+        wt.isolated,
+      );
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
       const session = this.deps.store.create({
         id: sessionId,

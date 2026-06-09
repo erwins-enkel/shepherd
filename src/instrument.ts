@@ -3,8 +3,6 @@
  * Set SHEPHERD_PROFILE_LOOP=1 to enable event-loop-lag sampling and per-call timing.
  */
 import { execFileSync as nodeExecFileSync } from "node:child_process";
-import { readFileSync as nodeReadFileSync } from "node:fs";
-import { basename } from "node:path";
 
 /** Lazy — read inside each function so tests can toggle the env var. */
 const isProfiling = () => process.env.SHEPHERD_PROFILE_LOOP === "1";
@@ -145,19 +143,3 @@ export function markPtyEvent(label: string): void {
   }
   _lastPtyEventTime = now;
 }
-
-// ── readFileSync passthrough ──────────────────────────────────────────────────
-
-/**
- * Faithful passthrough for node's `readFileSync`. Wraps in `timed` with label
- * `readFileSync <basename>` (basename derived only when the first arg is a string).
- */
-export const readFileSync: typeof nodeReadFileSync = ((
-  ...args: Parameters<typeof nodeReadFileSync>
-) => {
-  const first = args[0];
-  const name = typeof first === "string" ? basename(first) : "readFileSync";
-  return timed(`readFileSync ${name}`, () =>
-    nodeReadFileSync(...(args as Parameters<typeof nodeReadFileSync>)),
-  );
-}) as typeof nodeReadFileSync;

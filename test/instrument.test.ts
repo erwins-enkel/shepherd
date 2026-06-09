@@ -1,14 +1,5 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  timed,
-  timedAsync,
-  execFileSync,
-  readFileSync,
-  startLoopLagSampler,
-} from "../src/instrument";
+import { test, expect } from "bun:test";
+import { timed, timedAsync, execFileSync, startLoopLagSampler } from "../src/instrument";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -300,49 +291,5 @@ test(
   "execFileSync re-throws on error (profile on)",
   withProfile(() => {
     expect(() => execFileSync("false", [], { stdio: "pipe" })).toThrow();
-  }),
-);
-
-// ── readFileSync passthrough ──────────────────────────────────────────────────
-
-let tmpDir: string;
-beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "shepherd-instr-"));
-});
-afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
-});
-
-test(
-  "readFileSync returns file content (profile off)",
-  withoutProfile(() => {
-    const p = join(tmpDir, "test.txt");
-    writeFileSync(p, "hello world");
-    const result = readFileSync(p, "utf8");
-    expect(result).toBe("hello world");
-  }),
-);
-
-test(
-  "readFileSync returns file content (profile on)",
-  withProfile(() => {
-    const p = join(tmpDir, "test.txt");
-    writeFileSync(p, "hello world");
-    const result = readFileSync(p, "utf8");
-    expect(result).toBe("hello world");
-  }),
-);
-
-test(
-  "readFileSync re-throws on missing file (profile off)",
-  withoutProfile(() => {
-    expect(() => readFileSync(join(tmpDir, "nope.txt"), "utf8")).toThrow();
-  }),
-);
-
-test(
-  "readFileSync re-throws on missing file (profile on)",
-  withProfile(() => {
-    expect(() => readFileSync(join(tmpDir, "nope.txt"), "utf8")).toThrow();
   }),
 );

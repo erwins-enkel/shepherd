@@ -205,3 +205,67 @@ describe("Herd Ready filter", () => {
     await expect.element(page.getByText("plain idle")).toBeInTheDocument();
   });
 });
+
+describe("Herd status filter (TopBar tallies)", () => {
+  it("short-circuits the local Ready filter: running sessions stay visible", async () => {
+    // statusFilter=running + local filter flipped to Ready would yield an empty
+    // list if the ready branch still ran (it drops running sessions) — the
+    // status filter must short-circuit it entirely.
+    const onstatusfilter = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "r", name: "busy one", status: "running" })],
+      git: {},
+      statusFilter: "running" as const,
+      onstatusfilter,
+    });
+    await page.getByRole("button", { name: "▤ Ready" }).click();
+    // the click also asks the parent to clear the status filter (one filter at a time)
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+    // prop is still set (parent not wired in this render) → short-circuit keeps the row
+    await expect.element(page.getByText("busy one")).toBeInTheDocument();
+  });
+
+  it("shows the active status as a chip; clicking it clears the filter", async () => {
+    const onstatusfilter = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "r", name: "busy one", status: "running" })],
+      git: {},
+      statusFilter: "running" as const,
+      onstatusfilter,
+    });
+    // accessible name = aria-label (status + clear action), not the visible "Busy ✕"
+    const chip = page.getByRole("button", { name: "Busy filter active — show all sessions" });
+    await expect.element(chip).toBeInTheDocument();
+    await expect.element(chip).toHaveAttribute("aria-pressed", "true");
+    await chip.click();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+  });
+
+  it("empty status result shows the status-named note, not the EmptyHerd nudge", async () => {
+    // page-level filtering means an empty status result arrives as sessions=[] —
+    // it must outrank the first-run EmptyHerd branch.
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      statusFilter: "idle" as const,
+      onstatusfilter: () => {},
+    });
+    await expect.element(page.getByText("No Idle sessions right now.")).toBeInTheDocument();
+    await expect.element(page.getByText("Mission control, no units")).not.toBeInTheDocument();
+  });
+
+  it("combined repo + status empty names both filters", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      filteredRepo: "shepherd",
+      statusFilter: "blocked" as const,
+      onstatusfilter: () => {},
+    });
+    await expect.element(page.getByText("No Blocked sessions for shepherd.")).toBeInTheDocument();
+  });
+});

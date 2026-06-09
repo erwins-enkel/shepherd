@@ -26,6 +26,8 @@
     flow = false,
     filteredRepo = null,
     filter = $bindable("all"),
+    statusFilter = null,
+    onstatusfilter = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -61,6 +63,11 @@
     // the all/ready list filter — bindable so the page-level keyboard navigation
     // can mirror exactly what the rail shows (herd-keynav's railOrder takes it)
     filter?: HerdFilter;
+    // page-level status filter (TopBar tallies). Sessions already arrive filtered;
+    // the prop only drives the head chip, the empty-state copy, and short-circuits
+    // the local all/ready filter (one filter at a time).
+    statusFilter?: "running" | "idle" | "blocked" | null;
+    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -71,7 +78,20 @@
   // working — anything but a running agent: idle, blocked, done → awaiting the operator;
   // in-review sessions are excluded too, since a reviewer is actively working them).
   // shownSessions is the shared single source of truth with herd-keynav's railOrder.
-  const shown = $derived(shownSessions(sessions, filter, inReview));
+  // one filter at a time: an active page-level status filter short-circuits the
+  // local all/ready filter ENTIRELY — a "ready" remnant would drop running sessions
+  // and empty the list under statusFilter="running" (sessions already arrive filtered).
+  const shown = $derived(
+    statusFilter != null ? sessions : shownSessions(sessions, filter, inReview),
+  );
+  // label for the status chip + filtered empty states (only read when set)
+  const statusLabel = $derived(
+    statusFilter === "running"
+      ? m.topbar_working_label()
+      : statusFilter === "idle"
+        ? m.topbar_idle_label()
+        : m.topbar_blocked_label(),
+  );
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
   // PR-CI-running and critic-reviewing / plan-gate-reviewing in-flight groups, then
   // the parked ready-to-merge (green) and landed merged (blue) groups at the bottom.
@@ -109,24 +129,52 @@
       <button
         type="button"
         class="micro fbtn"
-        class:active={filter === "all"}
+        class:active={statusFilter == null && filter === "all"}
         title={m.herd_all_title()}
-        aria-pressed={filter === "all"}
-        onclick={() => (filter = "all")}>{m.herd_all_hint()}</button
+        aria-pressed={statusFilter == null && filter === "all"}
+        onclick={() => {
+          filter = "all";
+          onstatusfilter?.(null);
+        }}>{m.herd_all_hint()}</button
       >
       <button
         type="button"
         class="micro fbtn"
-        class:active={filter === "ready"}
+        class:active={statusFilter == null && filter === "ready"}
         title={m.herd_ready_title()}
-        aria-pressed={filter === "ready"}
-        onclick={() => (filter = "ready")}>{m.herd_ready_filter()}</button
+        aria-pressed={statusFilter == null && filter === "ready"}
+        onclick={() => {
+          filter = "ready";
+          onstatusfilter?.(null);
+        }}>{m.herd_ready_filter()}</button
       >
+      {#if statusFilter != null}
+        <!-- aria-label carries status + clear action; the visible "✕" glyph would
+             otherwise be read aloud without conveying what the chip does -->
+        <button
+          type="button"
+          class="micro fbtn active statchip"
+          title={m.topbar_tally_clear_title()}
+          aria-label={m.herd_status_chip_aria({ status: statusLabel })}
+          aria-pressed="true"
+          onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
+        >
+      {/if}
     </div>
   </div>
   <div class="units" class:flow>
     {#if sessions.length === 0}
-      {#if filteredRepo}
+      <!-- the status filter empties the list at PAGE level (herdSessions), so an
+           empty status result lands HERE — it must outrank the repo note and the
+           first-run EmptyHerd nudge, and name the active status so vanished
+           done/parked sessions read as intentional -->
+      {#if statusFilter != null && filteredRepo}
+        <div class="empty micro static">
+          {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}
+        </div>
+      {:else if statusFilter != null}
+        <div class="empty micro static">{m.herd_status_filter_empty({ status: statusLabel })}</div>
+      {:else if filteredRepo}
         <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
       {:else}
         <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />

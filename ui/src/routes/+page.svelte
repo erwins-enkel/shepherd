@@ -153,9 +153,18 @@
   $effect(() => {
     if (repoFilter && !bandRepoPaths.has(repoFilter)) repoFilter = null;
   });
-  const herdSessions = $derived(
-    repoFilter ? store.sessions.filter((s) => s.repoPath === repoFilter) : store.sessions,
-  );
+  // Session-status filter toggled from the TopBar tallies; null = all statuses.
+  // Independent of the repo filter — both compose into herdSessions below. Sticky
+  // by design: statuses fluctuate (running ↔ idle), so an auto-clear on count-zero
+  // would pop the filter off mid-observation; the filtered empty state + chip in
+  // the herd head are the way out instead.
+  let statusFilter = $state<"running" | "idle" | "blocked" | null>(null);
+  const herdSessions = $derived.by(() => {
+    const byRepo = repoFilter
+      ? store.sessions.filter((s) => s.repoPath === repoFilter)
+      : store.sessions;
+    return statusFilter ? byRepo.filter((s) => s.status === statusFilter) : byRepo;
+  });
   // basename of the active filter for the herd's empty-state copy; null when unfiltered
   const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
   let showUpdate = $state(false);
@@ -442,7 +451,10 @@
       store.git,
       (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
       nowMs,
-      herdFilter,
+      // a page-level status filter short-circuits the rail's all/ready filter in
+      // Herd's shown set (one filter at a time) — mirror that here so keynav walks
+      // exactly the visible rows, never a "ready" subset of the status-filtered list
+      statusFilter != null ? "all" : herdFilter,
     );
   }
 
@@ -868,6 +880,8 @@
         onherdrupdate={() => (showHerdrUpdate = true)}
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
+        {statusFilter}
+        onstatusfilter={(s) => (statusFilter = s)}
       />
       <QueueStrip
         rows={bandRows}
@@ -889,6 +903,8 @@
           <Herd
             sessions={herdSessions}
             filteredRepo={repoFilterName}
+            {statusFilter}
+            onstatusfilter={(s) => (statusFilter = s)}
             {selectedId}
             {nowMs}
             onselect={(id) => selectUnit(id)}
@@ -961,6 +977,7 @@
         <HerdGrid
           sessions={herdSessions}
           filteredRepo={repoFilterName}
+          {statusFilter}
           {selectedId}
           {nowMs}
           git={store.git}
@@ -978,6 +995,8 @@
         <Herd
           sessions={herdSessions}
           filteredRepo={repoFilterName}
+          {statusFilter}
+          onstatusfilter={(s) => (statusFilter = s)}
           {selectedId}
           {nowMs}
           onselect={(id) => selectUnit(id)}

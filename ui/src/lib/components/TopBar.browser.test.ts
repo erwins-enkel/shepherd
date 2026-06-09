@@ -494,3 +494,92 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
     }
   });
 });
+
+describe("TopBar — tallies toggle the status filter", () => {
+  const behaviorBase = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    ...sessionsProp(2),
+  };
+
+  it("desktop: clicking a status tally sets the filter; clicking it again clears", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onstatusfilter = vi.fn();
+    render(TopBar, { ...behaviorBase, ...FLAGS.desktop, onstatusfilter });
+    const busy = page.getByTitle(m.topbar_tally_filter_title({ status: m.topbar_working_label() }));
+    await expect.element(busy).toHaveAttribute("aria-pressed", "false");
+    // no filter active → the total (clear) tally is a no-op and renders disabled
+    await expect.element(page.getByTitle(m.topbar_tally_clear_title())).toBeDisabled();
+    await busy.click();
+    expect(onstatusfilter).toHaveBeenCalledWith("running");
+  });
+
+  it("desktop: an active tally renders pressed and toggles back to null", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onstatusfilter = vi.fn();
+    render(TopBar, {
+      ...behaviorBase,
+      ...FLAGS.desktop,
+      statusFilter: "running" as const,
+      onstatusfilter,
+    });
+    const busy = page.getByTitle(m.topbar_tally_filter_title({ status: m.topbar_working_label() }));
+    await expect.element(busy).toHaveAttribute("aria-pressed", "true");
+    await busy.click();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+  });
+
+  it("desktop: the Herd tally clears the filter", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onstatusfilter = vi.fn();
+    render(TopBar, {
+      ...behaviorBase,
+      ...FLAGS.desktop,
+      statusFilter: "blocked" as const,
+      onstatusfilter,
+    });
+    await page.getByTitle(m.topbar_tally_clear_title()).click();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+  });
+
+  it("mobile compact: the status segments toggle the same filter", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onstatusfilter = vi.fn();
+    render(TopBar, { ...behaviorBase, ...FLAGS.mobile, onstatusfilter });
+    // the accessible name must carry the COUNT, not just the action (the visible
+    // text is a bare digit) — and the no-op total renders disabled
+    await expect
+      .element(page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }))
+      .toBeDisabled();
+    await page
+      .getByRole("button", {
+        name: m.topbar_tally_status_aria({ status: m.topbar_blocked_label(), count: 0 }),
+      })
+      .click();
+    expect(onstatusfilter).toHaveBeenCalledWith("blocked");
+  });
+
+  it("mobile compact: clicking the active segment clears; total clears too", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onstatusfilter = vi.fn();
+    render(TopBar, {
+      ...behaviorBase,
+      ...FLAGS.mobile,
+      statusFilter: "idle" as const,
+      onstatusfilter,
+    });
+    const idleSeg = page.getByRole("button", {
+      name: m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: 0 }),
+    });
+    await expect.element(idleSeg).toHaveAttribute("aria-pressed", "true");
+    await idleSeg.click();
+    expect(onstatusfilter).toHaveBeenLastCalledWith(null);
+    await page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }).click();
+    expect(onstatusfilter).toHaveBeenLastCalledWith(null);
+  });
+});

@@ -471,7 +471,8 @@ export type WsEvent =
   | { event: "automerge:status"; data: AutoMergeStatus }
   | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }
   | { event: "queue:update"; data: BuildQueue }
-  | { event: "halt:done"; data: { halted: number } };
+  | { event: "halt:done"; data: { halted: number } }
+  | { event: "mergetrain:landed"; data: { repoPath: string } };
 
 export interface CreateInput {
   repoPath: string;

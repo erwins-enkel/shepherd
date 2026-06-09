@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.22.0](https://github.com/erwins-enkel/shepherd/compare/v1.21.0...v1.22.0) (2026-06-09)
+
+
+### Features
+
+* **backlog:** add search field to filter the issues list ([#480](https://github.com/erwins-enkel/shepherd/issues/480)) ([24d5e23](https://github.com/erwins-enkel/shepherd/commit/24d5e23c2cd6a9fd5c4e1ce4ee02537ae9b8b298))
+* **backlog:** pin the three most recently worked-on repos atop the repo list ([#479](https://github.com/erwins-enkel/shepherd/issues/479)) ([caa4981](https://github.com/erwins-enkel/shepherd/commit/caa4981ef912e2beaac0e34f81394c6a776f8da5))
+* **hud:** design-critique fixes + herd keyboard navigation ([#485](https://github.com/erwins-enkel/shepherd/issues/485)) ([ed685e8](https://github.com/erwins-enkel/shepherd/commit/ed685e83e0777540cf8c7b53ac212b79f72044e8))
+* **product:** lead with the two-pillar story — opinionated, best-practice mission control ([#486](https://github.com/erwins-enkel/shepherd/issues/486)) ([9c72965](https://github.com/erwins-enkel/shepherd/commit/9c7296575e701d09abfa42a79e2362fa3fb558a1))
+* **topbar:** clickable tallies filter sessions by status ([#478](https://github.com/erwins-enkel/shepherd/issues/478)) ([1e16814](https://github.com/erwins-enkel/shepherd/commit/1e168146cda192d32def439943e6dcb746ebcbfb))
+* **whats-new:** show release version and date per entry ([#472](https://github.com/erwins-enkel/shepherd/issues/472)) ([328e70d](https://github.com/erwins-enkel/shepherd/commit/328e70d974b4305f908bdb0285053e897a32a7ab))
+
+
+### Bug Fixes
+
+* **automation:** clamp popover height to space below its anchor ([#473](https://github.com/erwins-enkel/shepherd/issues/473)) ([07c2ce7](https://github.com/erwins-enkel/shepherd/commit/07c2ce7f1919369628f9ab0659cd3a8d7a07e507))
+* **readiness:** detect JS/TS subprojects when package.json is not at the repo root ([#475](https://github.com/erwins-enkel/shepherd/issues/475)) ([5c8ada8](https://github.com/erwins-enkel/shepherd/commit/5c8ada89e35fde827cbddbd927a4280497662577))
+* **repo-select:** make keyboard cursor visible in repo picker ([#477](https://github.com/erwins-enkel/shepherd/issues/477)) ([f337c6f](https://github.com/erwins-enkel/shepherd/commit/f337c6fb00ffb662d18eb1e1f3f68fdc0be820a4))
+* **topbar:** enlarge gear icon and drop its border ([#476](https://github.com/erwins-enkel/shepherd/issues/476)) ([5e4f29f](https://github.com/erwins-enkel/shepherd/commit/5e4f29f12273aa4abf7da94779f84ffd49e2ec84))
+* **ui:** hide the To-Do tab unless the repo has a TODO.md ([#471](https://github.com/erwins-enkel/shepherd/issues/471)) ([3740f6e](https://github.com/erwins-enkel/shepherd/commit/3740f6e2ba58fb6b25209ca55916eea6e6ab1328))
+* **ui:** HUD UI audit fixes — light theme, mobile iOS, perf, design doctrine ([#481](https://github.com/erwins-enkel/shepherd/issues/481)) ([ef98a6a](https://github.com/erwins-enkel/shepherd/commit/ef98a6adc99804895a139a629dadc0c37d1c7dea))
+* **viewport:** offer resume only when the claude process is actually gone ([#483](https://github.com/erwins-enkel/shepherd/issues/483)) ([3749a36](https://github.com/erwins-enkel/shepherd/commit/3749a36d569ec1b5f6321358f7e44ce92ab071d1))
+
 ## [1.21.0](https://github.com/erwins-enkel/shepherd/compare/v1.20.0...v1.21.0) (2026-06-09)
 
 

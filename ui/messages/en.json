@@ -433,7 +433,7 @@
   "newtask_plan_gate_hint": "Grill + adversarial plan review before the agent runs",
   "plangate_planning": "PLANNING",
   "plangate_reviewing": "REVIEWING…",
-  "plangate_changes": "CHANGES · {round}/{cap}",
+  "plangate_changes": "REWORK · {round}/{cap}",
   "plangate_ready": "READY ✓",
   "plangate_error": "REVIEW ERR",
   "plangate_title": "Pre-execution plan gate",

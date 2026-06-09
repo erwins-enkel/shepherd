@@ -27,6 +27,14 @@ describe("planGateChip", () => {
     expect(planGateChip(sess("executing"), gate({ approved: true }), false).kind).toBe("none");
   });
 
+  it("hides when executing even if changes_requested verdict still in gate cache (reconnect scenario)", () => {
+    // Simulates a client that reconnected after planPhase flipped to "executing":
+    // the gate cache is repopulated with a stale changes_requested verdict, but
+    // planPhase is persisted as "executing" — the badge must still be hidden.
+    const staleGate = gate({ decision: "changes_requested", round: 2, cap: 3, approved: false });
+    expect(planGateChip(sess("executing"), staleGate, false)).toEqual({ kind: "none" });
+  });
+
   it("reviewing wins over a stale verdict", () => {
     const chip = planGateChip(sess("planning"), gate({ approved: true }), true);
     expect(chip.kind).toBe("reviewing");

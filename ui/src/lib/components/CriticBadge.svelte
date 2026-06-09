@@ -11,34 +11,34 @@
   const round = $derived(addressRoundInfo(verdict, clock.current));
 </script>
 
+{#snippet addrSuffix(r: NonNullable<typeof round>)}
+  <span
+    class="addr addr-{r.status}"
+    title={r.status === "stalled"
+      ? m.criticbadge_stalled_title({ cap: r.cap })
+      : r.status === "final"
+        ? m.criticbadge_final_title()
+        : m.criticbadge_round_title({ round: r.round, cap: r.cap })}
+  >
+    · {r.status === "stalled"
+      ? m.criticbadge_stalled({ round: r.round, cap: r.cap })
+      : r.status === "final"
+        ? m.criticbadge_final({ round: r.round, cap: r.cap })
+        : m.criticbadge_round({ round: r.round, cap: r.cap })}</span
+  >
+{/snippet}
+
 {#if chip.kind === "reviewing"}
   <span class="critic-badge critic-reviewing" title={m.criticbadge_reviewing_title()}>
-    <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+    <span class="rev-dot" aria-hidden="true"
+    ></span>{m.criticbadge_reviewing()}{#if round}{@render addrSuffix(round)}{/if}
   </span>
 {:else if chip.kind === "verdict"}
   <span
     class="critic-badge critic-{chip.decision}"
-    title={verdict!.summary || m.criticbadge_title()}>{chip.label}</span
+    title={verdict!.summary || m.criticbadge_title()}
+    >{chip.label}{#if round}{@render addrSuffix(round)}{/if}</span
   >
-{/if}
-{#if round}
-  {#if round.status === "stalled"}
-    <span
-      class="critic-badge critic-stalled"
-      title={m.criticbadge_stalled_title({ cap: round.cap })}
-      >{m.criticbadge_stalled({ round: round.round, cap: round.cap })}</span
-    >
-  {:else if round.status === "final"}
-    <span class="critic-badge critic-final" title={m.criticbadge_final_title()}
-      >{m.criticbadge_final({ round: round.round, cap: round.cap })}</span
-    >
-  {:else}
-    <span
-      class="critic-badge critic-round"
-      title={m.criticbadge_round_title({ round: round.round, cap: round.cap })}
-      >{m.criticbadge_round({ round: round.round, cap: round.cap })}</span
-    >
-  {/if}
 {/if}
 
 <style>
@@ -58,23 +58,6 @@
   }
   .critic-commented {
     color: var(--color-blue);
-  }
-  /* auto-address streak in progress: agent is fixing the findings */
-  .critic-round {
-    border-color: var(--color-blue);
-    color: var(--color-blue);
-  }
-  /* final allowed round in flight: agent is addressing it — recessive vs. both the
-     blue in-progress rounds and the orange confirmed stall. */
-  .critic-final {
-    border-color: var(--color-line);
-    color: var(--color-faint);
-  }
-  /* auto-address gave up at the cap — needs a human */
-  .critic-stalled {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-    font-weight: 600;
   }
   .critic-error {
     color: var(--color-faint);
@@ -103,5 +86,18 @@
     50% {
       opacity: 1;
     }
+  }
+  /* auto-address suffix inside a composite badge */
+  .addr-round {
+    color: var(--color-blue);
+  }
+  /* final allowed round in flight: recessive vs. the blue in-progress and orange stalled */
+  .addr-final {
+    color: var(--color-faint);
+  }
+  /* auto-address gave up at the cap — needs a human */
+  .addr-stalled {
+    color: var(--color-amber);
+    font-weight: 600;
   }
 </style>

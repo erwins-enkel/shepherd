@@ -433,7 +433,7 @@
   "newtask_plan_gate_hint": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
   "plangate_planning": "PLANUNG",
   "plangate_reviewing": "PRÜFUNG…",
-  "plangate_changes": "ÄNDERUNGEN · {round}/{cap}",
+  "plangate_changes": "REWORK · {round}/{cap}",
   "plangate_ready": "BEREIT ✓",
   "plangate_error": "PRÜFFEHLER",
   "plangate_title": "Plan-Gate vor der Ausführung",

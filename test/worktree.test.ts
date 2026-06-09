@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { WorktreeMgr } from "../src/worktree";
 
@@ -207,6 +207,16 @@ test("createDetached: rejects a branch that could smuggle a git flag", () => {
   expect(() => mgr.createDetached(repo, "-x", sha, "s")).toThrow("invalid branch");
 });
 
+test("createDetached: rejects a key that isn't already path-safe (no silent strip)", () => {
+  const mgr = new WorktreeMgr();
+  const sha = "0".repeat(40);
+  // Stripping unsafe chars would collapse distinct keys onto one path, so we throw
+  // instead — `s/1` and `s1` must not resolve to the same tree.
+  expect(() => mgr.createDetached(repo, "main", sha, "s/1")).toThrow("invalid key");
+  expect(() => mgr.createDetached(repo, "main", sha, "")).toThrow("invalid key");
+  expect(() => mgr.createDetached(repo, "main", sha, "a b")).toThrow("invalid key");
+});
+
 test("commitsAhead: 0 when branch tip == base, >0 after a commit", () => {
   execFileSync("git", ["checkout", "-b", "feat"], { cwd: repo, stdio: "pipe" });
   const wt = new WorktreeMgr();
@@ -281,6 +291,35 @@ test("createDetached: distinct keys never share a path (no cross-streamed verdic
 
   mgr.remove(a.worktreePath);
   mgr.remove(b.worktreePath);
+});
+
+test("createDetached: sweeps a legacy <repo>-review-<sha8> worktree left pre-upgrade", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  execFileSync("git", ["checkout", "-b", "feat/x"], { cwd: repo });
+  writeFileSync(join(repo, "feat.txt"), "hello");
+  execFileSync("git", ["add", "feat.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "feat commit"], { cwd: repo, env });
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+
+  // Recreate the pre-namespacing path an interrupted old run would have left behind.
+  const parent = join(dirname(repo), ".shepherd-worktrees");
+  mkdirSync(parent, { recursive: true });
+  const legacyPath = join(parent, `${basename(repo)}-review-${sha.slice(0, 8)}`);
+  execFileSync("git", ["worktree", "add", "--detach", legacyPath, sha], { cwd: repo });
+  expect(existsSync(legacyPath)).toBe(true);
+
+  const mgr = new WorktreeMgr();
+  const wt = mgr.createDetached(repo, "feat/x", sha, "sess-1");
+  expect(existsSync(legacyPath)).toBe(false); // swept
+  expect(wt.worktreePath).not.toBe(legacyPath);
+
+  mgr.remove(wt.worktreePath);
 });
 
 test("behindBase: false when up-to-date, true when base advanced", () => {

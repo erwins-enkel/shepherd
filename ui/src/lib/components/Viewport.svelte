@@ -37,7 +37,6 @@
   import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
-  import ReadyToggle from "$lib/components/ReadyToggle.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
@@ -208,7 +207,7 @@
   );
 
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
-  // foldables). Drops secondary fields + wraps so the decommission button never clips.
+  // foldables). Drops secondary fields + wraps so the trailing actions never clip.
   const compact = $derived(mobile || touch);
   // the fold only applies on the compact layout (it's the mobile space-saver);
   // desktop keeps its own git-actions disclosure untouched.
@@ -400,22 +399,6 @@
         ? m.viewport_git_actions_state_attention()
         : "",
   );
-
-  // desktop parity for the rail's Ready toggle: #188 moved the git rail behind the
-  // "Git actions" disclosure, hiding ready-to-merge on desktop while mobile (always-on
-  // rail) still showed it. Surface just this one high-frequency control in the primary
-  // row. Gate mirrors GitRail's own ({git open || already ready} & not running/blocked),
-  // desktop-only — on compact the rail itself still owns the toggle (see showReady below).
-  const readyVisible = $derived(
-    !compact &&
-      (git?.state === "open" || session.readyToMerge) &&
-      session.status !== "running" &&
-      session.status !== "blocked",
-  );
-
-  // desktop: per-session autopilot toggle — always visible on desktop when not
-  // compact; mirrors readyVisible's placement pattern in the primary header row.
-  const autopilotToggleVisible = $derived(!compact);
 
   // Effective autopilot state: the session override when set, otherwise the repo default.
   // The button must reflect THIS (not `=== true`) — a null-override session under an
@@ -1584,9 +1567,10 @@
     {/if}
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
-           used to crowd this strip. It now lives one disclosure away — this toggle
-           reveals it as a second header row (.vp-git-strip), keeping the primary
-           line down to identity + tabs + status + decommission. -->
+           plus the session-lifecycle controls (ready / autopilot / decommission)
+           live one disclosure away — this toggle reveals them as a second header
+           row (.vp-git-strip), keeping the primary line down to identity + tabs
+           + status. -->
       <button
         class="git-toggle"
         class:open={gitOpen}
@@ -1606,31 +1590,28 @@
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
-      {#if readyVisible}
-        <!-- desktop: the ready-to-merge toggle graduates out of the git-actions
-             disclosure into the always-visible primary row (mobile shows it in the
-             rail unconditionally via GitRail). Shared component → no drift. -->
-        <ReadyToggle sessionId={session.id} ready={session.readyToMerge} variant="bar" />
-      {/if}
-      {#if autopilotToggleVisible}
-        <!-- desktop: per-session autopilot override toggle. Reflects the EFFECTIVE state
-             (session override, else repo default) so a null-override session isn't shown
-             as off while the repo default has it running. -->
-        <button
-          class="ap-toggle"
-          class:on={autopilotEffective}
-          type="button"
-          aria-pressed={autopilotEffective}
-          aria-label={m.session_autopilot_toggle_aria()}
-          title={autopilotEffective
-            ? m.session_autopilot_on_label()
-            : m.session_autopilot_off_label()}
-          onclick={toggleSessionAutopilot}
+      <!-- passive at-rest pips: the READY / AUTOPILOT *controls* moved into the
+           git strip (one disclosure away), but their ON state must stay readable
+           at a glance — a quiet pill each, only when on, never interactive. The
+           autopilot pip yields to AutopilotBadge when paused/complete (those
+           states already imply autopilot, so two amber pills would be noise). -->
+      {#if session.readyToMerge}
+        <span
+          class="state-pip ready"
+          role="img"
+          aria-label={m.gitrail_ready_on_title()}
+          title={m.gitrail_ready_on_title()}>✓ {m.gitrail_ready()}</span
         >
-          {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
-        </button>
-        <AutopilotBadge {session} />
       {/if}
+      {#if autopilotEffective && !session.autopilotPaused && !session.autopilotComplete}
+        <span
+          class="state-pip auto"
+          role="img"
+          aria-label={m.session_autopilot_on_label()}
+          title={m.session_autopilot_on_label()}>{m.automation_autopilot_name()}</span
+        >
+      {/if}
+      <AutopilotBadge {session} />
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->
@@ -1671,29 +1652,37 @@
           {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
         </button>
       {/if}
-      <button
-        class="decom"
-        class:armed
-        class:ready={prReady && !armed}
-        type="button"
-        onclick={decommission}
-        title={prReady ? m.viewport_decommission_ready_title() : m.viewport_decommission_title()}
-        aria-label={prReady ? m.viewport_decommission_ready_aria() : m.viewport_decommission_aria()}
-      >
-        {#if compact}
-          <!-- armed = destructive confirm: stay red + interrogative. Never ✓ —
-               that glyph means READY/actionable-complete elsewhere in the HUD. -->
-          {armed ? "✕?" : "✕"}
-        {:else}
-          {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
-        {/if}
-      </button>
+      {#if prReady}
+        <!-- earned prominence: once a PR exists the work is delivered, so the
+             decommission nudge surfaces inline (green, arms red on click) — one
+             obvious click+confirm away. Until then the control lives in the git
+             strip with the rest of the lifecycle cluster. -->
+        <button
+          class="decom"
+          class:armed
+          class:ready={!armed}
+          type="button"
+          onclick={decommission}
+          title={m.viewport_decommission_ready_title()}
+          aria-label={m.viewport_decommission_ready_aria()}
+        >
+          {#if compact}
+            <!-- armed = destructive confirm: stay red + interrogative. Never ✓ —
+                 that glyph means READY/actionable-complete elsewhere in the HUD. -->
+            {armed ? "✕?" : "✕"}
+          {:else}
+            {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+          {/if}
+        </button>
+      {/if}
     </div>
   </div>
 
   <!-- the git rail gets its own strip when there's no room for it inline:
        always on compact layouts (mobile + unfolded fold, where the header wraps),
-       and on desktop only while the PR disclosure toggle is open. -->
+       and on desktop only while the PR disclosure toggle is open. The strip is
+       the session-lifecycle surface, so the lifecycle cluster (ready — inside
+       GitRail — autopilot, decommission) lives here too, off the identity row. -->
   {#if (compact && !headerCollapsed) || gitOpen}
     <div class="vp-git-strip">
       <GitRail
@@ -1703,12 +1692,43 @@
         prompt={session.prompt}
         ready={session.readyToMerge}
         status={session.status}
-        showReady={compact}
         planPhase={session.planPhase}
         isolated={session.isolated}
         baseBranch={session.baseBranch}
         mobile
       />
+      <span class="strip-controls">
+        <!-- per-session autopilot override toggle. Reflects the EFFECTIVE state
+             (session override, else repo default) so a null-override session isn't
+             shown as off while the repo default has it running. -->
+        <button
+          class="ap-toggle"
+          class:on={autopilotEffective}
+          type="button"
+          aria-pressed={autopilotEffective}
+          aria-label={m.session_autopilot_toggle_aria()}
+          title={autopilotEffective
+            ? m.session_autopilot_on_label()
+            : m.session_autopilot_off_label()}
+          onclick={toggleSessionAutopilot}
+        >
+          {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
+        </button>
+        {#if !prReady}
+          <!-- the rare destructive action, parked at the strip's far edge; once a
+               PR is up it graduates to the identity row as the green ready nudge -->
+          <button
+            class="decom"
+            class:armed
+            type="button"
+            onclick={decommission}
+            title={m.viewport_decommission_title()}
+            aria-label={m.viewport_decommission_aria()}
+          >
+            {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+          </button>
+        {/if}
+      </span>
     </div>
   {/if}
 
@@ -2109,9 +2129,9 @@
     flex: 1;
   }
 
-  /* desktop: transparent to layout — rename + decom flow inline as before.
+  /* desktop: transparent to layout — resume + the decom-ready nudge flow inline.
      compact/phone override (see .vp-head.mobile .vp-actions) turns this into a
-     real flex cluster so the two trailing controls wrap together. */
+     real flex cluster so the trailing controls wrap together. */
   .vp-actions {
     display: contents;
   }
@@ -2220,7 +2240,30 @@
     color: currentColor;
   }
 
-  /* per-session autopilot toggle: matches .git-toggle sizing + .ready-toggle.bar style */
+  /* passive at-rest state pips (identity row): quiet AutoPip-style pills that keep
+     the READY / AUTOPILOT on-state visible while the controls themselves live in
+     the git strip. Four-Light hues: green = ready-to-merge, amber = active mode. */
+  .state-pip {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid;
+    border-radius: 2px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .state-pip.ready {
+    color: var(--color-green);
+    border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
+  }
+  .state-pip.auto {
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
+  }
+
+  /* per-session autopilot toggle (git strip): matches .git-toggle sizing */
   .ap-toggle {
     display: inline-flex;
     align-items: center;
@@ -2364,8 +2407,9 @@
       background 0.12s;
   }
 
-  /* Resume: a quiet neutral action (not destructive, not "ready-complete" → no
-     green/red), brightening to ink on hover. Sits left of the decommission ✕. */
+  /* Resume: the primary action of a parked session, so it stays on the identity
+     row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
+     → no green/red), brightening to ink on hover. */
   .vp-resume {
     flex-shrink: 0;
     display: inline-flex;
@@ -2397,9 +2441,10 @@
     font-size: var(--fs-meta);
   }
 
-  /* PR delivered → the work is done. Lift the otherwise-faint ✕ into a bright,
-     gently pulsing green call-to-action so wrapping up the session reads as the
-     obvious next step. Hover/armed below still override it red (destructive confirm). */
+  /* PR delivered → the work is done. The decommission control graduates from the
+     git strip onto the identity row as a bright, gently pulsing green call-to-action
+     so wrapping up the session reads as the obvious next step. Hover/armed below
+     still override it red (destructive confirm). */
   .decom.ready {
     color: var(--color-green);
     border-color: color-mix(in srgb, var(--color-green) 40%, transparent);
@@ -2742,7 +2787,8 @@
     text-align: center;
   }
 
-  /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) */
+  /* dedicated git-rail strip for compact layouts (mobile + unfolded fold) and the
+     desktop git-actions disclosure — the session-lifecycle surface */
   .vp-git-strip {
     position: relative;
     display: flex;
@@ -2755,6 +2801,23 @@
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     min-height: 44px;
+  }
+  /* lifecycle cluster (autopilot toggle + decommission) at the strip's trailing
+     edge, split from the git controls by a hairline so the two groups read apart */
+  .strip-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding-left: 10px;
+    border-left: 1px solid var(--color-line);
+  }
+  /* the strip's GitRail always renders its ≥40px touch variant — match it so the
+     cluster doesn't sit half-height beside the rail buttons */
+  .strip-controls .ap-toggle,
+  .strip-controls .decom {
+    min-height: 40px;
+    padding: 6px 14px;
   }
 
   .vp-head.mobile {

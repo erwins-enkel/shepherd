@@ -369,7 +369,7 @@
         </button>
       {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
-        <ReadyToggle {sessionId} {ready} variant="rail" {mobile} />
+        <ReadyToggle {sessionId} {ready} {mobile} />
       {/if}
       <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body exists,
            so the showReview popover below still has content); otherwise a plain status chip. -->

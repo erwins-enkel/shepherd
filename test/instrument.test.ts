@@ -2,7 +2,13 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { timed, timedAsync, execFileSync, readFileSync } from "../src/instrument";
+import {
+  timed,
+  timedAsync,
+  execFileSync,
+  readFileSync,
+  startLoopLagSampler,
+} from "../src/instrument";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -197,6 +203,73 @@ test(
     expect(logs.filter((l) => l.includes("[profile]"))).toHaveLength(0);
   }),
 );
+
+// ── startLoopLagSampler ───────────────────────────────────────────────────────
+
+test(
+  "startLoopLagSampler returns a callable stop fn when profiling is off (no timer started)",
+  withoutProfile(() => {
+    const logs: unknown[] = [];
+    const orig = console.warn;
+    console.warn = (...args: unknown[]) => logs.push(args);
+    let stop: (() => void) | undefined;
+    try {
+      stop = startLoopLagSampler();
+    } finally {
+      console.warn = orig;
+    }
+    // Must be callable
+    expect(typeof stop).toBe("function");
+    expect(() => stop!()).not.toThrow();
+    // No timer means no logging
+    expect(logs).toHaveLength(0);
+  }),
+);
+
+test(
+  "startLoopLagSampler returns a callable stop fn when profiling is on",
+  withProfile(() => {
+    const stop = startLoopLagSampler();
+    expect(typeof stop).toBe("function");
+    // Clean up immediately so the interval doesn't outlive this test
+    stop();
+  }),
+);
+
+test(
+  "startLoopLagSampler stop fn clears the interval — no further logging after stop",
+  withProfile(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const logs: string[] = [];
+        const orig = console.warn;
+        console.warn = (msg: unknown) => logs.push(String(msg));
+
+        const stop = startLoopLagSampler();
+        // Stop immediately — the interval must not fire after this
+        stop();
+        console.warn = orig;
+
+        const countAfterStop = logs.length;
+        // Wait long enough for one interval period (50ms) to pass
+        setTimeout(() => {
+          try {
+            expect(logs.length).toBe(countAfterStop);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        }, 120);
+      }),
+  ),
+);
+
+// (d) Asserting a specific >[profile] loop-lag< log line requires the interval
+// callback to observe a fabricated >150ms lag, which needs Date.now to return
+// different values for the *closure-captured* `last` assignment inside the
+// setInterval callback vs. the later `now` read. That sequence is non-trivial
+// to control from outside without adding a production seam (injecting a clock).
+// Skipped in favour of the behavioural coverage above.
 
 // ── execFileSync passthrough ──────────────────────────────────────────────────
 

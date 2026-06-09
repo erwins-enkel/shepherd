@@ -235,14 +235,27 @@ export class WorktreeMgr {
 
   /** Detached worktree at a specific commit, fetching it from origin first so a
    *  PR head pushed by the agent is present even when the local repo is behind.
-   *  Used by the critic to review the exact PR head. */
-  createDetached(repoPath: string, branch: string, sha: string): WorktreeResult {
+   *  Used by the critic to review the exact PR head.
+   *
+   *  `slug` disambiguates the worktree path when callers do NOT have a unique sha to key
+   *  on. The PR critic detaches at the PR head sha (unique per PR), so it omits `slug` and
+   *  the path stays `…-review-<sha>` — reused-on-restart to reclaim an interrupted run. The
+   *  plan reviewer, however, detaches every session at the SAME base-branch sha, so without
+   *  a slug all concurrent plan reviews in a repo would collide on one path: a second begin()
+   *  would blow away the first's live worktree, and both inflight records would then read the
+   *  same `.shepherd-plan-review.json` — delivering one session's plan findings to another.
+   *  Passing the session id as `slug` gives each its own path. */
+  createDetached(repoPath: string, branch: string, sha: string, slug?: string): WorktreeResult {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
     // same refname grammar as create(); rejecting a leading "-" also blocks argv
     // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
+    // flat filesystem-safe token only — no `/` (subdirs) and no `.` (so no `..` traversal);
+    // a session UUID satisfies this.
+    if (slug !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(slug)) throw new Error("invalid slug");
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
-    const worktreePath = join(parent, `${basename(repoPath)}-review-${sha.slice(0, 8)}`);
+    const tag = slug ? `${slug}-${sha.slice(0, 8)}` : sha.slice(0, 8);
+    const worktreePath = join(parent, `${basename(repoPath)}-review-${tag}`);
     mkdirSync(parent, { recursive: true });
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)

@@ -121,6 +121,59 @@
     return collaborators.find((c) => eqLogin(c, value)) ?? value;
   }
 
+  // The popover is anchored to its trigger (top: 100% on the rail wrapper), so a
+  // viewport-relative max-height alone can't keep the bottom on screen — how much
+  // room exists depends on where the anchor sits. Measure the anchor and cap the
+  // popover's height to the space actually available, so the internal scrollbar
+  // engages and the last sections (e.g. Zuständigkeiten) stay reachable. When the
+  // anchor sits so low that less than MIN_HEIGHT remains below, flip the popover
+  // above the anchor instead of letting a sliver poke past the viewport edge.
+  const MIN_HEIGHT = 160; // px — below this a scrollable popover stops being usable
+  const EDGE_GAP = 12; // px breathing room to the viewport edge
+  const ANCHOR_GAP = 4; // px offset from the anchor (matches the CSS margin)
+  let popEl = $state<HTMLDivElement | null>(null);
+  let flipUp = $state(false);
+  $effect(() => {
+    const el = popEl;
+    if (!el) return;
+    const clamp = () => {
+      // Measure the anchor (the positioning wrapper), not the popover itself —
+      // the popover's own rect moves when we flip it, the anchor's doesn't.
+      const anchor = el.offsetParent;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - ANCHOR_GAP - EDGE_GAP;
+      const above = rect.top - ANCHOR_GAP - EDGE_GAP;
+      flipUp = below < MIN_HEIGHT && above > below;
+      el.style.maxHeight = `${Math.max(MIN_HEIGHT, flipUp ? above : below)}px`;
+    };
+    // rAF-throttle: the scroll listener is capture-phase on window, so it fires
+    // for every scroll anywhere — coalesce to one layout read+write per frame.
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        clamp();
+      });
+    };
+    clamp();
+    window.addEventListener("resize", schedule);
+    // capture-phase scroll: the anchor may live inside a scrollable container,
+    // and scroll events don't bubble — recompute whenever anything scrolls.
+    window.addEventListener("scroll", schedule, true);
+    // The anchor can also shift without any scroll/resize — e.g. content above
+    // it loading in and growing the wrapper. Watch the wrapper's size directly.
+    const ro = new ResizeObserver(schedule);
+    if (el.offsetParent) ro.observe(el.offsetParent);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      ro.disconnect();
+    };
+  });
+
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const prev = roles;
     roles = { ...roles, [role]: value }; // optimistic
@@ -141,7 +194,12 @@
   }
 </script>
 
-<div class="auto-pop" role="dialog" aria-label={m.automation_panel_title()}>
+<div
+  class={["auto-pop", { "flip-up": flipUp }]}
+  role="dialog"
+  aria-label={m.automation_panel_title()}
+  bind:this={popEl}
+>
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>
 
@@ -499,9 +557,18 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     color: var(--color-ink);
     /* long-form details can expand a row tall; keep the popover within the
-       viewport and scroll instead of overflowing off-screen */
+       viewport and scroll instead of overflowing off-screen. The 85vh is only
+       the pre-measure fallback — an effect clamps max-height to the space
+       actually available below the anchored top edge. */
     max-height: 85vh;
     overflow-y: auto;
+  }
+  /* anchor too close to the viewport bottom → open upward instead */
+  .auto-pop.flip-up {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
   }
   .auto-head {
     font-size: var(--fs-micro);

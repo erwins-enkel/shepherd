@@ -165,7 +165,7 @@
           <HeartbeatStrip {activity} {nowMs} />
           {#if summary}
             <span class="act-sep" aria-hidden="true">·</span>
-            <span class="act-sum" title={summary}>{summary}</span>
+            <span class="act-sum">{summary}</span>
           {/if}
         </div>
       {/if}

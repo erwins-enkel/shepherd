@@ -14,6 +14,7 @@
     standardCommandUnset = false,
     onsettings = undefined,
     filteredRepo = null,
+    statusFilter = null,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -25,11 +26,30 @@
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
     filteredRepo?: string | null;
+    // page-level status filter (TopBar tallies); sessions arrive pre-filtered,
+    // the prop only picks the right empty-state copy
+    statusFilter?: "running" | "idle" | "blocked" | null;
   } = $props();
+
+  const statusLabel = $derived(
+    statusFilter === "running"
+      ? m.topbar_working_label()
+      : statusFilter === "idle"
+        ? m.topbar_idle_label()
+        : m.topbar_blocked_label(),
+  );
 </script>
 
 {#if sessions.length === 0}
-  {#if filteredRepo}
+  <!-- status-filter emptiness happens at page level, so it lands in this branch
+       and must outrank the repo note and the first-run EmptyHerd nudge -->
+  {#if statusFilter != null && filteredRepo}
+    <div class="grid-empty">
+      {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}
+    </div>
+  {:else if statusFilter != null}
+    <div class="grid-empty">{m.herd_status_filter_empty({ status: statusLabel })}</div>
+  {:else if filteredRepo}
     <div class="grid-empty">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
   {:else}
     <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />

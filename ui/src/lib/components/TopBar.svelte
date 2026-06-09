@@ -4,6 +4,9 @@
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+
+  type TallyStatus = "running" | "idle" | "blocked";
 
   let {
     sessions,
@@ -22,6 +25,8 @@
     onherdrupdate,
     whatsNew = false,
     onwhatsnew,
+    statusFilter = null,
+    onstatusfilter,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -39,7 +44,13 @@
     onherdrupdate?: () => void;
     whatsNew?: boolean;
     onwhatsnew?: () => void;
+    // page-level session-status filter the tallies toggle; null = no filter
+    statusFilter?: TallyStatus | null;
+    onstatusfilter?: (status: TallyStatus | null) => void;
   } = $props();
+
+  // tally click: toggle — clicking the active status clears the filter
+  const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
@@ -282,29 +293,94 @@
   <div class="sep"></div>
   {#if mobile}
     <div class="tallies compact">
-      <span class="n">{sessions.length}</span>
-      <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
-      <span class="csep">·</span><span class="n">{idle}</span>
-      <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
+      <button
+        type="button"
+        class="ctally"
+        title={m.topbar_tally_clear_title()}
+        aria-label={m.topbar_tally_clear_title()}
+        onclick={() => onstatusfilter?.(null)}
+      >
+        <span class="n">{sessions.length}</span>
+      </button>
+      <button
+        type="button"
+        class="ctally"
+        class:active={statusFilter === "running"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
+        aria-label={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
+        aria-pressed={statusFilter === "running"}
+        onclick={() => clickStatus("running")}
+      >
+        <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
+      </button>
+      <span class="csep">·</span>
+      <button
+        type="button"
+        class="ctally"
+        class:active={statusFilter === "idle"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
+        aria-label={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
+        aria-pressed={statusFilter === "idle"}
+        onclick={() => clickStatus("idle")}
+      >
+        <span class="n">{idle}</span>
+      </button>
+      <button
+        type="button"
+        class="ctally"
+        class:active={statusFilter === "blocked"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
+        aria-label={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
+        aria-pressed={statusFilter === "blocked"}
+        onclick={() => clickStatus("blocked")}
+      >
+        <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
+      </button>
     </div>
   {:else}
-    <div class="tallies">
-      <div class="tally">
+    <div class="tallies" use:coachTarget={"tally-filter"}>
+      <button
+        type="button"
+        class="tally"
+        title={m.topbar_tally_clear_title()}
+        onclick={() => onstatusfilter?.(null)}
+      >
         <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
-      </div>
-      <div class="tally">
+      </button>
+      <button
+        type="button"
+        class="tally"
+        class:active={statusFilter === "running"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
+        aria-pressed={statusFilter === "running"}
+        onclick={() => clickStatus("running")}
+      >
         <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
           class="n">{working}</span
         >
-      </div>
-      <div class="tally">
+      </button>
+      <button
+        type="button"
+        class="tally"
+        class:active={statusFilter === "idle"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
+        aria-pressed={statusFilter === "idle"}
+        onclick={() => clickStatus("idle")}
+      >
         <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
-      </div>
-      <div class="tally">
+      </button>
+      <button
+        type="button"
+        class="tally"
+        class:active={statusFilter === "blocked"}
+        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
+        aria-pressed={statusFilter === "blocked"}
+        onclick={() => clickStatus("blocked")}
+      >
         <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
           class="n">{blocked}</span
         >
-      </div>
+      </button>
     </div>
   {/if}
   <div class="rightside">
@@ -576,13 +652,30 @@
   }
   .tallies {
     display: flex;
-    gap: 18px;
+    /* was 18px between static divs: the tally buttons now carry 4px side padding
+       each, so 10px gap keeps the content-to-content rhythm (4+10+4) and the bar's
+       intrinsic width ~stable — the measured desktop compaction threshold
+       (hudEl.scrollWidth) must not drift */
+    gap: 10px;
     align-items: center;
   }
   .tally {
     display: flex;
     gap: 7px;
     align-items: center;
+    background: none;
+    border: 1px solid transparent;
+    padding: 2px 4px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .tally:hover {
+    background: var(--color-inset);
+  }
+  .tally.active {
+    background: var(--color-inset);
+    border-color: var(--color-line-bright);
   }
   .tally .n {
     color: var(--color-ink-bright);
@@ -975,9 +1068,32 @@
   .tallies.compact {
     display: flex;
     align-items: center;
-    gap: 4px;
+    /* button side padding (5px) now provides the separation the old 4px gap gave */
+    gap: 0;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+  }
+  .ctally {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: none;
+    border: 1px solid transparent;
+    padding: 0 5px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    /* 44px touch floor in HEIGHT only (matches .hud.mobile .gear/.needsyou); a
+       44px width floor for four buttons would blow the ~260px usable line-1
+       budget on fold-cover phones. 24px min width keeps even the bare-digit
+       Idle segment at the WCAG 2.5.8 (AA) target size. */
+    min-height: 44px;
+    min-inline-size: 24px;
+  }
+  .ctally.active {
+    background: var(--color-inset);
+    border-color: var(--color-line-bright);
   }
   .tallies.compact .cdot {
     font-size: var(--fs-micro);

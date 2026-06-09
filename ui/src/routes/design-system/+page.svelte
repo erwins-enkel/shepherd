@@ -133,11 +133,17 @@ input, select, textarea {
 
   const scrimMarkup = `<div class="scrim"><!-- dialog --></div>
 
+/* .scrim lives in app.css — one canonical backdrop for every dialog/drawer.
+   Theme-aware dim (never a raw rgba()) + a soft blur so the app recedes. */
 .scrim {
   position: fixed;
   inset: 0;
-  background: var(--color-scrim); /* theme-aware dim, never a raw rgba() */
-}`;
+  background: var(--color-scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+/* Existing modal backdrops use class="overlay" and keep their own
+   background/z-index; app.css adds the same blur to .overlay too. */`;
 </script>
 
 <svelte:head>
@@ -311,9 +317,11 @@ input, select, textarea {
   <section class="panel">
     <h2>Modal &amp; scrim</h2>
     <p class="when">
-      <strong>When:</strong> a blocking dialog dims the app behind a <code>--color-scrim</code>
-      overlay (theme-aware — never a raw <code>rgba()</code>). The dialog itself is a
-      <code>.panel</code>.
+      <strong>When:</strong> a blocking dialog, modal or side drawer dims
+      <em>and</em> blurs the app behind a <code>--color-scrim</code> backdrop (theme-aware — never a
+      raw <code>rgba()</code>), so the foreground reads clearly. Use the global <code>.scrim</code>
+      class for new backdrops; existing modals on <code>.overlay</code> inherit the same blur from
+      <code>app.css</code>. The dialog itself is a <code>.panel</code>.
     </p>
     <div class="demo">
       <div class="scrim-demo">
@@ -547,7 +555,14 @@ input, select, textarea {
     position: relative;
     width: 240px;
     height: 120px;
-    background: var(--color-bg);
+    /* faux app content (stripes) behind the scrim so the blur is visible */
+    background: repeating-linear-gradient(
+      45deg,
+      var(--color-bg),
+      var(--color-bg) 8px,
+      var(--color-line) 8px,
+      var(--color-line) 16px
+    );
     border: 1px solid var(--color-line);
     border-radius: 2px;
     overflow: hidden;
@@ -558,6 +573,8 @@ input, select, textarea {
     position: absolute;
     inset: 0;
     background: var(--color-scrim);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
   }
   .dialog {
     position: relative;

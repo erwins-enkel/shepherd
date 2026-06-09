@@ -729,6 +729,27 @@
     resumeEpoch++;
   }
 
+  // Self-heal when the session is resumed from OUTSIDE this terminal — e.g. the
+  // card context-menu Resume on the already-open session, where this Viewport's
+  // own resume path never runs. That respawns the agent server-side and flips the
+  // session back to `running`, but leaves us parked on the stale ended overlay. So
+  // while we're ended and not mid-resume ourselves, a transition to `running` means
+  // a fresh agent is up: drop the overlay and rebuild the terminal to re-attach.
+  //
+  // Gated on endReason === "gone" (the agent exited; herdr — and so the events WS —
+  // is still up, so `session.status` is live and trustworthy). The "unreachable"
+  // case (herdr down) is deliberately excluded: its events WS is down too, so status
+  // freezes at a stale "running", and acting on it would rebuild/reattach-loop every
+  // fast-fail cycle and defeat the dedicated Reconnect overlay. Also gated on `ended`
+  // so a normal idle→running turn never rebuilds a live terminal, and on `!resuming`
+  // so our own resume path doesn't double-bump the epoch.
+  $effect(() => {
+    if (ended && endReason === "gone" && !resuming && session.status === "running") {
+      ended = false;
+      resumeEpoch++;
+    }
+  });
+
   // mobile compose bar submit. Routing the composed line through here (as an
   // atomic bracketed paste) instead of xterm's textarea sidesteps the Android
   // IME duplication bug. See composeKeystrokes for the byte mapping.

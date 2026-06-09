@@ -66,6 +66,8 @@
     return msg || fallback;
   }
   let repos = $state<RepoEntry[]>([]);
+  // Day count the server computed recentAgentCount over; drives the picker's label.
+  let recentRepoWindowDays = $state(3);
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);
@@ -97,8 +99,9 @@
   onMount(() => {
     isMac = /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent);
     listRepos()
-      .then((r) => {
+      .then(({ repos: r, recentWindowDays }) => {
         repos = r;
+        recentRepoWindowDays = recentWindowDays;
         if (!repoPath && r.length > 0) repoPath = defaultRepoPath(r);
       })
       .catch(() => {});
@@ -345,7 +348,13 @@
 
     <div class="repo-field" use:coachTarget={"nt-repo"}>
       <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
-      <RepoSelect {repos} value={repoPath} onchange={(p) => (repoPath = p)} {onclone} />
+      <RepoSelect
+        {repos}
+        windowDays={recentRepoWindowDays}
+        value={repoPath}
+        onchange={(p) => (repoPath = p)}
+        {onclone}
+      />
     </div>
 
     <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>

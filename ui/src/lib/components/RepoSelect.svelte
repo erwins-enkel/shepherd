@@ -9,8 +9,15 @@
     value,
     onchange,
     onclone,
-  }: { repos: RepoEntry[]; value: string; onchange: (path: string) => void; onclone?: () => void } =
-    $props();
+    windowDays = 3,
+  }: {
+    repos: RepoEntry[];
+    value: string;
+    onchange: (path: string) => void;
+    onclone?: () => void;
+    /** Day count the server computed recentAgentCount over — named in the per-row label. */
+    windowDays?: number;
+  } = $props();
 
   let open = $state(false);
   let filter = $state("");
@@ -32,15 +39,12 @@
 
   // How many repos to pin in the "recently worked on" shortcut group at the top.
   const RECENT_LIMIT = 3;
-  // Day count named in the per-row agent-count label. The actual counting window
-  // lives server-side (RECENT_WINDOW_DAYS in src/server.ts) — keep the two in sync.
-  const RECENT_WINDOW_DAYS = 3;
 
   /** Pluralized "{count} agents run here in the last {days} days" label for a pinned row. */
   function recentAgentsLabel(count: number): string {
     return count === 1
-      ? m.reposelect_recent_agents_one({ count, days: RECENT_WINDOW_DAYS })
-      : m.reposelect_recent_agents_other({ count, days: RECENT_WINDOW_DAYS });
+      ? m.reposelect_recent_agents_one({ count, days: windowDays })
+      : m.reposelect_recent_agents_other({ count, days: windowDays });
   }
 
   const selected = $derived(repos.find((r) => r.path === value) ?? null);

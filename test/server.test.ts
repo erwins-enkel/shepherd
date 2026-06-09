@@ -581,12 +581,13 @@ test("WS /events with allowed Origin → not 403", async () => {
 
 // ── /api/repos + /api/todo ────────────────────────────────────────────────────
 
-test("GET /api/repos → 200 + JSON array", async () => {
+test("GET /api/repos → 200 + { repos, recentWindowDays }", async () => {
   const app = harness();
   const res = await app.fetch(new Request("http://x/api/repos"));
   expect(res.status).toBe(200);
   const body = await res.json();
-  expect(Array.isArray(body)).toBe(true);
+  expect(Array.isArray(body.repos)).toBe(true);
+  expect(typeof body.recentWindowDays).toBe("number");
 });
 
 test("GET /api/branches?repo=<validRepo> → 200 with branches + current", async () => {

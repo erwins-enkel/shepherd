@@ -1523,14 +1523,15 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   return json(r.entry, 201);
 }
 
+// Window for the "recently worked on" repo shortcut: agents run per repo over the
+// last N days. Single source of truth — returned by GET /api/repos so the UI labels
+// the count with the same window it was computed over (no duplicated literal).
+const RECENT_WINDOW_DAYS = 3;
+
 async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
     if (req.method === "GET") {
       const lastUsed = deps.store.lastUsedByRepo();
-      // "recently worked on" shortcut: agents run per repo over a recent window.
-      // Keep RECENT_WINDOW_DAYS in sync with the UI's copy in RepoSelect.svelte —
-      // the picker labels the count with the same day count.
-      const RECENT_WINDOW_DAYS = 3;
       const recentCounts = deps.store.recentSessionCountsByRepo(
         Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       );
@@ -1539,7 +1540,9 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
         lastUsedAt: lastUsed[r.path],
         recentAgentCount: recentCounts[r.path],
       }));
-      return json(repos);
+      // Return the window alongside the repos so the picker labels the count with
+      // the exact day count it was computed over — single source of truth.
+      return json({ repos, recentWindowDays: RECENT_WINDOW_DAYS });
     }
     if (req.method === "POST") return cloneRepoFromRequest(req);
   }

@@ -286,9 +286,16 @@ export class StatusPoller {
     //
     // So we don't ask "is the transcript empty?" but "is it being WRITTEN right
     // now?" — does its newest record advance between probes. `newestTs` is the
-    // newest of the two signals; `liveWriting` is true on the FIRST sighting (no
-    // baseline yet — so a resumed agent still auto-reactivates the transcript path)
-    // and thereafter only when `newestTs` strictly advances past the prior probe.
+    // newest of the two signals; `liveWriting` requires an EXISTING baseline AND a
+    // strict advance past it. A FIRST sighting (no baseline) is treated as NOT live
+    // so a resumed session engages the interim terminal-diff immediately, instead
+    // of taking the transcript path once and emitting one stale (already-out-of-
+    // window) transcript signal that leaves the heat-strip blank for ~1 cadence.
+    // Auto-reactivation is preserved regardless: `lastTranscriptTs` is recorded on
+    // EVERY probe (below, before the branch), so a genuinely live-writing transcript
+    // advances on its SECOND probe → flips to the transcript path then. The cost is
+    // one extra probe (~one cadence) on interim before a live transcript takes over
+    // — benign, the interim shows the agent alive meanwhile.
     //
     //  • NOT live-writing (empty transcript OR a frozen/stale one) → derive a
     //    coarse-but-live heartbeat + stall from the herdr "visible" buffer instead.
@@ -306,7 +313,7 @@ export class StatusPoller {
     // the transcript path resumes the instant a new record lands.
     const newestTs = signals.activity?.lastActivityTs ?? signals.snapshot?.lastTs ?? null;
     const prevTs = this.lastTranscriptTs.get(s.id);
-    const liveWriting = newestTs != null && (prevTs === undefined || newestTs > prevTs);
+    const liveWriting = newestTs != null && prevTs !== undefined && newestTs > prevTs;
     if (newestTs != null) this.lastTranscriptTs.set(s.id, newestTs);
 
     if (!liveWriting) {

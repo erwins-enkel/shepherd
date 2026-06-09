@@ -437,7 +437,7 @@ export class GithubForge implements GitForge {
   }
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {
-    await this.run([
+    const args = [
       "pr",
       "create",
       "--repo",
@@ -450,8 +450,18 @@ export class GithubForge implements GitForge {
       o.title,
       "--body",
       o.body,
-    ]);
+    ];
+    if (o.draft) args.push("--draft");
+    await this.run(args);
     return this.prStatus(o.head);
+  }
+
+  async markReady(prNumber: number): Promise<void> {
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug]);
+  }
+
+  async convertToDraft(prNumber: number): Promise<void> {
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug, "--undo"]);
   }
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {

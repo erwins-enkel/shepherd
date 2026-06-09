@@ -795,3 +795,55 @@ test("GithubForge: a rejecting runner propagates as a rejected promise (fail-clo
   const forge = new GithubForge("o/r", {}, run);
   await expect(forge.listIssues()).rejects.toThrow("gh: network error");
 });
+
+test("GithubForge.openPr: draft:true appends --draft to gh pr create args", async () => {
+  const prListJson = JSON.stringify([
+    {
+      number: 5,
+      url: "u",
+      title: "T",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [],
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prListJson });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.openPr({ head: "feat", base: "main", title: "T", body: "B", draft: true });
+  const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+  expect(createCall).toBeDefined();
+  expect(createCall).toContain("--draft");
+});
+
+test("GithubForge.openPr: draft:false (or omitted) does NOT pass --draft", async () => {
+  const prListJson = JSON.stringify([
+    {
+      number: 5,
+      url: "u",
+      title: "T",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [],
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prListJson });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.openPr({ head: "feat", base: "main", title: "T", body: "B" });
+  const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+  expect(createCall).toBeDefined();
+  expect(createCall).not.toContain("--draft");
+});
+
+test("GithubForge.markReady: invokes gh pr ready <n> --repo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.markReady!(42);
+  expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r"]);
+});
+
+test("GithubForge.convertToDraft: invokes gh pr ready <n> --repo --undo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.convertToDraft!(42);
+  expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r", "--undo"]);
+});

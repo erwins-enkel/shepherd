@@ -1,7 +1,11 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+import { timedAsync } from "./instrument";
+
+const execFileAsync = promisify(execFile);
 
 export interface UpdateCommit {
   sha: string;
@@ -57,7 +61,7 @@ const EMPTY = (now: number): UpdateStatus => ({
 });
 
 /** Runs git inside a fixed repo dir and returns stdout; injectable for tests. */
-export type GitRunner = (args: string[]) => string;
+export type GitRunner = (args: string[]) => Promise<string>;
 
 export interface UpdateDeps {
   /** repo to check; defaults to the service working dir (the live deployment) */
@@ -103,11 +107,12 @@ export class UpdateService {
     this.limit = deps.limit ?? 20;
     this.git =
       deps.git ??
-      ((args) =>
-        execFileSync("git", ["-C", this.repoDir, ...args], {
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }));
+      (async (args) => {
+        const { stdout } = await timedAsync(`git ${args[0] ?? ""}`, () =>
+          execFileAsync("git", ["-C", this.repoDir, ...args], { encoding: "utf8" }),
+        );
+        return stdout as string;
+      });
     this.launch = deps.launch ?? (() => this.defaultLaunch());
   }
 
@@ -184,17 +189,17 @@ export class UpdateService {
 
   /** Fetch origin and recompute how far behind the tracked branch we are. On any
    *  git/network failure, returns behind:0 (fail safe → no false update badge). */
-  check(now: number): UpdateStatus {
+  async check(now: number): Promise<UpdateStatus> {
     try {
       const remote = `origin/${this.branch}`;
-      this.git(["fetch", "--quiet", "origin", this.branch]);
-      const current = this.git(["rev-parse", "--short", "HEAD"]).trim() || null;
-      const latest = this.git(["rev-parse", "--short", remote]).trim() || null;
+      await this.git(["fetch", "--quiet", "origin", this.branch]);
+      const current = (await this.git(["rev-parse", "--short", "HEAD"])).trim() || null;
+      const latest = (await this.git(["rev-parse", "--short", remote])).trim() || null;
       const range = `HEAD..${remote}`;
-      const behind = Number(this.git(["rev-list", "--count", range]).trim()) || 0;
+      const behind = Number((await this.git(["rev-list", "--count", range])).trim()) || 0;
       const commits =
         behind > 0
-          ? this.git(["log", `--max-count=${this.limit}`, "--format=%h%x09%s", range])
+          ? (await this.git(["log", `--max-count=${this.limit}`, "--format=%h%x09%s", range]))
               .split("\n")
               .filter(Boolean)
               .map((line) => {

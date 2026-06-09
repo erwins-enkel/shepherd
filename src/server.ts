@@ -147,7 +147,7 @@ export interface AppDeps {
     queue(repoPath: string): Promise<QueuedItem[]>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
-  autoMerge?: { snapshot(): import("./automerge").AutoMergeStatus[] };
+  autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
 }
 
 const sessionUsage = (s: Session) =>
@@ -241,11 +241,11 @@ async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | n
 }
 
 // GET /api/automerge — a status per auto-merge-enabled repo (client bootstrap).
-function handleAutoMerge({ req, parts, deps }: Ctx): Response | null {
+async function handleAutoMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "automerge" && !parts[2])) {
     return null;
   }
-  return json(deps.autoMerge?.snapshot() ?? []);
+  return json((await deps.autoMerge?.snapshot()) ?? []);
 }
 
 // maxAuto: finite integer ≥ 1; clamp > 20 to 20

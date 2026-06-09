@@ -83,11 +83,11 @@ export class AutoMergeService {
   /** behindBase() shells out to `git fetch`; cache per (worktree,base) for a short TTL so a
    *  burst of poller events / client snapshots doesn't fan out one fetch per open PR each time.
    *  Cleared on a successful merge so siblings get a fresh read once main moves. */
-  private cachedBehind(worktreePath: string, baseBranch: string): boolean | null {
+  private async cachedBehind(worktreePath: string, baseBranch: string): Promise<boolean | null> {
     const key = `${worktreePath}\0${baseBranch}`;
     const hit = this.behindCache.get(key);
     if (hit && this.now() - hit.ts < this.behindTtlMs) return hit.behind;
-    const behind = this.deps.worktree.behindBase(worktreePath, baseBranch);
+    const behind = await this.deps.worktree.behindBase(worktreePath, baseBranch);
     this.behindCache.set(key, { behind, ts: this.now() });
     return behind;
   }
@@ -118,11 +118,11 @@ export class AutoMergeService {
   }
 
   /** Project one full-auto session + its cached PR snapshot into the core's view. */
-  private toView(s: Session, git: GitState | null): MergeSessionView {
+  private async toView(s: Session, git: GitState | null): Promise<MergeSessionView> {
     const headSha = git?.headSha ?? null;
     const behind =
       git?.state === "open" && s.worktreePath && s.branch
-        ? this.cachedBehind(s.worktreePath, s.baseBranch)
+        ? await this.cachedBehind(s.worktreePath, s.baseBranch)
         : null;
     const review = this.deps.store.getReview(s.id);
     return {
@@ -142,13 +142,15 @@ export class AutoMergeService {
     };
   }
 
-  private buildState(repoPath: string): MergeRepoState {
+  private async buildState(repoPath: string): Promise<MergeRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const snapshot = this.deps.prCache.snapshot();
-    const sessions: MergeSessionView[] = this.deps.store
-      .list()
-      .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
-      .map((s) => this.toView(s, snapshot[s.id] ?? null));
+    const sessions: MergeSessionView[] = await Promise.all(
+      this.deps.store
+        .list()
+        .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
+        .map((s) => this.toView(s, snapshot[s.id] ?? null)),
+    );
     return {
       enabled: sessions.length > 0,
       criticEnabled: cfg.criticEnabled,
@@ -224,7 +226,7 @@ export class AutoMergeService {
       for (let i = 0; i < 100; i++) {
         let state: MergeRepoState;
         try {
-          state = this.buildState(repoPath);
+          state = await this.buildState(repoPath);
         } catch (err) {
           console.warn(`[automerge] build/compute failed for ${repoPath}:`, err);
           break;
@@ -333,11 +335,11 @@ export class AutoMergeService {
   }
 
   /** Client bootstrap: a status per full-auto-active repo, no side effects. */
-  snapshot(): AutoMergeStatus[] {
+  async snapshot(): Promise<AutoMergeStatus[]> {
     const out: AutoMergeStatus[] = [];
     for (const repoPath of this.deps.repos()) {
       if (!this.repoHasFullAuto(repoPath)) continue;
-      const d = computeMerge(this.buildState(repoPath));
+      const d = computeMerge(await this.buildState(repoPath));
       const reason = d.kind === "hold" ? (d.reason.code === "idle" ? null : d.reason.code) : d.kind;
       const detail = d.kind === "hold" ? (d.reason.detail ?? null) : null;
       const sessionId = d.kind === "hold" ? (d.reason.sessionId ?? null) : d.sessionId;

@@ -202,7 +202,12 @@ export class PlanGateService {
     // verdict file (cross-session findings). See createDetached's `slug` doc.
     let wt;
     try {
-      wt = this.deps.worktree.createDetached(session.repoPath, session.baseBranch, sha, session.id);
+      wt = await this.deps.worktree.createDetached(
+        session.repoPath,
+        session.baseBranch,
+        sha,
+        session.id,
+      );
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return "error";

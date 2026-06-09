@@ -549,7 +549,7 @@ setInterval(calibrate, 24 * 60 * 60 * 1000);
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.
 const updates = new UpdateService();
-const checkUpdates = () => events.emit("update:status", updates.check(Date.now()));
+const checkUpdates = async () => events.emit("update:status", await updates.check(Date.now()));
 setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
 

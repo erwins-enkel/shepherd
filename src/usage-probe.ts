@@ -91,9 +91,10 @@ export class HerdrUsageProbe implements UsageProbe {
     })();
 
     // Gate on whether the panel actually parses (parseUsageFrame strips ANSI before matching —
-    // a whitespace-only check fails since color codes sit between "Current" and "week"). The
-    // session/week %s render immediately; only the breakdown below waits on the local-session scan.
-    const hasPanel = () => parseUsageFrame(buf, 0).week !== null;
+    // a whitespace-only check fails since color codes sit between "Current" and "week"). Wait
+    // for the week's "Resets …" line too — a pct-only partial render calibrates against a
+    // guessed anchor — but fall back to pct-only if the label never shows up.
+    const week = () => parseUsageFrame(buf, 0).week;
 
     try {
       // type the slash command, let the command menu register, THEN submit with Enter separately —
@@ -104,8 +105,8 @@ export class HerdrUsageProbe implements UsageProbe {
       await sleep(900);
       proc.stdin.write("\r");
       proc.stdin.flush();
-      for (let i = 0; i < 12 && !hasPanel(); i++) await sleep(1000);
-      return hasPanel() ? buf : null;
+      for (let i = 0; i < 12 && !week()?.resetLabel; i++) await sleep(1000);
+      return week() ? buf : null;
     } catch {
       return null;
     } finally {

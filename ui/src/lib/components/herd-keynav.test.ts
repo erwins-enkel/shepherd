@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { railOrder, cycleId, nthId, nextNeedsYou } from "./herd-keynav";
+import { railOrder, cycleId, nthId, nextNeedsYou, altComboKey } from "./herd-keynav";
 import type { Session, GitState, SessionStatus } from "$lib/types";
 
 function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
@@ -123,4 +123,31 @@ test("nextNeedsYou cycles among blocked sessions, wrapping", () => {
 test("nextNeedsYou is a no-op (null) when none are blocked or only the current one is", () => {
   expect(nextNeedsYou([], "a")).toBeNull();
   expect(nextNeedsYou(["a"], "a")).toBeNull();
+});
+
+// altComboKey — physical KeyboardEvent.code → keynav key vocabulary
+
+test("altComboKey maps j/k/g letter codes", () => {
+  expect(altComboKey("KeyJ")).toBe("j");
+  expect(altComboKey("KeyK")).toBe("k");
+  expect(altComboKey("KeyG")).toBe("g");
+});
+
+test("altComboKey maps arrow codes", () => {
+  expect(altComboKey("ArrowDown")).toBe("arrowdown");
+  expect(altComboKey("ArrowUp")).toBe("arrowup");
+});
+
+test("altComboKey maps Digit1–Digit9 to '1'–'9'", () => {
+  for (let n = 1; n <= 9; n++) {
+    expect(altComboKey(`Digit${n}`)).toBe(String(n));
+  }
+});
+
+test("altComboKey returns null for non-combo codes", () => {
+  expect(altComboKey("KeyN")).toBeNull();
+  expect(altComboKey("Digit0")).toBeNull();
+  expect(altComboKey("Numpad1")).toBeNull();
+  expect(altComboKey("Escape")).toBeNull();
+  expect(altComboKey("")).toBeNull();
 });

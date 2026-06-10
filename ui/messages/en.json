@@ -563,8 +563,9 @@
   "viewport_type_steer_hint": "⌁ type to steer",
   "viewport_detach_hint": "⇥ detach",
   "viewport_select_hint": "{key} drag to copy",
-  "viewport_keynav_hint": "j/k/1–9 switch session",
+  "viewport_keynav_hint": "j/k/1–9 switch session ({key} from terminal)",
   "viewport_keynav_needsyou_hint": "g needs you",
+  "viewport_keynav_enter_hint": "↵ back to terminal",
   "viewport_parked_title": "Active on another device",
   "viewport_parked_sub": "Tap to take over",
   "viewport_session_ended": "── session ended ──",
@@ -875,5 +876,7 @@
   "settings_default_model_premium_warning": "This model tier is premium. All autonomous drain and autopilot spawns will run at this cost unattended.",
   "settings_default_model_save_failed": "Couldn't change default model. Retry.",
   "feat_default_model_title": "Operator-configurable default model",
-  "feat_default_model_body": "Set a global default model for every new task and all autonomous drain/autopilot spawns from Settings → Session. \"Auto\" keeps the launch-window default; \"default\" locks in Claude's own model; or pick a specific alias to always run that tier."
+  "feat_default_model_body": "Set a global default model for every new task and all autonomous drain/autopilot spawns from Settings → Session. \"Auto\" keeps the launch-window default; \"default\" locks in Claude's own model; or pick a specific alias to always run that tier.",
+  "feat_herd_keynav_anywhere_title": "Session switching from inside the terminal",
+  "feat_herd_keynav_anywhere_body": "Session switching now works while you're typing in the terminal: Alt (⌥ on Mac) + j/k, g, or 1–9 switches without leaving the keyboard — Shepherd captures these combos, so those key combinations never reach the agent's terminal. With the terminal unfocused, plain j/k/g/1–9 now chain freely (switching no longer pulls focus back), and Enter returns focus to the terminal."
 }

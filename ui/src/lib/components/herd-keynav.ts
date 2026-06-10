@@ -56,6 +56,33 @@ export function nthId(order: string[], n: number): string | null {
   return Number.isInteger(n) && n >= 1 && n <= order.length ? order[n - 1] : null;
 }
 
+/** Maps a physical `KeyboardEvent.code` to the keynav key vocabulary string used
+ *  by the page-level shortcut handler (lowercase `e.key`-style), or null if the
+ *  code is not part of the Alt+key session-switch combo set.
+ *
+ *  Single source of truth for Alt+key combos — consumed by BOTH the window
+ *  shortcut handler in +page.svelte (to act on the combo) and xterm's
+ *  `attachCustomKeyEventHandler` in Viewport.svelte (to suppress the key from
+ *  reaching the PTY). Matching on physical `e.code`, not `e.key`, because macOS
+ *  Option+J produces "∆" and other layouts vary.
+ *
+ *  Numpad1–9 are deliberately NOT mapped (asymmetric with the plain-key tier,
+ *  which keys off `e.key` and so accepts numpad digits): Alt+numpad-digit is
+ *  the Windows OS alt-code input method for typing special characters into the
+ *  terminal, and `e.code` reports Numpad1–9 regardless of NumLock — mapping
+ *  them would both shadow alt-code entry and ghost-match when the key isn't a
+ *  digit at all. */
+export function altComboKey(code: string): string | null {
+  if (code === "KeyJ") return "j";
+  if (code === "KeyK") return "k";
+  if (code === "KeyG") return "g";
+  if (code === "ArrowDown") return "arrowdown";
+  if (code === "ArrowUp") return "arrowup";
+  const digitMatch = /^Digit([1-9])$/.exec(code);
+  if (digitMatch) return digitMatch[1];
+  return null;
+}
+
 /** Next blocked session after `currentId` in `blockedIds` (oldest-first, the
  *  NEEDS-YOU set), wrapping around; cycles among several, skips the current one.
  *  Null when none are blocked or the only blocked session is already selected. */

@@ -563,8 +563,9 @@
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
   "viewport_select_hint": "{key} Ziehen zum Kopieren",
-  "viewport_keynav_hint": "j/k/1–9 Session wechseln",
+  "viewport_keynav_hint": "j/k/1–9 Session wechseln ({key} aus dem Terminal)",
   "viewport_keynav_needsyou_hint": "g braucht dich",
+  "viewport_keynav_enter_hint": "↵ zurück zum Terminal",
   "viewport_parked_title": "Auf anderem Gerät aktiv",
   "viewport_parked_sub": "Tippen zum Übernehmen",
   "viewport_session_ended": "── Sitzung beendet ──",
@@ -875,5 +876,7 @@
   "settings_default_model_premium_warning": "Diese Modellstufe ist premium. Alle autonomen Drain- und Autopilot-Starts laufen unbeaufsichtigt auf diesem Kostenniveau.",
   "settings_default_model_save_failed": "Standardmodell konnte nicht geändert werden. Erneut versuchen.",
   "feat_default_model_title": "Konfigurierbares Standardmodell",
-  "feat_default_model_body": "Lege in Einstellungen → Session ein globales Standardmodell für jede neue Aufgabe und alle autonomen Drain-/Autopilot-Starts fest. Auto behält den Standard im Einführungszeitraum; Standard setzt Claudes eigenes Modell; oder wähle einen spezifischen Alias, um stets auf dieser Stufe zu starten."
+  "feat_default_model_body": "Lege in Einstellungen → Session ein globales Standardmodell für jede neue Aufgabe und alle autonomen Drain-/Autopilot-Starts fest. Auto behält den Standard im Einführungszeitraum; Standard setzt Claudes eigenes Modell; oder wähle einen spezifischen Alias, um stets auf dieser Stufe zu starten.",
+  "feat_herd_keynav_anywhere_title": "Session-Wechsel aus dem Terminal heraus",
+  "feat_herd_keynav_anywhere_body": "Du kannst jetzt Sessions wechseln, während du im Terminal tippst: Alt (⌥ auf dem Mac) + j/k, g oder 1–9 wechselt die Session, ohne die Tastatur zu verlassen — Shepherd fängt diese Kombinationen ab, sodass diese Tastenkombinationen nie das Terminal des Agenten erreichen. Ohne Terminalfokus kannst du j/k/g/1–9 jetzt frei verketten (der Wechsel zieht den Fokus nicht mehr zurück), und Enter gibt den Fokus wieder ans Terminal ab."
 }

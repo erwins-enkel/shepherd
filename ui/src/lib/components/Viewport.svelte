@@ -34,6 +34,7 @@
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
   import { shouldForwardEscape } from "$lib/terminalEscape";
+  import { altComboKey } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
@@ -82,6 +83,7 @@
     onSeedBuildQueue,
     previewHost = null,
     workingBlocked = {},
+    consumeAutoFocusTerm = () => true,
   }: {
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
@@ -135,6 +137,12 @@
      *  the derived `dStatus`; behavioral reads (resume self-heal, preview confirm
      *  arm) stay on the raw `session.status`. */
     workingBlocked?: Record<string, boolean>;
+    /** One-shot gate for the mount auto-focus: the page records whether the selection
+     *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
+     *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
+     *  it to true, return it. The always-true default merely keeps the prop optional
+     *  (tests / future callers). */
+    consumeAutoFocusTerm?: () => boolean;
   } = $props();
 
   // Display-side status for every header/status render below (see display-status.ts).
@@ -187,6 +195,14 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+
+  /** Hand the keyboard to the live terminal — the page's Enter shortcut calls this
+   *  so plain-key navigation (which deliberately keeps focus *out* of the PTY, see
+   *  consumeAutoFocusTerm) has a way back in. Term tab only: focusing the hidden
+   *  textarea of a display:none terminal would strand the keyboard invisibly. */
+  export function focusTerminal() {
+    if (tab === "term") termRef?.focus();
+  }
   // true when the user has scrolled up away from the latest output → show a
   // jump-to-bottom affordance bottom-right of the terminal. Two regimes
   // (see `agentOwnsScroll`):
@@ -1112,6 +1128,26 @@
         c.send("\n");
         return false;
       }
+      // Alt+J/K/G/arrows/1-9: session-switch combos must work *while the terminal
+      // owns the keyboard* — that's the whole point of the modifier. Suppress them
+      // from the PTY here (altComboKey is the same code→key map the window
+      // shortcut handler acts on, so the two sides can't drift). Like Shift+Enter
+      // above, returning false alone only stops xterm's own keydown handling — the
+      // browser's follow-up keypress would still make xterm emit the Meta/ESC-
+      // prefixed bytes — so e.preventDefault() is required for NO bytes to reach
+      // the agent. preventDefault does not stop propagation: the keydown still
+      // bubbles to the window, where +page.svelte's onShortcut performs the
+      // actual switch. keydown-only; the keyup is inert for these combos.
+      if (
+        e.type === "keydown" &&
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        altComboKey(e.code) !== null
+      ) {
+        e.preventDefault();
+        return false;
+      }
       // Ctrl+Shift+C: explicit copy. Ctrl+C in a focused terminal sends SIGINT to
       // the agent rather than copying; this gives users an explicit copy shortcut.
       // Read the selection before returning false — xterm hasn't cleared it yet.
@@ -1272,8 +1308,19 @@
       // desktop: selecting a unit hands the keyboard straight to its terminal —
       // clicking a sidebar card otherwise leaves focus on the card button, so
       // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
-      // doesn't pop open on every selection.
-      if (!mobile && !touch && tab === "term") term.focus();
+      // doesn't pop open on every selection. consumeAutoFocusTerm gates this:
+      // a plain j/k keynav switch declines the focus (so the next plain key
+      // still chains instead of vanishing into the PTY). The consume comes
+      // FIRST so every rebuild — any layout, any active tab — consumes the
+      // one-shot: a stale `false` can't survive into a later resumeEpoch-driven
+      // rebuild (resume / re-attach must auto-focus exactly as before), and a
+      // coarse-pointer desktop-width device (where onShortcut still runs — its
+      // bail is width-based) can't park one either. The layout/tab guards only
+      // decide whether the consumed intent results in a focus. Read inside the
+      // rAF callback (like mobile/touch/tab) — async, so no new tracked dep on
+      // this terminal effect; the consumed flag itself is a plain non-reactive
+      // let upstairs.
+      if (consumeAutoFocusTerm() && !mobile && !touch && tab === "term") term.focus();
     });
 
     const ro = new ResizeObserver(() => {
@@ -2151,9 +2198,15 @@
       <span class="sep">·</span>
       <span>{m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}</span>
       <span class="sep">·</span>
-      <span>{m.viewport_keynav_hint()}</span>
+      <span>{m.viewport_keynav_hint({ key: isMac ? "⌥" : "Alt" })}</span>
       <span class="sep">·</span>
       <span>{m.viewport_keynav_needsyou_hint()}</span>
+      <!-- Enter only hands focus back on the terminal tab (focusTerminal
+           no-ops elsewhere), so don't advertise it on other tabs -->
+      {#if tab === "term"}
+        <span class="sep">·</span>
+        <span>{m.viewport_keynav_enter_hint()}</span>
+      {/if}
     </div>
   {/if}
 </div>

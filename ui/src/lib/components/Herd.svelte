@@ -468,12 +468,13 @@
 
   /* flow mode (mobile list): full-bleed panel — the side borders + corner
      brackets cost two vertical lines plus gutters on a narrow phone, so drop
-     them and stretch into the shell's 10px horizontal padding (margin matches
-     .shell.mobile in +page.svelte; with a larger safe-area inset the shell
-     keeps the remainder). Top/bottom hairlines stay as section rules. */
+     them and stretch into the shell's base edge padding (--mobile-shell-pad,
+     shared with .shell.mobile in +page.svelte; with a larger safe-area inset
+     the shell keeps the remainder). Top/bottom hairlines stay as section
+     rules. */
   .panel.flow {
     border-inline: 0;
-    margin-inline: -10px;
+    margin-inline: calc(-1 * var(--mobile-shell-pad));
   }
   .panel.flow.bracket::before,
   .panel.flow.bracket::after {

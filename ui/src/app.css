@@ -82,6 +82,10 @@
   --mobile-actionbar-h: calc(
     var(--mobile-actionbar-hit) + var(--mobile-actionbar-pad) + 2 * var(--actionbar-border)
   );
+  /* Mobile shell's base edge padding — single source shared by .shell.mobile
+     (+page.svelte) and the full-bleed herd panel's negative margin
+     (Herd.svelte), so the two can't drift apart. */
+  --mobile-shell-pad: 10px;
 
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is

@@ -1330,8 +1330,10 @@
   }
 
   .shell.mobile {
-    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
-      max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    padding: max(var(--mobile-shell-pad), env(safe-area-inset-top))
+      max(var(--mobile-shell-pad), env(safe-area-inset-right))
+      max(var(--mobile-shell-pad), env(safe-area-inset-bottom))
+      max(var(--mobile-shell-pad), env(safe-area-inset-left));
     gap: 10px;
   }
 
@@ -1367,9 +1369,9 @@
     background: var(--color-bg);
     /* own the top safe-area inset (mirrors the ActionBar's padding-bottom): keeps
        the TopBar clear of the notch / Dynamic Island while the chrome is stuck at
-       top:0, with the opaque background filling the inset area. max(10px, …) keeps
-       the prior 10px breathing room on non-notched devices. */
-    padding-top: max(10px, env(safe-area-inset-top));
+       top:0, with the opaque background filling the inset area. max(…) keeps
+       the prior --mobile-shell-pad breathing room on non-notched devices. */
+    padding-top: max(var(--mobile-shell-pad), env(safe-area-inset-top));
   }
   .shell.mobile.list .main-region,
   .shell.mobile.list .col {

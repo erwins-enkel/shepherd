@@ -198,8 +198,19 @@ const defaultGhRunner: GhRunner = async (args) => {
   ]);
 };
 
-/** Check whether git user.name and user.email are both configured globally. */
+/** Check whether a commit identity is available — either via the GIT_AUTHOR_ /
+ *  GIT_COMMITTER_ environment variables (which git honors over config, e.g. on
+ *  CI runners without a global config) or via configured user.name/user.email. */
 function gitIdentityPresent(): boolean {
+  const env = process.env;
+  if (
+    env.GIT_AUTHOR_NAME &&
+    env.GIT_AUTHOR_EMAIL &&
+    env.GIT_COMMITTER_NAME &&
+    env.GIT_COMMITTER_EMAIL
+  ) {
+    return true;
+  }
   try {
     const name = execFileSync("git", ["config", "--get", "user.name"], {
       stdio: "pipe",

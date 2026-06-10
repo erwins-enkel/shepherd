@@ -3,8 +3,8 @@ import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 
 /** After a PR merge, offer a one-click fast-forward of the repo's local default-branch
- *  checkout. Persistent + per-repo deduped so the only path to the action doesn't
- *  expire and repeated merges to one repo collapse to a single offer. */
+ *  checkout. Auto-dismisses after 15s (paused while hovered/focused) and per-repo
+ *  deduped so repeated merges to one repo re-arm a single offer. */
 export function offerUpdateMain(repoPath: string, branch?: string): void {
   if (!repoPath) return;
 
@@ -44,7 +44,7 @@ export function offerUpdateMain(repoPath: string, branch?: string): void {
 
   toasts.info(m.toast_update_main_offer(), {
     action: { label: m.toast_update_main_action(), run: () => run() },
-    duration: null,
+    duration: 15_000,
     key: `update-main-offer:${repoPath}`,
   });
 }

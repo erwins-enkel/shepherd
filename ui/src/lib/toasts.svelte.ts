@@ -62,6 +62,13 @@ class ToastStore {
   // Caller key -> toast id. Namespaced by tone (#kk) so an info and an undo
   // toast may safely reuse the same caller key without cross-mutating state.
   #keyed = new Map<string, number>();
+  // Arming info for timed info toasts, so hold() can pause and release() can
+  // resume with the leftover time. While the timer runs, remaining counts from
+  // `at`; while held (no timer), `remaining` IS the time left.
+  #armed = new Map<number, { at: number; remaining: number }>();
+  // Hold REF-COUNTS (not booleans): hover and keyboard focus are independent
+  // holders that overlap, and neither leaving may re-arm while the other stays.
+  #holds = new Map<number, number>();
 
   /** Internal dedupe key: tone-prefixed so info/undo keys never collide. The
    *  distinct "info"/"undo" prefix makes any cross-tone match impossible
@@ -102,10 +109,52 @@ class ToastStore {
   /** Arm an info toast's auto-dismiss timer. `null` duration = persistent (stays
    *  until the operator retries or closes it). */
   #armInfo(id: number, duration: number | null | undefined) {
-    if (duration === null) return;
+    if (duration === null) {
+      this.#armed.delete(id); // a keyed refresh may turn a timed toast persistent
+      return;
+    }
+    const ms = duration ?? 4000;
+    this.#armed.set(id, { at: Date.now(), remaining: ms });
+    // Keyed refresh landing while held (hovered/focused): don't start a timer
+    // under the operator's pointer — release() arms the recorded duration.
+    if ((this.#holds.get(id) ?? 0) > 0) return;
     this.#timers.set(
       id,
-      setTimeout(() => this.#drop(id), duration ?? 4000),
+      setTimeout(() => this.#drop(id), ms),
+    );
+  }
+
+  /** Pause auto-dismiss while the operator hovers or focuses the toast. Counted,
+   *  not boolean: each holder (pointer, focus) pairs with its own release().
+   *  No-op for undo toasts — their window is a commit deadline synced to the
+   *  CSS depleting bar; pausing would desync bar and commit semantics. */
+  hold(id: number): void {
+    if (this.items.find((t) => t.id === id)?.tone !== "info") return;
+    const count = (this.#holds.get(id) ?? 0) + 1;
+    this.#holds.set(id, count);
+    if (count !== 1) return; // already paused by another holder
+    const armed = this.#armed.get(id);
+    if (!armed) return; // persistent: nothing to pause
+    this.#clearTimer(id);
+    armed.remaining = Math.max(0, armed.remaining - (Date.now() - armed.at));
+  }
+
+  /** Drop one hold; only when the LAST holder leaves does the leftover time
+   *  re-arm. No-op when nothing is held (the count never goes negative). */
+  release(id: number): void {
+    const count = this.#holds.get(id) ?? 0;
+    if (count === 0) return;
+    if (count > 1) {
+      this.#holds.set(id, count - 1);
+      return;
+    }
+    this.#holds.delete(id);
+    const armed = this.#armed.get(id);
+    if (!armed) return; // persistent — stays until closed
+    armed.at = Date.now();
+    this.#timers.set(
+      id,
+      setTimeout(() => this.#drop(id), armed.remaining),
     );
   }
 
@@ -184,6 +233,8 @@ class ToastStore {
     this.#commits.delete(id);
     this.#undos.delete(id);
     this.#actions.delete(id);
+    this.#armed.delete(id);
+    this.#holds.delete(id);
     for (const [k, v] of this.#keyed) if (v === id) this.#keyed.delete(k);
     this.items = this.items.filter((t) => t.id !== id);
   }

@@ -195,6 +195,8 @@ test("reviews: upsert + read by session, snapshot all", () => {
     findings: ["fix the off-by-one", "handle the null case"],
     addressRound: 1,
     addressCap: 3,
+    streakReviews: 2,
+    reviewedPatchIds: ["pid-old", "pid-abc"],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 900_000,
@@ -231,6 +233,8 @@ test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default w
   expect(r?.addressRound).toBe(0);
   expect(r?.addressCap).toBe(3); // backfilled to the migration default
   expect(r?.errorRound).toBe(0);
+  expect(r?.streakReviews).toBe(0); // backfilled to the migration default
+  expect(r?.reviewedPatchIds).toEqual([]); // backfilled to '[]'
   expect(r?.seenNoteIds).toEqual([]);
   expect(r?.patchId).toBe(""); // pre-rebase-skip rows backfill to '' (unknown → always reviews)
   expect(r?.finalRoundPending).toBe(false); // backfilled to the migration default
@@ -249,6 +253,8 @@ test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise i
     findings: ["fix the off-by-one"],
     addressRound: 2,
     addressCap: 3,
+    streakReviews: 2,
+    reviewedPatchIds: ["pid-1"],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 900_000,
@@ -274,6 +280,8 @@ test("putReview round-trips finalRoundPending + finalRoundTimeoutMs", () => {
     findings: ["x"],
     addressRound: 3,
     addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
     errorRound: 0,
     finalRoundPending: true,
     finalRoundTimeoutMs: 900_000,

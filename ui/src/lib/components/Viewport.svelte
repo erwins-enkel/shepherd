@@ -2764,7 +2764,7 @@
   /* quiet variant: the pre-PR desktop inline ✕. Rest ink stays the base .decom
      faint; hover/armed inherit the red destructive treatment above. Glyph-only,
      so drop the word-mark letter-spacing and size it like the neighboring
-     rename ✎ — the class stays on while armed so arming never shifts layout
+     rename ✎ — the class stays on while armed so arming keeps the same metrics
      (only .decom.armed's colors take over). */
   .decom.quiet {
     font-size: var(--fs-meta);

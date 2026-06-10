@@ -181,6 +181,7 @@
     </div>
     {#if collapsible}
       <button
+        id="herd-collapse-btn"
         type="button"
         class="collapse-btn"
         title={m.herd_collapse()}
@@ -520,6 +521,8 @@
     padding: 9px 14px;
     border-bottom: 1px solid var(--color-line);
     color: var(--color-muted);
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
   .phead .right {
     margin-left: auto;

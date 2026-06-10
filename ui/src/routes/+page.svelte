@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import {
@@ -466,6 +466,17 @@
   const sidebarCollapsed = $derived(
     sidebarShouldCollapse(touch.current, mobile.current, sidebarCollapse.collapsed),
   );
+
+  // Toggling unmounts whichever control was clicked (Herd's chevron on collapse,
+  // the reopen tab on expand), which would drop focus to <body>. After the DOM
+  // settles, move focus to the counterpart control so keyboard/SR users keep place.
+  async function toggleSidebar() {
+    const wasCollapsed = sidebarCollapsed;
+    sidebarCollapse.toggle();
+    await tick();
+    document.getElementById(wasCollapsed ? "herd-collapse-btn" : "herd-reopen-tab")?.focus();
+  }
+
   let mobileScreen = $state<"list" | "detail">("list");
   let showBacklog = $state(false);
 
@@ -1125,11 +1136,12 @@
       <div class="grid" class:compact={touch.current} class:collapsed={sidebarCollapsed}>
         {#if sidebarCollapsed}
           <button
+            id="herd-reopen-tab"
             type="button"
             class="reopen-tab"
             title={m.herd_expand()}
             aria-label={m.herd_expand()}
-            onclick={() => sidebarCollapse.toggle()}>›</button
+            onclick={toggleSidebar}>›</button
           >
         {:else}
           <Herd
@@ -1156,7 +1168,7 @@
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             collapsible={canCollapse}
-            oncollapse={() => sidebarCollapse.toggle()}
+            oncollapse={toggleSidebar}
           />
         {/if}
         {#if store.sessions.length === 0}
@@ -1477,7 +1489,7 @@
      .grid.compact.collapsed specificity (0,3,0) so it outranks .grid.compact by
      specificity, not source order — collapse on a touch device sets both classes. */
   .grid.compact.collapsed {
-    grid-template-columns: 30px 1fr;
+    grid-template-columns: 44px 1fr;
     gap: 0;
   }
   .reopen-tab {

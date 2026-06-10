@@ -524,6 +524,8 @@ const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   messageCount: 1,
   lastActivity: 123,
   byModel: {},
+  fullRecaches: 0,
+  sidechainCount: 0,
   ...over,
 });
 

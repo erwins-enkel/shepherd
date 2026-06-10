@@ -502,6 +502,8 @@ async function attributeSatellites(
       messageCount: 0,
       lastActivity: null,
       byModel: {},
+      fullRecaches: 0,
+      sidechainCount: 0,
     };
     // The 5m/1h cache-write split isn't persisted (the aggregate collapses it); attribute it to
     // the 5m bucket, matching parseLine's default when the split is absent. Model: completion

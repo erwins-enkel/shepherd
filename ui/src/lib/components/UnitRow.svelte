@@ -254,7 +254,10 @@
             }}>{repoIcon}</span
           >
         {:else if repoIcon}
-          <span class="name-icon" title={repoName} aria-hidden="true">{repoIcon}</span>
+          <!-- no title here: the .unit-hit overlay covers this span, so its own
+               tooltip could never surface — the overlay's repoPath title serves
+               the hover instead -->
+          <span class="name-icon" aria-hidden="true">{repoIcon}</span>
         {/if}
         <span class="name">{session.name}</span>
       </div>

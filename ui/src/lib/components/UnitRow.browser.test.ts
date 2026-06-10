@@ -160,8 +160,8 @@ describe("UnitRow inline repo emoji filter", () => {
       nowMs: Date.now(),
       onselect: () => {},
     });
-    // still hover-titled with the repo name, but not a button
-    await expect.element(page.getByTitle("a", { exact: true })).toBeInTheDocument();
+    // the emoji still renders, but as plain decoration — no filter button
+    await expect.element(page.getByText("🐑")).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: /repo/i })).not.toBeInTheDocument();
   });
 });

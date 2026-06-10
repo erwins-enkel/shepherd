@@ -132,10 +132,9 @@
   const runningRepoPaths = $derived(
     new Set(store.sessions.filter((s) => s.status === "running").map((s) => s.repoPath)),
   );
-  // Herd repo filter (full repo path) toggled from the repo-status band; null = all
-  // repos. Only repos that appear in the band (a running agent) are filterable — the
-  // band IS the toggle. Only narrows the herd list views — selection and global counts
-  // stay whole.
+  // Herd repo filter (full repo path), toggled from the repo-status band or from a
+  // card's inline repo emoji; null = all repos. Only narrows the herd list views —
+  // selection and global counts stay whole.
   let repoFilter = $state<string | null>(null);
   // Single source for the repo-status band: computed once here, passed to QueueStrip as
   // `rows` and reused for bandRepoPaths so band visibility and filter scope can't drift.
@@ -147,11 +146,18 @@
   const bandRepoPaths = $derived(
     new Set(bandHasValue(bandRows) ? bandRows.map((r) => r.repoPath) : []),
   );
-  // A stale filter would otherwise strand the herd: when the filtered repo's band row
-  // disappears (its last agent stopped running) its toggle vanishes with no way to
-  // reset short of a reload. Clear it the moment its repo leaves the band.
+  // A stale filter would otherwise strand the herd: with no visible toggle left for
+  // the filtered repo there is no way to reset short of a reload. A toggle exists
+  // while the repo has a band row, OR while it has a configured emoji AND a live
+  // session (the card's inline emoji un-toggles — icon-less repos have no card
+  // toggle, so for them the band remains the only one); clear the moment all are gone.
   $effect(() => {
-    if (repoFilter && !bandRepoPaths.has(repoFilter)) repoFilter = null;
+    if (
+      repoFilter &&
+      !bandRepoPaths.has(repoFilter) &&
+      !(projectIcons.iconFor(repoFilter) && store.sessions.some((s) => s.repoPath === repoFilter))
+    )
+      repoFilter = null;
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
   // Independent of the repo filter — both compose into herdSessions below. Sticky
@@ -903,6 +909,8 @@
           <Herd
             sessions={herdSessions}
             filteredRepo={repoFilterName}
+            {repoFilter}
+            onrepofilter={(repoPath) => (repoFilter = repoPath)}
             {statusFilter}
             onstatusfilter={(s) => (statusFilter = s)}
             {selectedId}
@@ -996,6 +1004,8 @@
         <Herd
           sessions={herdSessions}
           filteredRepo={repoFilterName}
+          {repoFilter}
+          onrepofilter={(repoPath) => (repoFilter = repoPath)}
           {statusFilter}
           onstatusfilter={(s) => (statusFilter = s)}
           {selectedId}

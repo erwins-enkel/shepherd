@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
+import { projectIcons } from "$lib/projectIcons.svelte";
 import type { Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -112,5 +113,55 @@ describe("UnitRow preview badge", () => {
     expect(previewed).toBe("p3");
     // the badge stops propagation, so the row's own select doesn't also fire
     expect(selects).toBe(0);
+  });
+});
+
+describe("UnitRow inline repo emoji filter", () => {
+  // The emoji's title carries the repo name (hover reveal); match it precisely.
+  it("clicking the emoji sets the repo filter without selecting the row", async () => {
+    projectIcons.apply({ "/repo/a": "🐑" });
+    let filtered: string | null | undefined;
+    let selects = 0;
+    render(UnitRow, {
+      session: session({ id: "f1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      repoFilter: null,
+      onrepofilter: (p: string | null) => (filtered = p),
+    });
+    await page.getByTitle("a", { exact: true }).click();
+    expect(filtered).toBe("/repo/a");
+    expect(selects).toBe(0);
+  });
+
+  it("clicking the emoji again (filter active) clears the filter", async () => {
+    projectIcons.apply({ "/repo/a": "🐑" });
+    let filtered: string | null | undefined;
+    render(UnitRow, {
+      session: session({ id: "f2" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      repoFilter: "/repo/a",
+      onrepofilter: (p: string | null) => (filtered = p),
+    });
+    const icon = page.getByTitle("a", { exact: true });
+    await expect.element(icon).toHaveAttribute("aria-pressed", "true");
+    await icon.click();
+    expect(filtered).toBe(null);
+  });
+
+  it("renders a non-interactive emoji when no onrepofilter is wired", async () => {
+    projectIcons.apply({ "/repo/a": "🐑" });
+    render(UnitRow, {
+      session: session({ id: "f3" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    // the emoji still renders, but as plain decoration — no filter button
+    await expect.element(page.getByText("🐑")).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: /repo/i })).not.toBeInTheDocument();
   });
 });

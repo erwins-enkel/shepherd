@@ -25,6 +25,8 @@
     onsettings = undefined,
     flow = false,
     filteredRepo = null,
+    repoFilter = null,
+    onrepofilter = undefined,
     filter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
@@ -60,6 +62,10 @@
     // list is empty, show a neutral "no agents for this repo" note instead of the
     // first-run EmptyHerd nudge. null = unfiltered.
     filteredRepo?: string | null;
+    // full repoPath of the active repo filter — drives each row's inline-emoji
+    // pressed state; threaded with onrepofilter so the emoji toggles the filter
+    repoFilter?: string | null;
+    onrepofilter?: (repoPath: string | null) => void;
     // the all/ready list filter — bindable so the page-level keyboard navigation
     // can mirror exactly what the rail shows (herd-keynav's railOrder takes it)
     filter?: HerdFilter;
@@ -194,6 +200,8 @@
           previewServeFailed={previewServe[session.id] === "failed"}
           {onpreview}
           {ondecommission}
+          {repoFilter}
+          {onrepofilter}
         />
       {/each}
       {#if partition.ciRunning.length > 0}
@@ -212,6 +220,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -231,6 +241,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -250,6 +262,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -271,6 +285,8 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -292,6 +308,8 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -308,6 +326,8 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -327,6 +347,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -346,6 +368,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -373,6 +397,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}
@@ -400,6 +426,8 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {repoFilter}
+            {onrepofilter}
           />
         {/each}
       {/if}

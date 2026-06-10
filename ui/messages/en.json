@@ -859,5 +859,9 @@
   "feat_herd_keynav_title": "Herd keyboard navigation",
   "feat_herd_keynav_body": "Reach any session without the mouse: j/k (or the arrow keys) cycle through the herd in rail order, 1–9 jump straight to the Nth session, and g hops to the next session that needs you. The keys stay out of the way while you type in the terminal or a form.",
   "feat_preview_stop_title": "Stop a preview to reclaim RAM",
-  "feat_preview_stop_body": "Force-stop a previewed dev server from the preview pane to free its memory. Operators can also enable opt-in idle-stop (SHEPHERD_PREVIEW_IDLE_STOP_MS) to auto-stop idle, unwatched previews."
+  "feat_preview_stop_body": "Force-stop a previewed dev server from the preview pane to free its memory. Operators can also enable opt-in idle-stop (SHEPHERD_PREVIEW_IDLE_STOP_MS) to auto-stop idle, unwatched previews.",
+  "feat_card_repo_icon_title": "Repo emoji replaces the repo line on cards",
+  "feat_card_repo_icon_body": "When a repo has a configured emoji, session cards now show it right before the session name instead of spending a whole line on the repo name — denser cards, same at-a-glance repo identity. Hover the emoji to see the repo name; click it to show only that repo's sessions, click again to clear the filter. Repos without an emoji keep the familiar repo line.",
+  "unitrow_repo_filter_aria": "Show only {repo} sessions",
+  "unitrow_repo_filter_clear_aria": "Clear the {repo} filter, show all sessions"
 }

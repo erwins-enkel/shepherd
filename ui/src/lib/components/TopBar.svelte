@@ -205,10 +205,11 @@
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
   let popoverOpen = $state(false);
-  // Desktop (fine pointer): hovering/focusing the inline gauges opens a richer
-  // detail card — full window names, wide bars, percentages and reset times —
-  // instead of the bare one-line text tooltip. The inline bars stay for the
-  // at-a-glance read; the card is the "detaillierter" view.
+  // Desktop (fine pointer): hovering the inline gauges opens a richer detail
+  // card — full window names, wide bars, percentages and reset times — in place
+  // of the bare one-line text tooltip. Hover-only, matching the prior CSS
+  // tooltip; screen readers still get the full tip via each gauge's aria-label.
+  // The inline bars stay for the at-a-glance read; the card is the detail view.
   let detailOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
   $effect(() => {
@@ -523,12 +524,7 @@
           {/each}
         </div>
         {#if detailOpen}
-          <div
-            class="gauge-pop gauge-pop-desk"
-            role="dialog"
-            aria-label={m.topbar_gauge_popover_title()}
-            class:stale={limits?.stale}
-          >
+          <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
             <div class="gauge-pop-title micro">
               {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
             </div>

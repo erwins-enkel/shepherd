@@ -366,4 +366,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_card_repo_icon_title",
     bodyKey: "feat_card_repo_icon_body",
   },
+  {
+    // No targetId: several controls changed (▶ dev-server start, AP/✓ pips, status
+    // glyph); no single persistent anchor — surface via the What's-New drawer only.
+    id: "slim-viewport-header",
+    sinceVersion: "1.23.0",
+    titleKey: "feat_slim_header_title",
+    bodyKey: "feat_slim_header_body",
+  },
 ];

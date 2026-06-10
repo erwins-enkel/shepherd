@@ -863,5 +863,7 @@
   "feat_card_repo_icon_title": "Repo emoji replaces the repo line on cards",
   "feat_card_repo_icon_body": "When a repo has a configured emoji, session cards now show it right before the session name instead of spending a whole line on the repo name — denser cards, same at-a-glance repo identity. Hover the emoji to see the repo name; click it to show only that repo's sessions, click again to clear the filter. Repos without an emoji keep the familiar repo line.",
   "unitrow_repo_filter_aria": "Show only {repo} sessions",
-  "unitrow_repo_filter_clear_aria": "Clear the {repo} filter, show all sessions"
+  "unitrow_repo_filter_clear_aria": "Clear the {repo} filter, show all sessions",
+  "feat_slim_header_title": "Slimmer session toolbar",
+  "feat_slim_header_body": "The bar above the terminal is more compact: the dev-server start button is now icon-only, autopilot and status show as tight pills and a status glyph. GitHub Issues have moved out of a per-session Issues tab and now live in the Backlog pane instead."
 }

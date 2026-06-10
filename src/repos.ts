@@ -6,7 +6,11 @@ import {
   statSync,
   lstatSync,
   realpathSync,
+  mkdirSync,
+  rmSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -169,4 +173,246 @@ export function classifyCloneError(e: unknown): string {
     return "clonerepo_failed_url";
   }
   return "clonerepo_failed_url";
+}
+
+// ── createProject ─────────────────────────────────────────────────────────────
+
+/**
+ * Injectable async gh runner so the network call never blocks Bun's loop and
+ * tests can stub it. Mirrors GhRunner in forge/github.ts.
+ */
+export type GhRunner = (args: string[]) => Promise<void>;
+
+const execFileAsync = promisify(execFile);
+
+/** Default gh runner: promisified execFile wrapped in a 60s timeout.
+ *  On timeout, rejects with an error whose `code` is `"_timeout"` so
+ *  classifyProjectError maps it to `newproject_failed_timeout`.
+ */
+const defaultGhRunner: GhRunner = async (args) => {
+  const TIMEOUT_MS = 60_000;
+  const timeoutErr = Object.assign(new Error("gh runner timed out"), { code: "_timeout" });
+  await Promise.race([
+    execFileAsync("gh", args, { maxBuffer: 2 * 1024 * 1024 }).then(() => undefined),
+    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), TIMEOUT_MS)),
+  ]);
+};
+
+/** Check whether git user.name and user.email are both configured globally. */
+function gitIdentityPresent(): boolean {
+  try {
+    const name = execFileSync("git", ["config", "--get", "user.name"], {
+      stdio: "pipe",
+      timeout: 5000,
+    })
+      .toString()
+      .trim();
+    const email = execFileSync("git", ["config", "--get", "user.email"], {
+      stdio: "pipe",
+      timeout: 5000,
+    })
+      .toString()
+      .trim();
+    return name.length > 0 && email.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Classify an error from createProject into a stable `newproject_failed_*` code.
+ * Mirrors classifyCloneError in style — lowercase stderr before matching.
+ */
+export function classifyProjectError(e: unknown): string {
+  // Explicit timeout code set by the default runner
+  if ((e as any).code === "_timeout") return "newproject_failed_timeout";
+  // killed by SIGTERM (e.g. from execFileSync timeout option)
+  if ((e as any).killed && (e as any).signal === "SIGTERM") return "newproject_failed_timeout";
+
+  const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+
+  // gh not installed
+  if (
+    (e as any).code === "ENOENT" ||
+    stderr.includes("command not found") ||
+    stderr.includes("not found")
+  ) {
+    return "newproject_failed_gh_missing";
+  }
+
+  // gh auth failures
+  if (
+    stderr.includes("not logged") ||
+    stderr.includes("auth status") ||
+    stderr.includes("gh auth login") ||
+    stderr.includes("authentication") ||
+    stderr.includes("you are not logged")
+  ) {
+    return "newproject_failed_gh_auth";
+  }
+
+  // GitHub repo name already exists
+  if (
+    stderr.includes("name already exists") ||
+    stderr.includes("already exists on") ||
+    (stderr.includes("could not create repository") && stderr.includes("exists"))
+  ) {
+    return "newproject_failed_gh_exists";
+  }
+
+  // local git failures
+  if (
+    stderr.includes("fatal:") ||
+    stderr.includes("not a git repository") ||
+    stderr.includes("author identity unknown")
+  ) {
+    return "newproject_failed_git";
+  }
+
+  // any other non-empty stderr from a gh repo create is a remote failure
+  if (stderr.length > 0) {
+    return "newproject_failed_remote";
+  }
+
+  return "newproject_failed_generic";
+}
+
+/**
+ * Bootstrap a new git project at `<repoRoot>/<input.name>`.
+ *
+ * Returns `{ ok: true, entry }` on full success,
+ * `{ ok: true, entry, warning }` when local succeeded but GitHub failed (partial success),
+ * or `{ ok: false, error }` when the local setup itself failed.
+ *
+ * Pre-commit failures clean up the half-created directory.
+ * Remote failures never clean up — the local repo is kept.
+ *
+ * @param ghRunner - Injectable async runner for `gh` CLI calls (default: promisified execFile + 60s timeout).
+ * @param _identityCheck - Injectable identity checker; defaults to `gitIdentityPresent()`. Exposed for tests
+ *   because Bun's process.env mutations don't propagate to child processes in the same way Node does.
+ */
+export async function createProject(
+  input: { name: string; idea: string; createRemote: boolean; visibility: "private" | "public" },
+  repoRoot: string,
+  ghRunner?: GhRunner,
+  _identityCheck?: () => boolean,
+): Promise<{ ok: true; entry: RepoEntry; warning?: string } | { ok: false; error: string }> {
+  const runner = ghRunner ?? defaultGhRunner;
+  const identityOk = _identityCheck ?? gitIdentityPresent;
+
+  // Step 1: Resolve paths + containment + existence checks (defense-in-depth)
+  const root = resolve(expandHome(repoRoot));
+  const target = join(root, input.name);
+
+  const inside = target === root || target.startsWith(root + sep);
+  if (!inside) {
+    return { ok: false, error: "newproject_failed_outside" };
+  }
+  if (existsSync(target)) {
+    return { ok: false, error: "newproject_failed_exists" };
+  }
+
+  // Step 2: Identity pre-check (before any fs mutation)
+  if (!identityOk()) {
+    return { ok: false, error: "newproject_failed_identity" };
+  }
+
+  // Steps 3–7: fs mutations with cleanup on pre-commit failure
+  let committed = false;
+
+  try {
+    // Step 3: create the directory
+    mkdirSync(target, { recursive: false });
+
+    // Step 4: git init
+    execFileSync("git", ["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
+
+    // Step 5: write bootstrap files
+    const ideaText = input.idea.trim();
+    const readmeIdea = ideaText || "_No description yet._";
+    const claudeIdea = ideaText || "(to be defined)";
+
+    writeFileSync(join(target, "README.md"), `# ${input.name}\n\n${readmeIdea}\n`, "utf8");
+
+    writeFileSync(
+      join(target, ".gitignore"),
+      `node_modules/\n.DS_Store\n*.log\n.env\n.env.*\ndist/\nbuild/\n`,
+      "utf8",
+    );
+
+    writeFileSync(
+      join(target, "CLAUDE.md"),
+      `# ${input.name}\n\n## Idea\n\n${claudeIdea}\n\n## Notes\n\n<!-- Project conventions go here. The first agent session authors the PRD. -->\n`,
+      "utf8",
+    );
+
+    // Step 6: git add
+    execFileSync("git", ["add", "-A"], { cwd: target, stdio: "pipe", timeout: 30_000 });
+
+    // Step 7: git commit
+    execFileSync("git", ["commit", "-m", "chore: project bootstrap"], {
+      cwd: target,
+      stdio: "pipe",
+      timeout: 30_000,
+    });
+    committed = true;
+  } catch (e) {
+    if (!committed) {
+      try {
+        rmSync(target, { recursive: true, force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+    return { ok: false, error: classifyProjectError(e) };
+  }
+
+  // Step 8: build RepoEntry
+  const entry: RepoEntry = {
+    name: input.name,
+    path: target,
+    display: toDisplay(target),
+  };
+
+  // Step 9: if no remote requested, done
+  if (!input.createRemote) {
+    return { ok: true, entry };
+  }
+
+  // Step 10: remote step — local repo is already committed; keep it on any failure here
+  // Auth pre-check
+  try {
+    await runner(["auth", "status"]);
+  } catch (e) {
+    const code = classifyProjectError(e);
+    const warning =
+      code === "newproject_failed_gh_missing"
+        ? "newproject_failed_gh_missing"
+        : "newproject_failed_gh_auth";
+    return { ok: true, entry, warning };
+  }
+
+  // Create + push
+  try {
+    await runner([
+      "repo",
+      "create",
+      input.name,
+      "--source",
+      target,
+      input.visibility === "public" ? "--public" : "--private",
+      "--push",
+    ]);
+  } catch (e) {
+    const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+    const warning =
+      stderr.includes("name already exists") ||
+      stderr.includes("already exists on") ||
+      (stderr.includes("could not create repository") && stderr.includes("exists"))
+        ? "newproject_failed_gh_exists"
+        : "newproject_failed_remote";
+    return { ok: true, entry, warning };
+  }
+
+  return { ok: true, entry };
 }

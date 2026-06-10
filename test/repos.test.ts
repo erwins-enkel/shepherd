@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -10,6 +18,9 @@ import {
   writeTodo,
   cloneRepo,
   classifyCloneError,
+  createProject,
+  classifyProjectError,
+  type GhRunner,
 } from "../src/repos";
 import { realpathSync } from "node:fs";
 
@@ -200,4 +211,309 @@ test("classifyCloneError: stderr 'repository not found' → clonerepo_failed_url
 
 test("classifyCloneError: empty error object → clonerepo_failed_url (fallback)", () => {
   expect(classifyCloneError({})).toBe("clonerepo_failed_url");
+});
+
+// ── createProject ─────────────────────────────────────────────────────────────
+
+/** Helper: create a temp repoRoot and return path + cleanup fn. */
+function makeTempRoot(): { repoRoot: string; cleanup: () => void } {
+  const repoRoot = mkdtempSync(join(tmpdir(), "shepherd-newproject-root-"));
+  return { repoRoot, cleanup: () => rmSync(repoRoot, { recursive: true, force: true }) };
+}
+
+/** Happy local-only path: creates dir + .git + one commit + bootstrap files with idea. */
+test("createProject: happy local-only path — dir, .git, one commit on main, bootstrap files", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const result = await createProject(
+      { name: "my-app", idea: "a todo app", createRemote: false, visibility: "private" },
+      repoRoot,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.name).toBe("my-app");
+    const target = join(repoRoot, "my-app");
+    expect(result.entry.path).toBe(target);
+    expect(existsSync(join(target, ".git"))).toBe(true);
+
+    // Exactly one commit with the right message
+    const log = execFileSync("git", ["log", "--oneline"], { cwd: target, stdio: "pipe" })
+      .toString()
+      .trim();
+    const lines = log.split("\n").filter(Boolean);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain("chore: project bootstrap");
+
+    // Branch should be main
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: target,
+      stdio: "pipe",
+    })
+      .toString()
+      .trim();
+    expect(branch).toBe("main");
+
+    // Bootstrap files exist and contain idea text
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("my-app");
+    expect(readme).toContain("a todo app");
+
+    const gitignore = readFileSync(join(target, ".gitignore"), "utf8");
+    expect(gitignore).toContain("node_modules/");
+    expect(gitignore).toContain(".env");
+
+    const claude = readFileSync(join(target, "CLAUDE.md"), "utf8");
+    expect(claude).toContain("my-app");
+    expect(claude).toContain("a todo app");
+  } finally {
+    cleanup();
+  }
+});
+
+/** Happy local-only path with empty idea: uses fallback placeholder text. */
+test("createProject: empty idea uses fallback placeholder in bootstrap files", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const result = await createProject(
+      { name: "bare-proj", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const target = join(repoRoot, "bare-proj");
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("_No description yet._");
+    const claude = readFileSync(join(target, "CLAUDE.md"), "utf8");
+    expect(claude).toContain("(to be defined)");
+  } finally {
+    cleanup();
+  }
+});
+
+/** Target already exists → newproject_failed_exists. */
+test("createProject: returns newproject_failed_exists when target dir pre-exists", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    mkdirSync(join(repoRoot, "already-there"));
+    const result = await createProject(
+      { name: "already-there", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("newproject_failed_exists");
+  } finally {
+    cleanup();
+  }
+});
+
+/** Containment escape → newproject_failed_outside. */
+test("createProject: returns newproject_failed_outside for a crafted escaping name", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    // Directly call with a pathological name that bypasses the slug validator
+    // (slug regex prevents this at the API level, but createProject re-checks as defense-in-depth)
+    const result = await createProject(
+      { name: "../escape", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("newproject_failed_outside");
+    // Confirm nothing was created outside
+    expect(existsSync(join(repoRoot, "..", "escape"))).toBe(false);
+  } finally {
+    cleanup();
+  }
+});
+
+/**
+ * Identity pre-check failure: inject a stub that returns false →
+ * newproject_failed_identity + directory NOT created (identity check runs before mkdirSync).
+ * Note: Bun's process.env mutations don't reliably propagate to child processes,
+ * so we use the injectable _identityCheck parameter instead of env manipulation.
+ */
+test("createProject: newproject_failed_identity when git identity unset, dir removed", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const result = await createProject(
+      { name: "no-identity", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+      undefined, // default ghRunner (not used — fails before remote step)
+      () => false, // stub: identity absent
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("newproject_failed_identity");
+    // Identity check runs before mkdirSync, so the directory must not exist
+    expect(existsSync(join(repoRoot, "no-identity"))).toBe(false);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Remote path with a stub GhRunner that resolves → ok:true no warning. */
+test("createProject: remote success with stub runner → ok:true, no warning", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const calls: string[][] = [];
+    const stubRunner: GhRunner = async (args) => {
+      calls.push(args);
+      // resolve void — success
+    };
+
+    const result = await createProject(
+      { name: "with-remote", idea: "test", createRemote: true, visibility: "private" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toBeUndefined();
+    // auth check + repo create should have been called
+    expect(calls.length).toBe(2);
+    expect(calls[0]![0]).toBe("auth");
+    expect(calls[1]![0]).toBe("repo");
+    // dir must be kept
+    expect(existsSync(join(repoRoot, "with-remote"))).toBe(true);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Stub rejects with "name already exists" → ok:true + warning:newproject_failed_gh_exists + dir kept. */
+test("createProject: gh repo create 'name already exists' → ok:true + warning gh_exists + dir kept", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    let call = 0;
+    const stubRunner: GhRunner = async () => {
+      call++;
+      if (call === 1) return; // auth ok
+      // repo create fails with name already exists
+      const err = Object.assign(new Error("GraphQL: Name already exists on this account"), {
+        stderr: "GraphQL: Name already exists on this account",
+      });
+      throw err;
+    };
+
+    const result = await createProject(
+      { name: "dupe-remote", idea: "", createRemote: true, visibility: "private" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toBe("newproject_failed_gh_exists");
+    // local dir must be kept
+    expect(existsSync(join(repoRoot, "dupe-remote"))).toBe(true);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Stub auth rejects → ok:true + warning:newproject_failed_gh_auth. */
+test("createProject: gh auth failure → ok:true + warning gh_auth + dir kept", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const stubRunner: GhRunner = async () => {
+      throw Object.assign(new Error("not logged in"), {
+        stderr: "You are not logged into any GitHub hosts. Run gh auth login to authenticate.",
+      });
+    };
+
+    const result = await createProject(
+      { name: "auth-fail", idea: "", createRemote: true, visibility: "private" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toBe("newproject_failed_gh_auth");
+    expect(existsSync(join(repoRoot, "auth-fail"))).toBe(true);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Stub returns ENOENT (gh not installed) → ok:true + warning:newproject_failed_gh_missing. */
+test("createProject: gh not installed (ENOENT) → ok:true + warning gh_missing + dir kept", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const stubRunner: GhRunner = async () => {
+      const err = Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
+      throw err;
+    };
+
+    const result = await createProject(
+      { name: "no-gh", idea: "", createRemote: true, visibility: "private" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toBe("newproject_failed_gh_missing");
+    expect(existsSync(join(repoRoot, "no-gh"))).toBe(true);
+  } finally {
+    cleanup();
+  }
+});
+
+// ── classifyProjectError ──────────────────────────────────────────────────────
+
+test("classifyProjectError: code _timeout → newproject_failed_timeout", () => {
+  expect(classifyProjectError({ code: "_timeout" })).toBe("newproject_failed_timeout");
+});
+
+test("classifyProjectError: killed+SIGTERM → newproject_failed_timeout", () => {
+  expect(classifyProjectError({ killed: true, signal: "SIGTERM" })).toBe(
+    "newproject_failed_timeout",
+  );
+});
+
+test("classifyProjectError: ENOENT → newproject_failed_gh_missing", () => {
+  expect(classifyProjectError({ code: "ENOENT" })).toBe("newproject_failed_gh_missing");
+});
+
+test("classifyProjectError: stderr 'command not found' → newproject_failed_gh_missing", () => {
+  expect(classifyProjectError({ stderr: "gh: command not found" })).toBe(
+    "newproject_failed_gh_missing",
+  );
+});
+
+test("classifyProjectError: stderr 'not logged' → newproject_failed_gh_auth", () => {
+  expect(classifyProjectError({ stderr: "You are not logged into any GitHub hosts." })).toBe(
+    "newproject_failed_gh_auth",
+  );
+});
+
+test("classifyProjectError: stderr 'gh auth login' → newproject_failed_gh_auth", () => {
+  expect(classifyProjectError({ stderr: "Run gh auth login to authenticate." })).toBe(
+    "newproject_failed_gh_auth",
+  );
+});
+
+test("classifyProjectError: stderr 'name already exists' → newproject_failed_gh_exists", () => {
+  expect(classifyProjectError({ stderr: "GraphQL: Name already exists on this account" })).toBe(
+    "newproject_failed_gh_exists",
+  );
+});
+
+test("classifyProjectError: stderr 'fatal:' (local git) → newproject_failed_git", () => {
+  expect(classifyProjectError({ stderr: "fatal: not a git repository" })).toBe(
+    "newproject_failed_git",
+  );
+});
+
+test("classifyProjectError: stderr 'Author identity unknown' → newproject_failed_git", () => {
+  expect(classifyProjectError({ stderr: "Author identity unknown" })).toBe("newproject_failed_git");
+});
+
+test("classifyProjectError: non-empty other stderr → newproject_failed_remote", () => {
+  expect(classifyProjectError({ stderr: "some unexpected gh error" })).toBe(
+    "newproject_failed_remote",
+  );
+});
+
+test("classifyProjectError: empty/no stderr → newproject_failed_generic (fallback)", () => {
+  expect(classifyProjectError({})).toBe("newproject_failed_generic");
 });

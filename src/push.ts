@@ -444,6 +444,11 @@ export function attachUsagePush(
   push: PushService,
   now: () => number = () => Date.now(),
 ): void {
+  // The warned marker is read sync but persisted in notify's .then, so an emit
+  // landing while a notify is still in flight would re-read the stale marker and
+  // could double-warn the same window. Emits are ~30s apart, far wider than push
+  // delivery — but don't rely on that spacing: skip while one is pending.
+  let inFlight = false;
   events.subscribe((event, data) => {
     if (event !== "usage:limits") return;
     const { session5h } = data as { session5h: { pct: number; resetAt: number } | null };
@@ -451,7 +456,8 @@ export function attachUsagePush(
     // One warning per window: the stored resetAt marks the window already warned.
     // Persisted (not in-memory) so the post-merge redeploys don't re-announce it.
     const warned = Number(store.getSetting(USAGE_WARNED_KEY) ?? 0);
-    if (now() < warned) return;
+    if (inFlight || now() < warned) return;
+    inFlight = true;
     void push
       .notify({
         kind: "usage_limit",
@@ -467,7 +473,10 @@ export function attachUsagePush(
         // the app is active retries next tick and fires when the user steps away.
         if (sent) store.setSetting(USAGE_WARNED_KEY, String(session5h.resetAt));
       })
-      .catch((err) => console.warn("[push] usage_limit notify failed:", err));
+      .catch((err) => console.warn("[push] usage_limit notify failed:", err))
+      .finally(() => {
+        inFlight = false;
+      });
   });
 }
 

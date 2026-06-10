@@ -630,6 +630,30 @@ test("attachUsagePush retries while the push is suppressed, marks only on delive
   expect(calls.length).toBe(3);
 });
 
+test("attachUsagePush does not double-warn when an emit lands mid-delivery", async () => {
+  const calls: any[] = [];
+  let release!: (sent: boolean) => void;
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = (p: any) => {
+    calls.push(p);
+    return new Promise<boolean>((r) => {
+      release = r;
+    });
+  };
+  const events = new EventHub();
+  attachUsagePush(events, store, push, () => 1_000);
+
+  events.emit("usage:limits", limitsEvent(85, 10_000)); // notify in flight
+  events.emit("usage:limits", limitsEvent(86, 10_000)); // marker not persisted yet → must skip
+  expect(calls.length).toBe(1);
+
+  release(true); // delivery completes, window marked
+  await tick();
+  events.emit("usage:limits", limitsEvent(87, 10_000)); // marked → still no second call
+  await tick();
+  expect(calls.length).toBe(1);
+});
+
 test("attachMergePush notifies on merge_error and rebase_cap, ignores other states", async () => {
   const calls: any[] = [];
   const { push } = svc(async () => ({}));

@@ -104,6 +104,14 @@ export class StatusPoller {
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
+  /** Sessions herdr reports "blocked" whose TUI shows a live turn spinner —
+   *  the working-while-blocked suppression episode (herdr latches blocked after
+   *  an answered dialog). Membership drives the `onWorkingBlocked` display flag:
+   *  added (emit true) once per episode in `maybeClassify`'s suppression branch;
+   *  removed (emit false) on re-arm, on leaving herdr-blocked (`reconcileAgent`),
+   *  or on reap/prune. */
+  private workingWhileBlocked = new Set<string>();
+
   /** Timestamp of the last claude-liveness sweep (0 = never). */
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
@@ -148,6 +156,13 @@ export class StatusPoller {
      * Resume when the claude process is actually gone (husk shell).
      */
     liveness?: Partial<LivenessWiring>,
+    /**
+     * Pushed when a session enters/leaves the working-while-blocked display state
+     * (herdr latched "blocked" but the TUI shows a live turn spinner). `true` fires
+     * once per suppression episode, `false` when the episode ends — same tick as
+     * (and before) any re-armed block emission.
+     */
+    private onWorkingBlocked: (id: string, working: boolean) => void = () => {},
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -244,6 +259,11 @@ export class StatusPoller {
     return Object.fromEntries(this.lastClaudeAlive);
   }
 
+  /** Sessions currently in the working-while-blocked display state, for client bootstrap. */
+  workingBlockedSnapshot(): Record<string, boolean> {
+    return Object.fromEntries([...this.workingWhileBlocked].map((id) => [id, true]));
+  }
+
   /**
    * The herdr agent is gone (claude exited / user ctrl-c'd the session).
    * Mirror reconcile()'s startup behavior, but live — otherwise the session
@@ -251,6 +271,7 @@ export class StatusPoller {
    * terminal (herdr replies agent_not_found in a tight reconnect loop).
    */
   private reapGone(s: Session): void {
+    if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     this.clearBlock(s.id);
     if (s.status !== "done") {
       this.store.update(s.id, { status: "done", lastState: "done" });
@@ -277,6 +298,11 @@ export class StatusPoller {
       this.store.update(s.id, { readyToMerge: false });
       this.onReady(s.id, false);
     }
+    // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
+    // display flag must drop in the SAME tick, not via the throttled probe paths.
+    if (status !== "blocked" && this.workingWhileBlocked.delete(s.id)) {
+      this.onWorkingBlocked(s.id, false);
+    }
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.clearBlock(s.id);
@@ -297,6 +323,7 @@ export class StatusPoller {
       ...this.interimInFlight.keys(),
       ...this.lastTranscriptTs.keys(),
       ...this.previewStopState.keys(),
+      ...this.workingWhileBlocked,
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -312,6 +339,8 @@ export class StatusPoller {
         this.interimInFlight.delete(id);
         this.lastTranscriptTs.delete(id);
         this.previewStopState.delete(id);
+        // archived/removed → no client cares anymore; drop without an emit
+        this.workingWhileBlocked.delete(id);
       }
     }
   }
@@ -598,7 +627,11 @@ export class StatusPoller {
    * Read + classify a blocked agent at most every `reclassifyMs`; emit only on change.
    * An `awaiting-input` fallback is suppressed (and any announced block cleared once)
    * while the TUI shows an active turn spinner — herdr can latch "blocked" after an
-   * answered dialog even though the agent resumed working.
+   * answered dialog even though the agent resumed working. The suppression episode
+   * is surfaced as the working-while-blocked display flag: `onWorkingBlocked(id, true)`
+   * once on entry; on re-arm (any block that will be emitted) `onWorkingBlocked(id,
+   * false)` fires first, then `onBlock`, in the same tick — clients see the flag drop
+   * and the block land together.
    */
   private maybeClassify(id: string, term: string): void {
     const t = this.now();
@@ -622,10 +655,17 @@ export class StatusPoller {
         this.lastSig.delete(id);
         this.onBlock(id, null);
       }
+      if (!this.workingWhileBlocked.has(id)) {
+        this.workingWhileBlocked.add(id);
+        this.onWorkingBlocked(id, true); // once per episode, not per cadence
+      }
       return;
     }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return;
+    // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
+    // the flag-off and the block reach clients in the same tick, in that order.
+    if (this.workingWhileBlocked.delete(id)) this.onWorkingBlocked(id, false);
     this.lastSig.set(id, sig);
     this.onBlock(id, reason);
   }

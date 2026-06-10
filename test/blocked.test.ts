@@ -55,8 +55,10 @@ test("hasActiveSpinner detects real spinner variants", () => {
   expect(
     hasActiveSpinner("* Adding i18n + final review… (1h 29m 49s · ↓ 2.4k tokens · thinking)"),
   ).toBe(true);
+  expect(hasActiveSpinner("· Churning… (2m 5s · ↓ 1.1k tokens · thought for 8s)")).toBe(true);
   expect(hasActiveSpinner("⎿  Running… (4s)")).toBe(true);
-  expect(hasActiveSpinner("some output\nPress esc to interrupt\n❯")).toBe(true);
+  // legacy hint still counts — but only on a glyph-anchored spinner line
+  expect(hasActiveSpinner("✻ Imagining… (esc to interrupt)")).toBe(true);
 });
 
 test("hasActiveSpinner detects a spinner with input-box/status lines after it", () => {
@@ -76,6 +78,16 @@ test("hasActiveSpinner rejects idle/blocked buffers", () => {
   expect(hasActiveSpinner("❯ 1. Yes\n  2. No")).toBe(false);
   expect(hasActiveSpinner("Enter to select · ↑/↓ to navigate · Esc to cancel")).toBe(false);
   expect(hasActiveSpinner("❯\n⏵⏵ bypass permissions on (shift+tab to cycle)")).toBe(false);
+});
+
+test("hasActiveSpinner rejects spinner-shaped text on non-glyph-anchored lines", () => {
+  // prose quoting an elapsed time mid-text — no glyph anchor
+  expect(hasActiveSpinner("the build finished… (3m 12s) faster than before")).toBe(false);
+  // queued-input/prompt line — starts with ❯, not a spinner/tool glyph
+  expect(hasActiveSpinner("❯ retry the failing test… (2m 30s)")).toBe(false);
+  // the legacy hint outside a glyph-anchored spinner line no longer counts
+  expect(hasActiveSpinner("press esc to interrupt")).toBe(false);
+  expect(hasActiveSpinner("some output\nPress esc to interrupt\n❯")).toBe(false);
 });
 
 test("hasActiveSpinner ignores a spinner outside the 15-line tail window", () => {

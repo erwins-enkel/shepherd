@@ -129,6 +129,10 @@ export interface AppDeps {
    *  live in the worktree?), for client bootstrap; updates flow via the
    *  `session:claude-alive` event. Absent in tests that skip it. */
   claudeAlive?: { snapshot(): Record<string, boolean> };
+  /** Sessions herdr reports blocked whose TUI shows a live turn spinner
+   *  (working-while-blocked display flag), for client bootstrap; updates flow via
+   *  the `session:working-blocked` event. Absent in tests that skip it. */
+  workingBlocked?: { snapshot(): Record<string, boolean> };
   /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
    *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
@@ -242,6 +246,13 @@ function handleActivitySnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "claude-alive" && !parts[2]) {
     return json(deps.claudeAlive?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
+    return json(deps.workingBlocked?.snapshot() ?? {});
   }
   return null;
 }
@@ -2327,6 +2338,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
+  handleWorkingBlockedSnapshot,
   handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,

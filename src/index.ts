@@ -246,6 +246,9 @@ const poller = new StatusPoller(
   // claude-liveness sweep wiring: lets the UI gate its Resume affordance on the
   // claude process actually being gone instead of offering it on every idle/done.
   { onChange: (id, claudeAlive) => events.emit("session:claude-alive", { id, claudeAlive }) },
+  // working-while-blocked display flag: herdr latched "blocked" but the TUI shows a
+  // live turn spinner — the UI keeps working chrome instead of a false "needs you".
+  (id, working) => events.emit("session:working-blocked", { id, working }),
 );
 // Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
 // single FIFO queue already guarantees this op completes before any register/unregister
@@ -761,6 +764,7 @@ const server = serve(
     ownsPr,
     activity: { snapshot: () => poller.activitySnapshot() },
     claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
+    workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
     preview: { snapshot: () => previewService.snapshot() },
     previewServe: { snapshot: () => tailscaleServe.snapshot() },
     push,

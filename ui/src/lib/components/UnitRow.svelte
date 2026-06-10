@@ -798,9 +798,12 @@
   /* Fine-pointer decommission ✕: opacity (not display) keeps it keyboard-
      focusable while invisible — and the invisible button's reserved in-flow slot
      at the top of every row's .u-right column is deliberate (rows stay aligned,
-     the button stays focusable); revealed on row hover/focus-within (hover-capable
-     fine pointers only, so touch layouts never show a ghost button) and forced
-     visible while armed. Idle = quiet faint glyph; armed = red ✕? echoing the
+     the button stays focusable); while invisible it's also click-inert
+     (pointer-events: none) so the invisible corner can't be tapped on
+     fine-pointer-but-hoverless hardware; revealed on row hover/focus-within
+     (hover-capable fine pointers only, so touch layouts never show a ghost
+     button) and forced visible while armed — every reveal state restores
+     pointer-events. Idle = quiet faint glyph; armed = red ✕? echoing the
      swipe reveal's .decom.armed treatment. */
   .row-decom {
     margin: 0;
@@ -814,18 +817,21 @@
     line-height: 1.3;
     cursor: pointer;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.14s ease;
   }
   @media (hover: hover) and (pointer: fine) {
     .unit:hover .row-decom,
     .unit:focus-within .row-decom {
       opacity: 1;
+      pointer-events: auto;
     }
   }
   /* outside the hover/fine gate: a keyboard-focused button must never be
      invisible on fine-pointer-but-hoverless hardware */
   .row-decom:focus-visible {
     opacity: 1;
+    pointer-events: auto;
   }
   .row-decom:hover,
   .row-decom:focus-visible {
@@ -833,6 +839,7 @@
   }
   .row-decom.armed {
     opacity: 1;
+    pointer-events: auto;
     background: color-mix(in srgb, var(--color-red) 26%, transparent);
     color: var(--color-red);
     font-weight: 600;

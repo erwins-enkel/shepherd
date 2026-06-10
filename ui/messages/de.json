@@ -946,5 +946,7 @@
   "newproject_failed_timeout": "Der GitHub-Schritt hat zu lange gedauert.",
   "newproject_failed_generic": "Das Projekt konnte nicht angelegt werden.",
   "newproject_prd_seed": "Du startest ein brandneues Projekt. Bevor du Code schreibst, erstelle ein PRD (Product Requirements Document) unter `docs/PRD.md` in diesem Repository. Halte darin das Problem, die Ziele, die Zielgruppe, die wichtigsten User Stories, den Scope (In/Out) und die Erfolgskriterien fest. Halte es präzise und konkret. Die Idee dahinter:\n\n{idea}\n\nWenn das PRD geschrieben ist, committe es mit einem Conventional Commit (`docs: add initial PRD`) und pausiere zur Überprüfung, bevor du mit der Implementierung beginnst.",
-  "newproject_prd_seed_noidea": "(keine Beschreibung angegeben — leite einen sinnvollen Ausgangspunkt ab und stelle klärende Fragen im PRD)"
+  "newproject_prd_seed_noidea": "(keine Beschreibung angegeben — leite einen sinnvollen Ausgangspunkt ab und stelle klärende Fragen im PRD)",
+  "feat_new_project_title": "Neues Projekt starten",
+  "feat_new_project_body": "Lege ein frisches Git-Repository an — optional auch auf GitHub — und starte den ersten Agenten-Run, ohne Shepherd zu verlassen."
 }

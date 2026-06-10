@@ -758,7 +758,7 @@ const LEGEND = [
   "Legend:",
   "  Anc(p/r/u)  in-worktree ancillary transcripts: probe / resumed / unknown",
   "  Sat tags    satellite linkage: db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
-  "  FullRecache genuine prompt-cache full rebuilds (main-thread only; sidechain/sub-agent records excluded and warned on stderr)",
+  "  FullRecache main-thread prompt-cache full rebuilds — every warm→cold drop (sidechain/sub-agent records excluded, warned on stderr); counts genuine invalidation AND compaction/resume-induced cold restarts alike, so it's an upper bound on true invalidation",
   "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×; includes all records — main-thread and sidechain — unlike FullRecache)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
   "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
@@ -803,15 +803,17 @@ async function buildGroup(
 ): Promise<{ reportRows: ReportRow[]; residual: SatelliteResult["residual"] }> {
   const resolved = await Promise.all(rows.map(resolveSession));
   const sat = await attributeSatellites(resolved, reviews, planGates);
-  const reportRows = resolved.map((s) => {
-    const n = s.authoring.usage.sidechainCount;
-    if (n > 0) {
-      console.warn(
-        `[usage-report] ${s.row.desig}: ${n} sidechain (sub-agent) record(s) — FullRecache counts main-thread only`,
-      );
-    }
-    return buildRow(s, sat.bySession.get(s.row.id) ?? []);
-  });
+  const reportRows = resolved.map((s) => buildRow(s, sat.bySession.get(s.row.id) ?? []));
+  // One aggregated stderr line for all sessions carrying sub-agent records, so a
+  // reader knows FullRecache (main-thread only) doesn't reflect their cold sidechains.
+  const withSidechains = resolved
+    .filter((s) => s.authoring.usage.sidechainCount > 0)
+    .map((s) => `${s.row.desig}×${s.authoring.usage.sidechainCount}`);
+  if (withSidechains.length) {
+    console.warn(
+      `[usage-report] sidechain (sub-agent) records present — FullRecache counts main-thread only: ${withSidechains.join(", ")}`,
+    );
+  }
   return { reportRows, residual: sat.residual };
 }
 

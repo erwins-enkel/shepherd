@@ -1310,15 +1310,17 @@
       // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
       // doesn't pop open on every selection. consumeAutoFocusTerm gates this:
       // a plain j/k keynav switch declines the focus (so the next plain key
-      // still chains instead of vanishing into the PTY). The consume runs
-      // unconditionally on every desktop rebuild — exact one-shot, even when a
-      // non-term tab is active, so a stale `false` can't survive into a later
-      // resumeEpoch-driven rebuild (resume / re-attach must auto-focus exactly
-      // as before); the tab gate only decides whether the consumed intent
-      // results in a focus. Read inside the rAF callback (like mobile/touch/
-      // tab) — async, so no new tracked dep on this terminal effect; the
-      // consumed flag itself is a plain non-reactive let upstairs.
-      if (!mobile && !touch && consumeAutoFocusTerm() && tab === "term") term.focus();
+      // still chains instead of vanishing into the PTY). The consume comes
+      // FIRST so every rebuild — any layout, any active tab — consumes the
+      // one-shot: a stale `false` can't survive into a later resumeEpoch-driven
+      // rebuild (resume / re-attach must auto-focus exactly as before), and a
+      // coarse-pointer desktop-width device (where onShortcut still runs — its
+      // bail is width-based) can't park one either. The layout/tab guards only
+      // decide whether the consumed intent results in a focus. Read inside the
+      // rAF callback (like mobile/touch/tab) — async, so no new tracked dep on
+      // this terminal effect; the consumed flag itself is a plain non-reactive
+      // let upstairs.
+      if (consumeAutoFocusTerm() && !mobile && !touch && tab === "term") term.focus();
     });
 
     const ro = new ResizeObserver(() => {
@@ -2199,8 +2201,12 @@
       <span>{m.viewport_keynav_hint({ key: isMac ? "⌥" : "Alt" })}</span>
       <span class="sep">·</span>
       <span>{m.viewport_keynav_needsyou_hint()}</span>
-      <span class="sep">·</span>
-      <span>{m.viewport_keynav_enter_hint()}</span>
+      <!-- Enter only hands focus back on the terminal tab (focusTerminal
+           no-ops elsewhere), so don't advertise it on other tabs -->
+      {#if tab === "term"}
+        <span class="sep">·</span>
+        <span>{m.viewport_keynav_enter_hint()}</span>
+      {/if}
     </div>
   {/if}
 </div>

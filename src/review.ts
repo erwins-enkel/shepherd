@@ -690,7 +690,10 @@ export class ReviewService {
  *  no-op. patch-id ignores line numbers, so it stays stable when the rebased-onto base
  *  shifts hunks elsewhere; it changes only when the branch's own changed lines or their
  *  context change. Null on no diff or any git failure → caller never skips (reviews). */
-async function defaultComputePatchId(worktreePath: string, base: string): Promise<string | null> {
+export async function defaultComputePatchId(
+  worktreePath: string,
+  base: string,
+): Promise<string | null> {
   try {
     // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
     // only the head branch, so local `main` can lag behind origin; on a rebase onto newer

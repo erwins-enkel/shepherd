@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.24.0](https://github.com/erwins-enkel/shepherd/compare/v1.23.0...v1.24.0) (2026-06-10)
+
+
+### Features
+
+* **critic:** bound per-streak review spawns + prove patch-id rebase-skip ([#501](https://github.com/erwins-enkel/shepherd/issues/501)) ([#517](https://github.com/erwins-enkel/shepherd/issues/517)) ([5b9c1c3](https://github.com/erwins-enkel/shepherd/commit/5b9c1c3281073257f9d80ba93175716c1008287a))
+* persist reviewer/plan-gate session-ids + token totals for exact cost attribution ([#502](https://github.com/erwins-enkel/shepherd/issues/502)) ([#516](https://github.com/erwins-enkel/shepherd/issues/516)) ([6235892](https://github.com/erwins-enkel/shepherd/commit/6235892eebc0a98d82607c04ad2a99924c4bd10c))
+* **projects:** create new project from Shepherd (git init + GitHub + PRD kickoff) ([#527](https://github.com/erwins-enkel/shepherd/issues/527)) ([2e14f68](https://github.com/erwins-enkel/shepherd/commit/2e14f6884cef295941cf04c5aca15c21c108da89))
+* **spawn:** disable claude.ai connector MCP servers in agent spawns ([#515](https://github.com/erwins-enkel/shepherd/issues/515)) ([191eed8](https://github.com/erwins-enkel/shepherd/commit/191eed869a4934139f2fbb77df4981c2f1b12325)), closes [#509](https://github.com/erwins-enkel/shepherd/issues/509)
+* **steers:** ABC toggle to reveal steer labels on the compact mobile bar ([#520](https://github.com/erwins-enkel/shepherd/issues/520)) ([e7f4431](https://github.com/erwins-enkel/shepherd/commit/e7f443152ad719e1d584b131d851857ac2563295))
+* **ui:** detailed desktop usage-gauge hover card ([#523](https://github.com/erwins-enkel/shepherd/issues/523)) ([2a067e6](https://github.com/erwins-enkel/shepherd/commit/2a067e6e7ed171a6f3d8620b53c18bb1739d41e9))
+* **ui:** time-breakdown hover popover on session cards ([#525](https://github.com/erwins-enkel/shepherd/issues/525)) ([0b958b2](https://github.com/erwins-enkel/shepherd/commit/0b958b2bdc46b550721f365241f9e3f0dd6e78a1))
+
+
+### Bug Fixes
+
+* **herd:** show the session's model on cards instead of the herdr session name ([#519](https://github.com/erwins-enkel/shepherd/issues/519)) ([60b9220](https://github.com/erwins-enkel/shepherd/commit/60b922033835ba9758bb7d8927c43ac7b99c3469))
+* **topbar:** idle gear opens settings directly instead of a one-item menu ([#514](https://github.com/erwins-enkel/shepherd/issues/514)) ([51cc2fa](https://github.com/erwins-enkel/shepherd/commit/51cc2fa61e54d73b3678497569e5691487929158))
+* **usage:** correct cache-write churn diagnostic — FullRecache + CacheWcost% ([#500](https://github.com/erwins-enkel/shepherd/issues/500)) ([#522](https://github.com/erwins-enkel/shepherd/issues/522)) ([18a9c19](https://github.com/erwins-enkel/shepherd/commit/18a9c19b6d0a738e4522fe8daa7962f96fa87afe))
+
 ## [1.23.0](https://github.com/erwins-enkel/shepherd/compare/v1.22.0...v1.23.0) (2026-06-10)
 
 

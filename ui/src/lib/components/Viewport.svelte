@@ -253,6 +253,15 @@
   // phone merged header: the repo + session that used to live in the top bar
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
+  // phone: a configured project emoji identifies the repo on its own (mirrors the
+  // herd cards), so the name is dropped to free header width — tapping the emoji
+  // toggles it back for context. Reset when the viewport switches repos.
+  let ctxRepoShown = $state(false);
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    session.repoPath;
+    ctxRepoShown = false;
+  });
 
   // alert-by-exception: a *saturated* tint fires only when the agent wants the
   // operator (blocked / done) so the tint stays a signal, not noise. The exact
@@ -1572,6 +1581,29 @@
     {#if mobile}
       <!-- phone: the merged header carries repo · session (the top bar is hidden
            here), and the session name doubles as the profile/token meta trigger -->
+      {#if repoIcon}
+        <!-- emoji stands in for the repo name (herd-card convention) to free
+             header width; tapping it toggles the name back in. Lives outside the
+             .desig-wrap so focusing it doesn't also pop the meta tooltip. -->
+        <span
+          class="ctx-glyph emoji actionable"
+          role="button"
+          tabindex="0"
+          aria-expanded={ctxRepoShown}
+          aria-label={m.viewport_ctx_repo_toggle_aria({ repo: repoName })}
+          onclick={(e) => {
+            e.stopPropagation();
+            ctxRepoShown = !ctxRepoShown;
+          }}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              ctxRepoShown = !ctxRepoShown;
+            }
+          }}>{repoIcon}</span
+        >
+      {/if}
       <span class="desig-wrap ctx">
         <span
           class="ctx-trigger"
@@ -1579,9 +1611,13 @@
           tabindex="0"
           aria-label={m.topbar_detail_context_aria({ repo: repoName, name: session.name })}
         >
-          <span class="ctx-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
-          <span class="ctx-repo">{repoName}</span>
-          <span class="ctx-sep">·</span>
+          {#if !repoIcon}
+            <span class="ctx-glyph" aria-hidden="true">▣</span>
+          {/if}
+          {#if !repoIcon || ctxRepoShown}
+            <span class="ctx-repo">{repoName}</span>
+            <span class="ctx-sep">·</span>
+          {/if}
           <span class="ctx-name">{session.name}</span>
         </span>
         {@render metaPop()}
@@ -2462,6 +2498,20 @@
   }
   .ctx-glyph.emoji {
     font-size: var(--fs-lg);
+  }
+  /* tappable emoji standing in for the repo name — toggles it back in.
+     Phone-first control: pad the hit area toward the 44px touch-target
+     minimum; matching negative margins keep the visual layout unchanged.
+     Horizontal stays at ±8px — the header gap is only 7px, so anything wider
+     would overlay the back button / title trigger and steal their taps. */
+  .ctx-glyph.emoji.actionable {
+    cursor: pointer;
+    padding: 12px 8px;
+    margin: -12px -8px;
+  }
+  .ctx-glyph.emoji.actionable:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .ctx-repo {
     color: var(--color-ink-bright);

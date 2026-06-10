@@ -144,6 +144,28 @@ export async function cloneRepo(url: string): Promise<RepoEntry> {
   return r.json();
 }
 
+/** Create a new local git project (optionally with a GitHub remote).
+ *  On success returns a `RepoEntry` plus an optional `warning` when the local repo
+ *  was created but the GitHub step failed (partial success — the modal treats this as
+ *  success with a non-blocking hint, not a blocking error).
+ *  On any hard failure throws with `err.message` set to the server's `error` field
+ *  (a `newproject_failed_*` code) so the modal can strip the `newproject_failed_`
+ *  prefix and map to its `msg(code)` switch — exactly the same contract as `cloneRepo`. */
+export async function createProject(input: {
+  name: string;
+  idea: string;
+  createRemote: boolean;
+  visibility: "private" | "public";
+}): Promise<RepoEntry & { warning?: string }> {
+  const r = await fetch("/api/projects", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  });
+  if (!r.ok) throw await failed(r, "newproject");
+  return r.json();
+}
+
 export async function getSettings(): Promise<Settings> {
   const r = await fetch("/api/settings");
   if (!r.ok) throw await failed(r, "settings");

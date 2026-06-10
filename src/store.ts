@@ -15,7 +15,7 @@ import type {
   ReviewerSpawnRow,
 } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
-import type { SessionUsage } from "./usage";
+import { dominantModel, type SessionUsage } from "./usage";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -815,14 +815,26 @@ export class SessionStore implements CapStore {
   /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
    *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
   completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
-    // Drop `u.byModel`/`u.messageCount` on purpose — a reviewer spawn is one model, so the
-    // five scalar totals are the cost facts we need. (The spawn-time `model` column is the
-    // configured override and may be null when auto-resolved; the transcript holds the true
-    // model if a future report needs it.)
+    // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
+    // configured override, which is null when auto-resolved — but the transcript names the model
+    // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. COALESCE
+    // keeps the recorded value when the transcript yielded no model (empty usage). This lets
+    // usage-report weight a GC'd-transcript spawn's cost by its real tier, not a task-model proxy.
+    // `u.messageCount` is intentionally dropped — not a cost fact.
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
-         cacheWriteTokens = ?, totalTokens = ?, completedAt = ? WHERE reviewerSessionId = ?`,
-      [u.input, u.output, u.cacheRead, u.cacheWrite, u.total, completedAt, reviewerSessionId],
+         cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)
+         WHERE reviewerSessionId = ?`,
+      [
+        u.input,
+        u.output,
+        u.cacheRead,
+        u.cacheWrite,
+        u.total,
+        completedAt,
+        dominantModel(u),
+        reviewerSessionId,
+      ],
     );
   }
 

@@ -130,6 +130,21 @@ export function accumulate(lines: Iterable<string>): SessionUsage {
   return out;
 }
 
+/** The model that produced the most tokens in this usage, or null when none was recorded.
+ *  A reviewer session is effectively one model, so this resolves its TRUE model from the
+ *  transcript — used to backfill the spawn row whose configured model was "auto" (null). */
+export function dominantModel(u: SessionUsage): string | null {
+  let best: string | null = null;
+  let bestTokens = -1;
+  for (const [model, tokens] of Object.entries(u.byModel)) {
+    if (tokens > bestTokens) {
+      bestTokens = tokens;
+      best = model;
+    }
+  }
+  return best;
+}
+
 /** Read a session's JSONL transcript and accumulate its token totals. Returns null if the
  *  file is absent/unreadable (reviewer transcript not written, race, etc.). Async so the
  *  single server loop is never blocked by a sync read. */

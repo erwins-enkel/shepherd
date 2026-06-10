@@ -576,6 +576,39 @@ test("completeReviewerSpawn fills token totals + completedAt", () => {
   expect(row.model).toBe("opus");
 });
 
+test("completeReviewerSpawn backfills the true model from the transcript when spawn-time was auto (null)", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: null, // auto — unknown at spawn
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn(
+    "rev-1",
+    usage({ byModel: { "claude-opus-4-8": 80, "claude-haiku-4-5": 20 } }),
+    2000,
+  );
+  // dominant model (most tokens) backfilled onto the previously-null column
+  expect(s.listReviewerSpawns()[0]!.model).toBe("claude-opus-4-8");
+});
+
+test("completeReviewerSpawn keeps the recorded model when the transcript yielded none (COALESCE)", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: "sonnet",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-1", usage({ byModel: {} }), 2000); // empty usage → no model
+  expect(s.listReviewerSpawns()[0]!.model).toBe("sonnet");
+});
+
 test("pruneReviewerSpawns deletes only rows older than beforeTs, returns the count", () => {
   const s = mk();
   for (const [id, ts] of [

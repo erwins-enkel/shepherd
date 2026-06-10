@@ -944,5 +944,7 @@
   "newproject_failed_remote": "Could not create the GitHub repository.",
   "newproject_failed_git": "git failed while bootstrapping the project.",
   "newproject_failed_timeout": "The GitHub step timed out.",
-  "newproject_failed_generic": "Could not create the project."
+  "newproject_failed_generic": "Could not create the project.",
+  "newproject_prd_seed": "You are starting a brand-new project. Before writing any code, create a PRD (Product Requirements Document) at `docs/PRD.md` in this repository. Capture the problem, goals, target users, core user stories, scope (in/out), and success criteria. Keep it concise and concrete. The idea to build from:\n\n{idea}\n\nWhen the PRD is written, commit it with a conventional commit (`docs: add initial PRD`) and stop for review before implementing.",
+  "newproject_prd_seed_noidea": "(no description was provided — infer a reasonable starting scope and ask clarifying questions in the PRD)"
 }

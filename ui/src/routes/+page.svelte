@@ -1172,6 +1172,7 @@
     initialIssue={composeIssue ?? undefined}
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
+    defaultModel={settings?.defaultModel}
     onclose={() => {
       showNew = false;
       composeRepoPath = null;

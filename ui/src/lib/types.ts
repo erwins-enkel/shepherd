@@ -34,6 +34,9 @@ export interface Settings {
   standardCommand: string;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
+  /** Raw configured default-model setting (auto|default|<alias>); the New Task
+   *  picker resolves `auto` via the client promo. */
+  defaultModel: string;
   /** Max PR-critic auto-address rounds before escalating to a human (global). */
   prReviewCyclesCap: number;
   /** Display-only: lower bound for prReviewCyclesCap (drives the stepper's min). */

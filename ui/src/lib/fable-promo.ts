@@ -14,8 +14,8 @@
 // Cutoff is end-of-day June 22, 2026 in Berlin (CEST, UTC+2) — inclusive.
 export const FABLE_PROMO_UNTIL = new Date("2026-06-22T23:59:59+02:00");
 
-/** The New Task picker's default model selection, time-gated by the promo window.
+/** The New Task picker's client-side promo default, time-gated by the launch window.
  *  `now` is injectable for tests. */
-export function defaultModel(now: Date = new Date()): "fable" | "default" {
+export function promoDefaultModel(now: Date = new Date()): "fable" | "default" {
   return now.getTime() <= FABLE_PROMO_UNTIL.getTime() ? "fable" : "default";
 }

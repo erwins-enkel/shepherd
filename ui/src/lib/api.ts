@@ -194,6 +194,10 @@ export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: 
 export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesCap: number }> =>
   patchSettings({ planReviewCyclesCap: cap });
 
+// Persist the operator's configured default model for the New Task picker.
+export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
+  patchSettings<{ defaultModel: string }>({ defaultModel: model });
+
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";
   const r = await fetch(`/api/fs/dirs${q}`);

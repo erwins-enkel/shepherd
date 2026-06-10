@@ -3,7 +3,14 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { GitState, Issue, Leftover, Session, SessionUsage, UsageLimits } from "$lib/types";
+  import type {
+    GitState,
+    Leftover,
+    Session,
+    SessionStatus,
+    SessionUsage,
+    UsageLimits,
+  } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
@@ -30,7 +37,6 @@
   import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
-  import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -53,8 +59,6 @@
 
   let {
     session,
-    onnewtask,
-    onquick,
     onarchive,
     onback,
     onnextneedsyou,
@@ -78,8 +82,6 @@
     previewHost = null,
   }: {
     session: Session;
-    onnewtask?: (repoPath: string, issue: Issue) => void;
-    onquick?: (repoPath: string, issue: Issue) => void;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
     /** Jump to the next session waiting for a reply (header shortcut). */
@@ -135,7 +137,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "issues" | "activity" | "diff" | "preview">("term");
+  let tab = $state<"term" | "todo" | "activity" | "diff" | "preview">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -260,6 +262,17 @@
   // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
   // blocked/done-on-phone gate as the tint.
   const statusGlyph = $derived(!tintColor ? null : session.status === "blocked" ? "!" : "✓");
+  // Desktop counterpart (.status-mark): one glyph per status, shape-coded so no
+  // state pair rests on hue alone — done (✓) and idle/archived (●) both resolve
+  // to slate. Word stays in title/aria.
+  const STATUS_MARK: Record<SessionStatus, string> = {
+    running: "⠿",
+    blocked: "!",
+    done: "✓",
+    idle: "●",
+    archived: "●",
+  };
+  const statusMark = $derived(STATUS_MARK[session.status]);
 
   // ...but a busy agent shouldn't read as idle either: running gets a faint,
   // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
@@ -1050,7 +1063,7 @@
     term.onData((d) => c.send(d));
 
     // Fit + push the size to the PTY — but only while the mount is actually
-    // visible. A hidden (To-Do/Issues tab → display:none) or mid-layout mount
+    // visible. A hidden (To-Do tab → display:none) or mid-layout mount
     // has zero width, where FitAddon clamps to its 2-col minimum; resizing the
     // PTY to 2 cols makes Claude reflow its transcript at 2 cols and permanently
     // poisons the scrollback with 2-char-wide wrapping. offsetParent===null
@@ -1598,9 +1611,6 @@
             >{m.viewport_todo_tab()}</button
           >
         {/if}
-        <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
-          >{m.viewport_issues_tab()}</button
-        >
         <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
           >{m.viewport_activity_tab()}</button
         >
@@ -1617,19 +1627,24 @@
           onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
         >
       {:else if session && !session.archivedAt}
-        <!-- no preview yet: offer operator-triggered start. Anchored non-modal
-             (no scrim) — dismiss on Esc + outside-click (svelte:window onpointerdown). -->
+        <!-- no preview yet: offer operator-triggered start. Icon-only (▶, ▶? when
+             armed) to keep the header slim — full label lives in title + aria.
+             Anchored non-modal (no scrim) — dismiss on Esc + outside-click
+             (svelte:window onpointerdown). -->
         <span class="preview-start-wrap" bind:this={previewStartWrapEl}>
           <button
             class="tab-btn preview-start-btn"
             class:armed={previewArmed}
             type="button"
             disabled={isPreviewStartPending}
-            title={m.viewport_preview_start_note()}
-            onclick={onStartPreviewClick}
-            >{previewArmed
+            title={previewArmed
               ? m.viewport_preview_start_confirm_working()
-              : m.viewport_preview_start()}</button
+              : `${m.viewport_preview_start()}\n${m.viewport_preview_start_note()}`}
+            aria-label={previewArmed
+              ? m.viewport_preview_start_confirm_working()
+              : m.viewport_preview_start()}
+            onclick={onStartPreviewClick}
+            ><span aria-hidden="true">{previewArmed ? "▶?" : "▶"}</span></button
           >
           {#if previewCommandOpen}
             <span
@@ -1684,13 +1699,16 @@
            keep the word for assistive tech -->
       <span class="vp-status-sr">{statusLabel(session.status)}</span>
     {:else}
+      <!-- desktop status: a single shape-coded glyph — done (✓) and idle/archived
+           (●) share the slate hue, so shape carries the distinction; the status
+           word lives in title + aria. -->
       <span
-        class="status-badge"
-        style="color:{STATUS_COLOR[session.status]};border-color:{STATUS_COLOR[session.status]}"
+        class="status-mark"
+        style="color:{STATUS_COLOR[session.status]}"
+        role="img"
+        title={statusLabel(session.status)}
+        aria-label={statusLabel(session.status)}>{statusMark}</span
       >
-        {#if session.status === "running"}⠿{/if}
-        {statusLabel(session.status)}
-      </span>
     {/if}
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
@@ -1727,7 +1745,7 @@
           class="state-pip ready"
           role="img"
           aria-label={m.gitrail_ready_on_title()}
-          title={m.gitrail_ready_on_title()}>✓ {m.gitrail_ready()}</span
+          title={m.gitrail_ready_on_title()}>✓</span
         >
       {/if}
       {#if autopilotEffective && !session.autopilotPaused && !session.autopilotComplete}
@@ -1735,7 +1753,7 @@
           class="state-pip auto"
           role="img"
           aria-label={m.session_autopilot_on_label()}
-          title={m.session_autopilot_on_label()}>{m.automation_autopilot_name()}</span
+          title={m.session_autopilot_on_label()}>{m.viewport_autopilot_pip()}</span
         >
       {/if}
       <AutopilotBadge {session} />
@@ -1931,15 +1949,6 @@
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
-      </div>
-    {/if}
-    {#if tab === "issues"}
-      <div class="panel-wrap">
-        <IssuesPanel
-          repoPath={session.repoPath}
-          onnewtask={(issue) => onnewtask?.(session.repoPath, issue)}
-          onquick={onquick ? (issue) => onquick(session.repoPath, issue) : undefined}
-        />
       </div>
     {/if}
     {#if tab === "activity"}
@@ -2303,13 +2312,8 @@
     display: none;
   }
 
-  .status-badge {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    border: 1px solid;
-    border-radius: 2px;
+  .status-mark {
+    font-size: var(--fs-meta);
     flex-shrink: 0;
   }
 

@@ -59,6 +59,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
+import { normalizeDefaultModelSetting } from "./default-model";
 
 const execFileAsync = promisify(execFile);
 
@@ -111,6 +112,13 @@ if (savedPlan !== null)
     PLAN_REVIEW_CYCLES_MAX,
     config.planReviewCyclesCap,
   );
+// a UI-chosen default model (persisted) overrides the env seed; absent → keep the
+// config default. Corrupt/unknown values are ignored (keep the seed rather than clobber).
+const savedDm = store.getSetting("defaultModel");
+if (savedDm !== null) {
+  const v = normalizeDefaultModelSetting(savedDm);
+  if (v !== null) config.defaultModel = v;
+}
 
 // ── preview port range startup validation (hard-fail) ──────────────────────
 // Discover the public served port by parsing `tailscale serve status`; default

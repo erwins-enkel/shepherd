@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
+import { normalizeDefaultModelSetting } from "./default-model";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
@@ -233,6 +234,11 @@ export const config = {
     PLAN_REVIEW_CYCLES_MAX,
     PLAN_REVIEW_CYCLES_DEFAULT,
   ),
+  // Default model for spawned agents. Persisted + UI-configurable. "auto" = unset seed
+  // (picker uses client promo fallback, drain falls back to no --model); an explicit
+  // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
+  // a fresh DB; absent/invalid → "auto".
+  defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
   // Max consecutive auto-rebase attempts the merge train spends on a PR before pausing for the operator.
   autoMergeRebaseCap: Number(process.env.SHEPHERD_AUTOMERGE_REBASE_CAP ?? 5),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}

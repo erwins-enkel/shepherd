@@ -900,5 +900,7 @@
   "feat_issue_actions_body": "Define multiple prompts that launch straight on a backlog issue — the old single standard command became the first one. Steers and issue actions now share one editor in Settings, and each entry can carry an emoji so buttons stay recognizable when space runs out.",
   "steerseditor_scope_none_error": "every entry must surface somewhere — enable “bar” and/or “issues” on the highlighted row",
   "feat_steer_labels_title": "Reveal steer labels",
-  "feat_steer_labels_body": "On the cramped mobile steer bar, tap the right-anchored “ABC” key to show every button's text label instead of just its emoji — so you can tell the steers apart when you forget what a glyph means. Tap again to collapse back to icons. The choice is remembered per device."
+  "feat_steer_labels_body": "On the cramped mobile steer bar, tap the right-anchored “ABC” key to show every button's text label instead of just its emoji — so you can tell the steers apart when you forget what a glyph means. Tap again to collapse back to icons. The choice is remembered per device.",
+  "feat_usage_gauge_detail_title": "Detailed usage gauges on desktop",
+  "feat_usage_gauge_detail_body": "Hover the 5H / WK usage bars in the top bar and a detailed card now opens — each window with its full name, a wide bar, the exact percentage and when it resets — instead of the old one-line tooltip."
 }

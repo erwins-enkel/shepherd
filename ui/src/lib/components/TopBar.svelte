@@ -205,6 +205,12 @@
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
   let popoverOpen = $state(false);
+  // Desktop (fine pointer): hovering the inline gauges opens a richer detail
+  // card — full window names, wide bars, percentages and reset times — in place
+  // of the bare one-line text tooltip. Hover-only, matching the prior CSS
+  // tooltip; screen readers still get the full tip via each gauge's aria-label.
+  // The inline bars stay for the at-a-glance read; the card is the detail view.
+  let detailOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
   $effect(() => {
     // close the popover when it can no longer be opened (gauge gone / switched off touch)
@@ -495,21 +501,52 @@
         </div>
       {/if}
     {:else if gauges.length}
-      <div class="gauges" class:stale={limits?.stale}>
-        {#each gauges as g (g.label)}
-          {@const tip = gaugeTip(g.label, g.w.pct, g.w.resetAt)}
-          <div class="gauge tip" data-tip={tip} aria-label={tip}>
-            <span class="g-label micro">{g.label}</span>
-            <span class="g-bar"
-              ><span
-                class="g-fill"
-                style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                  100});background:{gaugeColor(g.w.pct)}"
-              ></span></span
-            >
-            <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="gauges-wrap"
+        onmouseenter={() => (detailOpen = true)}
+        onmouseleave={() => (detailOpen = false)}
+      >
+        <div class="gauges" class:stale={limits?.stale}>
+          {#each gauges as g (g.label)}
+            <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
+              <span class="g-label micro">{g.label}</span>
+              <span class="g-bar"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                    100});background:{gaugeColor(g.w.pct)}"
+                ></span></span
+              >
+              <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+            </div>
+          {/each}
+        </div>
+        {#if detailOpen}
+          <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
+            <div class="gauge-pop-title micro">
+              {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
+            </div>
+            {#each gauges as g (g.label)}
+              <div class="gp-window">
+                <div class="gp-head">
+                  <span class="gp-period">{periodLabel(g.label)}</span>
+                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                </div>
+                <span class="g-bar g-bar-wide"
+                  ><span
+                    class="g-fill"
+                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                      100});background:{gaugeColor(g.w.pct)}"
+                  ></span></span
+                >
+                <div class="gauge-pop-reset micro">
+                  {m.topbar_gauge_reset({ reset: formatReset(g.w.resetAt, nowMs) })}
+                </div>
+              </div>
+            {/each}
           </div>
-        {/each}
+        {/if}
       </div>
     {/if}
     <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
@@ -925,6 +962,9 @@
     background: var(--color-blue);
     box-shadow: 0 0 0 2px var(--color-panel);
   }
+  .gauges-wrap {
+    position: relative;
+  }
   .gauges {
     display: flex;
     gap: 14px;
@@ -1027,6 +1067,39 @@
   }
   .gauge-pop-reset:last-child {
     margin-bottom: 0;
+  }
+  /* Desktop hover detail card: one block per window — period name + percentage
+     on a header row, a full-width bar below, reset time as a faint subline. */
+  .gauge-pop-desk {
+    gap: 0;
+  }
+  .gp-window {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .gp-window + .gp-window {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-line);
+  }
+  .gp-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+  .gp-period {
+    color: var(--color-text);
+    font-size: var(--fs-meta);
+    text-transform: capitalize;
+  }
+  .gauge-pop-desk .g-bar-wide {
+    width: 100%;
+    height: 6px;
+  }
+  .gauge-pop-desk .gauge-pop-reset {
+    margin: 0;
   }
   .update-badge {
     display: flex;

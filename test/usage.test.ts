@@ -149,6 +149,14 @@ test("duplicate requestId row does not corrupt edge detection (warm, dup-warm, c
   expect(u.fullRecaches).toBe(1);
 });
 
+test("warm → cold with no cache write is NOT a fullRecache (cacheWrite>0 guard)", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000 }), // warm
+    asst({ requestId: "r2", cacheRead: 0, w5m: 0, w1h: 0 }), // cold but no write → not a recache
+  ]);
+  expect(u.fullRecaches).toBe(0);
+});
+
 test("sidechainCount tallies isSidechain accepted records", () => {
   const u = accumulate([
     asst({ requestId: "r1", sidechain: true }),

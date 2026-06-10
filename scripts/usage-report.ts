@@ -759,7 +759,7 @@ const LEGEND = [
   "  Anc(p/r/u)  in-worktree ancillary transcripts: probe / resumed / unknown",
   "  Sat tags    satellite linkage: db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
   "  FullRecache genuine prompt-cache full rebuilds (main-thread only; sidechain/sub-agent records excluded and warned on stderr)",
-  "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×)",
+  "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×; includes all records — main-thread and sidechain — unlike FullRecache)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
   "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
   "  Out of scope: account-wide periodic distiller (/tmp/shepherd-distill-*) is not per-task and is never attributed here.",

@@ -176,11 +176,13 @@ export class GiteaForge implements GitForge {
   private async toStatus(pr: GiteaPr): Promise<PrStatus> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
     const state: PrStatus["state"] = pr.merged ? "merged" : pr.state === "open" ? "open" : "closed";
+    const createdAt = Date.parse(pr.created_at ?? "");
     return {
       state,
       number: pr.number,
       url: pr.html_url,
       title: pr.title ?? "",
+      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: pr.mergeable ?? null,
       // Gitea has no draft boolean; draft = the WIP-title-prefix convention (see WIP_PREFIX).
       isDraft: (pr.title ?? "").startsWith(GiteaForge.WIP_PREFIX),

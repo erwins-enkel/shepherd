@@ -2,8 +2,9 @@
   import "@xterm/xterm/css/xterm.css";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
-  import type { Session, GitState } from "$lib/types";
+  import type { Session, GitState, SessionActivity } from "$lib/types";
   import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge, canResume } from "$lib/format";
+  import { onDestroy } from "svelte";
   import { displayStatus } from "$lib/display-status";
   import { connectPty } from "$lib/pty";
   import { resumeSession } from "$lib/api";
@@ -11,6 +12,7 @@
   import CardMenu from "./CardMenu.svelte";
   import { longPress } from "./longpress";
   import PrBadge from "./PrBadge.svelte";
+  import TimePopover from "./TimePopover.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import { reviews } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
@@ -25,6 +27,7 @@
     nowMs = Date.now(),
     onselect,
     git,
+    activity,
     workingBlocked = {},
   }: {
     session: Session;
@@ -32,6 +35,8 @@
     nowMs?: number;
     onselect: (id: string) => void;
     git?: GitState;
+    // live per-session signal (heartbeat ts); feeds the TimePopover's last-activity line
+    activity?: SessionActivity;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
   } = $props();
@@ -174,6 +179,22 @@
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
     }
   }
+
+  // Time-breakdown popover: the .tile-hit overlay is the tile's only hover
+  // surface (it covers the elapsed span and PrBadge, so their own hovers can
+  // never fire) — trigger there, with hover-intent so sweeping the cursor
+  // across the grid doesn't cascade popovers. Keyboard focus shows immediately.
+  let tipRect = $state<DOMRect | null>(null);
+  let tipTimer: ReturnType<typeof setTimeout> | undefined;
+  function tipShow(delay = 450) {
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => (tipRect = hitEl?.getBoundingClientRect() ?? null), delay);
+  }
+  function tipHide() {
+    clearTimeout(tipTimer);
+    tipRect = null;
+  }
+  onDestroy(() => clearTimeout(tipTimer));
 </script>
 
 <div
@@ -187,8 +208,23 @@
     type="button"
     aria-label={m.unit_open_aria({ name: session.name })}
     aria-describedby={describedBy}
-    onclick={() => onselect(session.id)}
-    oncontextmenu={onContextMenu}
+    onclick={() => {
+      tipHide();
+      onselect(session.id);
+    }}
+    oncontextmenu={(e) => {
+      tipHide();
+      onContextMenu(e);
+    }}
+    onmouseenter={() => tipShow()}
+    onmouseleave={tipHide}
+    onfocus={() => {
+      if (hitEl?.matches(":focus-visible")) tipShow(0);
+    }}
+    onblur={tipHide}
+    onkeydown={(e) => {
+      if (e.key === "Escape" && tipRect) tipHide();
+    }}
     use:longPress={{ onTrigger: openMenuAt }}
   ></button>
   <div class="t-head">
@@ -225,6 +261,10 @@
     onresume={resumeFromMenu}
     onclose={() => (menu = null)}
   />
+{/if}
+
+{#if tipRect && !menu}
+  <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
 {/if}
 
 <style>

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { hideStatusBadge, relativeAge, formatAgo, heartbeatTone, canResume } from "./format";
+import {
+  hideStatusBadge,
+  relativeAge,
+  formatAgo,
+  heartbeatTone,
+  canResume,
+  waitTier,
+} from "./format";
 import type { Session, SessionStatus } from "./types";
 
 describe("canResume", () => {
@@ -79,6 +86,24 @@ describe("formatAgo", () => {
   ];
   for (const [ms, out] of cases) {
     it(`${ms}ms → ${out}`, () => expect(formatAgo(ms)).toBe(out));
+  }
+});
+
+describe("waitTier", () => {
+  const H = 3_600_000;
+  const D = 24 * H;
+  const cases: [number, ReturnType<typeof waitTier>][] = [
+    [0, "fresh"],
+    [4 * H - 1, "fresh"],
+    [4 * H, "dozing"],
+    [D - 1, "dozing"],
+    [D, "burning"],
+    [3 * D - 1, "burning"],
+    [3 * D, "skeleton"],
+    [14 * D, "skeleton"],
+  ];
+  for (const [ms, out] of cases) {
+    it(`${ms}ms → ${out}`, () => expect(waitTier(ms)).toBe(out));
   }
 });
 

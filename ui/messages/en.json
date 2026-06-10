@@ -902,5 +902,20 @@
   "feat_steer_labels_title": "Reveal steer labels",
   "feat_steer_labels_body": "On the cramped mobile steer bar, tap the right-anchored “ABC” key to show every button's text label instead of just its emoji — so you can tell the steers apart when you forget what a glyph means. Tap again to collapse back to icons. The choice is remembered per device.",
   "feat_usage_gauge_detail_title": "Detailed usage gauges on desktop",
-  "feat_usage_gauge_detail_body": "Hover the 5H / WK usage bars in the top bar and a detailed card now opens — each window with its full name, a wide bar, the exact percentage and when it resets — instead of the old one-line tooltip."
+  "feat_usage_gauge_detail_body": "Hover the 5H / WK usage bars in the top bar and a detailed card now opens — each window with its full name, a wide bar, the exact percentage and when it resets — instead of the old one-line tooltip.",
+  "timetip_clock": "⏱ {elapsed} on the clock — ticking since {start}",
+  "timetip_last_activity": "Last sign of life {ago} ago 👀",
+  "timetip_pr_open_since": "PR #{number} has been simmering for {ago} 🍲",
+  "timetip_approved_ago": "Approved by {who} {ago} ago ✅",
+  "timetip_your_turn": "Your move! 🫵",
+  "timetip_waiting_review_fresh": "Review time, {who} — on it for {ago} ⏳",
+  "timetip_waiting_review_dozing": "Is {who} napping? {ago} without a review 😴",
+  "timetip_waiting_review_burning": "{who}! This review is on fire — {ago} 🔥",
+  "timetip_waiting_review_skeleton": "Still waiting for {who}'s review… {ago} 💀",
+  "timetip_waiting_merge_fresh": "{who} just needs to hit merge… {ago} ⏳",
+  "timetip_waiting_merge_dozing": "The merge button awaits {who} — {ago} 😴",
+  "timetip_waiting_merge_burning": "{who}! The merge button is gathering dust! {ago} 🔥",
+  "timetip_waiting_merge_skeleton": "Waiting {ago} for {who} to merge… 💀",
+  "feat_time_tooltip_title": "Tile time, explained",
+  "feat_time_tooltip_body": "Hover a session card to see what its clock is made of — runtime, last activity, and how long an open PR has been waiting on review or merge, with escalating emoji the longer it sits 🔥."
 }

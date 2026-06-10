@@ -116,6 +116,18 @@ export function statusLabel(s: SessionStatus): string {
   }
 }
 
+/**
+ * Escalation tier for the TimePopover's "waiting on {who}" line — purely
+ * cosmetic gamification, drives which playful message (and emoji) renders:
+ * `<4h` fresh ⏳, `<1d` dozing 😴, `<3d` burning 🔥, else skeleton 💀.
+ */
+export function waitTier(deltaMs: number): "fresh" | "dozing" | "burning" | "skeleton" {
+  if (deltaMs < 4 * 3_600_000) return "fresh";
+  if (deltaMs < 24 * 3_600_000) return "dozing";
+  if (deltaMs < 3 * 24 * 3_600_000) return "burning";
+  return "skeleton";
+}
+
 /** Compact age like "5m", "2h", "3d", or "now" under a minute. Units are
  *  abbreviations, intentionally untranslated — same precedent as `elapsed`.
  *  Shares the m/h/d tail with `formatAgo`; only the sub-minute label differs

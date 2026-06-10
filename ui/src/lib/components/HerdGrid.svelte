@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, GitState } from "$lib/types";
+  import type { Session, GitState, SessionActivity } from "$lib/types";
   import UnitTile from "./UnitTile.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -11,6 +11,7 @@
     onselect,
     onnew,
     git,
+    activity = {},
     issueActionsUnset = false,
     onsettings = undefined,
     filteredRepo = null,
@@ -23,6 +24,8 @@
     onselect: (id: string) => void;
     onnew: () => void;
     git: Record<string, GitState>;
+    // per-session live activity (heartbeat) — threaded into the tiles' TimePopover
+    activity?: Record<string, SessionActivity>;
     issueActionsUnset?: boolean;
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
@@ -66,6 +69,7 @@
         {nowMs}
         {onselect}
         git={git[session.id]}
+        activity={activity[session.id]}
         {workingBlocked}
       />
     {/each}

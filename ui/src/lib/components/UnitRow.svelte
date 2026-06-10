@@ -24,6 +24,7 @@
   import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
   import PrBadge from "./PrBadge.svelte";
+  import TimePopover from "./TimePopover.svelte";
   import CriticBadge from "./CriticBadge.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
@@ -146,6 +147,7 @@
 
   onDestroy(() => {
     clearTimeout(armTimer);
+    clearTimeout(tipTimer);
     if (openRow === close) openRow = null;
   });
 
@@ -214,6 +216,21 @@
     menu = null;
     ondecommission?.(session.id);
   }
+
+  // Time-breakdown popover: the .unit-hit overlay is the row's only hover
+  // surface (it covers the elapsed span and PrBadge, so their own hovers can
+  // never fire) — trigger there, with hover-intent so sweeping the cursor
+  // across the list doesn't cascade popovers. Keyboard focus shows immediately.
+  let tipRect = $state<DOMRect | null>(null);
+  let tipTimer: ReturnType<typeof setTimeout> | undefined;
+  function tipShow(delay = 450) {
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => (tipRect = hitEl?.getBoundingClientRect() ?? null), delay);
+  }
+  function tipHide() {
+    clearTimeout(tipTimer);
+    tipRect = null;
+  }
 </script>
 
 {#snippet row()}
@@ -225,15 +242,31 @@
     data-unit-id={session.id}
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[dStatus]}"
   >
+    <!-- no native title here (was repoPath): the TimePopover carries the repo
+         path as its first line, and a native tooltip would double up with it -->
     <button
       bind:this={hitEl}
       class="unit-hit"
       type="button"
       aria-label={m.unit_open_aria({ name: session.name })}
       aria-describedby={describedBy}
-      title={session.repoPath}
-      onclick={() => onselect(session.id)}
-      oncontextmenu={onContextMenu}
+      onclick={() => {
+        tipHide();
+        onselect(session.id);
+      }}
+      oncontextmenu={(e) => {
+        tipHide();
+        onContextMenu(e);
+      }}
+      onmouseenter={() => tipShow()}
+      onmouseleave={tipHide}
+      onfocus={() => {
+        if (hitEl?.matches(":focus-visible")) tipShow(0);
+      }}
+      onblur={tipHide}
+      onkeydown={(e) => {
+        if (e.key === "Escape" && tipRect) tipHide();
+      }}
       use:longPress={{ onTrigger: openMenuAt }}
     ></button>
     <div class="pip-col">
@@ -433,6 +466,10 @@
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />
+{/if}
+
+{#if tipRect && !menu}
+  <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
 {/if}
 
 <style>

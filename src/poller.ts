@@ -1,7 +1,7 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import { mapState, matchAgents, type HerdrDriver, type HerdrAgent } from "./herdr";
-import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
+import { classifyBlocked, hasActiveSpinner, tailLines, type BlockReason } from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
@@ -594,17 +594,35 @@ export class StatusPoller {
     this.onBlock(id, { shape: "stall", options: [], tail: tailLines(visible) });
   }
 
-  /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */
+  /**
+   * Read + classify a blocked agent at most every `reclassifyMs`; emit only on change.
+   * An `awaiting-input` fallback is suppressed (and any announced block cleared once)
+   * while the TUI shows an active turn spinner — herdr can latch "blocked" after an
+   * answered dialog even though the agent resumed working.
+   */
   private maybeClassify(id: string, term: string): void {
     const t = this.now();
     if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return;
     this.lastReadAt.set(id, t);
+    let visible: string;
     let reason: BlockReason;
     try {
-      reason = this.classify(this.herdr.read(term, "visible"));
+      visible = this.herdr.read(term, "visible");
+      reason = this.classify(visible);
     } catch (err) {
       console.warn(`[poller] classify failed for ${id}:`, err);
       return; // best-effort; retry next cadence
+    }
+    if (reason.shape === "awaiting-input" && hasActiveSpinner(visible)) {
+      // herdr can latch "blocked" after an answered dialog; a live spinner means the
+      // agent resumed working — clear any announced block instead of emitting the
+      // no-evidence fallback. (suppression scoped to awaiting-input only: a genuine
+      // menu/y-n dialog must always surface, spinner or not)
+      if (this.lastSig.has(id)) {
+        this.lastSig.delete(id);
+        this.onBlock(id, null);
+      }
+      return;
     }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return;

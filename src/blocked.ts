@@ -29,6 +29,30 @@ export function tailLines(text: string, n = TAIL_LINES): string[] {
     .slice(-n);
 }
 
+// Active-turn spinner line: an ellipsis directly followed by "(<elapsed time>",
+// e.g. "✶ Bunning… (1m 13s · ↑ 1.3k tokens)" / "⎿  Running… (4s)". Verified against
+// 856 production-captured tails; does NOT match "… +5 lines (ctrl+o to expand)"
+// (text between … and the paren) or "(1M context)" (no elapsed time).
+const SPINNER_RE = /…\s*\((?:\d+h\s*)?(?:\d+m\s*)?\d+s\b/;
+const INTERRUPT_HINT_RE = /esc to interrupt/i;
+
+/**
+ * True when the terminal tail shows an actively-working Claude Code turn —
+ * a spinner line with an elapsed-time counter, or the legacy "esc to interrupt"
+ * hint. Scans the same last-15-non-empty-lines window as `classifyBlocked`
+ * (the spinner always sits just above the input box; this avoids matching
+ * stale scrollback).
+ *
+ * Why this exists: herdr can latch `agent_status=blocked` after the user
+ * answers a permission/elicitation dialog, reporting "blocked" for the rest
+ * of the working turn. A "blocked" agent whose TUI shows a live turn spinner
+ * is actually working, not waiting on the user — this is a defensive guard
+ * against that upstream herdr bug.
+ */
+export function hasActiveSpinner(text: string): boolean {
+  return tailLines(text).some((l) => SPINNER_RE.test(l) || INTERRUPT_HINT_RE.test(l));
+}
+
 /** Classify a blocked agent's terminal tail into an actionable shape. Never throws. */
 export function classifyBlocked(text: string): BlockReason {
   const tail = tailLines(text);

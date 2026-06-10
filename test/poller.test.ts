@@ -157,6 +157,94 @@ test("re-emits onBlock when the blocked reason changes after the cadence", () =>
   expect((blocks[1]!.block as any).shape).toBe("yes-no");
 });
 
+const SPINNER_TAIL = "✶ Bunning… (1m 13s · ↑ 1.3k tokens)\n❯";
+
+/** Blocked-status herdr fake whose visible buffer is swappable via `setText`. */
+function spinnerHarness(initialText: string) {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+  let text = initialText;
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "blocked",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => text,
+  };
+  let clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+  return {
+    poller,
+    blocks,
+    setText: (t: string) => (text = t),
+    advance: (ms: number) => (clock += ms),
+  };
+}
+
+test("suppresses the awaiting-input fallback when the TUI shows a working spinner", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+});
+
+test("clears an announced block exactly once when the buffer flips to a working spinner", () => {
+  const h = spinnerHarness("❯ 1. Yes\n  2. No");
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+
+  // dialog answered, herdr latches blocked, TUI now shows a live turn spinner
+  h.setText(SPINNER_TAIL);
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(2);
+  expect(h.blocks[1]!.block).toBeNull();
+
+  // further suppressed cycles emit nothing
+  h.advance(5000);
+  h.poller.tick();
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(2);
+});
+
+test("re-arms after suppression: a later spinner-free awaiting-input tail emits a block", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+
+  h.setText("I need your input on the API design.\n❯");
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+});
+
+test("still emits a menu block when a spinner line is also visible", () => {
+  const h = spinnerHarness(`✶ Bunning… (1m 13s · ↑ 1.3k tokens)\n❯ 1. Yes\n  2. No`);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+});
+
 test("marks a session done and emits once when its herdr agent is gone", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

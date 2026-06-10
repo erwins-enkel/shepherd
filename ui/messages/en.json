@@ -591,6 +591,8 @@
   "steerbar_send_failed": "send failed",
   "steerbar_coach_hint": "Tap a chip to steer the agent. Broadcast sends to many at once.",
   "steerbar_coach_dismiss": "Got it",
+  "steerbar_labels_show": "Show button labels",
+  "steerbar_labels_hide": "Show icons only",
   "steerseditor_title": "Saved Steers",
   "steerseditor_label_placeholder": "label",
   "steerseditor_text_placeholder": "prompt text",
@@ -895,5 +897,7 @@
   "steerseditor_scope_issues_title": "Show as a quick-launch button on backlog issues",
   "feat_issue_actions_title": "Issue actions & steer emojis",
   "feat_issue_actions_body": "Define multiple prompts that launch straight on a backlog issue — the old single standard command became the first one. Steers and issue actions now share one editor in Settings, and each entry can carry an emoji so buttons stay recognizable when space runs out.",
-  "steerseditor_scope_none_error": "every entry must surface somewhere — enable “bar” and/or “issues” on the highlighted row"
+  "steerseditor_scope_none_error": "every entry must surface somewhere — enable “bar” and/or “issues” on the highlighted row",
+  "feat_steer_labels_title": "Reveal steer labels",
+  "feat_steer_labels_body": "On the cramped mobile steer bar, tap the right-anchored “ABC” key to show every button's text label instead of just its emoji — so you can tell the steers apart when you forget what a glyph means. Tap again to collapse back to icons. The choice is remembered per device."
 }

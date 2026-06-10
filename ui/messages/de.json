@@ -591,6 +591,8 @@
   "steerbar_send_failed": "Senden fehlgeschlagen",
   "steerbar_coach_hint": "Tippe einen Chip an, um den Agenten zu steuern. Broadcast sendet an mehrere zugleich.",
   "steerbar_coach_dismiss": "Verstanden",
+  "steerbar_labels_show": "Beschriftungen anzeigen",
+  "steerbar_labels_hide": "Nur Symbole anzeigen",
   "steerseditor_title": "Gespeicherte Steers",
   "steerseditor_label_placeholder": "Bezeichnung",
   "steerseditor_text_placeholder": "Prompt-Text",
@@ -895,5 +897,7 @@
   "steerseditor_scope_issues_title": "Als Schnellstart-Button auf Backlog-Issues anzeigen",
   "feat_issue_actions_title": "Issue-Aktionen & Steer-Emojis",
   "feat_issue_actions_body": "Definiere mehrere Prompts, die direkt auf einem Backlog-Issue starten — der bisherige Standard-Befehl wurde zur ersten Aktion. Steers und Issue-Aktionen teilen sich jetzt einen Editor in den Einstellungen, und jeder Eintrag kann ein Emoji tragen, damit Buttons bei wenig Platz unterscheidbar bleiben.",
-  "steerseditor_scope_none_error": "Jeder Eintrag muss irgendwo erscheinen — aktiviere in der markierten Zeile „Leiste“ und/oder „Issues“"
+  "steerseditor_scope_none_error": "Jeder Eintrag muss irgendwo erscheinen — aktiviere in der markierten Zeile „Leiste“ und/oder „Issues“",
+  "feat_steer_labels_title": "Steer-Beschriftungen einblenden",
+  "feat_steer_labels_body": "In der engen mobilen Steer-Leiste blendest du mit der rechts angedockten „ABC“-Taste die Textbeschriftung jedes Buttons ein statt nur das Emoji — so erkennst du die Steers wieder, wenn du nicht mehr weißt, was ein Symbol bedeutet. Nochmal tippen klappt zurück auf Symbole. Die Wahl wird pro Gerät gemerkt."
 }

@@ -32,6 +32,29 @@
     }
   }
 
+  // Labels toggle: in the cramped mobile bar the emoji chips collapse to icon-only
+  // (fitLabels' `compact`), and it's easy to forget what each glyph does. The
+  // right-anchored "ABC" key forces every chip's text label back on (overriding
+  // compaction) so the operator can read the bar, then collapse it again. Persisted
+  // per-device so the choice survives reloads. SSR-safe: stays off until mount.
+  const LABELS_KEY = "shepherd:steer-labels";
+  let showLabels = $state(false);
+  $effect(() => {
+    try {
+      if (localStorage.getItem(LABELS_KEY) === "1") showLabels = true;
+    } catch {
+      // private mode / blocked storage: default to icon-only
+    }
+  });
+  function toggleLabels() {
+    showLabels = !showLabels;
+    try {
+      localStorage.setItem(LABELS_KEY, showLabels ? "1" : "0");
+    } catch {
+      // ignore: best-effort persistence
+    }
+  }
+
   // Tap-vs-drag: the bar scrolls horizontally (overflow-x), so a finger that
   // lands on a chip and drags to scroll must NOT fire it. Arm on pointerdown,
   // disarm once the pointer moves past a small slop (it's a scroll) or when the
@@ -100,6 +123,7 @@
      label and the bar's horizontal scroll remains the final fallback. -->
 <div
   class="steer-bar"
+  class:show-labels={showLabels}
   role="toolbar"
   aria-label={m.steerbar_toolbar_aria()}
   data-swipe-ignore
@@ -132,6 +156,20 @@
       ></button
     >
   {/each}
+  <!-- Right-anchored labels toggle: stays pinned to the bar's right edge (sticky)
+       so it's reachable even when the chips scroll. Toggles every chip between
+       icon-only and icon+label. -->
+  <button
+    type="button"
+    class="chip lbl-toggle"
+    aria-pressed={showLabels}
+    title={showLabels ? m.steerbar_labels_hide() : m.steerbar_labels_show()}
+    aria-label={showLabels ? m.steerbar_labels_hide() : m.steerbar_labels_show()}
+    onpointerdown={down}
+    onpointermove={move}
+    onpointercancel={cancel}
+    onpointerup={(e) => tap(e, toggleLabels)}>ABC</button
+  >
 </div>
 
 <style>
@@ -186,15 +224,36 @@
   }
   /* compact (set by fitLabels on overflow): emoji-carrying chips shed their label —
      the emoji is the identifier; label-only chips are untouched. The broadcast chip
-     joins in, matching its existing mobile collapse. */
-  .steer-bar:global(.compact) .chip.has-emoji .chip-label,
-  .steer-bar:global(.compact) .bc-label {
+     joins in, matching its existing mobile collapse. The `:not(.show-labels)` guard
+     lets the ABC toggle force every label back on regardless of available width. */
+  .steer-bar:global(.compact):not(.show-labels) .chip.has-emoji .chip-label,
+  .steer-bar:global(.compact):not(.show-labels) .bc-label {
     display: none;
   }
-  .steer-bar:global(.compact) .chip.has-emoji,
-  .steer-bar:global(.compact) .chip.bc {
+  .steer-bar:global(.compact):not(.show-labels) .chip.has-emoji,
+  .steer-bar:global(.compact):not(.show-labels) .chip.bc {
     min-width: 44px;
     padding: 0;
+  }
+  /* Labels toggle: a flat "ABC" key pinned to the bar's right edge. It rides along
+     while the chips scroll (sticky) and snaps to the far right when they don't fill
+     the row (margin-left:auto). Reuses the .chip box; the left shadow masks chips
+     sliding beneath the opaque key. */
+  .lbl-toggle {
+    position: sticky;
+    right: 0;
+    margin-left: auto;
+    min-width: 44px;
+    padding: 0;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    box-shadow: -10px 0 8px -4px var(--color-head);
+  }
+  .lbl-toggle[aria-pressed="true"] {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink);
+    background: var(--color-hover);
   }
   /* on mobile the broadcast chip collapses to just its ⌁ icon to reclaim
      space; matches the ControlBar Esc key's box model (min-width 44px, no
@@ -208,13 +267,13 @@
      equal the Esc→Tab channel (3px Esc-well + 6px ctrl-row gap + 3px Tab-well =
      12px). The flex `gap` already gives 4px, so add the remaining 8px here. */
   @media (max-width: 768px) {
-    .chip.bc {
+    .steer-bar:not(.show-labels) .chip.bc {
       min-width: 44px;
       padding: 0;
       margin-left: 3px;
       margin-right: 8px;
     }
-    .bc-label {
+    .steer-bar:not(.show-labels) .bc-label {
       display: none;
     }
   }

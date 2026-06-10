@@ -95,6 +95,7 @@
   import { version } from "$lib/build-info";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
   import FableArrival from "$lib/components/FableArrival.svelte";
+  import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
   let selectedId = $state<string | null>(null);
@@ -458,6 +459,13 @@
   // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):
   // gets the control-key bar even in desktop layout, since there's no hardware keyboard
   const touch = new MediaQuery("(pointer: coarse)");
+  // Collapse the herd sidebar only on touch-primary wide devices (e.g. unfolded
+  // foldable) that opted in — gives the terminal full width. Mouse desktops and
+  // phones (handled by the mobile branch) never collapse.
+  const canCollapse = $derived(touch.current && !mobile.current);
+  const sidebarCollapsed = $derived(
+    sidebarShouldCollapse(touch.current, mobile.current, sidebarCollapse.collapsed),
+  );
   let mobileScreen = $state<"list" | "detail">("list");
   let showBacklog = $state(false);
 
@@ -1114,31 +1122,43 @@
         />
       </div>
     {:else}
-      <div class="grid" class:compact={touch.current}>
-        <Herd
-          sessions={herdSessions}
-          filteredRepo={repoFilterName}
-          {repoFilter}
-          onrepofilter={(repoPath) => (repoFilter = repoPath)}
-          {statusFilter}
-          onstatusfilter={(s) => (statusFilter = s)}
-          {selectedId}
-          {nowMs}
-          onselect={(id) => selectUnit(id)}
-          onnew={() => (showNew = true)}
-          git={store.git}
-          activity={store.activity}
-          preview={store.preview}
-          previewServe={store.previewServe}
-          onpreview={openPreview}
-          ondecommission={onarchive}
-          {onclearmerged}
-          {onmergetrain}
-          {issueActionsUnset}
-          onsettings={() => (showSettings = true)}
-          bind:filter={herdFilter}
-          workingBlocked={store.workingBlocked}
-        />
+      <div class="grid" class:compact={touch.current} class:collapsed={sidebarCollapsed}>
+        {#if sidebarCollapsed}
+          <button
+            type="button"
+            class="reopen-tab"
+            title={m.herd_expand()}
+            aria-label={m.herd_expand()}
+            onclick={() => sidebarCollapse.toggle()}>›</button
+          >
+        {:else}
+          <Herd
+            sessions={herdSessions}
+            filteredRepo={repoFilterName}
+            {repoFilter}
+            onrepofilter={(repoPath) => (repoFilter = repoPath)}
+            {statusFilter}
+            onstatusfilter={(s) => (statusFilter = s)}
+            {selectedId}
+            {nowMs}
+            onselect={(id) => selectUnit(id)}
+            onnew={() => (showNew = true)}
+            git={store.git}
+            activity={store.activity}
+            preview={store.preview}
+            previewServe={store.previewServe}
+            onpreview={openPreview}
+            ondecommission={onarchive}
+            {onclearmerged}
+            {onmergetrain}
+            {issueActionsUnset}
+            onsettings={() => (showSettings = true)}
+            bind:filter={herdFilter}
+            workingBlocked={store.workingBlocked}
+            collapsible={canCollapse}
+            oncollapse={() => sidebarCollapse.toggle()}
+          />
+        {/if}
         {#if store.sessions.length === 0}
           <BacklogView
             payload={backlog}
@@ -1451,6 +1471,33 @@
   .grid.compact {
     grid-template-columns: minmax(244px, 288px) 1fr;
     gap: 10px;
+  }
+  /* Collapsed herd on touch-primary wide devices: the sidebar is replaced by a
+     slim reopen tab and the terminal reclaims the width. Authored at
+     .grid.compact.collapsed specificity (0,3,0) so it outranks .grid.compact by
+     specificity, not source order — collapse on a touch device sets both classes. */
+  .grid.compact.collapsed {
+    grid-template-columns: 30px 1fr;
+    gap: 0;
+  }
+  .reopen-tab {
+    height: 100%;
+    width: 100%;
+    align-self: stretch;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    color: var(--color-faint);
+    font-size: var(--fs-lg);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-sizing: border-box;
+    transition: color 0.12s ease;
+  }
+  .reopen-tab:hover {
+    color: var(--color-ink);
   }
   .grid-all {
     flex: 1;

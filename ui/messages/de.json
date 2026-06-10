@@ -564,7 +564,7 @@
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
   "viewport_select_hint": "{key} Ziehen zum Kopieren",
-  "viewport_keynav_hint": "j/k/1–9 Session wechseln ({key} aus dem Terminal)",
+  "viewport_keynav_hint": "j/k/1–9 Session wechseln: {key} im Terminal halten",
   "viewport_keynav_needsyou_hint": "g braucht dich",
   "viewport_keynav_enter_hint": "↵ zurück zum Terminal",
   "viewport_parked_title": "Auf anderem Gerät aktiv",

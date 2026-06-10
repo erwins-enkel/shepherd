@@ -3050,6 +3050,12 @@
     line-height: 1;
     padding: 6px 12px;
   }
+  /* the fold toggle is likewise a bare chevron — at --fs-base it reads as a
+     dot, so it gets the same icon-size bump (hit area stays ≥40px above) */
+  .vp-head.mobile .vp-fold {
+    font-size: var(--fs-xl);
+    line-height: 1;
+  }
 
   .tab-btn {
     background: transparent;

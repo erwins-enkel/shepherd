@@ -8,9 +8,10 @@
     putSessionHousekeeping,
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
+    putDefaultModel,
     listDirs,
   } from "$lib/api";
-  import type { DirListing, HerdrUpdateStatus } from "$lib/types";
+  import { MODELS, type DirListing, type HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -121,6 +122,11 @@
   let planReviewCyclesMax = $state(12);
   let planReviewCyclesSaved = 5; // last server-confirmed value, for revert on failure
   let planRcyBusy = $state(false);
+  let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
+  let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
+  let defaultModelBusy = $state(false);
+  const PREMIUM_MODELS = ["fable", "opus"];
+  const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
 
   async function saveStandardCommand() {
     if (scBusy) return;
@@ -188,6 +194,27 @@
       });
     } finally {
       planRcyBusy = false;
+    }
+  }
+
+  async function saveDefaultModel() {
+    if (defaultModelBusy) return;
+    defaultModelBusy = true;
+    try {
+      const r = await putDefaultModel(defaultModel);
+      defaultModel = r.defaultModel;
+      defaultModelSaved = r.defaultModel;
+    } catch {
+      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // deduped alert so the no-op never looks like a save.
+      defaultModel = defaultModelSaved;
+      toasts.info(m.settings_default_model_save_failed(), {
+        key: "default-model",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      defaultModelBusy = false;
     }
   }
 
@@ -273,6 +300,8 @@
       planReviewCyclesMax = s.planReviewCyclesMax;
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
+      defaultModel = s.defaultModel;
+      defaultModelSaved = s.defaultModel;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -531,6 +560,26 @@
             onchange={savePlanReviewCycles}
           />
         </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_default_model_title()}</span>
+        <p class="hint">{m.settings_default_model_hint()}</p>
+        <select
+          class="model-select"
+          bind:value={defaultModel}
+          disabled={defaultModelBusy}
+          aria-label={m.settings_default_model_title()}
+          onchange={saveDefaultModel}
+        >
+          <option value="auto">{m.settings_default_model_auto()}</option>
+          <option value="default">{m.newtask_model_default()}</option>
+          {#each MODELS as mdl (mdl)}
+            <option value={mdl}>{mdl}</option>
+          {/each}
+        </select>
+        {#if isPremiumModel}
+          <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
+        {/if}
       </div>
       <SteersEditor />
     </div>
@@ -1010,6 +1059,32 @@
   }
   .cycles .num:disabled {
     opacity: 0.5;
+  }
+  .model-select {
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-base);
+    padding: 8px 10px;
+    border-radius: 2px;
+    appearance: none;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .model-select:focus {
+    outline: none;
+    border-color: var(--color-amber);
+  }
+  .model-select:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .premium-warn {
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+    margin: 0;
+    font-weight: 500;
   }
   .toggle {
     display: flex;

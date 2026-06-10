@@ -194,7 +194,8 @@ export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: 
 export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesCap: number }> =>
   patchSettings({ planReviewCyclesCap: cap });
 
-// Persist the operator's configured default model for the New Task picker.
+// Persist the operator's configured default model (drives the New Task picker
+// preselect and autonomous drain/autopilot auto-spawns).
 export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
   patchSettings<{ defaultModel: string }>({ defaultModel: model });
 

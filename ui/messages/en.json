@@ -865,5 +865,12 @@
   "unitrow_repo_filter_aria": "Show only {repo} sessions",
   "unitrow_repo_filter_clear_aria": "Clear the {repo} filter, show all sessions",
   "feat_slim_header_title": "Slimmer session toolbar",
-  "feat_slim_header_body": "The bar above the terminal is more compact: the dev-server start button is now icon-only, autopilot and status show as tight pills and a status glyph. GitHub Issues have moved out of a per-session Issues tab and now live in the Backlog pane instead."
+  "feat_slim_header_body": "The bar above the terminal is more compact: the dev-server start button is now icon-only, autopilot and status show as tight pills and a status glyph. GitHub Issues have moved out of a per-session Issues tab and now live in the Backlog pane instead.",
+  "settings_default_model_title": "Default model",
+  "settings_default_model_hint": "Sets the model for every new task and for autonomous drain/autopilot spawns. Auto keeps autonomous spawns on Claude's own default; the launch-window default is the Fable promo if active, otherwise Claude's own default. Choosing an explicit model makes all unattended spawns run that tier.",
+  "settings_default_model_auto": "Auto (launch-window default)",
+  "settings_default_model_premium_warning": "This model tier is premium. All autonomous drain and autopilot spawns will run at this cost unattended.",
+  "settings_default_model_save_failed": "Couldn't change default model. Retry.",
+  "feat_default_model_title": "Operator-configurable default model",
+  "feat_default_model_body": "Set a global default model for every new task and all autonomous drain/autopilot spawns from Settings → Session. \"Auto\" keeps the launch-window default; \"default\" locks in Claude's own model; or pick a specific alias to always run that tier."
 }

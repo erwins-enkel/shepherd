@@ -140,7 +140,8 @@
     /** One-shot gate for the mount auto-focus: the page records whether the selection
      *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
      *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
-     *  it to true, return it. Default keeps standalone usages auto-focusing as before. */
+     *  it to true, return it. The always-true default merely keeps the prop optional
+     *  (tests / future callers). */
     consumeAutoFocusTerm?: () => boolean;
   } = $props();
 
@@ -1309,12 +1310,15 @@
       // typing goes nowhere. Mobile keeps tap-to-focus so the soft keyboard
       // doesn't pop open on every selection. consumeAutoFocusTerm gates this:
       // a plain j/k keynav switch declines the focus (so the next plain key
-      // still chains instead of vanishing into the PTY) and the consume resets
-      // the intent to true, so resumeEpoch-driven rebuilds (resume / re-attach)
-      // auto-focus exactly as before. Read inside the rAF callback (like
-      // mobile/touch/tab) — async, so no new tracked dep on this terminal
-      // effect; the consumed flag itself is a plain non-reactive let upstairs.
-      if (!mobile && !touch && tab === "term" && consumeAutoFocusTerm()) term.focus();
+      // still chains instead of vanishing into the PTY). The consume runs
+      // unconditionally on every desktop rebuild — exact one-shot, even when a
+      // non-term tab is active, so a stale `false` can't survive into a later
+      // resumeEpoch-driven rebuild (resume / re-attach must auto-focus exactly
+      // as before); the tab gate only decides whether the consumed intent
+      // results in a focus. Read inside the rAF callback (like mobile/touch/
+      // tab) — async, so no new tracked dep on this terminal effect; the
+      // consumed flag itself is a plain non-reactive let upstairs.
+      if (!mobile && !touch && consumeAutoFocusTerm() && tab === "term") term.focus();
     });
 
     const ro = new ResizeObserver(() => {

@@ -449,12 +449,23 @@
   let showBacklog = $state(false);
 
   // Whether the *next* terminal remount should grab the keyboard. Deliberately a
-  // plain (non-reactive) let, NOT $state: it's never rendered, and Viewport
-  // consumes it inside its terminal-rebuild $effect — a tracked read there would
-  // re-create the terminal (and drop scrollback) whenever this flips. One-shot:
-  // Viewport's consume resets it to true, so resumeEpoch-driven rebuilds
-  // (resume / re-attach, no selection change) keep auto-focusing.
+  // plain (non-reactive) let, NOT $state: nothing renders it and the consumer
+  // (Viewport's mount rAF) reads it imperatively, so reactivity buys nothing —
+  // and keeping it out of $state guards against any future tracked read in
+  // Viewport's terminal-rebuild $effect re-creating the terminal (and dropping
+  // scrollback) whenever this flips. One-shot: Viewport's consume resets it to
+  // true, so resumeEpoch-driven rebuilds (resume / re-attach, no selection
+  // change) keep auto-focusing.
   let keynavFocusIntent = true;
+
+  // One-shot consume of keynavFocusIntent — read it, reset it to true, return
+  // it. Passed to both Viewport instances (focus + compact layouts) as their
+  // consumeAutoFocusTerm prop.
+  function consumeAutoFocusTerm(): boolean {
+    const v = keynavFocusIntent;
+    keynavFocusIntent = true;
+    return v;
+  }
 
   // bind:this on the desktop Viewport, so the Enter shortcut can hand the
   // keyboard back to the terminal that plain-key navigation kept it out of.
@@ -522,7 +533,7 @@
   // focusTerm follows the keystroke's origin: plain keys pass false so focus
   // stays out of the terminal and the next plain key still chains; Alt combos
   // pass true only when fired from inside the terminal (focus follows origin).
-  function handleHerdKeyNav(key: string, e: KeyboardEvent, focusTerm = true): boolean {
+  function handleHerdKeyNav(key: string, e: KeyboardEvent, focusTerm: boolean): boolean {
     switch (key) {
       case "j":
       case "arrowdown":
@@ -557,20 +568,10 @@
     }
   }
 
-  // Global shortcuts, two tiers. Plain single keys (n/b + keynav) are suppressed
-  // while typing — they must never eat a keystroke meant for an input or the
-  // terminal. Alt+J/K/G/arrows/1-9 are the work-everywhere session switchers:
-  // they deliberately SKIP the typing guard so they fire even while xterm holds
-  // focus (Viewport's attachCustomKeyEventHandler suppresses the same combos —
-  // via the shared altComboKey map — from reaching the PTY). Desktop only, and
-  // every tier is suppressed while a modal/overlay is open so a stray key can't
-  // stack dialogs or switch sessions under one.
-  function onShortcut(e: KeyboardEvent) {
-    if (mobile.current) return;
-    // no auto-repeat anywhere (plain or Alt) — held j must not machine-gun
-    // through sessions; and stand down during IME composition.
-    if (e.repeat || e.isComposing) return;
-    if (
+  // Every shortcut tier stands down while a modal/overlay is open, so a stray
+  // key can't stack dialogs or switch sessions under one.
+  function anyOverlayOpen(): boolean {
+    return (
       showNew ||
       showSettings ||
       showBacklog ||
@@ -579,21 +580,40 @@
       showUpdate ||
       showHerdrUpdate ||
       showWhatsNew
-    )
-      return;
-    if (e.altKey && !e.ctrlKey && !e.metaKey) {
-      // physical e.code, not e.key: macOS Option+J types "∆" (see altComboKey)
-      const mapped = altComboKey(e.code);
-      if (mapped !== null) {
-        // focus follows origin: Alt from inside the terminal keeps the operator
-        // in terminal flow (focus the new session's terminal); Alt from anywhere
-        // else leaves focus out so plain-key navigation still chains after.
-        const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
-        handleHerdKeyNav(mapped, e, fromTerminal);
-        return;
-      }
-      // not a combo key → fall through to the modifier bail below, untouched
-    }
+    );
+  }
+
+  // The Alt tier of onShortcut: Alt+J/K/G/arrows/1-9 are the work-everywhere
+  // session switchers — they deliberately SKIP the typing guard so they fire
+  // even while xterm holds focus (Viewport's attachCustomKeyEventHandler
+  // suppresses the same combos — via the shared altComboKey map — from reaching
+  // the PTY). Returns true when the key was consumed; false (Alt held but not a
+  // combo key, or other modifier mixes) falls through to onShortcut's modifier
+  // bail, untouched.
+  function handleAltCombo(e: KeyboardEvent): boolean {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return false;
+    // physical e.code, not e.key: macOS Option+J types "∆" (see altComboKey)
+    const mapped = altComboKey(e.code);
+    if (mapped === null) return false;
+    // focus follows origin: Alt from inside the terminal keeps the operator
+    // in terminal flow (focus the new session's terminal); Alt from anywhere
+    // else leaves focus out so plain-key navigation still chains after.
+    const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
+    handleHerdKeyNav(mapped, e, fromTerminal);
+    return true;
+  }
+
+  // Global shortcuts, two tiers: the Alt combos (handleAltCombo) and plain
+  // single keys (n/b + keynav), which are suppressed while typing — they must
+  // never eat a keystroke meant for an input or the terminal. Desktop only,
+  // and suppressed under any open modal/overlay (anyOverlayOpen).
+  function onShortcut(e: KeyboardEvent) {
+    if (mobile.current) return;
+    // no auto-repeat anywhere (plain or Alt) — held j must not machine-gun
+    // through sessions; and stand down during IME composition.
+    if (e.repeat || e.isComposing) return;
+    if (anyOverlayOpen()) return;
+    if (handleAltCombo(e)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTyping(e.target)) return;
     const key = e.key.toLowerCase();
@@ -1050,11 +1070,7 @@
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
-            consumeAutoFocusTerm={() => {
-              const v = keynavFocusIntent;
-              keynavFocusIntent = true;
-              return v;
-            }}
+            {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
             onback={() => (mobileScreen = "list")}
@@ -1135,11 +1151,7 @@
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
-            consumeAutoFocusTerm={() => {
-              const v = keynavFocusIntent;
-              keynavFocusIntent = true;
-              return v;
-            }}
+            {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
             onbroadcast={() => (showBroadcast = true)}

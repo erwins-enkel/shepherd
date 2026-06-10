@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveStage, STAGE_ORDER } from "./stage";
+import { deriveStage, STAGE_ORDER, PR_INDEX, REVIEW_INDEX } from "./stage";
 import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
 
 function git(over: Partial<GitState>): GitState {
@@ -26,46 +26,86 @@ const verdict: ReviewVerdict = {
   updatedAt: 0,
 };
 
-describe("deriveStage", () => {
-  it("coding: no git", () => {
+describe("STAGE_ORDER + exported indices", () => {
+  it("order is planning→implementing→pr→review→ready", () => {
+    expect(STAGE_ORDER).toEqual(["planning", "implementing", "pr", "review", "ready"]);
+  });
+
+  it("PR_INDEX matches indexOf pr", () => {
+    expect(PR_INDEX).toBe(STAGE_ORDER.indexOf("pr"));
+    expect(PR_INDEX).toBe(2);
+  });
+
+  it("REVIEW_INDEX matches indexOf review", () => {
+    expect(REVIEW_INDEX).toBe(STAGE_ORDER.indexOf("review"));
+    expect(REVIEW_INDEX).toBe(3);
+  });
+});
+
+describe("deriveStage — planning / implementing stages", () => {
+  it("planning: planPhase='planning' → index 0", () => {
+    const s = deriveStage({ planPhase: "planning", reviewing: false, readyToMerge: false });
+    expect(s.index).toBe(0);
+    expect(s.reached).toBe("planning");
+    expect(s.planningSkipped).toBe(false);
+  });
+
+  it("implementing: planPhase='executing' → index 1", () => {
+    const s = deriveStage({ planPhase: "executing", reviewing: false, readyToMerge: false });
+    expect(s.index).toBe(1);
+    expect(s.reached).toBe("implementing");
+    expect(s.planningSkipped).toBe(false);
+  });
+
+  it("implementing: planPhase=null (gate off) → index 1, planningSkipped=true", () => {
+    const s = deriveStage({ planPhase: null, reviewing: false, readyToMerge: false });
+    expect(s.index).toBe(1);
+    expect(s.reached).toBe("implementing");
+    expect(s.planningSkipped).toBe(true);
+  });
+
+  it("implementing: no planPhase key at all → index 1, planningSkipped=true", () => {
+    // planPhase absent is equivalent to null (gate off)
     const s = deriveStage({ reviewing: false, readyToMerge: false });
-    expect(s.reached).toBe("coding");
-    expect(s.index).toBe(0);
-    expect(s.ci).toBe("none");
-    expect(s.terminal).toBeNull();
+    expect(s.index).toBe(1);
+    expect(s.reached).toBe("implementing");
+    expect(s.planningSkipped).toBe(true);
   });
+});
 
-  it("coding: git state none", () => {
-    const s = deriveStage({ git: git({ state: "none" }), reviewing: false, readyToMerge: false });
-    expect(s.index).toBe(0);
-    expect(s.reached).toBe("coding");
-  });
-
-  it("pr: open + checks none", () => {
+describe("deriveStage — pr stage", () => {
+  it("pr: open + checks none → index 2, ci='none'", () => {
     const s = deriveStage({
       git: git({ state: "open", checks: "none" }),
       reviewing: false,
       readyToMerge: false,
     });
-    expect(s.index).toBe(1);
+    expect(s.index).toBe(2);
     expect(s.reached).toBe("pr");
     expect(s.ci).toBe("none");
   });
 
   for (const checks of ["pending", "success", "failure"] as ChecksState[]) {
-    it(`ci: open + checks ${checks} → index 2, ci passthrough`, () => {
+    it(`pr: open + checks ${checks} → still index 2 (CI folds into pr), ci passthrough`, () => {
       const s = deriveStage({
         git: git({ state: "open", checks }),
         reviewing: false,
         readyToMerge: false,
       });
       expect(s.index).toBe(2);
-      expect(s.reached).toBe("ci");
+      expect(s.reached).toBe("pr");
       expect(s.ci).toBe(checks);
     });
   }
 
-  it("review: reviewing=true bumps to 3", () => {
+  it("no-PR session: ci='none'", () => {
+    const s = deriveStage({ reviewing: false, readyToMerge: false });
+    expect(s.ci).toBe("none");
+  });
+});
+
+describe("deriveStage — review stage", () => {
+  it("reviewing=true bumps to index 3", () => {
     const s = deriveStage({
       git: git({ state: "open", checks: "success" }),
       reviewing: true,
@@ -75,7 +115,7 @@ describe("deriveStage", () => {
     expect(s.reached).toBe("review");
   });
 
-  it("review: verdict present bumps to 3", () => {
+  it("verdict present bumps to index 3", () => {
     const s = deriveStage({
       git: git({ state: "open", checks: "none" }),
       verdict,
@@ -85,7 +125,7 @@ describe("deriveStage", () => {
     expect(s.index).toBe(3);
   });
 
-  it("review: git.latestReview present bumps to 3", () => {
+  it("git.latestReview present bumps to index 3", () => {
     const s = deriveStage({
       git: git({
         state: "open",
@@ -98,13 +138,271 @@ describe("deriveStage", () => {
     expect(s.index).toBe(3);
   });
 
-  it("review does not pull a no-PR session below coding", () => {
+  it("review does not pull a no-PR session below implementing", () => {
     // no git, but reviewing → review still wins via max()
     const s = deriveStage({ reviewing: true, readyToMerge: false });
     expect(s.index).toBe(3);
   });
+});
 
-  it("ready: readyToMerge true", () => {
+describe("deriveStage — review tint", () => {
+  it("review.review='none' by default (no PR)", () => {
+    const s = deriveStage({ reviewing: false, readyToMerge: false });
+    expect(s.review).toBe("none");
+  });
+
+  it("reviewing=true → 'reviewing'", () => {
+    const s = deriveStage({
+      git: git({ state: "open" }),
+      reviewing: true,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("reviewing");
+  });
+
+  it("reviewing=true beats stale changes_requested verdict", () => {
+    const staleChanges: ReviewVerdict = {
+      ...verdict,
+      headSha: "old",
+      decision: "changes_requested",
+    };
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "new" }),
+      verdict: staleChanges,
+      reviewing: true,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("reviewing");
+  });
+
+  it("verdict changes_requested → 'changes'", () => {
+    const changesVerdict: ReviewVerdict = { ...verdict, decision: "changes_requested" };
+    const s = deriveStage({
+      git: git({ state: "open" }),
+      verdict: changesVerdict,
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("changes");
+  });
+
+  it("git.latestReview changes_requested → 'changes'", () => {
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        latestReview: { state: "changes_requested", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("changes");
+  });
+
+  it("git.latestReview approved → 'approved'", () => {
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("approved");
+  });
+
+  it("verdict commented on matching headSha → 'approved'", () => {
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "abc" }),
+      verdict: { ...verdict, decision: "commented", headSha: "abc" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("approved");
+  });
+
+  it("verdict commented on mismatched headSha → 'none'", () => {
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "xyz" }),
+      verdict: { ...verdict, decision: "commented", headSha: "abc" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("none");
+  });
+
+  it("verdict commented, git.headSha undefined → 'none' (headSha guard)", () => {
+    // Both headShas undefined: pins the git?.headSha != null guard — without it,
+    // undefined===undefined would pass and return "approved" instead of "none".
+    // ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
+    // (Parallel safe-fail test in derived-ready suite cross-references this comment.)
+    const s = deriveStage({
+      git: git({ state: "open" }), // headSha not set
+      verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("none");
+  });
+
+  it("verdict error → 'error'", () => {
+    const errVerdict: ReviewVerdict = { ...verdict, decision: "error" };
+    const s = deriveStage({
+      git: git({ state: "open" }),
+      verdict: errVerdict,
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("error");
+  });
+
+  it("git.latestReview commented alone → 'none'", () => {
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        latestReview: { state: "commented", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("none");
+  });
+});
+
+describe("deriveStage — derived-ready predicate", () => {
+  const readyBase = {
+    state: "open" as const,
+    checks: "success" as const,
+    mergeable: true as const,
+    isDraft: false,
+    headSha: "sha1",
+  };
+
+  it("lights ready: open+success+mergeable+!draft+approved", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(4);
+    expect(s.reached).toBe("ready");
+  });
+
+  it("lights ready: open+success+mergeable+!draft+critic commented matching headSha", () => {
+    const s = deriveStage({
+      git: git({ ...readyBase }),
+      verdict: { ...verdict, decision: "commented", headSha: "sha1" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(4);
+    expect(s.reached).toBe("ready");
+  });
+
+  it("NOT ready: mergeable=false", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeable: false,
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: mergeable=null (unknown)", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeable: null,
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: mergeable=undefined", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeable: undefined,
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: isDraft=true", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        isDraft: true,
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: checks=pending", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        checks: "pending",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: checks=failure", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        checks: "failure",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: headSha mismatch on critic verdict", () => {
+    const s = deriveStage({
+      git: git({ ...readyBase, headSha: "sha1" }),
+      verdict: { ...verdict, decision: "commented", headSha: "old" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready (pinned safe-fail): git.headSha undefined + verdict.headSha undefined — undefined===undefined must not pass", () => {
+    // Cross-reference: see the headSha guard explanation in the review-tint suite above.
+    const s = deriveStage({
+      git: git({ ...readyBase, headSha: undefined }),
+      verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+});
+
+describe("deriveStage — ready: manual paths", () => {
+  it("readyToMerge=true → index 4", () => {
     const s = deriveStage({
       git: git({ state: "open", checks: "success" }),
       reviewing: false,
@@ -115,7 +413,7 @@ describe("deriveStage", () => {
     expect(s.terminal).toBeNull();
   });
 
-  it("ready: merged", () => {
+  it("merged → index 4 + terminal='merged'", () => {
     const s = deriveStage({
       git: git({ state: "merged", checks: "success" }),
       reviewing: false,
@@ -125,8 +423,10 @@ describe("deriveStage", () => {
     expect(s.reached).toBe("ready");
     expect(s.terminal).toBe("merged");
   });
+});
 
-  it("terminal: closed", () => {
+describe("deriveStage — terminal", () => {
+  it("closed → terminal='closed'", () => {
     const s = deriveStage({
       git: git({ state: "closed", checks: "failure" }),
       reviewing: false,
@@ -134,17 +434,57 @@ describe("deriveStage", () => {
     });
     expect(s.terminal).toBe("closed");
     expect(s.ci).toBe("failure");
-    // closed never enters the `open` branch → stage stays at the start.
-    expect(s.index).toBe(0);
-    expect(s.reached).toBe("coding");
+    // closed never enters the open branch → implementing
+    expect(s.index).toBe(1);
+    expect(s.reached).toBe("implementing");
   });
 
-  it("STAGE_ORDER index matches reached", () => {
+  it("no git → terminal=null", () => {
+    const s = deriveStage({ reviewing: false, readyToMerge: false });
+    expect(s.terminal).toBeNull();
+  });
+});
+
+describe("deriveStage — STAGE_ORDER invariant", () => {
+  it("index matches reached in STAGE_ORDER", () => {
     const s = deriveStage({
       git: git({ state: "open", checks: "pending" }),
       reviewing: false,
       readyToMerge: false,
     });
     expect(STAGE_ORDER[s.index]).toBe(s.reached);
+  });
+});
+
+describe("deriveStage — furthest-wins interactions", () => {
+  it("planPhase='planning' + git.state='open' → index===PR_INDEX (Math.max furthest-wins)", () => {
+    // Planning is index 0, pr is index 2 — open PR must win via Math.max.
+    const s = deriveStage({
+      planPhase: "planning",
+      git: git({ state: "open", checks: "none" }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(PR_INDEX);
+    expect(s.reached).toBe("pr");
+  });
+
+  it("derived-ready conditions met + reviewing=true → index 4 AND review tint 'reviewing'", () => {
+    // Running review wins the tint but doesn't un-light the ready segment.
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        isDraft: false,
+        headSha: "sha1",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: true,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(4);
+    expect(s.reached).toBe("ready");
+    expect(s.review).toBe("reviewing");
   });
 });

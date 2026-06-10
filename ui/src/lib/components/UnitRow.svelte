@@ -348,7 +348,12 @@
       >
       {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">
-          <Stepper sessionId={session.id} {git} readyToMerge={session.readyToMerge} />
+          <Stepper
+            sessionId={session.id}
+            {git}
+            readyToMerge={session.readyToMerge}
+            planPhase={session.planPhase}
+          />
         </span>
       {/if}
     </span>

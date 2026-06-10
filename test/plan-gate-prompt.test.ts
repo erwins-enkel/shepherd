@@ -14,7 +14,7 @@ test("prompt without prior findings omits the re-review block", () => {
   expect(p).not.toContain("RE-REVIEW");
 });
 test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAllHooks, slash disabled", () => {
-  const a = reviewerArgv(null, "PROMPT");
+  const { argv: a } = reviewerArgv(null, "PROMPT");
   expect(a).not.toContain("--bare");
   expect(a).toContain("--disable-slash-commands");
   expect(a.join(" ")).toContain('{"disableAllHooks":true}');
@@ -29,7 +29,7 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   expect(a.indexOf("--safe-mode")).toBeLessThan(a.indexOf("--allowedTools"));
 });
 test("reviewerArgv inserts --model when given", () => {
-  const a = reviewerArgv("opus", "PROMPT");
+  const { argv: a } = reviewerArgv("opus", "PROMPT");
   const mi = a.indexOf("--model");
   expect(mi).toBeGreaterThan(-1);
   expect(a[mi + 1]).toBe("opus");

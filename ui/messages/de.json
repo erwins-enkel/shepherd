@@ -865,5 +865,12 @@
   "unitrow_repo_filter_aria": "Nur Sessions von {repo} anzeigen",
   "unitrow_repo_filter_clear_aria": "{repo}-Filter aufheben, alle Sessions anzeigen",
   "feat_slim_header_title": "Schlankere Session-Leiste",
-  "feat_slim_header_body": "Die Leiste über dem Terminal ist kompakter geworden: Der Dev-Server-Startknopf zeigt jetzt nur noch ein Icon, Autopilot und Status erscheinen als kompakte Pills bzw. Statussymbol. Der Issues-Tab der Session ist weg — GitHub-Issues finden sich im Backlog-Pane."
+  "feat_slim_header_body": "Die Leiste über dem Terminal ist kompakter geworden: Der Dev-Server-Startknopf zeigt jetzt nur noch ein Icon, Autopilot und Status erscheinen als kompakte Pills bzw. Statussymbol. Der Issues-Tab der Session ist weg — GitHub-Issues finden sich im Backlog-Pane.",
+  "settings_default_model_title": "Standardmodell",
+  "settings_default_model_hint": "Legt das Modell für jede neue Aufgabe und für autonome Drain-/Autopilot-Starts fest. Die Option Auto belässt autonome Starts auf Claudes eigenem Standard; der Standard im Einführungszeitraum ist die Fable-Promo, sofern aktiv, sonst Claudes eigener Standard. Ein explizites Modell lässt alle unbeaufsichtigten Starts auf dieser Stufe laufen.",
+  "settings_default_model_auto": "Auto (Standard im Einführungszeitraum)",
+  "settings_default_model_premium_warning": "Diese Modellstufe ist premium. Alle autonomen Drain- und Autopilot-Starts laufen unbeaufsichtigt auf diesem Kostenniveau.",
+  "settings_default_model_save_failed": "Standardmodell konnte nicht geändert werden. Erneut versuchen.",
+  "feat_default_model_title": "Konfigurierbares Standardmodell",
+  "feat_default_model_body": "Lege in Einstellungen → Session ein globales Standardmodell für jede neue Aufgabe und alle autonomen Drain-/Autopilot-Starts fest. Auto behält den Standard im Einführungszeitraum; Standard setzt Claudes eigenes Modell; oder wähle einen spezifischen Alias, um stets auf dieser Stufe zu starten."
 }

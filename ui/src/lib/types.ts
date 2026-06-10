@@ -34,6 +34,9 @@ export interface Settings {
   standardCommand: string;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
+  /** Raw configured default-model setting (auto|default|<alias>); the New Task
+   *  picker resolves `auto` via the client promo. */
+  defaultModel: string;
   /** Max PR-critic auto-address rounds before escalating to a human (global). */
   prReviewCyclesCap: number;
   /** Display-only: lower bound for prReviewCyclesCap (drives the stepper's min). */
@@ -536,6 +539,11 @@ export interface CreateInput {
 
 /** Selectable claude model aliases; null = claude's own default. */
 export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+
+/** The premium-priced tiers among MODELS. Selecting one as the default makes every
+ *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.
+ *  Kept next to MODELS so adding a new premium model classifies it in one place. */
+export const PREMIUM_MODELS: readonly string[] = ["fable", "opus"];
 
 export interface Steer {
   id: string;

@@ -12,6 +12,8 @@ import {
   type DrainDecision,
   type DrainRepoState,
 } from "./drain-core";
+import { config } from "./config";
+import { drainSpawnModel } from "./default-model";
 
 /** Live per-repo drain status pushed to the client (and used for bootstrap). */
 export interface DrainStatus {
@@ -314,11 +316,14 @@ export class DrainService {
     }
     try {
       const base = await forge.defaultBranch();
+      // Auto-spawns honor an explicit operator default-model; when unset ("auto")
+      // they fall back to no --model flag (Claude's own default). The Fable promo
+      // is a client-only UI concern and is NEVER applied to autonomous spawns.
       await this.deps.service.create({
         repoPath,
         baseBranch: base,
         prompt: title,
-        model: null,
+        model: drainSpawnModel(config.defaultModel),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },

@@ -547,8 +547,9 @@
     color: var(--color-amber);
   }
 
-  /* collapse trigger — far-right of .phead, touch-comfortable target, visually
-     quiet chrome (no accent hue); mirrors .fbtn style but sized for touch */
+  /* collapse trigger — far-right of .phead, visually quiet chrome (no accent
+     hue); mirrors .fbtn style but sized to the ~44px touch guideline, matching
+     the reopen tab (both are activated on the same touch devices) */
   .collapse-btn {
     border: 0;
     background: none;
@@ -556,8 +557,8 @@
     font-size: var(--fs-lg);
     cursor: pointer;
     padding: 4px 8px;
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 44px;
+    min-height: 44px;
     color: var(--color-faint);
     transition: color 0.12s ease;
     display: flex;

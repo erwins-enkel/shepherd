@@ -17,6 +17,7 @@ export interface ParsedRecord {
   ts: number; // ms epoch
   model: string;
   requestId: string | null;
+  isSidechain: boolean;
   input: number;
   output: number;
   cacheRead: number;
@@ -42,6 +43,7 @@ export function parseLine(line: string): ParsedRecord | null {
     ts: Date.parse(o.timestamp) || 0,
     model: o?.message?.model ?? "unknown",
     requestId: o.requestId ?? null,
+    isSidechain: o.isSidechain === true,
     input: u.input_tokens ?? 0,
     output: u.output_tokens ?? 0,
     cacheRead: u.cache_read_input_tokens ?? 0,
@@ -60,6 +62,10 @@ export interface SessionUsage {
   messageCount: number;
   lastActivity: number | null;
   byModel: Record<string, number>;
+  /** Count of main-thread warm→cold prefix rebuilds: cacheRead dropped to 0 with a non-zero cache write, after a warm (cacheRead>0) main-thread record. Sidechain records are excluded. */
+  fullRecaches: number;
+  /** Count of accepted records whose isSidechain is true. */
+  sidechainCount: number;
 }
 
 function emptyUsage(): SessionUsage {
@@ -72,13 +78,36 @@ function emptyUsage(): SessionUsage {
     messageCount: 0,
     lastActivity: null,
     byModel: {},
+    fullRecaches: 0,
+    sidechainCount: 0,
   };
+}
+
+/** Mutable cursor for the main-thread warm→cold recache edge detector. */
+interface RecacheCursor {
+  prevMainCacheRead: number;
+}
+
+/**
+ * Update fullRecaches/sidechainCount for one ACCEPTED (post-dedupe) record.
+ * Main-thread warm→cold drop (cacheRead 0 with a write, after a warm record) increments
+ * fullRecaches; sidechain records only bump sidechainCount and never touch the cursor.
+ */
+function tallyRecache(out: SessionUsage, r: ParsedRecord, cursor: RecacheCursor): void {
+  if (r.isSidechain) {
+    out.sidechainCount += 1;
+    return;
+  }
+  const cacheWrite = r.cacheWrite5m + r.cacheWrite1h;
+  if (cursor.prevMainCacheRead > 0 && r.cacheRead === 0 && cacheWrite > 0) out.fullRecaches += 1;
+  cursor.prevMainCacheRead = r.cacheRead;
 }
 
 /** Accumulate per-session token totals from JSONL lines, deduping by requestId. */
 export function accumulate(lines: Iterable<string>): SessionUsage {
   const out = emptyUsage();
   const seen = new Set<string>();
+  const cursor: RecacheCursor = { prevMainCacheRead: -1 };
   for (const line of lines) {
     const r = parseLine(line);
     if (!r) continue;
@@ -94,6 +123,7 @@ export function accumulate(lines: Iterable<string>): SessionUsage {
     if (r.ts) out.lastActivity = Math.max(out.lastActivity ?? 0, r.ts);
     const tokens = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
     out.byModel[r.model] = (out.byModel[r.model] ?? 0) + tokens;
+    tallyRecache(out, r, cursor);
   }
   out.total = out.input + out.output + out.cacheRead + out.cacheWrite;
   return out;

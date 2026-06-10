@@ -51,6 +51,15 @@ function weightsFor(model: string): ModelWeights {
   return DEFAULT;
 }
 
+/** Cache-write portion of the weighted units (5m + 1h buckets, same scale as weightedUnits). */
+export function cacheWriteUnits(
+  c: { cacheWrite5m: number; cacheWrite1h: number },
+  model: string,
+): number {
+  const w = weightsFor(model);
+  return (c.cacheWrite5m * w.cacheWrite5m + c.cacheWrite1h * w.cacheWrite1h) / 1_000_000;
+}
+
 /** Weighted "limit units" for one usage record, in arbitrary (per-Mtok) units. */
 export function weightedUnits(
   c: {

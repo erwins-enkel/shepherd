@@ -1188,6 +1188,30 @@ test("under the ceiling still spawns normally", async () => {
   expect(started).toHaveLength(1); // budget remains → critic spawns
 });
 
+test("ceiling is strict for findings reviews but NOT total spawns: an error verdict (findings=[]) re-reviews", async () => {
+  // Documents the approximate-total bound (#501 critic note): the gate keys off
+  // findings.length > 0, so an error/timeout verdict (which preserves streakReviews but
+  // carries findings=[]) does NOT trip the ceiling — error churn is governed by errorRound,
+  // not this gate, so a flapping critic can re-spawn past 2*cap. (In the live loop an error
+  // verdict can't actually carry streakReviews >= ceiling, since reaching the ceiling needs a
+  // findings verdict that then blocks the next spawn; this fixture pins the gate's literal
+  // semantics so a refactor dropping the findings>0 leg fails here and forces a conscious call.)
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview({
+    decision: "error",
+    findings: [], // error verdicts carry no findings
+    streakReviews: 6, // at the default ceiling, yet not a findings streak
+    headSha: "old",
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(1); // not blocked by the findings-review ceiling
+});
+
 test("clean verdict resets streakReviews and reviewedPatchIds (un-suppresses)", async () => {
   const { deps: d, reviews } = makeDeps(
     {

@@ -228,11 +228,24 @@ export class ReviewService {
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return; // in flight / mid-spawn
     const prior = this.deps.store.getReview(session.id);
     if (prior?.headSha === git.headSha) return; // head already reviewed
-    // Hard per-streak spawn ceiling: review token spend is unbounded otherwise (consider()
-    // would spawn a critic on every new CI-green head forever). Cap finalized reviews per
+    // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
+    // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
     // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
     // spawnCap field would be dead weight nothing reads). Bail BEFORE allocating the probe
     // worktree so even that is saved.
+    //
+    // STRICT for findings reviews, APPROXIMATE for total spawns. streakReviews increments
+    // only on a findings verdict and an error/timeout verdict preserves it while carrying
+    // findings=[] (it earns no progress) — so an error verdict can never itself reach the
+    // ceiling (reaching it needs a findings verdict, which then blocks the next spawn), and
+    // it never trips this gate's findings>0 leg. Net: findings-bearing reviews are hard-capped
+    // at 2*cap, but a critic flapping on *timeouts* keeps re-spawning on each new head. That
+    // error churn is deliberately governed by the separate errorRound escalation in finalize()
+    // (a stall signal at the cap), NOT this ceiling: a transient timeout must neither be
+    // charged against the findings budget nor permanently halt review. So total critic spawns
+    // can exceed 2*cap while errors interleave — bounded by errorRound + the human it escalates
+    // to, not by this gate.
+    //
     // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused. The only
     // resume paths are a clean verdict that lands while still under budget (won't happen
     // once paused — we don't re-spawn) or a human archiving the session (forget() →

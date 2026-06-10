@@ -88,6 +88,8 @@ test("hasActiveSpinner rejects spinner-shaped text on non-glyph-anchored lines",
   // the legacy hint outside a glyph-anchored spinner line no longer counts
   expect(hasActiveSpinner("press esc to interrupt")).toBe(false);
   expect(hasActiveSpinner("some output\nPress esc to interrupt\n❯")).toBe(false);
+  // `+` is a markdown/diff line leader, not a spinner frame (dropped from the glyph class)
+  expect(hasActiveSpinner("+ added a retry step… (2m 30s)")).toBe(false);
 });
 
 test("hasActiveSpinner ignores a spinner outside the 15-line tail window", () => {

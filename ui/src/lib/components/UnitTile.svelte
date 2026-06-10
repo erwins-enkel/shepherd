@@ -187,9 +187,14 @@
   // rect, arming the 450ms hover-intent once on enter (not on every move) so
   // sweeping the cursor across the grid doesn't cascade popovers. Keyboard focus
   // on the card still reveals it immediately; the popover anchors to the clock.
+  // The clock rect is measured once on card-enter and cached so the per-move
+  // bounds test never reads layout; bounded staleness is fine (the clock barely
+  // shifts during a hover, the popover anchors off a fresh read in tipShow, and
+  // it closes on scroll/resize).
   let tipRect = $state<DOMRect | null>(null);
   let tipTimer: ReturnType<typeof setTimeout> | undefined;
-  let overClock = false; // pointer currently within the wall-clock element's bounds
+  let overClock = false; // pointer currently within the cached clock bounds
+  let clockRect: DOMRect | null = null; // wall-clock bounds, cached on card-enter
   function tipShow(delay = 450) {
     clearTimeout(tipTimer);
     tipTimer = setTimeout(() => (tipRect = elapsedEl?.getBoundingClientRect() ?? null), delay);
@@ -199,8 +204,11 @@
     tipRect = null;
     overClock = false;
   }
+  function onHitEnter() {
+    clockRect = elapsedEl?.getBoundingClientRect() ?? null;
+  }
   function onHitMove(e: MouseEvent) {
-    const r = elapsedEl?.getBoundingClientRect();
+    const r = clockRect;
     const inside =
       !!r &&
       e.clientX >= r.left &&
@@ -234,6 +242,7 @@
       tipHide();
       onContextMenu(e);
     }}
+    onmouseenter={onHitEnter}
     onmousemove={onHitMove}
     onmouseleave={tipHide}
     onfocus={() => {

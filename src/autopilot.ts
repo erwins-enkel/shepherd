@@ -44,7 +44,8 @@ export interface AutopilotDeps {
   classify: (tail: string[], taskPrompt: string, label: string) => Promise<AutopilotVerdict>;
   /** Steer text into the session's live PTY (SessionService.reply). false = didn't land. */
   steer: (id: string, text: string) => boolean;
-  /** Resume an exited session so it can be steered (SessionService.resume). truthy = ok. */
+  /** Resume an exited session so it can be steered (SessionService.resume, async — the
+   *  awaited result decides). truthy resolved value = ok. */
   resume: (id: string) => unknown;
   /** Whether the session's herdr pane is currently live. */
   paneAlive: (id: string) => boolean;
@@ -142,23 +143,23 @@ export class AutopilotService {
 
   /** Steer `text` into the session, resuming an exited pane first. Bumps the step on a
    *  landed steer. Returns nothing — best-effort; a dead/unreachable pane just doesn't count. */
-  private driveSteer(s: Session, text: string): void {
+  private async driveSteer(s: Session, text: string): Promise<void> {
     if (!this.deps.paneAlive(s.id)) {
-      // Exited pane: resume so there's something to steer. resume() returns falsy when it
+      // Exited pane: resume so there's something to steer. resume() resolves falsy when it
       // can't (archived / no pinned session id) — then there's nothing to do.
-      if (!this.deps.resume(s.id)) return;
+      if (!(await this.deps.resume(s.id))) return;
     }
     if (this.deps.steer(s.id, text)) this.bump(s);
   }
 
-  private dispatch(s: Session, v: AutopilotVerdict): void {
+  private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
     switch (v.kind) {
       case "gate":
-        this.driveSteer(s, PROCEED_STEER);
+        await this.driveSteer(s, PROCEED_STEER);
         return;
       case "finished":
         if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
-        this.driveSteer(s, openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode));
+        await this.driveSteer(s, openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode));
         return;
       case "complete":
         this.markComplete(s, v.summary || COMPLETE_MESSAGE);
@@ -187,7 +188,7 @@ export class AutopilotService {
     // during the classify await.
     const cur = this.eligible(id);
     if (!cur) return;
-    this.dispatch(cur, v);
+    await this.dispatch(cur, v);
   }
 
   /** session:block handler. Only steerable shapes are eligible; menu/stall surface as-is. */
@@ -292,6 +293,11 @@ export class AutopilotService {
       return;
     }
     this.ciNudged.set(s.id, git.headSha);
-    this.driveSteer(s, CI_FIX_STEER);
+    // Fire-and-forget (the caller chain onGit→considerCi is sync). driveSteer's best-effort
+    // only covers falsy returns, not throws — resume() can reject (herdr down on the
+    // dead-pane path) and onGit's chain has no catch, so net rejections here.
+    void this.driveSteer(s, CI_FIX_STEER).catch((err) =>
+      console.warn("[autopilot] ci-fix steer:", err),
+    );
   }
 }

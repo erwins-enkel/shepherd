@@ -48,6 +48,7 @@ export interface AutoMergeDeps {
   service: {
     archive(id: string): number;
     reply(id: string, text: string): boolean;
+    /** SessionService.resume (async — the awaited result decides; truthy = resumed). */
     resume(id: string): unknown;
     /** Clear the session's merge-train mark + credit the train tracker. Called directly
      *  here because an autonomous merge emits no session:git event for the normal
@@ -224,7 +225,7 @@ export class AutoMergeService {
     if (decision.kind === "rebase") {
       if (attempted.has(decision.sessionId)) return "break";
       attempted.add(decision.sessionId);
-      this.doRebase(repoPath, decision.sessionId, decision.headSha);
+      await this.doRebase(repoPath, decision.sessionId, decision.headSha);
       return "break";
     }
     const reason = decision.reason.code === "idle" ? null : decision.reason.code;
@@ -319,12 +320,16 @@ export class AutoMergeService {
   }
 
   /** Steer the (idle) agent to rebase onto its base; bump the attempt counter + record the head. */
-  private doRebase(repoPath: string, sessionId: string, headSha: string | null): void {
+  private async doRebase(
+    repoPath: string,
+    sessionId: string,
+    headSha: string | null,
+  ): Promise<void> {
     const s = this.deps.store.get(sessionId);
     if (!s) return;
     this.deps.emitStatus(this.status(repoPath, true, "rebasing", s.desig, s.id));
     if (!this.deps.paneAlive(sessionId)) {
-      if (!this.deps.service.resume(sessionId)) return;
+      if (!(await this.deps.service.resume(sessionId))) return;
     }
     if (this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
       this.deps.store.setAutoMergeState(sessionId, {

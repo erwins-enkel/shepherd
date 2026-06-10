@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
@@ -46,6 +49,46 @@ export interface ServiceDeps {
    *  when a merge train archives before the 120s sweep surfaces its members' merges.
    *  Fire-and-forget, debounced, no-ops on archived sessions. Absent → no nudge. */
   refreshPr?: (id: string) => void;
+  /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
+   *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
+  pluginIds?: () => Promise<string[]>;
+}
+
+/**
+ * Keys of `enabledPlugins` in the operator's global ~/.claude/settings.json — the plugin
+ * ids a trimmed auto spawn disables per-spawn (see trimDecision). Enumerated at runtime,
+ * never hardcoded, so the trim is machine-agnostic. A successful read+parse yields the
+ * ids (`[]` when the key is absent/empty — nothing enabled means nothing to disable);
+ * `null` when the read or parse THROWS (missing file, bad JSON), so callers can tell a
+ * transient error from a legitimately empty config. Async fs only — this server is a
+ * single Bun loop pumping the live web terminal, so a sync read here would freeze typing
+ * (see src/instrument.ts). `read` is the test seam; production reads the real file.
+ */
+export async function readInstalledPluginIds(
+  read: (path: string) => Promise<string> = (p) => readFile(p, "utf8"),
+): Promise<string[] | null> {
+  try {
+    const raw = await read(join(homedir(), ".claude", "settings.json"));
+    const plugins = (JSON.parse(raw) as { enabledPlugins?: unknown }).enabledPlugins;
+    return plugins !== null && typeof plugins === "object" ? Object.keys(plugins) : [];
+  } catch {
+    return null;
+  }
+}
+
+let pluginIdsCache: Promise<string[]> | null = null;
+/** Memoized readInstalledPluginIds: plugins change ~never, so one read per process
+ *  lifetime — a server restart picks up changes. Only SUCCESSFUL reads are cached: on
+ *  `null` (transient read/parse error) the cache is cleared inside the chained promise,
+ *  so in-flight awaiters of this attempt all get `[]` (the spawn proceeds without
+ *  plugin-disable this once) while the next NEW caller retries instead of the error
+ *  poisoning the trim for the process lifetime. Exported for tests; `read` is the
+ *  same test seam as readInstalledPluginIds. */
+export function installedPluginIds(read?: (path: string) => Promise<string>): Promise<string[]> {
+  return (pluginIdsCache ??= readInstalledPluginIds(read).then((ids) => {
+    if (ids === null) pluginIdsCache = null;
+    return ids ?? [];
+  }));
 }
 
 /**
@@ -54,9 +97,49 @@ export interface ServiceDeps {
  * doesn't auto-start Claude Code's Remote Control for every Shepherd session
  * (default false suppresses the notification noise); `/remote-control` in the
  * terminal still toggles it per-session.
+ *
+ * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
+ * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin
+ * skills, and plugin MCP for this process only. Absent/empty → key omitted entirely, so
+ * untrimmed spawns keep today's exact overlay.
  */
-export function spawnSettingsOverlay(): string {
-  return JSON.stringify({ remoteControlAtStartup: config.remoteControlAtStartup });
+export function spawnSettingsOverlay(opts: { disablePlugins?: string[] } = {}): string {
+  const settings: Record<string, unknown> = {
+    remoteControlAtStartup: config.remoteControlAtStartup,
+  };
+  if (opts.disablePlugins && opts.disablePlugins.length > 0) {
+    settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
+  }
+  return JSON.stringify(settings);
+}
+
+/**
+ * Trim decision for one spawn/resume argv — the single helper shared by buildSpawnArgv
+ * and resume() so the two spawn sites can't drift (issue #499). An auto (drain) session
+ * with `config.trimAutoContext` on gains:
+ *  - `--disable-slash-commands`: removes the entire skill catalog from the fixed prefix;
+ *  - an `enabledPlugins:false` settings overlay for every operator-enabled plugin
+ *    (spawnSettingsOverlay): kills plugin SessionStart hook injections, skills, and MCP;
+ *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`) — fresh spawns
+ *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
+ *    directives don't ride resumes either), so a resumed trimmed session deliberately has
+ *    skills off without the notice.
+ * Measured −6,349 tokens/turn combined in the issue-499 spike. Deliberately NOT
+ * `--settings disableAllHooks` — that would kill the operator's global SessionStart hook
+ * Shepherd's status pipeline depends on. Interactive spawns are untouched.
+ */
+async function trimDecision(
+  auto: boolean,
+  pluginIds: () => Promise<string[]>,
+): Promise<{ extraFlags: string[]; overlayOpts: { disablePlugins?: string[] }; trimmed: boolean }> {
+  if (!auto || !config.trimAutoContext) {
+    return { extraFlags: [], overlayOpts: {}, trimmed: false };
+  }
+  return {
+    extraFlags: ["--disable-slash-commands"],
+    overlayOpts: { disablePlugins: await pluginIds() },
+    trimmed: true,
+  };
 }
 
 /**
@@ -71,6 +154,20 @@ const BRANCH_RENAME_NOTICE =
   "Shepherd may rename this session's git branch shortly after startup to a clearer, " +
   "prompt-derived name (via `git branch -m`). This is expected: your working tree, " +
   "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
+
+/**
+ * Injected only into trimmed auto (drain) spawns — sessions launched with
+ * `--disable-slash-commands` + an `enabledPlugins:false` settings overlay (issue #499,
+ * see trimDecision). Without it, CLAUDE.md / memory instructions like "use the superpowers
+ * skill" would send the agent hunting for a Skill tool that isn't there. Agent-facing
+ * prompt text (not operator UI), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
+ */
+const CONTEXT_TRIM_NOTICE =
+  "This unattended session runs with the skill catalog, slash commands, and optional " +
+  "plugins disabled to cut per-turn context overhead. The Skill tool and slash commands " +
+  "are unavailable — ignore any instructions (e.g. in CLAUDE.md or memory files) to invoke " +
+  "skills such as superpowers; use built-in tools directly instead (the Agent tool for " +
+  "subagent execution, Bash, Edit, and so on).";
 
 /**
  * Universal engineering posture injected into every spawn (issue #349, adapted from the
@@ -322,7 +419,8 @@ export function planGoSteer(draftMode: boolean): string {
  * plan-gate/autopilot block when no build-queue is present) — isolated-only, orthogonal to all
  * other options. `opts.draftMode`, when true, appends a `<draft-mode>` block instructing the agent
  * to open PRs as drafts — independent of the plan-gate/autopilot/build-queue choice (harmless during
- * planning; the agent only opens a PR later).
+ * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
+ * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
 export function composeSystemPrompt(
   houseRules: string | null,
@@ -332,6 +430,7 @@ export function composeSystemPrompt(
     buildQueue?: string | null;
     previewHint?: boolean;
     draftMode?: boolean;
+    trimmed?: boolean;
   } = {},
 ): string {
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
@@ -356,6 +455,10 @@ export function composeSystemPrompt(
   }
   // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
   if (opts.draftMode) blocks.push(`<draft-mode>\n${DRAFT_PR_NOTE}\n</draft-mode>`);
+  // Context-trim notice: only trimmed auto spawns (skill catalog / slash commands / plugins off).
+  if (opts.trimmed) {
+    blocks.push(`<context-trim-notice>\n${CONTEXT_TRIM_NOTICE}\n</context-trim-notice>`);
+  }
   return blocks.join("\n\n");
 }
 
@@ -422,6 +525,12 @@ export class SessionService {
     return promptArg;
   }
 
+  /** trimDecision via the injected plugin-id seam (tests) or the real memoized read —
+   *  the one resolver both spawn sites (create + resume) go through. */
+  private trimFor(auto: boolean | undefined): ReturnType<typeof trimDecision> {
+    return trimDecision(auto ?? false, this.deps.pluginIds ?? installedPluginIds);
+  }
+
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when
    *  none / learnings disabled. Injected into every new agent's system prompt
    *  (via composeSystemPrompt), not the human turn. */
@@ -439,7 +548,8 @@ export class SessionService {
    *  repo's learned corrections without bleeding into the task text. The autopilot directive rides
    *  the same prompt when the repo has autopilot on; the plan-gate directive when planGateOn; the
    *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled;
-   *  and the preview-hint notice when the session is `isolated`. */
+   *  the preview-hint notice when the session is `isolated`; and the context-trim flag + overlay +
+   *  notice when `trim` says so (auto spawns, issue #499 — see trimDecision). */
   private buildSpawnArgv(
     input: CreateSessionInput,
     claudeSessionId: string,
@@ -447,6 +557,7 @@ export class SessionService {
     promptArg: string,
     planGateOn: boolean | undefined,
     isolated: boolean,
+    trim: Awaited<ReturnType<typeof trimDecision>>,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const houseRules = this.houseRules(input.repoPath);
@@ -460,8 +571,14 @@ export class SessionService {
           autopilot: autopilotActive,
         })
       : null;
-    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
-    argv.push("--settings", spawnSettingsOverlay());
+    const argv = [
+      "claude",
+      "--dangerously-skip-permissions",
+      "--session-id",
+      claudeSessionId,
+      ...trim.extraFlags,
+    ];
+    argv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
     argv.push(
       "--append-system-prompt",
       composeSystemPrompt(houseRules, autopilotActive, {
@@ -469,6 +586,7 @@ export class SessionService {
         buildQueue,
         previewHint: isolated,
         draftMode: repoConfig.draftMode,
+        trimmed: trim.trimmed,
       }),
     );
     if (input.model) argv.push("--model", input.model);
@@ -496,6 +614,7 @@ export class SessionService {
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
       // plan. Session-level override wins over the repo default.
       const planGateOn = input.planGateEnabled ?? repoConfig.planGateEnabled;
+      const trim = await this.trimFor(input.auto);
       const argv = this.buildSpawnArgv(
         input,
         claudeSessionId,
@@ -503,6 +622,7 @@ export class SessionService {
         promptArg,
         planGateOn,
         wt.isolated,
+        trim,
       );
       const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
       const session = this.deps.store.create({
@@ -674,7 +794,7 @@ export class SessionService {
    * stranded. Guaranteeing the husk case works (always respawn) beats preserving
    * scrollback in the rare misclick-on-live-claude case.
    */
-  resume(id: string, opts: { force?: boolean } = {}): Session | null {
+  async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived" || !s.claudeSessionId) return null;
     const agent =
@@ -689,11 +809,20 @@ export class SessionService {
       }
       return s;
     }
+    // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
+    // keep the slim context, not silently regrow the skill catalog + plugin hooks.
+    const trim = await this.trimFor(s.auto);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     if (agent) this.deps.herdr.stop(agent.terminalId);
-    const argv = ["claude", "--dangerously-skip-permissions", "--resume", s.claudeSessionId];
-    argv.push("--settings", spawnSettingsOverlay());
+    const argv = [
+      "claude",
+      "--dangerously-skip-permissions",
+      "--resume",
+      s.claudeSessionId,
+      ...trim.extraFlags,
+    ];
+    argv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
     if (s.model) argv.push("--model", s.model);
     const spawned = this.deps.herdr.start(s.name, s.worktreePath, argv);
     this.deps.store.update(id, {

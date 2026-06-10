@@ -1159,7 +1159,7 @@ async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response 
 async function handleSessionResume({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "resume")) return null;
   const body = (await req.json().catch(() => null)) as { force?: unknown } | null;
-  const s = deps.service.resume(parts[2], { force: body?.force === true });
+  const s = await deps.service.resume(parts[2], { force: body?.force === true });
   if (!s) return json({ error: "cannot resume" }, 409);
   // flip the badge back to running + nudge clients to re-attach to the fresh agent
   deps.events.emit("session:status", { id: s.id, status: s.status });

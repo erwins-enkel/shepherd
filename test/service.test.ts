@@ -4,6 +4,8 @@ import {
   SessionService,
   spawnSettingsOverlay,
   composeSystemPrompt,
+  readInstalledPluginIds,
+  installedPluginIds,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
@@ -11,7 +13,7 @@ import {
   PREVIEW_START_STEER,
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
-import { config } from "../src/config";
+import { config, parseTrimAutoContext } from "../src/config";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
   const store = new SessionStore(":memory:");
@@ -599,6 +601,7 @@ test("createSession: persists auto=true and issueNumber from issueRef.number", a
       start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
       list: () => [],
     } as any,
+    pluginIds: async () => [], // hermetic: auto+trim must not read the operator's real settings
   });
 
   const s = await service.create({
@@ -925,7 +928,7 @@ test("archive with no reap keys never calls the reaper", () => {
   expect(reapCalls).toBe(0);
 });
 
-test("resume respawns claude --resume in the worktree and re-points the agent", () => {
+test("resume respawns claude --resume in the worktree and re-points the agent", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
@@ -944,7 +947,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   });
   const s = resumable(store, { model: "opus" });
 
-  const out = svc.resume(s.id);
+  const out = await svc.resume(s.id);
   expect(out?.herdrAgentId).toBe("term_new"); // re-pointed at the fresh agent
   expect(out?.status).toBe("running");
   expect(calls.start.cwd).toBe("/wt/x");
@@ -960,7 +963,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   ]);
 });
 
-test("resume omits --model when the session had none", () => {
+test("resume omits --model when the session had none", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
@@ -978,7 +981,7 @@ test("resume omits --model when the session had none", () => {
     } as any,
   });
   const s = resumable(store, { model: null });
-  svc.resume(s.id);
+  await svc.resume(s.id);
   expect(calls.argv).toEqual([
     "claude",
     "--dangerously-skip-permissions",
@@ -989,7 +992,7 @@ test("resume omits --model when the session had none", () => {
   ]);
 });
 
-test("resume re-uses a still-live agent instead of spawning a duplicate", () => {
+test("resume re-uses a still-live agent instead of spawning a duplicate", async () => {
   const store = new SessionStore(":memory:");
   let started = 0;
   const svc = new SessionService({
@@ -1007,13 +1010,13 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", () => 
     } as any,
   });
   const s = resumable(store);
-  const out = svc.resume(s.id);
+  const out = await svc.resume(s.id);
   expect(started).toBe(0); // no second claude
   expect(out?.id).toBe(s.id);
   expect(out?.herdrAgentId).toBe("term_old");
 });
 
-test("resume force=true stops the live husk agent and respawns claude", () => {
+test("resume force=true stops the live husk agent and respawns claude", async () => {
   const store = new SessionStore(":memory:");
   let started = 0;
   const stopped: string[] = [];
@@ -1033,14 +1036,14 @@ test("resume force=true stops the live husk agent and respawns claude", () => {
     } as any,
   });
   const s = resumable(store);
-  const out = svc.resume(s.id, { force: true });
+  const out = await svc.resume(s.id, { force: true });
   expect(stopped).toEqual(["term_old"]); // tore down the husk first
   expect(started).toBe(1); // then respawned a fresh claude
   expect(out?.herdrAgentId).toBe("term_new");
   expect(out?.status).toBe("running");
 });
 
-test("resume returns null for unknown, archived, or pre-feature sessions", () => {
+test("resume returns null for unknown, archived, or pre-feature sessions", async () => {
   const store = new SessionStore(":memory:");
   const svc = new SessionService({
     store,
@@ -1048,14 +1051,14 @@ test("resume returns null for unknown, archived, or pre-feature sessions", () =>
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
   });
-  expect(svc.resume("ghost")).toBeNull(); // unknown id
+  expect(await svc.resume("ghost")).toBeNull(); // unknown id
 
   const archived = resumable(store);
   store.archive(archived.id);
-  expect(svc.resume(archived.id)).toBeNull(); // worktree already removed
+  expect(await svc.resume(archived.id)).toBeNull(); // worktree already removed
 
   const preFeature = resumable(store, { claudeSessionId: "" });
-  expect(svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
+  expect(await svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
 });
 
 test("reply delivers the text as a bracketed paste, then submits with a carriage return", () => {
@@ -1767,7 +1770,7 @@ test("composeSystemPrompt always injects the research-first notice, with or with
   expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");
 });
 
-test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", () => {
+test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", async () => {
   const store = new SessionStore(":memory:");
   let startCalls = 0;
   const svc = new SessionService({
@@ -1797,7 +1800,7 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
   });
   const s = resumable(store, { model: "opus" }); // worktreePath "/wt/x", herdrAgentId "term_old"
 
-  const out = svc.resume(s.id);
+  const out = await svc.resume(s.id);
   expect(startCalls).toBe(0); // agent already live → must NOT respawn
   expect(out?.herdrAgentId).toBe("term_fresh"); // adopted the new id
 });
@@ -2632,4 +2635,238 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
   svc.stopPreview(s.id);
   // only devPortFor was called — no release/unbind/etc.
   expect(previewCalls).toEqual(["devPortFor"]);
+});
+
+// ── context trim for auto spawns (issue #499) ─────────────────────────────────
+
+test("parseTrimAutoContext: default on; false/0/off (case-insensitive) turn it off", () => {
+  expect(parseTrimAutoContext(undefined)).toBe(true); // unset → on
+  expect(parseTrimAutoContext("1")).toBe(true);
+  expect(parseTrimAutoContext("true")).toBe(true);
+  expect(parseTrimAutoContext("false")).toBe(false);
+  expect(parseTrimAutoContext("FALSE")).toBe(false);
+  expect(parseTrimAutoContext("0")).toBe(false);
+  expect(parseTrimAutoContext("off")).toBe(false);
+  expect(parseTrimAutoContext("Off")).toBe(false);
+});
+
+test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits the key", () => {
+  const withIds = JSON.parse(spawnSettingsOverlay({ disablePlugins: ["a@repo", "b@repo"] }));
+  expect(withIds.enabledPlugins).toEqual({ "a@repo": false, "b@repo": false });
+  // absent / empty → byte-identical to the no-opts overlay (key omitted entirely)
+  expect(spawnSettingsOverlay({})).toBe(spawnSettingsOverlay());
+  expect(spawnSettingsOverlay({ disablePlugins: [] })).toBe(spawnSettingsOverlay());
+  expect(spawnSettingsOverlay()).not.toContain("enabledPlugins");
+});
+
+test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/parse error", async () => {
+  const ids = await readInstalledPluginIds(async () =>
+    JSON.stringify({ enabledPlugins: { "x@r": true, "y@r": false } }),
+  );
+  expect(ids).toEqual(["x@r", "y@r"]); // every key, regardless of value
+  expect(
+    await readInstalledPluginIds(async () => {
+      throw new Error("ENOENT");
+    }),
+  ).toBeNull();
+  expect(await readInstalledPluginIds(async () => "{not json")).toBeNull();
+  expect(await readInstalledPluginIds(async () => "{}")).toEqual([]);
+  expect(await readInstalledPluginIds(async () => '{"enabledPlugins":null}')).toEqual([]);
+});
+
+test("installedPluginIds: errors resolve [] but are NOT cached; successes are", async () => {
+  // Order matters: the success case below populates the module-level cache for good.
+  let throws = 0;
+  const throwing = async () => {
+    throws++;
+    throw new Error("EIO");
+  };
+  expect(await installedPluginIds(throwing)).toEqual([]); // caller still proceeds
+  expect(await installedPluginIds(throwing)).toEqual([]); // retried, not poisoned
+  expect(throws).toBe(2);
+  let reads = 0;
+  const ok = async () => {
+    reads++;
+    return '{"enabledPlugins":{"x@r":true}}';
+  };
+  expect(await installedPluginIds(ok)).toEqual(["x@r"]);
+  expect(await installedPluginIds(ok)).toEqual(["x@r"]);
+  expect(reads).toBe(1); // success memoized for the process lifetime
+});
+
+/** injectDeps + an injected pluginIds seam, counting how often it's consulted. */
+function trimDeps(store: SessionStore, captured: { argv?: string[] }, pluginIds: string[]) {
+  let pluginIdReads = 0;
+  const deps = {
+    ...injectDeps(store, captured),
+    pluginIds: async () => {
+      pluginIdReads++;
+      return pluginIds;
+    },
+  };
+  return { deps, pluginIdReads: () => pluginIdReads };
+}
+
+/** The parsed JSON of the argv's --settings payload. */
+function settingsOverlay(argv: string[]): any {
+  return JSON.parse(argv[argv.indexOf("--settings") + 1]!);
+}
+
+test("auto spawn (trim on): --disable-slash-commands + plugin-off overlay + trim notice", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, ["superpowers@sp", "context7@c7"]);
+    const svc = new SessionService(deps as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain it",
+      model: null,
+      images: [],
+      auto: true,
+    });
+    const argv = captured.argv!;
+    expect(argv).toContain("--disable-slash-commands");
+    expect(argv.at(-1)).toBe("drain it"); // prompt stays the final positional
+    // every injected plugin id is force-disabled in the per-spawn settings overlay
+    expect(settingsOverlay(argv).enabledPlugins).toEqual({
+      "superpowers@sp": false,
+      "context7@c7": false,
+    });
+    const sp = sysPrompt(argv);
+    expect(sp).toContain("<context-trim-notice>");
+    expect(sp).toContain("The Skill tool and slash commands are unavailable");
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no notice", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const svc = new SessionService(deps as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "do the thing",
+      model: null,
+      images: [],
+    });
+    const argv = captured.argv!;
+    // byte-identical to the pre-trim interactive shape
+    expect(argv).toEqual([
+      "claude",
+      "--dangerously-skip-permissions",
+      "--session-id",
+      argv[3]!,
+      "--settings",
+      spawnSettingsOverlay(),
+      "--append-system-prompt",
+      composeSystemPrompt(null, false, { previewHint: true }),
+      "do the thing",
+    ]);
+    expect(pluginIdReads()).toBe(0); // settings file never consulted for interactive spawns
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("auto spawn with trimAutoContext off: identical to the untrimmed shape", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = false;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const svc = new SessionService(deps as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain it",
+      model: null,
+      images: [],
+      auto: true,
+    });
+    const argv = captured.argv!;
+    expect(argv).not.toContain("--disable-slash-commands");
+    expect(argv[argv.indexOf("--settings") + 1]).toBe(spawnSettingsOverlay());
+    expect(sysPrompt(argv)).not.toContain("<context-trim-notice>");
+    expect(pluginIdReads()).toBe(0);
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("resume of an auto session re-applies the trim: flag + plugin-off overlay", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const calls: any = {};
+    const svc = new SessionService({
+      store,
+      namer: async () => "x",
+      worktree: { create: () => ({}) as any, remove: () => {} } as any,
+      herdr: {
+        start: (_n: string, _c: string, argv: string[]) => {
+          calls.argv = argv;
+          return { terminalId: "term_new", agentStatus: "working" } as any;
+        },
+        list: () => [], // old agent gone → respawn
+        stop: () => {},
+        send: () => {},
+      } as any,
+      pluginIds: async () => ["superpowers@sp"],
+    });
+    const s = resumable(store, { auto: true });
+    await svc.resume(s.id);
+    const argv: string[] = calls.argv;
+    expect(argv).toContain("--disable-slash-commands");
+    expect(settingsOverlay(argv).enabledPlugins).toEqual({ "superpowers@sp": false });
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("resume of a non-auto session stays untrimmed even with trim on", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const calls: any = {};
+    const svc = new SessionService({
+      store,
+      namer: async () => "x",
+      worktree: { create: () => ({}) as any, remove: () => {} } as any,
+      herdr: {
+        start: (_n: string, _c: string, argv: string[]) => {
+          calls.argv = argv;
+          return { terminalId: "term_new", agentStatus: "working" } as any;
+        },
+        list: () => [],
+        stop: () => {},
+        send: () => {},
+      } as any,
+      pluginIds: async () => ["superpowers@sp"],
+    });
+    const s = resumable(store); // auto defaults to false
+    await svc.resume(s.id);
+    expect(calls.argv).toEqual([
+      "claude",
+      "--dangerously-skip-permissions",
+      "--resume",
+      "abc-123",
+      "--settings",
+      spawnSettingsOverlay(),
+    ]);
+  } finally {
+    config.trimAutoContext = prev;
+  }
 });

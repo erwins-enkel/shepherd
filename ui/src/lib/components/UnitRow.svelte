@@ -43,6 +43,8 @@
     previewServeFailed = false,
     onpreview,
     ondecommission,
+    repoFilter = null,
+    onrepofilter,
   }: {
     session: Session;
     selected: boolean;
@@ -59,11 +61,20 @@
     onpreview?: (id: string) => void;
     // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
     ondecommission?: (id: string) => void;
+    // active page-level repo filter (full repoPath); drives the icon's pressed state
+    repoFilter?: string | null;
+    // when provided, clicking the inline repo emoji toggles the repo filter:
+    // a path sets it, null clears (same contract as QueueStrip's band toggle)
+    onrepofilter?: (repoPath: string | null) => void;
   } = $props();
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
+  const repoFiltered = $derived(repoFilter === session.repoPath);
+  function toggleRepoFilter() {
+    onrepofilter?.(repoFiltered ? null : session.repoPath);
+  }
 
   const swipe = $derived(!!ondecommission);
 
@@ -214,8 +225,36 @@
 
     <div class="u-main">
       <div class="u-top">
-        {#if repoIcon}
-          <span class="name-icon" aria-hidden="true">{repoIcon}</span>
+        {#if repoIcon && onrepofilter}
+          <!-- The emoji doubles as the repo-filter toggle: hover names the repo,
+               click narrows the herd to it, click again clears. role=button (not a
+               nested <button> — the row overlay is a sibling button) raised above
+               the .unit-hit overlay like the preview badge, with stopPropagation so
+               the row's own select doesn't also fire. -->
+          <span
+            class="name-icon actionable"
+            class:filtered={repoFiltered}
+            role="button"
+            tabindex="0"
+            title={repoName}
+            aria-pressed={repoFiltered}
+            aria-label={repoFiltered
+              ? m.unitrow_repo_filter_clear_aria({ repo: repoName })
+              : m.unitrow_repo_filter_aria({ repo: repoName })}
+            onclick={(e) => {
+              e.stopPropagation();
+              toggleRepoFilter();
+            }}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleRepoFilter();
+              }
+            }}>{repoIcon}</span
+          >
+        {:else if repoIcon}
+          <span class="name-icon" title={repoName} aria-hidden="true">{repoIcon}</span>
         {/if}
         <span class="name">{session.name}</span>
       </div>
@@ -540,6 +579,28 @@
     flex: none;
     margin-right: 6px;
     font-size: var(--fs-base);
+  }
+  /* interactive variant: the emoji toggles the repo filter — raised above the
+     .unit-hit overlay (same pattern as the preview badge) so it's hover/clickable */
+  .name-icon.actionable {
+    position: relative;
+    z-index: 1;
+    cursor: pointer;
+    padding: 0 3px;
+    margin-left: -3px;
+    border-radius: 2px;
+  }
+  .name-icon.actionable:hover {
+    background: var(--color-hover);
+  }
+  .name-icon.actionable:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: 0;
+  }
+  /* active filter: a quiet amber underline marks the icon as the engaged toggle
+     (matches the .fbtn active accent in the herd head) without adding a new hue */
+  .name-icon.actionable.filtered {
+    box-shadow: 0 1px 0 0 var(--color-amber);
   }
 
   /* Visually hidden but available to screen readers (matches GitRail.svelte) */

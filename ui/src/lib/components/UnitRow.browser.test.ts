@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -6,6 +6,15 @@ import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
 import type { Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import type { ReviewVerdict } from "$lib/types";
+
+// Mock api so the reviews store's load() never fires real network calls.
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
+});
+
+const { reviews } = await import("$lib/reviews.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -43,6 +52,25 @@ function session(partial: Partial<Session> & { id: string }): Session {
     ...partial,
   };
 }
+
+const baseVerdict: ReviewVerdict = {
+  sessionId: "s1",
+  headSha: "abc",
+  decision: "commented",
+  summary: "",
+  body: "## findings",
+  findings: [],
+  addressRound: 0,
+  addressCap: 5,
+  finalRoundPending: false,
+  finalRoundTimeoutMs: 900_000,
+  updatedAt: Date.now(),
+};
+
+beforeEach(() => {
+  reviews.reviewing = {};
+  reviews.map = {};
+});
 
 describe("UnitRow merging badge", () => {
   it("shows MERGING for a merging session, not READY", async () => {
@@ -258,5 +286,37 @@ describe("UnitRow fine-pointer decommission ✕", () => {
     expect(decommissioned).toBe("d1");
     // the ✕ sits above the row overlay as a sibling — the row select never fires
     expect(selects).toBe(0);
+  });
+});
+
+describe("UnitRow badge mutual-exclusion (reviewing vs autopilot/status)", () => {
+  it("reviewing + autopilotPaused: REVIEWING… shown, Needs you and WAITING hidden", async () => {
+    const s = session({ id: "mx1", status: "done", autopilotPaused: true });
+    reviews.reviewing = { mx1: true };
+    render(UnitRow, {
+      session: s,
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText(m.criticbadge_reviewing())).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.session_autopilot_paused_label()))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByText(m.status_done())).not.toBeInTheDocument();
+  });
+
+  it("verdict + autopilotPaused (not reviewing): Needs you and verdict shown, WAITING hidden", async () => {
+    const s = session({ id: "mx2", status: "done", autopilotPaused: true });
+    reviews.map = { mx2: { ...baseVerdict, sessionId: "mx2", decision: "commented" } };
+    render(UnitRow, {
+      session: s,
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText(m.session_autopilot_paused_label())).toBeInTheDocument();
+    await expect.element(page.getByText(m.criticbadge_commented())).toBeInTheDocument();
+    await expect.element(page.getByText(m.status_done())).not.toBeInTheDocument();
   });
 });

@@ -234,6 +234,7 @@ describe("deriveStage — review tint", () => {
     // Both headShas undefined: pins the git?.headSha != null guard — without it,
     // undefined===undefined would pass and return "approved" instead of "none".
     // ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
+    // (Parallel safe-fail test in derived-ready suite cross-references this comment.)
     const s = deriveStage({
       git: git({ state: "open" }), // headSha not set
       verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
@@ -389,9 +390,7 @@ describe("deriveStage — derived-ready predicate", () => {
   });
 
   it("NOT ready (pinned safe-fail): git.headSha undefined + verdict.headSha undefined — undefined===undefined must not pass", () => {
-    // Both headShas undefined: pins the git?.headSha != null guard — without it,
-    // undefined===undefined would satisfy the headSha equality check and index would reach 4.
-    // ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
+    // Cross-reference: see the headSha guard explanation in the review-tint suite above.
     const s = deriveStage({
       git: git({ ...readyBase, headSha: undefined }),
       verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
@@ -454,5 +453,38 @@ describe("deriveStage — STAGE_ORDER invariant", () => {
       readyToMerge: false,
     });
     expect(STAGE_ORDER[s.index]).toBe(s.reached);
+  });
+});
+
+describe("deriveStage — furthest-wins interactions", () => {
+  it("planPhase='planning' + git.state='open' → index===PR_INDEX (Math.max furthest-wins)", () => {
+    // Planning is index 0, pr is index 2 — open PR must win via Math.max.
+    const s = deriveStage({
+      planPhase: "planning",
+      git: git({ state: "open", checks: "none" }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(PR_INDEX);
+    expect(s.reached).toBe("pr");
+  });
+
+  it("derived-ready conditions met + reviewing=true → index 4 AND review tint 'reviewing'", () => {
+    // Running review wins the tint but doesn't un-light the ready segment.
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        isDraft: false,
+        headSha: "sha1",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: true,
+      readyToMerge: false,
+    });
+    expect(s.index).toBe(4);
+    expect(s.reached).toBe("ready");
+    expect(s.review).toBe("reviewing");
   });
 });

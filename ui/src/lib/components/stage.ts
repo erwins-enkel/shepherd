@@ -13,7 +13,7 @@ export const REVIEW_INDEX = STAGE_ORDER.indexOf("review");
 export interface StageInfo {
   /** Highest stage reached. */
   reached: Stage;
-  /** 0..4 — index of `reached` in STAGE_ORDER. */
+  /** 0..STAGE_ORDER.length-1 — index of `reached` in STAGE_ORDER. */
   index: number;
   /** CI rollup, for tinting the PR segment once the pr stage is reached ("none" when no PR). */
   ci: ChecksState;
@@ -24,6 +24,44 @@ export interface StageInfo {
   review: "none" | "reviewing" | "changes" | "approved" | "error";
   /** True when planPhase==null (gate off); legend will say "skipped". */
   planningSkipped: boolean;
+}
+
+/**
+ * Whether the critic verdict counts as an approval.
+ * git.headSha guard is load-bearing — undefined===undefined must not pass.
+ * ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
+ */
+function isReviewOk(git: GitState | undefined, verdict: ReviewVerdict | undefined): boolean {
+  if (git?.latestReview?.state === "approved") return true;
+  return (
+    verdict?.decision === "commented" && git?.headSha != null && verdict.headSha === git.headSha
+  );
+}
+
+/** Whether all conditions for the ready stage are met. */
+function isDerivedReady(git: GitState | undefined, reviewOk: boolean): boolean {
+  return (
+    git?.state === "open" &&
+    git.checks === "success" &&
+    git.mergeable === true &&
+    !git.isDraft &&
+    reviewOk
+  );
+}
+
+/** Pure helper — maps git/verdict signals to the review-segment tint. */
+function reviewTint(
+  reviewing: boolean,
+  reviewOk: boolean,
+  verdict: ReviewVerdict | undefined,
+  git: GitState | undefined,
+): StageInfo["review"] {
+  if (reviewing) return "reviewing";
+  if (verdict?.decision === "changes_requested" || git?.latestReview?.state === "changes_requested")
+    return "changes";
+  if (reviewOk) return "approved";
+  if (verdict?.decision === "error") return "error";
+  return "none";
 }
 
 /**
@@ -43,55 +81,25 @@ export function deriveStage(input: {
   // index 1 (implementing): when planPhase === "executing" OR planPhase == null (gate off).
   let index = planPhase === "planning" ? 0 : 1;
 
-  if (git?.state === "open") {
-    index = Math.max(index, PR_INDEX); // pr
-  }
+  if (git?.state === "open") index = Math.max(index, PR_INDEX);
+  if (reviewing || verdict || git?.latestReview) index = Math.max(index, REVIEW_INDEX);
 
-  if (reviewing || verdict || git?.latestReview) index = Math.max(index, REVIEW_INDEX); // review
-
-  // reviewOk: git.headSha guard is load-bearing — undefined===undefined must not pass
-  const reviewOk =
-    git?.latestReview?.state === "approved" ||
-    (verdict?.decision === "commented" && git?.headSha != null && verdict.headSha === git.headSha);
-
-  const derivedReady =
-    git?.state === "open" &&
-    git.checks === "success" &&
-    git.mergeable === true &&
-    !git.isDraft &&
-    reviewOk;
+  const reviewOk = isReviewOk(git, verdict);
 
   // Note: the UI hides the stepper entirely when readyToMerge, and merged shows a terminal
   // chip — so the derived predicate is the only path that actually paints a filled 5th
   // segment; the manual branch stays for purity/aria of any future caller.
-  if (readyToMerge || git?.state === "merged" || derivedReady) index = 4; // ready
+  if (readyToMerge || git?.state === "merged" || isDerivedReady(git, reviewOk))
+    index = STAGE_ORDER.length - 1; // ready
 
   const terminal = git?.state === "merged" ? "merged" : git?.state === "closed" ? "closed" : null;
-
-  // Review tint — priority: reviewing beats any stale verdict
-  let review: StageInfo["review"] = "none";
-  if (reviewing) {
-    review = "reviewing";
-  } else if (
-    verdict?.decision === "changes_requested" ||
-    git?.latestReview?.state === "changes_requested"
-  ) {
-    review = "changes";
-  } else if (
-    git?.latestReview?.state === "approved" ||
-    (verdict?.decision === "commented" && git?.headSha != null && verdict.headSha === git.headSha)
-  ) {
-    review = "approved";
-  } else if (verdict?.decision === "error") {
-    review = "error";
-  }
 
   return {
     reached: STAGE_ORDER[index],
     index,
     ci: git?.checks ?? "none",
     terminal,
-    review,
+    review: reviewTint(reviewing, reviewOk, verdict, git),
     planningSkipped: planPhase === null,
   };
 }

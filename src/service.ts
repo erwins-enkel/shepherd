@@ -92,11 +92,21 @@ export function installedPluginIds(read?: (path: string) => Promise<string>): Pr
 }
 
 /**
- * Per-spawn `--settings` overlay merged on top of the user's settings files.
- * Pins `remoteControlAtStartup` so a global opt-in in ~/.claude/settings.json
- * doesn't auto-start Claude Code's Remote Control for every Shepherd session
- * (default false suppresses the notification noise); `/remote-control` in the
- * terminal still toggles it per-session.
+ * Per-spawn `--settings` overlay merged on top of the user's settings files. Applied to every
+ * Shepherd task spawn — both `create` (`buildSpawnArgv`) and `resume`.
+ *
+ * Pins `remoteControlAtStartup` so a global opt-in in ~/.claude/settings.json doesn't auto-start
+ * Claude Code's Remote Control for every Shepherd session (default false suppresses the
+ * notification noise); `/remote-control` in the terminal still toggles it per-session.
+ *
+ * Pins `env.ENABLE_CLAUDEAI_MCP_SERVERS = "false"` to disable the claude.ai account-connector MCP
+ * servers (Gmail / Google Calendar / Google Drive / Notion / Microsoft 365) for every spawned
+ * coding agent (issue #509). Least-privilege hygiene, NOT a token win — the #499 spike measured
+ * the saving at only −132 tok/turn (connectors load as deferred, name-only tools) — but an
+ * autonomous coding agent has no business reaching the operator's personal Gmail/Notion.
+ * Unconditional and not opt-out'able by design; the overlay `env` merges key-by-key over the
+ * user's settings so the rest of their env is untouched. (Reviewer/critic/plan-gate spawns don't
+ * use this overlay — they run `--safe-mode`, which already disables ALL MCP.)
  *
  * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
  * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin
@@ -106,6 +116,7 @@ export function installedPluginIds(read?: (path: string) => Promise<string>): Pr
 export function spawnSettingsOverlay(opts: { disablePlugins?: string[] } = {}): string {
   const settings: Record<string, unknown> = {
     remoteControlAtStartup: config.remoteControlAtStartup,
+    env: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
   };
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));

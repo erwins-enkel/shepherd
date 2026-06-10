@@ -24,6 +24,47 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+describe("Stepper planning-skipped swatch", () => {
+  it("planning segment has skipped class when planPhase is null (gate off)", async () => {
+    render(Stepper, {
+      sessionId: "skipped-test-1",
+      readyToMerge: false,
+      planPhase: null,
+    });
+
+    const segs = document.querySelectorAll(".seg:not(.sw)");
+    expect(segs.length, "five segments rendered").toBe(5);
+    expect(segs[0].classList.contains("skipped"), "first segment has skipped class").toBe(true);
+    expect(segs[1].classList.contains("skipped"), "second segment has no skipped class").toBe(
+      false,
+    );
+  });
+
+  it("planning segment has no skipped class when planPhase is 'planning'", async () => {
+    render(Stepper, {
+      sessionId: "skipped-test-2",
+      readyToMerge: false,
+      planPhase: "planning",
+    });
+
+    const segs = document.querySelectorAll(".seg:not(.sw)");
+    expect(segs.length, "five segments rendered").toBe(5);
+    expect(segs[0].classList.contains("skipped"), "first segment has no skipped class").toBe(false);
+  });
+
+  it("planning segment has no skipped class when planPhase is 'executing'", async () => {
+    render(Stepper, {
+      sessionId: "skipped-test-3",
+      readyToMerge: false,
+      planPhase: "executing",
+    });
+
+    const segs = document.querySelectorAll(".seg:not(.sw)");
+    expect(segs.length, "five segments rendered").toBe(5);
+    expect(segs[0].classList.contains("skipped"), "first segment has no skipped class").toBe(false);
+  });
+});
+
 describe("Stepper aria-label contract", () => {
   it("session with open PR, failing CI, and changes-requested review verdict", async () => {
     const sessionId = "stepper-test-1";

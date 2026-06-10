@@ -136,6 +136,7 @@
         class:done={i < info.index}
         class:active={i === info.index}
         class:pending={i > info.index}
+        class:skipped={stage === "planning" && info.planningSkipped}
         aria-hidden="true"
       ></span>
     {/each}
@@ -157,6 +158,7 @@
               class:done={i < info.index}
               class:active={i === info.index}
               class:pending={i > info.index}
+              class:skipped={stage === "planning" && info.planningSkipped}
             ></span>
             <span class="lg-label">
               {STAGE_LABEL[stage]()}{verdictWord ? ` — ${verdictWord}` : ""}
@@ -185,6 +187,11 @@
   }
   .seg.done {
     background: var(--color-muted);
+  }
+  /* Skipped planning stage: hollow so it's visually distinct from a completed segment. */
+  .seg.done.skipped {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-muted);
   }
   .seg.active {
     background: var(--color-ink);

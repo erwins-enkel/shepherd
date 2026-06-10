@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { BacklogPayload, Issue, PullRequest } from "$lib/types";
+  import type { BacklogPayload, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
   import BacklogView from "./BacklogView.svelte";
@@ -17,7 +17,7 @@
     payload: BacklogPayload | null;
     mobile: boolean;
     onissue: (repoPath: string, issue: Issue) => void;
-    onquick?: (repoPath: string, issue: Issue) => void;
+    onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
     onadopt: (repoPath: string, prompt: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;

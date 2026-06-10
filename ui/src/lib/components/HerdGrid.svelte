@@ -11,7 +11,7 @@
     onselect,
     onnew,
     git,
-    standardCommandUnset = false,
+    issueActionsUnset = false,
     onsettings = undefined,
     filteredRepo = null,
     statusFilter = null,
@@ -23,7 +23,7 @@
     onselect: (id: string) => void;
     onnew: () => void;
     git: Record<string, GitState>;
-    standardCommandUnset?: boolean;
+    issueActionsUnset?: boolean;
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
     filteredRepo?: string | null;
@@ -55,7 +55,7 @@
   {:else if filteredRepo}
     <div class="grid-empty">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
   {:else}
-    <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
+    <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
   {/if}
 {:else}
   <div class="herd-grid">

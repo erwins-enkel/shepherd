@@ -3,13 +3,13 @@
 
   let {
     onnew,
-    standardCommandUnset = false,
+    issueActionsUnset = false,
     onsettings = undefined,
   }: {
     // spawn the first task → existing New Task flow
     onnew: () => void;
-    // standard command not yet configured → quick-launch is invisible; show a nudge
-    standardCommandUnset?: boolean;
+    // no issue-scoped steer configured yet → backlog quick-launch is invisible; show a nudge
+    issueActionsUnset?: boolean;
     // open Settings (nudge target); omitted → nudge is plain text, no link
     onsettings?: () => void;
   } = $props();
@@ -41,7 +41,7 @@
     </div>
   </dl>
 
-  {#if standardCommandUnset}
+  {#if issueActionsUnset}
     <p class="nudge">
       {#if onsettings}
         <button type="button" class="nudge-link" onclick={onsettings}

@@ -40,6 +40,7 @@
     PullRequest,
     Session,
     Settings as Settings_,
+    Steer,
   } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { displayStatus } from "$lib/display-status";
@@ -225,11 +226,12 @@
   // Seed model for the New Task dialog (Fable celebration "Try it" path); null = picker default.
   let composeModel = $state<string | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
-  // loaded once on mount; drives the first-run nudge (quick-launch is invisible
-  // until a standard command is set). Re-read on settings close so a just-saved
-  // command dismisses the hint.
+  // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
-  const standardCommandUnset = $derived((settings?.standardCommand ?? "").trim() === "");
+  // First-run nudge: backlog quick-launch buttons are invisible until at least one
+  // issue-scoped steer exists. The steers store updates live on editor save, so a
+  // just-added action dismisses the hint without a reload.
+  const issueActionsUnset = $derived(steers.loaded && !steers.list.some((s) => s.onIssues));
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
@@ -335,14 +337,12 @@
     showBacklog = false;
   }
 
-  // Quick-launch: spawn a session straight from a backlog issue with the configured
-  // standard command, skipping the New Task dialog. We re-read settings on click so a
-  // just-saved command takes effect, and resolve the repo's current branch the same
-  // way NewTask does. With no command configured (or any lookup failure) we fall back
-  // to the normal dialog so the click is never lost.
-  async function onquickissue(repoPath: string, issue: Issue) {
-    const settings = await getSettings().catch(() => null);
-    const cmd = (settings?.standardCommand ?? "").trim();
+  // Quick-launch: spawn a session straight from a backlog issue with the picked
+  // issue action's prompt, skipping the New Task dialog. Resolve the repo's current
+  // branch the same way NewTask does; on any spawn failure fall back to the normal
+  // dialog so the click is never lost.
+  async function onquickissue(repoPath: string, issue: Issue, action: Steer) {
+    const cmd = action.text.trim();
     if (!cmd) {
       onissue(repoPath, issue);
       return;
@@ -1027,7 +1027,7 @@
             ondecommission={onarchive}
             {onclearmerged}
             {onmergetrain}
-            {standardCommandUnset}
+            {issueActionsUnset}
             onsettings={() => (showSettings = true)}
             flow={true}
             bind:filter={herdFilter}
@@ -1094,7 +1094,7 @@
             viewMode = "focus";
           }}
           onnew={() => (showNew = true)}
-          {standardCommandUnset}
+          {issueActionsUnset}
           onsettings={() => (showSettings = true)}
           workingBlocked={store.workingBlocked}
         />
@@ -1120,7 +1120,7 @@
           ondecommission={onarchive}
           {onclearmerged}
           {onmergetrain}
-          {standardCommandUnset}
+          {issueActionsUnset}
           onsettings={() => (showSettings = true)}
           bind:filter={herdFilter}
           workingBlocked={store.workingBlocked}

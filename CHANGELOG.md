@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.23.0](https://github.com/erwins-enkel/shepherd/compare/v1.22.0...v1.23.0) (2026-06-10)
+
+
+### Features
+
+* **herd:** full-bleed session list on mobile ([#512](https://github.com/erwins-enkel/shepherd/issues/512)) ([07f31af](https://github.com/erwins-enkel/shepherd/commit/07f31af1faa902210a8c1ad7387cf2801befb10d))
+* **herd:** inline repo emoji replaces repo line on session cards ([#493](https://github.com/erwins-enkel/shepherd/issues/493)) ([de613a3](https://github.com/erwins-enkel/shepherd/commit/de613a3ee80ea57e597cef693d6104519aa7d6f8))
+* **keynav:** session switching that survives terminal focus ([#507](https://github.com/erwins-enkel/shepherd/issues/507)) ([eb43f0b](https://github.com/erwins-enkel/shepherd/commit/eb43f0ba76950b55a5b484a2ef0ae7dd47cc1e70))
+* **model:** persistent operator-configurable default model ([#498](https://github.com/erwins-enkel/shepherd/issues/498)) ([721dc8c](https://github.com/erwins-enkel/shepherd/commit/721dc8ce810b2a1fd7cb5541d08a1d467c8152e2))
+* **newtask:** plan-gate prominent neben kompaktem model-select auf desktop ([#487](https://github.com/erwins-enkel/shepherd/issues/487)) ([f581d1e](https://github.com/erwins-enkel/shepherd/commit/f581d1edb701eae604c6f1d6a7997d8a1a44ed5d))
+* **preview:** demand the tailnet HTTPS URL in the dev-server start steer ([#494](https://github.com/erwins-enkel/shepherd/issues/494)) ([9bf5ee2](https://github.com/erwins-enkel/shepherd/commit/9bf5ee2984d98b6dbcce6215227203e8ce573e28))
+* **preview:** opt-in idle-stop + force-stop to reclaim dev-server RAM ([#474](https://github.com/erwins-enkel/shepherd/issues/474)) ([947c411](https://github.com/erwins-enkel/shepherd/commit/947c41131510bafd5805eb631482e87de9ef2bbe))
+* **push:** warn once per window when 5h usage crosses 80% ([#491](https://github.com/erwins-enkel/shepherd/issues/491)) ([fd59144](https://github.com/erwins-enkel/shepherd/commit/fd5914496bc758e511981cd0fdd21c73afcebd3c))
+* **spawn:** strip skill catalog + plugins from auto-spawned agent context ([#499](https://github.com/erwins-enkel/shepherd/issues/499)) ([#510](https://github.com/erwins-enkel/shepherd/issues/510)) ([302084c](https://github.com/erwins-enkel/shepherd/commit/302084c172caceb3fc89afe0804013b1eb0c7f15))
+* **steers:** issue actions unified with steers — emoji + space-adaptive labels ([#490](https://github.com/erwins-enkel/shepherd/issues/490)) ([7873fb0](https://github.com/erwins-enkel/shepherd/commit/7873fb0cf2e0916ff94c8ed1c4a10fc7c8d0ce4b))
+* **stepper:** planning-aware stage bar with verdict tints + hover legend ([#505](https://github.com/erwins-enkel/shepherd/issues/505)) ([22cdc2a](https://github.com/erwins-enkel/shepherd/commit/22cdc2a0b9be23e23181a8680e3635a6b49e3646))
+* **ui:** desktop decommission for non-ready sessions ([#506](https://github.com/erwins-enkel/shepherd/issues/506)) ([60eb8bf](https://github.com/erwins-enkel/shepherd/commit/60eb8bf27ec6e223f8b19cd5d663d401e83e78aa))
+* **viewport:** repo emoji replaces repo name in phone terminal header ([#513](https://github.com/erwins-enkel/shepherd/issues/513)) ([8d2241a](https://github.com/erwins-enkel/shepherd/commit/8d2241a8e40b13b928fa206b7498fc212b2f3610))
+* **viewport:** slim the header bar — icon-only controls, glyph status, Issues tab removed ([#484](https://github.com/erwins-enkel/shepherd/issues/484)) ([#497](https://github.com/erwins-enkel/shepherd/issues/497)) ([39d6014](https://github.com/erwins-enkel/shepherd/commit/39d601431e04ffb255a91042a461099cdada97b9))
+
+
+### Bug Fixes
+
+* stop false "needs you" badge + blocked display while the agent is actively working ([#511](https://github.com/erwins-enkel/shepherd/issues/511)) ([5028296](https://github.com/erwins-enkel/shepherd/commit/50282964714770fe12dea94aedd2bd13f7bfdfce))
+* **theme:** replace font-dependent toggle glyphs with inline SVG icons ([#503](https://github.com/erwins-enkel/shepherd/issues/503)) ([e06d8b1](https://github.com/erwins-enkel/shepherd/commit/e06d8b1cbba3264aaf25e2c830497d83c4f4ba45))
+* **toasts:** auto-dismiss update-main offer after 15s, pause on hover/focus ([#508](https://github.com/erwins-enkel/shepherd/issues/508)) ([48a66b3](https://github.com/erwins-enkel/shepherd/commit/48a66b3678c2340642cd242edfacb70b73f71782))
+* **usage:** stop limit windows stealing values from truncated TUI frames ([#495](https://github.com/erwins-enkel/shepherd/issues/495)) ([2ceee15](https://github.com/erwins-enkel/shepherd/commit/2ceee1506bfc64f83c8bc2f37a0ab2b9531e258a))
+* **viewport:** size mobile fold chevron up to icon scale ([#492](https://github.com/erwins-enkel/shepherd/issues/492)) ([8391a67](https://github.com/erwins-enkel/shepherd/commit/8391a67d68dcb2a131f96899865dd0bd155206c9))
+
+
+### Documentation
+
+* **readme:** drop stale tank/ directory note ([#489](https://github.com/erwins-enkel/shepherd/issues/489)) ([c07bdc1](https://github.com/erwins-enkel/shepherd/commit/c07bdc123ebb72b335cc6a12f2d85719ef964380))
+
 ## [1.22.0](https://github.com/erwins-enkel/shepherd/compare/v1.21.0...v1.22.0) (2026-06-09)
 
 

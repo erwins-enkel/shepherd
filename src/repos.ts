@@ -340,7 +340,6 @@ function bootstrapLocalRepo(
   input: { name: string; idea: string },
   target: string,
 ): { ok: true } | { ok: false; error: string } {
-  let committed = false;
   try {
     mkdirSync(target, { recursive: false });
     execFileSync("git", ["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
@@ -351,14 +350,13 @@ function bootstrapLocalRepo(
       stdio: "pipe",
       timeout: 30_000,
     });
-    committed = true;
   } catch (e) {
-    if (!committed) {
-      try {
-        rmSync(target, { recursive: true, force: true });
-      } catch {
-        /* best-effort cleanup */
-      }
+    // Everything in the try runs before (or is) the bootstrap commit, so any
+    // failure leaves no usable repo — always clean up the half-created dir.
+    try {
+      rmSync(target, { recursive: true, force: true });
+    } catch {
+      /* best-effort cleanup */
     }
     return { ok: false, error: classifyProjectError(e) };
   }

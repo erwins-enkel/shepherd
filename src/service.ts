@@ -57,28 +57,38 @@ export interface ServiceDeps {
 /**
  * Keys of `enabledPlugins` in the operator's global ~/.claude/settings.json — the plugin
  * ids a trimmed auto spawn disables per-spawn (see trimDecision). Enumerated at runtime,
- * never hardcoded, so the trim is machine-agnostic. `[]` on ANY error (missing file, bad
- * JSON, no key): nothing enabled means nothing to disable. Async fs only — this server is
- * a single Bun loop pumping the live web terminal, so a sync read here would freeze typing
+ * never hardcoded, so the trim is machine-agnostic. A successful read+parse yields the
+ * ids (`[]` when the key is absent/empty — nothing enabled means nothing to disable);
+ * `null` when the read or parse THROWS (missing file, bad JSON), so callers can tell a
+ * transient error from a legitimately empty config. Async fs only — this server is a
+ * single Bun loop pumping the live web terminal, so a sync read here would freeze typing
  * (see src/instrument.ts). `read` is the test seam; production reads the real file.
  */
 export async function readInstalledPluginIds(
   read: (path: string) => Promise<string> = (p) => readFile(p, "utf8"),
-): Promise<string[]> {
+): Promise<string[] | null> {
   try {
     const raw = await read(join(homedir(), ".claude", "settings.json"));
     const plugins = (JSON.parse(raw) as { enabledPlugins?: unknown }).enabledPlugins;
     return plugins !== null && typeof plugins === "object" ? Object.keys(plugins) : [];
   } catch {
-    return [];
+    return null;
   }
 }
 
 let pluginIdsCache: Promise<string[]> | null = null;
 /** Memoized readInstalledPluginIds: plugins change ~never, so one read per process
- *  lifetime — a server restart picks up changes. */
-function installedPluginIds(): Promise<string[]> {
-  return (pluginIdsCache ??= readInstalledPluginIds());
+ *  lifetime — a server restart picks up changes. Only SUCCESSFUL reads are cached: on
+ *  `null` (transient read/parse error) the cache is cleared inside the chained promise,
+ *  so in-flight awaiters of this attempt all get `[]` (the spawn proceeds without
+ *  plugin-disable this once) while the next NEW caller retries instead of the error
+ *  poisoning the trim for the process lifetime. Exported for tests; `read` is the
+ *  same test seam as readInstalledPluginIds. */
+export function installedPluginIds(read?: (path: string) => Promise<string>): Promise<string[]> {
+  return (pluginIdsCache ??= readInstalledPluginIds(read).then((ids) => {
+    if (ids === null) pluginIdsCache = null;
+    return ids ?? [];
+  }));
 }
 
 /**

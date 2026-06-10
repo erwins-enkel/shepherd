@@ -5,6 +5,7 @@ import {
   spawnSettingsOverlay,
   composeSystemPrompt,
   readInstalledPluginIds,
+  installedPluginIds,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
@@ -2658,7 +2659,7 @@ test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits 
   expect(spawnSettingsOverlay()).not.toContain("enabledPlugins");
 });
 
-test("readInstalledPluginIds: enabledPlugins keys; [] on missing file / bad JSON / no key", async () => {
+test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/parse error", async () => {
   const ids = await readInstalledPluginIds(async () =>
     JSON.stringify({ enabledPlugins: { "x@r": true, "y@r": false } }),
   );
@@ -2667,10 +2668,30 @@ test("readInstalledPluginIds: enabledPlugins keys; [] on missing file / bad JSON
     await readInstalledPluginIds(async () => {
       throw new Error("ENOENT");
     }),
-  ).toEqual([]);
-  expect(await readInstalledPluginIds(async () => "{not json")).toEqual([]);
+  ).toBeNull();
+  expect(await readInstalledPluginIds(async () => "{not json")).toBeNull();
   expect(await readInstalledPluginIds(async () => "{}")).toEqual([]);
   expect(await readInstalledPluginIds(async () => '{"enabledPlugins":null}')).toEqual([]);
+});
+
+test("installedPluginIds: errors resolve [] but are NOT cached; successes are", async () => {
+  // Order matters: the success case below populates the module-level cache for good.
+  let throws = 0;
+  const throwing = async () => {
+    throws++;
+    throw new Error("EIO");
+  };
+  expect(await installedPluginIds(throwing)).toEqual([]); // caller still proceeds
+  expect(await installedPluginIds(throwing)).toEqual([]); // retried, not poisoned
+  expect(throws).toBe(2);
+  let reads = 0;
+  const ok = async () => {
+    reads++;
+    return '{"enabledPlugins":{"x@r":true}}';
+  };
+  expect(await installedPluginIds(ok)).toEqual(["x@r"]);
+  expect(await installedPluginIds(ok)).toEqual(["x@r"]);
+  expect(reads).toBe(1); // success memoized for the process lifetime
 });
 
 /** injectDeps + an injected pluginIds seam, counting how often it's consulted. */

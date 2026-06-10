@@ -116,6 +116,9 @@ export interface PrStatus {
   number?: number;
   url?: string;
   title?: string;
+  /** ms epoch the PR was opened; undefined when there is no PR (or a cached
+   *  payload predates the field). Drives the TimePopover's "open for X" line. */
+  createdAt?: number;
   mergeable?: boolean | null;
   checks: ChecksState;
   deployConfigured: boolean;

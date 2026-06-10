@@ -902,5 +902,20 @@
   "feat_steer_labels_title": "Steer-Beschriftungen einblenden",
   "feat_steer_labels_body": "In der engen mobilen Steer-Leiste blendest du mit der rechts angedockten „ABC“-Taste die Textbeschriftung jedes Buttons ein statt nur das Emoji — so erkennst du die Steers wieder, wenn du nicht mehr weißt, was ein Symbol bedeutet. Nochmal tippen klappt zurück auf Symbole. Die Wahl wird pro Gerät gemerkt.",
   "feat_usage_gauge_detail_title": "Detaillierte Auslastungs-Anzeige am Desktop",
-  "feat_usage_gauge_detail_body": "Fahr in der oberen Leiste über die 5H-/WK-Balken — jetzt öffnet sich eine detaillierte Karte mit jedem Fenster, vollem Namen, breitem Balken, exaktem Prozentwert und Reset-Zeitpunkt, statt der bisherigen einzeiligen Tooltip-Zeile."
+  "feat_usage_gauge_detail_body": "Fahr in der oberen Leiste über die 5H-/WK-Balken — jetzt öffnet sich eine detaillierte Karte mit jedem Fenster, vollem Namen, breitem Balken, exaktem Prozentwert und Reset-Zeitpunkt, statt der bisherigen einzeiligen Tooltip-Zeile.",
+  "timetip_clock": "⏱ {elapsed} auf der Uhr — tickt seit {start}",
+  "timetip_last_activity": "Letztes Lebenszeichen vor {ago} 👀",
+  "timetip_pr_open_since": "PR #{number} schmort seit {ago} im Ofen 🍲",
+  "timetip_approved_ago": "Approved von {who} vor {ago} ✅",
+  "timetip_your_turn": "Du bist dran! 🫵",
+  "timetip_waiting_review_fresh": "{who} ist mit dem Review dran — seit {ago} ⏳",
+  "timetip_waiting_review_dozing": "Schläft {who}? Seit {ago} kein Review 😴",
+  "timetip_waiting_review_burning": "{who}! Dieses Review brennt an — {ago} 🔥",
+  "timetip_waiting_review_skeleton": "Warte immer noch auf {who}s Review… {ago} 💀",
+  "timetip_waiting_merge_fresh": "{who} muss nur noch mergen… {ago} ⏳",
+  "timetip_waiting_merge_dozing": "Der Merge-Knopf wartet auf {who} — {ago} 😴",
+  "timetip_waiting_merge_burning": "{who}! Der Merge-Knopf verstaubt! {ago} 🔥",
+  "timetip_waiting_merge_skeleton": "Warte seit {ago} auf {who}s Merge… 💀",
+  "feat_time_tooltip_title": "Kachel-Zeit, aufgeschlüsselt",
+  "feat_time_tooltip_body": "Fahre über eine Session-Karte und sieh, woraus ihre Uhr besteht — Laufzeit, letzte Aktivität und wie lange ein offener PR schon auf Review oder Merge wartet, mit eskalierenden Emojis, je länger es dauert 🔥."
 }

@@ -1089,6 +1089,7 @@
           {selectedId}
           {nowMs}
           git={store.git}
+          activity={store.activity}
           onselect={(id) => {
             selectedId = id;
             viewMode = "focus";

@@ -17,6 +17,7 @@
     onsubmit,
     onclose,
     onclone,
+    onnewproject,
     initialPrompt,
     initialRepoPath,
     initialIssue,
@@ -34,6 +35,7 @@
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
+    onnewproject?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
     initialIssue?: Issue;
@@ -370,6 +372,7 @@
         value={repoPath}
         onchange={(p) => (repoPath = p)}
         {onclone}
+        {onnewproject}
       />
     </div>
 

@@ -2483,6 +2483,15 @@ test("startPreview: steer contains the command in backticks", () => {
   expect(steer).toContain("`cd ui && npm run dev`");
 });
 
+test("startPreview: steer demands the tailnet HTTPS URL, not just localhost", () => {
+  const steer = PREVIEW_START_STEER("bun run dev");
+  expect(steer).toContain("tailnet HTTPS URL");
+  expect(steer).toContain("tailscale serve --bg --https");
+  // FQDN must be resolved at runtime, never baked into the prompt
+  expect(steer).toContain("tailscale status --json");
+  expect(steer).not.toMatch(/\.ts\.net/);
+});
+
 test("startPreview: returns false for an unknown session id", () => {
   const { svc, sent } = makePreviewSvc({ terminalId: "term_p", liveIds: ["term_p"] });
   expect(svc.startPreview("nope", "bun run dev")).toBe(false);

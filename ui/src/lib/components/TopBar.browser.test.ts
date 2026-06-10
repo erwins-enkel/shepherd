@@ -617,3 +617,75 @@ describe("TopBar — working-while-blocked counts in the working tally, not bloc
       .toBeInTheDocument();
   });
 });
+
+describe("TopBar — idle gear opens Settings directly", () => {
+  it("desktop: an idle herd's gear opens Settings without a menu", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onsettings = vi.fn();
+    const list = [
+      { id: "b1", status: "blocked" },
+      { id: "d1", status: "done" },
+    ] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: list,
+      onsettings,
+    });
+    // idle → the gear's accessible name is the settings label, not the menu label
+    await page.getByRole("button", { name: m.topbar_settings_aria() }).click();
+    expect(onsettings).toHaveBeenCalledTimes(1);
+    // no menu opened: neither the dropdown Settings row nor any menuitem exists
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .not.toBeInTheDocument();
+  });
+
+  it("desktop: a running herd's gear still opens the menu, only the row calls onsettings", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onsettings = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+      onsettings,
+    });
+    // running → gear is a menu button; clicking it opens the menu, not Settings
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    expect(onsettings).not.toHaveBeenCalled();
+    const settingsRow = page.getByRole("menuitem", { name: m.settings_title() });
+    await expect.element(settingsRow).toBeInTheDocument();
+    await settingsRow.click();
+    expect(onsettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop: the open menu dismisses itself when the herd goes quiet underneath it", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const { rerender } = render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+    });
+    // running → open the menu
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .toBeInTheDocument();
+    // agents finish → no haltable session left; the stale menu must close itself
+    await rerender({
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(0),
+    });
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .not.toBeInTheDocument();
+  });
+});

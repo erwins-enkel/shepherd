@@ -211,10 +211,10 @@
     if (!touch || !hotter) popoverOpen = false;
   });
 
-  // The gear is a menu button: one click opens a small popup with the e-stop (when
-  // something is working) above a "Settings…" row. The menu always opens — when the
-  // herd is idle it just holds the lone Settings row — so the gear's behaviour stays
-  // predictable regardless of state.
+  // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
+  // opens the Settings pane directly — matching the gear's "Settings" tooltip/aria.
+  // Only when something is haltable does it become a menu button: one click opens a
+  // small popup with the e-stop row above a "Settings…" row.
   let menuOpen = $state(false);
   let gearBtn = $state<HTMLButtonElement | null>(null);
   let gearWrap = $state<HTMLElement | null>(null);
@@ -238,6 +238,14 @@
   function toggleMenu() {
     if (menuOpen) closeMenu();
     else menuOpen = true;
+  }
+  // Gear click: idle herd → open Settings directly; something haltable → open the menu.
+  function clickGear() {
+    if (haltable === 0) {
+      onsettings?.();
+      return;
+    }
+    toggleMenu();
   }
   function clickHalt() {
     if (!armed) {
@@ -275,10 +283,15 @@
       e.key === "ArrowDown" ? (here + 1) % items.length : (here - 1 + items.length) % items.length;
     items[next]?.focus();
   }
-  // Drop the armed state if the herd goes quiet underneath it (agents finished), so a
-  // later run doesn't surface a pre-armed row.
+  // If the herd goes quiet underneath the gear (agents finished), dismiss the menu and
+  // drop any armed state. Otherwise the e-stop row vanishes from the open menu, leaving a
+  // stale lone-Settings popup — and since an idle gear opens Settings directly, the next
+  // click would surface Settings without first dismissing it. When the menu wasn't open we
+  // still disarm, so a later run never surfaces a pre-armed row.
   $effect(() => {
-    if (haltable === 0) disarmHalt();
+    if (haltable !== 0) return;
+    if (menuOpen) closeMenu(true);
+    else disarmHalt();
   });
   // Destroy-only cleanup (no tracked reads → runs once): never leak the disarm timer.
   $effect(() => () => clearTimeout(armTimer));
@@ -559,21 +572,22 @@
         >
       {/if}
     {/if}
-    <!-- The gear is now a menu button: it opens the e-stop (when something is
-         working) plus the Settings entry. A pip on the gear is the only at-rest
-         cue that there's a herd to halt: amber while agents simply work (matches the
-         working colour), escalating to red only when something is blocked — so red
-         keeps meaning "needs you", consistent with the rest of the bar. The blue
-         herdr-update dot (mobile) shifts to the opposite corner when both want the gear. -->
+    <!-- The gear adapts to state: idle herd → a click opens Settings directly;
+         when something is haltable it becomes a menu button opening the e-stop above
+         the Settings entry. A pip on the gear is the only at-rest cue that there's a
+         herd to halt: amber while agents simply work (matches the working colour),
+         escalating to red only when something is blocked — so red keeps meaning
+         "needs you", consistent with the rest of the bar. The blue herdr-update dot
+         (mobile) shifts to the opposite corner when both want the gear. -->
     <div class="gear-wrap" bind:this={gearWrap}>
       <button
         bind:this={gearBtn}
         class="gear tip"
         type="button"
-        onclick={toggleMenu}
+        onclick={clickGear}
         data-tip={haltable > 0 ? m.topbar_menu_aria() : m.settings_title()}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
+        aria-haspopup={haltable > 0 ? "menu" : undefined}
+        aria-expanded={haltable > 0 ? menuOpen : undefined}
         aria-label={haltable > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
         >⚙{#if haltable > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
           ></span>{/if}{#if herdrUpdateAvailable && mobile}<span

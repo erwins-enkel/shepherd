@@ -184,6 +184,8 @@ export interface ReviewVerdict {
   findings: string[]; // discrete actionable items; [] = nothing to address (loop terminates)
   addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)
   addressCap: number; // the streak cap this run used — surfaced so the UI badge math need not mirror it
+  streakReviews: number; // critic reviews finalized during the current outstanding-findings streak (0 = clean/reset); bounds review spawns at 2*cap, independent of addressRound
+  reviewedPatchIds: string[]; // patch-ids reviewed during the current streak (cleared on a clean verdict, preserved across an error); a re-appeared id within the streak is skipped (churn/revert dedup)
   errorRound: number; // consecutive critic error/timeout verdicts (separate no-progress counter; 0 on any real verdict)
   finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
   finalRoundTimeoutMs: number; // live abandonment timeout; surfaced so the UI never hardcodes it

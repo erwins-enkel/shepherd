@@ -94,9 +94,32 @@ interface InFlight {
   startedAt: number;
   priorRound: number; // auto-address steers already spent on this findings streak
   priorErrorRound: number; // consecutive critic error/timeout verdicts before this run
+  priorStreakReviews: number; // critic reviews finalized on this streak before this run (bounds spawns at 2*cap)
+  priorReviewedPatchIds: string[]; // patch-ids reviewed on this streak before this run (churn/revert dedup set)
   priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
   seenNoteIds: string[]; // priorSeen + notes fed to THIS run's critic; only "consumed" on a real verdict
   finalizing?: boolean;
+}
+
+/** The prior verdict's streak-accountability state, carried into a fresh run's InFlight (no
+ *  prior → fresh defaults). Extracted from begin() so its per-field `??` defaults don't inflate
+ *  that method's branch count past the complexity budget. */
+type PriorStreakState = Pick<
+  InFlight,
+  | "priorRound"
+  | "priorErrorRound"
+  | "priorStreakReviews"
+  | "priorReviewedPatchIds"
+  | "priorSeenNoteIds"
+>;
+function priorStreakState(prior: ReviewVerdict | null): PriorStreakState {
+  return {
+    priorRound: prior?.addressRound ?? 0,
+    priorErrorRound: prior?.errorRound ?? 0,
+    priorStreakReviews: prior?.streakReviews ?? 0,
+    priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
+    priorSeenNoteIds: prior?.seenNoteIds ?? [],
+  };
 }
 
 export interface ReviewServiceDeps {
@@ -203,7 +226,32 @@ export class ReviewService {
     if (!session.branch) return;
     if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return;
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return; // in flight / mid-spawn
-    if (this.deps.store.getReview(session.id)?.headSha === git.headSha) return; // head already reviewed
+    const prior = this.deps.store.getReview(session.id);
+    if (prior?.headSha === git.headSha) return; // head already reviewed
+    // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
+    // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
+    // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
+    // spawnCap field would be dead weight nothing reads). Bail BEFORE allocating the probe
+    // worktree so even that is saved.
+    //
+    // STRICT for findings reviews, APPROXIMATE for total spawns. streakReviews increments
+    // only on a findings verdict and an error/timeout verdict preserves it while carrying
+    // findings=[] (it earns no progress) — so an error verdict can never itself reach the
+    // ceiling (reaching it needs a findings verdict, which then blocks the next spawn), and
+    // it never trips this gate's findings>0 leg. Net: findings-bearing reviews are hard-capped
+    // at 2*cap, but a critic flapping on *timeouts* keeps re-spawning on each new head. That
+    // error churn is deliberately governed by the separate errorRound escalation in finalize()
+    // (a stall signal at the cap), NOT this ceiling: a transient timeout must neither be
+    // charged against the findings budget nor permanently halt review. So total critic spawns
+    // can exceed 2*cap while errors interleave — bounded by errorRound + the human it escalates
+    // to, not by this gate.
+    //
+    // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused. The only
+    // resume paths are a clean verdict that lands while still under budget (won't happen
+    // once paused — we don't re-spawn) or a human archiving the session (forget() →
+    // dropReview clears the row, resetting the streak). There is deliberately no in-PR
+    // "re-request review" action; crossing the ceiling means the critic gives up here.
+    if (prior && prior.findings.length > 0 && prior.streakReviews >= 2 * this.cap) return;
     // Claim the slot synchronously, BEFORE begin()'s await, so a concurrent consider bails.
     this.starting.add(session.id);
     try {
@@ -279,9 +327,7 @@ export class ReviewService {
       terminalId,
       criticSessionId,
       startedAt: this.now(),
-      priorRound: prior?.addressRound ?? 0,
-      priorErrorRound: prior?.errorRound ?? 0,
-      priorSeenNoteIds: prior?.seenNoteIds ?? [],
+      ...priorStreakState(prior),
       seenNoteIds,
     });
     // Persist the spawn row now (totals NULL until finalize) so review burn is attributable
@@ -301,11 +347,20 @@ export class ReviewService {
    * Rebase-skip: dedup on WHAT the critic reviews (the branch diff `base...HEAD`), not on
    * the head SHA. A rebase/force-push moves the SHA but leaves the branch's own diff
    * identical, so its patch-id is stable (patch-id ignores line numbers — robust to the new
-   * base shifting hunks). Identical fingerprint → the prior verdict still holds: re-point it
-   * at the new head (so consider()'s SHA guard short-circuits next poll), reap the probe
+   * base shifting hunks). Skip when the incoming fingerprint is a member of the streak's
+   * reviewed-patch-id SET — the prior verdict's own patchId OR any earlier id in
+   * `reviewedPatchIds` (churn/revert: a diff bounced back to a state already reviewed this
+   * streak must not be re-reviewed). On a match the prior verdict still holds: re-point it at
+   * the new head (so consider()'s SHA guard short-circuits next poll), reap the probe
    * worktree, and skip the run — deliberately preserving findings/decision/rounds (those
    * still apply, and we must not double-post). Empty/failed fingerprint ('' or null) → never
    * skip; review. Returns the fingerprint (persisted on the verdict) + whether we skipped.
+   *
+   * Keep the `prior.patchId === patchId` OR-branch alongside set-membership: a clean verdict
+   * resets `reviewedPatchIds` to [] (but keeps its patchId), and every migrated DB row
+   * backfills the set to '[]' — set-membership alone would lose the rebase-skip for both on a
+   * same-diff force-push. The clean-reset also means a diff that was clean then reverted to an
+   * earlier buggy state IS reviewed again (its id is no longer in the now-empty set).
    *
    * Never skip past an `error` verdict: a timeout/unparseable run produced no real verdict,
    * so its decision is a transient failure to RETRY, not a result to preserve — inheriting it
@@ -320,7 +375,11 @@ export class ReviewService {
     worktreePath: string,
   ): Promise<{ patchId: string; skipped: boolean }> {
     const patchId = (await this.computePatchId(worktreePath, session.baseBranch)) ?? "";
-    if (patchId && prior?.patchId && prior.decision !== "error" && prior.patchId === patchId) {
+    if (
+      patchId &&
+      prior?.decision !== "error" &&
+      (prior?.patchId === patchId || (prior?.reviewedPatchIds ?? []).includes(patchId))
+    ) {
       this.deps.store.bumpReviewHead(session.id, git.headSha!, this.now());
       this.deps.worktree.remove(worktreePath);
       return { patchId, skipped: true };
@@ -438,6 +497,13 @@ export class ReviewService {
         // just un-reverified this push).
         verdict.errorRound = f.priorErrorRound + 1;
         verdict.addressRound = f.priorRound;
+        // Error verdicts deliberately do NOT increment streakReviews: error-spawn token cost
+        // is bounded by the separate errorRound counter + its own cap escalation, not by the
+        // spawn ceiling. Preserve the streak's review count + reviewed-patch-id set so the
+        // ceiling math and churn dedup stay correct across a transient failure (and the errored
+        // patch-id is NOT added — mirrors patchId:"" so the same diff re-reviews).
+        verdict.streakReviews = f.priorStreakReviews;
+        verdict.reviewedPatchIds = f.priorReviewedPatchIds;
         // The critic never produced a verdict, so it didn't actually consider this run's
         // freshly-fetched notes — roll the seen set back so they re-inject next round
         // instead of being silently swallowed by an error pass.
@@ -454,6 +520,31 @@ export class ReviewService {
           });
         }
       } else {
+        // Per-streak review accounting — independent of publish/steer outcome and of
+        // autoAddressEnabled (review token spend happens whether or not findings are steered).
+        // A clean verdict (findings:[]) resets the streak; any findings-bearing verdict
+        // increments it and appends this run's patch-id (deduped) to the churn-skip set.
+        if (verdict.findings.length === 0) {
+          verdict.streakReviews = 0;
+          verdict.reviewedPatchIds = [];
+        } else {
+          verdict.streakReviews = f.priorStreakReviews + 1;
+          verdict.reviewedPatchIds = [...new Set([...f.priorReviewedPatchIds, f.patchId])];
+          // Escalate once, when the streak first reaches the ceiling (2*cap). `>=` with a
+          // crossing guard (priorStreakReviews < ceiling) so a cap lowered between runs still
+          // fires rather than being stepped over, while reviews past the ceiling don't
+          // re-signal every tick (consider() bails before re-spawning anyway). Mirrors the
+          // errorRound crossing-guard pattern below in the error path.
+          const ceiling = 2 * this.cap;
+          if (verdict.streakReviews >= ceiling && f.priorStreakReviews < ceiling) {
+            this.deps.store.addSignal({
+              repoPath: f.repoPath,
+              sessionId: f.sessionId,
+              kind: "stall",
+              payload: `critic reviewed this PR ${verdict.streakReviews} times without reaching clean — auto-review paused; needs human attention`,
+            });
+          }
+        }
         await this.publishVerdict(f, verdict);
       }
       this.deps.store.putReview(verdict);
@@ -586,6 +677,13 @@ export class ReviewService {
       findings,
       addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)
       addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
+      // streakReviews increments on ANY finalized verdict with findings (regardless of
+      // publish/steer outcome) and resets on clean — finalize() overwrites for findings/error;
+      // a clean (findings:[]) verdict keeps this 0 reset. reviewedPatchIds tracks the churn/
+      // revert dedup set: clean → [] (set above), findings → dedup append, error → preserve;
+      // finalize() overwrites for the non-clean branches.
+      streakReviews: 0,
+      reviewedPatchIds: [],
       errorRound: 0, // finalize() overwrites on an error verdict
       finalRoundPending: false, // finalize() sets this on a real verdict
       finalRoundTimeoutMs: DEFAULT_FINAL_ROUND_TIMEOUT_MS, // live escalation timeout
@@ -622,7 +720,10 @@ export class ReviewService {
  *  no-op. patch-id ignores line numbers, so it stays stable when the rebased-onto base
  *  shifts hunks elsewhere; it changes only when the branch's own changed lines or their
  *  context change. Null on no diff or any git failure → caller never skips (reviews). */
-async function defaultComputePatchId(worktreePath: string, base: string): Promise<string | null> {
+export async function defaultComputePatchId(
+  worktreePath: string,
+  base: string,
+): Promise<string | null> {
   try {
     // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
     // only the head branch, so local `main` can lag behind origin; on a rebase onto newer

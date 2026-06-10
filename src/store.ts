@@ -179,6 +179,7 @@ export class SessionStore implements CapStore {
       summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
       addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
+      streakReviews INTEGER NOT NULL DEFAULT 0, reviewedPatchIds TEXT NOT NULL DEFAULT '[]',
       seenNoteIds TEXT NOT NULL DEFAULT '[]',
       finalRoundPending INTEGER NOT NULL DEFAULT 0,
       finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000,
@@ -640,6 +641,8 @@ export class SessionStore implements CapStore {
       findings: parseFindings(r.findings),
       addressRound: r.addressRound ?? 0,
       addressCap: r.addressCap ?? 3,
+      streakReviews: r.streakReviews ?? 0,
+      reviewedPatchIds: parseFindings(r.reviewedPatchIds), // same string[] JSON shape as seenNoteIds
       errorRound: r.errorRound ?? 0,
       finalRoundPending: !!r.finalRoundPending,
       finalRoundTimeoutMs: r.finalRoundTimeoutMs ?? 900_000,
@@ -652,7 +655,7 @@ export class SessionStore implements CapStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as any;
@@ -662,12 +665,13 @@ export class SessionStore implements CapStore {
   putReview(v: ReviewVerdict): void {
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-         addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          addressRound=excluded.addressRound, addressCap=excluded.addressCap,
+         streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
          finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
          url=excluded.url, updatedAt=excluded.updatedAt`,
@@ -681,6 +685,8 @@ export class SessionStore implements CapStore {
         JSON.stringify(v.findings ?? []),
         v.addressRound ?? 0,
         v.addressCap ?? 3,
+        v.streakReviews ?? 0,
+        JSON.stringify(v.reviewedPatchIds ?? []),
         v.errorRound ?? 0,
         v.finalRoundPending ? 1 : 0,
         v.finalRoundTimeoutMs ?? 900_000,
@@ -710,7 +716,7 @@ export class SessionStore implements CapStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt FROM reviews`,
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt FROM reviews`,
       )
       .all() as any[];
     const out: Record<string, ReviewVerdict> = {};
@@ -1015,6 +1021,11 @@ export class SessionStore implements CapStore {
     // an ongoing mirror. errorRound/seenNoteIds back the error-escalation + note dedup.
     add("addressCap", `addressCap INTEGER NOT NULL DEFAULT 3`);
     add("errorRound", `errorRound INTEGER NOT NULL DEFAULT 0`);
+    // Per-streak spawn ceiling + churn/revert dedup (#501). Old rows backfill to 0 / '[]':
+    // a row at rest hydrates to a fresh streak (next head reviews once and starts counting),
+    // and an empty reviewedPatchIds set keeps the patchId OR-branch as the lone rebase-skip.
+    add("streakReviews", `streakReviews INTEGER NOT NULL DEFAULT 0`);
+    add("reviewedPatchIds", `reviewedPatchIds TEXT NOT NULL DEFAULT '[]'`);
     add("seenNoteIds", `seenNoteIds TEXT NOT NULL DEFAULT '[]'`);
     // patchId backs rebase-skip: pre-existing rows backfill to '' (unknown), so the
     // next head change reviews once and records the fingerprint going forward.

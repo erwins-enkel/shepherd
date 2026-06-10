@@ -412,6 +412,8 @@ test("forget reaps an in-flight critic and drops the stored review", async () =>
     findings: [],
     addressRound: 0,
     addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 15 * 60_000,
@@ -615,6 +617,8 @@ test("clean verdict (no findings) stops the loop and resets the round", async ()
     findings: ["was broken"],
     addressRound: 2,
     addressCap: 3,
+    streakReviews: 2,
+    reviewedPatchIds: [],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 15 * 60_000,
@@ -656,6 +660,8 @@ test("round cap reached: holds the round, posts the review + signal, does not st
     findings: ["still broken"],
     addressRound: 3, // == cap: the agent has had its 3 tries
     addressCap: 3,
+    streakReviews: 3,
+    reviewedPatchIds: [],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 15 * 60_000,
@@ -820,6 +826,8 @@ function priorReview(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
     findings: ["fix the race in worker.ts"],
     addressRound: 1,
     addressCap: 3,
+    streakReviews: 1,
+    reviewedPatchIds: [],
     errorRound: 0,
     finalRoundPending: false,
     finalRoundTimeoutMs: 15 * 60_000,
@@ -1083,4 +1091,223 @@ test("an error verdict does not consume freshly-fetched author notes (re-inject 
   expect(reviews["s1"]?.decision).toBe("error");
   // the errored critic never produced a verdict on c9, so it must NOT be marked seen
   expect(reviews["s1"]?.seenNoteIds).toEqual([]);
+});
+
+// ── bound review spawns: per-streak spawn ceiling (#501) ─────────────────────────
+
+test("ceiling reached: does NOT spawn (no worktree allocated, no re-signal)", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+    removed,
+    signals,
+  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  // cap default 3 → ceiling 6; a streak already AT the ceiling with outstanding findings.
+  reviews["s1"] = priorReview({ streakReviews: 6, headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(0); // critic not spawned
+  expect(removed).toEqual([]); // bailed BEFORE allocating the probe worktree
+  // the stall signal fired on crossing (in finalize), not here on the blocked tick
+  expect(signals.some((s) => s.kind === "stall")).toBe(false);
+});
+
+test("ceiling crossing emits exactly one stall signal", async () => {
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps(
+    {
+      computePatchId: async () => "pid-cross",
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "still broken",
+        body: "b",
+        findings: ["still broken"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  // one review short of the ceiling (6); this run finalizes the 6th → crosses.
+  reviews["s1"] = priorReview({ streakReviews: 5, headSha: "old" });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.tick();
+  expect(reviews["s1"]?.streakReviews).toBe(6); // reached the ceiling
+  const paused = signals.filter(
+    (s) => s.kind === "stall" && s.payload.includes("auto-review paused"),
+  );
+  expect(paused).toHaveLength(1); // exactly one, on crossing
+  expect(paused[0]!.payload).toContain("6 times");
+});
+
+test("a higher live cap raises the ceiling: a streak at 6 still spawns + the signal tracks the cap", async () => {
+  // The ceiling is 2*cap, derived from the LIVE cap. With cap=4 the ceiling is 8, so a streak
+  // at 6 is under budget (would be at-ceiling under the default cap=3). Proves the gate +
+  // crossing guard both read the live cap, not a frozen number — and the crossing guard fires
+  // once exactly when the streak first reaches the live ceiling.
+  const {
+    deps: d,
+    reviews,
+    started,
+    signals,
+  } = makeDeps(
+    {
+      cap: 4, // ceiling = 8
+      computePatchId: async () => "pid-h",
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "still broken",
+        body: "b",
+        findings: ["still broken"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ streakReviews: 7, headSha: "old" }); // one short of 8
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(1); // under the raised ceiling → spawns
+  await svc.tick();
+  expect(reviews["s1"]?.streakReviews).toBe(8); // crosses the raised ceiling
+  const paused = signals.filter((s) => s.kind === "stall" && s.payload.includes("8 times"));
+  expect(paused).toHaveLength(1); // signal count tracks the live ceiling
+});
+
+test("under the ceiling still spawns normally", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview({ streakReviews: 3, headSha: "old" }); // well under 6
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(1); // budget remains → critic spawns
+});
+
+test("ceiling is strict for findings reviews but NOT total spawns: an error verdict (findings=[]) re-reviews", async () => {
+  // Documents the approximate-total bound (#501 critic note): the gate keys off
+  // findings.length > 0, so an error/timeout verdict (which preserves streakReviews but
+  // carries findings=[]) does NOT trip the ceiling — error churn is governed by errorRound,
+  // not this gate, so a flapping critic can re-spawn past 2*cap. (In the live loop an error
+  // verdict can't actually carry streakReviews >= ceiling, since reaching the ceiling needs a
+  // findings verdict that then blocks the next spawn; this fixture pins the gate's literal
+  // semantics so a refactor dropping the findings>0 leg fails here and forces a conscious call.)
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  reviews["s1"] = priorReview({
+    decision: "error",
+    findings: [], // error verdicts carry no findings
+    streakReviews: 6, // at the default ceiling, yet not a findings streak
+    headSha: "old",
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(1); // not blocked by the findings-review ceiling
+});
+
+test("clean verdict resets streakReviews and reviewedPatchIds (un-suppresses)", async () => {
+  const { deps: d, reviews } = makeDeps(
+    {
+      computePatchId: async () => "pid-clean-run",
+      readVerdict: () => ({ decision: "comment", summary: "lgtm", body: "b", findings: [] }),
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({
+    streakReviews: 4,
+    reviewedPatchIds: ["pid-a", "pid-b"],
+    headSha: "old",
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.tick();
+  expect(reviews["s1"]?.streakReviews).toBe(0); // streak reset
+  expect(reviews["s1"]?.reviewedPatchIds).toEqual([]); // churn set cleared
+});
+
+// ── bound review spawns: per-streak patch-id dedup (#501) ────────────────────────
+
+test("revert to an earlier (not immediately-prior) reviewed patch-id skips", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({
+    computePatchId: async () => "pid-a", // bounced back to a diff reviewed earlier this streak
+  });
+  // prior verdict's own patchId is pid-c, but pid-a was reviewed earlier in the streak.
+  reviews["s1"] = priorReview({
+    patchId: "pid-c",
+    headSha: "old",
+    reviewedPatchIds: ["pid-a", "pid-b", "pid-c"],
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(0); // set-membership match → skipped
+  expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed, verdict preserved
+  expect(reviews["s1"]?.findings).toEqual(["fix the race in worker.ts"]); // outstanding findings held
+});
+
+test("after a clean verdict cleared the set, a pre-clean patch-id is reviewed again", async () => {
+  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => "pid-a" });
+  // a clean verdict reset the set to []; pid-a was reviewed pre-clean but is no longer tracked.
+  reviews["s1"] = priorReview({
+    decision: "commented",
+    findings: [],
+    patchId: "pid-clean",
+    reviewedPatchIds: [],
+    streakReviews: 0,
+    headSha: "old",
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(bumped).toHaveLength(0); // not skipped — the set was cleared
+  expect(started).toHaveLength(1); // reviewed again (a revert to a buggy earlier state)
+});
+
+test("error verdict does not poison the dedup set (same diff re-reviews)", async () => {
+  const { deps: d, reviews } = makeDeps({
+    computePatchId: async () => "pid-x",
+    // first run errors on pid-x; it must NOT be added to reviewedPatchIds.
+    readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }),
+  });
+  reviews["s1"] = priorReview({ headSha: "old", reviewedPatchIds: [] });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  // errored patch-id NOT added → a later head with the SAME diff re-reviews (rebaseSkip
+  // also independently refuses to skip past an error decision).
+  expect(reviews["s1"]?.reviewedPatchIds).toEqual([]);
+});
+
+test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-branch)", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({ computePatchId: async () => "pid-clean" });
+  // a CLEAN verdict: reviewedPatchIds is [] but patchId is preserved. The OR-branch
+  // (prior.patchId === patchId) must still fire even with an empty set.
+  reviews["s1"] = priorReview({
+    decision: "commented",
+    findings: [],
+    patchId: "pid-clean",
+    reviewedPatchIds: [],
+    streakReviews: 0,
+    headSha: "old",
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(started).toHaveLength(0); // skipped via the patchId OR-branch
+  expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
 });

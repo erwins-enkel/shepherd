@@ -1804,10 +1804,10 @@
     {/if}
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
-           plus the session-lifecycle controls (ready / autopilot / decommission)
-           live one disclosure away — this toggle reveals them as a second header
-           row (.vp-git-strip), keeping the primary line down to identity + tabs
-           + status. -->
+           plus the autopilot toggle live one disclosure away — this toggle reveals
+           them as a second header row (.vp-git-strip), keeping the primary line
+           down to identity + tabs + status. Decommission is NOT in here on
+           desktop: it sits inline in the actions cluster (quiet ✕ / green nudge). -->
       <button
         class="git-toggle"
         class:open={gitOpen}
@@ -1892,8 +1892,8 @@
       {#if prReady}
         <!-- earned prominence: once a PR exists the work is delivered, so the
              decommission nudge surfaces inline (green, arms red on click) — one
-             obvious click+confirm away. Until then the control lives in the git
-             strip with the rest of the lifecycle cluster. -->
+             obvious click+confirm away. Before that, desktop shows the quiet
+             icon-only ✕ below; compact keeps the labelled control in the git strip. -->
         <button
           class="decom"
           class:armed
@@ -1911,6 +1911,21 @@
             {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
           {/if}
         </button>
+      {:else if !compact}
+        <!-- no PR yet → desktop still keeps decommission one click away, but quiet:
+             a faint icon-only ✕ (the green nudge is earned by delivering a PR).
+             Compact layouts keep the labelled control in the git strip instead.
+             Same glyph rule as above: armed = red ✕?, never ✓. -->
+        <button
+          class="decom quiet"
+          class:armed
+          type="button"
+          onclick={decommission}
+          title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
+          aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
+        >
+          {armed ? "✕?" : "✕"}
+        </button>
       {/if}
     </div>
   </div>
@@ -1919,7 +1934,8 @@
        always on compact layouts (mobile + unfolded fold, where the header wraps),
        and on desktop only while the PR disclosure toggle is open. The strip is
        the session-lifecycle surface, so the lifecycle cluster (ready — inside
-       GitRail — autopilot, decommission) lives here too, off the identity row. -->
+       GitRail — autopilot, plus decommission on compact) lives here too, off the
+       identity row; on desktop decommission stays inline in the actions cluster. -->
   {#if (compact && !headerCollapsed) || gitOpen}
     <div class="vp-git-strip">
       <GitRail
@@ -1951,9 +1967,11 @@
         >
           {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
         </button>
-        {#if !prReady}
-          <!-- the rare destructive action, parked at the strip's far edge; once a
-               PR is up it graduates to the identity row as the green ready nudge -->
+        {#if compact && !prReady}
+          <!-- compact only: the rare destructive action, parked at the strip's far
+               edge; once a PR is up it graduates to the identity row as the green
+               ready nudge. Desktop always renders decommission inline in the
+               actions cluster, so it never duplicates here. -->
           <button
             class="decom"
             class:armed
@@ -2374,7 +2392,8 @@
     flex: 1;
   }
 
-  /* desktop: transparent to layout — resume + the decom-ready nudge flow inline.
+  /* desktop: transparent to layout — resume + the decom control (quiet ✕ or
+     ready nudge) flow inline.
      compact/phone override (see .vp-head.mobile .vp-actions) turns this into a
      real flex cluster so the trailing controls wrap together. */
   .vp-actions {
@@ -2695,10 +2714,11 @@
     font-size: var(--fs-meta);
   }
 
-  /* PR delivered → the work is done. The decommission control graduates from the
-     git strip onto the identity row as a bright, gently pulsing green call-to-action
-     so wrapping up the session reads as the obvious next step. Hover/armed below
-     still override it red (destructive confirm). */
+  /* PR delivered → the work is done. The decommission control graduates from its
+     quiet form (faint inline ✕ on desktop, strip button on compact) into a bright,
+     gently pulsing green call-to-action on the identity row so wrapping up the
+     session reads as the obvious next step. Hover/armed below still override it
+     red (destructive confirm). */
   .decom.ready {
     color: var(--color-green);
     border-color: color-mix(in srgb, var(--color-green) 40%, transparent);
@@ -2739,6 +2759,18 @@
     color: var(--color-red);
     border-color: var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  }
+
+  /* quiet variant: the pre-PR desktop inline ✕. Rest ink stays the base .decom
+     faint; hover/armed inherit the red destructive treatment above. Glyph-only,
+     so drop the word-mark letter-spacing and size it like the neighboring
+     rename ✎ — the class stays on while armed so arming never shifts layout
+     (only .decom.armed's colors take over). */
+  .decom.quiet {
+    font-size: var(--fs-meta);
+    letter-spacing: 0;
+    line-height: 1;
+    padding: 2px 6px;
   }
 
   /* rename: pencil affordance + inline editor — next to the task name on desktop,

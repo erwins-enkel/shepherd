@@ -15,7 +15,7 @@
     git?: GitState;
     activity?: SessionActivity;
     nowMs: number;
-    /** The card overlay's getBoundingClientRect() at show time — the popover is
+    /** The wall-clock element's getBoundingClientRect() at show time — the popover is
      *  position:fixed (the cards clip: .tile / .swipe-wrap are overflow:hidden). */
     anchorRect: DOMRect;
     onclose: () => void;

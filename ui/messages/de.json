@@ -593,6 +593,7 @@
   "steerbar_coach_dismiss": "Verstanden",
   "steerbar_labels_show": "Beschriftungen anzeigen",
   "steerbar_labels_hide": "Nur Symbole anzeigen",
+  "steerbar_labels_aria": "ABC: {action}",
   "steerseditor_title": "Gespeicherte Steers",
   "steerseditor_label_placeholder": "Bezeichnung",
   "steerseditor_text_placeholder": "Prompt-Text",

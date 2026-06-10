@@ -118,53 +118,62 @@
     >
   </div>
 {/if}
-<!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
-     emoji collapse to emoji-only (label stays in title/aria); the rest keep their
-     label and the bar's horizontal scroll remains the final fallback. -->
-<div
-  class="steer-bar"
-  class:show-labels={showLabels}
-  role="toolbar"
-  aria-label={m.steerbar_toolbar_aria()}
-  data-swipe-ignore
-  use:fitLabels
->
-  <button
-    type="button"
-    class="chip bc"
-    onpointerdown={down}
-    onpointermove={move}
-    onpointercancel={cancel}
-    onpointerup={(e) => tap(e, onbroadcast)}
-    title={m.steerbar_broadcast_aria()}
-    aria-label={m.steerbar_broadcast_aria()}
-    >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
+<!-- The ABC labels toggle lives OUTSIDE the scrolling/measured .steer-bar (as its
+     right-hand flex sibling) so it's always visible at the far right AND so its box
+     never enters fitLabels' scrollWidth measurement — an in-flow auto-margin would
+     make scrollWidth == clientWidth and poison the cached full-label width. -->
+<div class="steer-row" data-swipe-ignore>
+  <!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
+       emoji collapse to emoji-only (label stays in title/aria); the rest keep their
+       label and the bar's horizontal scroll remains the final fallback. -->
+  <div
+    class="steer-bar"
+    class:show-labels={showLabels}
+    role="toolbar"
+    aria-label={m.steerbar_toolbar_aria()}
+    use:fitLabels
   >
-  {#each chips as s (s.id)}
     <button
       type="button"
-      class="chip"
-      class:has-emoji={!!s.emoji}
-      title={s.text}
-      aria-label={m.steerbar_send_aria({ label: s.label })}
+      class="chip bc"
       onpointerdown={down}
       onpointermove={move}
       onpointercancel={cancel}
-      onpointerup={(e) => tap(e, () => send(s.text))}
-      >{#if s.emoji}<span class="chip-emoji" aria-hidden="true">{s.emoji}</span>{/if}<span
-        class="chip-label">{s.label}</span
-      ></button
+      onpointerup={(e) => tap(e, onbroadcast)}
+      title={m.steerbar_broadcast_aria()}
+      aria-label={m.steerbar_broadcast_aria()}
+      >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
     >
-  {/each}
-  <!-- Right-anchored labels toggle: stays pinned to the bar's right edge (sticky)
-       so it's reachable even when the chips scroll. Toggles every chip between
-       icon-only and icon+label. -->
+    {#each chips as s (s.id)}
+      <button
+        type="button"
+        class="chip"
+        class:has-emoji={!!s.emoji}
+        title={s.text}
+        aria-label={m.steerbar_send_aria({ label: s.label })}
+        onpointerdown={down}
+        onpointermove={move}
+        onpointercancel={cancel}
+        onpointerup={(e) => tap(e, () => send(s.text))}
+        >{#if s.emoji}<span class="chip-emoji" aria-hidden="true">{s.emoji}</span>{/if}<span
+          class="chip-label">{s.label}</span
+        ></button
+      >
+    {/each}
+  </div>
+  <!-- Right-anchored labels toggle. Sits at the bar's far right as a flex sibling of
+       the scroll area (always visible, never scrolls under). The accessible name leads
+       with the visible "ABC" glyph so voice control can address it by what it reads
+       (WCAG 2.5.3 label-in-name); the title carries the plain description. -->
   <button
     type="button"
     class="chip lbl-toggle"
     aria-pressed={showLabels}
     title={showLabels ? m.steerbar_labels_hide() : m.steerbar_labels_show()}
-    aria-label={showLabels ? m.steerbar_labels_hide() : m.steerbar_labels_show()}
+    aria-label={m.steerbar_labels_aria({
+      action: showLabels ? m.steerbar_labels_hide() : m.steerbar_labels_show(),
+    })}
+    data-swipe-ignore
     onpointerdown={down}
     onpointermove={move}
     onpointercancel={cancel}
@@ -173,12 +182,20 @@
 </div>
 
 <style>
+  /* Row = scrolling chip bar (flex:1) + the always-visible ABC toggle at the right.
+     Background + top border live here so they span the full width including the toggle. */
+  .steer-row {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
+  }
   .steer-bar {
+    flex: 1 1 auto;
     display: flex;
     gap: 4px;
     padding: 6px 10px;
-    background: var(--color-head);
-    border-top: 1px solid var(--color-line);
     overflow-x: auto;
     white-space: nowrap;
     min-width: 0;
@@ -235,20 +252,18 @@
     min-width: 44px;
     padding: 0;
   }
-  /* Labels toggle: a flat "ABC" key pinned to the bar's right edge. It rides along
-     while the chips scroll (sticky) and snaps to the far right when they don't fill
-     the row (margin-left:auto). Reuses the .chip box; the left shadow masks chips
-     sliding beneath the opaque key. */
+  /* Labels toggle: a flat "ABC" key at the row's far right, outside the scroll area
+     (its own flex column), so it's always visible and never distorts the chip bar's
+     measured width. Margins mirror the bar's padding so it lines up vertically. */
   .lbl-toggle {
-    position: sticky;
-    right: 0;
-    margin-left: auto;
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 6px 10px;
     min-width: 44px;
     padding: 0;
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     color: var(--color-muted);
-    box-shadow: -10px 0 8px -4px var(--color-head);
   }
   .lbl-toggle[aria-pressed="true"] {
     color: var(--color-ink-bright);

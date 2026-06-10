@@ -44,6 +44,10 @@ describe("SteerBar labels toggle", () => {
     expect(toggle, "ABC toggle rendered").not.toBeNull();
     expect(toggle.textContent?.trim()).toBe("ABC");
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    // WCAG 2.5.3 label-in-name: the visible "ABC" glyph must be in the accessible name.
+    expect(toggle.getAttribute("aria-label")).toContain("ABC");
+    // Toggle lives OUTSIDE the measured/scrolling .steer-bar so it can't poison fitLabels.
+    expect(document.querySelector(".steer-bar")!.contains(toggle)).toBe(false);
     expect(document.querySelector(".steer-bar")!.classList.contains("show-labels")).toBe(false);
   });
 

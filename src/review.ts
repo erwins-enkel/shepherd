@@ -109,6 +109,7 @@ export interface ReviewServiceDeps {
     | "dropReview"
     | "snapshotReviews"
     | "addSignal"
+    | "recordReviewSpawn"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -257,6 +258,17 @@ export class ReviewService {
       console.warn(`[review] spawn failed for ${session.id}:`, err);
       this.deps.worktree.remove(wt.worktreePath);
       return;
+    }
+    // fail-open: the critic terminal is already running; a record failure must not
+    // skip inflight.set below (that would orphan the terminal — untracked, never reaped).
+    try {
+      this.deps.store.recordReviewSpawn({
+        sessionId: session.id,
+        reviewerSessionId: criticSessionId,
+        startedAt: this.now(),
+      });
+    } catch (err) {
+      console.warn(`[review] spawn-record failed for ${session.id}:`, err);
     }
     this.inflight.set(session.id, {
       sessionId: session.id,

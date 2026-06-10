@@ -98,6 +98,7 @@ function makeDeps(
   const steers: { id: string; text: string }[] = [];
   const signals: { kind: string; payload: string }[] = [];
   const commentCalls: number[] = []; // prNumbers passed to listPrComments
+  const spawnRecords: { sessionId: string; reviewerSessionId: string; startedAt: number }[] = [];
   const rec: { event?: string; body?: string } = {};
   const base = {
     store: {
@@ -119,6 +120,13 @@ function makeDeps(
       },
       snapshotReviews: () => reviews,
       addSignal: (s: { kind: string; payload: string }) => signals.push(s),
+      recordReviewSpawn: (s: {
+        sessionId: string;
+        reviewerSessionId: string;
+        startedAt: number;
+      }) => {
+        spawnRecords.push(s);
+      },
     },
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
@@ -151,6 +159,7 @@ function makeDeps(
     steers,
     signals,
     commentCalls,
+    spawnRecords,
     rec,
   };
 }
@@ -1039,4 +1048,49 @@ test("an error verdict does not consume freshly-fetched author notes (re-inject 
   expect(reviews["s1"]?.decision).toBe("error");
   // the errored critic never produced a verdict on c9, so it must NOT be marked seen
   expect(reviews["s1"]?.seenNoteIds).toEqual([]);
+});
+
+// ── recordReviewSpawn (token attribution) ────────────────────────────────────
+
+test("recordReviewSpawn called once with correct sessionId and reviewerSessionId", async () => {
+  const { deps: d, started, spawnRecords } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // critic was spawned
+  expect(started).toHaveLength(1);
+  expect(spawnRecords).toHaveLength(1);
+  // sessionId must match the task session
+  expect(spawnRecords[0]!.sessionId).toBe("s1");
+  // reviewerSessionId must match the --session-id flag in the critic argv
+  const argv = started[0]!.argv;
+  const criticSessionId = argv[argv.indexOf("--session-id") + 1]!;
+  expect(spawnRecords[0]!.reviewerSessionId).toBe(criticSessionId);
+  // startedAt must be the injected now() value
+  expect(spawnRecords[0]!.startedAt).toBe(1000);
+});
+
+test("recordReviewSpawn throwing does not abort begin(): inflight set, onReviewing fires", async () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const { deps: d, started } = makeDeps({
+    onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+  });
+  // override store.recordReviewSpawn to throw
+  d.store.recordReviewSpawn = () => {
+    throw new Error("db write failed");
+  };
+  const svc = new ReviewService(d as any);
+  // must not throw
+  await svc.consider(session(), OPEN_GREEN);
+  // critic was still spawned
+  expect(started).toHaveLength(1);
+  // onReviewing(true) still fired → session is tracked in inflight
+  expect(events).toEqual([{ id: "s1", reviewing: true }]);
+  // finalize completes normally
+  await svc.tick();
+  expect(events).toEqual([
+    { id: "s1", reviewing: true },
+    { id: "s1", reviewing: false },
+  ]);
+  // nothing left in-flight
+  expect(svc.reviewingIds()).toEqual([]);
 });

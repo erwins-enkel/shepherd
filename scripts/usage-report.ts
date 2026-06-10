@@ -22,7 +22,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { accumulate, dashify, jsonlPathFor, parseLine, type SessionUsage } from "../src/usage";
-import { weightedUnits } from "../src/pricing";
+import { weightedUnits, cacheWriteUnits } from "../src/pricing";
 import { config } from "../src/config";
 
 // ── DB shape ────────────────────────────────────────────────────────────────
@@ -132,6 +132,7 @@ function firstUserText(lines: string[]): string {
 interface TranscriptCost {
   usage: SessionUsage;
   costUnits: number;
+  cacheWriteUnits: number;
 }
 
 /**
@@ -142,6 +143,7 @@ interface TranscriptCost {
 function transcriptCost(lines: string[]): TranscriptCost {
   const usage = accumulate(lines);
   let costUnits = 0;
+  let cwUnits = 0;
   const seen = new Set<string>();
   for (const line of lines) {
     const r = parseLine(line);
@@ -151,8 +153,9 @@ function transcriptCost(lines: string[]): TranscriptCost {
       seen.add(r.requestId);
     }
     costUnits += weightedUnits(r, r.model);
+    cwUnits += cacheWriteUnits(r, r.model);
   }
-  return { usage, costUnits };
+  return { usage, costUnits, cacheWriteUnits: cwUnits };
 }
 
 async function readLines(path: string): Promise<string[] | null> {
@@ -290,7 +293,7 @@ async function costReviewDir(dirPath: string): Promise<TranscriptCost> {
   try {
     files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
   } catch {
-    return { usage: accumulate([]), costUnits: 0 };
+    return { usage: accumulate([]), costUnits: 0, cacheWriteUnits: 0 };
   }
   const allLines: string[] = [];
   for (const f of files) {
@@ -542,8 +545,8 @@ function cacheReadRatio(u: SessionUsage): number {
   return denom > 0 ? u.cacheRead / denom : 0;
 }
 
-function cacheWriteChurn(u: SessionUsage): number {
-  return u.cacheWrite / Math.max(1, u.input);
+function cacheWriteCostShare(authoring: TranscriptCost): number {
+  return authoring.costUnits > 0 ? authoring.cacheWriteUnits / authoring.costUnits : 0;
 }
 
 // ── formatting ──────────────────────────────────────────────────────────────
@@ -577,7 +580,7 @@ function shortModel(m: string): string {
 
 // ── row assembly ────────────────────────────────────────────────────────────
 
-interface ReportRow {
+export interface ReportRow {
   desig: string;
   name: string;
   model: string;
@@ -590,7 +593,8 @@ interface ReportRow {
   authCostUnits: number;
   modelMix: string;
   cacheReadRatio: number;
-  cacheWriteChurn: number;
+  fullRecaches: number;
+  cacheWriteCostShare: number;
   duration: string;
   ancCount: number;
   ancProbe: number;
@@ -628,7 +632,8 @@ function buildRow(s: ResolvedSession, sats: SatelliteTranscript[]): ReportRow {
     authCostUnits: s.authoring.costUnits,
     modelMix: fmtModelMix(au.byModel),
     cacheReadRatio: cacheReadRatio(au),
-    cacheWriteChurn: cacheWriteChurn(au),
+    fullRecaches: au.fullRecaches,
+    cacheWriteCostShare: cacheWriteCostShare(s.authoring),
     duration: fmtDuration(s.durationMs),
     ancCount: anc.length,
     ancProbe: anc.filter((a) => a.kind === "probe").length,
@@ -646,7 +651,7 @@ function buildRow(s: ResolvedSession, sats: SatelliteTranscript[]): ReportRow {
 
 // ── rendering ─────────────────────────────────────────────────────────────--
 
-const HEADERS = [
+export const HEADERS = [
   "Task",
   "Name",
   "Model",
@@ -659,7 +664,8 @@ const HEADERS = [
   "Auth cost*",
   "Model mix",
   "CacheRead%",
-  "CacheWchurn",
+  "FullRecache",
+  "CacheWcost%",
   "Duration",
   "Anc(p/r/u)",
   "Anc tok",
@@ -671,7 +677,7 @@ const HEADERS = [
   "ReviewMult",
 ];
 
-function rowCells(r: ReportRow): string[] {
+export function rowCells(r: ReportRow): string[] {
   return [
     r.desig,
     r.name,
@@ -685,7 +691,8 @@ function rowCells(r: ReportRow): string[] {
     fmtUnits(r.authCostUnits),
     r.modelMix,
     fmtRatio(r.cacheReadRatio),
-    r.cacheWriteChurn.toFixed(2),
+    String(r.fullRecaches),
+    fmtRatio(r.cacheWriteCostShare),
     r.duration,
     `${r.ancProbe}/${r.ancResumed}/${r.ancUnknown}`,
     fmtInt(r.ancTokens),
@@ -698,7 +705,7 @@ function rowCells(r: ReportRow): string[] {
   ];
 }
 
-function totalsCells(rows: ReportRow[]): string[] {
+export function totalsCells(rows: ReportRow[]): string[] {
   const sum = (f: (r: ReportRow) => number) => rows.reduce((s, r) => s + f(r), 0);
   const authCost = sum((r) => r.authCostUnits);
   const satCost = sum((r) => r.satCostUnits);
@@ -715,6 +722,7 @@ function totalsCells(rows: ReportRow[]): string[] {
     fmtUnits(authCost),
     "",
     "",
+    fmtInt(sum((r) => r.fullRecaches)),
     "",
     "",
     `${sum((r) => r.ancProbe)}/${sum((r) => r.ancResumed)}/${sum((r) => r.ancUnknown)}`,
@@ -750,6 +758,8 @@ const LEGEND = [
   "Legend:",
   "  Anc(p/r/u)  in-worktree ancillary transcripts: probe / resumed / unknown",
   "  Sat tags    satellite linkage: db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
+  "  FullRecache genuine prompt-cache full rebuilds (main-thread only; sidechain/sub-agent records excluded and warned on stderr)",
+  "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
   "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
   "  Out of scope: account-wide periodic distiller (/tmp/shepherd-distill-*) is not per-task and is never attributed here.",
@@ -793,7 +803,15 @@ async function buildGroup(
 ): Promise<{ reportRows: ReportRow[]; residual: SatelliteResult["residual"] }> {
   const resolved = await Promise.all(rows.map(resolveSession));
   const sat = await attributeSatellites(resolved, reviews, planGates);
-  const reportRows = resolved.map((s) => buildRow(s, sat.bySession.get(s.row.id) ?? []));
+  const reportRows = resolved.map((s) => {
+    const n = s.authoring.usage.sidechainCount;
+    if (n > 0) {
+      console.warn(
+        `[usage-report] ${s.row.desig}: ${n} sidechain (sub-agent) record(s) — FullRecache counts main-thread only`,
+      );
+    }
+    return buildRow(s, sat.bySession.get(s.row.id) ?? []);
+  });
   return { reportRows, residual: sat.residual };
 }
 

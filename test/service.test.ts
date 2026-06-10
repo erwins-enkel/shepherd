@@ -260,13 +260,20 @@ test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", 
   expect(store.get(s.id)?.branch).toBe("shepherd/x");
 });
 
-test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)", () => {
+test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai connector MCP", () => {
   const prev = config.remoteControlAtStartup;
+  const connectorEnv = { ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
   try {
     config.remoteControlAtStartup = false;
-    expect(JSON.parse(spawnSettingsOverlay())).toEqual({ remoteControlAtStartup: false });
+    expect(JSON.parse(spawnSettingsOverlay())).toEqual({
+      remoteControlAtStartup: false,
+      env: connectorEnv,
+    });
     config.remoteControlAtStartup = true;
-    expect(JSON.parse(spawnSettingsOverlay())).toEqual({ remoteControlAtStartup: true });
+    expect(JSON.parse(spawnSettingsOverlay())).toEqual({
+      remoteControlAtStartup: true,
+      env: connectorEnv,
+    });
   } finally {
     config.remoteControlAtStartup = prev;
   }

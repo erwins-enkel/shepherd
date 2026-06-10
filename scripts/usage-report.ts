@@ -504,8 +504,10 @@ async function attributeSatellites(
       byModel: {},
     };
     // The 5m/1h cache-write split isn't persisted (the aggregate collapses it); attribute it to
-    // the 5m bucket, matching parseLine's default when the split is absent. Model: the recorded
-    // override, else the task's model as a proxy (the true model lived in the now-gone transcript).
+    // the 5m bucket, matching parseLine's default when the split is absent. Model: completion
+    // backfills the spawn row's true model (dominantModel of the transcript), so `sp.model` is
+    // accurate for any completed spawn; the task-model proxy only covers a spawn that recorded no
+    // model at all (never completed, or a transcript that named none).
     const model = sp.model ?? byId.get(sp.taskSessionId)!.row.model ?? "unknown";
     const costUnits = weightedUnits(
       {

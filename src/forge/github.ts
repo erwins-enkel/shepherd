@@ -69,6 +69,7 @@ interface GhPr {
   url: string;
   title: string;
   state: string; // OPEN | MERGED | CLOSED
+  createdAt?: string;
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
   isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
@@ -373,7 +374,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,mergeable,isDraft,statusCheckRollup,headRefOid,reviews",
+      "number,url,title,state,createdAt,mergeable,isDraft,statusCheckRollup,headRefOid,reviews",
       "--limit",
       "1",
     ]);
@@ -381,11 +382,13 @@ export class GithubForge implements GitForge {
     const pr = prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     const state = pr.state.toLowerCase() as PrStatus["state"];
+    const createdAt = Date.parse(pr.createdAt ?? "");
     return {
       state: state === "open" || state === "merged" || state === "closed" ? state : "none",
       number: pr.number,
       url: pr.url,
       title: pr.title,
+      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: mapMergeable(pr.mergeable),
       isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),

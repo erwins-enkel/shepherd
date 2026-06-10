@@ -73,6 +73,9 @@ export interface PrStatus {
   number?: number;
   url?: string;
   title?: string;
+  /** ms epoch the PR was opened; undefined when there is no PR (or a cached
+   *  payload predates the field). Drives the UI's "PR open for X" wait line. */
+  createdAt?: number;
   /** null = host still computing mergeability. */
   mergeable?: boolean | null;
   checks: ChecksState;

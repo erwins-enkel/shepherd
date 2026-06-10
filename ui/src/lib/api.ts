@@ -134,14 +134,19 @@ export async function listRepos(): Promise<{ repos: RepoEntry[]; recentWindowDay
   return r.json();
 }
 
-export async function cloneRepo(url: string): Promise<RepoEntry> {
-  const r = await fetch("/api/repos", {
+/** POST JSON to `url`, throw a `failed` error on non-2xx, return the parsed response. */
+async function postJson<T>(url: string, body: unknown, label: string): Promise<T> {
+  const r = await fetch(url, {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(body),
   });
-  if (!r.ok) throw await failed(r, "clone");
-  return r.json();
+  if (!r.ok) throw await failed(r, label);
+  return r.json() as Promise<T>;
+}
+
+export async function cloneRepo(url: string): Promise<RepoEntry> {
+  return postJson<RepoEntry>("/api/repos", { url }, "clone");
 }
 
 /** Create a new local git project (optionally with a GitHub remote).
@@ -157,13 +162,7 @@ export async function createProject(input: {
   createRemote: boolean;
   visibility: "private" | "public";
 }): Promise<RepoEntry & { warning?: string }> {
-  const r = await fetch("/api/projects", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(input),
-  });
-  if (!r.ok) throw await failed(r, "newproject");
-  return r.json();
+  return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
 }
 
 export async function getSettings(): Promise<Settings> {

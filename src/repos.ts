@@ -219,57 +219,56 @@ function gitIdentityPresent(): boolean {
   }
 }
 
+type ProjectErrorPredicate = (e: unknown, stderr: string) => boolean;
+const PROJECT_ERROR_TABLE: Array<[ProjectErrorPredicate, string]> = [
+  // Explicit timeout code set by the default runner
+  [(e) => (e as any).code === "_timeout", "newproject_failed_timeout"],
+  // killed by SIGTERM (e.g. from execFileSync timeout option)
+  [(e) => !!(e as any).killed && (e as any).signal === "SIGTERM", "newproject_failed_timeout"],
+  // gh not installed
+  [
+    (e, s) => (e as any).code === "ENOENT" || s.includes("command not found"),
+    "newproject_failed_gh_missing",
+  ],
+  // gh auth failures
+  [
+    (_, s) =>
+      s.includes("not logged") ||
+      s.includes("auth status") ||
+      s.includes("gh auth login") ||
+      s.includes("authentication") ||
+      s.includes("you are not logged"),
+    "newproject_failed_gh_auth",
+  ],
+  // GitHub repo name already exists
+  [
+    (_, s) =>
+      s.includes("name already exists") ||
+      s.includes("already exists on") ||
+      (s.includes("could not create repository") && s.includes("exists")),
+    "newproject_failed_gh_exists",
+  ],
+  // local git failures
+  [
+    (_, s) =>
+      s.includes("fatal:") ||
+      s.includes("not a git repository") ||
+      s.includes("author identity unknown"),
+    "newproject_failed_git",
+  ],
+  // any other non-empty stderr from a gh repo create is a remote failure
+  [(_, s) => s.length > 0, "newproject_failed_remote"],
+];
+
 /**
  * Classify an error from createProject into a stable `newproject_failed_*` code.
  * Mirrors classifyCloneError in style — lowercase stderr before matching.
  */
 export function classifyProjectError(e: unknown): string {
-  // Explicit timeout code set by the default runner
-  if ((e as any).code === "_timeout") return "newproject_failed_timeout";
-  // killed by SIGTERM (e.g. from execFileSync timeout option)
-  if ((e as any).killed && (e as any).signal === "SIGTERM") return "newproject_failed_timeout";
-
   const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
-
-  // gh not installed
-  if ((e as any).code === "ENOENT" || stderr.includes("command not found")) {
-    return "newproject_failed_gh_missing";
+  for (const [predicate, code] of PROJECT_ERROR_TABLE) {
+    if (predicate(e, stderr)) return code;
   }
-
-  // gh auth failures
-  if (
-    stderr.includes("not logged") ||
-    stderr.includes("auth status") ||
-    stderr.includes("gh auth login") ||
-    stderr.includes("authentication") ||
-    stderr.includes("you are not logged")
-  ) {
-    return "newproject_failed_gh_auth";
-  }
-
-  // GitHub repo name already exists
-  if (
-    stderr.includes("name already exists") ||
-    stderr.includes("already exists on") ||
-    (stderr.includes("could not create repository") && stderr.includes("exists"))
-  ) {
-    return "newproject_failed_gh_exists";
-  }
-
-  // local git failures
-  if (
-    stderr.includes("fatal:") ||
-    stderr.includes("not a git repository") ||
-    stderr.includes("author identity unknown")
-  ) {
-    return "newproject_failed_git";
-  }
-
-  // any other non-empty stderr from a gh repo create is a remote failure
-  if (stderr.length > 0) {
-    return "newproject_failed_remote";
-  }
-
   return "newproject_failed_generic";
 }
 
@@ -301,51 +300,41 @@ export async function createProject(
   const target = join(root, input.name);
 
   const inside = target === root || target.startsWith(root + sep);
-  if (!inside) {
-    return { ok: false, error: "newproject_failed_outside" };
-  }
-  if (existsSync(target)) {
-    return { ok: false, error: "newproject_failed_exists" };
-  }
+  if (!inside) return { ok: false, error: "newproject_failed_outside" };
+  if (existsSync(target)) return { ok: false, error: "newproject_failed_exists" };
 
   // Step 2: Identity pre-check (before any fs mutation)
-  if (!identityOk()) {
-    return { ok: false, error: "newproject_failed_identity" };
-  }
+  if (!identityOk()) return { ok: false, error: "newproject_failed_identity" };
 
-  // Steps 3–7: fs mutations with cleanup on pre-commit failure
+  // Steps 3–7: fs mutations (mkdir, git init, write files, git add + commit)
+  const localResult = bootstrapLocalRepo(input, target);
+  if (!localResult.ok) return localResult;
+
+  // Step 8: build RepoEntry
+  const entry: RepoEntry = { name: input.name, path: target, display: toDisplay(target) };
+
+  // Step 9: if no remote requested, done
+  if (!input.createRemote) return { ok: true, entry };
+
+  // Step 10: remote step — local repo is already committed; keep it on any failure here
+  const warning = await pushToGitHub(runner, input, target);
+  return warning ? { ok: true, entry, warning } : { ok: true, entry };
+}
+
+/**
+ * Write the bootstrap files (README.md, .gitignore, CLAUDE.md), git-init, add, and commit.
+ * Cleans up the half-created directory on pre-commit failure.
+ */
+function bootstrapLocalRepo(
+  input: { name: string; idea: string },
+  target: string,
+): { ok: true } | { ok: false; error: string } {
   let committed = false;
-
   try {
-    // Step 3: create the directory
     mkdirSync(target, { recursive: false });
-
-    // Step 4: git init
     execFileSync("git", ["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
-
-    // Step 5: write bootstrap files
-    const ideaText = input.idea.trim();
-    const readmeIdea = ideaText || "_No description yet._";
-    const claudeIdea = ideaText || "(to be defined)";
-
-    writeFileSync(join(target, "README.md"), `# ${input.name}\n\n${readmeIdea}\n`, "utf8");
-
-    writeFileSync(
-      join(target, ".gitignore"),
-      `node_modules/\n.DS_Store\n*.log\n.env\n.env.*\ndist/\nbuild/\n`,
-      "utf8",
-    );
-
-    writeFileSync(
-      join(target, "CLAUDE.md"),
-      `# ${input.name}\n\n## Idea\n\n${claudeIdea}\n\n## Notes\n\n<!-- Project conventions go here. The first agent session authors the PRD. -->\n`,
-      "utf8",
-    );
-
-    // Step 6: git add
+    writeBootstrapFiles(input, target);
     execFileSync("git", ["add", "-A"], { cwd: target, stdio: "pipe", timeout: 30_000 });
-
-    // Step 7: git commit
     execFileSync("git", ["commit", "-m", "chore: project bootstrap"], {
       cwd: target,
       stdio: "pipe",
@@ -362,33 +351,47 @@ export async function createProject(
     }
     return { ok: false, error: classifyProjectError(e) };
   }
+  return { ok: true };
+}
 
-  // Step 8: build RepoEntry
-  const entry: RepoEntry = {
-    name: input.name,
-    path: target,
-    display: toDisplay(target),
-  };
+/** Write README.md, .gitignore, and CLAUDE.md into the newly-created project directory. */
+function writeBootstrapFiles(input: { name: string; idea: string }, target: string): void {
+  const ideaText = input.idea.trim();
+  const readmeIdea = ideaText || "_No description yet._";
+  const claudeIdea = ideaText || "(to be defined)";
 
-  // Step 9: if no remote requested, done
-  if (!input.createRemote) {
-    return { ok: true, entry };
-  }
+  writeFileSync(join(target, "README.md"), `# ${input.name}\n\n${readmeIdea}\n`, "utf8");
+  writeFileSync(
+    join(target, ".gitignore"),
+    `node_modules/\n.DS_Store\n*.log\n.env\n.env.*\ndist/\nbuild/\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(target, "CLAUDE.md"),
+    `# ${input.name}\n\n## Idea\n\n${claudeIdea}\n\n## Notes\n\n<!-- Project conventions go here. The first agent session authors the PRD. -->\n`,
+    "utf8",
+  );
+}
 
-  // Step 10: remote step — local repo is already committed; keep it on any failure here
-  // Auth pre-check
+/**
+ * Auth-check then create + push the GitHub remote.
+ * Returns a warning code string on any failure, or undefined on success.
+ * The local repo is kept regardless — remote failures are non-fatal.
+ */
+async function pushToGitHub(
+  runner: GhRunner,
+  input: { name: string; visibility: "private" | "public" },
+  target: string,
+): Promise<string | undefined> {
   try {
     await runner(["auth", "status"]);
   } catch (e) {
     const code = classifyProjectError(e);
-    const warning =
-      code === "newproject_failed_gh_missing"
-        ? "newproject_failed_gh_missing"
-        : "newproject_failed_gh_auth";
-    return { ok: true, entry, warning };
+    return code === "newproject_failed_gh_missing"
+      ? "newproject_failed_gh_missing"
+      : "newproject_failed_gh_auth";
   }
 
-  // Create + push
   try {
     await runner([
       "repo",
@@ -402,12 +405,10 @@ export async function createProject(
   } catch (e) {
     const code = classifyProjectError(e);
     // Remap local-git codes to remote (they can't originate from a gh repo create call)
-    const warning =
-      code === "newproject_failed_git" || code === "newproject_failed_generic"
-        ? "newproject_failed_remote"
-        : code;
-    return { ok: true, entry, warning };
+    return code === "newproject_failed_git" || code === "newproject_failed_generic"
+      ? "newproject_failed_remote"
+      : code;
   }
 
-  return { ok: true, entry };
+  return undefined;
 }

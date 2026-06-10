@@ -1,7 +1,17 @@
 <script module lang="ts">
+  import { MediaQuery } from "svelte/reactivity";
+
   // Single-open invariant across every row: the close-fn of the currently open
   // row. Opening another row closes this one first.
   let openRow: (() => void) | null = $state(null);
+
+  // Exactly one row-level decommission affordance per device: primary-coarse
+  // pointers get the swipe-to-reveal gesture, primary-fine pointers (incl.
+  // touchscreen laptops) the hover ✕ button — never both. `(pointer: coarse)`
+  // matches the app's layout gates (+page.svelte `touch`, the reveal CSS's
+  // `(hover: hover) and (pointer: fine)`). Module-level so N rows share one
+  // matchMedia listener.
+  const coarse = new MediaQuery("(pointer: coarse)");
 </script>
 
 <script lang="ts">
@@ -61,7 +71,9 @@
     previewServeFailed?: boolean;
     // Preview badge clicked → select this session + open its Viewport preview pane
     onpreview?: (id: string) => void;
-    // when provided, the row gains a left-swipe-to-decommission gesture (mobile)
+    // when provided, the row gains a decommission affordance — coarse pointers get
+    // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
+    // right-click / long-press CardMenu offers it on both
     ondecommission?: (id: string) => void;
     // active page-level repo filter (full repoPath); drives the icon's pressed state
     repoFilter?: string | null;
@@ -85,7 +97,7 @@
     onrepofilter?.(repoFiltered ? null : session.repoPath);
   }
 
-  const swipe = $derived(!!ondecommission);
+  const swipe = $derived(!!ondecommission && coarse.current);
 
   // gesture state
   let offset = $state(0); // px the row is slid left (negative); 0 = closed
@@ -169,7 +181,7 @@
 
   // Right-click (desktop) / long-press (touch) opens a small action menu on the
   // card. Resume is the headline action for a session parked at a shell;
-  // decommission rides along where the parent wired it (mobile list).
+  // decommission rides along wherever the parent wired it.
   // Deliberately NOT liveness-gated (no claudeAlive arg, unlike the Viewport
   // header): the menu only opens on an explicit gesture, so it doesn't add bar
   // noise — and it stays the force-resume escape hatch should the /proc sweep
@@ -291,6 +303,28 @@
     </div>
 
     <div class="u-right">
+      {#if ondecommission && !coarse.current}
+        <!-- Fine-pointer decommission: hover/focus-revealed ✕ in the top-right
+             corner, same two-step arm/confirm as the swipe reveal. A real <button>
+             is valid here — .u-right is a sibling of the .unit-hit overlay, not
+             nested inside it, and the existing .u-right > button z-index rule
+             raises it above the overlay; its click never reaches the row select,
+             so no propagation concern. -->
+        <button
+          class="row-decom"
+          class:armed={decom === "armed"}
+          type="button"
+          onclick={pressDecommission}
+          title={decom === "armed"
+            ? m.viewport_confirm_decommission()
+            : m.viewport_decommission_title()}
+          aria-label={decom === "armed"
+            ? m.viewport_confirm_decommission()
+            : m.viewport_decommission_aria()}
+        >
+          {decom === "armed" ? "✕?" : "✕"}
+        </button>
+      {/if}
       {#if previewPort != null}
         <!-- Live preview available (server reports a bound listener). Selecting +
              opening the pane is an action distinct from the row's own select, so
@@ -481,8 +515,8 @@
     margin-top: 2px;
   }
 
-  /* swipe-to-decommission (mobile): the row slides left over a destructive
-     action revealed behind it. */
+  /* swipe-to-decommission (coarse pointer): the row slides left over a
+     destructive action revealed behind it. */
   .swipe-wrap {
     position: relative;
     overflow: hidden;
@@ -759,6 +793,49 @@
     gap: 4px;
     align-items: flex-end;
     flex-shrink: 0;
+  }
+
+  /* Fine-pointer decommission ✕: opacity (not display) keeps it keyboard-
+     focusable while invisible — and the invisible button's reserved in-flow slot
+     at the top of every row's .u-right column is deliberate (rows stay aligned,
+     the button stays focusable); revealed on row hover/focus-within (hover-capable
+     fine pointers only, so touch layouts never show a ghost button) and forced
+     visible while armed. Idle = quiet faint glyph; armed = red ✕? echoing the
+     swipe reveal's .decom.armed treatment. */
+  .row-decom {
+    margin: 0;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-faint);
+    font: inherit;
+    font-size: var(--fs-meta);
+    line-height: 1.3;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .unit:hover .row-decom,
+    .unit:focus-within .row-decom {
+      opacity: 1;
+    }
+  }
+  /* outside the hover/fine gate: a keyboard-focused button must never be
+     invisible on fine-pointer-but-hoverless hardware */
+  .row-decom:focus-visible {
+    opacity: 1;
+  }
+  .row-decom:hover,
+  .row-decom:focus-visible {
+    color: var(--color-red);
+  }
+  .row-decom.armed {
+    opacity: 1;
+    background: color-mix(in srgb, var(--color-red) 26%, transparent);
+    color: var(--color-red);
+    font-weight: 600;
   }
 
   /* Quiet muted text, not a colored pill — the StatusPip (left) already encodes

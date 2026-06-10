@@ -154,6 +154,86 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   return field(images);
 }
 
+// ── validateNewProject ────────────────────────────────────────────────────────
+
+/**
+ * Slug regex for new project names.
+ * Identical rule mirrored in the UI (NewProject.svelte) — cross-reference kept in both files.
+ */
+export const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+
+export type NewProjectInput = {
+  name: string;
+  idea: string;
+  createRemote: boolean;
+  visibility: "private" | "public";
+};
+
+const NEW_PROJECT_ALLOWED_KEYS = new Set(["name", "idea", "createRemote", "visibility"]);
+
+/**
+ * Validate a POST /api/projects request body.
+ * Returns `{ ok: true; value: NewProjectInput }` on success or `{ ok: false; error: string }`
+ * with a stable `newproject_failed_*` code. Never throws.
+ * Does NOT check whether the target directory exists — that is done in createProject.
+ */
+export function validateNewProject(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: NewProjectInput } | { ok: false; error: string } {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("newproject_failed_generic");
+  }
+
+  const obj = body as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!NEW_PROJECT_ALLOWED_KEYS.has(key)) return err("newproject_failed_generic");
+  }
+
+  // name — required string, must pass slug rules
+  if (typeof obj.name !== "string") return err("newproject_failed_slug");
+  const name = obj.name.trim();
+  if (!PROJECT_SLUG_RE.test(name)) return err("newproject_failed_slug");
+  // Additional slug safety checks (defense-in-depth; regex already blocks most):
+  if (name.includes("..")) return err("newproject_failed_slug");
+  if (name === "." || name === "..") return err("newproject_failed_slug");
+  if (name.endsWith(".git")) return err("newproject_failed_slug");
+  if (name.includes("/") || name.includes("\\")) return err("newproject_failed_slug");
+
+  // idea — optional string ≤ 8000 chars, trimmed, default ""
+  let idea = "";
+  if (obj.idea !== undefined) {
+    if (typeof obj.idea !== "string") return err("newproject_failed_generic");
+    idea = obj.idea.trim();
+    if (idea.length > 8000) return err("newproject_failed_generic");
+  }
+
+  // createRemote — optional boolean, default false
+  let createRemote = false;
+  if (obj.createRemote !== undefined) {
+    if (typeof obj.createRemote !== "boolean") return err("newproject_failed_generic");
+    createRemote = obj.createRemote;
+  }
+
+  // visibility — optional "private" | "public", default "private"
+  let visibility: "private" | "public" = "private";
+  if (obj.visibility !== undefined) {
+    if (obj.visibility !== "private" && obj.visibility !== "public") {
+      return err("newproject_failed_generic");
+    }
+    visibility = obj.visibility;
+  }
+
+  // Containment guard: target must resolve inside repoRoot.
+  // The slug regex already blocks separators, but this is defense-in-depth (mirrors cloneRepo).
+  const root = resolve(expandHome(repoRoot));
+  const target = join(root, name);
+  const inside = target === root || target.startsWith(root + sep);
+  if (!inside) return err("newproject_failed_outside");
+
+  return { ok: true, value: { name, idea, createRemote, visibility } };
+}
+
 const CLONE_URL_MAX = 2048;
 
 /**

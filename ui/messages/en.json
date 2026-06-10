@@ -927,6 +927,7 @@
   "newproject_idea_label": "Idea",
   "newproject_idea_placeholder": "Describe what you want to build…",
   "newproject_github_label": "Also create a GitHub repository",
+  "newproject_visibility_group": "Visibility",
   "newproject_visibility_private": "Private",
   "newproject_visibility_public": "Public",
   "newproject_kickoff_label": "Kickoff with",

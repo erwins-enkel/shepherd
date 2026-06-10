@@ -232,11 +232,7 @@ export function classifyProjectError(e: unknown): string {
   const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
 
   // gh not installed
-  if (
-    (e as any).code === "ENOENT" ||
-    stderr.includes("command not found") ||
-    stderr.includes("not found")
-  ) {
+  if ((e as any).code === "ENOENT" || stderr.includes("command not found")) {
     return "newproject_failed_gh_missing";
   }
 
@@ -404,13 +400,12 @@ export async function createProject(
       "--push",
     ]);
   } catch (e) {
-    const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+    const code = classifyProjectError(e);
+    // Remap local-git codes to remote (they can't originate from a gh repo create call)
     const warning =
-      stderr.includes("name already exists") ||
-      stderr.includes("already exists on") ||
-      (stderr.includes("could not create repository") && stderr.includes("exists"))
-        ? "newproject_failed_gh_exists"
-        : "newproject_failed_remote";
+      code === "newproject_failed_git" || code === "newproject_failed_generic"
+        ? "newproject_failed_remote"
+        : code;
     return { ok: true, entry, warning };
   }
 

@@ -517,3 +517,38 @@ test("classifyProjectError: non-empty other stderr → newproject_failed_remote"
 test("classifyProjectError: empty/no stderr → newproject_failed_generic (fallback)", () => {
   expect(classifyProjectError({})).toBe("newproject_failed_generic");
 });
+
+/** Regression: "remote: Repository not found" must NOT classify as gh_missing. */
+test("classifyProjectError: stderr 'remote: Repository not found' → newproject_failed_remote (not gh_missing)", () => {
+  expect(classifyProjectError({ stderr: "remote: Repository not found." })).toBe(
+    "newproject_failed_remote",
+  );
+});
+
+/** Runner timeout on repo create → ok:true + warning:newproject_failed_timeout + dir kept. */
+test("createProject: runner _timeout on repo create → ok:true + warning timeout + dir kept", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    let call = 0;
+    const stubRunner: GhRunner = async () => {
+      call++;
+      if (call === 1) return; // auth ok
+      // repo create times out
+      const err = Object.assign(new Error("timed out"), { code: "_timeout" });
+      throw err;
+    };
+
+    const result = await createProject(
+      { name: "timeout-remote", idea: "", createRemote: true, visibility: "private" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toBe("newproject_failed_timeout");
+    // local dir must be kept
+    expect(existsSync(join(repoRoot, "timeout-remote"))).toBe(true);
+  } finally {
+    cleanup();
+  }
+});

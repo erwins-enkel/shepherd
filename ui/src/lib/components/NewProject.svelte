@@ -34,7 +34,9 @@
   let idea = $state("");
   let createRemote = $state(false);
   let visibility = $state<"private" | "public">("private");
-  let kickoff = $state<KickoffChoice>({ kind: "prd" });
+  // String sentinel for the select bind — avoids Svelte 5 reference-equality bug with object values.
+  // "__prd__" → { kind: "prd" }, any other value → { kind: "command", name: value }.
+  let kickoffValue = $state<string>("__prd__");
   let kickoffCommands = $state<string[]>([]);
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -92,6 +94,11 @@
     }
   }
 
+  function resolveKickoff(): KickoffChoice {
+    if (kickoffValue === "__prd__") return { kind: "prd" };
+    return { kind: "command", name: kickoffValue };
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     const trimmedName = name.trim();
@@ -107,7 +114,7 @@
         createRemote,
         visibility,
       });
-      ondone(entry, kickoff, trimmedIdea);
+      ondone(entry, resolveKickoff(), trimmedIdea);
     } catch (err) {
       const code = err instanceof Error ? err.message.replace(/^newproject_failed_/, "") : "";
       error = msg(code);
@@ -183,7 +190,7 @@
     </label>
 
     {#if createRemote}
-      <div class="visibility-row" role="group" aria-label="Visibility">
+      <div class="visibility-row" role="group" aria-label={m.newproject_visibility_group()}>
         <label class="vis-opt">
           <input type="radio" name="np-vis" value="private" bind:group={visibility} />
           <span class="micro">{m.newproject_visibility_private()}</span>
@@ -197,10 +204,10 @@
 
     <!-- Kickoff selection -->
     <label class="micro" for="np-kickoff">{m.newproject_kickoff_label()}</label>
-    <select id="np-kickoff" bind:value={kickoff}>
-      <option value={{ kind: "prd" }}>{m.newproject_kickoff_prd()}</option>
+    <select id="np-kickoff" bind:value={kickoffValue}>
+      <option value="__prd__">{m.newproject_kickoff_prd()}</option>
       {#each kickoffCommands as cmd (cmd)}
-        <option value={{ kind: "command", name: cmd }}>/{cmd}</option>
+        <option value={cmd}>/{cmd}</option>
       {/each}
     </select>
 

@@ -348,7 +348,7 @@
   }
 
   // null model = claude's own default (shepherd passed no --model flag)
-  const modelLabel = $derived(session.model ?? "default");
+  const modelLabel = $derived(session.model ?? m.newtask_model_default());
 
   // The `session` prop is re-resolved from the store whenever the sessions
   // state changes, so its reference can churn while the id stays put. Derive

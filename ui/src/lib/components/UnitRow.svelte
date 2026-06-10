@@ -378,7 +378,8 @@
 
     <span class="meta">
       <span class="meta-text"
-        ><span class="desig">{session.desig}</span> · {session.herdrSession || "—"}</span
+        ><span class="desig">{session.desig}</span> · {session.model ??
+          m.newtask_model_default()}</span
       >
       {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">
@@ -925,7 +926,7 @@
     align-items: center;
   }
   /* the task designation is metadata, not the human marker — demoted to the
-     quietest spot, the bottom-right meta line, next to the herdr session */
+     quietest spot, the bottom-right meta line, next to the session's model */
   .meta .desig {
     color: var(--color-faint);
     letter-spacing: 0.1em;

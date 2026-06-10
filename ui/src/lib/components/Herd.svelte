@@ -31,6 +31,8 @@
     statusFilter = null,
     onstatusfilter = undefined,
     workingBlocked = {},
+    collapsible = false,
+    oncollapse = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -78,6 +80,12 @@
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
+    // when true, renders a collapse chevron at the far-right of the header —
+    // only set on touch-primary wide devices where collapsing is meaningful
+    collapsible?: boolean;
+    // called when the collapse chevron is clicked; parent drives the actual
+    // collapse so the button is purely a signal
+    oncollapse?: () => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -171,6 +179,15 @@
         >
       {/if}
     </div>
+    {#if collapsible}
+      <button
+        type="button"
+        class="collapse-btn"
+        title={m.herd_collapse()}
+        aria-label={m.herd_collapse()}
+        onclick={() => oncollapse?.()}>‹</button
+      >
+    {/if}
   </div>
   <div class="units" class:flow>
     {#if sessions.length === 0}
@@ -525,6 +542,28 @@
   }
   .fbtn.active {
     color: var(--color-amber);
+  }
+
+  /* collapse trigger — far-right of .phead, touch-comfortable target, visually
+     quiet chrome (no accent hue); mirrors .fbtn style but sized for touch */
+  .collapse-btn {
+    border: 0;
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-lg);
+    cursor: pointer;
+    padding: 4px 8px;
+    min-width: 32px;
+    min-height: 32px;
+    color: var(--color-faint);
+    transition: color 0.12s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+  }
+  .collapse-btn:hover {
+    color: var(--color-ink);
   }
 
   .micro {

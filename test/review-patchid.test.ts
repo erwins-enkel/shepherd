@@ -152,7 +152,10 @@ test("offline (no origin remote) still returns a valid id via the local base fal
 test("real origin: FETCH_HEAD path keeps the id stable when origin/main advances past the fork point (merge-train)", async () => {
   // Bare repo standing in for origin.
   const bare = mkTmp("shepherd-patchid-origin-");
-  git(["init", "-q", "--bare"], bare);
+  // `-b main` so the bare's HEAD tracks `main` regardless of the host's `init.defaultBranch`
+  // (CI defaults to `master`); otherwise the throwaway clone below checks out a nonexistent
+  // `master`, commits land there, and `push origin main` fails with "src refspec ... no match".
+  git(["init", "-q", "--bare", "-b", "main"], bare);
   git(["remote", "add", "origin", bare], repo);
   git(["push", "-q", "origin", "main"], repo);
 

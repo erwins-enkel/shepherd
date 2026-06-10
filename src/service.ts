@@ -377,13 +377,21 @@ export const DRAFT_PR_NOTE =
  * Build the steer text sent to an agent to start its dev server in the background.
  * Must instruct the agent to run the command in the background so it does NOT block
  * on the dev server (a foreground dev server never exits and would hang the agent's
- * turn forever). Agent-facing prompt, NOT i18n'd.
+ * turn forever), and to report the tailnet HTTPS URL — operators reach previews over
+ * the tailnet, so a localhost-only confirmation is useless to them. The FQDN is
+ * resolved by the agent at runtime (never baked into this prompt — it would leak the
+ * operator's tailnet name into every transcript template). Agent-facing, NOT i18n'd.
  */
 export function PREVIEW_START_STEER(command: string): string {
   return (
     `Please run \`${command}\` in the background (use Claude Code's background run / append \`&\` so it ` +
     `does NOT block your turn — a foreground dev server never exits and would hang you forever). ` +
-    `Confirm the port it's listening on once it starts, then continue what you were doing.`
+    `Confirm the port it's listening on once it starts. Then ALWAYS report the tailnet HTTPS URL, ` +
+    `not just localhost: ensure the mapping \`tailscale serve --bg --https <port> http://localhost:<port>\` ` +
+    `is registered, resolve this node's MagicDNS name (e.g. \`tailscale status --json\` → Self.DNSName), ` +
+    `verify \`https://<fqdn>:<port>/\` responds, and include that URL in your confirmation. If tailscale ` +
+    `is unavailable on this machine, say so and report the local URL instead. ` +
+    `Then continue what you were doing.`
   );
 }
 

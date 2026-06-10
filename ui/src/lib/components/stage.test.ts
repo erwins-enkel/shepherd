@@ -231,10 +231,12 @@ describe("deriveStage — review tint", () => {
   });
 
   it("verdict commented, git.headSha undefined → 'none' (headSha guard)", () => {
-    // git.headSha absent (undefined) + verdict present → must NOT match via undefined===undefined
+    // Both headShas undefined: pins the git?.headSha != null guard — without it,
+    // undefined===undefined would pass and return "approved" instead of "none".
+    // ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
     const s = deriveStage({
       git: git({ state: "open" }), // headSha not set
-      verdict: { ...verdict, decision: "commented", headSha: "abc" },
+      verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
       reviewing: false,
       readyToMerge: false,
     });
@@ -386,10 +388,13 @@ describe("deriveStage — derived-ready predicate", () => {
     expect(s.index).toBeLessThan(4);
   });
 
-  it("NOT ready (pinned safe-fail): git.headSha undefined + verdict.headSha present — undefined===undefined must not pass", () => {
+  it("NOT ready (pinned safe-fail): git.headSha undefined + verdict.headSha undefined — undefined===undefined must not pass", () => {
+    // Both headShas undefined: pins the git?.headSha != null guard — without it,
+    // undefined===undefined would satisfy the headSha equality check and index would reach 4.
+    // ReviewVerdict.headSha is typed required but arrives as wire JSON where it can be absent.
     const s = deriveStage({
       git: git({ ...readyBase, headSha: undefined }),
-      verdict: { ...verdict, decision: "commented", headSha: "abc" },
+      verdict: { ...verdict, decision: "commented", headSha: undefined as unknown as string },
       reviewing: false,
       readyToMerge: false,
     });

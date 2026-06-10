@@ -86,18 +86,26 @@
 
   // --- Hover legend (desktop only; pure visual duplicate of ariaLabel) ---
   const LEGEND_W = 220;
+  // Flip the popover below the stepper when there isn't room above it.
+  // ~110px legend height + ~50px margin headroom = 160px safe zone from top.
+  const FLIP_BELOW_PX = 160;
   let stepperEl: HTMLSpanElement | undefined = $state();
   // null = closed; `top` xor `bottom` set depending on flip.
   let legendPos = $state<{ top?: number; bottom?: number; left: number } | null>(null);
 
   function openLegend() {
+    // Touch devices fire synthetic mouseenter on tap — guard with hover-capable check
+    // so the legend only opens for real pointer devices (CSS hover media query).
+    if (!window.matchMedia("(hover: hover)").matches) return;
     const r = stepperEl?.getBoundingClientRect();
     if (!r) return;
     const left = Math.max(8, Math.min(r.left, window.innerWidth - LEGEND_W - 8));
     // position: fixed because the card clips (overflow: hidden); above by
     // default, flipped below when too close to the viewport top.
     legendPos =
-      r.top < 160 ? { top: r.bottom + 6, left } : { bottom: window.innerHeight - r.top + 6, left };
+      r.top < FLIP_BELOW_PX
+        ? { top: r.bottom + 6, left }
+        : { bottom: window.innerHeight - r.top + 6, left };
   }
 
   // A fixed-position popover detaches from its row on scroll — dismiss immediately.
@@ -136,6 +144,7 @@
       <span
         class="legend"
         aria-hidden="true"
+        style:width="{LEGEND_W}px"
         style:left="{legendPos.left}px"
         style:top={legendPos.top != null ? `${legendPos.top}px` : undefined}
         style:bottom={legendPos.bottom != null ? `${legendPos.bottom}px` : undefined}
@@ -213,11 +222,11 @@
     outline: 1px solid var(--color-red);
     outline-offset: 1px;
   }
-  /* Hover legend — fixed so the card's overflow:hidden can't clip it. */
+  /* Hover legend — fixed so the card's overflow:hidden can't clip it.
+     Width is set via style:width="{LEGEND_W}px" to keep the single source of truth. */
   .legend {
     position: fixed;
     z-index: 30;
-    width: 220px;
     pointer-events: none;
     display: flex;
     flex-direction: column;

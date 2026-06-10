@@ -583,3 +583,37 @@ describe("TopBar — tallies toggle the status filter", () => {
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
   });
 });
+
+describe("TopBar — working-while-blocked counts in the working tally, not blocked", () => {
+  it("desktop: a flagged blocked session tallies as working; halt keeps the raw count", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const list = [
+      { id: "r1", status: "running" },
+      { id: "wb", status: "blocked" }, // herdr-latched, server flags it working
+      { id: "b1", status: "blocked" }, // genuinely blocked
+    ] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: list,
+      workingBlocked: { wb: true },
+    });
+    const working = page.getByTitle(
+      m.topbar_tally_filter_title({ status: m.topbar_working_label() }),
+    );
+    const blocked = page.getByTitle(
+      m.topbar_tally_filter_title({ status: m.topbar_blocked_label() }),
+    );
+    // display tallies: flagged session counts as working (2), not blocked (1)
+    await expect.element(working).toHaveTextContent("2");
+    await expect.element(blocked).toHaveTextContent("1");
+    // the e-stop stays RAW: only 1 raw-running agent is haltable, so the gear menu
+    // offers "Halt 1", not 2 (the server's haltAll can't reach the latched session)
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.halt_all_aria({ count: 1 }) }))
+      .toBeInTheDocument();
+  });
+});

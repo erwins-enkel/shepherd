@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
+import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
 import { classifyBlocked } from "../src/blocked";
 import { DEFAULT_STALL } from "../src/stall";
@@ -155,6 +156,320 @@ test("re-emits onBlock when the blocked reason changes after the cadence", () =>
   poller.tick();
   expect(blocks).toHaveLength(2);
   expect((blocks[1]!.block as any).shape).toBe("yes-no");
+});
+
+/** A live spinner ticks its elapsed counter, so the buffer advances between
+ *  classify reads — parameterize the seconds to simulate that in tests. */
+const spinnerTail = (secs: number) => `✶ Bunning… (1m ${secs}s · ↑ 1.3k tokens)\n❯`;
+const SPINNER_TAIL = spinnerTail(13);
+
+/** Blocked-status herdr fake whose visible buffer (`setText`) and agent status
+ *  (`setStatus`) are swappable. Captures block, working-blocked, and status
+ *  emissions plus a combined `events` log for relative-order assertions. */
+function spinnerHarness(initialText: string) {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+  const working: { id: string; working: boolean }[] = [];
+  const statuses: string[] = [];
+  /** Interleaved block + working-blocked emissions, most recent last. */
+  const events: string[] = [];
+  let text = initialText;
+  let agentStatus = "blocked";
+  let gone = false;
+  const herdr = {
+    list: (): HerdrAgent[] =>
+      gone
+        ? []
+        : [
+            {
+              agent: "claude",
+              agentStatus,
+              cwd: "/wt",
+              paneId: "p",
+              tabId: "t",
+              name: "",
+              terminalId: "term_a",
+              workspaceId: "w",
+            } as HerdrAgent,
+          ],
+    read: () => text,
+    readAsync: () => Promise.resolve(text),
+  };
+  let clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    (_id, status) => statuses.push(status),
+    (id, block) => {
+      blocks.push({ id, block });
+      events.push(`block:${block === null ? "null" : (block as any).shape}`);
+    },
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined, // probe
+    undefined, // stallCfg
+    undefined, // probeCheckMs
+    undefined, // onReady
+    undefined, // onActivity
+    undefined, // preview
+    undefined, // liveness
+    (id, w) => {
+      working.push({ id, working: w });
+      events.push(`working:${w}`);
+    },
+  );
+  return {
+    poller,
+    store,
+    blocks,
+    working,
+    statuses,
+    events,
+    id: s.id,
+    setText: (t: string) => (text = t),
+    setStatus: (st: string) => (agentStatus = st),
+    setGone: () => (gone = true),
+    advance: (ms: number) => (clock += ms),
+  };
+}
+
+test("suppresses the awaiting-input fallback when the TUI shows a working spinner", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  // exactly one working-blocked(true) for the episode …
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // … and further cadences over an ADVANCING buffer (live spinner ticks) stay silent
+  h.setText(spinnerTail(18));
+  h.advance(5000);
+  h.poller.tick();
+  h.setText(spinnerTail(23));
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toHaveLength(1);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
+});
+
+test("clears an announced block exactly once when the buffer flips to a working spinner", () => {
+  const h = spinnerHarness("❯ 1. Yes\n  2. No");
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+  expect(h.working).toHaveLength(0);
+
+  // dialog answered, herdr latches blocked, TUI now shows a live turn spinner
+  h.setText(SPINNER_TAIL);
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(2);
+  expect(h.blocks[1]!.block).toBeNull();
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // further suppressed cycles (spinner still ticking) emit nothing
+  h.setText(spinnerTail(18));
+  h.advance(5000);
+  h.poller.tick();
+  h.setText(spinnerTail(23));
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(2);
+  expect(h.working).toHaveLength(1);
+});
+
+test("re-arms after suppression: a later spinner-free awaiting-input tail emits a block", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+
+  h.setText("I need your input on the API design.\n❯");
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  // flag-off lands in the same tick, BEFORE the block (badge + red row together)
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+});
+
+test("still emits a menu block when a spinner line is also visible", () => {
+  const h = spinnerHarness(`✶ Bunning… (1m 13s · ↑ 1.3k tokens)\n❯ 1. Yes\n  2. No`);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+  // a genuine dialog never enters the working-blocked display state
+  expect(h.working).toHaveLength(0);
+});
+
+test("herdr leaving blocked drops the working-blocked flag in the same tick", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick();
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // herdr flips to working → flag-off synchronously on that tick (no probe wait,
+  // no async flush — reconcileAgent clears it before any throttled path runs)
+  h.setStatus("working");
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toEqual([
+    { id: h.id, working: true },
+    { id: h.id, working: false },
+  ]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+  expect(h.blocks).toHaveLength(0); // suppression never announced a block to clear
+});
+
+test("suppress/re-arm cycle synthesizes no status transitions of its own", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // blocked + suppressed
+  h.setText(spinnerTail(18)); // spinner ticks → stays suppressed
+  h.advance(5000);
+  h.poller.tick(); // still suppressed
+  h.setText("I need your input on the API design.\n❯");
+  h.advance(5000);
+  h.poller.tick(); // re-arm → block emitted
+  expect(h.statuses).toEqual(["blocked"]); // only herdr's raw transition
+
+  h.setStatus("working");
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.statuses).toEqual(["blocked", "running"]);
+});
+
+test("agent gone during suppression: reap emits exactly one working:false and marks done", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // herdr blocked + spinner tail → suppression episode
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // claude exited / ctrl-c'd — herdr no longer lists the agent → reapGone
+  h.setGone();
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toEqual([
+    { id: h.id, working: true },
+    { id: h.id, working: false },
+  ]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+
+  // further ticks emit nothing more
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toHaveLength(2);
+});
+
+test("archive during suppression: prune drops the flag silently (no working:false)", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // enter the suppression episode
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // session archived → leaves the activeOnly list → pruneInactive clears tracking
+  h.store.update(h.id, { status: "archived" });
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toEqual([{ id: h.id, working: true }]); // NO additional emission
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+});
+
+test("frozen spinner re-arms: an identical buffer across cadences surfaces the block", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // first sighting → one-cadence grace, suppressed
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // buffer did NOT advance → wedged/static, not a live spinner → re-arm:
+  // exactly one working:false then one awaiting-input block, in that order
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+
+  // a further identical-buffer cadence: sig-dedupe → no new emissions
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+});
+
+test("advancing spinner stays suppressed across cadences", () => {
+  const h = spinnerHarness(spinnerTail(13));
+  h.poller.tick();
+  for (const secs of [14, 15, 16]) {
+    h.setText(spinnerTail(secs)); // elapsed counter ticks → buffer advances
+    h.advance(3001);
+    h.poller.tick();
+  }
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]); // only the initial flag-on
+  expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
+});
+
+test("unwedged spinner re-enters suppression: flag back on, re-armed block cleared once", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // grace
+  h.advance(3001);
+  h.poller.tick(); // frozen → re-arm
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+
+  // turn unwedges: the buffer advances again with a live spinner
+  h.setText(spinnerTail(14));
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toEqual([
+    "working:true",
+    "working:false",
+    "block:awaiting-input",
+    "block:null", // the re-armed block clears exactly once
+    "working:true", // flag back on for the fresh episode
+  ]);
+
+  // and the re-entered episode keeps suppressing while the spinner ticks
+  h.setText(spinnerTail(15));
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toHaveLength(5);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
+});
+
+test("static buffer quoting a spinner-like markdown bullet ultimately surfaces the block", () => {
+  // genuine awaiting-input tail that merely CONTAINS a spinner-shaped bullet line
+  const h = spinnerHarness("Summary:\n* Done… (3s)\nWhich option do you prefer?\n❯");
+  h.poller.tick(); // first cadence: grace → may suppress
+  expect(h.blocks).toHaveLength(0);
+
+  // static across reads → second cadence re-arms with the block
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+});
+
+// route mirror of GET /api/claude-alive (see poller-liveness.test.ts)
+test("GET /api/working-blocked returns the snapshot; {} when unwired", async () => {
+  const baseDeps = {
+    store: new SessionStore(":memory:"),
+    service: {} as any,
+    events: { subscribe: () => () => {}, emit: () => {} } as any,
+    usageLimits: {
+      limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    },
+  };
+  const wired = makeApp({
+    ...baseDeps,
+    workingBlocked: { snapshot: () => ({ "session-1": true }) },
+  } as any);
+  let res = await wired.fetch(new Request("http://localhost/api/working-blocked"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ "session-1": true });
+
+  const unwired = makeApp(baseDeps as any);
+  res = await unwired.fetch(new Request("http://localhost/api/working-blocked"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
 });
 
 test("marks a session done and emits once when its herdr agent is gone", () => {

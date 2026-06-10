@@ -15,6 +15,7 @@
     onsettings = undefined,
     filteredRepo = null,
     statusFilter = null,
+    workingBlocked = {},
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -29,6 +30,8 @@
     // page-level status filter (TopBar tallies); sessions arrive pre-filtered,
     // the prop only picks the right empty-state copy
     statusFilter?: "running" | "idle" | "blocked" | null;
+    // working-while-blocked display flags (store map) — threaded into the tiles' displayStatus
+    workingBlocked?: Record<string, boolean>;
   } = $props();
 
   const statusLabel = $derived(
@@ -63,6 +66,7 @@
         {nowMs}
         {onselect}
         git={git[session.id]}
+        {workingBlocked}
       />
     {/each}
   </div>

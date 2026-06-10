@@ -4,6 +4,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import type { Session, GitState } from "$lib/types";
   import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge, canResume } from "$lib/format";
+  import { displayStatus } from "$lib/display-status";
   import { connectPty } from "$lib/pty";
   import { resumeSession } from "$lib/api";
   import { theme, xtermTheme } from "$lib/theme.svelte";
@@ -24,15 +25,22 @@
     nowMs = Date.now(),
     onselect,
     git,
+    workingBlocked = {},
   }: {
     session: Session;
     selected?: boolean;
     nowMs?: number;
     onselect: (id: string) => void;
     git?: GitState;
+    // working-while-blocked display flags (whole store map); feeds displayStatus only
+    workingBlocked?: Record<string, boolean>;
   } = $props();
 
-  const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
+  // Display branches read this, not session.status: a working-while-blocked
+  // session gets the full working treatment. canResume stays on the raw status.
+  const dStatus = $derived(displayStatus(session, workingBlocked));
+
+  const hideStatus = $derived(hideStatusBadge(dStatus, reviews.isReviewing(session.id)));
 
   // A status badge renders for ready / a non-hidden status; only then does
   // #tile-status-{id} exist. Build the overlay's aria-describedby so it omits
@@ -171,7 +179,7 @@
 <div
   class="tile"
   class:sel={selected}
-  style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
+  style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[dStatus]}"
 >
   <button
     bind:this={hitEl}
@@ -186,7 +194,7 @@
   <div class="t-head">
     <span class="name">{session.name}</span>
     <span class="spacer"></span>
-    {#if session.status === "running"}
+    {#if dStatus === "running"}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     <PrBadge {git} />
@@ -197,8 +205,8 @@
     {#if session.readyToMerge}
       <span class="badge" id="tile-status-{session.id}">{m.status_ready_to_merge()}</span>
     {:else if !hideStatus}
-      <span class="badge" class:alert={session.status === "blocked"} id="tile-status-{session.id}"
-        >{statusLabel(session.status)}</span
+      <span class="badge" class:alert={dStatus === "blocked"} id="tile-status-{session.id}"
+        >{statusLabel(dStatus)}</span
       >
     {/if}
     <span class="desig" id="tile-desig-{session.id}">{session.desig}</span>

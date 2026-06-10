@@ -5,6 +5,7 @@ import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
 import type { Session } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -163,5 +164,58 @@ describe("UnitRow inline repo emoji filter", () => {
     // the emoji still renders, but as plain decoration — no filter button
     await expect.element(page.getByText("🐑")).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: /repo/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("UnitRow working-while-blocked (full working treatment)", () => {
+  // What the FULL working treatment looks like on a row — asserted identically
+  // for a raw-running session and a blocked+flagged one, so the two renders
+  // can't drift apart: BUSY badge (not BLOCKED), the working pip (not the red
+  // "!" alarm badge), the typing caret, and the live activity line.
+  async function expectWorkingAffordances(root: HTMLElement) {
+    await expect.element(page.getByText(m.status_working())).toBeInTheDocument();
+    await expect.element(page.getByText(m.status_blocked())).not.toBeInTheDocument();
+    const pipLabel = m.statuspip_status_aria({ status: m.status_working() });
+    await expect.element(page.getByRole("img", { name: pipLabel })).toBeInTheDocument();
+    expect(root.querySelector(".pip.badge"), "no red ! alarm pip").toBeNull();
+    expect(root.querySelector(".car"), "typing caret present").not.toBeNull();
+    expect(
+      root.querySelector(".unit")?.classList.contains("has-activity"),
+      "live activity line",
+    ).toBe(true);
+  }
+
+  it("a blocked session flagged working renders identical to a raw-running one", async () => {
+    render(UnitRow, {
+      session: session({ id: "wb", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      workingBlocked: { wb: true },
+    });
+    await expectWorkingAffordances(document.body);
+  });
+
+  it("baseline: a raw-running session shows the same affordances", async () => {
+    render(UnitRow, {
+      session: session({ id: "run", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expectWorkingAffordances(document.body);
+  });
+
+  it("a blocked session WITHOUT the flag keeps the blocked treatment", async () => {
+    render(UnitRow, {
+      session: session({ id: "blk", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      workingBlocked: {},
+    });
+    await expect.element(page.getByText(m.status_blocked())).toBeInTheDocument();
+    expect(document.body.querySelector(".pip.badge"), "red ! alarm pip").not.toBeNull();
+    expect(document.body.querySelector(".car"), "no typing caret").toBeNull();
   });
 });

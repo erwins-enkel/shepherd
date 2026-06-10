@@ -17,6 +17,7 @@
     gitStates,
     activityStates,
     claudeAliveStates,
+    workingBlockedStates,
     previewStates,
     getBacklog,
     getSettings,
@@ -41,6 +42,7 @@
     Settings as Settings_,
   } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
+  import { displayStatus } from "$lib/display-status";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
@@ -127,10 +129,15 @@
   // repoPath so the drawer scrolls to the matching section; null = opened globally.
   let learningsRepo = $state<string | null>(null);
   // Repos with at least one currently-running agent — the repo-status band lists only
-  // these (matches TopBar's "working" definition). Drives both the band rows and the
-  // filterable scope below.
+  // these (matches TopBar's "working" definition, so it shares the displayStatus
+  // routing: a working-while-blocked agent counts as running). Drives both the band
+  // rows and the filterable scope below.
   const runningRepoPaths = $derived(
-    new Set(store.sessions.filter((s) => s.status === "running").map((s) => s.repoPath)),
+    new Set(
+      store.sessions
+        .filter((s) => displayStatus(s, store.workingBlocked) === "running")
+        .map((s) => s.repoPath),
+    ),
   );
   // Herd repo filter (full repo path), toggled from the repo-status band or from a
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
@@ -169,7 +176,11 @@
     const byRepo = repoFilter
       ? store.sessions.filter((s) => s.repoPath === repoFilter)
       : store.sessions;
-    return statusFilter ? byRepo.filter((s) => s.status === statusFilter) : byRepo;
+    // displayStatus, not raw status: a working-while-blocked session belongs under
+    // the "running" filter (the tallies count it there), never under "blocked".
+    return statusFilter
+      ? byRepo.filter((s) => displayStatus(s, store.workingBlocked) === statusFilter)
+      : byRepo;
   });
   // basename of the active filter for the herd's empty-state copy; null when unfiltered
   const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
@@ -249,6 +260,9 @@
       .catch(() => {});
     claudeAliveStates()
       .then((m) => store.setClaudeAlive(m))
+      .catch(() => {});
+    workingBlockedStates()
+      .then((m) => store.setWorkingBlocked(m))
       .catch(() => {});
     previewStates()
       .then((m) => {
@@ -461,6 +475,7 @@
       // Herd's shown set (one filter at a time) — mirror that here so keynav walks
       // exactly the visible rows, never a "ready" subset of the status-filtered list
       statusFilter != null ? "all" : herdFilter,
+      store.workingBlocked,
     );
   }
 
@@ -606,6 +621,9 @@
     claudeAliveStates()
       .then((m) => store.setClaudeAlive(m))
       .catch(() => {});
+    workingBlockedStates()
+      .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
     previewStates()
       .then((m) => {
         store.setPreview(flattenPreview(m));
@@ -741,6 +759,9 @@
   // share the 'halt-done' key so each supersedes the last in place (interim →
   // Halted N on success, or interim → Retry on failure) rather than stacking.
   function haltHerd() {
+    // Raw status by design (NOT displayStatus): the server's haltAll only reaches
+    // agents herdr itself reports working — a working-while-blocked session is
+    // latched "blocked" there, so counting it would overstate the e-stop's reach.
     const count = store.sessions.filter((s) => s.status === "running").length;
     if (count === 0) return; // nothing to halt; the control is hidden in this state anyway
     toasts.info(m.halt_confirm({ count }), { key: "halt-done" });
@@ -888,6 +909,7 @@
         onwhatsnew={() => (showWhatsNew = true)}
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
+        workingBlocked={store.workingBlocked}
       />
       <QueueStrip
         rows={bandRows}
@@ -929,6 +951,7 @@
             onsettings={() => (showSettings = true)}
             flow={true}
             bind:filter={herdFilter}
+            workingBlocked={store.workingBlocked}
           />
           {#if store.sessions.length === 0}
             <BacklogView
@@ -968,6 +991,7 @@
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
             {onarchive}
+            workingBlocked={store.workingBlocked}
             onback={() => (mobileScreen = "list")}
             nextNeedsYou={otherNeedsYou.length}
             onnextneedsyou={jumpNextNeedsYou}
@@ -991,6 +1015,7 @@
           onnew={() => (showNew = true)}
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
+          workingBlocked={store.workingBlocked}
         />
       </div>
     {:else}
@@ -1016,6 +1041,7 @@
           {standardCommandUnset}
           onsettings={() => (showSettings = true)}
           bind:filter={herdFilter}
+          workingBlocked={store.workingBlocked}
         />
         {#if store.sessions.length === 0}
           <BacklogView
@@ -1044,6 +1070,7 @@
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
             {onarchive}
+            workingBlocked={store.workingBlocked}
             onbroadcast={() => (showBroadcast = true)}
           />
         {:else}
@@ -1119,9 +1146,12 @@
 {/if}
 
 {#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || herdrUpdating)}
+  <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
+       working-while-blocked agent is genuinely mid-turn, so it counts as working -->
   <HerdrUpdateModal
     update={store.herdrUpdate}
-    sessions={store.sessions.filter((s) => s.status === "running").length}
+    sessions={store.sessions.filter((s) => displayStatus(s, store.workingBlocked) === "running")
+      .length}
     log={store.herdrUpdateLog}
     done={store.herdrUpdateDone}
     onconfirm={() => {

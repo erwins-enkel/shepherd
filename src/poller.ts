@@ -1,7 +1,7 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import { mapState, matchAgents, type HerdrDriver, type HerdrAgent } from "./herdr";
-import { classifyBlocked, tailLines, type BlockReason } from "./blocked";
+import { classifyBlocked, hasActiveSpinner, tailLines, type BlockReason } from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
@@ -104,6 +104,31 @@ export class StatusPoller {
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
+  /** Sessions herdr reports "blocked" whose TUI shows a live turn spinner —
+   *  the working-while-blocked suppression episode (herdr latches blocked after
+   *  an answered dialog). Membership drives the `onWorkingBlocked` display flag:
+   *  added (emit true) once per episode in `maybeClassify`'s suppression branch;
+   *  removed with an emit (false) on re-arm — a spinner-free tail OR the
+   *  freshness gate tripping on a frozen buffer (see `lastSuppressVisible`) —
+   *  on leaving herdr-blocked (`reconcileAgent`), and on reap; dropped SILENTLY
+   *  on prune (the session was archived — no client cares about its flag
+   *  anymore). */
+  private workingWhileBlocked = new Set<string>();
+  /** Per-session previous classify-read visible buffer while in a spinner-
+   *  suppression episode — the freshness gate. A spinner LINE match alone is
+   *  necessary but not sufficient to keep suppressing: a live spinner ticks its
+   *  elapsed/token counters, so the buffer always advances across the
+   *  reclassify cadence, while a wedged turn or a static buffer quoting a
+   *  spinner-like line (`* Done… (3s)` as a markdown bullet) stays frozen —
+   *  those must re-arm the block, not be suppressed forever. Deliberately
+   *  separate from `lastVisible` (evaluateStall's gate) and
+   *  `lastInterimVisible` (interim path) so the liveness diffs never trample
+   *  each other. Retained across a frozen re-arm (it IS the episode memory
+   *  that stops the same static buffer from re-earning first-sighting grace);
+   *  dropped when the suppression context ends (non-spinner classify, leaving
+   *  herdr-blocked, `clearBlock`, reap, prune). */
+  private lastSuppressVisible = new Map<string, string>();
+
   /** Timestamp of the last claude-liveness sweep (0 = never). */
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
@@ -148,6 +173,13 @@ export class StatusPoller {
      * Resume when the claude process is actually gone (husk shell).
      */
     liveness?: Partial<LivenessWiring>,
+    /**
+     * Pushed when a session enters/leaves the working-while-blocked display state
+     * (herdr latched "blocked" but the TUI shows a live turn spinner). `true` fires
+     * once per suppression episode, `false` when the episode ends — same tick as
+     * (and before) any re-armed block emission.
+     */
+    private onWorkingBlocked: (id: string, working: boolean) => void = () => {},
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -244,6 +276,11 @@ export class StatusPoller {
     return Object.fromEntries(this.lastClaudeAlive);
   }
 
+  /** Sessions currently in the working-while-blocked display state, for client bootstrap. */
+  workingBlockedSnapshot(): Record<string, boolean> {
+    return Object.fromEntries([...this.workingWhileBlocked].map((id) => [id, true]));
+  }
+
   /**
    * The herdr agent is gone (claude exited / user ctrl-c'd the session).
    * Mirror reconcile()'s startup behavior, but live — otherwise the session
@@ -251,6 +288,7 @@ export class StatusPoller {
    * terminal (herdr replies agent_not_found in a tight reconnect loop).
    */
   private reapGone(s: Session): void {
+    if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     this.clearBlock(s.id);
     if (s.status !== "done") {
       this.store.update(s.id, { status: "done", lastState: "done" });
@@ -277,6 +315,14 @@ export class StatusPoller {
       this.store.update(s.id, { readyToMerge: false });
       this.onReady(s.id, false);
     }
+    // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
+    // display flag must drop in the SAME tick, not via the throttled probe paths.
+    // The suppression-episode baseline goes with it (flag or not — a frozen
+    // episode that already re-armed still holds one).
+    if (status !== "blocked") {
+      this.lastSuppressVisible.delete(s.id);
+      if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
+    }
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.clearBlock(s.id);
@@ -297,6 +343,8 @@ export class StatusPoller {
       ...this.interimInFlight.keys(),
       ...this.lastTranscriptTs.keys(),
       ...this.previewStopState.keys(),
+      ...this.workingWhileBlocked,
+      ...this.lastSuppressVisible.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -312,6 +360,9 @@ export class StatusPoller {
         this.interimInFlight.delete(id);
         this.lastTranscriptTs.delete(id);
         this.previewStopState.delete(id);
+        // archived/removed → no client cares anymore; drop without an emit
+        this.workingWhileBlocked.delete(id);
+        this.lastSuppressVisible.delete(id);
       }
     }
   }
@@ -594,22 +645,86 @@ export class StatusPoller {
     this.onBlock(id, { shape: "stall", options: [], tail: tailLines(visible) });
   }
 
-  /** Read + classify a blocked agent at most every `reclassifyMs`; emit only on change. */
+  /**
+   * Read + classify a blocked agent at most every `reclassifyMs`; emit only on change.
+   * An `awaiting-input` fallback is suppressed (and any announced block cleared once)
+   * while the TUI shows an active turn spinner — herdr can latch "blocked" after an
+   * answered dialog even though the agent resumed working. Continued suppression
+   * additionally requires FRESHNESS: a live spinner ticks its elapsed/token counters,
+   * so the visible buffer advances between classify reads — an identical buffer means
+   * a wedged turn (or a static tail merely quoting a spinner-like line) and falls
+   * through to the normal emit, re-arming the block instead of suppressing forever.
+   * The first sighting of an episode gets a one-cadence grace (nothing to compare
+   * yet; the common case is a genuinely working spinner). The suppression episode
+   * is surfaced as the working-while-blocked display flag: `onWorkingBlocked(id, true)`
+   * once on entry; on re-arm (any block that will be emitted) `onWorkingBlocked(id,
+   * false)` fires first, then `onBlock`, in the same tick — clients see the flag drop
+   * and the block land together.
+   */
   private maybeClassify(id: string, term: string): void {
     const t = this.now();
     if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return;
     this.lastReadAt.set(id, t);
+    let visible: string;
     let reason: BlockReason;
     try {
-      reason = this.classify(this.herdr.read(term, "visible"));
+      visible = this.herdr.read(term, "visible");
+      reason = this.classify(visible);
     } catch (err) {
       console.warn(`[poller] classify failed for ${id}:`, err);
       return; // best-effort; retry next cadence
     }
+    if (reason.shape === "awaiting-input" && hasActiveSpinner(visible)) {
+      // herdr can latch "blocked" after an answered dialog; a live spinner means the
+      // agent resumed working — clear any announced block instead of emitting the
+      // no-evidence fallback. (suppression scoped to awaiting-input only: a genuine
+      // menu/y-n dialog must always surface, spinner or not)
+      if (this.trySuppressSpinner(id, visible)) return;
+      // Freshness gate tripped: the buffer did NOT advance since the last classify
+      // read — a wedged turn or a static buffer quoting a spinner-like line, not a
+      // live spinner. Fall through to the normal emit so the block re-arms (flag-off
+      // before the block, below). `lastSuppressVisible` is deliberately KEPT: while
+      // the buffer stays frozen, every subsequent read lands here and dedupes on
+      // `lastSig` — deleting it would re-grant first-sighting grace each cadence
+      // (suppress/re-arm oscillation).
+    } else {
+      // Suppression context over (spinner gone, or a genuine menu/y-n dialog) →
+      // drop the episode memory so the next spinner sighting gets a fresh grace.
+      this.lastSuppressVisible.delete(id);
+    }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return;
+    // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
+    // the flag-off and the block reach clients in the same tick, in that order.
+    if (this.workingWhileBlocked.delete(id)) this.onWorkingBlocked(id, false);
     this.lastSig.set(id, sig);
     this.onBlock(id, reason);
+  }
+
+  /**
+   * Freshness-gated spinner suppression for `maybeClassify`. Records `visible`
+   * as the episode baseline and returns true when the buffer is FRESH — first
+   * sighting (one-cadence grace; nothing to compare yet) or advanced since the
+   * previous read (a live spinner ticking its counters) — having suppressed the
+   * fallback: any announced block is cleared once and the working-while-blocked
+   * flag turned on (a re-entry after a frozen re-arm lands here too). Returns
+   * false when the buffer is FROZEN (identical to the previous read — a wedged
+   * turn or a static tail quoting a spinner-like line): no suppression, the
+   * caller falls through to the normal emit and re-arms the block.
+   */
+  private trySuppressSpinner(id: string, visible: string): boolean {
+    const prev = this.lastSuppressVisible.get(id);
+    this.lastSuppressVisible.set(id, visible);
+    if (prev !== undefined && prev === visible) return false; // frozen → re-arm
+    if (this.lastSig.has(id)) {
+      this.lastSig.delete(id);
+      this.onBlock(id, null);
+    }
+    if (!this.workingWhileBlocked.has(id)) {
+      this.workingWhileBlocked.add(id);
+      this.onWorkingBlocked(id, true); // once per episode, not per cadence
+    }
+    return true;
   }
 
   /**
@@ -627,6 +742,7 @@ export class StatusPoller {
 
   private clearBlock(id: string): void {
     this.lastVisible.delete(id); // reset the stall liveness baseline regardless of block state
+    this.lastSuppressVisible.delete(id); // and the spinner-suppression episode baseline
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);

@@ -30,9 +30,10 @@ export function railOrder(
   isReviewing: (id: string) => boolean = () => false,
   now: number = Date.now(),
   filter: HerdFilter = "all",
+  workingBlocked: Record<string, boolean> = {},
 ): string[] {
   const partition = partitionSessions(
-    shownSessions(sessions, filter, isReviewing),
+    shownSessions(sessions, filter, isReviewing, workingBlocked),
     git,
     isReviewing,
     now,

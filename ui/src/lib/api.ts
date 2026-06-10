@@ -473,6 +473,16 @@ export async function claudeAliveStates(): Promise<Record<string, boolean>> {
   return r.json();
 }
 
+/** Snapshot of the working-while-blocked display flags, keyed by session id (for
+ *  client bootstrap; mirror of /api/claude-alive). `true` = herdr reports the
+ *  session "blocked" but the server saw it resume mid-turn (herdr's blocked
+ *  latch) — display-only, feeds `displayStatus` and nothing behavioral. */
+export async function workingBlockedStates(): Promise<Record<string, boolean>> {
+  const r = await fetch("/api/working-blocked");
+  if (!r.ok) throw await failed(r, "working-blocked states");
+  return r.json();
+}
+
 /** Snapshot of the bound preview-listener port per session, keyed by session id
  *  (for client bootstrap). `previewPort` is null when the server knows of no
  *  live dev-server listener. Empty object when nothing is bound. */

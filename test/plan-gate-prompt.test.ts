@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { planReviewPrompt, reviewerArgv, PLAN_VERDICT_FILE } from "../src/plan-gate";
+import { planReviewPrompt, PLAN_VERDICT_FILE } from "../src/plan-gate";
+import { readonlyReviewerArgv } from "../src/reviewer-argv";
 
 test("prompt embeds task + plan + prior findings + verdict file + read-only", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT", ["earlier nit"]);
@@ -13,8 +14,8 @@ test("prompt without prior findings omits the re-review block", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT");
   expect(p).not.toContain("RE-REVIEW");
 });
-test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAllHooks, slash disabled", () => {
-  const a = reviewerArgv(null, "PROMPT");
+test("readonlyReviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAllHooks, slash disabled", () => {
+  const a = readonlyReviewerArgv(null, "PROMPT").argv;
   expect(a).not.toContain("--bare");
   expect(a).toContain("--disable-slash-commands");
   expect(a.join(" ")).toContain('{"disableAllHooks":true}');
@@ -28,8 +29,8 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   expect(a).toContain("--safe-mode");
   expect(a.indexOf("--safe-mode")).toBeLessThan(a.indexOf("--allowedTools"));
 });
-test("reviewerArgv inserts --model when given", () => {
-  const a = reviewerArgv("opus", "PROMPT");
+test("readonlyReviewerArgv inserts --model when given", () => {
+  const a = readonlyReviewerArgv("opus", "PROMPT").argv;
   const mi = a.indexOf("--model");
   expect(mi).toBeGreaterThan(-1);
   expect(a[mi + 1]).toBe("opus");

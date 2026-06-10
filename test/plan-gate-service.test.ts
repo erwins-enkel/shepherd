@@ -4,6 +4,7 @@ import { PlanGateService } from "../src/plan-gate";
 function harness(over: any = {}) {
   const started: any[] = [];
   const removed: string[] = [];
+  const spawnRecords: any[] = [];
   const overWithoutStore = { ...over };
   delete overWithoutStore.store;
   const store = {
@@ -17,6 +18,9 @@ function harness(over: any = {}) {
     addSignal() {},
     setPlanPhase() {},
     get: () => ({ id: "s1", auto: false }),
+    recordReviewSpawn(r: any) {
+      spawnRecords.push(r);
+    },
     ...(over.store ?? {}),
   };
   const deps: any = {
@@ -45,7 +49,7 @@ function harness(over: any = {}) {
     // deps-level spread doesn't re-overwrite it with the un-merged per-test partial.
     ...overWithoutStore,
   };
-  return { deps, started, removed, store, svc: new PlanGateService(deps) };
+  return { deps, started, removed, store, spawnRecords, svc: new PlanGateService(deps) };
 }
 
 const planningSession = () => ({
@@ -65,6 +69,19 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started.length).toBe(1);
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+test("recordReviewSpawn called once with matching sessionId and reviewerSessionId", async () => {
+  const h = harness();
+  await h.svc.consider(planningSession() as any);
+  expect(h.spawnRecords.length).toBe(1);
+  const rec = h.spawnRecords[0];
+  expect(rec.sessionId).toBe("s1");
+  // reviewerSessionId must match the --session-id embedded in the argv passed to herdr.start
+  const argv: string[] = h.started[0].argv;
+  const sidIdx = argv.indexOf("--session-id");
+  expect(sidIdx).toBeGreaterThan(-1);
+  expect(rec.reviewerSessionId).toBe(argv[sidIdx + 1]);
+  expect(rec.startedAt).toBe(1000); // matches the fake now()
 });
 test("consider no-ops when plan missing/empty", async () => {
   const h = harness({ readPlan: () => null });

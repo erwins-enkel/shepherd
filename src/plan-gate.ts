@@ -53,12 +53,6 @@ export function planReviewPrompt(task: string, plan: string, priorFindings: stri
   return lines.join("\n");
 }
 
-/** The read-only plan reviewer's argv — the PR critic's exact hardening, shared via one builder
- *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). */
-export function reviewerArgv(model: string | null, prompt: string): string[] {
-  return readonlyReviewerArgv(model, prompt).argv;
-}
-
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_CAP = 5;
@@ -82,6 +76,7 @@ export interface PlanGateServiceDeps {
     | "getRepoConfig"
     | "addSignal"
     | "get"
+    | "recordReviewSpawn"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -214,7 +209,10 @@ export class PlanGateService {
     }
 
     const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? []);
-    const argv = reviewerArgv(this.deps.model ?? null, prompt);
+    const { argv, sessionId: reviewerSessionId } = readonlyReviewerArgv(
+      this.deps.model ?? null,
+      prompt,
+    );
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -226,6 +224,17 @@ export class PlanGateService {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);
       this.deps.worktree.remove(wt.worktreePath);
       return "error";
+    }
+    // fail-open: the reviewer terminal is already running; a record failure must not
+    // skip inflight.set below (that would orphan the terminal — untracked, never reaped).
+    try {
+      this.deps.store.recordReviewSpawn({
+        sessionId: session.id,
+        reviewerSessionId,
+        startedAt: this.now(),
+      });
+    } catch (err) {
+      console.warn(`[plan-gate] spawn-record failed for ${session.id}:`, err);
     }
     this.inflight.set(session.id, {
       sessionId: session.id,

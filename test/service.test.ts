@@ -270,6 +270,26 @@ test("spawnSettingsOverlay pins remoteControlAtStartup from config (default off)
   }
 });
 
+test("spawnSettingsOverlay injects enabledPlugins:false only for configured ids (subtractive)", () => {
+  const prev = config.disabledSpawnPlugins;
+  try {
+    // default empty → no enabledPlugins key (so omitted plugins, e.g. superpowers, stay enabled)
+    config.disabledSpawnPlugins = [];
+    expect(JSON.parse(spawnSettingsOverlay()).enabledPlugins).toBeUndefined();
+    // configured ids → each pinned to false, nothing pinned to true
+    config.disabledSpawnPlugins = [
+      "vercel@claude-plugins-official",
+      "resend@claude-plugins-official",
+    ];
+    expect(JSON.parse(spawnSettingsOverlay()).enabledPlugins).toEqual({
+      "vercel@claude-plugins-official": false,
+      "resend@claude-plugins-official": false,
+    });
+  } finally {
+    config.disabledSpawnPlugins = prev;
+  }
+});
+
 test("createSession: uses herd-qualified name on collision with a different-repo session", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

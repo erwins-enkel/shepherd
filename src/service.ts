@@ -54,9 +54,23 @@ export interface ServiceDeps {
  * doesn't auto-start Claude Code's Remote Control for every Shepherd session
  * (default false suppresses the notification noise); `/remote-control` in the
  * terminal still toggles it per-session.
+ *
+ * When `config.disabledSpawnPlugins` is set, also injects `enabledPlugins` with
+ * those ids pinned to `false` — trimming their always-listed skill descriptions
+ * from the agent's per-turn context (re-read on every turn). The override is
+ * process-scoped (this spawn only) and purely subtractive: any plugin not listed
+ * keeps its enabled state, so superpowers/context7 stay on.
  */
 export function spawnSettingsOverlay(): string {
-  return JSON.stringify({ remoteControlAtStartup: config.remoteControlAtStartup });
+  const settings: Record<string, unknown> = {
+    remoteControlAtStartup: config.remoteControlAtStartup,
+  };
+  if (config.disabledSpawnPlugins.length > 0) {
+    settings.enabledPlugins = Object.fromEntries(
+      config.disabledSpawnPlugins.map((id) => [id, false]),
+    );
+  }
+  return JSON.stringify(settings);
 }
 
 /**

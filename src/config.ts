@@ -189,6 +189,20 @@ export const config = {
   // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
   // works in the terminal to turn it on per-session. UI-configurable + persisted.
   remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
+  // Plugins to disable for Shepherd-spawned agents, injected at spawn via
+  // `--settings '{"enabledPlugins":{"<id>":false}}'`. Process-scoped: it overrides
+  // only that spawn, never the user's global config or interactive sessions. Each
+  // entry is a full `name@marketplace` id (e.g. `vercel@claude-plugins-official`).
+  // Every enabled plugin's skill listing is re-read into context EVERY turn, and
+  // Shepherd task agents rarely use plugin skills/MCP — disabling four unused plugins
+  // measured ~2.9K fewer tokens/turn of skill-listing. Only DISABLES: any plugin you
+  // omit stays enabled (so superpowers/context7 keep working). Default empty — ship
+  // the mechanism, not a machine-specific list; set
+  // SHEPHERD_DISABLED_PLUGINS=vercel@claude-plugins-official,resend@claude-plugins-official
+  disabledSpawnPlugins: (process.env.SHEPHERD_DISABLED_PLUGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   // Standard command: the prompt seeded behind the backlog quick-launch button.
   // Clicking it spawns a session with this prompt + the issue, skipping the New Task
   // dialog. Empty string disables the shortcut (the button falls back to the dialog).

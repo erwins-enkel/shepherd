@@ -6,7 +6,17 @@
 {#if toasts.items.length}
   <div class="toasts" aria-live="polite" aria-atomic="false">
     {#each toasts.items as t (t.id)}
-      <div class="toast" class:is-undo={t.tone === "undo"} role={t.alert ? "alert" : "status"}>
+      <!-- hold()/release() pause timed info auto-dismiss while hovered or focused;
+           the store no-ops both for undo toasts, so attaching uniformly is safe. -->
+      <div
+        class="toast"
+        class:is-undo={t.tone === "undo"}
+        role={t.alert ? "alert" : "status"}
+        onpointerenter={() => toasts.hold(t.id)}
+        onpointerleave={() => toasts.release(t.id)}
+        onfocusin={() => toasts.hold(t.id)}
+        onfocusout={() => toasts.release(t.id)}
+      >
         <span class="msg">{t.text}</span>
         {#if t.tone === "undo"}
           <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>

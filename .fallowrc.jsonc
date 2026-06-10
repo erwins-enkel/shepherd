@@ -6,6 +6,8 @@
   //
   //   Root  = Bun server. Real entry is src/index.ts (package.json "main");
   //           pty-attach.mjs is spawned as a Node subprocess, not imported.
+  //   Scripts = standalone dev CLIs under scripts/, run directly via `bun run`
+  //           (never imported) — genuine roots, like the extension mains.
   //   Tests = run by `bun test ./test` / vitest — genuine roots. Without them
   //           every test/** file shows up as an "unused file".
   //   UI    = SvelteKit. The svelte plugin auto-detects routes/app shell, but we
@@ -16,6 +18,7 @@
   "entry": [
     "src/index.ts",
     "src/pty-attach.mjs",
+    "scripts/**/*.ts",
     "test/**/*.ts",
     "test/**/*.mjs",
     "ui/src/routes/**/+*.ts",

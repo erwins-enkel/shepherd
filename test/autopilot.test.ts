@@ -539,9 +539,12 @@ test("a paused session is not CI-steered (already handed to the operator)", () =
   expect(h.events.some((e) => "steer" in e)).toBe(false);
 });
 
-test("CI-fix recovery resumes a dead pane before steering", () => {
+test("CI-fix recovery resumes a dead pane before steering", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true, paneAlive: false });
   h.svc.onGit("s1", git());
+  // driveSteer awaits the (now async) resume on the dead-pane path; flush that microtask
+  // so the fire-and-forget steer lands before asserting.
+  await Promise.resolve();
   expect(h.events).toContainEqual({ resume: true });
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });

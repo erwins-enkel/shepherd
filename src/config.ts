@@ -144,6 +144,14 @@ export function validatePreviewPortRange({
   }
 }
 
+/**
+ * Parse SHEPHERD_TRIM_AUTO_CONTEXT: default ON when unset; only an explicit
+ * `false`/`0`/`off` (case-insensitive) turns it off. Exported for tests.
+ */
+export function parseTrimAutoContext(raw: string | undefined): boolean {
+  return !["false", "0", "off"].includes((raw ?? "").toLowerCase());
+}
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -190,6 +198,12 @@ export const config = {
   // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
   // works in the terminal to turn it on per-session. UI-configurable + persisted.
   remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
+  // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
+  // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
+  // overlay disabling every operator-enabled plugin (drops plugin hook injections,
+  // skills, and MCP) — overhead unattended agents never use. Default on; set
+  // SHEPHERD_TRIM_AUTO_CONTEXT=false/0/off as the escape hatch if drain quality regresses.
+  trimAutoContext: parseTrimAutoContext(process.env.SHEPHERD_TRIM_AUTO_CONTEXT),
   // Standard command: the prompt seeded behind the backlog quick-launch button.
   // Clicking it spawns a session with this prompt + the issue, skipping the New Task
   // dialog. Empty string disables the shortcut (the button falls back to the dialog).

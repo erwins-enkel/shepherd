@@ -900,5 +900,7 @@
   "feat_issue_actions_body": "Definiere mehrere Prompts, die direkt auf einem Backlog-Issue starten — der bisherige Standard-Befehl wurde zur ersten Aktion. Steers und Issue-Aktionen teilen sich jetzt einen Editor in den Einstellungen, und jeder Eintrag kann ein Emoji tragen, damit Buttons bei wenig Platz unterscheidbar bleiben.",
   "steerseditor_scope_none_error": "Jeder Eintrag muss irgendwo erscheinen — aktiviere in der markierten Zeile „Leiste“ und/oder „Issues“",
   "feat_steer_labels_title": "Steer-Beschriftungen einblenden",
-  "feat_steer_labels_body": "In der engen mobilen Steer-Leiste blendest du mit der rechts angedockten „ABC“-Taste die Textbeschriftung jedes Buttons ein statt nur das Emoji — so erkennst du die Steers wieder, wenn du nicht mehr weißt, was ein Symbol bedeutet. Nochmal tippen klappt zurück auf Symbole. Die Wahl wird pro Gerät gemerkt."
+  "feat_steer_labels_body": "In der engen mobilen Steer-Leiste blendest du mit der rechts angedockten „ABC“-Taste die Textbeschriftung jedes Buttons ein statt nur das Emoji — so erkennst du die Steers wieder, wenn du nicht mehr weißt, was ein Symbol bedeutet. Nochmal tippen klappt zurück auf Symbole. Die Wahl wird pro Gerät gemerkt.",
+  "feat_usage_gauge_detail_title": "Detaillierte Auslastungs-Anzeige am Desktop",
+  "feat_usage_gauge_detail_body": "Fahr in der oberen Leiste über die 5H-/WK-Balken — jetzt öffnet sich eine detaillierte Karte mit jedem Fenster, vollem Namen, breitem Balken, exaktem Prozentwert und Reset-Zeitpunkt, statt der bisherigen einzeiligen Tooltip-Zeile."
 }

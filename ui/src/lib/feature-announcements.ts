@@ -450,4 +450,15 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_steer_labels_title",
     bodyKey: "feat_steer_labels_body",
   },
+  {
+    // Anchored on the top-bar usage gauges: on desktop, hovering them now opens a
+    // detailed card (full window names, wide bars, reset times) in place of the bare
+    // one-line text tooltip. v1.23.0 is already tagged, so this ships in the next
+    // release (1.24.0): computeNewEntries only surfaces entries with sinceVersion > lastSeen.
+    id: "usage-gauge-detail",
+    sinceVersion: "1.24.0",
+    titleKey: "feat_usage_gauge_detail_title",
+    bodyKey: "feat_usage_gauge_detail_body",
+    targetId: "usage-gauges",
+  },
 ];

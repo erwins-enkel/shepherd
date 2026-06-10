@@ -283,10 +283,15 @@
       e.key === "ArrowDown" ? (here + 1) % items.length : (here - 1 + items.length) % items.length;
     items[next]?.focus();
   }
-  // Drop the armed state if the herd goes quiet underneath it (agents finished), so a
-  // later run doesn't surface a pre-armed row.
+  // If the herd goes quiet underneath the gear (agents finished), dismiss the menu and
+  // drop any armed state. Otherwise the e-stop row vanishes from the open menu, leaving a
+  // stale lone-Settings popup — and since an idle gear opens Settings directly, the next
+  // click would surface Settings without first dismissing it. When the menu wasn't open we
+  // still disarm, so a later run never surfaces a pre-armed row.
   $effect(() => {
-    if (haltable === 0) disarmHalt();
+    if (haltable !== 0) return;
+    if (menuOpen) closeMenu(true);
+    else disarmHalt();
   });
   // Destroy-only cleanup (no tracked reads → runs once): never leak the disarm timer.
   $effect(() => () => clearTimeout(armTimer));

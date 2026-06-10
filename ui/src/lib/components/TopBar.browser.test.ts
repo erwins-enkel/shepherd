@@ -662,4 +662,30 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await settingsRow.click();
     expect(onsettings).toHaveBeenCalledTimes(1);
   });
+
+  it("desktop: the open menu dismisses itself when the herd goes quiet underneath it", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const { rerender } = render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+    });
+    // running → open the menu
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .toBeInTheDocument();
+    // agents finish → no haltable session left; the stale menu must close itself
+    await rerender({
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(0),
+    });
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .not.toBeInTheDocument();
+  });
 });

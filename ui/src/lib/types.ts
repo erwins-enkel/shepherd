@@ -540,6 +540,11 @@ export interface CreateInput {
 /** Selectable claude model aliases; null = claude's own default. */
 export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 
+/** The premium-priced tiers among MODELS. Selecting one as the default makes every
+ *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.
+ *  Kept next to MODELS so adding a new premium model classifies it in one place. */
+export const PREMIUM_MODELS: readonly string[] = ["fable", "opus"];
+
 export interface Steer {
   id: string;
   label: string;

@@ -11,7 +11,7 @@
     putDefaultModel,
     listDirs,
   } from "$lib/api";
-  import { MODELS, type DirListing, type HerdrUpdateStatus } from "$lib/types";
+  import { MODELS, PREMIUM_MODELS, type DirListing, type HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -125,7 +125,6 @@
   let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
-  const PREMIUM_MODELS = ["fable", "opus"];
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
 
   async function saveStandardCommand() {

@@ -101,6 +101,27 @@ interface InFlight {
   finalizing?: boolean;
 }
 
+/** The prior verdict's streak-accountability state, carried into a fresh run's InFlight (no
+ *  prior → fresh defaults). Extracted from begin() so its per-field `??` defaults don't inflate
+ *  that method's branch count past the complexity budget. */
+type PriorStreakState = Pick<
+  InFlight,
+  | "priorRound"
+  | "priorErrorRound"
+  | "priorStreakReviews"
+  | "priorReviewedPatchIds"
+  | "priorSeenNoteIds"
+>;
+function priorStreakState(prior: ReviewVerdict | null): PriorStreakState {
+  return {
+    priorRound: prior?.addressRound ?? 0,
+    priorErrorRound: prior?.errorRound ?? 0,
+    priorStreakReviews: prior?.streakReviews ?? 0,
+    priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
+    priorSeenNoteIds: prior?.seenNoteIds ?? [],
+  };
+}
+
 export interface ReviewServiceDeps {
   store: Pick<
     SessionStore,
@@ -293,11 +314,7 @@ export class ReviewService {
       terminalId,
       criticSessionId,
       startedAt: this.now(),
-      priorRound: prior?.addressRound ?? 0,
-      priorErrorRound: prior?.errorRound ?? 0,
-      priorStreakReviews: prior?.streakReviews ?? 0,
-      priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
-      priorSeenNoteIds: prior?.seenNoteIds ?? [],
+      ...priorStreakState(prior),
       seenNoteIds,
     });
     // Persist the spawn row now (totals NULL until finalize) so review burn is attributable

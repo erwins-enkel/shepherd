@@ -2499,9 +2499,15 @@
   .ctx-glyph.emoji {
     font-size: var(--fs-lg);
   }
-  /* tappable emoji standing in for the repo name — toggles it back in */
+  /* tappable emoji standing in for the repo name — toggles it back in.
+     Phone-first control: pad the hit area toward the 44px touch-target
+     minimum; matching negative margins keep the visual layout unchanged.
+     Horizontal stays at ±8px — the header gap is only 7px, so anything wider
+     would overlay the back button / title trigger and steal their taps. */
   .ctx-glyph.emoji.actionable {
     cursor: pointer;
+    padding: 12px 8px;
+    margin: -12px -8px;
   }
   .ctx-glyph.emoji.actionable:focus-visible {
     outline: none;

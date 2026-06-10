@@ -128,7 +128,7 @@
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
 </script>
 
-<div class="panel bracket">
+<div class="panel bracket" class:flow>
   <div class="phead">
     <span class="micro">{m.herd_title()}</span>
     <div class="right filters">
@@ -466,6 +466,20 @@
     border-top: 0;
   }
 
+  /* flow mode (mobile list): full-bleed panel — the side borders + corner
+     brackets cost two vertical lines plus gutters on a narrow phone, so drop
+     them and stretch into the shell's 10px horizontal padding (margin matches
+     .shell.mobile in +page.svelte; with a larger safe-area inset the shell
+     keeps the remainder). Top/bottom hairlines stay as section rules. */
+  .panel.flow {
+    border-inline: 0;
+    margin-inline: -10px;
+  }
+  .panel.flow.bracket::before,
+  .panel.flow.bracket::after {
+    display: none;
+  }
+
   .phead {
     display: flex;
     align-items: center;
@@ -610,11 +624,14 @@
     container: herd / inline-size;
   }
 
-  /* flow mode: render at natural height for parent-page scrolling (mobile list) */
+  /* flow mode: render at natural height for parent-page scrolling (mobile list);
+     no horizontal gutter — the full-bleed panel has no side borders to clear,
+     and the rows' own padding keeps text off the screen edge */
   .units.flow {
     overflow: visible;
     flex: none;
     min-height: auto;
+    padding-inline: 0;
   }
 
   .empty {

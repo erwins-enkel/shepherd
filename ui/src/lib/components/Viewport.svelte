@@ -2196,9 +2196,11 @@
       <span class="sep">·</span>
       <span>{m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}</span>
       <span class="sep">·</span>
-      <span>{m.viewport_keynav_hint()}</span>
+      <span>{m.viewport_keynav_hint({ key: isMac ? "⌥" : "Alt" })}</span>
       <span class="sep">·</span>
       <span>{m.viewport_keynav_needsyou_hint()}</span>
+      <span class="sep">·</span>
+      <span>{m.viewport_keynav_enter_hint()}</span>
     </div>
   {/if}
 </div>

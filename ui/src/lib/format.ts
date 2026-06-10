@@ -93,12 +93,31 @@ export const STATUS_COLOR: Record<SessionStatus, string> = {
 };
 
 /**
- * While a review is in flight, the WAITING/IDLE status badge is redundant noise
- * next to REVIEWING… — both just say "nothing actionable yet". Hide it then.
+ * The WAITING/IDLE status badge is redundant noise when a review is in flight
+ * (REVIEWING… already says "nothing actionable yet") OR when the autopilot badge
+ * (NEEDS YOU / DELIVERED) is shown — both cases make it superfluous.
  * WORKING/BLOCKED stay visible: those are genuinely different signals.
  */
-export function hideStatusBadge(s: SessionStatus, reviewing: boolean): boolean {
-  return reviewing && (s === "done" || s === "idle");
+export function hideStatusBadge(
+  s: SessionStatus,
+  reviewing: boolean,
+  autopilotShown = false,
+): boolean {
+  return (reviewing || autopilotShown) && (s === "done" || s === "idle");
+}
+
+/**
+ * Whether the autopilot badge (NEEDS YOU / DELIVERED) is currently shown for a
+ * session. Mirrors the render condition in `AutopilotBadge.svelte`
+ * (`{#if session.autopilotPaused}{:else if session.autopilotComplete}`) — the
+ * single source card parents consume to suppress the redundant status badge.
+ *
+ * IMPORTANT: if a new autopilot state is added, it MUST be reflected in BOTH
+ * this helper AND `AutopilotBadge.svelte`'s render condition, or status-badge
+ * suppression silently desyncs.
+ */
+export function autopilotBadgeShown(s: Session): boolean {
+  return s.autopilotPaused || s.autopilotComplete;
 }
 
 export function statusLabel(s: SessionStatus): string {

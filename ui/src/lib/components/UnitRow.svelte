@@ -542,13 +542,17 @@
     font-size: var(--fs-base);
   }
 
+  /* Visually hidden but available to screen readers (matches GitRail.svelte) */
   .sr-only {
     position: absolute;
     width: 1px;
     height: 1px;
+    padding: 0;
+    margin: -1px;
     overflow: hidden;
-    clip: rect(0 0 0 0);
+    clip: rect(0, 0, 0, 0);
     white-space: nowrap;
+    border: 0;
   }
 
   .name {

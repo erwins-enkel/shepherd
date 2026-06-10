@@ -10,11 +10,13 @@ function asst(opts: {
   cacheRead?: number;
   w5m?: number;
   w1h?: number;
+  sidechain?: boolean;
 }): string {
   return JSON.stringify({
     type: "assistant",
     timestamp: opts.ts ?? "2026-05-30T09:31:01.924Z",
     requestId: opts.requestId,
+    ...(opts.sidechain ? { isSidechain: true } : {}),
     message: {
       model: opts.model ?? "claude-opus-4-8",
       usage: {
@@ -95,4 +97,64 @@ test("empty input → zeroed usage", () => {
   const u = accumulate([]);
   expect(u.total).toBe(0);
   expect(u.lastActivity).toBeNull();
+});
+
+// ── fullRecaches + sidechainCount ─────────────────────────────────────────────
+
+test("opener cold record is NOT a fullRecache (no prior warm record)", () => {
+  const u = accumulate([asst({ requestId: "r1", cacheRead: 0, w5m: 1000 })]);
+  expect(u.fullRecaches).toBe(0);
+});
+
+test("warm → cold main-thread sequence counts as 1 fullRecache", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000, w5m: 0 }), // warm
+    asst({ requestId: "r2", cacheRead: 0, w5m: 8000 }), // cold after warm → recache
+  ]);
+  expect(u.fullRecaches).toBe(1);
+});
+
+test("record with cacheRead>0 is never a fullRecache", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000 }), // warm
+    asst({ requestId: "r2", cacheRead: 3000, w5m: 500 }), // still warm → not a recache
+  ]);
+  expect(u.fullRecaches).toBe(0);
+});
+
+test("sidechain cold record is NOT counted and does not reset main-thread warm state", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000 }), // main warm
+    asst({ requestId: "r2", cacheRead: 0, w5m: 2000, sidechain: true }), // sidechain cold — should not count or reset
+    asst({ requestId: "r3", cacheRead: 4000 }), // main warm again — still no recache
+  ]);
+  expect(u.fullRecaches).toBe(0);
+});
+
+test("cold→cold run counts at most once (first cold after warm)", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000 }), // warm
+    asst({ requestId: "r2", cacheRead: 0, w5m: 1000 }), // cold → recache #1
+    asst({ requestId: "r3", cacheRead: 0, w5m: 1000 }), // cold again → prev was 0, not warm, so no new recache
+  ]);
+  expect(u.fullRecaches).toBe(1);
+});
+
+test("duplicate requestId row does not corrupt edge detection (warm, dup-warm, cold → exactly 1)", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 5000 }), // warm, accepted
+    asst({ requestId: "r1", cacheRead: 5000 }), // duplicate — skipped, must not advance prev
+    asst({ requestId: "r2", cacheRead: 0, w5m: 3000 }), // cold after warm → 1 recache
+  ]);
+  expect(u.fullRecaches).toBe(1);
+});
+
+test("sidechainCount tallies isSidechain accepted records", () => {
+  const u = accumulate([
+    asst({ requestId: "r1", sidechain: true }),
+    asst({ requestId: "r2", sidechain: true }),
+    asst({ requestId: "r2", sidechain: true }), // duplicate — not counted
+    asst({ requestId: "r3" }), // main — not counted
+  ]);
+  expect(u.sidechainCount).toBe(2);
 });

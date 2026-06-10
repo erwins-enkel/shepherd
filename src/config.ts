@@ -296,3 +296,10 @@ export const config = {
 export const SESSION_RETENTION_DAYS = 30;
 export const SESSION_RETENTION_MS = SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 export const SESSION_RETENTION_KEEP = 250;
+
+// reviewer_spawns rows (critic/plan-gate cost-attribution records, issue #502) are
+// deliberately decoupled from session lifecycle so they outlive archive/prune — but they
+// still need a ceiling. 90 days > SESSION_RETENTION_DAYS so a cost report can still attribute
+// burn for a recently-archived task whose session row is already gone.
+const REVIEWER_SPAWN_RETENTION_DAYS = 90; // module-local; only the _MS form is consumed
+export const REVIEWER_SPAWN_RETENTION_MS = REVIEWER_SPAWN_RETENTION_DAYS * 24 * 60 * 60 * 1000;

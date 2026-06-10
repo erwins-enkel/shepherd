@@ -53,6 +53,17 @@ interface PlanGateRow {
   sessionId: string;
 }
 
+interface ReviewerSpawnRow {
+  reviewerSessionId: string;
+  taskSessionId: string;
+  model: string | null;
+  totalTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────--
 
 interface Args {
@@ -210,7 +221,7 @@ async function inWorktreeAncillary(
 
 // ── satellite (critic + plan-review) attribution ───────────────────────────---
 
-type LinkTag = "db" | "content" | "sha-confirmed";
+type LinkTag = "spawn" | "db" | "content" | "sha-confirmed";
 
 interface SatelliteDir {
   /** dashified project dir name under ~/.claude/projects */
@@ -303,6 +314,17 @@ async function costReviewDir(dirPath: string): Promise<TranscriptCost> {
   return transcriptCost(allLines);
 }
 
+/** The claude-session-id stems of a review dir's *.jsonl files (filenames sans extension). */
+function jsonlStems(dirPath: string): string[] {
+  try {
+    return readdirSync(dirPath)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => f.slice(0, -".jsonl".length));
+  } catch {
+    return [];
+  }
+}
+
 /** First user text of a review dir (its transcript opens with the reviewPrompt). */
 async function reviewDirFirstUser(dirPath: string): Promise<string> {
   let files: string[];
@@ -342,14 +364,19 @@ interface SatelliteResult {
 
 /**
  * Attribute satellite (critic + plan-review) transcripts to tasks.
- *   DB-first (reviews/plan_gates) → plan-review by embedded UUID → critic by content-match.
+ *   exact spawn-id link (reviewer_spawns) → DB-first (reviews/plan_gates) →
+ *   plan-review by embedded UUID → critic by content-match.
  * The critic re-runs per reviewed head, so a task owns MULTIPLE critic dirs — all summed.
  * Residual: any review dir matching no task whose mtime lands in a task's [createdAt, end].
+ * Final step — DB-totals fallback: a spawn whose transcript dir is gone (task archived +
+ * ~/.claude/projects GC'd) is costed from its persisted reviewer_spawns token totals, so review
+ * burn survives the transcript; skipped when its on-disk dir was already consumed above.
  */
 async function attributeSatellites(
   sessions: ResolvedSession[],
   reviews: ReviewRow[],
   planGates: PlanGateRow[],
+  spawns: ReviewerSpawnRow[],
 ): Promise<SatelliteResult> {
   const bySession = new Map<string, SatelliteTranscript[]>();
   const add = (sid: string, sat: SatelliteTranscript) => {
@@ -361,6 +388,23 @@ async function attributeSatellites(
   const dirs = enumerateReviewDirs();
   const consumed = new Set<string>(); // dir names already linked
   const byId = new Map(sessions.map((s) => [s.row.id, s]));
+
+  // 0. EXACT link (issue #502): a reviewer_spawns row maps a reviewer session id — which is a
+  //    *.jsonl stem inside the review dir — straight to its task. Recorded at spawn and retained
+  //    past archive, so it's authoritative and reconstruction-free. Takes precedence over every
+  //    heuristic below.
+  const taskByReviewer = new Map(spawns.map((sp) => [sp.reviewerSessionId, sp.taskSessionId]));
+  for (const d of dirs) {
+    if (consumed.has(d.dir)) continue;
+    const hit = jsonlStems(d.path)
+      .map((id) => taskByReviewer.get(id))
+      .find((tid): tid is string => !!tid && byId.has(tid));
+    if (hit) {
+      const tc = await costReviewDir(d.path);
+      add(hit, { dir: d.dir, tag: "spawn", ...tc });
+      consumed.add(d.dir);
+    }
+  }
 
   // 1. DB-first: a reviews/plan_gates row makes that session's matching dirs authoritative.
   //    (headSha is persisted on reviews; we match a review dir whose sha8 prefixes it.)
@@ -433,6 +477,57 @@ async function attributeSatellites(
     if (!inWindow) continue;
     const tc = await costReviewDir(d.path);
     residual.push({ dir: d.dir, usage: tc.usage, costUnits: tc.costUnits });
+  }
+
+  // 5. DB-totals fallback (issue #502's archive-survival payoff): a spawn whose transcript dir
+  //    is gone from disk (task archived + ~/.claude/projects GC'd) still has its exact token
+  //    total persisted. Attribute it from the row so review burn survives the transcript.
+  //    Guard against double-counting: skip any spawn whose reviewer session id is a *.jsonl
+  //    stem of a dir already consumed above (that dir's cost is already attributed, in full).
+  const consumedStems = new Set<string>();
+  for (const d of dirs) {
+    if (!consumed.has(d.dir)) continue;
+    for (const stem of jsonlStems(d.path)) consumedStems.add(stem);
+  }
+  for (const sp of spawns) {
+    if (sp.totalTokens == null) continue; // never completed → nothing exact to attribute
+    if (!byId.has(sp.taskSessionId)) continue; // out of scope
+    if (consumedStems.has(sp.reviewerSessionId)) continue; // already counted via its on-disk dir
+    const usage: SessionUsage = {
+      input: sp.inputTokens ?? 0,
+      output: sp.outputTokens ?? 0,
+      cacheRead: sp.cacheReadTokens ?? 0,
+      cacheWrite: sp.cacheWriteTokens ?? 0,
+      total: sp.totalTokens,
+      messageCount: 0,
+      lastActivity: null,
+      byModel: {},
+      fullRecaches: 0,
+      sidechainCount: 0,
+    };
+    // The 5m/1h cache-write split isn't persisted (the aggregate collapses it); attribute it to
+    // the 5m bucket, matching parseLine's default when the split is absent. Model: completion
+    // backfills the spawn row's true model (dominantModel of the transcript), so `sp.model` is
+    // accurate for any completed spawn that named a real model. The task-model proxy is reached
+    // only when both are null — spawn-time model "auto" AND a transcript that named no real model
+    // (these are all completed spawns; the never-completed ones are filtered by totalTokens above).
+    const model = sp.model ?? byId.get(sp.taskSessionId)!.row.model ?? "unknown";
+    const costUnits = weightedUnits(
+      {
+        input: usage.input,
+        output: usage.output,
+        cacheRead: usage.cacheRead,
+        cacheWrite5m: usage.cacheWrite,
+        cacheWrite1h: 0,
+      },
+      model,
+    );
+    add(sp.taskSessionId, {
+      dir: `db:${sp.reviewerSessionId.slice(0, 8)}`,
+      tag: "spawn",
+      usage,
+      costUnits,
+    });
   }
 
   return { bySession, residual };
@@ -757,7 +852,7 @@ function renderPlainTable(rows: string[][]): string {
 const LEGEND = [
   "Legend:",
   "  Anc(p/r/u)  in-worktree ancillary transcripts: probe / resumed / unknown",
-  "  Sat tags    satellite linkage: db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
+  "  Sat tags    satellite linkage: spawn (reviewer_spawns exact id link) / db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
   "  FullRecache main-thread prompt-cache full rebuilds — every warm→cold drop (sidechain/sub-agent records excluded, warned on stderr); counts genuine invalidation AND compaction/resume-induced cold restarts alike, so it's an upper bound on true invalidation",
   "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×; includes all records — main-thread and sidechain — unlike FullRecache)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
@@ -800,9 +895,10 @@ async function buildGroup(
   rows: SessionRow[],
   reviews: ReviewRow[],
   planGates: PlanGateRow[],
+  spawns: ReviewerSpawnRow[],
 ): Promise<{ reportRows: ReportRow[]; residual: SatelliteResult["residual"] }> {
   const resolved = await Promise.all(rows.map(resolveSession));
-  const sat = await attributeSatellites(resolved, reviews, planGates);
+  const sat = await attributeSatellites(resolved, reviews, planGates, spawns);
   const reportRows = resolved.map((s) => buildRow(s, sat.bySession.get(s.row.id) ?? []));
   // One aggregated stderr line for all sessions carrying sub-agent records, so a
   // reader knows FullRecache (main-thread only) doesn't reflect their cold sidechains.
@@ -823,6 +919,19 @@ async function main(): Promise<void> {
 
   const reviews = db.query<ReviewRow, []>("SELECT sessionId, headSha FROM reviews").all();
   const planGates = db.query<PlanGateRow, []>("SELECT sessionId FROM plan_gates").all();
+  // An older DB (server not yet restarted onto the #502 migration) may lack this table;
+  // fall back to no exact links — the heuristic chain below still attributes satellites.
+  let spawns: ReviewerSpawnRow[] = [];
+  try {
+    spawns = db
+      .query<
+        ReviewerSpawnRow,
+        []
+      >("SELECT reviewerSessionId, taskSessionId, model, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens FROM reviewer_spawns")
+      .all();
+  } catch {
+    /* table absent on legacy DBs */
+  }
 
   let primary: SessionRow[];
   let title: string;
@@ -837,12 +946,12 @@ async function main(): Promise<void> {
     title = `Default sample (${DEFAULT_SAMPLE.join(", ")})`;
   }
 
-  const { reportRows, residual } = await buildGroup(primary, reviews, planGates);
+  const { reportRows, residual } = await buildGroup(primary, reviews, planGates, spawns);
   const out: string[] = [render(title, reportRows, residual, args.md)];
 
   if (args.includeExcluded) {
     const excluded = fetchExcluded(db, args.recent ?? 5);
-    const eg = await buildGroup(excluded, reviews, planGates);
+    const eg = await buildGroup(excluded, reviews, planGates, spawns);
     out.push("");
     out.push(
       render("Appendix: excluded operational archetypes", eg.reportRows, eg.residual, args.md),

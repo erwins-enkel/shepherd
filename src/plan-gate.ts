@@ -7,6 +7,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
@@ -54,9 +55,13 @@ export function planReviewPrompt(task: string, plan: string, priorFindings: stri
 }
 
 /** The read-only plan reviewer's argv — the PR critic's exact hardening, shared via one builder
- *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). */
-export function reviewerArgv(model: string | null, prompt: string): string[] {
-  return readonlyReviewerArgv(model, prompt).argv;
+ *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). Also returns
+ *  the reviewer's pinned `--session-id` so begin() can locate its transcript for token totals. */
+export function reviewerArgv(
+  model: string | null,
+  prompt: string,
+): { argv: string[]; sessionId: string } {
+  return readonlyReviewerArgv(model, prompt);
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
@@ -82,6 +87,8 @@ export interface PlanGateServiceDeps {
     | "getRepoConfig"
     | "addSignal"
     | "get"
+    | "recordReviewerSpawn"
+    | "completeReviewerSpawn"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -107,6 +114,9 @@ export interface PlanGateServiceDeps {
   readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
   baseSha?: (repoPath: string, base: string) => string;
+  /** Injectable reader of a finished reviewer's token totals from its transcript
+   *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
+  readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
 }
 
 interface PlanInFlight {
@@ -114,6 +124,7 @@ interface PlanInFlight {
   repoPath: string; // for the stall signal
   worktreePath: string; // the disposable reviewer worktree
   terminalId: string;
+  reviewerSessionId: string; // the reviewer's claude session id → locates its transcript for token totals
   planHash: string;
   plan: string;
   priorRound: number; // adversarial rounds already spent on this plan streak
@@ -139,6 +150,10 @@ export class PlanGateService {
   private readPlan: (worktreePath: string) => string | null;
   private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
   private baseSha: (repoPath: string, base: string) => string;
+  private readUsage: (
+    worktreePath: string,
+    reviewerSessionId: string,
+  ) => Promise<SessionUsage | null>;
 
   constructor(private deps: PlanGateServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -149,6 +164,7 @@ export class PlanGateService {
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.baseSha = deps.baseSha ?? defaultBaseSha;
+    this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
   /** sha256 of the plan text — dedups re-reviews of an unchanged plan. */
@@ -214,7 +230,7 @@ export class PlanGateService {
     }
 
     const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? []);
-    const argv = reviewerArgv(this.deps.model ?? null, prompt);
+    const { argv, sessionId: reviewerSessionId } = reviewerArgv(this.deps.model ?? null, prompt);
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -232,10 +248,21 @@ export class PlanGateService {
       repoPath: session.repoPath,
       worktreePath: wt.worktreePath,
       terminalId,
+      reviewerSessionId,
       planHash,
       plan,
       priorRound: prior?.round ?? 0,
       startedAt: this.now(),
+    });
+    // Persist the spawn row now (totals NULL until finalize) so plan-review burn is attributable
+    // even if the run crashes/times out before producing a verdict (issue #502).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId,
+      taskSessionId: session.id,
+      kind: "plan_gate",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
     return "started";
@@ -268,6 +295,16 @@ export class PlanGateService {
       if (gate.decision === "approved") this.applyApproved(f, gate);
       else if (gate.decision === "changes_requested") this.applyChangesRequested(f, gate);
       else this.applyError(f, gate); // timeout / unparseable verdict
+      // Persist the reviewer's token total for exact cost attribution (issue #502). Best-effort:
+      // a missing/half-written transcript leaves the spawn row's totals null rather than
+      // stranding finalize. Safe to read before the `finally`'s worktree removal: the transcript
+      // lives under ~/.claude/projects (keyed by worktree path), not inside the worktree itself.
+      try {
+        const usage = await this.readUsage(f.worktreePath, f.reviewerSessionId);
+        if (usage) this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
+      } catch (err) {
+        console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
+      }
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       this.deps.herdr.stop(f.terminalId);

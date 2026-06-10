@@ -4,6 +4,8 @@ import { PlanGateService } from "../src/plan-gate";
 function harness(over: any = {}) {
   const started: any[] = [];
   const removed: string[] = [];
+  const recordedSpawns: any[] = [];
+  const completedSpawns: any[] = [];
   const overWithoutStore = { ...over };
   delete overWithoutStore.store;
   const store = {
@@ -17,6 +19,8 @@ function harness(over: any = {}) {
     addSignal() {},
     setPlanPhase() {},
     get: () => ({ id: "s1", auto: false }),
+    recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
+    completeReviewerSpawn: (id: any, u: any, at: any) => completedSpawns.push({ id, u, at }),
     ...(over.store ?? {}),
   };
   const deps: any = {
@@ -45,7 +49,15 @@ function harness(over: any = {}) {
     // deps-level spread doesn't re-overwrite it with the un-merged per-test partial.
     ...overWithoutStore,
   };
-  return { deps, started, removed, store, svc: new PlanGateService(deps) };
+  return {
+    deps,
+    started,
+    removed,
+    recordedSpawns,
+    completedSpawns,
+    store,
+    svc: new PlanGateService(deps),
+  };
 }
 
 const planningSession = () => ({
@@ -278,6 +290,38 @@ test("request-changes sub-cap but the steer can't land → stall signal, round h
   await h.svc.tick();
   expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates instead of going silent
   expect(h.store.gate.round).toBe(0); // round did not advance (nothing delivered)
+});
+test("records the plan-gate reviewer spawn on begin()", async () => {
+  const h = harness();
+  await h.svc.consider(planningSession() as any);
+  expect(h.recordedSpawns.length).toBe(1);
+  expect(h.recordedSpawns[0]).toMatchObject({
+    kind: "plan_gate",
+    taskSessionId: "s1",
+    worktreePath: "/wt-detached",
+  });
+  expect(h.recordedSpawns[0].reviewerSessionId).toBeTruthy();
+});
+test("completes the reviewer spawn's token total on finalize", async () => {
+  const usage = {
+    input: 1,
+    output: 2,
+    cacheRead: 3,
+    cacheWrite: 4,
+    total: 10,
+    messageCount: 1,
+    lastActivity: 0,
+    byModel: {},
+  };
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    readUsage: async () => usage,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.completedSpawns.length).toBe(1);
+  expect(h.completedSpawns[0].u.total).toBe(10);
+  expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
 });
 test("timeout with no verdict → error gate, reaped, not released", async () => {
   let t = 1000;

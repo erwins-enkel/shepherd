@@ -10,7 +10,7 @@ import type { GitForge, GitState } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, ReviewDecision, Session } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
-import { jsonlPathFor } from "./usage";
+import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 
 const execFileAsync = promisify(execFile);
@@ -109,6 +109,8 @@ export interface ReviewServiceDeps {
     | "dropReview"
     | "snapshotReviews"
     | "addSignal"
+    | "recordReviewerSpawn"
+    | "completeReviewerSpawn"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -148,6 +150,9 @@ export interface ReviewServiceDeps {
   /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL
    *  transcript via readActivitySignal). null = no parseable activity yet. */
   readActivity?: (worktreePath: string, criticSessionId: string) => string | null;
+  /** Injectable reader of a finished reviewer's token totals from its transcript
+   *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
+  readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
 }
 
 interface RawVerdict {
@@ -175,6 +180,10 @@ export class ReviewService {
   private readVerdict: (worktreePath: string) => RawVerdict | null;
   private computePatchId: (worktreePath: string, base: string) => Promise<string | null>;
   private readActivity: (worktreePath: string, criticSessionId: string) => string | null;
+  private readUsage: (
+    worktreePath: string,
+    criticSessionId: string,
+  ) => Promise<SessionUsage | null>;
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -185,6 +194,7 @@ export class ReviewService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.readActivity = deps.readActivity ?? defaultReadActivity;
+    this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. */
@@ -273,6 +283,16 @@ export class ReviewService {
       priorErrorRound: prior?.errorRound ?? 0,
       priorSeenNoteIds: prior?.seenNoteIds ?? [],
       seenNoteIds,
+    });
+    // Persist the spawn row now (totals NULL until finalize) so review burn is attributable
+    // even if the run crashes/times out before producing a verdict (issue #502).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: criticSessionId,
+      taskSessionId: session.id,
+      kind: "review",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
   }
@@ -438,6 +458,17 @@ export class ReviewService {
       }
       this.deps.store.putReview(verdict);
       this.deps.onChange(f.sessionId, verdict);
+      // Persist the critic's token total for exact cost attribution (issue #502). Best-effort:
+      // a missing/half-written transcript leaves the spawn row's totals null rather than
+      // stranding finalize. The reviewer transcript lives under ~/.claude/projects (keyed by
+      // worktree path) and survives the worktree removal in the `finally`, so reading it here
+      // is safe. Individually guarded — a transcript-read failure must never strand finalize.
+      try {
+        const usage = await this.readUsage(f.worktreePath, f.criticSessionId);
+        if (usage) this.deps.store.completeReviewerSpawn(f.criticSessionId, usage, this.now());
+      } catch (err) {
+        console.warn(`[review] usage capture failed for ${f.sessionId}:`, err);
+      }
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       this.deps.herdr.stop(f.terminalId);

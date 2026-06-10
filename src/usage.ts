@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config";
 import { weightedUnits } from "./pricing";
@@ -127,6 +128,39 @@ export function accumulate(lines: Iterable<string>): SessionUsage {
   }
   out.total = out.input + out.output + out.cacheRead + out.cacheWrite;
   return out;
+}
+
+/** The real model that produced the most tokens in this usage, or null when none was named.
+ *  A reviewer session is effectively one model, so this resolves its TRUE model from the
+ *  transcript — used to backfill the spawn row whose configured model was "auto" (null).
+ *  Skips parseLine's "unknown" sentinel (an assistant record with no `model` field) so the
+ *  sentinel can never overwrite a recorded model; "unknown"-only / empty usage → null. */
+export function dominantModel(u: SessionUsage): string | null {
+  let best: string | null = null;
+  let bestTokens = -1;
+  for (const [model, tokens] of Object.entries(u.byModel)) {
+    if (model === "unknown") continue;
+    if (tokens > bestTokens) {
+      bestTokens = tokens;
+      best = model;
+    }
+  }
+  return best;
+}
+
+/** Read a session's JSONL transcript and accumulate its token totals. Returns null if the
+ *  file is absent/unreadable (reviewer transcript not written, race, etc.). Async so the
+ *  single server loop is never blocked by a sync read. */
+export async function readSessionUsage(
+  worktreePath: string,
+  claudeSessionId: string,
+): Promise<SessionUsage | null> {
+  try {
+    const text = await readFile(jsonlPathFor(worktreePath, claudeSessionId), "utf8");
+    return accumulate(text.split("\n"));
+  } catch {
+    return null;
+  }
 }
 
 /** Read + accumulate one session's JSONL. Missing/unreadable file → zeroed usage. */

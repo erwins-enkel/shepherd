@@ -12,8 +12,10 @@ import type {
   BuildStepStatus,
   BuildQueue,
   BuildStepInput,
+  ReviewerSpawnRow,
 } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
+import { dominantModel, type SessionUsage } from "./usage";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -188,6 +190,29 @@ export class SessionStore implements CapStore {
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL)`);
+    // Exact reviewer-cost attribution. Keyed by the *reviewer's* forced --session-id (which
+    // locates its transcript), NOT the task — and deliberately carries NO foreign key to
+    // `sessions`. `reviews`/`plan_gates` are keyed by the task sessionId and get deleted on
+    // archive + cascade-pruned, so reviewer (critic/plan-gate) token burn vanishes with the
+    // task. This table is the separate, append-only, archive-decoupled record that survives
+    // both, so post-hoc cost reports can still attribute that burn. Each spawn forces a fresh
+    // UUID, so a plain INSERT never collides on the PK.
+    this.db.run(`CREATE TABLE IF NOT EXISTS reviewer_spawns (
+      reviewerSessionId TEXT PRIMARY KEY,
+      taskSessionId     TEXT NOT NULL,
+      kind              TEXT NOT NULL,
+      worktreePath      TEXT NOT NULL,
+      model             TEXT,
+      spawnedAt         INTEGER NOT NULL,
+      completedAt       INTEGER,
+      inputTokens       INTEGER,
+      outputTokens      INTEGER,
+      cacheReadTokens   INTEGER,
+      cacheWriteTokens  INTEGER,
+      totalTokens       INTEGER)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS reviewer_spawns_task ON reviewer_spawns (taskSessionId)`,
+    );
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
@@ -765,6 +790,73 @@ export class SessionStore implements CapStore {
       Date.now(),
       id,
     ]);
+  }
+
+  // ── reviewer spawn cost attribution ──────────────────────────────────────────
+  /** Record a freshly-spawned reviewer session. Token/completed columns stay NULL until
+   *  finalize (`completeReviewerSpawn`). A plain INSERT is correct — every spawn forces a
+   *  fresh reviewerSessionId UUID, so the PK never collides. */
+  recordReviewerSpawn(r: {
+    reviewerSessionId: string;
+    taskSessionId: string;
+    kind: "review" | "plan_gate";
+    worktreePath: string;
+    model: string | null;
+    spawnedAt: number;
+  }): void {
+    this.db.run(
+      `INSERT INTO reviewer_spawns
+         (reviewerSessionId, taskSessionId, kind, worktreePath, model, spawnedAt)
+       VALUES (?,?,?,?,?,?)`,
+      [r.reviewerSessionId, r.taskSessionId, r.kind, r.worktreePath, r.model, r.spawnedAt],
+    );
+  }
+
+  /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
+   *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
+  completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
+    // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
+    // configured override, which is null when auto-resolved — but the transcript names the model
+    // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. It returns
+    // null for empty usage or records that named no real model (only parseLine's "unknown"
+    // sentinel), and COALESCE then keeps the recorded value — the sentinel never overwrites it.
+    // This lets usage-report weight a GC'd-transcript spawn's cost by its real tier, not a
+    // task-model proxy. `u.messageCount` is intentionally dropped — not a cost fact.
+    this.db.run(
+      `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
+         cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)
+         WHERE reviewerSessionId = ?`,
+      [
+        u.input,
+        u.output,
+        u.cacheRead,
+        u.cacheWrite,
+        u.total,
+        completedAt,
+        dominantModel(u),
+        reviewerSessionId,
+      ],
+    );
+  }
+
+  /** All reviewer-spawn rows, oldest-spawned first. Column names already match the
+   *  ReviewerSpawnRow fields, so a direct cast suffices. */
+  listReviewerSpawns(): ReviewerSpawnRow[] {
+    return this.db
+      .query(`SELECT * FROM reviewer_spawns ORDER BY spawnedAt`)
+      .all() as ReviewerSpawnRow[];
+  }
+
+  /** Drop reviewer-spawn rows older than `beforeTs` (own retention sweep — these are
+   *  decoupled from the session archive path on purpose). Returns the count removed. */
+  pruneReviewerSpawns(beforeTs: number): number {
+    const n = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM reviewer_spawns WHERE spawnedAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM reviewer_spawns WHERE spawnedAt < ?`, [beforeTs]);
+    return n;
   }
 
   // ── learning signals ─────────────────────────────────────────────────────────

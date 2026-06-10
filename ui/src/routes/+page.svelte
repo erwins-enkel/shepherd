@@ -972,12 +972,6 @@
             nextNeedsYou={otherNeedsYou.length}
             onnextneedsyou={jumpNextNeedsYou}
             onbroadcast={() => (showBroadcast = true)}
-            onnewtask={(repoPath, issue) => {
-              composeRepoPath = repoPath;
-              composeIssue = issue;
-              showNew = true;
-            }}
-            onquick={onquickissue}
           />
         </div>
       {/if}
@@ -1051,12 +1045,6 @@
             onnavigate={(id) => selectUnit(id)}
             {onarchive}
             onbroadcast={() => (showBroadcast = true)}
-            onnewtask={(repoPath, issue) => {
-              composeRepoPath = repoPath;
-              composeIssue = issue;
-              showNew = true;
-            }}
-            onquick={onquickissue}
           />
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>

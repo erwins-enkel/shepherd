@@ -3,7 +3,7 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import type { GitState, Issue, Leftover, Session, SessionUsage, UsageLimits } from "$lib/types";
+  import type { GitState, Leftover, Session, SessionUsage, UsageLimits } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
@@ -30,7 +30,6 @@
   import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
-  import IssuesPanel from "$lib/components/IssuesPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
@@ -53,8 +52,6 @@
 
   let {
     session,
-    onnewtask,
-    onquick,
     onarchive,
     onback,
     onnextneedsyou,
@@ -78,8 +75,6 @@
     previewHost = null,
   }: {
     session: Session;
-    onnewtask?: (repoPath: string, issue: Issue) => void;
-    onquick?: (repoPath: string, issue: Issue) => void;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
     /** Jump to the next session waiting for a reply (header shortcut). */
@@ -135,7 +130,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "issues" | "activity" | "diff" | "preview">("term");
+  let tab = $state<"term" | "todo" | "activity" | "diff" | "preview">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -1050,7 +1045,7 @@
     term.onData((d) => c.send(d));
 
     // Fit + push the size to the PTY — but only while the mount is actually
-    // visible. A hidden (To-Do/Issues tab → display:none) or mid-layout mount
+    // visible. A hidden (To-Do tab → display:none) or mid-layout mount
     // has zero width, where FitAddon clamps to its 2-col minimum; resizing the
     // PTY to 2 cols makes Claude reflow its transcript at 2 cols and permanently
     // poisons the scrollback with 2-char-wide wrapping. offsetParent===null
@@ -1598,9 +1593,6 @@
             >{m.viewport_todo_tab()}</button
           >
         {/if}
-        <button class="tab-btn" class:active={tab === "issues"} onclick={() => (tab = "issues")}
-          >{m.viewport_issues_tab()}</button
-        >
         <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
           >{m.viewport_activity_tab()}</button
         >
@@ -1931,15 +1923,6 @@
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
-      </div>
-    {/if}
-    {#if tab === "issues"}
-      <div class="panel-wrap">
-        <IssuesPanel
-          repoPath={session.repoPath}
-          onnewtask={(issue) => onnewtask?.(session.repoPath, issue)}
-          onquick={onquick ? (issue) => onquick(session.repoPath, issue) : undefined}
-        />
       </div>
     {/if}
     {#if tab === "activity"}

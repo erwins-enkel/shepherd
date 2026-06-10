@@ -2,14 +2,19 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
   import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
+  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
 
   // Two explicit theme choices; "system" stays the implicit default (followed on
   // first load + on OS changes until the operator picks one). The old third slot
-  // (◐ system) is repurposed as the standalone high-contrast / WCAG toggle below.
-  const THEMES: { pref: Exclude<ThemePref, "system">; glyph: string; label: () => string }[] = [
-    { pref: "dark", glyph: "☾", label: m.theme_dark },
-    { pref: "light", glyph: "☀", label: m.theme_light },
+  // (the "system" option) is repurposed as the standalone high-contrast / WCAG toggle below.
+  const THEMES: {
+    pref: Exclude<ThemePref, "system">;
+    icon: "moon" | "sun";
+    label: () => string;
+  }[] = [
+    { pref: "dark", icon: "moon", label: m.theme_dark },
+    { pref: "light", icon: "sun", label: m.theme_light },
   ];
 
   let {
@@ -98,7 +103,7 @@
               aria-pressed={theme.resolved === t.pref}
               title={m.actionbar_theme_option({ label: t.label() })}
               aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
             >
           {/each}
         </div>
@@ -109,7 +114,7 @@
           aria-pressed={theme.contrast}
           title={m.actionbar_contrast_toggle()}
           aria-label={m.actionbar_contrast_toggle()}
-          onclick={() => theme.toggleContrast()}>◐</button
+          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
         >
         <LanguageSwitcher />
       </div>

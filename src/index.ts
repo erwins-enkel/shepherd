@@ -4,6 +4,7 @@ import {
   config,
   SESSION_RETENTION_MS,
   SESSION_RETENTION_KEEP,
+  REVIEWER_SPAWN_RETENTION_MS,
   clampCap,
   PR_REVIEW_CYCLES_MIN,
   PR_REVIEW_CYCLES_MAX,
@@ -656,6 +657,9 @@ const runDailySweep = () => {
       keepNewest: SESSION_RETENTION_KEEP,
     });
   store.pruneSignals(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  // Cost-attribution records (issue #502); pruned on their own 90-day window, independent of
+  // session housekeeping, so they survive an archived task's removal for later usage reports.
+  store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
 };
 setTimeout(runDailySweep, 10_000); // once shortly after boot

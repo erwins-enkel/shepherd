@@ -29,22 +29,26 @@ function to24h(h: number, ampm?: string): number {
   return pm ? h + 12 : h;
 }
 
-/** Parse a `/usage` reset label ("9:30pm", "Jun 6, 5pm") to a ms epoch in local time. */
+/** Parse a `/usage` reset label ("9:30pm", "Jun 6, 5pm", "Jun 11 at 11pm") to a ms epoch in local time. */
 export function parseResetLabel(label: string, now: number): number | null {
   const s = label.replace(/\s+/g, "").toLowerCase();
   let m = s.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/);
   if (m) {
     const d = new Date(now);
     d.setHours(to24h(+m[1]!, m[3]), m[2] ? +m[2] : 0, 0, 0);
+    // reset labels always point forward — a time-of-day already past means tomorrow
+    if (d.getTime() < now) d.setDate(d.getDate() + 1);
     return d.getTime();
   }
-  m = s.match(/^([a-z]{3})(\d{1,2})(?:,(\d{1,2})(?::(\d{2}))?(am|pm))?$/);
+  m = s.match(/^([a-z]{3})(\d{1,2})(?:(?:,|at)(\d{1,2})(?::(\d{2}))?(am|pm))?$/);
   if (m) {
     const mon = MONTHS.indexOf(m[1]!);
     if (mon < 0) return null;
     const d = new Date(now);
     d.setMonth(mon, +m[2]!);
     d.setHours(m[3] ? to24h(+m[3], m[5]) : 0, m[4] ? +m[4] : 0, 0, 0);
+    // a month/day already past means next year (Dec scrape, Jan reset)
+    if (d.getTime() < now) d.setFullYear(d.getFullYear() + 1);
     return d.getTime();
   }
   return null;
@@ -56,25 +60,43 @@ const BEL = String.fromCharCode(7);
 const ANSI_CSI = new RegExp(ESC + "\\[[0-9;?]*[A-Za-z]", "g");
 const ANSI_OSC = new RegExp(ESC + "\\][^" + BEL + "]*" + BEL, "g");
 
+/** Which window a section belongs to; null for model-scoped weekly gauges ("Sonnet only"). */
+function segmentKey(seg: string): WindowKey | null {
+  if (!/^Currentweek/i.test(seg)) return "session5h";
+  return /^Currentweek\((?!allmodels\))/i.test(seg) ? null : "week";
+}
+
+/** Read pct + reset label out of one section's text; null while the pct hasn't rendered. */
+function parseSegment(seg: string, now: number): ScrapedWindow | null {
+  const pctM = seg.match(/(\d+)%used/i);
+  if (!pctM) return null;
+  const label = seg.match(/Resets(.*?)\(/i)?.[1] ?? null;
+  return {
+    pct: +pctM[1]!,
+    resetLabel: label,
+    resetAt: label ? parseResetLabel(label, now) : null,
+  };
+}
+
 /** Extract the two limit windows from a (possibly multi-frame, ANSI-laden) `/usage` capture. */
 export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   const noAnsi = raw.replace(ANSI_CSI, "").replace(ANSI_OSC, "");
   const c = noAnsi.replace(/\s+/g, ""); // collapse all whitespace; TUI render is unreliable
-  const win = (anchor: RegExp): ScrapedWindow | null => {
-    const pctM = c.match(new RegExp(anchor.source + String.raw`.*?(\d+)%used`, "i"));
-    if (!pctM) return null;
-    const resetM = c.match(new RegExp(anchor.source + String.raw`.*?Resets(.*?)\(`, "i"));
-    const label = resetM ? resetM[1]! : null;
-    return {
-      pct: +pctM[1]!,
-      resetLabel: label,
-      resetAt: label ? parseResetLabel(label, now) : null,
-    };
-  };
-  return {
-    session5h: win(/Currentsession/),
-    week: win(/Currentweek/),
-  };
+  // The capture holds many partial redraws of the same panel. Cut it at every section anchor
+  // so a window's pct/reset can only be read from its OWN section — a truncated redraw must
+  // not let one window steal the next section's (or the next frame's) values.
+  const anchors = [...c.matchAll(/Currentsession|Currentweek/gi)];
+  const best: ScrapedUsage = { session5h: null, week: null };
+  for (let i = 0; i < anchors.length; i++) {
+    const seg = c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length);
+    const key = segmentKey(seg);
+    const w = key ? parseSegment(seg, now) : null;
+    if (!key || !w) continue;
+    // later segments are newer renders — keep the last reading per window, but never let
+    // a reset-less partial replace one that carries a reset label
+    if (!best[key] || w.resetLabel || !best[key].resetLabel) best[key] = w;
+  }
+  return best;
 }
 
 export interface CapRow {
@@ -137,7 +159,10 @@ export class UsageLimitsService {
       const w = parsed[key];
       if (!w) continue;
       const period = PERIOD_MS[key];
-      const resetAt = w.resetAt ?? now + period;
+      const p = prior.get(key);
+      // unparseable reset label: a prior anchor rolled forward beats guessing now+period —
+      // a bogus anchor poisons both the calibration window and the displayed reset time
+      const resetAt = w.resetAt ?? (p ? rollForward(p.resetAt, period, now) : now + period);
       const start = resetAt - period;
       const units = this.index.windowSum(start, Math.min(resetAt, now));
       if (w.pct >= MIN_CALIBRATION_PCT && units > 0) {
@@ -151,7 +176,6 @@ export class UsageLimitsService {
         any = true;
       } else {
         // too little signal to invert a cap — refresh the anchor on the prior cap if we have one
-        const p = prior.get(key);
         if (p) this.caps.putCap({ ...p, resetAt, pct: w.pct, scrapedAt: now });
         any = any || !!p;
       }

@@ -29,6 +29,26 @@ test("parseResetLabel: 12-hour edge + month/day", () => {
   expect(d.getHours()).toBe(17);
 });
 
+test("parseResetLabel: 'at' separator (current /usage format)", () => {
+  const d = new Date(parseResetLabel("Jun11at11pm", NOW)!);
+  expect(d.getMonth()).toBe(5); // June
+  expect(d.getDate()).toBe(11);
+  expect(d.getHours()).toBe(23);
+});
+
+test("parseResetLabel: labels always point forward", () => {
+  // a time-of-day already past today means tomorrow
+  const noon = new Date(NOW);
+  noon.setHours(12, 0, 0, 0);
+  const t = new Date(parseResetLabel("9:30am", noon.getTime())!);
+  expect(t.getTime()).toBeGreaterThan(noon.getTime());
+  expect(t.getHours()).toBe(9);
+  // a month/day already past means next year (Dec scrape, Jan reset)
+  const y = new Date(parseResetLabel("Jan2,5pm", NOW)!);
+  expect(y.getFullYear()).toBe(new Date(NOW).getFullYear() + 1);
+  expect(y.getMonth()).toBe(0);
+});
+
 test("parseUsageFrame extracts both windows from the captured fixture", () => {
   const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame.txt"), "utf8");
   const p = parseUsageFrame(raw, NOW);
@@ -42,10 +62,33 @@ test("parseUsageFrame takes the values even with leading ANSI + multiple frames"
   const raw =
     "\x1b[2J\x1b[1;1HCurrent session\n  3% used\nResets 9:30pm (x)\n" +
     "\x1b[2JCurrent session\n  8% used\nResets 10:30pm (x)\nCurrent week\n 50% used\nResets Jun 7 (x)";
-  // compacting merges frames; first "%used" after the first "Currentsession" wins
+  // compacting merges frames; the LAST complete render per window wins
   const p = parseUsageFrame(raw, NOW);
-  expect(p.session5h?.pct).toBe(3);
+  expect(p.session5h?.pct).toBe(8);
   expect(p.week?.pct).toBe(50);
+});
+
+test("parseUsageFrame: a truncated section must not steal the next frame's values", () => {
+  // frame 1 is cut right after the week header — its pct/reset never rendered. The week
+  // window must NOT pick up the session values of frame 2 (the bug that anchored the weekly
+  // reset to the session's "9:40am" and took the session pct as the week pct).
+  const raw =
+    "Current session\n 3% used\nResets 9:40am (Europe/Berlin)\nCurrent week (all models)\n" +
+    "\x1b[2JCurrent session\n 24% used\nResets 9:40am (Europe/Berlin)\n" +
+    "Current week (all models)\n 7% used\nResets Jun 11 at 11pm (Europe/Berlin)\n" +
+    "Current week (Sonnet only)\n 0% used\nResets Jun 11 at 11pm (Europe/Berlin)";
+  const p = parseUsageFrame(raw, NOW);
+  expect(p.session5h?.pct).toBe(24);
+  expect(p.session5h?.resetLabel).toBe("9:40am");
+  expect(p.week?.pct).toBe(7); // not 24, not the Sonnet-only 0
+  expect(p.week?.resetLabel).toBe("Jun11at11pm");
+});
+
+test("parseUsageFrame: model-scoped weekly gauges never override the account cap", () => {
+  const raw =
+    "Current week (all models)\n 40% used\nResets Jun 11 at 11pm (x)\n" +
+    "Current week (Sonnet only)\n 2% used\nResets Jun 11 at 11pm (x)";
+  expect(parseUsageFrame(raw, NOW).week?.pct).toBe(40);
 });
 
 // ── calibration + live limits ───────────────────────────────────────────────
@@ -90,6 +133,17 @@ test("low-pct scrape keeps the prior cap (noise guard)", async () => {
   const svc = new UsageLimitsService(fakeIndex(5), caps, new StubProbe(raw));
   await svc.calibrate(NOW);
   expect(caps.rows.get("session5h")!.cap).toBe(1000); // unchanged
+});
+
+test("unparseable reset label keeps the prior anchor rolled forward, not now+period", async () => {
+  const caps = new MemCaps();
+  const WEEK = 7 * 24 * 3600_000;
+  const priorReset = NOW - 1000; // just expired → rolls forward one period
+  caps.putCap({ window: "week", cap: 500, resetAt: priorReset, pct: 20, scrapedAt: NOW - WEEK });
+  const raw = "Current week (all models)\n30% used\nResets someday (x)";
+  const svc = new UsageLimitsService(fakeIndex(100), caps, new StubProbe(raw));
+  await svc.calibrate(NOW);
+  expect(caps.rows.get("week")!.resetAt).toBe(priorReset + WEEK);
 });
 
 test("calibrate returns false when the probe fails", async () => {

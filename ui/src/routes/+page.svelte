@@ -52,7 +52,13 @@
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import { basename } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
-  import { railOrder, cycleId, nthId, nextNeedsYou } from "$lib/components/herd-keynav";
+  import {
+    railOrder,
+    cycleId,
+    nthId,
+    nextNeedsYou,
+    altComboKey,
+  } from "$lib/components/herd-keynav";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import {
     collectReadyPrs,
@@ -442,7 +448,24 @@
   let mobileScreen = $state<"list" | "detail">("list");
   let showBacklog = $state(false);
 
-  function selectUnit(id: string) {
+  // Whether the *next* terminal remount should grab the keyboard. Deliberately a
+  // plain (non-reactive) let, NOT $state: it's never rendered, and Viewport
+  // consumes it inside its terminal-rebuild $effect — a tracked read there would
+  // re-create the terminal (and drop scrollback) whenever this flips. One-shot:
+  // Viewport's consume resets it to true, so resumeEpoch-driven rebuilds
+  // (resume / re-attach, no selection change) keep auto-focusing.
+  let keynavFocusIntent = true;
+
+  // bind:this on the desktop Viewport, so the Enter shortcut can hand the
+  // keyboard back to the terminal that plain-key navigation kept it out of.
+  let viewportRef: Viewport | undefined = $state();
+
+  function selectUnit(id: string, focusTerm = true) {
+    // only a *real* switch remounts the terminal and consumes the intent; a
+    // self-selection (e.g. plain j wrapping back to the only visible session)
+    // must not park a stale `false` that would suppress a later
+    // resumeEpoch-driven auto-focus.
+    if (id !== selectedId) keynavFocusIntent = focusTerm;
     selectedId = id;
     if (mobile.current) mobileScreen = "detail";
   }
@@ -481,9 +504,10 @@
 
   // Keyboard-driven selection: route through the same selectUnit a rail click
   // uses, then keep the now-selected row visible in the rail's scroll area.
-  function keyNavSelect(id: string | null) {
+  // focusTerm = whether the remounted terminal should grab the keyboard.
+  function keyNavSelect(id: string | null, focusTerm = true) {
     if (!id) return;
-    selectUnit(id);
+    selectUnit(id, focusTerm);
     document
       .querySelector(`[data-unit-id="${CSS.escape(id)}"]`)
       ?.scrollIntoView({ block: "nearest" });
@@ -495,17 +519,20 @@
   // g jumps to the next session that needs you (cycling among blocked ones,
   // silently a no-op when nothing is blocked), 1-9 select the Nth visible
   // session in rail order. Returns true when the key belonged to keynav.
-  function handleHerdKeyNav(key: string, e: KeyboardEvent): boolean {
+  // focusTerm follows the keystroke's origin: plain keys pass false so focus
+  // stays out of the terminal and the next plain key still chains; Alt combos
+  // pass true only when fired from inside the terminal (focus follows origin).
+  function handleHerdKeyNav(key: string, e: KeyboardEvent, focusTerm = true): boolean {
     switch (key) {
       case "j":
       case "arrowdown":
         e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, 1));
+        keyNavSelect(cycleId(railIds(), selectedId, 1), focusTerm);
         return true;
       case "k":
       case "arrowup":
         e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, -1));
+        keyNavSelect(cycleId(railIds(), selectedId, -1), focusTerm);
         return true;
       case "g":
         e.preventDefault();
@@ -514,6 +541,7 @@
             blockedEntries.map((entry) => entry.session.id),
             selectedId,
           ),
+          focusTerm,
         );
         return true;
       default:
@@ -521,7 +549,7 @@
           const id = nthId(railIds(), Number(key));
           if (id) {
             e.preventDefault();
-            keyNavSelect(id);
+            keyNavSelect(id, focusTerm);
           }
           return true;
         }
@@ -529,13 +557,19 @@
     }
   }
 
-  // Global single-key shortcuts (no modifier → zero browser/terminal conflict,
-  // works on every platform). Desktop only, and suppressed while typing or while
-  // any modal/overlay is open so a stray "n"/"b" can't stack dialogs.
+  // Global shortcuts, two tiers. Plain single keys (n/b + keynav) are suppressed
+  // while typing — they must never eat a keystroke meant for an input or the
+  // terminal. Alt+J/K/G/arrows/1-9 are the work-everywhere session switchers:
+  // they deliberately SKIP the typing guard so they fire even while xterm holds
+  // focus (Viewport's attachCustomKeyEventHandler suppresses the same combos —
+  // via the shared altComboKey map — from reaching the PTY). Desktop only, and
+  // every tier is suppressed while a modal/overlay is open so a stray key can't
+  // stack dialogs or switch sessions under one.
   function onShortcut(e: KeyboardEvent) {
     if (mobile.current) return;
-    if (e.metaKey || e.ctrlKey || e.altKey || e.repeat || e.isComposing) return;
-    if (isTyping(e.target)) return;
+    // no auto-repeat anywhere (plain or Alt) — held j must not machine-gun
+    // through sessions; and stand down during IME composition.
+    if (e.repeat || e.isComposing) return;
     if (
       showNew ||
       showSettings ||
@@ -547,6 +581,21 @@
       showWhatsNew
     )
       return;
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      // physical e.code, not e.key: macOS Option+J types "∆" (see altComboKey)
+      const mapped = altComboKey(e.code);
+      if (mapped !== null) {
+        // focus follows origin: Alt from inside the terminal keeps the operator
+        // in terminal flow (focus the new session's terminal); Alt from anywhere
+        // else leaves focus out so plain-key navigation still chains after.
+        const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
+        handleHerdKeyNav(mapped, e, fromTerminal);
+        return;
+      }
+      // not a combo key → fall through to the modifier bail below, untouched
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (isTyping(e.target)) return;
     const key = e.key.toLowerCase();
     switch (key) {
       case "n":
@@ -560,8 +609,19 @@
           showBacklog = true;
         }
         break;
+      case "enter":
+        // hand the keyboard back to the terminal after chained plain-key
+        // navigation. Deliberately narrow — body-focused only: a focused
+        // rail-card button keeps native Enter→click activation.
+        if (e.target === document.body) {
+          e.preventDefault();
+          viewportRef?.focusTerminal();
+        }
+        break;
       default:
-        handleHerdKeyNav(key, e);
+        // plain keynav keeps focus OUT of the new terminal so the next plain
+        // key chains (j j j…) instead of vanishing into the PTY; Enter opts in.
+        handleHerdKeyNav(key, e, false);
     }
   }
 
@@ -990,6 +1050,11 @@
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
+            consumeAutoFocusTerm={() => {
+              const v = keynavFocusIntent;
+              keynavFocusIntent = true;
+              return v;
+            }}
             {onarchive}
             workingBlocked={store.workingBlocked}
             onback={() => (mobileScreen = "list")}
@@ -1055,6 +1120,7 @@
           />
         {:else if selected}
           <Viewport
+            bind:this={viewportRef}
             session={selected}
             touch={touch.current}
             git={store.git[selected.id]}
@@ -1069,6 +1135,11 @@
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
             onnavigate={(id) => selectUnit(id)}
+            consumeAutoFocusTerm={() => {
+              const v = keynavFocusIntent;
+              keynavFocusIntent = true;
+              return v;
+            }}
             {onarchive}
             workingBlocked={store.workingBlocked}
             onbroadcast={() => (showBroadcast = true)}

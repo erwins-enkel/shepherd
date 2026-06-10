@@ -12,6 +12,7 @@
   } from "$lib/api";
   import type { DirListing, HerdrUpdateStatus } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
+  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -30,10 +31,10 @@
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
   // but on phones the ActionBar hides it and it was dropped from the top bar,
   // so Settings (reachable via the gear from any mobile screen) is its home.
-  const THEMES: { pref: ThemePref; glyph: string; label: () => string }[] = [
-    { pref: "dark", glyph: "☾", label: m.theme_dark },
-    { pref: "light", glyph: "☀", label: m.theme_light },
-    { pref: "system", glyph: "◐", label: m.theme_system },
+  const THEMES: { pref: ThemePref; icon: "moon" | "sun" | "auto"; label: () => string }[] = [
+    { pref: "dark", icon: "moon", label: m.theme_dark },
+    { pref: "light", icon: "sun", label: m.theme_light },
+    { pref: "system", icon: "auto", label: m.theme_system },
   ];
 
   // Build/repo facts ($lib/build-info) come from the same source the desktop
@@ -552,7 +553,7 @@
               class:on={theme.pref === t.pref}
               aria-pressed={theme.pref === t.pref}
               aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}>{t.glyph}</button
+              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
             >
           {/each}
         </div>

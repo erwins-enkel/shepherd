@@ -64,7 +64,14 @@ export function nthId(order: string[], n: number): string | null {
  *  shortcut handler in +page.svelte (to act on the combo) and xterm's
  *  `attachCustomKeyEventHandler` in Viewport.svelte (to suppress the key from
  *  reaching the PTY). Matching on physical `e.code`, not `e.key`, because macOS
- *  Option+J produces "∆" and other layouts vary. */
+ *  Option+J produces "∆" and other layouts vary.
+ *
+ *  Numpad1–9 are deliberately NOT mapped (asymmetric with the plain-key tier,
+ *  which keys off `e.key` and so accepts numpad digits): Alt+numpad-digit is
+ *  the Windows OS alt-code input method for typing special characters into the
+ *  terminal, and `e.code` reports Numpad1–9 regardless of NumLock — mapping
+ *  them would both shadow alt-code entry and ghost-match when the key isn't a
+ *  digit at all. */
 export function altComboKey(code: string): string | null {
   if (code === "KeyJ") return "j";
   if (code === "KeyK") return "k";

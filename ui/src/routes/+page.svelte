@@ -1117,6 +1117,7 @@
           preview={store.preview}
           previewServe={store.previewServe}
           onpreview={openPreview}
+          ondecommission={onarchive}
           {onclearmerged}
           {onmergetrain}
           {standardCommandUnset}

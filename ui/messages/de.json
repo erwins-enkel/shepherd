@@ -888,5 +888,7 @@
   "feat_herd_keynav_anywhere_title": "Session-Wechsel aus dem Terminal heraus",
   "feat_herd_keynav_anywhere_body": "Du kannst jetzt Sessions wechseln, während du im Terminal tippst: Alt (⌥ auf dem Mac) + j/k, g oder 1–9 wechselt die Session, ohne die Tastatur zu verlassen — Shepherd fängt diese Kombinationen ab, sodass diese Tastenkombinationen nie das Terminal des Agenten erreichen. Ohne Terminalfokus kannst du j/k/g/1–9 jetzt frei verketten (der Wechsel zieht den Fokus nicht mehr zurück), und Enter gibt den Fokus wieder ans Terminal ab.",
   "feat_stepper_legend_title": "Aufgabenleiste zeigt alle Pipeline-Stufen",
-  "feat_stepper_legend_body": "Der Fortschrittsbalken jeder Session-Karte durchläuft jetzt fünf Stufen — Planung, Implementierung, PR, Review und Bereit — wobei das PR-Segment nach CI-Status und das Review-Segment nach Review-Ergebnis eingefärbt wird. Auf dem Desktop zeigt ein Hover über die Leiste eine Stufenlegende."
+  "feat_stepper_legend_body": "Der Fortschrittsbalken jeder Session-Karte durchläuft jetzt fünf Stufen — Planung, Implementierung, PR, Review und Bereit — wobei das PR-Segment nach CI-Status und das Review-Segment nach Review-Ergebnis eingefärbt wird. Auf dem Desktop zeigt ein Hover über die Leiste eine Stufenlegende.",
+  "feat_desktop_decom_title": "Überall am Desktop stilllegen",
+  "feat_desktop_decom_body": "Fahre über eine Session-Zeile, um ein ✕ einzublenden, oder nutze die jetzt immer sichtbare Stilllegen-Schaltfläche im Session-Header — zwei Klicks (aktivieren, bestätigen) legen jede Session still, ob PR vorhanden oder nicht. Rechtsklick auf eine Zeile öffnet das vollständige Menü."
 }

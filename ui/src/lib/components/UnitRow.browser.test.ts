@@ -219,3 +219,44 @@ describe("UnitRow working-while-blocked (full working treatment)", () => {
     expect(document.body.querySelector(".car"), "no typing caret").toBeNull();
   });
 });
+
+describe("UnitRow fine-pointer decommission ✕", () => {
+  // vitest browser mode runs a real fine-pointer browser, so coarse.current is
+  // false and the hover ✕ (not the swipe reveal) is the affordance under test.
+  it("renders the ✕ button only when ondecommission is wired", async () => {
+    render(UnitRow, {
+      session: session({ id: "d0" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .element(page.getByRole("button", { name: "decommission unit" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("two-step: first click arms (no fire), second click decommissions — never selects the row", async () => {
+    let decommissioned: string | null = null;
+    let selects = 0;
+    render(UnitRow, {
+      session: session({ id: "d1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      ondecommission: (id: string) => (decommissioned = id),
+    });
+    const decom = page.getByRole("button", { name: "decommission unit" });
+    await expect.element(decom).toBeInTheDocument();
+    // the idle ✕ is invisible AND pointer-inert (pointer-events: none) — real CSS
+    // applies here, so reveal it the way a user would: hover the row first, which
+    // re-enables pointer events via the (hover:hover)+(pointer:fine) reveal rule
+    await page.getByRole("button", { name: "Open task one" }).hover();
+    await decom.click();
+    expect(decommissioned).toBe(null); // armed, not fired
+    // arming swaps the label to the confirm state; the second click fires
+    await page.getByRole("button", { name: "confirm ✕" }).click();
+    expect(decommissioned).toBe("d1");
+    // the ✕ sits above the row overlay as a sibling — the row select never fires
+    expect(selects).toBe(0);
+  });
+});

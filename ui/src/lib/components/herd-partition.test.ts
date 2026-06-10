@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { partitionSessions } from "./herd-partition";
+import { partitionSessions, shownSessions } from "./herd-partition";
 import type { Session, GitState, SessionStatus } from "$lib/types";
 
 function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
@@ -313,4 +313,19 @@ test("draft + failed CI lands in ciFailed, not draftAwaitingSignoff", () => {
   });
   expect(ciFailed.map((s) => s.id)).toEqual(["d"]);
   expect(draftAwaitingSignoff).toHaveLength(0);
+});
+
+test('"ready" filter drops a working-while-blocked session like a running one', () => {
+  const list = [
+    session("run"), // running → dropped
+    session("wb", false, "blocked"), // blocked but flagged working → dropped
+    session("blk", false, "blocked"), // genuinely blocked → kept
+    session("idl", false, "idle"), // idle → kept
+  ];
+  const shown = shownSessions(list, "ready", () => false, { wb: true });
+  expect(shown.map((s) => s.id)).toEqual(["blk", "idl"]);
+  // without the flag map the blocked session stays listed
+  expect(shownSessions(list, "ready", () => false).map((s) => s.id)).toEqual(["wb", "blk", "idl"]);
+  // "all" ignores the flag entirely
+  expect(shownSessions(list, "all", () => false, { wb: true })).toHaveLength(4);
 });

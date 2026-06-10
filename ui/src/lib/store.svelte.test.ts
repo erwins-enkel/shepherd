@@ -432,6 +432,32 @@ test("session:archived drops the claude-alive entry for that session", () => {
   expect(s.claudeAlive["s1"]).toBeUndefined();
 });
 
+// ── session:working-blocked ────────────────────────────────────────────────
+
+test("setWorkingBlocked seeds the flag map for bootstrap", () => {
+  const s = new HerdStore();
+  s.setWorkingBlocked({ s1: true });
+  expect(s.workingBlocked["s1"]).toBe(true);
+  expect(s.workingBlocked["s2"]).toBeUndefined();
+});
+
+test("session:working-blocked sets the flag; working=false drops the key", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:working-blocked", data: { id: "s1", working: true } });
+  expect(s.workingBlocked["s1"]).toBe(true);
+  s.apply({ event: "session:working-blocked", data: { id: "s1", working: false } });
+  // false DROPS the entry (keeps the map small) — absent, not stored-false
+  expect("s1" in s.workingBlocked).toBe(false);
+});
+
+test("session:archived drops the working-blocked entry for that session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({ event: "session:working-blocked", data: { id: "s1", working: true } });
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.workingBlocked["s1"]).toBeUndefined();
+});
+
 // ── session:preview ────────────────────────────────────────────────────────
 
 test("setPreview seeds the preview map for bootstrap", () => {

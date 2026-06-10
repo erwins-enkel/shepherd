@@ -1,4 +1,5 @@
 import type { Session, GitState } from "$lib/types";
+import { displayStatus } from "$lib/display-status";
 import { isMerging } from "./merge-train";
 
 /** Split sessions into stage groups, preserving input order within each:
@@ -56,14 +57,16 @@ export type HerdFilter = "all" | "ready";
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
  *  awaiting the operator (not running, not under review). Single source of truth shared
  *  by Herd.svelte's list and herd-keynav's rail order, so keyboard navigation can never
- *  land on a row the rail isn't showing. */
+ *  land on a row the rail isn't showing. Goes through `displayStatus` (a working-while-
+ *  blocked session is actually mid-turn, so it is NOT awaiting the operator). */
 export function shownSessions(
   sessions: Session[],
   filter: HerdFilter,
   inReview: (id: string) => boolean,
+  workingBlocked: Record<string, boolean> = {},
 ): Session[] {
   return filter === "ready"
-    ? sessions.filter((s) => s.status !== "running" && !inReview(s.id))
+    ? sessions.filter((s) => displayStatus(s, workingBlocked) !== "running" && !inReview(s.id))
     : sessions;
 }
 
@@ -105,6 +108,9 @@ function stageOf(
 ): Stage {
   const terminal = terminalStage(s, g, isReviewing, now);
   if (terminal) return terminal;
+  // Raw status by design: a working-while-blocked session (display "running") is raw
+  // "blocked" — both are excluded from greenIdle, so the display flag can't change
+  // the partition and doesn't need threading through here.
   const greenIdle =
     g?.state === "open" &&
     g.checks === "success" &&

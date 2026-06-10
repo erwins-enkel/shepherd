@@ -497,6 +497,7 @@ export type WsEvent =
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }
+  | { event: "session:working-blocked"; data: { id: string; working: boolean } }
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }
   | { event: "session:preview-serve"; data: { id: string; serve: "ok" | "failed" | null } }
   | { event: "update:status"; data: UpdateStatus }

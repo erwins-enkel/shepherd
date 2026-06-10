@@ -46,6 +46,12 @@ export class HerdStore {
    *  husk shell → the Resume affordance applies; `true` = claude still runs.
    *  Absent = not swept yet (treated as unknown → Resume stays offered). */
   claudeAlive = $state<Record<string, boolean>>({});
+  /** Display-only flag (sessionId → true), pushed by the server's
+   *  `session:working-blocked` event: the server says this herdr-"blocked"
+   *  session is actually mid-turn (herdr latches "blocked" after an answered
+   *  dialog). Used ONLY to derive the display status (see display-status.ts) —
+   *  never behavioral. Entries drop on working=false and on archive. */
+  workingBlocked = $state<Record<string, boolean>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
@@ -90,6 +96,10 @@ export class HerdStore {
   /** Seed (or replace) the claude-liveness map after a bootstrap GET. */
   setClaudeAlive(map: Record<string, boolean>) {
     this.claudeAlive = map;
+  }
+  /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
+  setWorkingBlocked(map: Record<string, boolean>) {
+    this.workingBlocked = map;
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -166,6 +176,14 @@ export class HerdStore {
     else this.previewServe = { ...this.previewServe, [id]: serve };
   }
 
+  /** Set or clear a session's working-while-blocked display flag. false drops the
+   *  entry (keeps the map small — absent reads the same as false). Extracted from
+   *  apply() to keep that dispatch switch under the complexity gate. */
+  private setWorkingBlockedFlag(id: string, working: boolean) {
+    if (working) this.workingBlocked = { ...this.workingBlocked, [id]: true };
+    else this.workingBlocked = dropKey(this.workingBlocked, id);
+  }
+
   /** Patch a session's name + branch, then surface the rename (esp. the async
    *  namer's auto-rename, which lands while the agent is already working) so the
    *  row changing under the user is explained. Toasts only when the visible name
@@ -226,6 +244,7 @@ export class HerdStore {
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
+        this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
@@ -240,6 +259,9 @@ export class HerdStore {
         break;
       case "session:claude-alive":
         this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };
+        break;
+      case "session:working-blocked":
+        this.setWorkingBlockedFlag(ev.data.id, ev.data.working);
         break;
       case "session:preview":
         this.setPreviewPort(ev.data.id, ev.data.previewPort);

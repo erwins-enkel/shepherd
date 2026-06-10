@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
   import { formatReset } from "$lib/format";
+  import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
@@ -27,6 +28,7 @@
     onwhatsnew,
     statusFilter = null,
     onstatusfilter,
+    workingBlocked = {},
   }: {
     sessions: Session[];
     nowMs: number;
@@ -47,6 +49,9 @@
     // page-level session-status filter the tallies toggle; null = no filter
     statusFilter?: TallyStatus | null;
     onstatusfilter?: (status: TallyStatus | null) => void;
+    // working-while-blocked display flags (store map); tallies + gear pip read the
+    // DISPLAY status through it — the halt e-stop keeps the raw status (see below)
+    workingBlocked?: Record<string, boolean>;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -54,7 +59,14 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
-  const working = $derived(sessions.filter((s) => s.status === "running").length);
+  // Tallies are DISPLAY: a working-while-blocked session counts as working, not
+  // blocked (displayStatus upgrades it). The halt e-stop instead reads the RAW
+  // status (`haltable` below): the server's haltAll only reaches agents herdr
+  // itself reports working, which the latched-"blocked" session is not.
+  const working = $derived(
+    sessions.filter((s) => displayStatus(s, workingBlocked) === "running").length,
+  );
+  const haltable = $derived(sessions.filter((s) => s.status === "running").length);
   // Responsive right-cluster decisions live in ./top-bar-layout (pure + unit-tested,
   // see top-bar-layout.test.ts). "touch-desktop" is the unfolded-foldable crunch
   // (~1000px) the #247/#322 overflow fixes targeted. The halt e-stop is NOT a bar
@@ -160,8 +172,10 @@
   const hideClockTime = $derived(plan.hideClockTime || (mode === "desktop" && desktopCompact));
   const compactBadges = $derived(plan.compactBadges || (mode === "desktop" && desktopCompact));
 
-  const idle = $derived(sessions.filter((s) => s.status === "idle").length);
-  const blocked = $derived(sessions.filter((s) => s.status === "blocked").length);
+  const idle = $derived(sessions.filter((s) => displayStatus(s, workingBlocked) === "idle").length);
+  const blocked = $derived(
+    sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
+  );
   const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
   const connText = $derived(
     connected ? m.topbar_clock_tip_connected() : m.topbar_clock_tip_disconnected(),
@@ -264,7 +278,7 @@
   // Drop the armed state if the herd goes quiet underneath it (agents finished), so a
   // later run doesn't surface a pre-armed row.
   $effect(() => {
-    if (working === 0) disarmHalt();
+    if (haltable === 0) disarmHalt();
   });
   // Destroy-only cleanup (no tracked reads → runs once): never leak the disarm timer.
   $effect(() => () => clearTimeout(armTimer));
@@ -557,14 +571,14 @@
         class="gear tip"
         type="button"
         onclick={toggleMenu}
-        data-tip={working > 0 ? m.topbar_menu_aria() : m.settings_title()}
+        data-tip={haltable > 0 ? m.topbar_menu_aria() : m.settings_title()}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        aria-label={working > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-        >⚙{#if working > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
+        aria-label={haltable > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
+        >⚙{#if haltable > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
           ></span>{/if}{#if herdrUpdateAvailable && mobile}<span
             class="gear-dot"
-            class:shift={working > 0}
+            class:shift={haltable > 0}
             aria-hidden="true"
           ></span>{/if}</button
       >
@@ -577,7 +591,7 @@
           bind:this={menuEl}
           onkeydown={onMenuKey}
         >
-          {#if working > 0}
+          {#if haltable > 0}
             <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
                  Full intent stays in the aria-label. -->
             <button
@@ -587,16 +601,16 @@
               role="menuitem"
               onclick={clickHalt}
               aria-label={armed
-                ? m.halt_arm_aria({ count: working })
-                : m.halt_all_aria({ count: working })}
+                ? m.halt_arm_aria({ count: haltable })
+                : m.halt_all_aria({ count: haltable })}
             >
               <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
               </svg>
               <span class="menu-label"
                 >{armed
-                  ? m.halt_arm({ count: working })
-                  : m.halt_menu_item({ count: working })}</span
+                  ? m.halt_arm({ count: haltable })
+                  : m.halt_menu_item({ count: haltable })}</span
               >
             </button>
             <div class="menu-sep" role="separator"></div>

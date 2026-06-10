@@ -12,6 +12,7 @@
     UsageLimits,
   } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
+  import { displayStatus } from "$lib/display-status";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
@@ -80,6 +81,7 @@
     buildQueue = null,
     onSeedBuildQueue,
     previewHost = null,
+    workingBlocked = {},
   }: {
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
@@ -129,7 +131,14 @@
     /** The agent node's own tailnet host; preview URLs build from it when the HUD is
      *  fronted on a different host. Null → fall back to the operator's connection host. */
     previewHost?: string | null;
+    /** Working-while-blocked display flags (store map). Header status displays read
+     *  the derived `dStatus`; behavioral reads (resume self-heal, preview confirm
+     *  arm) stay on the raw `session.status`. */
+    workingBlocked?: Record<string, boolean>;
   } = $props();
+
+  // Display-side status for every header/status render below (see display-status.ts).
+  const dStatus = $derived(displayStatus(session, workingBlocked));
 
   let el: HTMLDivElement | undefined = $state();
   // root element + live signed offset (px) for the phone horizontal swipe gesture:
@@ -249,19 +258,17 @@
   // operator (blocked / done) so the tint stays a signal, not noise. The exact
   // status still reaches assistive tech via .vp-status-sr.
   const tintColor = $derived(
-    mobile && (session.status === "blocked" || session.status === "done")
-      ? STATUS_COLOR[session.status]
-      : null,
+    mobile && (dStatus === "blocked" || dStatus === "done") ? STATUS_COLOR[dStatus] : null,
   );
   // The header background uses a per-theme wash token (--wash-blocked / -done)
   // rather than mixing the status colour inline: a 24% red→head srgb blend that
   // reads as a deep alarm bezel on the dark ground muddies into a dusty pink in
   // light, so the light theme retunes the blocked wash in OKLCH (see app.css).
-  const tintWash = $derived(tintColor ? `var(--wash-${session.status})` : null);
+  const tintWash = $derived(tintColor ? `var(--wash-${dStatus})` : null);
   // Non-hue partner to the tint: a leading shape mark so blocked (!) vs done (✓)
   // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
   // blocked/done-on-phone gate as the tint.
-  const statusGlyph = $derived(!tintColor ? null : session.status === "blocked" ? "!" : "✓");
+  const statusGlyph = $derived(!tintColor ? null : dStatus === "blocked" ? "!" : "✓");
   // Desktop counterpart (.status-mark): one glyph per status, shape-coded so no
   // state pair rests on hue alone — done (✓) and idle/archived (●) both resolve
   // to slate. Word stays in title/aria.
@@ -272,12 +279,12 @@
     idle: "●",
     archived: "●",
   };
-  const statusMark = $derived(STATUS_MARK[session.status]);
+  const statusMark = $derived(STATUS_MARK[dStatus]);
 
   // ...but a busy agent shouldn't read as idle either: running gets a faint,
   // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
   // "churning" from "idle" at a glance without competing with the alert states.
-  const working = $derived(mobile && session.status === "running");
+  const working = $derived(mobile && dStatus === "running");
 
   // phone: the usage gauge only mounts once the hotter window runs hot (≥70%),
   // i.e. exactly when the remaining token budget starts to matter mid-session
@@ -640,7 +647,8 @@
 
     // Two-step confirm when the agent is actively working: first click arms the
     // button into a confirm state; second click (within 3s) proceeds. Mirrors
-    // the decommission arm and GitRail merge arm patterns.
+    // the decommission arm and GitRail merge arm patterns. Raw status by design
+    // (gates an action, not a render) — see displayStatus for the display flag.
     if (session.status === "running") {
       if (!previewArmed) {
         previewArmed = true;
@@ -904,7 +912,8 @@
   // freezes at a stale "running", and acting on it would rebuild/reattach-loop every
   // fast-fail cycle and defeat the dedicated Reconnect overlay. Also gated on `ended`
   // so a normal idle→running turn never rebuilds a live terminal, and on `!resuming`
-  // so our own resume path doesn't double-bump the epoch.
+  // so our own resume path doesn't double-bump the epoch. Raw status by design:
+  // a working-while-blocked display upgrade must never trigger a terminal rebuild.
   $effect(() => {
     if (ended && endReason === "gone" && !resuming && session.status === "running") {
       ended = false;
@@ -1697,17 +1706,17 @@
       {/if}
       <!-- sighted users read status from the header tint + leading shape glyph;
            keep the word for assistive tech -->
-      <span class="vp-status-sr">{statusLabel(session.status)}</span>
+      <span class="vp-status-sr">{statusLabel(dStatus)}</span>
     {:else}
       <!-- desktop status: a single shape-coded glyph — done (✓) and idle/archived
            (●) share the slate hue, so shape carries the distinction; the status
            word lives in title + aria. -->
       <span
         class="status-mark"
-        style="color:{STATUS_COLOR[session.status]}"
+        style="color:{STATUS_COLOR[dStatus]}"
         role="img"
-        title={statusLabel(session.status)}
-        aria-label={statusLabel(session.status)}>{statusMark}</span
+        title={statusLabel(dStatus)}
+        aria-label={statusLabel(dStatus)}>{statusMark}</span
       >
     {/if}
     {#if !compact}
@@ -1836,7 +1845,7 @@
         name={session.name}
         prompt={session.prompt}
         ready={session.readyToMerge}
-        status={session.status}
+        status={dStatus}
         planPhase={session.planPhase}
         isolated={session.isolated}
         baseBranch={session.baseBranch}

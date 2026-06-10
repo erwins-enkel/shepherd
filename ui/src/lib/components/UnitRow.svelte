@@ -7,6 +7,7 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
   import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge, canResume } from "$lib/format";
+  import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
   import { longPress } from "./longpress";
@@ -45,6 +46,7 @@
     ondecommission,
     repoFilter = null,
     onrepofilter,
+    workingBlocked = {},
   }: {
     session: Session;
     selected: boolean;
@@ -66,7 +68,14 @@
     // when provided, clicking the inline repo emoji toggles the repo filter:
     // a path sets it, null clears (same contract as QueueStrip's band toggle)
     onrepofilter?: (repoPath: string | null) => void;
+    // working-while-blocked display flags (whole store map); feeds displayStatus only
+    workingBlocked?: Record<string, boolean>;
   } = $props();
+
+  // Every status-driven DISPLAY branch below reads this, not session.status: a
+  // working-while-blocked session gets the full working treatment. Behavioral
+  // reads (canResume) stay on the raw status.
+  const dStatus = $derived(displayStatus(session, workingBlocked));
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
@@ -128,7 +137,7 @@
     if (openRow === close) openRow = null;
   });
 
-  const hideStatus = $derived(hideStatusBadge(session.status, reviews.isReviewing(session.id)));
+  const hideStatus = $derived(hideStatusBadge(dStatus, reviews.isReviewing(session.id)));
 
   // A status badge renders for merging / ready / a non-hidden status; only then
   // does #u-status-{id} exist. Build the overlay's aria-describedby so it omits
@@ -146,12 +155,12 @@
   );
 
   // live signals (heartbeat + current tool) only make sense while the agent works
-  const live = $derived(session.status === "running");
+  const live = $derived(dStatus === "running");
   // verbatim tool summary — NOT translated; shown as a quiet line when present
   const summary = $derived(activity?.summary?.trim() || null);
   // stepper conveys "how close to finishing" across the active lifecycle (not archived)
   const showStepper = $derived(
-    session.status === "running" || session.status === "blocked" || session.status === "done",
+    dStatus === "running" || dStatus === "blocked" || dStatus === "done",
   );
 
   // Decommission is deferred behind an undo window: while it's open, the row is
@@ -202,7 +211,7 @@
     class:has-activity={live}
     class:decommissioning
     data-unit-id={session.id}
-    style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[session.status]}"
+    style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[dStatus]}"
   >
     <button
       bind:this={hitEl}
@@ -217,7 +226,7 @@
     ></button>
     <div class="pip-col">
       <StatusPip
-        status={session.status}
+        status={dStatus}
         ready={session.readyToMerge}
         merging={isMerging(session, nowMs)}
       />
@@ -275,7 +284,7 @@
       {/if}
       <div class="u-sub" id="u-sub-{session.id}">
         {session.prompt}
-        {#if session.status === "running"}
+        {#if dStatus === "running"}
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
@@ -318,7 +327,7 @@
       {:else if session.readyToMerge}
         <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
       {:else if !hideStatus}
-        <span class="badge" id="u-status-{session.id}">{statusLabel(session.status)}</span>
+        <span class="badge" id="u-status-{session.id}">{statusLabel(dStatus)}</span>
       {/if}
       <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
     </div>

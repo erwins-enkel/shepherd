@@ -30,6 +30,7 @@
     filter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
+    workingBlocked = {},
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -74,6 +75,9 @@
     // the local all/ready filter (one filter at a time).
     statusFilter?: "running" | "idle" | "blocked" | null;
     onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    // working-while-blocked display flags (store map) — threaded into the rows'
+    // displayStatus and the "ready" filter so flagged sessions read as working
+    workingBlocked?: Record<string, boolean>;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -88,7 +92,7 @@
   // local all/ready filter ENTIRELY — a "ready" remnant would drop running sessions
   // and empty the list under statusFilter="running" (sessions already arrive filtered).
   const shown = $derived(
-    statusFilter != null ? sessions : shownSessions(sessions, filter, inReview),
+    statusFilter != null ? sessions : shownSessions(sessions, filter, inReview, workingBlocked),
   );
   // label for the status chip + filtered empty states (only read when set)
   const statusLabel = $derived(
@@ -202,6 +206,7 @@
           {ondecommission}
           {repoFilter}
           {onrepofilter}
+          {workingBlocked}
         />
       {/each}
       {#if partition.ciRunning.length > 0}
@@ -222,6 +227,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -243,6 +249,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -264,6 +271,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -287,6 +295,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -310,6 +319,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -328,6 +338,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -349,6 +360,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -370,6 +382,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -399,6 +412,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}
@@ -428,6 +442,7 @@
             {ondecommission}
             {repoFilter}
             {onrepofilter}
+            {workingBlocked}
           />
         {/each}
       {/if}

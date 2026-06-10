@@ -418,5 +418,4 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_desktop_decom_title",
     bodyKey: "feat_desktop_decom_body",
   },
-
 ];

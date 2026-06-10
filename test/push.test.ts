@@ -7,8 +7,10 @@ import {
   attachReviewPush,
   attachGitPush,
   attachMergePush,
+  attachUsagePush,
   blockSummary,
   buildPayload,
+  USAGE_WARN_PCT,
   type NotifyInput,
   type SendFn,
 } from "../src/push";
@@ -501,6 +503,155 @@ test("merge_attention routes to ci category", async () => {
     desig: "TASK-07",
   });
   expect(sent).toEqual(["only-ci"]);
+});
+
+test("buildPayload usage_limit localizes EN+DE and includes the reset time", () => {
+  const n: NotifyInput = {
+    kind: "usage_limit",
+    sessionId: "",
+    tag: "usage-5h",
+    name: "5h",
+    pct: 85,
+    resetAt: Date.UTC(2026, 5, 9, 19, 30),
+  };
+  const en = buildPayload(n, "en");
+  expect(en.title).toBe("5-hour limit at 85%");
+  expect(en.body).toMatch(/^Approaching the usage cap — resets at .+\.$/);
+  const de = buildPayload(n, "de");
+  expect(de.title).toBe("5-Stunden-Limit bei 85 %");
+  expect(de.body).toMatch(/^Limit fast erreicht — Reset um .+\.$/);
+  // no resetAt → body without the time suffix
+  const bare = buildPayload({ ...n, resetAt: undefined }, "en");
+  expect(bare.body).toBe("Approaching the usage cap.");
+});
+
+test("usage_limit routes to agent category", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("agent-on"), "");
+  store.putPushSub(sub("agent-off"), "");
+  store.setPushPrefs("agent-off", { agent: false, reviews: true, ci: true });
+  await push.notify({ kind: "usage_limit", sessionId: "", tag: "usage-5h", name: "5h", pct: 90 });
+  expect(sent).toEqual(["agent-on"]);
+});
+
+const limitsEvent = (pct: number, resetAt: number) => ({
+  session5h: { pct, resetAt },
+  week: null,
+  stale: false,
+  calibratedAt: 1,
+});
+
+/** Flush the notify→then→setSetting chain (plain microtasks aren't enough). */
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test("attachUsagePush fires once per window at the threshold, re-arms after reset", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true; // delivered
+  };
+  const events = new EventHub();
+  let t = 1_000;
+  attachUsagePush(events, store, push, () => t);
+
+  const resetAt = 10_000;
+  events.emit("usage:limits", limitsEvent(USAGE_WARN_PCT - 1, resetAt)); // below → no fire
+  events.emit("usage:limits", limitsEvent(USAGE_WARN_PCT, resetAt)); // crossing → fire
+  await tick();
+  events.emit("usage:limits", limitsEvent(92, resetAt)); // same window → suppressed
+  events.emit("usage:limits", { session5h: null, week: null, stale: false, calibratedAt: 1 });
+  await tick();
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toMatchObject({
+    kind: "usage_limit",
+    tag: "usage-5h",
+    pct: USAGE_WARN_PCT,
+    resetAt,
+    cooldownKey: "usage_limit:5h",
+  });
+
+  // window reset: now passes the stored resetAt and the next crossing fires again
+  t = 11_000;
+  events.emit("usage:limits", limitsEvent(81, 21_000));
+  await tick();
+  expect(calls.length).toBe(2);
+  expect(calls[1]).toMatchObject({ pct: 81, resetAt: 21_000 });
+});
+
+test("attachUsagePush survives a restart without re-announcing (persisted marker)", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  let events = new EventHub();
+  attachUsagePush(events, store, push, () => 1_000);
+  events.emit("usage:limits", limitsEvent(85, 10_000));
+  await tick();
+  expect(calls.length).toBe(1);
+
+  // "restart": fresh hub + fresh attach over the SAME store — marker persists
+  events = new EventHub();
+  attachUsagePush(events, store, push, () => 2_000);
+  events.emit("usage:limits", limitsEvent(85, 10_000));
+  await tick();
+  expect(calls.length).toBe(1);
+});
+
+test("attachUsagePush retries while the push is suppressed, marks only on delivery", async () => {
+  const calls: any[] = [];
+  let delivered = false;
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return delivered;
+  };
+  const events = new EventHub();
+  attachUsagePush(events, store, push, () => 1_000);
+
+  events.emit("usage:limits", limitsEvent(85, 10_000)); // suppressed (e.g. app active)
+  await tick();
+  events.emit("usage:limits", limitsEvent(86, 10_000)); // still over → retried
+  await tick();
+  expect(calls.length).toBe(2);
+
+  delivered = true;
+  events.emit("usage:limits", limitsEvent(87, 10_000)); // delivered → window marked
+  await tick();
+  events.emit("usage:limits", limitsEvent(88, 10_000)); // marked → no more calls
+  await tick();
+  expect(calls.length).toBe(3);
+});
+
+test("attachUsagePush does not double-warn when an emit lands mid-delivery", async () => {
+  const calls: any[] = [];
+  let release!: (sent: boolean) => void;
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = (p: any) => {
+    calls.push(p);
+    return new Promise<boolean>((r) => {
+      release = r;
+    });
+  };
+  const events = new EventHub();
+  attachUsagePush(events, store, push, () => 1_000);
+
+  events.emit("usage:limits", limitsEvent(85, 10_000)); // notify in flight
+  events.emit("usage:limits", limitsEvent(86, 10_000)); // marker not persisted yet → must skip
+  expect(calls.length).toBe(1);
+
+  release(true); // delivery completes, window marked
+  await tick();
+  events.emit("usage:limits", limitsEvent(87, 10_000)); // marked → still no second call
+  await tick();
+  expect(calls.length).toBe(1);
 });
 
 test("attachMergePush notifies on merge_error and rebase_cap, ignores other states", async () => {

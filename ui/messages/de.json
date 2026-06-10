@@ -890,5 +890,7 @@
   "feat_stepper_legend_title": "Aufgabenleiste zeigt alle Pipeline-Stufen",
   "feat_stepper_legend_body": "Der Fortschrittsbalken jeder Session-Karte durchläuft jetzt fünf Stufen — Planung, Implementierung, PR, Review und Bereit — wobei das PR-Segment nach CI-Status und das Review-Segment nach Review-Ergebnis eingefärbt wird. Auf dem Desktop zeigt ein Hover über die Leiste eine Stufenlegende.",
   "feat_desktop_decom_title": "Überall am Desktop stilllegen",
-  "feat_desktop_decom_body": "Fahre über eine Session-Zeile, um ein ✕ einzublenden, oder nutze die jetzt immer sichtbare Stilllegen-Schaltfläche im Session-Header — zwei Klicks (aktivieren, bestätigen) legen jede Session still, ob PR vorhanden oder nicht. Rechtsklick auf eine Zeile öffnet das vollständige Menü."
+  "feat_desktop_decom_body": "Fahre über eine Session-Zeile, um ein ✕ einzublenden, oder nutze die jetzt immer sichtbare Stilllegen-Schaltfläche im Session-Header — zwei Klicks (aktivieren, bestätigen) legen jede Session still, ob PR vorhanden oder nicht. Rechtsklick auf eine Zeile öffnet das vollständige Menü.",
+  "feat_usage_limit_push_title": "Nutzungslimit-Warnung",
+  "feat_usage_limit_push_body": "Shepherd schickt jetzt eine Push-Benachrichtigung, sobald das 5-Stunden-Limit 80 % überschreitet — einmal pro Fenster, damit du rechtzeitig reagieren kannst, bevor das Limit erreicht ist."
 }

@@ -98,6 +98,8 @@ function makeDeps(
   const steers: { id: string; text: string }[] = [];
   const signals: { kind: string; payload: string }[] = [];
   const commentCalls: number[] = []; // prNumbers passed to listPrComments
+  const recordedSpawns: any[] = []; // recordReviewerSpawn calls
+  const completedSpawns: any[] = []; // completeReviewerSpawn calls
   const rec: { event?: string; body?: string } = {};
   const base = {
     store: {
@@ -119,6 +121,9 @@ function makeDeps(
       },
       snapshotReviews: () => reviews,
       addSignal: (s: { kind: string; payload: string }) => signals.push(s),
+      recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
+      completeReviewerSpawn: (id: string, u: any, at: number) =>
+        completedSpawns.push({ id, u, at }),
     },
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
@@ -151,6 +156,8 @@ function makeDeps(
     steers,
     signals,
     commentCalls,
+    recordedSpawns,
+    completedSpawns,
     rec,
   };
 }
@@ -179,6 +186,43 @@ test("consider → tick: posts request-changes, persists, reaps", async () => {
   expect(rec.body).toContain("## findings");
   expect(rec.body).toContain(CRITIC_REVIEW_MARKER);
   expect(reviews["s1"]?.body).toBe("## findings");
+});
+
+test("records the reviewer spawn on begin (issue #502)", async () => {
+  const { deps: d, recordedSpawns } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(recordedSpawns).toHaveLength(1);
+  const r = recordedSpawns[0]!;
+  expect(r.kind).toBe("review");
+  expect(r.taskSessionId).toBe("s1");
+  expect(r.reviewerSessionId).toBeTruthy();
+  expect(r.worktreePath).toBe("/review-wt");
+});
+
+test("completes the spawn's token total on finalize (issue #502)", async () => {
+  const {
+    deps: d,
+    recordedSpawns,
+    completedSpawns,
+  } = makeDeps({
+    readUsage: async () => ({
+      input: 10,
+      output: 5,
+      cacheRead: 100,
+      cacheWrite: 2,
+      total: 117,
+      messageCount: 1,
+      lastActivity: 0,
+      byModel: {},
+    }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(completedSpawns).toHaveLength(1);
+  expect(completedSpawns[0]!.u.total).toBe(117);
+  expect(completedSpawns[0]!.id).toBe(recordedSpawns[0]!.reviewerSessionId);
 });
 
 test("onReviewing fires true on spawn and false on finalize", async () => {

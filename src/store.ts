@@ -815,8 +815,10 @@ export class SessionStore implements CapStore {
   /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
    *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
   completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
-    // Drop `u.byModel`/`u.messageCount` on purpose — a reviewer spawn is one model,
-    // so the five scalar totals + the spawn-time `model` column fully describe it.
+    // Drop `u.byModel`/`u.messageCount` on purpose — a reviewer spawn is one model, so the
+    // five scalar totals are the cost facts we need. (The spawn-time `model` column is the
+    // configured override and may be null when auto-resolved; the transcript holds the true
+    // model if a future report needs it.)
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
          cacheWriteTokens = ?, totalTokens = ?, completedAt = ? WHERE reviewerSessionId = ?`,

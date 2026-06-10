@@ -84,6 +84,17 @@ test("parseUsageFrame: a truncated section must not steal the next frame's value
   expect(p.week?.resetLabel).toBe("Jun11at11pm");
 });
 
+test("parseUsageFrame: a truncated last section must not absorb the trailing panels", () => {
+  // the week gauge never rendered; the capture's tail is the chrome below the gauges. Its
+  // "% used" must not be read as the week's pct — the section ends at the trailer.
+  const raw =
+    "Current session\n 24% used\nResets 9:40am (x)\nCurrent week (all models)\n" +
+    "Esc to cancel\nUsage credits\n 55% used\nResets Jul 1 (x)";
+  const p = parseUsageFrame(raw, NOW);
+  expect(p.session5h?.pct).toBe(24);
+  expect(p.week).toBeNull();
+});
+
 test("parseUsageFrame: model-scoped weekly gauges never override the account cap", () => {
   const raw =
     "Current week (all models)\n 40% used\nResets Jun 11 at 11pm (x)\n" +

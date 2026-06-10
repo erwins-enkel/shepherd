@@ -60,6 +60,11 @@ const BEL = String.fromCharCode(7);
 const ANSI_CSI = new RegExp(ESC + "\\[[0-9;?]*[A-Za-z]", "g");
 const ANSI_OSC = new RegExp(ESC + "\\][^" + BEL + "]*" + BEL, "g");
 
+// Chrome rendered below the gauges ("Esc to cancel", the credits / contributing panels).
+// A section also ends there — otherwise the buffer's last segment would run to end-of-capture
+// and could absorb a trailing panel's "% used" when its own gauge line never rendered.
+const SECTION_TRAILER = /Esctocancel|Usagecredits|What'scontributing/i;
+
 /** Which window a section belongs to; null for model-scoped weekly gauges ("Sonnet only"). */
 function segmentKey(seg: string): WindowKey | null {
   if (!/^Currentweek/i.test(seg)) return "session5h";
@@ -88,7 +93,9 @@ export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   const anchors = [...c.matchAll(/Currentsession|Currentweek/gi)];
   const best: ScrapedUsage = { session5h: null, week: null };
   for (let i = 0; i < anchors.length; i++) {
-    const seg = c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length);
+    let seg = c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length);
+    const trailer = seg.search(SECTION_TRAILER);
+    if (trailer >= 0) seg = seg.slice(0, trailer);
     const key = segmentKey(seg);
     const w = key ? parseSegment(seg, now) : null;
     if (!key || !w) continue;

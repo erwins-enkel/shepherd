@@ -15,6 +15,7 @@ let savedSc: string;
 let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
+let savedDefaultModel: string;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -27,6 +28,7 @@ beforeEach(() => {
   savedHk = config.sessionHousekeepingEnabled;
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
+  savedDefaultModel = config.defaultModel;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -40,6 +42,7 @@ afterEach(() => {
   config.sessionHousekeepingEnabled = savedHk;
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
+  config.defaultModel = savedDefaultModel;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -332,4 +335,53 @@ test("GET /api/fs/dirs?path=/ stays clamped to the ceiling (never escapes to '/'
   const body = await res.json();
   expect(body.path).toBe(tmp);
   expect(body.parent).toBeNull();
+});
+
+test("GET /api/settings includes defaultModel (raw, unresolved)", async () => {
+  config.defaultModel = "opus";
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.defaultModel).toBe("opus");
+});
+
+test("PUT /api/settings sets defaultModel, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.defaultModel = "auto";
+  const { app, store } = harness();
+  const res = await put(app, { defaultModel: "fable" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).defaultModel).toBe("fable");
+  expect(config.defaultModel).toBe("fable"); // live
+  expect(store.getSetting("defaultModel")).toBe("fable"); // persisted
+  expect(config.repoRoot).toBe(tmp); // a defaultModel patch must not touch the repo root
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.defaultModel).toBe("fable");
+});
+
+test("PUT /api/settings accepts defaultModel 'auto' and 'default'", async () => {
+  const { app } = harness();
+  const r1 = await put(app, { defaultModel: "auto" });
+  expect(r1.status).toBe(200);
+  expect((await r1.json()).defaultModel).toBe("auto");
+  const r2 = await put(app, { defaultModel: "default" });
+  expect(r2.status).toBe(200);
+  expect((await r2.json()).defaultModel).toBe("default");
+});
+
+test("PUT /api/settings rejects an unknown defaultModel value", async () => {
+  const { app } = harness();
+  config.defaultModel = "auto";
+  const res = await put(app, { defaultModel: "gpt9" });
+  expect(res.status).toBe(400);
+  expect(config.defaultModel).toBe("auto"); // unchanged on failure
+});
+
+test("PUT /api/settings rejects a non-string defaultModel", async () => {
+  const { app } = harness();
+  config.defaultModel = "auto";
+  const res = await put(app, { defaultModel: 42 });
+  expect(res.status).toBe(400);
+  expect(config.defaultModel).toBe("auto"); // unchanged on failure
 });

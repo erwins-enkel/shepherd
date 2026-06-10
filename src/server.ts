@@ -68,6 +68,7 @@ import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
+import { normalizeDefaultModelSetting } from "./default-model";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -1614,6 +1615,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // URLs from it when the HUD is fronted on a different host than the agent node.
       // Null when tailscale is absent → UI falls back to the operator's connection host.
       previewHost: config.previewHost,
+      // raw configured default model; "auto" = unset/seed; client resolves promo itself.
+      defaultModel: config.defaultModel,
     });
   }
   if (req.method === "PUT") {
@@ -1638,6 +1641,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
+  ["defaultModel", putDefaultModel],
 ];
 
 // max length for the persisted standard command; mirrors the 8000-char human-prompt
@@ -1697,6 +1701,15 @@ function putPlanReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
   config.planReviewCyclesCap = cap; // live: the next plan-gate run reads it
   deps.store.setSetting("planReviewCyclesCap", String(cap)); // persist across restarts
   return json({ planReviewCyclesCap: config.planReviewCyclesCap });
+}
+
+// Validates via normalizeDefaultModelSetting; "auto" = unset/seed.
+function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeDefaultModelSetting(value);
+  if (v === null) return json({ error: "unknown model" }, 400);
+  config.defaultModel = v; // live: next drain spawn picks it up
+  deps.store.setSetting("defaultModel", v); // persist across restarts
+  return json({ defaultModel: config.defaultModel });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

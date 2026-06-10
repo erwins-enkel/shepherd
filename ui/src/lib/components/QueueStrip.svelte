@@ -68,6 +68,17 @@
   function onWindowPointerdown(e: PointerEvent) {
     if (openRepo && stripEl && !stripEl.contains(e.target as Node)) openRepo = null;
   }
+
+  // The queue popover is anchored at its cell's left edge. In the wrapping chip row a
+  // right-side cell would push the fixed-width popover past the right viewport edge, so
+  // on mount measure it and shift left by any overflow (the popover width is content-
+  // independent, so a single clamp on open is enough).
+  function clampWithinViewport(node: HTMLElement) {
+    node.style.left = "0px";
+    node.style.right = "auto";
+    const overflow = node.getBoundingClientRect().right - (window.innerWidth - 8);
+    if (overflow > 0) node.style.left = `${-overflow}px`;
+  }
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
@@ -80,8 +91,7 @@
     bind:this={stripEl}
   >
     <span class="qs-label">{m.repo_status_label()}</span>
-    {#snippet chipBody(repoPath: string)}
-      {@const icon = projectIcons.iconFor(repoPath)}
+    {#snippet chipBody(repoPath: string, icon: string | null)}
       {#if icon}
         <span aria-hidden="true">{icon}</span>
       {:else}
@@ -90,6 +100,7 @@
     {/snippet}
     <ul class="qs-cells">
       {#each rows as row (row.repoPath)}
+        {@const icon = projectIcons.iconFor(row.repoPath)}
         <li class="qs-cell" class:paused={row.drain?.paused}>
           {#if onrepofilter}
             {@const active = repoFilter === row.repoPath}
@@ -104,13 +115,13 @@
                 : m.repo_filter_apply_aria({ repo: basename(row.repoPath) })}
               onclick={() => onrepofilter(active ? null : row.repoPath)}
             >
-              {@render chipBody(row.repoPath)}
+              {@render chipBody(row.repoPath, icon)}
             </button>
           {:else}
             <span class="qs-chip" title={basename(row.repoPath)}>
-              {@render chipBody(row.repoPath)}
+              {@render chipBody(row.repoPath, icon)}
             </span>
-            {#if projectIcons.iconFor(row.repoPath)}
+            {#if icon}
               <span class="sr-only">{basename(row.repoPath)}</span>
             {/if}
           {/if}
@@ -161,6 +172,7 @@
               class="qs-pop"
               role="dialog"
               aria-label={m.drain_queue_title({ repo: basename(d.repoPath) })}
+              use:clampWithinViewport
             >
               <div class="qs-pop-head">{m.drain_queue_title({ repo: basename(d.repoPath) })}</div>
               {#if loading}

@@ -859,5 +859,7 @@
   "feat_herd_keynav_title": "Tastaturnavigation durch die Herde",
   "feat_herd_keynav_body": "Erreiche jede Session ohne Maus: j/k (oder die Pfeiltasten) wechseln in Listenreihenfolge durch die Herde, 1–9 springt direkt zur n-ten Session und g springt zur nächsten Session, die dich braucht. Beim Tippen im Terminal oder in einem Formular bleiben die Tasten inaktiv.",
   "feat_preview_stop_title": "Vorschau stoppen, um RAM freizugeben",
-  "feat_preview_stop_body": "Stoppe einen Vorschau-Devserver direkt aus dem Preview-Pane, um Arbeitsspeicher freizugeben. Operatoren können auch den optionalen Auto-Stop bei Inaktivität aktivieren (SHEPHERD_PREVIEW_IDLE_STOP_MS), um unbeobachtete, inaktive Vorschauen automatisch zu beenden."
+  "feat_preview_stop_body": "Stoppe einen Vorschau-Devserver direkt aus dem Preview-Pane, um Arbeitsspeicher freizugeben. Operatoren können auch den optionalen Auto-Stop bei Inaktivität aktivieren (SHEPHERD_PREVIEW_IDLE_STOP_MS), um unbeobachtete, inaktive Vorschauen automatisch zu beenden.",
+  "feat_card_repo_icon_title": "Repo-Emoji ersetzt die Repo-Zeile auf Karten",
+  "feat_card_repo_icon_body": "Hat ein Repo ein konfiguriertes Emoji, zeigen Session-Karten es jetzt direkt vor dem Session-Namen, statt eine ganze Zeile für den Repo-Namen zu verwenden — dichtere Karten, gleiche Repo-Erkennung auf einen Blick. Repos ohne Emoji behalten die gewohnte Repo-Zeile."
 }

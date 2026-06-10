@@ -214,14 +214,23 @@
 
     <div class="u-main">
       <div class="u-top">
+        {#if repoIcon}
+          <span class="name-icon" aria-hidden="true">{repoIcon}</span>
+        {/if}
         <span class="name">{session.name}</span>
       </div>
-      <!-- repoPath tooltip lives on .unit-hit (overlay covers this line), so it
-           still surfaces on row hover; describedby reads this line's repo name -->
-      <div class="u-repo" id="u-repo-{session.id}">
-        <span class="repo-glyph" class:emoji={repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
-        >{repoName}
-      </div>
+      <!-- A configured project emoji identifies the repo on its own, so it moves
+           in front of the name and the repo line is dropped to save a row — but
+           stays sr-only so the aria-describedby chain keeps announcing the repo.
+           repoPath tooltip lives on .unit-hit (overlay covers this area), so it
+           still surfaces on row hover either way. -->
+      {#if repoIcon}
+        <span class="sr-only" id="u-repo-{session.id}">{repoName}</span>
+      {:else}
+        <div class="u-repo" id="u-repo-{session.id}">
+          <span class="repo-glyph" aria-hidden="true">▣</span>{repoName}
+        </div>
+      {/if}
       <div class="u-sub" id="u-sub-{session.id}">
         {session.prompt}
         {#if session.status === "running"}
@@ -526,6 +535,22 @@
     min-width: 0;
   }
 
+  /* configured project emoji standing in for the repo line */
+  .name-icon {
+    flex: none;
+    margin-right: 6px;
+    font-size: var(--fs-base);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
   .name {
     color: var(--color-ink-bright);
     font-weight: 500;
@@ -550,15 +575,12 @@
     max-width: 34ch;
   }
   .repo-glyph {
-    /* Renders on every row regardless of status — amber here was the biggest
-       remaining contributor to the "orange wall". Muted: it's a repo marker,
-       not a state signal. (Only tints the `▣` fallback; emoji icons self-color.) */
+    /* Renders on every icon-less row regardless of status — amber here was the
+       biggest remaining contributor to the "orange wall". Muted: it's a repo
+       marker, not a state signal. */
     color: var(--color-muted);
     font-size: var(--fs-micro);
     flex-shrink: 0;
-  }
-  .repo-glyph.emoji {
-    font-size: var(--fs-base);
   }
 
   .u-sub {

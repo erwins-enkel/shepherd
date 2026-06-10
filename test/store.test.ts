@@ -609,6 +609,37 @@ test("completeReviewerSpawn keeps the recorded model when the transcript yielded
   expect(s.listReviewerSpawns()[0]!.model).toBe("sonnet");
 });
 
+test("completeReviewerSpawn ignores the 'unknown' model sentinel: a real model wins, sentinel never overwrites", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-real",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: null,
+    spawnedAt: 1000,
+  });
+  // sentinel has more tokens but must lose to the real model
+  s.completeReviewerSpawn("rev-real", usage({ byModel: { unknown: 90, sonnet: 10 } }), 2000);
+  expect(s.listReviewerSpawns().find((r) => r.reviewerSessionId === "rev-real")!.model).toBe(
+    "sonnet",
+  );
+
+  // sentinel-only usage must NOT overwrite a previously-recorded model
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-sentinel",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: "opus",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-sentinel", usage({ byModel: { unknown: 100 } }), 2000);
+  expect(s.listReviewerSpawns().find((r) => r.reviewerSessionId === "rev-sentinel")!.model).toBe(
+    "opus",
+  );
+});
+
 test("pruneReviewerSpawns deletes only rows older than beforeTs, returns the count", () => {
   const s = mk();
   for (const [id, ts] of [

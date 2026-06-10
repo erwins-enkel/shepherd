@@ -506,8 +506,9 @@ async function attributeSatellites(
     // The 5m/1h cache-write split isn't persisted (the aggregate collapses it); attribute it to
     // the 5m bucket, matching parseLine's default when the split is absent. Model: completion
     // backfills the spawn row's true model (dominantModel of the transcript), so `sp.model` is
-    // accurate for any completed spawn; the task-model proxy only covers a spawn that recorded no
-    // model at all (never completed, or a transcript that named none).
+    // accurate for any completed spawn that named a real model. The task-model proxy is reached
+    // only when both are null — spawn-time model "auto" AND a transcript that named no real model
+    // (these are all completed spawns; the never-completed ones are filtered by totalTokens above).
     const model = sp.model ?? byId.get(sp.taskSessionId)!.row.model ?? "unknown";
     const costUnits = weightedUnits(
       {

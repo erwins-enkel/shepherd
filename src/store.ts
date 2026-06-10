@@ -817,10 +817,11 @@ export class SessionStore implements CapStore {
   completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
     // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
     // configured override, which is null when auto-resolved — but the transcript names the model
-    // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. COALESCE
-    // keeps the recorded value when the transcript yielded no model (empty usage). This lets
-    // usage-report weight a GC'd-transcript spawn's cost by its real tier, not a task-model proxy.
-    // `u.messageCount` is intentionally dropped — not a cost fact.
+    // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. It returns
+    // null for empty usage or records that named no real model (only parseLine's "unknown"
+    // sentinel), and COALESCE then keeps the recorded value — the sentinel never overwrites it.
+    // This lets usage-report weight a GC'd-transcript spawn's cost by its real tier, not a
+    // task-model proxy. `u.messageCount` is intentionally dropped — not a cost fact.
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
          cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)

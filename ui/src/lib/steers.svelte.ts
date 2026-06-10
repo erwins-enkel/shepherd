@@ -1,6 +1,14 @@
 import type { Steer } from "./types";
 import { getSteers, putSteers } from "./api";
 
+/** Backfill surface scopes a pre-scopes payload may omit (e.g. an older backend
+ *  during a rolling upgrade), so a steer missing inSteerBar/onIssues defaults to a
+ *  bar chip instead of vanishing from every surface. Mirrors the server normalize();
+ *  emoji stays optional (server-side migration assigns legacy defaults). */
+function normalize(s: Steer & { inSteerBar?: boolean; onIssues?: boolean }): Steer {
+  return { ...s, inSteerBar: s.inSteerBar ?? true, onIssues: s.onIssues ?? false };
+}
+
 // Client cache of the saved canned steers. Loaded once on app start; every
 // mutation persists to the server and adopts the normalized result.
 class SteersStore {
@@ -10,7 +18,7 @@ class SteersStore {
 
   async load() {
     try {
-      this.list = await getSteers();
+      this.list = (await getSteers()).map(normalize);
     } catch (e) {
       this.error = e instanceof Error ? e.message : "failed to load steers";
     } finally {
@@ -22,7 +30,7 @@ class SteersStore {
   async save(next: Steer[]) {
     this.error = null;
     try {
-      this.list = await putSteers(next);
+      this.list = (await putSteers(next)).map(normalize);
     } catch (e) {
       this.error = e instanceof Error ? e.message : "failed to save steers";
       throw e;

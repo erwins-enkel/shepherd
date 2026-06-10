@@ -4,6 +4,7 @@
   import { dragHandleZone, dragHandle } from "svelte-dnd-action";
   import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "$lib/steers.svelte";
+  import EmojiPicker from "$lib/components/EmojiPicker.svelte";
   import type { Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
@@ -13,6 +14,8 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
+  // steer id whose emoji picker is open; null = closed
+  let pickerFor = $state<string | null>(null);
 
   function reorder(e: CustomEvent<DndEvent<Steer>>) {
     draft = e.detail.items;
@@ -29,16 +32,34 @@
   });
 
   function add() {
-    draft = [...draft, { id: crypto.randomUUID(), label: "", text: "" }];
+    draft = [
+      ...draft,
+      { id: crypto.randomUUID(), label: "", text: "", inSteerBar: true, onIssues: false },
+    ];
     saved = false;
   }
   function remove(id: string) {
     draft = draft.filter((s) => s.id !== id);
+    if (pickerFor === id) pickerFor = null;
+    saved = false;
+  }
+  function pickEmoji(s: Steer, emoji: string | null) {
+    s.emoji = emoji ?? undefined;
+    pickerFor = null;
+    saved = false;
+  }
+  function toggleScope(s: Steer, key: "inSteerBar" | "onIssues") {
+    s[key] = !s[key];
     saved = false;
   }
 
+  // A steer with both surfaces off renders nowhere (bar, issues, broadcast) — block
+  // the save and point at it rather than persisting an invisible entry.
+  const scopeless = $derived(draft.some((s) => !s.inSteerBar && !s.onIssues));
   const valid = $derived(
-    draft.length <= 40 && draft.every((s) => s.label.trim() !== "" && s.text.trim() !== ""),
+    draft.length <= 40 &&
+      !scopeless &&
+      draft.every((s) => s.label.trim() !== "" && s.text.trim() !== ""),
   );
 
   async function save() {
@@ -59,6 +80,7 @@
 
 <div class="editor">
   <span class="micro">{m.steerseditor_title()}</span>
+  <p class="hint">{m.steerseditor_hint()}</p>
   <div
     class="rows"
     use:dragHandleZone={{ items: draft, flipDurationMs }}
@@ -72,6 +94,14 @@
           use:dragHandle
           aria-label={m.steerseditor_reorder_aria()}
           title={m.steerseditor_reorder_aria()}>⠿</span
+        >
+        <button
+          type="button"
+          class="emoji-btn"
+          class:unset={!s.emoji}
+          aria-label={m.steerseditor_emoji_aria()}
+          title={m.steerseditor_emoji_aria()}
+          onclick={() => (pickerFor = pickerFor === s.id ? null : s.id)}>{s.emoji ?? "+"}</button
         >
         <input
           class="label"
@@ -87,12 +117,39 @@
           aria-label={m.steerseditor_text_aria()}
           oninput={() => (saved = false)}
         />
+        <div class="scopes" class:none={!s.inSteerBar && !s.onIssues}>
+          <button
+            type="button"
+            class="scope"
+            class:on={s.inSteerBar}
+            aria-pressed={s.inSteerBar}
+            title={m.steerseditor_scope_bar_title()}
+            onclick={() => toggleScope(s, "inSteerBar")}>{m.steerseditor_scope_bar()}</button
+          >
+          <button
+            type="button"
+            class="scope"
+            class:on={s.onIssues}
+            aria-pressed={s.onIssues}
+            title={m.steerseditor_scope_issues_title()}
+            onclick={() => toggleScope(s, "onIssues")}>{m.steerseditor_scope_issues()}</button
+          >
+        </div>
         <button
           type="button"
           class="del"
           aria-label={m.steerseditor_delete_aria()}
           onclick={() => remove(s.id)}>✕</button
         >
+        {#if pickerFor === s.id}
+          <div class="picker">
+            <EmojiPicker
+              value={s.emoji ?? null}
+              onpick={(emoji) => pickEmoji(s, emoji)}
+              onclose={() => (pickerFor = null)}
+            />
+          </div>
+        {/if}
       </div>
     {/each}
     {#if draft.length === 0}
@@ -100,6 +157,7 @@
     {/if}
   </div>
 
+  {#if scopeless}<div class="err">{m.steerseditor_scope_none_error()}</div>{/if}
   {#if error}<div class="err">{error}</div>{/if}
 
   <div class="actions">
@@ -127,15 +185,22 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
+  .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
   .rows {
     display: flex;
     flex-direction: column;
     gap: 4px;
   }
   .srow {
+    position: relative;
     display: flex;
     gap: 4px;
     align-items: center;
+    flex-wrap: wrap;
   }
   .grip {
     flex: 0 0 auto;
@@ -163,12 +228,54 @@
     padding: 6px 8px;
   }
   .srow .label {
-    flex: 0 0 34%;
+    flex: 1 1 26%;
     min-width: 0;
   }
   .srow .text {
-    flex: 1;
+    flex: 2 1 38%;
     min-width: 0;
+  }
+  .emoji-btn {
+    flex: 0 0 auto;
+    min-width: 32px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink-bright);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-base);
+    padding: 6px 4px;
+    line-height: 1;
+  }
+  .emoji-btn.unset {
+    color: var(--color-faint);
+  }
+  .scopes {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 4px;
+  }
+  .scope {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 7px;
+  }
+  .scope.on {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  /* both surfaces off → this row blocks the save; tint its toggles to point at it */
+  .scopes.none .scope {
+    border-color: var(--color-red);
+    color: var(--color-red);
   }
   .del {
     flex: 0 0 auto;
@@ -179,6 +286,14 @@
     cursor: pointer;
     font: inherit;
     padding: 6px 8px;
+  }
+  /* anchored, non-modal emoji popover (same pattern as RepoSelect's icon picker) */
+  .picker {
+    position: absolute;
+    z-index: 60;
+    top: 100%;
+    left: 24px;
+    margin-top: 4px;
   }
   .placeholder {
     color: var(--color-faint);
@@ -219,7 +334,9 @@
   @media (max-width: 768px) {
     .add,
     .save,
-    .del {
+    .del,
+    .scope,
+    .emoji-btn {
       min-height: 40px;
     }
     .grip {

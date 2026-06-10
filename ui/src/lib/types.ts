@@ -30,8 +30,6 @@ export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
   remoteControlAtStartup: boolean;
-  /** Prompt seeded behind the backlog quick-launch button; empty disables it. */
-  standardCommand: string;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
@@ -550,6 +548,12 @@ export interface Steer {
   id: string;
   label: string;
   text: string;
+  /** Optional emoji shown on the chip/button; lets tight layouts collapse to icon-only. */
+  emoji?: string;
+  /** Surface as a chip in the session steer bar. */
+  inSteerBar: boolean;
+  /** Surface as a quick-action button on backlog issues (spawns a session with this prompt + the issue). */
+  onIssues: boolean;
 }
 
 // ── git diff review panel ──────────────────────────────────────────────────

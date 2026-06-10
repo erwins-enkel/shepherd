@@ -2,9 +2,13 @@
   import { steers } from "$lib/steers.svelte";
   import { replySession } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
+  import { fitLabels } from "$lib/fit-labels";
   import { m } from "$lib/paraglide/messages";
 
   let { focusedId, onbroadcast }: { focusedId: string; onbroadcast: () => void } = $props();
+
+  // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
+  const chips = $derived(steers.list.filter((s) => s.inSteerBar));
 
   // One-time coachmark: the steer chips are tap-to-send and the leading ⌁ broadcast chip
   // broadcasts to many sessions — neither affordance is obvious on first sight.
@@ -91,7 +95,16 @@
     >
   </div>
 {/if}
-<div class="steer-bar" role="toolbar" aria-label={m.steerbar_toolbar_aria()} data-swipe-ignore>
+<!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
+     emoji collapse to emoji-only (label stays in title/aria); the rest keep their
+     label and the bar's horizontal scroll remains the final fallback. -->
+<div
+  class="steer-bar"
+  role="toolbar"
+  aria-label={m.steerbar_toolbar_aria()}
+  data-swipe-ignore
+  use:fitLabels
+>
   <button
     type="button"
     class="chip bc"
@@ -103,16 +116,20 @@
     aria-label={m.steerbar_broadcast_aria()}
     >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
   >
-  {#each steers.list as s (s.id)}
+  {#each chips as s (s.id)}
     <button
       type="button"
       class="chip"
+      class:has-emoji={!!s.emoji}
       title={s.text}
       aria-label={m.steerbar_send_aria({ label: s.label })}
       onpointerdown={down}
       onpointermove={move}
       onpointercancel={cancel}
-      onpointerup={(e) => tap(e, () => send(s.text))}>{s.label}</button
+      onpointerup={(e) => tap(e, () => send(s.text))}
+      >{#if s.emoji}<span class="chip-emoji" aria-hidden="true">{s.emoji}</span>{/if}<span
+        class="chip-label">{s.label}</span
+      ></button
     >
   {/each}
 </div>
@@ -163,6 +180,21 @@
   }
   .bc-label {
     margin-left: 6px;
+  }
+  .chip-emoji + .chip-label {
+    margin-left: 6px;
+  }
+  /* compact (set by fitLabels on overflow): emoji-carrying chips shed their label —
+     the emoji is the identifier; label-only chips are untouched. The broadcast chip
+     joins in, matching its existing mobile collapse. */
+  .steer-bar:global(.compact) .chip.has-emoji .chip-label,
+  .steer-bar:global(.compact) .bc-label {
+    display: none;
+  }
+  .steer-bar:global(.compact) .chip.has-emoji,
+  .steer-bar:global(.compact) .chip.bc {
+    min-width: 44px;
+    padding: 0;
   }
   /* on mobile the broadcast chip collapses to just its ⌁ icon to reclaim
      space; matches the ControlBar Esc key's box model (min-width 44px, no

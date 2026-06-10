@@ -1608,7 +1608,6 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       repoRoot: config.repoRoot,
       repoRootDisplay: collapseHome(config.repoRoot),
       remoteControlAtStartup: config.remoteControlAtStartup,
-      standardCommand: config.standardCommand,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
       planReviewCyclesCap: config.planReviewCyclesCap,
@@ -1648,28 +1647,11 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
 // validates the value, live-updates config, and persists to the store.
 const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response][] = [
   ["remoteControlAtStartup", putRemoteControl],
-  ["standardCommand", putStandardCommand],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
 ];
-
-// max length for the persisted standard command; mirrors the 8000-char human-prompt
-// guard so a configured command can't be larger than what a session would accept.
-const STANDARD_COMMAND_MAX = 8000;
-
-function putStandardCommand(value: unknown, deps: Ctx["deps"]): Response {
-  if (typeof value !== "string") {
-    return json({ error: "standardCommand must be a string" }, 400);
-  }
-  if (value.length > STANDARD_COMMAND_MAX) {
-    return json({ error: `standardCommand must be at most ${STANDARD_COMMAND_MAX} chars` }, 400);
-  }
-  config.standardCommand = value; // live: next quick-launch picks it up
-  deps.store.setSetting("standardCommand", value); // persist across restarts
-  return json({ standardCommand: config.standardCommand });
-}
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
   if (typeof value !== "boolean") {
@@ -1736,7 +1718,7 @@ function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
 // ── saved steers (canned prompts): list / replace ──
 async function handleSteers({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "steers" && !parts[2]) {
-    if (req.method === "GET") return json(loadSteers(deps.store));
+    if (req.method === "GET") return json(loadSteers(deps.store, config.standardCommand));
     if (req.method === "PUT") {
       const ctErr = requireJsonContentType(req);
       if (ctErr) return ctErr;

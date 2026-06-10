@@ -515,6 +515,27 @@ test("validateSteers normalizes valid entries and assigns missing ids", () => {
   expect(out![0]!.text).toBe("run the tests");
   expect(out![0]!.id).toMatch(/^[0-9a-f-]{36}$/);
   expect(out![1]!.id).toBe("keep");
+  // legacy payloads (no emoji/scopes) default to steer-bar-only, no emoji
+  expect(out![0]!.emoji).toBeUndefined();
+  expect(out![0]!.inSteerBar).toBe(true);
+  expect(out![0]!.onIssues).toBe(false);
+});
+
+test("validateSteers keeps emoji + surface flags and drops a blank emoji", () => {
+  const out = validateSteers([
+    { id: "a", label: "fix", text: "fix it", emoji: " 🐛 ", inSteerBar: false, onIssues: true },
+    { id: "b", label: "spec", text: "write a spec", emoji: "  " },
+  ]);
+  expect(out).not.toBeNull();
+  expect(out![0]).toEqual({
+    id: "a",
+    label: "fix",
+    text: "fix it",
+    emoji: "🐛",
+    inSteerBar: false,
+    onIssues: true,
+  });
+  expect(out![1]!.emoji).toBeUndefined(); // whitespace-only emoji → none
 });
 
 test("validateSteers rejects bad shapes", () => {
@@ -524,6 +545,15 @@ test("validateSteers rejects bad shapes", () => {
   expect(validateSteers([{ label: "x", text: "  " }])).toBeNull(); // blank text
   expect(validateSteers([{ label: "a".repeat(61), text: "y" }])).toBeNull(); // label too long
   expect(validateSteers(Array(41).fill({ label: "x", text: "y" }))).toBeNull(); // too many
+  expect(validateSteers([{ label: "x", text: "y", emoji: 7 }])).toBeNull(); // non-string emoji
+  expect(validateSteers([{ label: "x", text: "y", emoji: "🐛".repeat(9) }])).toBeNull(); // emoji too long
+  expect(validateSteers([{ label: "x", text: "y", emoji: "\u0007" }])).toBeNull(); // control char
+  expect(validateSteers([{ label: "x", text: "y", inSteerBar: "yes" }])).toBeNull(); // non-bool scope
+  expect(validateSteers([{ label: "x", text: "y", onIssues: 1 }])).toBeNull(); // non-bool scope
+  // both surfaces off → the steer would render nowhere (mirrors the editor guard)
+  expect(
+    validateSteers([{ label: "x", text: "y", inSteerBar: false, onIssues: false }]),
+  ).toBeNull();
 });
 
 test("validateBroadcast accepts text + ids and trims", () => {

@@ -354,7 +354,30 @@ export function originAllowed(
 
 const STEER_LABEL_MAX = 60;
 const STEER_TEXT_MAX = 4000;
-const STEER_MAX = 40;
+/** Max saved steers per list; loadSteers' migration honors the same cap. */
+export const STEER_MAX = 40;
+
+/** Single displayable emoji/glyph: ≤8 code points (covers ZWJ sequences), no control chars. */
+function isValidEmoji(emoji: string): boolean {
+  const codePoints = [...emoji];
+  if (codePoints.length > 8) return false;
+  return !codePoints.some((c) => (c.codePointAt(0) ?? 0x20) < 0x20);
+}
+
+/** Trimmed optional steer emoji: undefined when absent/blank, null on violation. */
+function validateSteerEmoji(v: unknown): string | undefined | null {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string") return null;
+  const emoji = v.trim();
+  if (emoji.length === 0) return undefined;
+  return isValidEmoji(emoji) ? emoji : null;
+}
+
+/** Optional surface flag: fallback when absent, null when present but not a boolean. */
+function validateSteerScope(v: unknown, fallback: boolean): boolean | null {
+  if (v === undefined) return fallback;
+  return typeof v === "boolean" ? v : null;
+}
 
 /** Validate + normalize a single steer item. Returns null on any violation. */
 function validateSteerItem(it: unknown): Steer | null {
@@ -365,8 +388,15 @@ function validateSteerItem(it: unknown): Steer | null {
   const text = o.text.trim();
   if (label.length === 0 || label.length > STEER_LABEL_MAX) return null;
   if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
+  const emoji = validateSteerEmoji(o.emoji);
+  // legacy payloads predate the surfaces: they were steer-bar-only chips
+  const inSteerBar = validateSteerScope(o.inSteerBar, true);
+  const onIssues = validateSteerScope(o.onIssues, false);
+  if (emoji === null || inSteerBar === null || onIssues === null) return null;
+  // both surfaces off → the steer renders nowhere; mirror the SteersEditor guard
+  if (!inSteerBar && !onIssues) return null;
   const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
-  return { id, label, text };
+  return { id, label, text, ...(emoji !== undefined ? { emoji } : {}), inSteerBar, onIssues };
 }
 
 /** Validate + normalize a PUT /api/steers payload. Returns null on any violation. */
@@ -389,11 +419,7 @@ export function validateIconPatch(body: unknown): { path: string; emoji: string 
   const path = o.path.trim();
   if (path.length === 0 || path.length > 1024) return null;
   const emoji = o.emoji.trim();
-  if (emoji.length > 0) {
-    const codePoints = [...emoji];
-    if (codePoints.length > 8) return null; // code-point cap (covers ZWJ sequences)
-    if (codePoints.some((c) => (c.codePointAt(0) ?? 0x20) < 0x20)) return null; // no control chars
-  }
+  if (emoji.length > 0 && !isValidEmoji(emoji)) return null;
   return { path, emoji };
 }
 

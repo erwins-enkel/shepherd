@@ -21,7 +21,7 @@
     ondecommission,
     onclearmerged = undefined,
     onmergetrain = undefined,
-    standardCommandUnset = false,
+    issueActionsUnset = false,
     onsettings = undefined,
     flow = false,
     filteredRepo = null,
@@ -54,7 +54,7 @@
     onmergetrain?: () => void;
     // first-run empty state: quick-launch is invisible until the standard command
     // is set → surface a quiet nudge pointing at Settings.
-    standardCommandUnset?: boolean;
+    issueActionsUnset?: boolean;
     onsettings?: () => void;
     // when true, the session list renders at natural height (no internal scroll)
     // so the parent page can drive scrolling; default false preserves existing behavior
@@ -187,7 +187,7 @@
       {:else if filteredRepo}
         <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
       {:else}
-        <EmptyHerd {onnew} {standardCommandUnset} {onsettings} />
+        <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
       {/if}
     {:else if shown.length === 0}
       <div class="empty micro static">{m.herd_ready_empty()}</div>

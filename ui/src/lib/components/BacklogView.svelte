@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload, Issue, PullRequest } from "$lib/types";
+  import type { BacklogPayload, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
@@ -24,7 +24,7 @@
     onissue: (repoPath: string, issue: Issue) => void;
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
-    onquick?: (repoPath: string, issue: Issue) => void;
+    onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
     /** Open a review task seeded with a PR (PRs tab → New Task). */
     onpr: (repoPath: string, pr: PullRequest) => void;
     /** Seed a New Task with the AI-readiness install prescription (Readiness tab). */
@@ -198,7 +198,9 @@
               onnewtask={(issue) => {
                 onissue(selectedPath!, issue);
               }}
-              onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
+              onquick={onquick
+                ? (issue, action) => onquick(selectedPath!, issue, action)
+                : undefined}
               bodyPreview
               age
             />
@@ -289,7 +291,9 @@
                 onnewtask={(issue) => {
                   onissue(selectedPath!, issue);
                 }}
-                onquick={onquick ? (issue) => onquick(selectedPath!, issue) : undefined}
+                onquick={onquick
+                  ? (issue, action) => onquick(selectedPath!, issue, action)
+                  : undefined}
                 bodyPreview
                 age
               />

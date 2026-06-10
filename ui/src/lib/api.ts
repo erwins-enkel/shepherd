@@ -180,10 +180,6 @@ export const putSessionHousekeeping = (
 ): Promise<{ sessionHousekeepingEnabled: boolean }> =>
   patchSettings({ sessionHousekeepingEnabled: enabled });
 
-// Persist the backlog quick-launch standard command; empty string disables the shortcut.
-export const putStandardCommand = (command: string): Promise<{ standardCommand: string }> =>
-  patchSettings({ standardCommand: command });
-
 // Persist the global PR review-cycles cap (max PR-critic auto-address rounds). The
 // server clamps the value into its valid range and returns the stored value.
 export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: number }> =>

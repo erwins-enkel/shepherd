@@ -24,16 +24,19 @@ const jsonReq = (path: string, method: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
-test("GET /api/steers seeds + returns the defaults", async () => {
+test("GET /api/steers seeds + returns the defaults plus the standard issue action", async () => {
   const { app } = harness();
   const res = await app.fetch(new Request("http://x/api/steers"));
   expect(res.status).toBe(200);
   const body = await res.json();
+  // config.standardCommand (env/default seed) becomes the trailing issue action
   expect(body.map((s: { label: string }) => s.label)).toEqual([
     "commit & push",
     "rebase",
     "run tests",
+    "Standard",
   ]);
+  expect(body[3]).toMatchObject({ emoji: "⚡", inSteerBar: false, onIssues: true });
 });
 
 test("PUT /api/steers validates, persists, and returns the normalized list", async () => {

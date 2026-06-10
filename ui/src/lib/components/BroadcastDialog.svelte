@@ -108,13 +108,15 @@
 
     <span class="micro">{m.broadcast_steer()}</span>
     <div class="picks">
-      {#each steers.list as s (s.id)}
+      <!-- broadcast steers running sessions, so only steer-bar-scoped entries apply -->
+      {#each steers.list.filter((s) => s.inSteerBar) as s (s.id)}
         <button
           type="button"
           class="pick"
           class:on={text === s.text}
           onclick={() => (text = s.text)}
         >
+          {#if s.emoji}<span aria-hidden="true">{s.emoji}</span>{/if}
           {s.label}
         </button>
       {/each}

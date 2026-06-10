@@ -204,10 +204,10 @@ export const config = {
   // skills, and MCP) — overhead unattended agents never use. Default on; set
   // SHEPHERD_TRIM_AUTO_CONTEXT=false/0/off as the escape hatch if drain quality regresses.
   trimAutoContext: parseTrimAutoContext(process.env.SHEPHERD_TRIM_AUTO_CONTEXT),
-  // Standard command: the prompt seeded behind the backlog quick-launch button.
-  // Clicking it spawns a session with this prompt + the issue, skipping the New Task
-  // dialog. Empty string disables the shortcut (the button falls back to the dialog).
-  // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
+  // Standard command: legacy seed for the backlog quick-launch prompt. Quick-launch
+  // actions now live in the steers list (issue-scoped entries, edited in the UI); this
+  // value only seeds/migrates the default "Standard" issue action on first steers read.
+  // A previously customized prompt (stored "standardCommand" setting) takes precedence.
   standardCommand:
     process.env.SHEPHERD_STANDARD_COMMAND ??
     "Prüfe, ob dieses Issue noch relevant ist. Gib mir den aktuellen Stand des Issues und untersuche, wie weit wir das bereits in unserer Codebase umgesetzt haben. Fasse zusammen, was noch fehlt, und schlage die nächsten Schritte vor.",

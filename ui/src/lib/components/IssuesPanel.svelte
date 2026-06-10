@@ -1,6 +1,8 @@
 <script lang="ts">
   import { listIssues } from "$lib/api";
-  import type { Issue } from "$lib/types";
+  import { steers } from "$lib/steers.svelte";
+  import { fitLabels } from "$lib/fit-labels";
+  import type { Issue, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
@@ -20,12 +22,15 @@
   }: {
     repoPath: string;
     onnewtask: (issue: Issue) => void;
-    /** Quick-launch: spawn a session with the configured standard command + this
-     *  issue, skipping the New Task dialog. Omitted → no quick button is shown. */
-    onquick?: (issue: Issue) => void;
+    /** Quick-launch: spawn a session with the picked issue action's prompt + this
+     *  issue, skipping the New Task dialog. Omitted → no action buttons are shown. */
+    onquick?: (issue: Issue, action: Steer) => void;
     bodyPreview?: boolean;
     age?: boolean;
   } = $props();
+
+  // Issue-scoped steers render as one quick-launch button each on every row.
+  const issueActions = $derived(steers.list.filter((s) => s.onIssues));
 
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);
@@ -111,16 +116,29 @@
               {/if}
             </div>
           {/if}
-          <div class="issue-actions">
+          <!-- fitLabels toggles `compact` when the buttons overflow the row: emoji-
+               carrying buttons collapse to their emoji (label stays in title/aria). -->
+          <div class="issue-actions" use:fitLabels>
             {#if onquick}
-              <button
-                class="quick-btn"
-                onclick={() => onquick(issue)}
-                title={m.issuespanel_quick_button_title()}>{m.issuespanel_quick_button()}</button
-              >
+              {#each issueActions as a (a.id)}
+                <button
+                  class="quick-btn"
+                  class:has-emoji={!!a.emoji}
+                  onclick={() => onquick(issue, a)}
+                  aria-label={m.issuespanel_action_aria({ label: a.label })}
+                  title={a.text}
+                  >{#if a.emoji}<span class="act-emoji" aria-hidden="true">{a.emoji}</span
+                    >{/if}<span class="act-label">{a.label}</span></button
+                >
+              {/each}
             {/if}
-            <button class="task-btn" onclick={() => onnewtask(issue)}
-              >{m.issuespanel_task_button()}</button
+            <button
+              class="task-btn has-emoji"
+              onclick={() => onnewtask(issue)}
+              aria-label={m.issuespanel_task_button()}
+              ><span class="act-emoji" aria-hidden="true">+</span><span class="act-label"
+                >{m.issuespanel_task_button()}</span
+              ></button
             >
           </div>
         </div>
@@ -277,9 +295,33 @@
 
   .issue-actions {
     display: flex;
-    justify-content: flex-end;
     gap: 6px;
     margin-top: 2px;
+    min-width: 0;
+    /* Final fallback when even the compact (emoji-only) rendering overflows — e.g.
+       several emoji-less actions: scroll instead of clipping. Right-alignment comes
+       from the first child's auto margin (NOT justify-content: flex-end, whose
+       start-side overflow would be unreachable in a scroll container). */
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .issue-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .issue-actions > :first-child {
+    margin-left: auto;
+  }
+  .issue-actions button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  /* compact (set by fitLabels on overflow): emoji-carrying buttons shed their label —
+     the emoji is the identifier (full label stays in title/aria-label). */
+  .issue-actions:global(.compact) .has-emoji .act-label {
+    display: none;
   }
 
   /* Quick-launch: amber-accented to signal it's the fast path that skips the dialog. */

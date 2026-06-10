@@ -192,6 +192,13 @@ export interface ReviewVerdict {
   updatedAt: number;
 }
 
+// ── per-reviewer-spawn attribution log ──────────────────────────────────────
+export interface ReviewSpawn {
+  sessionId: string; // parent task session (the link target)
+  reviewerSessionId: string; // spawned reviewer's claude --session-id (== transcript .jsonl basename)
+  startedAt: number; // spawn time (epoch ms); consumed by pruneReviewSpawns
+}
+
 // ── autopilot mode ──────────────────────────────────────────────────────────
 export type AutopilotKind = "gate" | "question" | "finished" | "complete" | "unknown";
 

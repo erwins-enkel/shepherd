@@ -656,6 +656,7 @@ const runDailySweep = () => {
       keepNewest: SESSION_RETENTION_KEEP,
     });
   store.pruneSignals(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  store.pruneReviewSpawns(Date.now() - 60 * 24 * 60 * 60 * 1000);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
 };
 setTimeout(runDailySweep, 10_000); // once shortly after boot

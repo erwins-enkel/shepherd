@@ -4,6 +4,7 @@ import type {
   Session,
   ReviewVerdict,
   PlanGate,
+  ReviewSpawn,
   Signal,
   SignalKind,
   Learning,
@@ -188,6 +189,16 @@ export class SessionStore implements CapStore {
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL)`);
+    // Append-only per-reviewer-spawn attribution log. DELIBERATELY NOT part of the
+    // pruneArchivedSessions cascade — it must survive session archival so usage
+    // reporting can link a reviewer transcript dir to its task after the fact.
+    // Pruned only by time via pruneReviewSpawns (see runDailySweep).
+    this.db.run(`CREATE TABLE IF NOT EXISTS review_spawns (
+      id TEXT PRIMARY KEY,
+      sessionId TEXT NOT NULL,
+      reviewerSessionId TEXT NOT NULL,
+      startedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS review_spawns_started ON review_spawns (startedAt)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
@@ -670,6 +681,18 @@ export class SessionStore implements CapStore {
     this.db.run(`DELETE FROM reviews WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── reviewer-spawn attribution log ──────────────────────────────────────────
+  recordReviewSpawn(s: ReviewSpawn): void {
+    this.db.run(
+      `INSERT INTO review_spawns (id, sessionId, reviewerSessionId, startedAt) VALUES (?,?,?,?)`,
+      [randomUUID(), s.sessionId, s.reviewerSessionId, s.startedAt],
+    );
+  }
+
+  pruneReviewSpawns(beforeTs: number): void {
+    this.db.run(`DELETE FROM review_spawns WHERE startedAt < ?`, [beforeTs]);
+  }
+
   /** Re-point an existing verdict at a new head without re-reviewing. Used when a head
    *  change (rebase/force-push) leaves the reviewed diff content-identical (same patchId):
    *  the prior decision/findings/rounds still apply, so only headSha + updatedAt move. */
@@ -840,6 +863,8 @@ export class SessionStore implements CapStore {
       if (n === 0) return 0;
       // reviews first (keyed by sessionId) so the cascade can't orphan; the sessions
       // subquery still resolves the same set afterward (deleting reviews doesn't touch it).
+      // NOTE: review_spawns is intentionally NOT deleted here — it is cascade-exempt /
+      // append-only audit; pruned independently by time via pruneReviewSpawns.
       this.db.run(
         `DELETE FROM reviews WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,

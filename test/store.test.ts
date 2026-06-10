@@ -512,3 +512,66 @@ test("desig: seed from pre-existing DB high-water mark", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── review_spawns ────────────────────────────────────────────────────────────
+
+test("review_spawns: recordReviewSpawn persists a row readable via raw DB", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-spawn-persist-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const store = new SessionStore(dbPath);
+    store.recordReviewSpawn({
+      sessionId: "sess-1",
+      reviewerSessionId: "rev-abc",
+      startedAt: 1_000_000,
+    });
+    const raw = new Database(dbPath);
+    const row = raw
+      .query(`SELECT sessionId, reviewerSessionId, startedAt FROM review_spawns`)
+      .get() as { sessionId: string; reviewerSessionId: string; startedAt: number } | null;
+    raw.close();
+    expect(row).not.toBeNull();
+    expect(row!.sessionId).toBe("sess-1");
+    expect(row!.reviewerSessionId).toBe("rev-abc");
+    expect(row!.startedAt).toBe(1_000_000);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review_spawns: cascade-exempt — pruneArchivedSessions removes session but keeps spawn", async () => {
+  const s = mk();
+  const session = s.create(base);
+  s.archive(session.id);
+  await sleep(5);
+  s.recordReviewSpawn({
+    sessionId: session.id,
+    reviewerSessionId: "rev-xyz",
+    startedAt: Date.now(),
+  });
+  // aggressive prune: evict all archived sessions
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 1, keepNewest: 0 });
+  expect(removed).toBeGreaterThanOrEqual(1);
+  expect(s.get(session.id)).toBeNull(); // session gone
+  // spawn row must survive (raw query — no store reader method)
+  const raw = (s as any).db as import("bun:sqlite").Database;
+  const row = raw
+    .query(`SELECT reviewerSessionId FROM review_spawns WHERE sessionId = ?`)
+    .get(session.id) as { reviewerSessionId: string } | null;
+  expect(row).not.toBeNull();
+  expect(row!.reviewerSessionId).toBe("rev-xyz");
+});
+
+test("review_spawns: pruneReviewSpawns deletes old rows, keeps recent", () => {
+  const s = mk();
+  const cutoff = 5_000;
+  s.recordReviewSpawn({ sessionId: "s1", reviewerSessionId: "rev-old", startedAt: 1_000 });
+  s.recordReviewSpawn({ sessionId: "s2", reviewerSessionId: "rev-new", startedAt: 9_000 });
+  s.pruneReviewSpawns(cutoff);
+  const raw = (s as any).db as import("bun:sqlite").Database;
+  const rows = raw
+    .query(`SELECT reviewerSessionId FROM review_spawns ORDER BY startedAt`)
+    .all() as { reviewerSessionId: string }[];
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.reviewerSessionId).toBe("rev-new");
+});

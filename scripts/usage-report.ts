@@ -485,10 +485,12 @@ function openDb(): Database {
 const SESSION_COLS =
   "id, desig, name, prompt, baseBranch, branch, worktreePath, repoPath, model, claudeSessionId, createdAt, updatedAt, archivedAt, status";
 
-/** An operational archetype excluded from --recent: merge-train + /impeccable audits. */
+/** An operational archetype excluded from --recent: merge-train + /impeccable audits.
+ *  Audits/critiques are keyed off the structural `/impeccable` prompt prefix, NOT off
+ *  their auto-generated slug names (e.g. hud-ui-audit) — those vary per task, so a name
+ *  list would silently leak future audit/critique tasks into the --recent sample. */
 function isExcludedArchetype(row: { name: string; prompt: string }): boolean {
   if (row.name === "merge-train") return true;
-  if (row.name === "hud-ui-audit" || row.name === "critique-hud-ui") return true;
   if (norm(row.prompt).startsWith("/impeccable")) return true;
   return false;
 }

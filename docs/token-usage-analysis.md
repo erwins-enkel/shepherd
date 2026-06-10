@@ -29,7 +29,7 @@ How cost is attributed per task:
 
 > Unlinked-in-window residual: 8 review dir(s), 5,612,091 tokens, 8.299 cost-units (flagged — not merged into any task).
 
-Reading the table: total token volume across the five tasks is **69.4M authoring tokens**, of which **67.5M (97%) is `cacheRead`** — context the agent re-reads each turn. (The `CacheRead%` column uses a tighter denominator — `input + cacheRead + cacheWrite`, excluding output — so its per-row figures run slightly below the cacheRead/total share quoted in prose; both land at ~97%.) Fresh `input` is a rounding-error 98K total and `output` only 359K. The five tasks span a **~57× range** in size (TASK-288 at 37.4M / 157 msgs vs. TASK-295 at 0.66M / 13 msgs), tracking message count and duration. Linked satellite (review) cost is **0.25× authoring** in aggregate, and in-worktree ancillary is trivial (84K tokens, all from TASK-286's two probes).
+Reading the table: total token volume across the five tasks is **69.4M authoring tokens**, of which **67.5M (97%) is `cacheRead`** — context the agent re-reads each turn. (The `CacheRead%` column uses a tighter denominator — `input + cacheRead + cacheWrite`, excluding output — so each row's figure sits slightly _above_ that row's cacheRead/total share, e.g. TASK-286 96.9% vs 96.4%; both land at ~97%.) Fresh `input` is a rounding-error 98K total and `output` only 359K. The five tasks span a **~57× range** in size (TASK-288 at 37.4M / 157 msgs vs. TASK-295 at 0.66M / 13 msgs), tracking message count and duration. Linked satellite (review) cost is **0.25× authoring** in aggregate, and in-worktree ancillary is trivial (84K tokens, all from TASK-286's two probes).
 
 ## Sustainability analysis
 

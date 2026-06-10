@@ -192,6 +192,26 @@ export interface ReviewVerdict {
   updatedAt: number;
 }
 
+// ── reviewer spawn cost-attribution record ──────────────────────────────────
+/** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
+ *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
+ *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —
+ *  letting post-hoc cost reports attribute reviewer token burn the task row can't. */
+export interface ReviewerSpawnRow {
+  reviewerSessionId: string;
+  taskSessionId: string;
+  kind: "review" | "plan_gate";
+  worktreePath: string;
+  model: string | null;
+  spawnedAt: number;
+  completedAt: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  totalTokens: number | null;
+}
+
 // ── autopilot mode ──────────────────────────────────────────────────────────
 export type AutopilotKind = "gate" | "question" | "finished" | "complete" | "unknown";
 

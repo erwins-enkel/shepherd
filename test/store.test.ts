@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 import type { ReviewVerdict } from "../src/types";
+import type { SessionUsage } from "../src/usage";
 
 function mk() {
   return new SessionStore(":memory:");
@@ -511,4 +512,109 @@ test("desig: seed from pre-existing DB high-water mark", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── reviewer spawn cost attribution ──────────────────────────────────────────
+const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
+  input: 10,
+  output: 20,
+  cacheRead: 30,
+  cacheWrite: 40,
+  total: 100,
+  messageCount: 1,
+  lastActivity: 123,
+  byModel: {},
+  ...over,
+});
+
+test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL token/completed fields", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: null,
+    spawnedAt: 1000,
+  });
+  const rows = s.listReviewerSpawns();
+  expect(rows.length).toBe(1);
+  expect(rows[0]).toEqual({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: null,
+    spawnedAt: 1000,
+    completedAt: null,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    totalTokens: null,
+  });
+});
+
+test("completeReviewerSpawn fills token totals + completedAt", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    model: "opus",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-1", usage(), 2000);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.completedAt).toBe(2000);
+  expect(row.inputTokens).toBe(10);
+  expect(row.outputTokens).toBe(20);
+  expect(row.cacheReadTokens).toBe(30);
+  expect(row.cacheWriteTokens).toBe(40);
+  expect(row.totalTokens).toBe(100);
+  expect(row.model).toBe("opus");
+});
+
+test("pruneReviewerSpawns deletes only rows older than beforeTs, returns the count", () => {
+  const s = mk();
+  for (const [id, ts] of [
+    ["old-1", 100],
+    ["old-2", 200],
+    ["new-1", 500],
+  ] as const) {
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "task-1",
+      kind: "review",
+      worktreePath: "/rev-wt",
+      model: null,
+      spawnedAt: ts,
+    });
+  }
+  const removed = s.pruneReviewerSpawns(300);
+  expect(removed).toBe(2);
+  const remaining = s.listReviewerSpawns();
+  expect(remaining.map((r) => r.reviewerSessionId)).toEqual(["new-1"]);
+});
+
+test("reviewer_spawns survive task archive + prune (the load-bearing guarantee)", () => {
+  const s = mk();
+  const task = s.create(base);
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: task.id,
+    kind: "review",
+    worktreePath: "/rev-wt",
+    model: null,
+    spawnedAt: 1000,
+  });
+  s.archive(task.id);
+  const removed = s.pruneArchivedSessions({ maxAgeMs: 0, keepNewest: 0 });
+  expect(removed).toBe(1);
+  expect(s.get(task.id)).toBeNull(); // task evicted
+  const rows = s.listReviewerSpawns();
+  expect(rows.length).toBe(1); // but the cost-attribution fact outlives it
+  expect(rows[0]!.reviewerSessionId).toBe("rev-1");
+  expect(rows[0]!.taskSessionId).toBe(task.id);
 });

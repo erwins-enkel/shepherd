@@ -67,8 +67,16 @@ jobs:
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.
+        # The GIT_* identity vars let tests that author real commits (e.g.
+        # createProject's bootstrap commit) run on a runner without a global
+        # git config; they must be set here because Bun does not propagate
+        # in-process env mutations to child processes.
         env:
           SHEPHERD_REPO_ROOT: ${{ runner.temp }}/reporoot
+          GIT_AUTHOR_NAME: t
+          GIT_AUTHOR_EMAIL: t@t
+          GIT_COMMITTER_NAME: t
+          GIT_COMMITTER_EMAIL: t@t
         run: |
           mkdir -p "$SHEPHERD_REPO_ROOT"
           bun test ./test

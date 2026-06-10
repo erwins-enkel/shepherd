@@ -15,6 +15,7 @@ import {
 import {
   validateCreate,
   validateCloneUrl,
+  validateNewProject,
   isAuthorized,
   originAllowed,
   safeRepoDir,
@@ -27,7 +28,7 @@ import {
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
-import { listRepos, readTodo, writeTodo, cloneRepo } from "./repos";
+import { listRepos, readTodo, writeTodo, cloneRepo, createProject } from "./repos";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
@@ -1574,6 +1575,32 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   return json(r.entry, 201);
 }
 
+// HTTP status per new-project-failure code; anything unlisted falls back to 422.
+const PROJECT_ERROR_STATUS: Record<string, number> = {
+  newproject_failed_slug: 400,
+  newproject_failed_outside: 400,
+  newproject_failed_exists: 409,
+  newproject_failed_identity: 422,
+  newproject_failed_gh_missing: 422,
+  newproject_failed_gh_auth: 422,
+  newproject_failed_gh_exists: 409,
+  newproject_failed_remote: 502,
+  newproject_failed_git: 422,
+  newproject_failed_timeout: 504,
+  newproject_failed_generic: 422,
+};
+
+async function createProjectFromRequest(req: Request): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as unknown;
+  const parsed = validateNewProject(body, config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
+  const r = await createProject(parsed.value, config.repoRoot);
+  if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
+  return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
+}
+
 // Window for the "recently worked on" repo shortcut: agents run per repo over the
 // last N days. Single source of truth — returned by GET /api/repos so the UI labels
 // the count with the same window it was computed over (no duplicated literal).
@@ -1596,6 +1623,14 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
       return json({ repos, recentWindowDays: RECENT_WINDOW_DAYS });
     }
     if (req.method === "POST") return cloneRepoFromRequest(req);
+  }
+  return null;
+}
+
+// POST /api/projects — bootstrap a new git project (git init + optional GitHub remote).
+async function handleProjects({ req, parts }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "projects" && !parts[2]) {
+    if (req.method === "POST") return createProjectFromRequest(req);
   }
   return null;
 }
@@ -2340,6 +2375,7 @@ const ROUTE_HANDLERS = [
   handleStarPrompt,
   handleUploads,
   handleRepos,
+  handleProjects,
   handleSettings,
   handleSteers,
   handleProjectIcons,

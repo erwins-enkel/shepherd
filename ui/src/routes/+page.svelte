@@ -71,6 +71,8 @@
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import CloneRepo from "$lib/components/CloneRepo.svelte";
+  import NewProject from "$lib/components/NewProject.svelte";
+  import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
@@ -125,6 +127,7 @@
   let showNew = $state(false);
   let showSettings = $state(false);
   let showClone = $state(false);
+  let showNewProject = $state(false);
   let showBroadcast = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
@@ -335,6 +338,16 @@
     composePrompt = prompt;
     showNew = true;
     showBacklog = false;
+  }
+
+  // Build the prompt seed for a new project's first agent run.
+  // For a slash-command kickoff, prepend the command; for the default PRD path,
+  // use the verbatim i18n seed template (authored as app chrome, EN+DE).
+  function buildKickoffSeed(kickoff: KickoffChoice, idea: string): string {
+    if (kickoff.kind === "command") {
+      return `/${kickoff.name} ${idea}`.trim();
+    }
+    return m.newproject_prd_seed({ idea: idea || m.newproject_prd_seed_noidea() });
   }
 
   // Quick-launch: spawn a session straight from a backlog issue with the picked
@@ -1299,6 +1312,10 @@
       showNew = false;
       showClone = true;
     }}
+    onnewproject={() => {
+      showNew = false;
+      showNewProject = true;
+    }}
   />
 {/if}
 
@@ -1335,6 +1352,37 @@
       showNew = true;
     }}
     repoRootDisplay={settings?.repoRootDisplay}
+  />
+{/if}
+
+{#if showNewProject}
+  <!-- ondone auto-selects the new repo in NewTask + prefills the kickoff seed.
+       A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
+       info toast — the flow still proceeds to NewTask with the repo preselected. -->
+  <NewProject
+    repoRootDisplay={settings?.repoRootDisplay}
+    onclose={() => (showNewProject = false)}
+    ondone={(entry, kickoff, idea) => {
+      showNewProject = false;
+      composeRepoPath = entry.path;
+      composePrompt = buildKickoffSeed(kickoff, idea);
+      if (entry.warning) {
+        const warningMsg =
+          entry.warning === "newproject_failed_gh_missing"
+            ? m.newproject_failed_gh_missing()
+            : entry.warning === "newproject_failed_gh_auth"
+              ? m.newproject_failed_gh_auth()
+              : entry.warning === "newproject_failed_gh_exists"
+                ? m.newproject_failed_gh_exists()
+                : entry.warning === "newproject_failed_remote"
+                  ? m.newproject_failed_remote()
+                  : entry.warning === "newproject_failed_timeout"
+                    ? m.newproject_failed_timeout()
+                    : m.newproject_warning_github();
+        toasts.info(warningMsg);
+      }
+      showNew = true;
+    }}
   />
 {/if}
 

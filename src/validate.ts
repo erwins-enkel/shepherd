@@ -154,6 +154,114 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   return field(images);
 }
 
+// ── validateNewProject ────────────────────────────────────────────────────────
+
+/**
+ * Slug regex for new project names.
+ * Identical rule mirrored in the UI (NewProject.svelte) — cross-reference kept in both files.
+ */
+const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+
+export type NewProjectInput = {
+  name: string;
+  idea: string;
+  createRemote: boolean;
+  visibility: "private" | "public";
+};
+
+const NEW_PROJECT_ALLOWED_KEYS = new Set(["name", "idea", "createRemote", "visibility"]);
+
+/**
+ * Validate and normalize a project name against slug rules.
+ * Returns the trimmed name on success or an error code on failure.
+ * Defense-in-depth: the regex already blocks most unsafe chars, but extra
+ * checks guard against traversal and git-reserved names.
+ */
+function validateProjectSlug(
+  value: unknown,
+): { ok: true; name: string } | { ok: false; error: string } {
+  if (typeof value !== "string") return err("newproject_failed_slug");
+  const name = value.trim();
+  if (!PROJECT_SLUG_RE.test(name)) return err("newproject_failed_slug");
+  if (name.includes("..")) return err("newproject_failed_slug");
+  if (name === "." || name === "..") return err("newproject_failed_slug");
+  if (name.endsWith(".git")) return err("newproject_failed_slug");
+  if (name.includes("/") || name.includes("\\")) return err("newproject_failed_slug");
+  return { ok: true, name };
+}
+
+/** idea — optional string ≤ 8000 chars, trimmed, default "". */
+function parseIdeaField(value: unknown): Field<string> {
+  if (value === undefined) return field("");
+  if (typeof value !== "string") return err("newproject_failed_generic");
+  const idea = value.trim();
+  if (idea.length > 8000) return err("newproject_failed_generic");
+  return field(idea);
+}
+
+/** createRemote — optional boolean, default false. */
+function parseCreateRemoteField(value: unknown): Field<boolean> {
+  if (value === undefined) return field(false);
+  if (typeof value !== "boolean") return err("newproject_failed_generic");
+  return field(value);
+}
+
+/** visibility — optional "private" | "public", default "private". */
+function parseVisibilityField(value: unknown): Field<"private" | "public"> {
+  if (value === undefined) return field("private");
+  if (value !== "private" && value !== "public") return err("newproject_failed_generic");
+  return field(value);
+}
+
+/**
+ * Validate a POST /api/projects request body.
+ * Returns `{ ok: true; value: NewProjectInput }` on success or `{ ok: false; error: string }`
+ * with a stable `newproject_failed_*` code. Never throws.
+ * Does NOT check whether the target directory exists — that is done in createProject.
+ */
+export function validateNewProject(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: NewProjectInput } | { ok: false; error: string } {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("newproject_failed_generic");
+  }
+
+  const obj = body as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!NEW_PROJECT_ALLOWED_KEYS.has(key)) return err("newproject_failed_generic");
+  }
+
+  const slugResult = validateProjectSlug(obj.name);
+  if (!slugResult.ok) return slugResult;
+  const name = slugResult.name;
+
+  const ideaResult = parseIdeaField(obj.idea);
+  if (!ideaResult.ok) return ideaResult;
+
+  const createRemoteResult = parseCreateRemoteField(obj.createRemote);
+  if (!createRemoteResult.ok) return createRemoteResult;
+
+  const visibilityResult = parseVisibilityField(obj.visibility);
+  if (!visibilityResult.ok) return visibilityResult;
+
+  // Containment guard: target must resolve inside repoRoot.
+  // The slug regex already blocks separators, but this is defense-in-depth (mirrors cloneRepo).
+  const root = resolve(expandHome(repoRoot));
+  const target = join(root, name);
+  if (!(target === root || target.startsWith(root + sep))) return err("newproject_failed_outside");
+
+  return {
+    ok: true,
+    value: {
+      name,
+      idea: ideaResult.value,
+      createRemote: createRemoteResult.value,
+      visibility: visibilityResult.value,
+    },
+  };
+}
+
 const CLONE_URL_MAX = 2048;
 
 /**

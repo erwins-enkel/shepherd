@@ -3,18 +3,21 @@
   import { m } from "$lib/paraglide/messages";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     repos,
     value,
     onchange,
     onclone,
+    onnewproject,
     windowDays,
   }: {
     repos: RepoEntry[];
     value: string;
     onchange: (path: string) => void;
     onclone?: () => void;
+    onnewproject?: () => void;
     /** Day count the server computed recentAgentCount over — named in the per-row label. */
     windowDays: number;
   } = $props();
@@ -260,6 +263,21 @@
           }}
         >
           {m.clonerepo_trigger()}
+        </button>
+      {/if}
+      {#if onnewproject}
+        <!-- coachTarget id "newproject-row" must match FeatureAnnouncement.targetId in feature-announcements.ts -->
+        <button
+          type="button"
+          class="rs-clone-row"
+          use:coachTarget={"newproject-row"}
+          onclick={() => {
+            open = false;
+            filter = "";
+            onnewproject?.();
+          }}
+        >
+          {m.newproject_trigger()}
         </button>
       {/if}
       {#if pickerFor !== null}

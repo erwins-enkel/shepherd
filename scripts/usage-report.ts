@@ -27,7 +27,7 @@ import { config } from "../src/config";
 
 // ── DB shape ────────────────────────────────────────────────────────────────
 
-interface SessionRow {
+export interface SessionRow {
   id: string;
   desig: string;
   name: string;
@@ -44,13 +44,18 @@ interface SessionRow {
   status: string | null;
 }
 
-interface ReviewRow {
+export interface ReviewRow {
   sessionId: string;
   headSha: string | null;
 }
 
-interface PlanGateRow {
+export interface PlanGateRow {
   sessionId: string;
+}
+
+export interface ReviewSpawnRow {
+  sessionId: string;
+  reviewerSessionId: string;
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────--
@@ -207,7 +212,7 @@ async function inWorktreeAncillary(
 
 // ── satellite (critic + plan-review) attribution ───────────────────────────---
 
-type LinkTag = "db" | "content" | "sha-confirmed";
+type LinkTag = "spawn" | "db" | "content" | "sha-confirmed";
 
 interface SatelliteDir {
   /** dashified project dir name under ~/.claude/projects */
@@ -218,6 +223,8 @@ interface SatelliteDir {
   embeddedSessionId: string | null;
   sha8: string;
   mtime: number;
+  /** `.jsonl` basenames in the dir (the reviewer session ids) */
+  jsonlIds: string[];
 }
 
 const REVIEW_MARK = "-review-";
@@ -236,9 +243,13 @@ function enumerateReviewDirs(): SatelliteDir[] {
   for (const dir of names) {
     const path = join(base, dir);
     let mtime: number;
+    let jsonlIds: string[];
     try {
       if (!statSync(path).isDirectory()) continue;
       mtime = newestJsonlMtime(path);
+      jsonlIds = readdirSync(path)
+        .filter((f) => f.endsWith(".jsonl"))
+        .map((f) => f.slice(0, -".jsonl".length));
     } catch {
       continue;
     }
@@ -251,6 +262,7 @@ function enumerateReviewDirs(): SatelliteDir[] {
       embeddedSessionId: uuidMatch ? uuidMatch[0] : null,
       sha8: shaMatch ? shaMatch[1]! : "",
       mtime,
+      jsonlIds,
     });
   }
   return out;
@@ -343,10 +355,11 @@ interface SatelliteResult {
  * The critic re-runs per reviewed head, so a task owns MULTIPLE critic dirs — all summed.
  * Residual: any review dir matching no task whose mtime lands in a task's [createdAt, end].
  */
-async function attributeSatellites(
+export async function attributeSatellites(
   sessions: ResolvedSession[],
   reviews: ReviewRow[],
   planGates: PlanGateRow[],
+  spawns: ReviewSpawnRow[],
 ): Promise<SatelliteResult> {
   const bySession = new Map<string, SatelliteTranscript[]>();
   const add = (sid: string, sat: SatelliteTranscript) => {
@@ -358,6 +371,20 @@ async function attributeSatellites(
   const dirs = enumerateReviewDirs();
   const consumed = new Set<string>(); // dir names already linked
   const byId = new Map(sessions.map((s) => [s.row.id, s]));
+
+  // 0. exact link: a stored per-spawn record names the reviewer's session id, which is the
+  //    dir's transcript .jsonl basename — authoritative, survives session archival.
+  const spawnByReviewer = new Map(
+    spawns.filter((s) => byId.has(s.sessionId)).map((s) => [s.reviewerSessionId, s]),
+  );
+  for (const d of dirs) {
+    if (consumed.has(d.dir)) continue;
+    const hit = d.jsonlIds.map((id) => spawnByReviewer.get(id)).find(Boolean);
+    if (!hit) continue;
+    const tc = await costReviewDir(d.path);
+    add(hit.sessionId, { dir: d.dir, tag: "spawn", ...tc });
+    consumed.add(d.dir);
+  }
 
   // 1. DB-first: a reviews/plan_gates row makes that session's matching dirs authoritative.
   //    (headSha is persisted on reviews; we match a review dir whose sha8 prefixes it.)
@@ -467,7 +494,7 @@ function shaBelongsToRepo(
 
 // ── session resolution ──────────────────────────────────────────────────────
 
-interface ResolvedSession {
+export interface ResolvedSession {
   row: SessionRow;
   authoring: TranscriptCost;
   ancillary: AncillaryTranscript[];
@@ -749,7 +776,7 @@ function renderPlainTable(rows: string[][]): string {
 const LEGEND = [
   "Legend:",
   "  Anc(p/r/u)  in-worktree ancillary transcripts: probe / resumed / unknown",
-  "  Sat tags    satellite linkage: db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
+  "  Sat tags    satellite linkage: spawn (exact per-spawn record) / db (DB row authoritative) / content (prompt+base or embedded UUID match) / sha-confirmed (sha8 found in repo)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
   "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
   "  Out of scope: account-wide periodic distiller (/tmp/shepherd-distill-*) is not per-task and is never attributed here.",
@@ -790,9 +817,10 @@ async function buildGroup(
   rows: SessionRow[],
   reviews: ReviewRow[],
   planGates: PlanGateRow[],
+  spawns: ReviewSpawnRow[],
 ): Promise<{ reportRows: ReportRow[]; residual: SatelliteResult["residual"] }> {
   const resolved = await Promise.all(rows.map(resolveSession));
-  const sat = await attributeSatellites(resolved, reviews, planGates);
+  const sat = await attributeSatellites(resolved, reviews, planGates, spawns);
   const reportRows = resolved.map((s) => buildRow(s, sat.bySession.get(s.row.id) ?? []));
   return { reportRows, residual: sat.residual };
 }
@@ -803,6 +831,9 @@ async function main(): Promise<void> {
 
   const reviews = db.query<ReviewRow, []>("SELECT sessionId, headSha FROM reviews").all();
   const planGates = db.query<PlanGateRow, []>("SELECT sessionId FROM plan_gates").all();
+  const spawns = db
+    .query<ReviewSpawnRow, []>("SELECT sessionId, reviewerSessionId FROM review_spawns")
+    .all();
 
   let primary: SessionRow[];
   let title: string;
@@ -817,12 +848,12 @@ async function main(): Promise<void> {
     title = `Default sample (${DEFAULT_SAMPLE.join(", ")})`;
   }
 
-  const { reportRows, residual } = await buildGroup(primary, reviews, planGates);
+  const { reportRows, residual } = await buildGroup(primary, reviews, planGates, spawns);
   const out: string[] = [render(title, reportRows, residual, args.md)];
 
   if (args.includeExcluded) {
     const excluded = fetchExcluded(db, args.recent ?? 5);
-    const eg = await buildGroup(excluded, reviews, planGates);
+    const eg = await buildGroup(excluded, reviews, planGates, spawns);
     out.push("");
     out.push(
       render("Appendix: excluded operational archetypes", eg.reportRows, eg.residual, args.md),

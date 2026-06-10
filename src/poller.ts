@@ -108,8 +108,9 @@ export class StatusPoller {
    *  the working-while-blocked suppression episode (herdr latches blocked after
    *  an answered dialog). Membership drives the `onWorkingBlocked` display flag:
    *  added (emit true) once per episode in `maybeClassify`'s suppression branch;
-   *  removed (emit false) on re-arm, on leaving herdr-blocked (`reconcileAgent`),
-   *  or on reap/prune. */
+   *  removed with an emit (false) on re-arm, on leaving herdr-blocked
+   *  (`reconcileAgent`), and on reap; dropped SILENTLY on prune (the session was
+   *  archived — no client cares about its flag anymore). */
   private workingWhileBlocked = new Set<string>();
 
   /** Timestamp of the last claude-liveness sweep (0 = never). */

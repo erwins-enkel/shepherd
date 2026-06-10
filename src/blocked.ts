@@ -33,11 +33,13 @@ export function tailLines(text: string, n = TAIL_LINES): string[] {
 // glyph (·✢✳✶✻✽*+⎿), then carry an ellipsis directly followed by "(" + either an
 // elapsed-time counter or the legacy "esc to interrupt" hint, e.g.
 // "✶ Bunning… (1m 13s · ↑ 1.3k tokens)" / "⎿  Running… (4s)" /
-// "✻ Imagining… (esc to interrupt)". Verified against 856 production-captured
-// tails. The glyph anchor rejects prose quoting a time mid-text
-// ("the build finished… (3m 12s)"), queued-input lines ("❯ retry… (2m 30s)"),
-// and a bare "esc to interrupt" on a non-spinner line; the `…(` adjacency
-// rejects "… +5 lines (ctrl+o to expand)" and "(1M context)" (no elapsed time).
+// "✻ Imagining… (esc to interrupt)". The glyph anchor rejects prose quoting a
+// time mid-text ("the build finished… (3m 12s)"), queued-input lines
+// ("❯ retry… (2m 30s)"), and a bare "esc to interrupt" on a non-spinner line;
+// the `…(` adjacency rejects "… +5 lines (ctrl+o to expand)" and "(1M context)"
+// (no elapsed time). Accepted residual: `*`/`+` are also plausible
+// markdown-bullet leaders — kept because they are genuine spinner frames, and
+// suppression is scoped to the awaiting-input fallback + a display-only flag.
 const SPINNER_RE = /^\s*[·✢✳✶✻✽*+⎿].*?…\s*\((?:(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|esc to interrupt)/i;
 
 /**

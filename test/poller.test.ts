@@ -173,19 +173,23 @@ function spinnerHarness(initialText: string) {
   const events: string[] = [];
   let text = initialText;
   let agentStatus = "blocked";
+  let gone = false;
   const herdr = {
-    list: (): HerdrAgent[] => [
-      {
-        agent: "claude",
-        agentStatus,
-        cwd: "/wt",
-        paneId: "p",
-        tabId: "t",
-        name: "",
-        terminalId: "term_a",
-        workspaceId: "w",
-      } as HerdrAgent,
-    ],
+    list: (): HerdrAgent[] =>
+      gone
+        ? []
+        : [
+            {
+              agent: "claude",
+              agentStatus,
+              cwd: "/wt",
+              paneId: "p",
+              tabId: "t",
+              name: "",
+              terminalId: "term_a",
+              workspaceId: "w",
+            } as HerdrAgent,
+          ],
     read: () => text,
     readAsync: () => Promise.resolve(text),
   };
@@ -216,6 +220,7 @@ function spinnerHarness(initialText: string) {
   );
   return {
     poller,
+    store,
     blocks,
     working,
     statuses,
@@ -223,6 +228,7 @@ function spinnerHarness(initialText: string) {
     id: s.id,
     setText: (t: string) => (text = t),
     setStatus: (st: string) => (agentStatus = st),
+    setGone: () => (gone = true),
     advance: (ms: number) => (clock += ms),
   };
 }
@@ -324,6 +330,41 @@ test("suppress/re-arm cycle synthesizes no status transitions of its own", () =>
   h.advance(1000);
   h.poller.tick();
   expect(h.statuses).toEqual(["blocked", "running"]);
+});
+
+test("agent gone during suppression: reap emits exactly one working:false and marks done", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // herdr blocked + spinner tail → suppression episode
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // claude exited / ctrl-c'd — herdr no longer lists the agent → reapGone
+  h.setGone();
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toEqual([
+    { id: h.id, working: true },
+    { id: h.id, working: false },
+  ]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+
+  // further ticks emit nothing more
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toHaveLength(2);
+});
+
+test("archive during suppression: prune drops the flag silently (no working:false)", () => {
+  const h = spinnerHarness(SPINNER_TAIL);
+  h.poller.tick(); // enter the suppression episode
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // session archived → leaves the activeOnly list → pruneInactive clears tracking
+  h.store.update(h.id, { status: "archived" });
+  h.advance(1000);
+  h.poller.tick();
+  expect(h.working).toEqual([{ id: h.id, working: true }]); // NO additional emission
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
 });
 
 // route mirror of GET /api/claude-alive (see poller-liveness.test.ts)

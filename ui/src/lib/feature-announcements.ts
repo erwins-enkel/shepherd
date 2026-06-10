@@ -451,19 +451,17 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_steer_labels_body",
   },
   {
-    // Anchored on the top-bar usage gauges: on desktop, hovering them now opens a
-    // detailed card (full window names, wide bars, reset times) in place of the bare
-    // one-line text tooltip. The targetId is registered only on the desktop (fine
-    // pointer) gauge branch — the hover card is a mouse-only affordance — so on touch/
-    // mobile, where that branch isn't rendered, the coachmark has no anchor and the
-    // entry surfaces via the What's-New drawer alone (same as tally-status-filter).
-    // That's intended: the feature itself is desktop-only, so a touch user has nothing
-    // new to point at. v1.23.0 is already tagged, so this ships in the next release
-    // (1.24.0): computeNewEntries only surfaces entries with sinceVersion > lastSeen.
+    // No targetId: the only armed coachmarks are the automation-pill features
+    // (PILL_FEATURE_IDS in GitRail.svelte), so an anchor on the gauges would never
+    // fire — this entry surfaces via the What's-New drawer alone. Fitting anyway,
+    // since the detail card is a desktop-only hover affordance. On desktop, hovering
+    // the top-bar usage gauges now opens a detailed card (full window names, wide
+    // bars, reset times) in place of the bare one-line text tooltip. v1.23.0 is
+    // already tagged, so this ships in the next release (1.24.0): computeNewEntries
+    // only surfaces entries with sinceVersion > lastSeen.
     id: "usage-gauge-detail",
     sinceVersion: "1.24.0",
     titleKey: "feat_usage_gauge_detail_title",
     bodyKey: "feat_usage_gauge_detail_body",
-    targetId: "usage-gauges",
   },
 ];

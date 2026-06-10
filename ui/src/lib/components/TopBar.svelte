@@ -504,7 +504,6 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="gauges-wrap"
-        use:coachTarget={"usage-gauges"}
         onmouseenter={() => (detailOpen = true)}
         onmouseleave={() => (detailOpen = false)}
       >

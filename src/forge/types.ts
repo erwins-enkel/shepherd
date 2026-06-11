@@ -192,6 +192,11 @@ export interface GitForge {
    *  push access) so the dialog falls back to free-text. Optional. */
   listCollaborators?(): Promise<{ logins: string[]; unavailable: boolean }>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
+  /** Whether the operator has push access to the repo on this host. Gates the
+   *  gitignore-adopt flow (no push → it can't open the adopt PR; the caller shows
+   *  an info toast rather than an error). Optional: hosts without an access API omit
+   *  it and the adopter treats absence as "no push access". */
+  canPush?(): Promise<boolean>;
   /** The repo's default branch name (the promote PR's base). */
   defaultBranch(): Promise<string>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:

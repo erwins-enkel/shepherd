@@ -25,13 +25,17 @@ export const SHEPHERD_EXCLUDE_END = "# shepherd:ignore:end";
 // ── pure helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Insert or replace the managed shepherd:ignore block in `.git/info/exclude`
+ * Insert or replace the managed shepherd:ignore block in gitignore-syntax
  * content. Idempotent: replaces the existing block's contents rather than
  * appending a duplicate; appends a fresh block when no markers are present.
  *
+ * Generic over the target file — used for BOTH `.git/info/exclude` (via
+ * `ensureShepherdExclude`) and a committed `.gitignore` (via `GitignoreAdopter`),
+ * which share the same gitignore glob syntax + managed-block markers.
+ *
  * Modelled on `upsertLearningsBlock` in `src/promote.ts`.
  */
-export function upsertShepherdExclude(existing: string): { content: string; changed: boolean } {
+export function upsertShepherdIgnoreBlock(existing: string): { content: string; changed: boolean } {
   const block = [SHEPHERD_EXCLUDE_START, SHEPHERD_IGNORE_GLOB, SHEPHERD_EXCLUDE_END].join("\n");
 
   const start = existing.indexOf(SHEPHERD_EXCLUDE_START);
@@ -81,7 +85,7 @@ export function ensureShepherdExclude(repoPath: string): void {
   try {
     const p = excludePath(repoPath);
     const existing = existsSync(p) ? readFileSync(p, "utf8") : "";
-    const { content, changed } = upsertShepherdExclude(existing);
+    const { content, changed } = upsertShepherdIgnoreBlock(existing);
     if (changed) {
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, content);

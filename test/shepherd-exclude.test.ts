@@ -7,15 +7,15 @@ import {
   SHEPHERD_IGNORE_GLOB,
   SHEPHERD_EXCLUDE_START,
   SHEPHERD_EXCLUDE_END,
-  upsertShepherdExclude,
+  upsertShepherdIgnoreBlock,
   excludePath,
   ensureShepherdExclude,
 } from "../src/shepherd-exclude";
 
-// ── pure upsertShepherdExclude tests ─────────────────────────────────────────
+// ── pure upsertShepherdIgnoreBlock tests ─────────────────────────────────────────
 
 test("empty input → block alone, changed:true, ends with \\n, no leading newline", () => {
-  const { content, changed } = upsertShepherdExclude("");
+  const { content, changed } = upsertShepherdIgnoreBlock("");
   expect(changed).toBe(true);
   expect(content).toBe(
     `${SHEPHERD_EXCLUDE_START}\n${SHEPHERD_IGNORE_GLOB}\n${SHEPHERD_EXCLUDE_END}\n`,
@@ -25,7 +25,7 @@ test("empty input → block alone, changed:true, ends with \\n, no leading newli
 });
 
 test("input without trailing newline → sep is \\n\\n, block appended", () => {
-  const { content, changed } = upsertShepherdExclude("# existing comment");
+  const { content, changed } = upsertShepherdIgnoreBlock("# existing comment");
   expect(changed).toBe(true);
   // sep = "\n\n": existing + "\n\n" + block
   expect(content).toBe(
@@ -34,7 +34,7 @@ test("input without trailing newline → sep is \\n\\n, block appended", () => {
 });
 
 test("input ending in \\n → sep is \\n, block appended", () => {
-  const { content, changed } = upsertShepherdExclude("# existing comment\n");
+  const { content, changed } = upsertShepherdIgnoreBlock("# existing comment\n");
   expect(changed).toBe(true);
   // sep = "\n": existing ends with \n, add one more \n → blank line, then block
   expect(content).toBe(
@@ -43,15 +43,15 @@ test("input ending in \\n → sep is \\n, block appended", () => {
 });
 
 test("block already present and identical → changed:false, content unchanged", () => {
-  const base = upsertShepherdExclude("").content;
-  const { content, changed } = upsertShepherdExclude(base);
+  const base = upsertShepherdIgnoreBlock("").content;
+  const { content, changed } = upsertShepherdIgnoreBlock(base);
   expect(changed).toBe(false);
   expect(content).toBe(base);
 });
 
 test("block present but body altered → replaced in place, changed:true", () => {
   const altered = `${SHEPHERD_EXCLUDE_START}\n.some-other-line\nextra-line\n${SHEPHERD_EXCLUDE_END}\n`;
-  const { content, changed } = upsertShepherdExclude(altered);
+  const { content, changed } = upsertShepherdIgnoreBlock(altered);
   expect(changed).toBe(true);
   expect(content).toContain(SHEPHERD_IGNORE_GLOB);
   expect(content).not.toContain(".some-other-line");
@@ -60,7 +60,7 @@ test("block present but body altered → replaced in place, changed:true", () =>
 
 test("surrounding content outside markers is preserved", () => {
   const input = `# top comment\n${SHEPHERD_EXCLUDE_START}\nold-line\n${SHEPHERD_EXCLUDE_END}\n# bottom comment\n`;
-  const { content } = upsertShepherdExclude(input);
+  const { content } = upsertShepherdIgnoreBlock(input);
   expect(content).toContain("# top comment\n");
   expect(content).toContain("# bottom comment\n");
   expect(content).toContain(SHEPHERD_IGNORE_GLOB);
@@ -68,14 +68,14 @@ test("surrounding content outside markers is preserved", () => {
 });
 
 test("idempotent: feeding output back → changed:false", () => {
-  const first = upsertShepherdExclude("# preamble\n").content;
-  const { changed } = upsertShepherdExclude(first);
+  const first = upsertShepherdIgnoreBlock("# preamble\n").content;
+  const { changed } = upsertShepherdIgnoreBlock(first);
   expect(changed).toBe(false);
 });
 
 test("bare .shepherd-* line OUTSIDE markers → managed block still appended", () => {
   const input = `${SHEPHERD_IGNORE_GLOB}\n`;
-  const { content, changed } = upsertShepherdExclude(input);
+  const { content, changed } = upsertShepherdIgnoreBlock(input);
   // The bare line is outside markers, so we append a fresh managed block
   expect(changed).toBe(true);
   expect(content).toContain(SHEPHERD_EXCLUDE_START);

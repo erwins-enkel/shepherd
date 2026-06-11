@@ -808,6 +808,8 @@ export async function putRepoConfig(
       | "autoDrainEnabled"
       | "autoMergeEnabled"
       | "planGateEnabled"
+      | "signoffAuthority"
+      | "sandboxProfile"
       | "maxAuto"
       | "autoLabel"
       | "usageCeilingPct"

@@ -23,6 +23,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   planGateEnabled: false,
   draftMode: false,
   signoffAuthority: "human",
+  sandboxProfile: "trusted",
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,

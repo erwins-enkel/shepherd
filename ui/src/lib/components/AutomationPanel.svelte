@@ -5,7 +5,7 @@
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import type { Session, RepoRoles } from "$lib/types";
+  import type { Session, RepoRoles, SandboxProfile } from "$lib/types";
 
   let {
     repoPath,
@@ -454,6 +454,31 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Sandbox confinement: a repo-wide default, independent of any switch above.
+       Opt-in (trusted = today's unconfined behavior); autonomous is required for
+       auto/drain sessions. -->
+  <div class="drain-fields">
+    <label class="drain-field" use:coachTarget={"sandbox-profile"}>
+      <span class="drain-label">{m.automation_sandbox_profile_label()}</span>
+      <select
+        class="num sandbox-select"
+        aria-label={m.automation_sandbox_profile_label()}
+        value={repoConfig.sandboxProfileFor(repoPath)}
+        onchange={(e) =>
+          repoConfig.setSandboxProfile(
+            repoPath,
+            (e.currentTarget as HTMLSelectElement).value as SandboxProfile,
+          )}
+      >
+        <option value="trusted">{m.sandbox_profile_trusted()}</option>
+        <option value="standard">{m.sandbox_profile_standard()}</option>
+        <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
+      </select>
+    </label>
+    <div class="signoff-note">{m.automation_sandbox_profile_hint()}</div>
+    <div class="signoff-note">{m.automation_sandbox_profile_caveats()}</div>
+  </div>
   {#if flags.autoDrain}
     <div class="drain-fields">
       <label class="drain-field">
@@ -794,5 +819,14 @@
     font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 0 12px 6px;
+  }
+  /* Sandbox-profile selector — inherits .num token styling, left-aligned (mirrors .signoff-select) */
+  .sandbox-select {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    text-align: left;
+    cursor: pointer;
+    appearance: auto;
   }
 </style>

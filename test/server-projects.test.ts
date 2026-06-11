@@ -262,23 +262,31 @@ test("POST /api/projects local-only happy path → 201 + RepoEntry shape", async
 //
 // The partial-success logic lives in createProject (repos.ts, Task 2).
 // Here we verify the route correctly maps { ok: true, entry, warning } → 201 + warning.
-// We do this by crafting a request where createRemote=true but gh is not installed
-// (ENOENT → newproject_failed_gh_missing). The local repo is kept, response is 201
-// with a warning. We clean up the created dir after.
+//
+// We inject a FAKE gh runner (deps.newProjectGhRunner) that throws ENOENT, simulating
+// gh-not-installed → newproject_failed_gh_missing. This is mandatory: without it the
+// route would invoke the REAL gh on a developer machine where gh is installed +
+// authenticated, creating an actual private `srv-proj-partial-*` repo on every test
+// run (the remote step is never cleaned up — only the local dir is). The local repo
+// is kept on the partial failure, the response is 201 with the warning, and we remove
+// the created dir afterwards.
 
 test("POST /api/projects partial-success (gh missing) → 201 + warning", async () => {
   const { config } = await import("../src/config");
   const name = "srv-proj-partial-" + Date.now();
   const targetDir = join(config.repoRoot, name);
+  // gh runner that fails as if gh were not installed — keeps the test fully offline.
+  const ghMissing = () =>
+    Promise.reject(Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }));
   try {
-    const app = makeTestApp();
+    const app = makeApp({ ...makeDeps(), newProjectGhRunner: ghMissing });
     const res = await postProjects(app, {
       name,
       idea: "test partial success",
       createRemote: true,
       visibility: "private",
     });
-    // May 422 if identity not set — skip
+    // May 422 if git identity is not configured in the test env — skip gracefully.
     if (res.status === 422) {
       const body = await res.json();
       if (body.error === "newproject_failed_identity") {
@@ -286,23 +294,14 @@ test("POST /api/projects partial-success (gh missing) → 201 + warning", async 
         return;
       }
     }
-    // Either 201 (local created, gh step failed or succeeded) or 422 (gh pre-check failed locally)
-    // We can't guarantee gh is absent, so we accept 201 with or without warning,
-    // or 422/504 if gh is installed and we hit a real error.
-    // The key assertion: if 201 → body has name/path/display (RepoEntry shape).
-    if (res.status === 201) {
-      const body = await res.json();
-      expect(typeof body.name).toBe("string");
-      expect(typeof body.path).toBe("string");
-      expect(typeof body.display).toBe("string");
-      // warning is either undefined or a newproject_failed_* string
-      if (body.warning !== undefined) {
-        expect(typeof body.warning).toBe("string");
-        expect(body.warning).toMatch(/^newproject_failed_/);
-      }
-    }
-    // We at minimum need the response to be a valid JSON object
-    // (already parsed above if 201)
+    // The fake runner forces the gh-missing branch: local create succeeds, remote
+    // step fails → 201 + warning. Deterministic, no network, no real repo.
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.name).toBe(name);
+    expect(typeof body.path).toBe("string");
+    expect(typeof body.display).toBe("string");
+    expect(body.warning).toBe("newproject_failed_gh_missing");
   } finally {
     if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
   }

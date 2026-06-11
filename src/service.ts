@@ -516,9 +516,8 @@ function agentBaseUrl(): string {
 
 /** Result of the shared spawn-wrap helper (prepareSpawn). `ok:false` carries the
  *  auto-gate hold reason; callers diverge on it (create throws, resume → null). */
-type SpawnOutcome =
-  | { ok: true; terminalId: string; applied: SandboxProfile; degraded: boolean }
-  | { ok: false; holdReason: string };
+type SpawnSuccess = { ok: true; terminalId: string; applied: SandboxProfile; degraded: boolean };
+type SpawnOutcome = SpawnSuccess | { ok: false; holdReason: string };
 
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
@@ -647,6 +646,17 @@ export class SessionService {
     return { ok: true, terminalId: agent.terminalId, applied: profile, degraded };
   }
 
+  /** prepareSpawn for callers that can't proceed on an auto-refuse: throws
+   *  SandboxAutoRefused on hold so the caller (create() → route 4xx / drain catch) sees it. */
+  private prepareSpawnOrThrow(
+    innerArgv: string[],
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+  ): SpawnSuccess {
+    const outcome = this.prepareSpawn(innerArgv, ctx);
+    if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason);
+    return outcome;
+  }
+
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when
    *  none / learnings disabled. Injected into every new agent's system prompt
    *  (via composeSystemPrompt), not the human turn. */
@@ -740,7 +750,8 @@ export class SessionService {
         wt.isolated,
         trim,
       );
-      const outcome = this.prepareSpawn(argv, {
+      // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
+      const outcome = this.prepareSpawnOrThrow(argv, {
         name,
         worktreePath: wt.worktreePath,
         repoPath: input.repoPath,
@@ -748,8 +759,6 @@ export class SessionService {
         auto: input.auto,
         profileOverride: input.sandboxProfile,
       });
-      // Auto-refuse: surface as a throw so the create() caller (route 4xx / drain catch) sees it.
-      if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason);
       const session = this.deps.store.create({
         id: sessionId,
         name,

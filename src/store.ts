@@ -29,6 +29,11 @@ function parseFindings(raw: unknown): string[] {
   }
 }
 
+/** Coerce a persisted tri-state flag: null/undefined stays null (inherit), else a real boolean. */
+function nullableBool(v: unknown): boolean | null {
+  return v === null || v === undefined ? null : !!v;
+}
+
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
 const DESIG_PREFIX = "TASK-";
 
@@ -430,39 +435,44 @@ export class SessionStore implements CapStore {
     return row.next;
   }
 
+  /** Assemble a fresh Session row from creation input + the assigned seq/timestamp. */
+  private buildSessionRow(input: NewSession, seq: number, now: number): Session {
+    return {
+      ...input,
+      model: input.model ?? null,
+      claudeSessionId: input.claudeSessionId ?? "",
+      id: input.id ?? randomUUID(),
+      desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
+      readyToMerge: false,
+      autopilotEnabled: null,
+      autopilotStepCount: 0,
+      autopilotPaused: false,
+      autopilotComplete: false,
+      autopilotQuestion: null,
+      planGateEnabled: input.planGateEnabled ?? null,
+      planPhase: input.planPhase ?? null,
+      autoMergeEnabled: null,
+      autoMergeRebaseCount: 0,
+      autoMergeRebaseHead: null,
+      auto: input.auto ?? false,
+      issueNumber: input.issueNumber ?? null,
+      sandboxApplied: input.sandboxApplied ?? null,
+      sandboxDegraded: input.sandboxDegraded ?? false,
+      status: "running",
+      lastState: "idle",
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      mergingSince: null,
+      mergingTrainId: null,
+    };
+  }
+
   create(input: NewSession): Session {
     return this.db.transaction(() => {
       const now = Date.now();
       const seq = this.nextDesignationSeq();
-      const s: Session = {
-        ...input,
-        model: input.model ?? null,
-        claudeSessionId: input.claudeSessionId ?? "",
-        id: input.id ?? randomUUID(),
-        desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
-        readyToMerge: false,
-        autopilotEnabled: null,
-        autopilotStepCount: 0,
-        autopilotPaused: false,
-        autopilotComplete: false,
-        autopilotQuestion: null,
-        planGateEnabled: input.planGateEnabled ?? null,
-        planPhase: input.planPhase ?? null,
-        autoMergeEnabled: null,
-        autoMergeRebaseCount: 0,
-        autoMergeRebaseHead: null,
-        auto: input.auto ?? false,
-        issueNumber: input.issueNumber ?? null,
-        sandboxApplied: input.sandboxApplied ?? null,
-        sandboxDegraded: input.sandboxDegraded ?? false,
-        status: "running",
-        lastState: "idle",
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-        mergingSince: null,
-        mergingTrainId: null,
-      };
+      const s = this.buildSessionRow(input, seq, now);
       this.db.run(
         `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
@@ -1373,21 +1383,14 @@ export class SessionStore implements CapStore {
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
-      autopilotEnabled:
-        r.autopilotEnabled === null || r.autopilotEnabled === undefined
-          ? null
-          : !!r.autopilotEnabled,
+      autopilotEnabled: nullableBool(r.autopilotEnabled),
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,
       autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
-      planGateEnabled:
-        r.planGateEnabled === null || r.planGateEnabled === undefined ? null : !!r.planGateEnabled,
+      planGateEnabled: nullableBool(r.planGateEnabled),
       planPhase: r.planPhase ?? null,
-      autoMergeEnabled:
-        r.autoMergeEnabled === null || r.autoMergeEnabled === undefined
-          ? null
-          : !!r.autoMergeEnabled,
+      autoMergeEnabled: nullableBool(r.autoMergeEnabled),
       autoMergeRebaseCount: r.autoMergeRebaseCount ?? 0,
       autoMergeRebaseHead: r.autoMergeRebaseHead ?? null,
       auto: !!r.auto,

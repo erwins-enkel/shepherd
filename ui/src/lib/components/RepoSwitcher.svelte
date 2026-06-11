@@ -79,6 +79,10 @@
 
   // ── edge-fade scroll affordance ─────────────────────────────────────────────
   let scroller = $state<HTMLElement | null>(null);
+  // inner track: width == scroll content width; observing it catches content-width
+  // changes (rename/glyph/count digit) at a fixed chip count that the scroller's
+  // own resize misses.
+  let track = $state<HTMLElement | null>(null);
   let canScrollLeft = $state(false);
   let canScrollRight = $state(false);
 
@@ -108,12 +112,15 @@
     recomputeScroll();
   });
 
-  // Keep the fades honest as the scroller itself resizes (viewport / container).
+  // Keep the fades honest as either the scroller (viewport / container width) OR
+  // the inner track (content width — label/icon/count change at a fixed chip count)
+  // resizes. One observer, both elements, disconnected on cleanup.
   $effect(() => {
     const el = scroller;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => recomputeScroll());
     ro.observe(el);
+    if (track) ro.observe(track);
     return () => ro.disconnect();
   });
 
@@ -220,41 +227,57 @@
       onscroll={recomputeScroll}
       onwheel={onWheel}
     >
-      <!-- leading "all" chip -->
-      <button
-        type="button"
-        class="rs-chip rs-all"
-        class:active={repoFilter === null}
-        aria-pressed={repoFilter === null}
-        aria-label={m.repo_filter_all_aria()}
-        onclick={() => onrepofilter(null)}
-      >
-        {m.repo_filter_all()}
-      </button>
-
-      {#each chips as chip (chip.repoPath)}
-        {@const active = repoFilter === chip.repoPath}
-        {@const repo = basename(chip.repoPath)}
+      <!-- inner track: its width == the scroll content width, so a ResizeObserver
+           on it catches label/icon/count content-width changes at a fixed chip
+           count (which the scroller's own resize does not). -->
+      <div class="rs-track" bind:this={track}>
+        <!-- leading "all" chip -->
         <button
           type="button"
-          class="rs-chip"
-          class:active
-          aria-pressed={active}
-          aria-label={active
-            ? m.repo_filter_active_aria({ repo })
-            : m.repo_filter_apply_aria({ repo })}
-          onclick={() => onrepofilter(active ? null : chip.repoPath)}
+          class="rs-chip rs-all"
+          class:active={repoFilter === null}
+          aria-pressed={repoFilter === null}
+          aria-label={m.repo_filter_all_aria()}
+          onclick={() => onrepofilter(null)}
         >
-          <span class="rs-glyph" aria-hidden="true"
-            >{projectIcons.iconFor(chip.repoPath) ?? "▣"}</span
-          >
-          <span class="rs-name">{repo}</span>
-          <span class="rs-count">{chip.count}</span>
-          {#if chip.drain?.paused}
-            <span class="rs-paused-dot" aria-hidden="true">●</span>
-          {/if}
+          {m.repo_filter_all()}
         </button>
-      {/each}
+
+        {#each chips as chip (chip.repoPath)}
+          {@const active = repoFilter === chip.repoPath}
+          {@const repo = basename(chip.repoPath)}
+          <button
+            type="button"
+            class="rs-chip"
+            class:active
+            aria-pressed={active}
+            aria-label={(active
+              ? m.repo_filter_active_aria({ repo })
+              : m.repo_filter_apply_aria({ repo })) +
+              (chip.insights > 0 || chip.curate > 0
+                ? " " +
+                  m.repo_chip_learnings_aria({
+                    count: chip.insights > 0 ? chip.insights : chip.curate,
+                  })
+                : "")}
+            onclick={() => onrepofilter(active ? null : chip.repoPath)}
+          >
+            <span class="rs-glyph" aria-hidden="true"
+              >{projectIcons.iconFor(chip.repoPath) ?? "▣"}</span
+            >
+            <span class="rs-name">{repo}</span>
+            <span class="rs-count">{chip.count}</span>
+            {#if chip.drain?.paused}
+              <span class="rs-paused-dot" aria-hidden="true">●</span>
+            {/if}
+            {#if chip.insights > 0 || chip.curate > 0}
+              <span class="rs-learn-mark" aria-hidden="true"
+                >✦{#if chip.insights > 0}<span class="rs-learn-n">{chip.insights}</span>{/if}</span
+              >
+            {/if}
+          </button>
+        {/each}
+      </div>
     </div>
 
     {#if activeChip}
@@ -283,22 +306,26 @@
     min-width: 0;
   }
 
-  /* the horizontal, single-line scroller of filter chips */
+  /* the horizontal, single-line scroller of filter chips (overflow viewport) */
   .rs-scroller {
-    display: flex;
-    align-items: stretch;
-    gap: 4px;
-    width: fit-content;
     max-width: 100%;
     overflow-x: auto;
     overflow-y: hidden;
-    white-space: nowrap;
     /* a fixed single-line height so the rail never wraps */
     padding: 2px 0;
     scrollbar-width: none;
   }
   .rs-scroller::-webkit-scrollbar {
     display: none;
+  }
+  /* inner track: lays out the chips in one line; its width == scroll content width
+     (observed for content-width edge-fade recompute). */
+  .rs-track {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    width: fit-content;
+    white-space: nowrap;
   }
   /* tonal edge-fade affordance: fade whichever edge hides content. No colored
      element — a mask over the scroller's own pixels. */
@@ -368,6 +395,20 @@
     color: var(--color-red);
     font-size: var(--fs-micro);
     line-height: 1;
+  }
+  /* display-only ✦ marker: this repo has pending learnings/curate (the actionable
+     ✦ button lives on the detail line). Decorative, on the faint/ink ramp — NOT a
+     status hue (Four-Light Rule); ✦ is not amber/green/red/slate. */
+  .rs-learn-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    line-height: 1;
+  }
+  .rs-learn-n {
+    font-variant-numeric: tabular-nums;
   }
 
   /* active-repo / lone-repo detail line */

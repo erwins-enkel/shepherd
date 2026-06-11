@@ -111,6 +111,54 @@ describe("RepoSwitcher — filter rail", () => {
     expect(live!.textContent).toContain("TASK-07");
   });
 
+  it("a chip with insights shows the ✦ marker + count in the rail and its aria-label carries the learnings clause", async () => {
+    const learnChip = chip({ repoPath: "/repo/alpha", insights: 3 });
+    const { container } = render(RepoSwitcher, {
+      chips: [learnChip, chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    // display-only marker on the chip: ✦ glyph + the insights count
+    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
+    expect(mark, "✦ learnings marker").not.toBeNull();
+    expect(mark!.getAttribute("aria-hidden")).toBe("true");
+    expect(mark!.textContent).toContain("✦");
+    expect(mark!.querySelector(".rs-learn-n")?.textContent).toBe("3");
+    // aria parity: the chip BUTTON's label appends the learnings clause
+    const expected =
+      m.repo_filter_apply_aria({ repo: "alpha" }) + " " + m.repo_chip_learnings_aria({ count: 3 });
+    await expect.element(page.getByRole("button", { name: expected })).toBeVisible();
+  });
+
+  it("a curate-only chip shows a bare ✦ (no number) and the curate count in its aria-label", async () => {
+    const curateChip = chip({ repoPath: "/repo/alpha", insights: 0, curate: 2 });
+    const { container } = render(RepoSwitcher, {
+      chips: [curateChip, chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
+    expect(mark, "✦ learnings marker").not.toBeNull();
+    expect(mark!.textContent).toContain("✦");
+    // curate-only → bare glyph, no count span
+    expect(mark!.querySelector(".rs-learn-n"), "no count for curate-only").toBeNull();
+    const expected =
+      m.repo_filter_apply_aria({ repo: "alpha" }) + " " + m.repo_chip_learnings_aria({ count: 2 });
+    await expect.element(page.getByRole("button", { name: expected })).toBeVisible();
+  });
+
+  it("a chip with no learnings shows no ✦ marker and a plain aria-label", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    expect(container.querySelector(".rs-learn-mark"), "no ✦ marker").toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) }))
+      .toBeVisible();
+  });
+
   it("active-repo detail line appears only when the filtered repo has telemetry", async () => {
     const withTele = chip({
       repoPath: "/repo/alpha",

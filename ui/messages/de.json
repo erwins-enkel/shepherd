@@ -806,6 +806,8 @@
   "readiness_adopt_gitignore_error": ".gitignore konnte nicht aktualisiert werden. Erneut versuchen.",
   "feat_adopt_gitignore_title": ".shepherd-* in .gitignore aufnehmen",
   "feat_adopt_gitignore_body": "Der Reife-Tab kann jetzt mit einem Klick einen PR öffnen, der Shepherds Sitzungsartefakte (.shepherd-*) zur .gitignore eines Repos hinzufügt – für Repos, in die du pushen kannst. Wo das nicht geht, bleiben sie lokal per git exclude ausgeblendet, sodass sie deine Diffs in keinem Fall überfrachten.",
+  "feat_pr_kind_badges_title": "Code- vs. Bot-PRs im Backlog",
+  "feat_pr_kind_badges_body": "Die Backlog-Repo-Liste zeigt jetzt deine echte Anzahl an Code-PRs, mit eigenen Badges für Dependabot- und release-please-PRs, damit automatisierte PRs nicht wie offene Arbeit aussehen. Auch der PRs-Tab kennzeichnet jeden PR nach Art.",
   "feat_readiness_title": "KI-Reife-Analyse",
   "feat_readiness_body": "Die Backlog-Seite hat einen neuen Reife-Tab: Er bewertet die Leitplanken eines Repos anhand von Shepherds dogfooded Baseline, empfiehlt das Tooling, das das meiste Hin und Her zwischen Mensch und KI beseitigt, und generiert eine maßgeschneiderte CLAUDE.md, die du direkt an eine Aufgabe senden kannst.",
   "automerge_state_merging": "Wird gemergt…",

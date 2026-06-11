@@ -1,7 +1,7 @@
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 import { m } from "$lib/paraglide/messages";
 
-/** Enabled drains only, sorted by repo path — the rows the QueueStrip renders. */
+/** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
   return Object.values(drain)
     .filter((d) => d.enabled)

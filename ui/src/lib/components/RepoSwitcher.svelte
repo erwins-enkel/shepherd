@@ -77,6 +77,12 @@
     if (e.key === "Escape") expandedRepo = null;
   }
 
+  // A whitespace/special-char-safe DOM id for the inline queue panel, so the toggle's
+  // aria-controls (an IDREF — space-separated, so a repoPath with whitespace would parse
+  // as multiple tokens) and the panel id stay valid. Only one queue is expanded at a
+  // time, so a cross-repo collision after sanitizing can't occur.
+  const queueId = (repoPath: string) => `rs-queue-${repoPath.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
   // ── edge-fade scroll affordance ─────────────────────────────────────────────
   let scroller = $state<HTMLElement | null>(null);
   // inner track: width == scroll content width; observing it catches content-width
@@ -151,7 +157,7 @@
           type="button"
           class="rs-queued rs-queued-btn"
           aria-expanded={expandedRepo === d.repoPath}
-          aria-controls={`rs-queue-${d.repoPath}`}
+          aria-controls={queueId(d.repoPath)}
           aria-label={m.drain_queue_open_aria({ count: d.queued, repo })}
           onclick={() => toggleQueue(d)}
         >
@@ -185,7 +191,7 @@
 
   {#if d && expandedRepo === d.repoPath}
     {@const repo = basename(d.repoPath)}
-    <div class="rs-queue" id={`rs-queue-${d.repoPath}`}>
+    <div class="rs-queue" id={queueId(d.repoPath)}>
       <div class="rs-queue-head">{m.drain_queue_title({ repo })}</div>
       {#if loading}
         <div class="rs-queue-state">{m.common_loading()}</div>

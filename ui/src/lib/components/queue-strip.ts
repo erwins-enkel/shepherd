@@ -106,6 +106,15 @@ export function chipHasTelemetry(chip: RepoChip): boolean {
   return chip.drain !== null || chip.insights > 0 || chip.curate > 0;
 }
 
+/** Whether an active repo filter should be cleared because the repo no longer has a
+ *  rail chip to un-toggle it — the only repo-filter control the grid view has, and
+ *  one that disappears under the <2-repo rail gate. Prevents an un-clearable strand. */
+export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip[]): boolean {
+  return (
+    repoFilter !== null && !(chipRailVisible(chips) && chips.some((c) => c.repoPath === repoFilter))
+  );
+}
+
 /**
  * Build the per-repo status rows for the QueueStrip's first band: one row per repo
  * that currently has a RUNNING agent (`runningRepoPaths`). Each row is enriched with

@@ -11,6 +11,7 @@ import {
   queueOpenable,
   repoChipRows,
   repoStatusRows,
+  shouldClearRepoFilter,
 } from "./queue-strip";
 import type { RepoChip, RepoStatusRow } from "./queue-strip";
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
@@ -535,5 +536,29 @@ describe("chipHasTelemetry", () => {
 
   it("true when curate > 0", () => {
     expect(chipHasTelemetry(chip({ curate: 2 }))).toBe(true);
+  });
+});
+
+// ─── shouldClearRepoFilter ────────────────────────────────────────────────────
+
+describe("shouldClearRepoFilter", () => {
+  function chip(repoPath: string): RepoChip {
+    return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
+  }
+
+  it("false when no filter is active (null)", () => {
+    expect(shouldClearRepoFilter(null, [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  });
+
+  it("false when the filtered repo is among a ≥2-chip rail", () => {
+    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  });
+
+  it("TRUE when the filtered repo is absent from a ≥2-chip rail", () => {
+    expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a"), chip("/repos/b")])).toBe(true);
+  });
+
+  it("TRUE when only 1 chip (rail hidden) even if it is that repo — the strand case", () => {
+    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a")])).toBe(true);
   });
 });

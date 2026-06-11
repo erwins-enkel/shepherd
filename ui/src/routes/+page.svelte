@@ -78,7 +78,8 @@
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
-  import { bandHasValue, repoStatusRows } from "$lib/components/queue-strip";
+  import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
+  import { repoChipRows, shouldClearRepoFilter } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -139,43 +140,19 @@
   // When the learnings drawer is opened from a repo's status row, this carries that
   // repoPath so the drawer scrolls to the matching section; null = opened globally.
   let learningsRepo = $state<string | null>(null);
-  // Repos with at least one currently-running agent — the repo-status band lists only
-  // these (matches TopBar's "working" definition, so it shares the displayStatus
-  // routing: a working-while-blocked agent counts as running). Drives both the band
-  // rows and the filterable scope below.
-  const runningRepoPaths = $derived(
-    new Set(
-      store.sessions
-        .filter((s) => displayStatus(s, store.workingBlocked) === "running")
-        .map((s) => s.repoPath),
-    ),
-  );
   // Herd repo filter (full repo path), toggled from the repo-status band or from a
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
   // selection and global counts stay whole.
   let repoFilter = $state<string | null>(null);
-  // Single source for the repo-status band: computed once here, passed to QueueStrip as
-  // `rows` and reused for bandRepoPaths so band visibility and filter scope can't drift.
-  const bandRows = $derived(
-    repoStatusRows(store.drain, learnings.items, learnings.injectable, runningRepoPaths),
+  // Chips for the repo switcher: one per repo with a live session, computed from the
+  // unfiltered herd (selection/global counts stay whole). Single source — passed to the switcher.
+  const repoChips = $derived(
+    repoChipRows(store.sessions, store.drain, learnings.items, learnings.injectable),
   );
-  // Filterable repos = the band's rows, but ONLY while the band is actually shown. When the
-  // band hides (no value), this is empty so the stale-filter $effect below clears repoFilter.
-  const bandRepoPaths = $derived(
-    new Set(bandHasValue(bandRows) ? bandRows.map((r) => r.repoPath) : []),
-  );
-  // A stale filter would otherwise strand the herd: with no visible toggle left for
-  // the filtered repo there is no way to reset short of a reload. A toggle exists
-  // while the repo has a band row, OR while it has a configured emoji AND a live
-  // session (the card's inline emoji un-toggles — icon-less repos have no card
-  // toggle, so for them the band remains the only one); clear the moment all are gone.
+  // Clear a stranded filter the moment its repo loses its rail chip (the only un-toggle
+  // control the grid view has, gone under the <2-repo gate).
   $effect(() => {
-    if (
-      repoFilter &&
-      !bandRepoPaths.has(repoFilter) &&
-      !(projectIcons.iconFor(repoFilter) && store.sessions.some((s) => s.repoPath === repoFilter))
-    )
-      repoFilter = null;
+    if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
   // Independent of the repo filter — both compose into herdSessions below. Sticky
@@ -1023,16 +1000,16 @@
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
       />
-      <QueueStrip
-        rows={bandRows}
-        autoMerge={store.autoMerge}
+      <RepoSwitcher
+        chips={repoChips}
+        {repoFilter}
+        onrepofilter={(repoPath) => (repoFilter = repoPath)}
         onlearnings={(repoPath) => {
           learningsRepo = repoPath;
           showLearnings = true;
         }}
-        {repoFilter}
-        onrepofilter={(repoPath) => (repoFilter = repoPath)}
       />
+      <QueueStrip autoMerge={store.autoMerge} />
     </div>
   {/if}
 

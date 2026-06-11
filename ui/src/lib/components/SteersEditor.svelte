@@ -200,7 +200,6 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    flex-wrap: wrap;
   }
   .grip {
     flex: 0 0 auto;

@@ -577,6 +577,7 @@ export interface CreateInput {
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
+  sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

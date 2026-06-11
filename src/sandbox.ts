@@ -152,6 +152,39 @@ export interface MembraneInputs {
   /** realpath of resolveNodeBin() (caller passes resolved). */
   nodeBinReal: string;
   term?: string;
+  /** Non-secret host env vars to pass through under `--clearenv` (e.g. LANG/TZ);
+   *  caller builds this via `collectPassthroughEnv`. HOME/PATH/TERM are always set
+   *  separately and must NOT be included here. */
+  extraEnv?: Record<string, string>;
+}
+
+/**
+ * Env vars allowed through the `--clearenv` membrane: locale/display only, never
+ * credentials. The membrane clears ALL inherited env (so GH_TOKEN, SHEPHERD_TOKEN,
+ * ANTHROPIC_*, AWS_*, etc. cannot leak into a hijacked agent) and re-sets only
+ * HOME/PATH/TERM plus whichever of these are present on the host.
+ */
+const SANDBOX_ENV_PASSTHROUGH = [
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "TZ",
+  "COLORTERM",
+] as const;
+
+/** Pick the non-secret passthrough vars that are actually set in `env`. */
+export function collectPassthroughEnv(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of SANDBOX_ENV_PASSTHROUGH) {
+    const v = env[k];
+    if (typeof v === "string" && v.length > 0) out[k] = v;
+  }
+  // claude emits UTF-8; guarantee a sane locale even when the host sets none.
+  if (out.LANG === undefined && out.LC_ALL === undefined) out.LANG = "C.UTF-8";
+  return out;
 }
 
 // Known version-manager / package-manager roots whose presence (as a prefix of
@@ -294,10 +327,19 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   }
 
   // ── env + process hardening ──────────────────────────────────────────────
+  // Clear ALL inherited env first, then re-set only what a compliant session needs.
+  // This is what keeps env-resident secrets (GH_TOKEN, SHEPHERD_TOKEN, ANTHROPIC_*,
+  // AWS_*, …) out of a hijacked agent — they would otherwise be inherited verbatim.
   const nodeBinDir = dirname(inputs.nodeBinReal);
+  f.push("--clearenv");
   f.push("--setenv", "HOME", home);
   f.push("--setenv", "PATH", `${home}/.local/bin:${nodeBinDir}:/usr/bin:/bin`);
   f.push("--setenv", "TERM", term);
+  for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    f.push("--setenv", k, v);
+  }
   f.push(
     "--die-with-parent",
     "--new-session",

@@ -158,6 +158,9 @@ test("resume + auto + standard → returns null (does not throw)", async () => {
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
   const out = await service.resume(s.id, { force: true });
   expect(out).toBeNull();
+  // The auto-gate pre-check fires BEFORE any respawn work (husk preserved): herdr.start
+  // is never called, so no new argv was recorded.
+  expect(record.argv).toBeUndefined();
 });
 
 test("resume + trusted → resumes normally, passthrough argv", async () => {

@@ -82,6 +82,30 @@ test("unknown model rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/model/i);
 });
 
+test("sandboxProfile: valid value accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", sandboxProfile: "autonomous" },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.sandboxProfile).toBe("autonomous");
+});
+
+test("sandboxProfile: absent → undefined (inherit repo default)", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.sandboxProfile).toBeUndefined();
+});
+
+test("sandboxProfile: invalid value rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", sandboxProfile: "bogus" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/sandboxProfile/);
+});
+
 test("unknown key is rejected", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", evil: "x" },

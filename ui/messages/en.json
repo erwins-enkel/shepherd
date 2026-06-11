@@ -1044,5 +1044,8 @@
   "session_sandbox_unconfined_label": "Unconfined",
   "session_sandbox_unconfined_title": "Unattended agent running unconfined — no sandbox applied.",
   "feat_sandbox_title": "Per-repo sandbox profiles",
-  "feat_sandbox_body": "Each repo can now pick a sandbox profile in its automation panel: Trusted (no sandbox, today's behavior), Standard, or Autonomous. Standard and Autonomous confine the agent to its worktree. Autonomous is required for auto/drain sessions — note it's filesystem-confined only and not yet network-egress-contained. Sessions surface their applied sandbox state as a badge."
+  "feat_sandbox_body": "Each repo can now pick a sandbox profile in its automation panel: Trusted (no sandbox, today's behavior), Standard, or Autonomous. Standard and Autonomous confine the agent to its worktree. Autonomous is required for auto/drain sessions — note it's filesystem-confined only and not yet network-egress-contained. Sessions surface their applied sandbox state as a badge.",
+  "newtask_sandbox_label": "Sandbox",
+  "newtask_sandbox_default": "Repo default",
+  "newtask_sandbox_hint": "Per-task sandbox override. Leave at 'Repo default' to inherit this repo's configured profile. standard/autonomous confine the agent to its worktree (no ~/.ssh, sibling repos, or $HOME secrets); autonomous is required for auto sessions but is not yet network-egress-contained."
 }

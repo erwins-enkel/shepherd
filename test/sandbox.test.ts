@@ -9,6 +9,7 @@ import {
   wrapArgv,
   detectBackend,
   resetBackendCache,
+  collectPassthroughEnv,
   type MembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
@@ -330,9 +331,55 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--setenv", "TERM", "xterm-256color")).toBe(true);
   });
 
+  test("--clearenv precedes every --setenv (no inherited env leaks in)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    const clear = f.indexOf("--clearenv");
+    expect(clear).toBeGreaterThan(0);
+    // every --setenv must come AFTER --clearenv, else it'd be wiped
+    f.forEach((tok, i) => {
+      if (tok === "--setenv") expect(i).toBeGreaterThan(clear);
+    });
+  });
+
+  test("extraEnv passthrough is emitted as --setenv (sorted), HOME/PATH/TERM still set", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ extraEnv: { TZ: "UTC", LANG: "en_US.UTF-8" } }),
+      detDeps,
+    );
+    expect(hasTriple(f, "--setenv", "LANG", "en_US.UTF-8")).toBe(true);
+    expect(hasTriple(f, "--setenv", "TZ", "UTC")).toBe(true);
+    expect(hasTriple(f, "--setenv", "HOME", "/home/me")).toBe(true);
+  });
+
   test(".claude.json persisted RW bind via *-bind-try", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);
+  });
+});
+
+describe("collectPassthroughEnv", () => {
+  test("excludes secrets, includes allowlisted locale/display vars", () => {
+    const out = collectPassthroughEnv({
+      GH_TOKEN: "secret",
+      SHEPHERD_TOKEN: "secret",
+      ANTHROPIC_API_KEY: "secret",
+      AWS_SECRET_ACCESS_KEY: "secret",
+      LANG: "en_US.UTF-8",
+      TZ: "Europe/Berlin",
+      COLORTERM: "truecolor",
+    });
+    expect(out).toEqual({ LANG: "en_US.UTF-8", TZ: "Europe/Berlin", COLORTERM: "truecolor" });
+    expect(out.GH_TOKEN).toBeUndefined();
+    expect(out.SHEPHERD_TOKEN).toBeUndefined();
+    expect(out.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("falls back to C.UTF-8 when no locale is set", () => {
+    expect(collectPassthroughEnv({ GH_TOKEN: "x" })).toEqual({ LANG: "C.UTF-8" });
+  });
+
+  test("LC_ALL alone suppresses the LANG fallback", () => {
+    expect(collectPassthroughEnv({ LC_ALL: "C" })).toEqual({ LC_ALL: "C" });
   });
 });
 

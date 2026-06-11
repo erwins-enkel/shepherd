@@ -78,7 +78,12 @@ import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
 import { normalizeDefaultModelSetting } from "./default-model";
-import { type SandboxProfile, SANDBOX_PROFILES, isSandboxProfile } from "./sandbox";
+import {
+  type SandboxProfile,
+  SANDBOX_PROFILES,
+  isSandboxProfile,
+  SandboxAutoRefused,
+} from "./sandbox";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -917,6 +922,10 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   try {
     s = await deps.service.create(result.value);
   } catch (e) {
+    // A sandbox auto-gate refusal is a POLICY decision, not infra failure — return 403
+    // with the hold reason so the dialog shows "auto requires the autonomous profile"
+    // rather than a misleading 502.
+    if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
     // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).

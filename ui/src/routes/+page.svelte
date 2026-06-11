@@ -40,6 +40,7 @@
     Issue,
     IssueRef,
     PullRequest,
+    SandboxProfile,
     Session,
     Settings as Settings_,
     Steer,
@@ -871,6 +872,7 @@
     images: string[];
     issueRef?: IssueRef;
     planGateEnabled: boolean;
+    sandboxProfile?: SandboxProfile;
   }) {
     // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);

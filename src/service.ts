@@ -23,6 +23,7 @@ import {
   isDegraded,
   wrapArgv,
   safeRealpath,
+  collectPassthroughEnv,
   SandboxAutoRefused,
   type SandboxProfile,
   type SandboxBackend,
@@ -639,6 +640,7 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
+          extraEnv: collectPassthroughEnv(),
         }
       : ({} as MembraneInputs);
     const wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
@@ -1048,6 +1050,19 @@ export class SessionService {
         return this.deps.store.get(id);
       }
       return s;
+    }
+    // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
+    // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or
+    // backend change leaves the running session intact rather than stopping it dead.
+    // prepareSpawn re-checks below (defense in depth); this just guards the teardown.
+    if (s.auto) {
+      const rc = this.deps.store.getRepoConfig(s.repoPath);
+      const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
+      const hold = autoHoldReason(profile, this.detectBackend());
+      if (hold) {
+        console.warn(`[sandbox] resume refused for ${s.id} (husk preserved): ${hold}`);
+        return null;
+      }
     }
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the skill catalog + plugin hooks.

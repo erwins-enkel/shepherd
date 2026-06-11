@@ -523,6 +523,8 @@ function mergeRepoConfig(
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
+    // sandboxProfile is not yet exposed via the PUT patch; preserve the persisted value.
+    sandboxProfile: cur.sandboxProfile,
   };
 }
 

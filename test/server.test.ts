@@ -1149,6 +1149,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 
   const res = await app.fetch(new Request("http://x/api/learnings/injectable"));

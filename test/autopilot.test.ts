@@ -34,6 +34,8 @@ function sess(over: Partial<Session> = {}): Session {
     autoMergeRebaseHead: null,
     auto: false,
     issueNumber: null,
+    sandboxApplied: null,
+    sandboxDegraded: false,
     status: "blocked",
     lastState: "blocked",
     createdAt: 0,

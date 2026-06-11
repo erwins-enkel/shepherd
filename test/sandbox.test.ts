@@ -437,3 +437,18 @@ describe("detectBackend (injected run)", () => {
     expect(calls).toBeGreaterThan(after);
   });
 });
+
+import { parseSandboxProfile } from "../src/config";
+
+describe("parseSandboxProfile (config helper)", () => {
+  test("a valid profile passes through", () => {
+    expect(parseSandboxProfile("standard")).toBe("standard");
+    expect(parseSandboxProfile("autonomous")).toBe("autonomous");
+    expect(parseSandboxProfile("trusted")).toBe("trusted");
+  });
+  test("undefined / blank / garbage falls back to trusted", () => {
+    expect(parseSandboxProfile(undefined)).toBe("trusted");
+    expect(parseSandboxProfile("")).toBe("trusted");
+    expect(parseSandboxProfile("nonsense")).toBe("trusted");
+  });
+});

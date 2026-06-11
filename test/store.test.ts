@@ -72,6 +72,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -87,6 +88,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -102,6 +104,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -117,6 +120,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -132,6 +136,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 });
 
@@ -142,6 +147,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   store.setRepoConfig("/repo/d", {
     criticEnabled: true,
@@ -157,6 +163,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     maxAuto: 3,
     autoLabel: "auto-go",
     usageCeilingPct: 65,
+    sandboxProfile: "trusted",
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,
@@ -458,6 +465,85 @@ test("repo config: buildQueueEnabled defaults false and round-trips", () => {
   const cfg = store.getRepoConfig("/r");
   store.setRepoConfig("/r", { ...cfg, buildQueueEnabled: true });
   expect(store.getRepoConfig("/r").buildQueueEnabled).toBe(true);
+});
+
+test("repo config: sandboxProfile defaults trusted on a fresh DB", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/r").sandboxProfile).toBe("trusted");
+});
+
+test("repo config: sandboxProfile round-trips through set/get", () => {
+  const store = new SessionStore(":memory:");
+  const cfg = store.getRepoConfig("/r");
+  store.setRepoConfig("/r", { ...cfg, sandboxProfile: "autonomous" });
+  expect(store.getRepoConfig("/r").sandboxProfile).toBe("autonomous");
+  store.setRepoConfig("/r", { ...cfg, sandboxProfile: "standard" });
+  expect(store.getRepoConfig("/r").sandboxProfile).toBe("standard");
+});
+
+test("repo config: a garbage stored sandboxProfile falls back to trusted", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-sandbox-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Seed the row through a real store, then scribble a garbage value directly.
+    const store = new SessionStore(dbPath);
+    const cfg = store.getRepoConfig("/r");
+    store.setRepoConfig("/r", { ...cfg, sandboxProfile: "standard" });
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE repo_config SET sandboxProfile = 'bogus' WHERE repoPath = '/r'`);
+    raw.close();
+    // a fresh store reads the legacy/garbage value and the guard maps it to trusted
+    expect(new SessionStore(dbPath).getRepoConfig("/r").sandboxProfile).toBe("trusted");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repo_config migration: an old row without sandboxProfile gains the trusted default", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create a minimal repo_config table predating the sandboxProfile column.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
+    raw.run(`INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES ('/old', 1, 1)`);
+    raw.close();
+    // opening through the store runs migrateRepoConfigColumns, adding the column with its default
+    const store = new SessionStore(dbPath);
+    expect(store.getRepoConfig("/old").sandboxProfile).toBe("trusted");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("session: sandboxApplied/sandboxDegraded default null/false, set via setSandboxState, round-trip", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.sandboxApplied).toBeNull();
+  expect(a.sandboxDegraded).toBe(false);
+  expect(s.get(a.id)?.sandboxApplied).toBeNull();
+  expect(s.get(a.id)?.sandboxDegraded).toBe(false);
+  s.setSandboxState(a.id, { applied: "autonomous", degraded: true });
+  expect(s.get(a.id)?.sandboxApplied).toBe("autonomous");
+  expect(s.get(a.id)?.sandboxDegraded).toBe(true);
+  // partial patch leaves the untouched field intact
+  s.setSandboxState(a.id, { degraded: false });
+  expect(s.get(a.id)?.sandboxApplied).toBe("autonomous");
+  expect(s.get(a.id)?.sandboxDegraded).toBe(false);
+  // clearing applied back to null
+  s.setSandboxState(a.id, { applied: null });
+  expect(s.get(a.id)?.sandboxApplied).toBeNull();
+});
+
+test("session: create accepts sandboxApplied/sandboxDegraded inputs and survives hydrate", () => {
+  const s = mk();
+  const a = s.create({ ...base, sandboxApplied: "standard", sandboxDegraded: true });
+  expect(a.sandboxApplied).toBe("standard");
+  expect(a.sandboxDegraded).toBe(true);
+  expect(s.get(a.id)?.sandboxApplied).toBe("standard");
+  expect(s.get(a.id)?.sandboxDegraded).toBe(true);
 });
 
 test("session: autoMergeEnabled override + rebase count round-trip", () => {

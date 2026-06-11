@@ -103,6 +103,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 });
 
@@ -148,6 +149,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 
   const get = await app.fetch(new Request(url));
@@ -166,6 +168,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 });
 
@@ -194,6 +197,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 });
 
@@ -222,6 +226,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 });
 

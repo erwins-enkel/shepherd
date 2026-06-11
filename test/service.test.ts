@@ -1636,6 +1636,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -1675,6 +1676,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -2233,6 +2235,7 @@ function buildQueueDeps(
       maxAuto: 1,
       autoLabel: "shepherd:auto",
       usageCeilingPct: 80,
+      sandboxProfile: "trusted",
       ...repoConfig,
     });
   }

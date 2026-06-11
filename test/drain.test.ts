@@ -144,6 +144,7 @@ function makeHarness(
     maxAuto: opts.maxAuto ?? 2,
     autoLabel: "shepherd:auto",
     usageCeilingPct: opts.usageCeilingPct ?? 80,
+    sandboxProfile: "trusted",
   });
 
   const forgeRec: ForgeRec = {
@@ -650,6 +651,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     maxAuto: 2,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -665,6 +667,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     maxAuto: 2,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 
   const forgeRec: ForgeRec = {

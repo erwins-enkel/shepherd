@@ -86,6 +86,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);
 });

@@ -323,7 +323,6 @@
                the row's own select doesn't also fire. -->
           <span
             class="name-icon actionable"
-            class:filtered={repoFiltered}
             role="button"
             tabindex="0"
             title={repoName}
@@ -723,12 +722,6 @@
     outline: 1.5px solid var(--color-line-bright);
     outline-offset: 0;
   }
-  /* active filter: a quiet amber underline marks the icon as the engaged toggle
-     (matches the .fbtn active accent in the herd head) without adding a new hue */
-  .name-icon.actionable.filtered {
-    box-shadow: 0 1px 0 0 var(--color-amber);
-  }
-
   /* Visually hidden but available to screen readers (matches GitRail.svelte) */
   .sr-only {
     position: absolute;

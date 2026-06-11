@@ -199,6 +199,7 @@
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
   let hitEl = $state<HTMLButtonElement>();
+  let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
@@ -226,19 +227,44 @@
     ondecommission?.(session.id);
   }
 
-  // Time-breakdown popover: the .unit-hit overlay is the row's only hover
-  // surface (it covers the elapsed span and PrBadge, so their own hovers can
-  // never fire) — trigger there, with hover-intent so sweeping the cursor
-  // across the list doesn't cascade popovers. Keyboard focus shows immediately.
+  // Time-breakdown popover: the .unit-hit overlay is the row's only click/
+  // keyboard surface, but its mouse trigger is bounds-gated to the wall-clock
+  // (.elapsed) — onHitMove latches when the cursor enters/leaves the clock's
+  // rect, arming the 450ms hover-intent once on enter (not on every move) so
+  // sweeping the cursor across the list doesn't cascade popovers. Keyboard focus
+  // on the card still reveals it immediately; the popover anchors to the clock.
+  // The clock rect is measured once on card-enter and cached so the per-move
+  // bounds test never reads layout; bounded staleness is fine (the clock barely
+  // shifts during a hover, the popover anchors off a fresh read in tipShow, and
+  // it closes on scroll/resize).
   let tipRect = $state<DOMRect | null>(null);
   let tipTimer: ReturnType<typeof setTimeout> | undefined;
+  let overClock = false; // pointer currently within the cached clock bounds
+  let clockRect: DOMRect | null = null; // wall-clock bounds, cached on card-enter
   function tipShow(delay = 450) {
     clearTimeout(tipTimer);
-    tipTimer = setTimeout(() => (tipRect = hitEl?.getBoundingClientRect() ?? null), delay);
+    tipTimer = setTimeout(() => (tipRect = elapsedEl?.getBoundingClientRect() ?? null), delay);
   }
   function tipHide() {
     clearTimeout(tipTimer);
     tipRect = null;
+    overClock = false;
+  }
+  function onHitEnter() {
+    clockRect = elapsedEl?.getBoundingClientRect() ?? null;
+  }
+  function onHitMove(e: MouseEvent) {
+    const r = clockRect;
+    const inside =
+      !!r &&
+      e.clientX >= r.left &&
+      e.clientX <= r.right &&
+      e.clientY >= r.top &&
+      e.clientY <= r.bottom;
+    if (inside === overClock) return;
+    overClock = inside;
+    if (inside) tipShow();
+    else tipHide();
   }
 </script>
 
@@ -267,7 +293,8 @@
         tipHide();
         onContextMenu(e);
       }}
-      onmouseenter={() => tipShow()}
+      onmouseenter={onHitEnter}
+      onmousemove={onHitMove}
       onmouseleave={tipHide}
       onfocus={() => {
         if (hitEl?.matches(":focus-visible")) tipShow(0);
@@ -406,7 +433,7 @@
       {:else if !hideStatus}
         <span class="badge" id="u-status-{session.id}">{statusLabel(dStatus)}</span>
       {/if}
-      <span class="elapsed">{elapsed(session.createdAt, nowMs)}</span>
+      <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
     </div>
 
     {#if live}

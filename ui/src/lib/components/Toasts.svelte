@@ -12,7 +12,7 @@
         class="toast"
         class:is-undo={t.tone === "undo"}
         role={t.alert ? "alert" : "status"}
-        style="--ms:{t.durationMs}ms"
+        style={t.durationMs !== undefined ? `--ms:${t.durationMs}ms` : undefined}
         onpointerenter={() => toasts.hold(t.id)}
         onpointerleave={() => toasts.release(t.id)}
         onfocusin={() => toasts.hold(t.id)}

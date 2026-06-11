@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { RepoEntry } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -81,10 +82,16 @@
     ...filtered.map((r) => ({ repo: r, pinned: false })),
   ]);
 
-  function toggle() {
+  async function toggle() {
     open = !open;
     if (open) {
       filter = "";
+      // Point the keyboard cursor at the currently-selected repo (its first
+      // occurrence — the pinned one if it's a recent), not row 0.
+      const idx = shown.findIndex((row) => row.repo.path === value);
+      activeIdx = idx >= 0 ? idx : 0;
+      await tick();
+      scrollActiveIntoView();
     }
   }
 
@@ -97,14 +104,16 @@
 
   $effect(() => {
     if (open && filterInput) {
-      filterInput.focus();
+      filterInput.focus({ preventScroll: true });
     }
   });
 
-  // Reset the cursor to the top whenever the filtered list changes (open/typing).
+  // Keep the keyboard cursor in range if an async update (server/WS poll) shrinks
+  // `shown` while the panel is open — otherwise activeIdx could point past the end
+  // (stale aria-activedescendant, vanished cursor). Typing resets to top via the
+  // filter input's oninput; opening points at the selected repo via toggle().
   $effect(() => {
-    void shown;
-    activeIdx = 0;
+    if (activeIdx > shown.length - 1) activeIdx = Math.max(0, shown.length - 1);
   });
 
   // Keyboard-driven row navigation from the focused filter input.
@@ -196,6 +205,7 @@
         aria-controls="rs-listbox"
         aria-autocomplete="list"
         aria-activedescendant={shown.length ? `rs-opt-${activeIdx}` : undefined}
+        oninput={() => (activeIdx = 0)}
         onkeydown={onFilterKey}
       />
       <ul class="rs-list" id="rs-listbox" role="listbox" bind:this={listEl}>

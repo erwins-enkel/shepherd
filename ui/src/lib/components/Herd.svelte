@@ -693,6 +693,17 @@
     padding-inline: 0;
   }
 
+  /* flow mode: rows are full-bleed, so the selected card's side borders would
+     draw two vertical lines hugging the screen edges (the panel itself already
+     dropped its own for the same reason) — keep only the top/bottom hairlines,
+     and drop the corner bracket that hangs off the right border with them. */
+  .units.flow :global(.unit.sel) {
+    border-inline-color: transparent;
+  }
+  .units.flow :global(.unit.sel::after) {
+    display: none;
+  }
+
   .empty {
     width: 100%;
     padding: 24px 14px;

@@ -1180,6 +1180,17 @@
     gap: 7px;
     row-gap: 8px;
     padding: 10px 12px;
+    /* full-bleed like the herd panel in flow mode: drop the side borders +
+       brackets and stretch into the shell's base edge padding
+       (--mobile-shell-pad, shared with .shell.mobile in +page.svelte; with a
+       larger safe-area inset the shell keeps the remainder). Top/bottom
+       hairlines stay as section rules. */
+    border-inline: 0;
+    margin-inline: calc(-1 * var(--mobile-shell-pad));
+  }
+  .hud.mobile.bracket::before,
+  .hud.mobile.bracket::after {
+    display: none;
   }
   .hud.mobile .logo {
     font-size: var(--fs-base);

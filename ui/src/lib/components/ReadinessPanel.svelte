@@ -183,7 +183,10 @@
         key: "adopt-gitignore-fail",
       });
     } finally {
-      if (rp === repoPath) adopting = false;
+      // Always release the lock — the component persists across repo switches
+      // (no {#key} in BacklogView), so gating this on `rp === repoPath` would
+      // wedge the button disabled for the new repo when one switches mid-adopt.
+      adopting = false;
     }
   }
 </script>

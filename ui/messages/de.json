@@ -824,7 +824,7 @@
   "feat_header_fold_title": "Kopfbereich einklappen für mehr Terminal",
   "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten.",
   "feat_learnings_per_repo_title": "Erkenntnisse in der Repo-Zeile",
-  "feat_learnings_per_repo_body": "Der Erkenntnis-Zähler ist aus der oberen Leiste in die Status-Zeile jedes Repos gewandert — neben dessen Automatismus-Status. So erscheinen die vorgeschlagenen Hausregeln eines Repos genau dort, wo auch seine übrige Aktivität sichtbar ist. Klick auf das ✦ öffnet den Drawer bei diesem Repo.",
+  "feat_learnings_per_repo_body": "Die vorgeschlagenen Hausregeln eines Repos erscheinen an seiner Zeile im Repo-Filter der Herde, neben seiner Drain-Aktivität. Klicke auf das ✦, um die Learnings für dieses Repo zu öffnen.",
   "feat_update_checkout_title": "Lokalen Checkout nach Merge aktualisieren",
   "feat_update_checkout_body": "Wenn du einen PR über einen der Merge-Buttons der App mergst, bietet ein Toast an, den lokalen Default-Branch des Repos per Fast-Forward auf den frisch gemergten Stand zu bringen — kein manuelles Pull nötig.",
   "feat_automation_help_title": "Jede Automatisierung erklärt",
@@ -838,7 +838,7 @@
   "feat_backlog_active_highlight_title": "Sieh auf einen Blick, welche Issues schon beansprucht sind",
   "feat_backlog_active_highlight_body": "Issues, die ein Shepherd-Agent beansprucht hat, tragen das Label „shepherd:active“. In der Issue-Liste des Backlogs hebt es sich jetzt in Amber ab, sodass du beanspruchte von freier Arbeit auf einen Blick unterscheidest, statt jedes Chip zu lesen.",
   "feat_repo_filter_title": "Herde nach Repo filtern",
-  "feat_repo_filter_body": "Das Repo-Status-Band stapelt jetzt ein Repo pro Zeile. Klicke einen Repo-Namen an, um darunter nur dessen Agenten zu zeigen; erneut klicken zeigt wieder alle Repos.",
+  "feat_repo_filter_body": "Klicke ein Repo im Repo-Filter der Herde an, um nur dessen Agents zu zeigen; klicke erneut, um wieder alle anzuzeigen.",
   "feat_resume_session_title": "Eine geparkte Session fortsetzen",
   "feat_resume_session_body": "Wenn Claude sich beendet und die Session an einer nackten Shell zurücklässt (z. B. nach einem herdr-Neustart), stehst du nicht mehr ohne Weg zurück da. Im Session-Kopf erscheint jetzt ein ↻ Fortsetzen-Knopf – und ein Rechtsklick (oder langes Drücken) auf eine Session-Karte bietet Fortsetzen ebenfalls an –, der `claude --resume` neu startet und dich direkt zurück ins Gespräch bringt.",
   "feat_draft_mode_title": "Entwurfs-PRs mit Freigabesteuerung",
@@ -960,5 +960,7 @@
   "feat_sidebar_collapse_title": "Einklappbare Seitenleiste",
   "feat_sidebar_collapse_body": "Auf Touch-Tablets und aufgeklappten Foldables die Herd-Seitenleiste einklappen, um dem Terminal mehr Platz zu geben. Deine Auswahl wird gespeichert.",
   "feat_herdr_release_notes_link_title": "herdr-Release-Notes (Upstream)",
-  "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten."
+  "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten.",
+  "feat_repo_switcher_title": "Der Repo-Filter ist jetzt eine Chip-Reihe",
+  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut oder auf „Alle“, um zurückzusetzen. Drain und Learnings eines Repos sitzen an seinem Chip, und das Filtern funktioniert jetzt auch in der Rasteransicht."
 }

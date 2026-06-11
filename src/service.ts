@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
-import type { CreateSessionInput, Session } from "./types";
-import { moveStagedIntoWorktree } from "./uploads";
+import type { CreateSessionInput, IssueRef, Session } from "./types";
+import { moveStagedIntoWorktree, stagingDir, uploadFilename, worktreeUploadsDir } from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
@@ -683,6 +684,77 @@ export class SessionService {
       }
       throw e;
     }
+  }
+
+  /**
+   * Spawn a fresh replacement for an existing task, carrying its prompt and all
+   * per-task settings — including the spawn-baked ones that can't be changed after
+   * the fact (model, repoPath, baseBranch, planGateEnabled) plus the runtime
+   * toggles (autopilot, auto-merge). Owns ONLY the spawn + override copy: it emits
+   * no events, never archives the original, and does not resolve forge/issues —
+   * those are the route handler's job. Always `auto: false` (relaunch is an
+   * explicit operator action).
+   *
+   * The original's uploaded images are COPIED (not moved) into staging and passed
+   * to `create`, which lands them in the new worktree — so a spawn failure here
+   * leaves the original's images intact on disk (the originals are reclaimed only
+   * when the original's worktree is torn down by the route, after a successful
+   * spawn). On any error AFTER `create`, the just-created session is best-effort
+   * torn down and the error rethrown, so no orphaned new session leaks.
+   */
+  async relaunch(originalId: string, issueRef?: IssueRef): Promise<Session> {
+    const s = this.deps.store.get(originalId);
+    if (!s || s.status === "archived")
+      throw new Error(`cannot relaunch ${originalId}: missing or archived`);
+
+    // Carry over the original's images: copy each staged into the repo staging dir
+    // with a fresh filename (extension preserved) so create() can land them in the
+    // new worktree like New Task. Copy-not-move keeps the original recoverable on
+    // a spawn failure.
+    const images: string[] = [];
+    const srcDir = worktreeUploadsDir(s.worktreePath);
+    if (existsSync(srcDir)) {
+      const stage = stagingDir(config.repoRoot);
+      mkdirSync(stage, { recursive: true });
+      for (const name of readdirSync(srcDir)) {
+        const src = join(srcDir, name);
+        if (!statSync(src).isFile()) continue;
+        const ext = extname(name).replace(/^\./, "");
+        const dest = join(stage, uploadFilename(ext));
+        copyFileSync(src, dest);
+        images.push(dest);
+      }
+    }
+
+    const input: CreateSessionInput = {
+      repoPath: s.repoPath,
+      baseBranch: s.baseBranch,
+      prompt: s.prompt,
+      model: s.model,
+      planGateEnabled: s.planGateEnabled,
+      images,
+      issueRef,
+      auto: false,
+    };
+    const newSession = await this.create(input);
+
+    try {
+      // Copy runtime-toggleable overrides so the replacement matches the original's
+      // CURRENT state, not just spawn-time defaults.
+      this.deps.store.setAutopilotState(newSession.id, { enabled: s.autopilotEnabled });
+      this.deps.store.setAutoMergeState(newSession.id, { enabled: s.autoMergeEnabled });
+    } catch (e) {
+      // best-effort teardown so no orphaned new session leaks alongside the intact original
+      try {
+        this.archive(newSession.id);
+      } catch {
+        /* ignore cleanup error; surface the original failure */
+      }
+      throw e;
+    }
+
+    // Re-fetch AFTER the override writes so the returned session reflects them.
+    return this.deps.store.get(newSession.id)!;
   }
 
   /**

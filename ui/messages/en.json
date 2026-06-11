@@ -580,7 +580,7 @@
   "viewport_resume_sub": "Tap to bring it back",
   "viewport_resume_failed": "Couldn't resume. Tap to retry",
   "viewport_redraw_btn": "Redraw",
-  "viewport_redraw_title": "Fix squished terminal text — test variants",
+  "viewport_redraw_title": "Redraw: fix squished terminal text (test variants)",
   "redrawmenu_label": "Redraw variants",
   "redrawmenu_nudge": "Resize nudge",
   "redrawmenu_nudge_hint": "Briefly shrinks the terminal by one column and back so Claude repaints the visible screen.",

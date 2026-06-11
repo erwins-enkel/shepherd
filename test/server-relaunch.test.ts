@@ -140,11 +140,19 @@ test("happy path: emits session:new then session:archived, returns {session, arc
   expect(h.droppedFromCache).toEqual(["orig"]);
 });
 
-test("retainClaim is called before the session:archived emit", async () => {
-  const h = harness({ original: { issueNumber: null } });
+test("issue-linked relaunch retains the claim before the session:archived emit", async () => {
+  // Retain fires only when the replacement carries the issue (issueRef truthy), so this
+  // case must be issue-linked. The new session owns ACTIVE_LABEL → relaunch ≠ retire.
+  const h = harness({ original: { issueNumber: 42 }, resolveForge: () => fakeForge() });
   await h.app.fetch(relaunchReq());
   expect(h.drainCalls).toEqual(["orig"]);
   expect(h.retainSeenArchived()).toBe(false); // archived not yet emitted when retain fired
+});
+
+test("non-issue relaunch does NOT retain the claim (nothing to keep)", async () => {
+  const h = harness({ original: { issueNumber: null } });
+  await h.app.fetch(relaunchReq());
+  expect(h.drainCalls).toHaveLength(0);
 });
 
 test("missing original → 404, nothing spawned", async () => {
@@ -219,6 +227,9 @@ test("issue-linked original on a forge lacking getIssue → relaunches WITHOUT i
   expect(h.calls.relaunch).toHaveLength(1);
   expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined });
   expect(h.emitted.map((e) => e.event)).toEqual(["session:new", "session:archived"]);
+  // Issue was dropped → claim must NOT be retained, so onArchived releases the orphaned
+  // ACTIVE_LABEL and the issue is re-queued rather than stuck claimed.
+  expect(h.drainCalls).toHaveLength(0);
 });
 
 test("spawn failure (service.relaunch throws) → 502, original left intact (no archive/emit)", async () => {

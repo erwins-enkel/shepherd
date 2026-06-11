@@ -1348,13 +1348,16 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
     const { cleared } = deps.service.archiveMany([id]);
     const archived = cleared.includes(id);
     if (archived) {
-      // Stamp the one-shot retain ONLY on a successful teardown, and BEFORE the
-      // session:archived emit so drain.onArchived consumes it: this keeps ACTIVE_LABEL
-      // (a relaunch is not a retire). On the not-cleared path below no archived event
-      // fires, so onArchived never runs — stamping there would leak a stale retain flag
-      // that would later mis-convert a manual abandon of the still-live original into a
-      // retire (claim kept, issue not re-queued).
-      deps.drain?.retainClaim(id);
+      // Retain the original's claim ONLY when the replacement actually carries the issue
+      // (issueRef truthy): then the new session owns ACTIVE_LABEL, so a relaunch isn't a
+      // retire. If the issue was dropped (forge-without-getIssue fallback) or there was
+      // none, do NOT retain — let drain.onArchived release the label so the issue is
+      // re-queued, never left orphaned-claimed with nothing tracking it. Stamped on a
+      // successful teardown and BEFORE the session:archived emit so the synchronous
+      // onArchived consumes the flag. (On the not-cleared path below no archived event
+      // fires, so stamping there would leak a stale flag that could later mis-convert a
+      // manual abandon of the still-live original into a retire.)
+      if (issueRef) deps.drain?.retainClaim(id);
       deps.prCache?.drop(id);
       deps.events.emit("session:archived", { id });
     } else {

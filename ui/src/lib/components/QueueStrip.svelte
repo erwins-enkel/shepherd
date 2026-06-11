@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { getDrainQueue } from "$lib/api";
   import { basename } from "./learnings-drawer";
+  import { projectIcons } from "$lib/projectIcons.svelte";
   import {
     activeMergeTrain,
     bandHasValue,
@@ -67,32 +68,62 @@
   function onWindowPointerdown(e: PointerEvent) {
     if (openRepo && stripEl && !stripEl.contains(e.target as Node)) openRepo = null;
   }
+
+  // The queue popover is anchored at its cell's left edge. In the wrapping chip row a
+  // right-side cell would push the fixed-width popover past the right viewport edge, so
+  // on mount measure it and shift left by any overflow (the popover width is content-
+  // independent, so a single clamp on open is enough).
+  function clampWithinViewport(node: HTMLElement) {
+    node.style.left = "0px";
+    node.style.right = "auto";
+    const overflow = node.getBoundingClientRect().right - (window.innerWidth - 8);
+    if (overflow > 0) node.style.left = `${-overflow}px`;
+  }
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
 {#if showBand}
-  <div class="queue-strip" role="status" aria-label={m.repo_status_label()} bind:this={stripEl}>
+  <div
+    class="queue-strip qs-repos"
+    role="status"
+    aria-label={m.repo_status_label()}
+    bind:this={stripEl}
+  >
     <span class="qs-label">{m.repo_status_label()}</span>
-    <ul class="qs-rows">
+    {#snippet chipBody(repoPath: string, icon: string | null)}
+      {#if icon}
+        <span aria-hidden="true">{icon}</span>
+      {:else}
+        <span class="qs-chip-fallback" aria-hidden="true">▣</span>{basename(repoPath)}
+      {/if}
+    {/snippet}
+    <ul class="qs-cells">
       {#each rows as row (row.repoPath)}
-        <li class="qs-row" class:paused={row.drain?.paused}>
+        {@const icon = projectIcons.iconFor(row.repoPath)}
+        <li class="qs-cell" class:paused={row.drain?.paused}>
           {#if onrepofilter}
             {@const active = repoFilter === row.repoPath}
             <button
               type="button"
-              class="qs-repo qs-repo-btn"
+              class="qs-chip"
               class:active
               aria-pressed={active}
+              title={basename(row.repoPath)}
               aria-label={active
                 ? m.repo_filter_active_aria({ repo: basename(row.repoPath) })
                 : m.repo_filter_apply_aria({ repo: basename(row.repoPath) })}
               onclick={() => onrepofilter(active ? null : row.repoPath)}
             >
-              {basename(row.repoPath)}
+              {@render chipBody(row.repoPath, icon)}
             </button>
           {:else}
-            <span class="qs-repo">{basename(row.repoPath)}</span>
+            <span class="qs-chip" title={basename(row.repoPath)}>
+              {@render chipBody(row.repoPath, icon)}
+            </span>
+            {#if icon}
+              <span class="sr-only">{basename(row.repoPath)}</span>
+            {/if}
           {/if}
           {#if row.drain}
             {@const d = row.drain}
@@ -141,6 +172,7 @@
               class="qs-pop"
               role="dialog"
               aria-label={m.drain_queue_title({ repo: basename(d.repoPath) })}
+              use:clampWithinViewport
             >
               <div class="qs-pop-head">{m.drain_queue_title({ repo: basename(d.repoPath) })}</div>
               {#if loading}
@@ -210,6 +242,14 @@
        band shrink-wraps its content instead of spanning the full viewport width */
     align-self: flex-start;
   }
+  /* REPO STATUS band: chips sit on one taller row, so center the label against
+     them (overriding the shared flex-start the MERGE TRAIN band still uses). */
+  .queue-strip.qs-repos {
+    align-items: center;
+  }
+  .qs-repos .qs-label {
+    padding-top: 0;
+  }
   .qs-label {
     font-size: var(--fs-micro);
     letter-spacing: 0.16em;
@@ -248,27 +288,67 @@
     color: var(--color-ink-bright);
     font-weight: 500;
   }
-  /* repo name doubles as the herd filter toggle — same inline-button chrome as the
-     queued/learnings buttons so the row reads as one band; amber when it's the
-     active filter, mirroring the herd's all/ready filter active tone. */
-  .qs-repo-btn {
-    font: inherit;
+  /* REPO STATUS band: a wrapping horizontal row of repo chips (replaces the old
+     stacked text list — MERGE TRAIN keeps .qs-rows/.qs-row). */
+  .qs-cells {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    min-width: 0;
+  }
+  .qs-cell {
+    /* positioning context for the queue popover anchored to this cell */
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  /* the repo chip — square, carrying the project emoji (or ▣+name fallback). The
+     button variant is the herd filter toggle (amber when active). */
+  .qs-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    line-height: 1;
+    padding: 2px 5px;
+    font-size: var(--fs-base);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
     letter-spacing: inherit;
     text-transform: inherit;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
+  }
+  button.qs-chip {
+    font: inherit;
     cursor: pointer;
   }
-  .qs-repo-btn:hover,
-  .qs-repo-btn:focus-visible {
+  button.qs-chip:hover,
+  button.qs-chip:focus-visible {
+    border-color: var(--color-line-bright);
+    background: var(--color-hover);
+  }
+  button.qs-chip:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: 0;
+  }
+  .qs-chip.active {
+    border-color: var(--color-amber);
+    background: color-mix(in oklab, var(--color-amber) 14%, transparent);
     color: var(--color-amber);
   }
-  .qs-repo-btn.active {
-    color: var(--color-amber);
-    text-decoration: underline;
-    text-underline-offset: 3px;
+  .qs-chip-fallback {
+    color: var(--color-muted);
   }
   .qs-inflight {
     color: var(--color-ink);
@@ -411,12 +491,26 @@
   @media (pointer: coarse) {
     .qs-queued-btn,
     .qs-insights,
-    .qs-repo-btn {
+    .qs-chip {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       min-height: 44px;
       min-width: 44px;
     }
+  }
+
+  /* visually-hidden repo name companion for the inert (non-filter) chip, so the
+     repo stays nameable to screen readers (mirrors UnitRow's sr-only) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

@@ -1,16 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   activeMergeTrain,
-  bandHasValue,
+  chipHasTelemetry,
+  chipRailVisible,
   enabledDrains,
   mergeTrainIsAttention,
   mergeTrainLabel,
   pausedText,
   queueOpenable,
-  repoStatusRows,
+  repoChipRows,
+  shouldClearRepoFilter,
 } from "./queue-strip";
-import type { RepoStatusRow } from "./queue-strip";
-import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable } from "../types";
+import type { RepoChip } from "./queue-strip";
+import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -189,145 +191,229 @@ describe("mergeTrainLabel", () => {
   });
 });
 
-// ─── repoStatusRows (generalized per-repo band) ──────────────────────────────
+// ─── repoChipRows ─────────────────────────────────────────────────────────────
 
-describe("repoStatusRows", () => {
-  // shorthand for the running-agent set the band gates on
-  const running = (...paths: string[]) => new Set(paths);
+function session(over: Partial<Session>): Session {
+  return {
+    id: "s1",
+    desig: "TASK-01",
+    name: "test session",
+    prompt: "",
+    repoPath: "/repos/a",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "",
+    isolated: false,
+    herdrSession: "",
+    herdrAgentId: "",
+    claudeSessionId: "",
+    model: null,
+    status: "running",
+    readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
+    autopilotEnabled: null,
+    autopilotStepCount: 0,
+    autopilotPaused: false,
+    autopilotComplete: false,
+    autopilotQuestion: null,
+    planGateEnabled: null,
+    planPhase: null,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
+    auto: false,
+    issueNumber: null,
+    lastState: "",
+    createdAt: 0,
+    updatedAt: 0,
+    archivedAt: null,
+    ...over,
+  };
+}
 
-  it("lists running-agent repos, enriched with drain/learnings, sorted by path", () => {
-    const rows = repoStatusRows(
-      { z: drain({ repoPath: "/repos/z" }) },
-      [learning({ repoPath: "/repos/a" })],
-      [],
-      running("/repos/a", "/repos/z"),
-    );
-    expect(rows.map((r) => r.repoPath)).toEqual(["/repos/a", "/repos/z"]);
+describe("repoChipRows", () => {
+  it("returns empty array when sessions list is empty", () => {
+    expect(repoChipRows([], {}, [], [])).toEqual([]);
   });
 
-  it("excludes a repo with an enabled drain but no running agent", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", inFlight: 0 }) },
-      [],
-      [],
-      running(),
-    );
-    expect(rows).toEqual([]);
-  });
-
-  it("excludes a repo with pending learnings but no running agent", () => {
-    const rows = repoStatusRows({}, [learning({ repoPath: "/repos/a" })], [], running());
-    expect(rows).toEqual([]);
-  });
-
-  it("a running repo with learnings gets the proposal count, drain:null when not drained", () => {
-    const rows = repoStatusRows(
+  it("excludes archived sessions; repo with only archived sessions gets no chip", () => {
+    const chips = repoChipRows(
+      [
+        session({ repoPath: "/repos/a", status: "archived" }),
+        session({ id: "s2", repoPath: "/repos/b", status: "running" }),
+      ],
       {},
-      [learning({ id: "1", repoPath: "/repos/a" }), learning({ id: "2", repoPath: "/repos/a" })],
       [],
-      running("/repos/a"),
+      [],
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 2, curate: 0 });
+    expect(chips.map((c) => c.repoPath)).toEqual(["/repos/b"]);
   });
 
-  it("a running repo with a drain but no learnings carries its drain, insights:0", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", inFlight: 1 }) },
+  it("count reflects non-archived sessions per repo across all live statuses", () => {
+    const chips = repoChipRows(
+      [
+        session({ id: "s1", repoPath: "/repos/a", status: "running" }),
+        session({ id: "s2", repoPath: "/repos/a", status: "idle" }),
+        session({ id: "s3", repoPath: "/repos/a", status: "blocked" }),
+        session({ id: "s4", repoPath: "/repos/a", status: "done" }),
+        session({ id: "s5", repoPath: "/repos/a", status: "archived" }), // excluded
+      ],
+      {},
       [],
       [],
-      running("/repos/a"),
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].drain?.inFlight).toBe(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
+    expect(chips).toHaveLength(1);
+    expect(chips[0].count).toBe(4);
   });
 
-  it("a running repo with neither drain nor learnings still gets a name-only row", () => {
-    const rows = repoStatusRows({}, [], [], running("/repos/a"));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 });
-  });
-
-  it("a disabled drain never leaks into a running repo's row", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", enabled: false, inFlight: 5 }) },
-      [learning({ repoPath: "/repos/a" })],
+  it("attaches enabled drain, does NOT attach disabled drain", () => {
+    const chips = repoChipRows(
+      [session({ repoPath: "/repos/a" }), session({ id: "s2", repoPath: "/repos/b" })],
+      {
+        a: drain({ repoPath: "/repos/a", enabled: true, inFlight: 2 }),
+        b: drain({ repoPath: "/repos/b", enabled: false, inFlight: 5 }),
+      },
       [],
-      running("/repos/a"),
+      [],
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].drain).toBeNull(); // disabled drain stays out of the row
+    const a = chips.find((c) => c.repoPath === "/repos/a")!;
+    const b = chips.find((c) => c.repoPath === "/repos/b")!;
+    expect(a.drain?.inFlight).toBe(2);
+    expect(b.drain).toBeNull();
   });
 
-  it("curate counts over-budget rules of an enabled repo with no proposals", () => {
-    const rows = repoStatusRows(
+  it("insights counts Learning items per repo", () => {
+    const chips = repoChipRows(
+      [session({ repoPath: "/repos/a" })],
+      {},
+      [learning({ id: "l1", repoPath: "/repos/a" }), learning({ id: "l2", repoPath: "/repos/a" })],
+      [],
+    );
+    expect(chips[0]).toMatchObject({ insights: 2, curate: 0 });
+  });
+
+  it("curate shows over-budget count only when insights === 0", () => {
+    const chips = repoChipRows(
+      [session({ repoPath: "/repos/a" })],
       {},
       [],
       [injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] })],
-      running("/repos/a"),
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 2 });
+    expect(chips[0]).toMatchObject({ insights: 0, curate: 2 });
   });
 
-  it("a disabled injectable repo never curates (pruning can't help)", () => {
-    const rows = repoStatusRows(
-      {},
-      [],
-      [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
-  });
-
-  it("proposals suppress the curate fallback (badge showed the count, not curate)", () => {
-    const rows = repoStatusRows(
+  it("curate is 0 when insights > 0 (proposals suppress the curate fallback)", () => {
+    const chips = repoChipRows(
+      [session({ repoPath: "/repos/a" })],
       {},
       [learning({ repoPath: "/repos/a" })],
       [injectable({ repoPath: "/repos/a", rules: [rule(false)] })],
-      running("/repos/a"),
     );
-    expect(rows[0]).toMatchObject({ insights: 1, curate: 0 });
+    expect(chips[0]).toMatchObject({ insights: 1, curate: 0 });
   });
 
-  it("returns an empty list when no repo has a running agent", () => {
-    expect(repoStatusRows({ a: drain({}) }, [learning({})], [], running())).toEqual([]);
+  it("a disabled injectable repo never contributes curate", () => {
+    const chips = repoChipRows(
+      [session({ repoPath: "/repos/a" })],
+      {},
+      [],
+      [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
+    );
+    expect(chips[0]).toMatchObject({ insights: 0, curate: 0 });
+  });
+
+  it("learnings for repo B do not inflate repo A's insights", () => {
+    const chips = repoChipRows(
+      [session({ id: "s1", repoPath: "/repos/a" }), session({ id: "s2", repoPath: "/repos/b" })],
+      {},
+      [learning({ id: "l1", repoPath: "/repos/b" })],
+      [],
+    );
+    const a = chips.find((c) => c.repoPath === "/repos/a")!;
+    const b = chips.find((c) => c.repoPath === "/repos/b")!;
+    expect(a.insights).toBe(0);
+    expect(b.insights).toBe(1);
+  });
+
+  it("sorted ascending by repoPath", () => {
+    const chips = repoChipRows(
+      [session({ id: "s1", repoPath: "/repos/z" }), session({ id: "s2", repoPath: "/repos/a" })],
+      {},
+      [],
+      [],
+    );
+    expect(chips.map((c) => c.repoPath)).toEqual(["/repos/a", "/repos/z"]);
   });
 });
 
-describe("bandHasValue", () => {
-  function row(over: Partial<RepoStatusRow>): RepoStatusRow {
-    return { repoPath: "/repos/a", drain: null, insights: 0, curate: 0, ...over };
+// ─── chipRailVisible ──────────────────────────────────────────────────────────
+
+describe("chipRailVisible", () => {
+  function chip(repoPath: string): RepoChip {
+    return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
   }
 
-  it("single bare name-only row → false", () => {
-    expect(bandHasValue([row({ drain: null, insights: 0, curate: 0 })])).toBe(false);
+  it("false for empty array", () => {
+    expect(chipRailVisible([])).toBe(false);
   });
 
-  it("single row with an enabled drain → true", () => {
-    expect(bandHasValue([row({ drain: drain({}), insights: 0, curate: 0 })])).toBe(true);
+  it("false for 1 chip", () => {
+    expect(chipRailVisible([chip("/repos/a")])).toBe(false);
   });
 
-  it("single row with insights → true", () => {
-    expect(bandHasValue([row({ drain: null, insights: 1, curate: 0 })])).toBe(true);
+  it("true for 2 chips", () => {
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b")])).toBe(true);
   });
 
-  it("single row with curate (no insights) → true", () => {
-    expect(bandHasValue([row({ drain: null, insights: 0, curate: 2 })])).toBe(true);
+  it("true for 3+ chips", () => {
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b"), chip("/repos/c")])).toBe(true);
+  });
+});
+
+// ─── chipHasTelemetry ─────────────────────────────────────────────────────────
+
+describe("chipHasTelemetry", () => {
+  function chip(over: Partial<RepoChip>): RepoChip {
+    return { repoPath: "/repos/a", count: 1, drain: null, insights: 0, curate: 0, ...over };
+  }
+
+  it("false when no drain, no insights, no curate", () => {
+    expect(chipHasTelemetry(chip({}))).toBe(false);
   });
 
-  it("two bare name-only rows → true", () => {
-    expect(
-      bandHasValue([
-        row({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 }),
-        row({ repoPath: "/repos/b", drain: null, insights: 0, curate: 0 }),
-      ]),
-    ).toBe(true);
+  it("true when drain is present", () => {
+    expect(chipHasTelemetry(chip({ drain: drain({}) }))).toBe(true);
   });
 
-  it("empty array → false", () => {
-    expect(bandHasValue([])).toBe(false);
+  it("true when insights > 0", () => {
+    expect(chipHasTelemetry(chip({ insights: 1 }))).toBe(true);
+  });
+
+  it("true when curate > 0", () => {
+    expect(chipHasTelemetry(chip({ curate: 2 }))).toBe(true);
+  });
+});
+
+// ─── shouldClearRepoFilter ────────────────────────────────────────────────────
+
+describe("shouldClearRepoFilter", () => {
+  function chip(repoPath: string): RepoChip {
+    return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
+  }
+
+  it("false when no filter is active (null)", () => {
+    expect(shouldClearRepoFilter(null, [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  });
+
+  it("false when the filtered repo is among a ≥2-chip rail", () => {
+    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  });
+
+  it("TRUE when the filtered repo is absent from a ≥2-chip rail", () => {
+    expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a"), chip("/repos/b")])).toBe(true);
+  });
+
+  it("TRUE when only 1 chip (rail hidden) even if it is that repo — the strand case", () => {
+    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a")])).toBe(true);
   });
 });

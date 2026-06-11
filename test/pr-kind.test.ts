@@ -50,8 +50,28 @@ describe("classifyPr — release", () => {
     expect(classifyPr({ author: "alice", title: "chore(main): release 1.25.0" })).toBe("release");
   });
 
-  it("matches a bare 'chore: release' title", () => {
-    expect(classifyPr({ author: "alice", title: "chore: release" })).toBe("release");
+  it("matches a 'chore: release v2.0.0' title (v-prefixed version)", () => {
+    expect(classifyPr({ author: "alice", title: "chore: release v2.0.0" })).toBe("release");
+  });
+
+  it("matches a component release title 'chore: release my-package 1.2.3'", () => {
+    expect(classifyPr({ author: "alice", title: "chore: release my-package 1.2.3" })).toBe(
+      "release",
+    );
+  });
+
+  it("does NOT match a versionless title 'chore: release the docs' (human chore)", () => {
+    expect(classifyPr({ author: "alice", title: "chore: release the docs" })).toBe("regular");
+  });
+
+  it("a versionless release title is still caught by its branch", () => {
+    expect(
+      classifyPr({
+        author: "alice",
+        title: "chore: release",
+        headRefName: "release-please--branches--main",
+      }),
+    ).toBe("release");
   });
 
   it("does NOT match a title that merely contains 'release'", () => {

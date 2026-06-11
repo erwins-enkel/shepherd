@@ -223,6 +223,8 @@
   "herd_merge_train_action": "Merge-Train",
   "herd_merge_train_title": "Neue Session starten, die die merge-bereiten PRs abarbeitet und eine Merge-Reihenfolge vorschlägt",
   "herd_merge_train_prompt": "Führe einen Merge-Train für die Pull Requests aus, die ich als merge-bereit markiert habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an — prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nMerge-bereite PRs:\n{prs}\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste — merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen.",
+  "herd_collapse": "Seitenleiste einklappen",
+  "herd_expand": "Seitenleiste ausklappen",
   "issuespanel_title": "ISSUES",
   "issuespanel_title_with_slug": "ISSUES · {slug}",
   "issuespanel_no_host": "kein Git-Host für dieses Repo konfiguriert",
@@ -949,5 +951,7 @@
   "newproject_prd_seed": "Du startest ein brandneues Projekt. Bevor du Code schreibst, erstelle ein PRD (Product Requirements Document) unter `docs/PRD.md` in diesem Repository. Halte darin das Problem, die Ziele, die Zielgruppe, die wichtigsten User Stories, den Scope (In/Out) und die Erfolgskriterien fest. Halte es präzise und konkret. Die Idee dahinter:\n\n{idea}\n\nWenn das PRD geschrieben ist, committe es mit einem Conventional Commit (`docs: add initial PRD`) und pausiere zur Überprüfung, bevor du mit der Implementierung beginnst.",
   "newproject_prd_seed_noidea": "(keine Beschreibung angegeben — leite einen sinnvollen Ausgangspunkt ab und stelle klärende Fragen im PRD)",
   "feat_new_project_title": "Neues Projekt starten",
-  "feat_new_project_body": "Lege ein frisches Git-Repository an — optional auch auf GitHub — und starte den ersten Agenten-Run, ohne Shepherd zu verlassen."
+  "feat_new_project_body": "Lege ein frisches Git-Repository an — optional auch auf GitHub — und starte den ersten Agenten-Run, ohne Shepherd zu verlassen.",
+  "feat_sidebar_collapse_title": "Einklappbare Seitenleiste",
+  "feat_sidebar_collapse_body": "Auf Touch-Tablets und aufgeklappten Foldables die Herd-Seitenleiste einklappen, um dem Terminal mehr Platz zu geben. Deine Auswahl wird gespeichert."
 }

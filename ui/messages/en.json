@@ -223,6 +223,8 @@
   "herd_merge_train_action": "Merge train",
   "herd_merge_train_title": "Start a new session that works through the ready-to-merge PRs and suggests a merge order",
   "herd_merge_train_prompt": "Run a merge train for the pull requests I've flagged ready to merge. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything — then re-check the queue after every merge, because main moves under you.\n\nReady-to-merge PRs:\n{prs}\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason — never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.",
+  "herd_collapse": "Collapse sidebar",
+  "herd_expand": "Expand sidebar",
   "issuespanel_title": "ISSUES",
   "issuespanel_title_with_slug": "ISSUES · {slug}",
   "issuespanel_no_host": "no git host configured for this repo",
@@ -949,5 +951,7 @@
   "newproject_prd_seed": "You are starting a brand-new project. Before writing any code, create a PRD (Product Requirements Document) at `docs/PRD.md` in this repository. Capture the problem, goals, target users, core user stories, scope (in/out), and success criteria. Keep it concise and concrete. The idea to build from:\n\n{idea}\n\nWhen the PRD is written, commit it with a conventional commit (`docs: add initial PRD`) and stop for review before implementing.",
   "newproject_prd_seed_noidea": "(no description was provided — infer a reasonable starting scope and ask clarifying questions in the PRD)",
   "feat_new_project_title": "Start a new project",
-  "feat_new_project_body": "Create a fresh git repo — optionally on GitHub — and kick off the first agent run, all without leaving Shepherd."
+  "feat_new_project_body": "Create a fresh git repo — optionally on GitHub — and kick off the first agent run, all without leaving Shepherd.",
+  "feat_sidebar_collapse_title": "Collapsible sidebar",
+  "feat_sidebar_collapse_body": "On touch tablets and unfolded foldables, collapse the Herd sidebar to give the terminal more room. Your choice is remembered."
 }

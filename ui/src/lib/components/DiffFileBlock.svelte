@@ -92,7 +92,9 @@
     {:else if flatLines.length === 0}
       <p class="note">no textual changes</p>
     {:else}
-      <div class="hunks">
+      <!-- long diff lines scroll horizontally (overflow-x); opt out of the mobile
+           page-swipe so a sideways drag scrolls the code instead of paging agents -->
+      <div class="hunks" data-swipe-ignore>
         {#each hunksView as hunk (hunk.header)}
           <div class="hunk-head">{hunk.header}</div>
           {#each hunk.lines as item (item.line.kind + (item.line.oldNo ?? "") + (item.line.newNo ?? "") + item.line.content)}

@@ -23,7 +23,7 @@ const { default: Viewport } = await import("./Viewport.svelte");
 const { reviews } = await import("$lib/reviews.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
-import type { Session } from "$lib/types";
+import type { Session, BuildQueue } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -300,5 +300,123 @@ describe("Viewport autopilot badge vs in-flight review", () => {
       openPreviewTick: 0,
     });
     await expect.element(badge()).not.toBeInTheDocument();
+  });
+});
+
+// ── Mobile page-swipe is scoped to the terminal/panel body (allow-list) ───────
+// Regression: the horizontal "switch task side-by-side" swipe used to arm for ANY
+// touch outside a small deny-set, so a drag starting on the top chrome (header/tabs,
+// the PR/automations/autopilot git strip, the build-queue panel) hijacked the
+// gesture and the buttons there were unreachable. The fix arms the swipe ONLY when
+// the touch starts inside `.vp-body` (tagged data-swipe-page); all chrome is excluded
+// by omission. The handler reads e.touches[0].clientX/clientY on start/move and
+// nothing off touchend, so we dispatch bubbling Events with a `touches` shim.
+describe("Viewport mobile page-swipe scoping", () => {
+  // The structural-invariant test below assumes the header is expanded so
+  // `.vp-git-strip` / `.bqp` render; clear the persisted collapse flag so a prior
+  // test can't leave it set ("1").
+  beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
+
+  // The swipe listeners live on the `.viewport` root and read e.target via closest();
+  // a bubbling Event carries our chosen target up to that root listener.
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    return e;
+  }
+
+  // A leftward drag with a large dx clears the axis slop and the commit threshold
+  // (Math.min(120, width*0.33)), committing to "next" → onnavigate(switchOrder[1]).
+  function leftwardDrag(el: Element) {
+    el.dispatchEvent(fakeTouch("touchstart", 300, 100));
+    el.dispatchEvent(fakeTouch("touchmove", 0, 100));
+    el.dispatchEvent(fakeTouch("touchend", 0, 100));
+  }
+
+  const oneStepQueue = (sessionId: string): BuildQueue => ({
+    sessionId,
+    approved: false,
+    steps: [{ id: "s1", title: "step one", status: "pending", position: 0 }],
+  });
+
+  function renderMobile(onnavigate: (id: string) => void) {
+    return render(Viewport, {
+      session: session({ id: "v1" }),
+      mobile: true,
+      switchOrder: ["v1", "v2"],
+      onnavigate,
+      buildQueue: oneStepQueue("v1"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+  }
+
+  it("pages to the next agent on a leftward drag inside the terminal body", async () => {
+    const onnavigate = vi.fn();
+    const { container } = renderMobile(onnavigate);
+
+    const body = container.querySelector(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    // drag on the terminal mount (a child of .vp-body), as a real touch would land
+    const mount = body!.querySelector(".term-mount") ?? body!;
+    leftwardDrag(mount);
+
+    expect(onnavigate).toHaveBeenCalledTimes(1);
+    expect(onnavigate).toHaveBeenCalledWith("v2");
+  });
+
+  it("does NOT page when the same drag starts on the header chrome (.vp-head)", async () => {
+    const onnavigate = vi.fn();
+    const { container } = renderMobile(onnavigate);
+
+    const head = container.querySelector(".vp-head");
+    expect(head, ".vp-head should render").not.toBeNull();
+    leftwardDrag(head!);
+
+    expect(onnavigate).not.toHaveBeenCalled();
+  });
+
+  it("tags only .vp-body with data-swipe-page; all top chrome is outside the allow-list", async () => {
+    const onnavigate = vi.fn();
+    const { container } = renderMobile(onnavigate);
+
+    const body = container.querySelector(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    // .vp-body itself carries the allow-list marker, and its terminal mount resolves to it
+    expect(body!.matches("[data-swipe-page]")).toBe(true);
+    expect(body!.querySelector(".term-mount")?.closest("[data-swipe-page]")).toBe(body);
+
+    // each chrome container renders and is OUTSIDE the page-swipe allow-list
+    for (const sel of [".vp-head", ".vp-git-strip", ".bqp"]) {
+      const el = container.querySelector(sel);
+      expect(el, `${sel} should render`).not.toBeNull();
+      expect(
+        el!.closest("[data-swipe-page]"),
+        `${sel} must not be inside data-swipe-page`,
+      ).toBeNull();
+    }
+  });
+
+  it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
+    const onnavigate = vi.fn();
+    const { container } = renderMobile(onnavigate);
+
+    const body = container.querySelector(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    // stand in for DiffFileBlock's horizontally-scrollable `.hunks`: an in-body
+    // surface that opts out so a sideways drag scrolls it instead of paging agents
+    const optOut = document.createElement("div");
+    optOut.setAttribute("data-swipe-ignore", "");
+    body!.appendChild(optOut);
+    // it IS inside the allow-list, so only the within-body deny check can suppress
+    // paging — this isolates that branch (distinct from the out-of-body chrome case)
+    expect(optOut.closest("[data-swipe-page]")).toBe(body);
+
+    leftwardDrag(optOut);
+
+    expect(onnavigate).not.toHaveBeenCalled();
   });
 });

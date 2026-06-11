@@ -4,6 +4,7 @@
   import { m } from "$lib/paraglide/messages";
   import { toasts } from "$lib/toasts.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
 
   let {
@@ -139,12 +140,15 @@
 
   // Independent of `report`: this only needs `repoPath`, so it stays actionable
   // even when the scorecard is loading-errored or the repo isn't JS/TS.
-  let adopting = $state(false);
+  // Keyed by repoPath, not a single boolean: the component persists across repo
+  // switches (no {#key} in BacklogView), so a per-repo set keeps an in-flight
+  // adopt for one repo from disabling the button on any other repo you switch to.
+  const adoptingRepos = new SvelteSet<string>();
 
   async function adoptGitignoreClick() {
-    if (adopting) return;
     const rp = repoPath;
-    adopting = true;
+    if (adoptingRepos.has(rp)) return;
+    adoptingRepos.add(rp);
     try {
       const res = await adoptGitignore(rp);
       // Ignore a result that landed after the operator switched repos.
@@ -183,10 +187,10 @@
         key: "adopt-gitignore-fail",
       });
     } finally {
-      // Always release the lock — the component persists across repo switches
-      // (no {#key} in BacklogView), so gating this on `rp === repoPath` would
-      // wedge the button disabled for the new repo when one switches mid-adopt.
-      adopting = false;
+      // Release only THIS repo's lock — deleting `rp` (not the current repoPath)
+      // so a concurrent adopt on another repo isn't cleared, and a mid-adopt
+      // repo switch never leaves the lock stuck.
+      adoptingRepos.delete(rp);
     }
   }
 </script>
@@ -286,7 +290,7 @@
       <button
         class="cta"
         type="button"
-        disabled={adopting}
+        disabled={adoptingRepos.has(repoPath)}
         onclick={adoptGitignoreClick}
         use:coachTarget={"adopt-gitignore"}
       >

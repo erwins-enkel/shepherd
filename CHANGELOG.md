@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.25.0](https://github.com/erwins-enkel/shepherd/compare/v1.24.0...v1.25.0) (2026-06-11)
+
+
+### Features
+
+* **herdr-update:** link upstream release notes for multi-version jumps ([#542](https://github.com/erwins-enkel/shepherd/issues/542)) ([0d60b30](https://github.com/erwins-enkel/shepherd/commit/0d60b305d69a2d60a10e79a26eb7f7595476db47))
+* **herd:** replace REPO STATUS band with a repo-filter chip rail ([#538](https://github.com/erwins-enkel/shepherd/issues/538)) ([5790b1c](https://github.com/erwins-enkel/shepherd/commit/5790b1ce5d12a1d50c7eb74fc4a0d6d5affea243))
+* **issue-log:** post waiting/merged workflow comments on the backlog issue ([#541](https://github.com/erwins-enkel/shepherd/issues/541)) ([f727171](https://github.com/erwins-enkel/shepherd/commit/f727171a3cf8993a3519933491dd500ebe4ba25d))
+* **ui:** collapsible herd sidebar on touch-primary wide devices ([#529](https://github.com/erwins-enkel/shepherd/issues/529)) ([471d7cf](https://github.com/erwins-enkel/shepherd/commit/471d7cf61dd496ab59c67d5365cfbefc3f8ffb87))
+* **viewport:** redraw menu with squished-history repair variants ([#540](https://github.com/erwins-enkel/shepherd/issues/540)) ([49c74cb](https://github.com/erwins-enkel/shepherd/commit/49c74cb1e9f2491e81c7de958df1adc9817b965c))
+
+
+### Bug Fixes
+
+* **cards:** make REVIEWING / NEEDS YOU / WAITING badges mutually exclusive ([#532](https://github.com/erwins-enkel/shepherd/issues/532)) ([980619c](https://github.com/erwins-enkel/shepherd/commit/980619c6af824db95e515a4300950681066c78e8))
+* **projects:** stop new-project route test from creating real GitHub repos ([#533](https://github.com/erwins-enkel/shepherd/issues/533)) ([e6b7637](https://github.com/erwins-enkel/shepherd/commit/e6b76376ef1df5960bb2b2461a6fabd15a7121f8))
+* **queue-strip:** render repo-status filter as project-icon chips ([#528](https://github.com/erwins-enkel/shepherd/issues/528)) ([f8fa5a7](https://github.com/erwins-enkel/shepherd/commit/f8fa5a785e69fd39ad45c2c1aa1971644b0ef6b0))
+* **steerbar:** show ABC labels toggle only when a label is collapsed ([#545](https://github.com/erwins-enkel/shepherd/issues/545)) ([58f59dd](https://github.com/erwins-enkel/shepherd/commit/58f59dd9047ce727d5db3fb338787aa781c72e73))
+* **toasts:** full-width bottom banner with draining undo fill on phones ([#536](https://github.com/erwins-enkel/shepherd/issues/536)) ([d95b197](https://github.com/erwins-enkel/shepherd/commit/d95b1971dfae27a77a1336d7334de1d3f7bf1743))
+* **ui:** clear read-only message when a mutation is blocked by preview origin ([#543](https://github.com/erwins-enkel/shepherd/issues/543)) ([fd05e55](https://github.com/erwins-enkel/shepherd/commit/fd05e55acbdf485e27e2b18807f9a03842132214))
+* **ui:** drop side borders on mobile selected card and full-bleed the top bar ([#537](https://github.com/erwins-enkel/shepherd/issues/537)) ([032f842](https://github.com/erwins-enkel/shepherd/commit/032f8427d7f4d36023b242bb7c6aa27bf4b7be58))
+* **ui:** scope session-card time popover to the wall-clock hover ([#531](https://github.com/erwins-enkel/shepherd/issues/531)) ([af46dd6](https://github.com/erwins-enkel/shepherd/commit/af46dd620402155961b0bdd9db96ec7bde26dba5))
+* **viewport:** clarify keynav legend needs Alt from terminal ([#530](https://github.com/erwins-enkel/shepherd/issues/530)) ([dde9262](https://github.com/erwins-enkel/shepherd/commit/dde92623457439ede4c7842eff8773dd8b3e6ddb))
+* **viewport:** keep mobile state-badge strip on one scrollable row ([#544](https://github.com/erwins-enkel/shepherd/issues/544)) ([54a6a9d](https://github.com/erwins-enkel/shepherd/commit/54a6a9dd465d91b15936c931e0d696aa98028538))
+
 ## [1.24.0](https://github.com/erwins-enkel/shepherd/compare/v1.23.0...v1.24.0) (2026-06-10)
 
 

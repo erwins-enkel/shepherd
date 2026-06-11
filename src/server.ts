@@ -177,6 +177,10 @@ export interface AppDeps {
   distiller?: { distillNow: (repoPath: string) => void };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
+  /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
+  gitignoreAdopter?: {
+    adopt: (repoPath: string) => Promise<import("./gitignore-adopt").AdoptResult>;
+  };
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
@@ -2294,6 +2298,26 @@ async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | nul
   return json(analyzeReadiness(dir));
 }
 
+// POST /api/adopt-gitignore?repo= — open a PR adding the managed .shepherd-* ignore
+// block to the repo's committed .gitignore. Modelled on the promote route.
+async function handleAdoptGitignore({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "adopt-gitignore" || parts[2]) return null;
+  if (req.method !== "POST") return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.gitignoreAdopter) return json({ error: "adopt unavailable" }, 503);
+  const res = await deps.gitignoreAdopter.adopt(dir);
+  if (res.ok) {
+    return res.status === "applied"
+      ? json({ status: "applied", prUrl: res.url })
+      : json({ status: "already" });
+  }
+  // Expected non-error outcomes (no-forge / no-access): a 200 status the UI maps
+  // to an info toast, not a retryable error.
+  if ("reason" in res) return json({ status: res.reason });
+  return json({ error: res.error }, res.status);
+}
+
 async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "backlog" || parts[2]) return null;
   if (!deps.backlog) return json(EMPTY_BACKLOG);
@@ -2401,6 +2425,7 @@ const ROUTE_HANDLERS = [
   handleRepoPull,
   handleDependabotRebase,
   handleReadiness,
+  handleAdoptGitignore,
   handleBacklog,
   handleTodo,
   handleCommands,

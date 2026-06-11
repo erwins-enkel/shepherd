@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
+import { ensureShepherdExclude } from "./shepherd-exclude";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +31,10 @@ export class WorktreeMgr {
     if (!this.isGit(repoPath)) {
       return { worktreePath: repoPath, branch: null, isolated: false };
     }
+    // Must run before the try so it covers both the worktree-add success path and the
+    // catch fallback where the session runs in the main checkout (isolated: false) —
+    // the exact case that would drop .shepherd-* artifacts into the operator's tree.
+    ensureShepherdExclude(repoPath);
     const branch = `shepherd/${name}`;
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
     const worktreePath = join(parent, `${basename(repoPath)}-${name}`);

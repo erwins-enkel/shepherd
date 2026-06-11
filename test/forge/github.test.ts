@@ -862,3 +862,64 @@ test("GithubForge.convertToDraft: invokes gh pr ready <n> --repo --undo", async 
   await forge.convertToDraft!(42);
   expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r", "--undo"]);
 });
+
+test("GithubForge.canPush: WRITE → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "WRITE" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: ADMIN → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "ADMIN" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: MAINTAIN → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "MAINTAIN" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: READ → false", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "READ" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+test("GithubForge.canPush: NONE → false", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "NONE" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+test("GithubForge.canPush: TRIAGE → false (definitive deny)", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "TRIAGE" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+// A probe failure is NOT a definitive deny — it throws so the caller can treat it
+// as retryable, rather than silently reporting "no push access".
+test("GithubForge.canPush: garbled JSON → throws (probe failure)", async () => {
+  const { run } = fakeRunner({ "repo view": "not-json{{" });
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
+});
+
+test("GithubForge.canPush: runner throws → rethrows (probe failure)", async () => {
+  const run = async (): Promise<string> => {
+    throw new Error("network error");
+  };
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
+});
+
+test("GithubForge.canPush: absent/unknown permission → throws (probe failure)", async () => {
+  const { run } = fakeRunner({ "repo view": JSON.stringify({}) });
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
+});

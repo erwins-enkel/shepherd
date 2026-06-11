@@ -419,6 +419,29 @@ export class GithubForge implements GitForge {
     return this.cachedUser;
   }
 
+  /** Whether the authenticated user can push. Returns a DEFINITIVE boolean only;
+   *  THROWS on a probe failure (network/auth/unrecognised output) so the caller
+   *  can treat that as retryable rather than silently as "no access". */
+  async canPush(): Promise<boolean> {
+    // `this.run` throwing (offline/unauth) and JSON.parse throwing (garbled)
+    // both propagate as probe failures — intentionally not caught here.
+    const out = await this.run(["repo", "view", this.slug, "--json", "viewerPermission"]);
+    const { viewerPermission } = JSON.parse(out || "{}") as { viewerPermission?: string };
+    switch (viewerPermission) {
+      case "ADMIN":
+      case "MAINTAIN":
+      case "WRITE":
+        return true;
+      case "READ":
+      case "TRIAGE":
+      case "NONE":
+        return false;
+      default:
+        // Absent/unknown permission is not a definitive deny — surface as a probe failure.
+        throw new Error(`unexpected viewerPermission: ${viewerPermission ?? "(absent)"}`);
+    }
+  }
+
   async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
     try {
       // --paginate so a repo with >30 collaborators isn't silently truncated.

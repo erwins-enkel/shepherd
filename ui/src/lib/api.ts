@@ -728,6 +728,27 @@ export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
   return getJson(`/api/readiness?repo=${encodeURIComponent(repoPath)}`, "readiness");
 }
 
+/** Open a PR adding Shepherd's `.shepherd-*` session artifacts to the repo's
+ *  `.gitignore` (only for repos you can push to; otherwise they're already hidden
+ *  locally via git exclude). Resolves to the server's outcome:
+ *  - `applied` — a PR was opened (`prUrl` carries its link),
+ *  - `already`  — the entries are already present in `.gitignore` (no-op),
+ *  - `no-access` — a forge exists but no push access; hidden locally only,
+ *  - `no-forge` — no git forge configured for the repo; hidden locally only.
+ *  Throws the server's `{error}` body on a non-2xx response (see `failed`). */
+export async function adoptGitignore(repoPath: string): Promise<{
+  status: "applied" | "already" | "no-access" | "no-forge";
+  prUrl?: string;
+  error?: string;
+}> {
+  const r = await fetch(`/api/adopt-gitignore?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "adopt-gitignore");
+  return r.json();
+}
+
 export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
   return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
 }

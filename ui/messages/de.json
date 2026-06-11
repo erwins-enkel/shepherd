@@ -20,6 +20,7 @@
   "herdrupdate_done_fail": "Update nicht abgeschlossen (weiterhin auf {current}). Prüfe das Log; du kannst es erneut versuchen.",
   "herdrupdate_later": "Später",
   "herdrupdate_log_label": "Update-Protokoll",
+  "herdrupdate_all_notes_link": "Alle Release-Notes ansehen",
   "common_needs_you": "BRAUCHT DICH · {count}",
   "common_no_open_issues": "keine offenen Issues",
   "main_no_unit_selected": "KEINE AUFGABE GEWÄHLT",
@@ -953,5 +954,7 @@
   "feat_new_project_title": "Neues Projekt starten",
   "feat_new_project_body": "Lege ein frisches Git-Repository an — optional auch auf GitHub — und starte den ersten Agenten-Run, ohne Shepherd zu verlassen.",
   "feat_sidebar_collapse_title": "Einklappbare Seitenleiste",
-  "feat_sidebar_collapse_body": "Auf Touch-Tablets und aufgeklappten Foldables die Herd-Seitenleiste einklappen, um dem Terminal mehr Platz zu geben. Deine Auswahl wird gespeichert."
+  "feat_sidebar_collapse_body": "Auf Touch-Tablets und aufgeklappten Foldables die Herd-Seitenleiste einklappen, um dem Terminal mehr Platz zu geben. Deine Auswahl wird gespeichert.",
+  "feat_herdr_release_notes_link_title": "herdr-Release-Notes (Upstream)",
+  "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten."
 }

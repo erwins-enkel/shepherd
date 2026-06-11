@@ -25,6 +25,12 @@
   let error = $state<string | null>(null);
   let logEl = $state<HTMLPreElement | null>(null);
 
+  // Upstream release history. herdr.dev/releases/ was stale (only 0.6.3) as of
+  // 2026-06-11 while upstream was 0.6.10, and itself links to this GitHub repo —
+  // same slug as latest.json's binary-download asset URLs. Revisit if
+  // herdr.dev/releases/ catches up or the repo moves.
+  const HERDR_RELEASES_URL = "https://github.com/ogulcancelik/herdr/releases";
+
   // Render the (GitHub release) notes as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay
   // off the critical path; the (browser-only) sanitizer never runs during SSR.
@@ -146,6 +152,10 @@
         <pre class="notes notes-raw">{update.notes}</pre>
       {/if}
     {/if}
+
+    <a class="all-notes" href={HERDR_RELEASES_URL} target="_blank" rel="noopener noreferrer"
+      >{m.herdrupdate_all_notes_link()} ↗</a
+    >
 
     <div class="instructions">{m.herdrupdate_instructions()}</div>
 
@@ -319,6 +329,16 @@
   .notes :global(a) {
     color: var(--color-blue);
     text-decoration: underline;
+  }
+  .all-notes {
+    align-self: flex-start;
+    color: var(--color-blue);
+    font-size: var(--fs-meta);
+    text-decoration: underline;
+    letter-spacing: 0.04em;
+  }
+  .all-notes:hover {
+    color: var(--color-amber);
   }
   .notes :global(code) {
     font-family: var(--font-mono);

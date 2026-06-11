@@ -87,7 +87,7 @@
     color: var(--color-ink);
   }
 
-  /* merge-train attention state is the loud thing in the band: red, with its detail inline */
+  /* merge-train attention state is the loud thing in the merge-train band: red, with its detail inline */
   .qs-pause {
     color: var(--color-red);
     background: color-mix(in oklab, var(--color-red) 12%, transparent);

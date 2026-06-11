@@ -112,6 +112,37 @@ describe("GitignoreAdopter", () => {
     expect(created.length).toBe(0);
   });
 
+  test("canPush probe THROWS → retryable error (502), NOT a silent no-access", async () => {
+    const openPrCalls: OpenPrCall[] = [];
+    const wt = new WorktreeMgr();
+    const created: string[] = [];
+    const a = new GitignoreAdopter({
+      worktree: {
+        create: (...args) => {
+          const r = wt.create(...args);
+          created.push(r.worktreePath);
+          return r;
+        },
+        remove: (p) => wt.remove(p),
+      },
+      resolveForge: () =>
+        fakeForge(
+          {
+            canPush: async () => {
+              throw new Error("network blip");
+            },
+          },
+          openPrCalls,
+        ),
+    });
+
+    const res = await a.adopt(repo);
+    // A blip must surface as a retryable error, distinct from a definitive no-access.
+    expect(res).toEqual({ ok: false, error: "could not verify push access", status: 502 });
+    expect(openPrCalls.length).toBe(0);
+    expect(created.length).toBe(0);
+  });
+
   test("resolveForge returns null → { ok:false, reason:'no-forge' } (expected, not an error)", async () => {
     const wt = new WorktreeMgr();
     const a = new GitignoreAdopter({
@@ -150,20 +181,30 @@ describe("GitignoreAdopter", () => {
     expect(localBranches).toBe("");
   });
 
-  test("already present: base .gitignore already has the block → { ok:true, status:'already' }; no PR", async () => {
+  test("already present: base .gitignore has the block → 'already'; no PR, no worktree (short-circuit)", async () => {
     const block = `${SHEPHERD_EXCLUDE_START}\n${SHEPHERD_IGNORE_GLOB}\n${SHEPHERD_EXCLUDE_END}\n`;
     seedOnBase(".gitignore", block);
 
     const openPrCalls: OpenPrCall[] = [];
     const wt = new WorktreeMgr();
+    const created: string[] = [];
     const a = new GitignoreAdopter({
-      worktree: { create: (...args) => wt.create(...args), remove: (p) => wt.remove(p) },
+      worktree: {
+        create: (...args) => {
+          const r = wt.create(...args);
+          created.push(r.worktreePath);
+          return r;
+        },
+        remove: (p) => wt.remove(p),
+      },
       resolveForge: () => fakeForge({}, openPrCalls),
     });
 
     const res = await a.adopt(repo);
     expect(res).toEqual({ ok: true, status: "already" });
     expect(openPrCalls.length).toBe(0);
+    // Short-circuited: the block is already on base, so no throwaway worktree was created.
+    expect(created.length).toBe(0);
   });
 
   test("bare glob already in base .gitignore (no markers) → 'already'; no redundant PR", async () => {

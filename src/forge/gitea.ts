@@ -294,15 +294,17 @@ export class GiteaForge implements GitForge {
     return repo.default_branch;
   }
 
+  /** Whether the authenticated user can push. Returns a DEFINITIVE boolean only;
+   *  THROWS on a probe failure (request error / missing permissions field) so the
+   *  caller can treat that as retryable rather than silently as "no access". */
   async canPush(): Promise<boolean> {
-    try {
-      const repo = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
-        permissions?: { push?: boolean };
-      };
-      return repo.permissions?.push === true;
-    } catch {
-      return false;
-    }
+    // `this.req` throwing (offline/unauth) propagates as a probe failure — not caught.
+    const repo = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
+      permissions?: { push?: boolean };
+    };
+    const push = repo.permissions?.push;
+    if (typeof push !== "boolean") throw new Error("gitea repo permissions.push missing");
+    return push;
   }
 
   /** Gitea has no draft boolean in CreatePullRequestOption (confirmed via swagger.v1.json

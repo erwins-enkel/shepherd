@@ -70,7 +70,16 @@ export class GitignoreAdopter {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return { ok: false, reason: "no-forge" };
 
-    const can = forge.canPush ? await forge.canPush() : false;
+    // Distinguish a DEFINITIVE deny (canPush resolves false → no-access, an info
+    // outcome) from a PROBE FAILURE (canPush throws: network/auth blip → retryable
+    // error). Conflating them would tell an access-holder "no push access" and
+    // silently open no PR. A forge without a canPush probe → definitive no-access.
+    let can: boolean;
+    try {
+      can = forge.canPush ? await forge.canPush() : false;
+    } catch {
+      return { ok: false, error: "could not verify push access", status: 502 };
+    }
     if (!can) return { ok: false, reason: "no-access" };
 
     let base: string;
@@ -84,6 +93,10 @@ export class GitignoreAdopter {
     } catch {
       /* offline / no origin — createAdoptWorktree falls back to the local base ref */
     }
+
+    // Short-circuit the common post-merge re-click: if the managed block already
+    // lives on the base branch, skip the throwaway worktree + commit entirely.
+    if (await this.alreadyOnBase(repoPath, base)) return { ok: true, status: "already" };
 
     // Unique per-attempt branch: a partial failure (push ok but PR url missing → 502)
     // must not wedge a retry on a stale branch name / non-fast-forward push.
@@ -101,6 +114,32 @@ export class GitignoreAdopter {
       return { ok: false, error: "adopt failed", status: 500 };
     } finally {
       await this.cleanup(repoPath, wt.worktreePath, wt.branch);
+    }
+  }
+
+  /** True iff the managed block already lives in the base branch's committed
+   *  `.gitignore`, read WITHOUT a checkout so the post-merge re-click can
+   *  short-circuit the throwaway worktree. Conservative: the first readable ref
+   *  (`origin/<base>`, then local `<base>`) decides; if neither is readable
+   *  (file or ref absent) it returns false so the worktree path still runs. */
+  private async alreadyOnBase(repoPath: string, base: string): Promise<boolean> {
+    for (const ref of [`origin/${base}`, base]) {
+      const baseGitignore = await this.gitShow(repoPath, ref, ".gitignore");
+      if (baseGitignore !== null) return !upsertShepherdIgnoreBlock(baseGitignore).changed;
+    }
+    return false;
+  }
+
+  /** Read `<ref>:<path>` from the repo without a checkout. Returns the blob text,
+   *  or null when the ref or path is absent (used to peek the base `.gitignore`
+   *  for the no-op short-circuit). Read-only — deliberately not the injectable
+   *  side-effecting `this.git` (which discards stdout). */
+  private async gitShow(repoPath: string, ref: string, path: string): Promise<string | null> {
+    try {
+      const { stdout } = await execFileP("git", ["show", `${ref}:${path}`], { cwd: repoPath });
+      return stdout;
+    } catch {
+      return null; // ref or file absent
     }
   }
 

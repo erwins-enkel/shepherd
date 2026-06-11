@@ -898,14 +898,28 @@ test("GithubForge.canPush: NONE → false", async () => {
   expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
 });
 
-test("GithubForge.canPush: garbled JSON → false", async () => {
-  const { run } = fakeRunner({ "repo view": "not-json{{" });
+test("GithubForge.canPush: TRIAGE → false (definitive deny)", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "TRIAGE" }),
+  });
   expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
 });
 
-test("GithubForge.canPush: runner throws → false", async () => {
+// A probe failure is NOT a definitive deny — it throws so the caller can treat it
+// as retryable, rather than silently reporting "no push access".
+test("GithubForge.canPush: garbled JSON → throws (probe failure)", async () => {
+  const { run } = fakeRunner({ "repo view": "not-json{{" });
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
+});
+
+test("GithubForge.canPush: runner throws → rethrows (probe failure)", async () => {
   const run = async (): Promise<string> => {
     throw new Error("network error");
   };
-  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
+});
+
+test("GithubForge.canPush: absent/unknown permission → throws (probe failure)", async () => {
+  const { run } = fakeRunner({ "repo view": JSON.stringify({}) });
+  expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
 });

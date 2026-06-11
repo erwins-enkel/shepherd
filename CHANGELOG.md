@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.26.0](https://github.com/erwins-enkel/shepherd/compare/v1.25.0...v1.26.0) (2026-06-11)
+
+
+### Features
+
+* **backlog:** differentiate code PRs from Dependabot & release-please PRs ([#555](https://github.com/erwins-enkel/shepherd/issues/555)) ([cccc40d](https://github.com/erwins-enkel/shepherd/commit/cccc40d4529b52bc09a26fb90eb0a5c10703cf4a))
+* **backlog:** type-to-filter search in the repo list filter bar ([#556](https://github.com/erwins-enkel/shepherd/issues/556)) ([0832bae](https://github.com/erwins-enkel/shepherd/commit/0832bae3eccb7a2cfdb25c64ab9cb499700de188))
+* hide Shepherd's session artifacts — auto local git-exclude + opt-in committed .gitignore PR ([#535](https://github.com/erwins-enkel/shepherd/issues/535)) ([383abcc](https://github.com/erwins-enkel/shepherd/commit/383abcc0b2ad14b38d8e3ea3f5153b2c4d3457d6))
+* **relaunch:** respawn a task with the same prompt + current settings ([#550](https://github.com/erwins-enkel/shepherd/issues/550)) ([7a2857e](https://github.com/erwins-enkel/shepherd/commit/7a2857e3ca0258af97db87ff00b76892c375845d))
+
+
+### Bug Fixes
+
+* **herd:** drop redundant repo-filter underline + keep filter alive at one repo ([#557](https://github.com/erwins-enkel/shepherd/issues/557)) ([62e9dfa](https://github.com/erwins-enkel/shepherd/commit/62e9dfac38544a2f7ded122839bf99e2d87e1394))
+* **reposelect:** open dropdown with cursor on the selected repo, not the pinned one ([#548](https://github.com/erwins-enkel/shepherd/issues/548)) ([02edff5](https://github.com/erwins-enkel/shepherd/commit/02edff5b44990b064aaed0376157b61a980cb285))
+* **steers:** keep delete button inline in saved-steers rows ([#553](https://github.com/erwins-enkel/shepherd/issues/553)) ([1fbfdb6](https://github.com/erwins-enkel/shepherd/commit/1fbfdb632369381e0f88e36c1cb88b91a6957c3b))
+* **toasts:** restore draining countdown as full-width top bar on mobile ([#549](https://github.com/erwins-enkel/shepherd/issues/549)) ([98992c9](https://github.com/erwins-enkel/shepherd/commit/98992c9c0085aaa29602fe8e54d582fcf672725e))
+* **viewport:** scope mobile page-swipe to the terminal body so the top action bar is reachable ([#552](https://github.com/erwins-enkel/shepherd/issues/552)) ([c4e08c3](https://github.com/erwins-enkel/shepherd/commit/c4e08c3a3851c8fc7b0c932a623635603674ceee))
+
 ## [1.25.0](https://github.com/erwins-enkel/shepherd/compare/v1.24.0...v1.25.0) (2026-06-11)
 
 

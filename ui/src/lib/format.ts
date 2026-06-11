@@ -1,5 +1,6 @@
 import { m } from "$lib/paraglide/messages";
-import type { Session, SessionStatus } from "./types";
+import type { Session, SessionStatus, GitState } from "./types";
+import { isMerging } from "./components/merge-train";
 
 /**
  * Whether to offer a Resume control for a session: idle/done with a pinned
@@ -18,6 +19,26 @@ export function canResume(s: Session, claudeAlive?: boolean): boolean {
   return (
     !!s.claudeSessionId && (s.status === "idle" || s.status === "done") && claudeAlive !== true
   );
+}
+
+/**
+ * Whether to offer Relaunch for a session. Relaunch redoes a task from scratch with
+ * corrected spawn-immutable settings and then decommissions the original — so it only
+ * makes sense for a task still in flight. A *concluded* task must NOT offer it, because
+ * relaunching there would spawn a duplicate and tear down the finished record:
+ *   - operator-parked as done (`readyToMerge`),
+ *   - autopilot judged it complete (`autopilotComplete`),
+ *   - its PR has already landed (`git.state === "merged"`),
+ *   - or it's mid-merge-train (`isMerging`).
+ * Note an open/closed-unmerged PR or a plain idle/done status is still "in flight" — the
+ * operator may legitimately redo it. The server independently 409s an already-archived
+ * original; this gate is the UI affordance.
+ */
+export function canRelaunch(s: Session, git?: GitState, now: number = Date.now()): boolean {
+  if (s.readyToMerge || s.autopilotComplete) return false;
+  if (git?.state === "merged") return false;
+  if (isMerging(s, now)) return false;
+  return true;
 }
 
 /**

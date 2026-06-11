@@ -23,6 +23,7 @@
     hideStatusBadge,
     autopilotBadgeShown,
     canResume,
+    canRelaunch,
   } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
@@ -62,6 +63,7 @@
     previewServeFailed = false,
     onpreview,
     ondecommission,
+    onrelaunch,
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
@@ -83,6 +85,9 @@
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both
     ondecommission?: (id: string) => void;
+    // when provided, the right-click / long-press CardMenu gains a two-step armed
+    // Relaunch action (spawns a fresh replacement + decommissions this session)
+    onrelaunch?: (id: string) => void;
     // active page-level repo filter (full repoPath); drives the icon's pressed state
     repoFilter?: string | null;
     // when provided, clicking the inline repo emoji toggles the repo filter:
@@ -198,18 +203,22 @@
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
+  // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
+  // parent wired a handler — never on a concluded/merged record, where it would spawn a
+  // duplicate and tear down the finished row.
+  const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !ondecommission)) return false;
+    if (menu || (!resumable && !ondecommission && !relaunchable)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !ondecommission) return; // nothing to offer → leave native menu
+    if (!resumable && !ondecommission && !relaunchable) return; // nothing to offer → leave native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -225,6 +234,10 @@
   function decommissionFromMenu() {
     menu = null;
     ondecommission?.(session.id);
+  }
+  function relaunchFromMenu() {
+    menu = null;
+    onrelaunch?.(session.id);
   }
 
   // Time-breakdown popover: the .unit-hit overlay is the row's only click/
@@ -499,6 +512,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

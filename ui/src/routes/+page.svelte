@@ -7,6 +7,8 @@
     createSession,
     startMergeTrain,
     archiveSession,
+    relaunchSession,
+    ApiError,
     getUsageLimits,
     replySession,
     dismissStall,
@@ -840,6 +842,30 @@
     });
   }
 
+  // Relaunch a task: spawn a fresh replacement carrying the original's prompt +
+  // current settings, then decommission the original. No manual list mutation — the
+  // store adds the new card on session:new and drops the old one on session:archived;
+  // the handler only awaits the API and toasts. The two-step arm lives in CardMenu, so
+  // by the time this fires the operator has already confirmed (no undo window — relaunch
+  // is irreversible and an undo would have to also kill the fresh replacement).
+  async function onrelaunch(id: string) {
+    const fail = (text: string) =>
+      // Persistent + assertive, deduped per id under a relaunch-fail namespace: a
+      // failure toast must not vanish (unlike the transient success info), and repeated
+      // failures to one card collapse into a single toast rather than stacking.
+      toasts.info(text, { duration: null, alert: true, key: `relaunch-fail:${id}` });
+    try {
+      const { session, archived } = await relaunchSession(id);
+      if (archived) toasts.info(m.relaunch_done({ desig: session.desig }));
+      else fail(m.relaunch_archive_failed());
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "in_progress") fail(m.relaunch_in_progress());
+      else if (e instanceof ApiError && e.code === "issue_unresolved")
+        fail(m.relaunch_issue_unresolved());
+      else fail(m.relaunch_failed());
+    }
+  }
+
   // Fleet-wide emergency stop. Interrupting every working agent is consequential, so
   // the guard against an accidental tap is the TopBar's two-step arm→confirm gesture
   // (first activation arms the red "Halt N?" pill, a second commits) — by the time
@@ -1035,6 +1061,7 @@
             previewServe={store.previewServe}
             onpreview={openPreview}
             ondecommission={onarchive}
+            {onrelaunch}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
@@ -1100,6 +1127,7 @@
           {nowMs}
           git={store.git}
           activity={store.activity}
+          {onrelaunch}
           onselect={(id) => {
             selectedId = id;
             viewMode = "focus";
@@ -1139,6 +1167,7 @@
             previewServe={store.previewServe}
             onpreview={openPreview}
             ondecommission={onarchive}
+            {onrelaunch}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}

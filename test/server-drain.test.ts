@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function harness(drain?: AppDeps["drain"]): {
+function harness(drain?: Omit<NonNullable<AppDeps["drain"]>, "retainClaim">): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
 } {
@@ -27,7 +27,9 @@ function harness(drain?: AppDeps["drain"]): {
     service: {} as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
-    drain,
+    // these drain tests don't exercise relaunch; stub retainClaim so the route's
+    // drain interface (which gained retainClaim) is satisfied.
+    drain: drain ? { ...drain, retainClaim: () => {} } : undefined,
   };
   return { app: makeApp(deps), store };
 }

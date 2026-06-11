@@ -1,4 +1,7 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import {
   SessionService,
@@ -2849,6 +2852,190 @@ test("resume of an auto session re-applies the trim: flag + plugin-off overlay",
   } finally {
     config.trimAutoContext = prev;
   }
+});
+
+// ── relaunch ───────────────────────────────────────────────────────────────
+
+/** A relaunch-service harness: real store, mocked worktree/herdr/reaper.
+ *  `create` makes a worktree at /wt/<name>; `archive` removes it + stops the agent.
+ *  Returns the service plus a record of started/stopped/removed for assertions. */
+function relaunchHarness(store: SessionStore) {
+  const calls: {
+    started: { name: string; cwd: string; argv: string[] }[];
+    stopped: string[];
+    removed: string[];
+  } = { started: [], stopped: [], removed: [] };
+  let n = 0;
+  // Make the post-create override step throw (called only after seeding the original).
+  const breakOverride = () => {
+    store.setAutopilotState = () => {
+      throw new Error("override write failed");
+    };
+  };
+  const service = new SessionService({
+    store,
+    namer: async () => "relaunched",
+    worktree: {
+      create: (_repo: string, _base: string, name: string) => {
+        const wp = `/wt/${name}-${++n}`;
+        return { worktreePath: wp, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: (wp: string) => calls.removed.push(wp),
+    } as any,
+    herdr: {
+      start: (name: string, cwd: string, argv: string[]) => {
+        calls.started.push({ name, cwd, argv });
+        return { terminalId: `term_${n}`, agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: (id: string) => calls.stopped.push(id),
+    } as any,
+    moveUploads: (images: string[], worktreePath: string) =>
+      images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+  });
+  return { service, calls, breakOverride };
+}
+
+/** Seed a non-archived "original" session with the per-task settings to be copied. */
+function originalSession(
+  store: SessionStore,
+  over: Partial<Parameters<SessionStore["create"]>[0]> = {},
+) {
+  const s = store.create({
+    name: "orig",
+    prompt: "do the thing",
+    repoPath: "/repo",
+    baseBranch: "develop",
+    branch: "shepherd/orig",
+    worktreePath: "/wt/orig",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_orig",
+    model: "opus",
+    planGateEnabled: true,
+    ...over,
+  });
+  store.setAutopilotState(s.id, { enabled: true });
+  store.setAutoMergeState(s.id, { enabled: true });
+  return store.get(s.id)!;
+}
+
+test("relaunch copies prompt + all per-task settings onto the refetched new session", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+
+  const fresh = await service.relaunch(orig.id);
+
+  expect(fresh.id).not.toBe(orig.id);
+  expect(fresh.prompt).toBe("do the thing");
+  expect(fresh.repoPath).toBe("/repo");
+  expect(fresh.baseBranch).toBe("develop");
+  expect(fresh.model).toBe("opus");
+  expect(fresh.planGateEnabled).toBe(true);
+  // overrides copied + reflected in the refetched session
+  expect(fresh.autopilotEnabled).toBe(true);
+  expect(fresh.autoMergeEnabled).toBe(true);
+  // a fresh spawn always auto:false, regardless of the original
+  expect(fresh.auto).toBe(false);
+  // the new agent really started
+  expect(calls.started).toHaveLength(1);
+});
+
+test("relaunch passes a supplied issueRef through to create", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+
+  const fresh = await service.relaunch(orig.id, {
+    number: 42,
+    url: "https://example/42",
+    title: "Bug",
+    body: "details here",
+  });
+
+  expect(fresh.issueNumber).toBe(42);
+  // issue body rides the prompt argv out-of-band
+  const argv = calls.started[0]!.argv;
+  const promptArg = argv[argv.length - 1];
+  expect(promptArg).toContain("GitHub Issue #42: Bug");
+  expect(promptArg).toContain("details here");
+});
+
+test("relaunch carries images over (staged copies created, originals untouched)", async () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-root-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-wt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "a.png"), "PNGDATA");
+  writeFileSync(join(uploads, "b.jpg"), "JPGDATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service, calls } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    await service.relaunch(orig.id);
+
+    // originals untouched
+    expect(readdirSync(uploads).sort()).toEqual(["a.png", "b.jpg"]);
+    // fresh staged copies landed (extensions preserved) and were passed to create
+    const staged = readdirSync(join(root, ".shepherd-uploads-staging"));
+    expect(staged).toHaveLength(2);
+    expect(staged.filter((f) => f.endsWith(".png"))).toHaveLength(1);
+    expect(staged.filter((f) => f.endsWith(".jpg"))).toHaveLength(1);
+    // both images flowed into the spawn argv (via moveUploads mock)
+    const argv = calls.started[0]!.argv;
+    expect(argv[argv.length - 1]).toContain("Attached images:");
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("relaunch throws on a missing original", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  await expect(service.relaunch("nope")).rejects.toThrow();
+});
+
+test("relaunch throws on an archived original", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.archive(orig.id);
+  await expect(service.relaunch(orig.id)).rejects.toThrow();
+});
+
+test("relaunch does NOT archive the original", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+
+  await service.relaunch(orig.id);
+
+  expect(store.get(orig.id)?.status).not.toBe("archived");
+  expect(calls.stopped).not.toContain("term_orig"); // original agent left running
+  expect(calls.removed).not.toContain("/wt/orig"); // original worktree left in place
+});
+
+test("relaunch tears down the just-created session if a post-create step throws (no orphan)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls, breakOverride } = relaunchHarness(store);
+  const orig = originalSession(store);
+  const before = store.list().length;
+  breakOverride();
+
+  await expect(service.relaunch(orig.id)).rejects.toThrow("override write failed");
+
+  // no orphaned new session left active in the store (only the original remains)
+  const active = store.list().filter((s) => s.status !== "archived");
+  expect(active.map((s) => s.id)).toEqual([orig.id]);
+  expect(store.list().length).toBe(before + 1); // the new row exists but is archived
+  // the new agent was stopped during teardown
+  expect(calls.stopped).toHaveLength(1);
+  expect(calls.stopped[0]).not.toBe("term_orig");
 });
 
 test("resume of a non-auto session stays untrimmed even with trim on", async () => {

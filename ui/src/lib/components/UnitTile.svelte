@@ -10,6 +10,7 @@
     hideStatusBadge,
     autopilotBadgeShown,
     canResume,
+    canRelaunch,
   } from "$lib/format";
   import { onDestroy } from "svelte";
   import { displayStatus } from "$lib/display-status";
@@ -35,6 +36,7 @@
     onselect,
     git,
     activity,
+    onrelaunch,
     workingBlocked = {},
   }: {
     session: Session;
@@ -44,6 +46,9 @@
     git?: GitState;
     // live per-session signal (heartbeat ts); feeds the TimePopover's last-activity line
     activity?: SessionActivity;
+    // when provided, the right-click / long-press CardMenu gains a two-step armed
+    // Relaunch action (spawns a fresh replacement + decommissions this session)
+    onrelaunch?: (id: string) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
   } = $props();
@@ -167,16 +172,19 @@
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
+  // Relaunch only for an in-flight task (see canRelaunch) AND only when wired — never on
+  // a concluded/merged record, where it would spawn a duplicate and tear down the row.
+  const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || !resumable) return false;
+    if (menu || (!resumable && !relaunchable)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable) return; // nothing to offer → leave the native menu
+    if (!resumable && !relaunchable) return; // nothing to offer → leave the native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -188,6 +196,10 @@
     } catch {
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
     }
+  }
+  function relaunchFromMenu() {
+    menu = null;
+    onrelaunch?.(session.id);
   }
 
   // Time-breakdown popover: the .tile-hit overlay is the tile's only click/
@@ -296,6 +308,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

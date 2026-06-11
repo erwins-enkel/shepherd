@@ -827,7 +827,11 @@ const server = serve(
     distiller,
     promoter,
     gitignoreAdopter,
-    drain: { snapshot: () => drain.snapshot(), queue: (repoPath) => drain.queue(repoPath) },
+    drain: {
+      snapshot: () => drain.snapshot(),
+      queue: (repoPath) => drain.queue(repoPath),
+      retainClaim: (id) => drain.retainClaim(id),
+    },
     autoMerge: { snapshot: () => autoMerge.snapshot() },
   },
   config.port,

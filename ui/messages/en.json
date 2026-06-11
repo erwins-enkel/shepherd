@@ -680,6 +680,8 @@
   "prkind_release_badge": "{count} rel",
   "prkind_dependabot_title": "Dependabot PRs: {count}",
   "prkind_release_title": "Release PRs: {count}",
+  "prkind_dependabot_tag": "Dependabot",
+  "prkind_release_tag": "Release",
   "backlog_tab_actions": "Actions",
   "backlog_tab_actions_count": "Actions · {count}",
   "backlog_tab_actions_failing": "Actions · failing",

@@ -1,0 +1,51 @@
+import { describe, it, expect } from "vitest";
+import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import "../../app.css";
+import PrRow from "./PrRow.svelte";
+import type { PullRequest, PrKind } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+
+function pr(partial: Partial<PullRequest> = {}): PullRequest {
+  return {
+    number: 1,
+    title: "Some PR",
+    url: "https://example.com/pr/1",
+    author: "alice",
+    kind: "regular",
+    createdAt: Date.now(),
+    isDraft: false,
+    mergeable: true,
+    checks: "none",
+    jobs: [],
+    ...partial,
+  };
+}
+
+function renderRow(kind: PrKind) {
+  render(PrRow, {
+    repoPath: "/repo/a",
+    pr: pr({ kind }),
+    onreview: () => {},
+    onmerged: () => {},
+  });
+}
+
+describe("PrRow kind tag", () => {
+  it("tags a dependabot PR", async () => {
+    renderRow("dependabot");
+    await expect.element(page.getByText(m.prkind_dependabot_tag())).toBeInTheDocument();
+    expect(document.body.querySelector(".kind-tag.dep")).not.toBeNull();
+  });
+
+  it("tags a release PR", async () => {
+    renderRow("release");
+    await expect.element(page.getByText(m.prkind_release_tag())).toBeInTheDocument();
+    expect(document.body.querySelector(".kind-tag.rel")).not.toBeNull();
+  });
+
+  it("a regular PR shows no kind tag", () => {
+    renderRow("regular");
+    expect(document.body.querySelector(".kind-tag")).toBeNull();
+  });
+});

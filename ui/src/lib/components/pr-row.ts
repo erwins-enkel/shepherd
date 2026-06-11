@@ -1,20 +1,15 @@
-/** True when a PR was opened by Dependabot. `gh` reports the bot's login as
- *  `app/dependabot` (the `--json author` form) or `dependabot[bot]`. Match those
- *  exact forms rather than a substring — `includes("dependabot")` would also
- *  catch human/vanity logins like `dependabot-fan`, offering a no-op action. */
-export function isDependabotAuthor(author: string): boolean {
-  const login = author.toLowerCase().replace(/^app\//, "");
-  return login === "dependabot" || login === "dependabot[bot]";
-}
+import type { PrKind } from "$lib/types";
 
 /** Whether to offer the one-click "@dependabot rebase" action on a backlog PR
  *  row: only for Dependabot PRs that are stuck (merge blocked by conflicts/behind,
- *  or a merge attempt just failed) and not already asked to rebase. */
+ *  or a merge attempt just failed) and not already asked to rebase. The PR kind
+ *  is the single source of truth — the server classifies it (`src/forge/pr-kind.ts`),
+ *  so the row never re-derives bot-ness from the author. */
 export function showRebaseOffer(o: {
-  author: string;
+  kind: PrKind;
   blocked: boolean;
   failed: boolean;
   requested: boolean;
 }): boolean {
-  return isDependabotAuthor(o.author) && (o.blocked || o.failed) && !o.requested;
+  return o.kind === "dependabot" && (o.blocked || o.failed) && !o.requested;
 }

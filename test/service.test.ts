@@ -787,6 +787,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
@@ -827,6 +828,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {}, stopListenersOnPort: () => 0 },
@@ -869,6 +871,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -909,6 +912,7 @@ test("archive with no reap keys never calls the reaper", () => {
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {

@@ -14,6 +14,7 @@ import {
 } from "./drain-core";
 import { config } from "./config";
 import { drainSpawnModel } from "./default-model";
+import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
 
 /** Live per-repo drain status pushed to the client (and used for bootstrap). */
 export interface DrainStatus {
@@ -281,6 +282,17 @@ export class DrainService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
     const { number, url, title, body } = decision.issue;
+    // Sandbox auto-gate pre-check: skip a held issue cleanly BEFORE claiming the label
+    // or spawning, so a repo whose profile refuses auto (standard, or autonomous with no
+    // backend) doesn't churn the claim label every tick. create() re-checks and throws as
+    // defense-in-depth (its try releases the claim), but skipping here avoids that churn.
+    const rc = this.deps.store.getRepoConfig(repoPath);
+    const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
+    const hold = autoHoldReason(profile, detectBackend());
+    if (hold) {
+      console.warn(`[drain] issue #${number} held — ${hold}`);
+      return;
+    }
     // Pre-spawn claim re-check (closes the stale-cache race). The candidate came
     // from the short-TTL issuesCache, which can be up to issuesTtlMs old — long
     // enough for a SECOND instance to have stamped ACTIVE_LABEL since. A fresh,

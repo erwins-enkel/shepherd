@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import type { SessionStore } from "./store";
@@ -16,6 +17,17 @@ import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { MAX_IMAGES } from "./validate";
+import {
+  resolveProfile,
+  detectBackend as detectSandboxBackend,
+  autoHoldReason,
+  isDegraded,
+  wrapArgv,
+  SandboxAutoRefused,
+  type SandboxProfile,
+  type SandboxBackend,
+  type MembraneInputs,
+} from "./sandbox";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
  *  rejected/held-back PR (never merged, train never archived) can't stay
@@ -33,7 +45,13 @@ export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
     WorktreeMgr,
-    "create" | "remove" | "renameBranch" | "branchExists" | "commitsAhead" | "currentBranch"
+    | "create"
+    | "remove"
+    | "renameBranch"
+    | "branchExists"
+    | "commitsAhead"
+    | "currentBranch"
+    | "gitCommonDir"
   >;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel">;
   namer: (prompt: string) => string | Promise<string>;
@@ -54,6 +72,9 @@ export interface ServiceDeps {
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
+  /** Sandbox backend probe seam (tests inject `() => "bwrap"` / `() => null` so no real
+   *  bwrap is spawned); defaults to the cached real self-test in sandbox.ts. */
+  detectBackend?: () => SandboxBackend;
 }
 
 /**
@@ -493,6 +514,12 @@ function agentBaseUrl(): string {
   return `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 }
 
+/** Result of the shared spawn-wrap helper (prepareSpawn). `ok:false` carries the
+ *  auto-gate hold reason; callers diverge on it (create throws, resume → null). */
+type SpawnOutcome =
+  | { ok: true; terminalId: string; applied: SandboxProfile; degraded: boolean }
+  | { ok: false; holdReason: string };
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -550,6 +577,76 @@ export class SessionService {
    *  the one resolver both spawn sites (create + resume) go through. */
   private trimFor(auto: boolean | undefined): ReturnType<typeof trimDecision> {
     return trimDecision(auto ?? false, this.deps.pluginIds ?? installedPluginIds);
+  }
+
+  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Checks
+   *  for the dep's PRESENCE rather than `?? real()` — the seam legitimately returns null
+   *  (no backend), which `??` would collapse into the real probe. */
+  private detectBackend(): SandboxBackend {
+    return this.deps.detectBackend ? this.deps.detectBackend() : detectSandboxBackend();
+  }
+
+  /**
+   * The single spawn-wrap helper both `create` and `resume` route through: resolve the
+   * sandbox profile (per-spawn override ?? repo config ?? global default), probe the
+   * backend, enforce the auto-gate, wrap the inner claude argv in the bwrap membrane
+   * (passthrough for trusted / no-backend), and start the herdr agent.
+   *
+   * Returns a discriminated result so the two callers can diverge on an auto-refuse:
+   * `create` THROWS, `resume` resolves null (its "can't resume" contract). On success
+   * it carries the started terminal id plus the recorded sandbox state —
+   * `applied` = the resolved profile (what was requested), `degraded` = a sandboxed
+   * profile was requested but no backend was present, so it ran unconfined.
+   */
+  private prepareSpawn(
+    innerArgv: string[],
+    ctx: {
+      name: string;
+      worktreePath: string;
+      repoPath: string;
+      isolated: boolean;
+      auto: boolean | undefined;
+      profileOverride?: string | null;
+    },
+  ): SpawnOutcome {
+    const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
+    const profile = resolveProfile(
+      ctx.profileOverride,
+      repoConfig.sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    const backend = this.detectBackend();
+    const hold = autoHoldReason(profile, backend);
+    if (ctx.auto && hold) return { ok: false, holdReason: hold };
+    const degraded = isDegraded(profile, backend);
+
+    // Build the membrane only when it'll actually wrap (a sandboxed profile WITH a backend).
+    // wrapArgv ignores the membrane for trusted / no-backend (passthrough), so skipping the
+    // git/realpath resolution avoids needless host work — and the placeholder is never read.
+    const willWrap = profile !== "trusted" && backend !== null;
+    let nodeBinReal = config.nodeBin;
+    if (willWrap) {
+      try {
+        nodeBinReal = realpathSync(config.nodeBin);
+      } catch {
+        /* keep config.nodeBin */
+      }
+    }
+    const membrane: MembraneInputs = willWrap
+      ? {
+          worktreePath: ctx.worktreePath,
+          gitCommonDir: this.deps.worktree.gitCommonDir(ctx.worktreePath),
+          isolated: ctx.isolated,
+          repoPath: ctx.repoPath,
+          claudeDir: config.claudeDir,
+          home: homedir(),
+          nodeBinReal,
+          term: process.env.TERM,
+        }
+      : ({} as MembraneInputs);
+    const wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
+    const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped);
+    return { ok: true, terminalId: agent.terminalId, applied: profile, degraded };
   }
 
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when
@@ -645,7 +742,16 @@ export class SessionService {
         wt.isolated,
         trim,
       );
-      const agent = this.deps.herdr.start(name, wt.worktreePath, argv);
+      const outcome = this.prepareSpawn(argv, {
+        name,
+        worktreePath: wt.worktreePath,
+        repoPath: input.repoPath,
+        isolated: wt.isolated,
+        auto: input.auto,
+        profileOverride: input.sandboxProfile,
+      });
+      // Auto-refuse: surface as a throw so the create() caller (route 4xx / drain catch) sees it.
+      if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason);
       const session = this.deps.store.create({
         id: sessionId,
         name,
@@ -656,7 +762,9 @@ export class SessionService {
         worktreePath: wt.worktreePath,
         isolated: wt.isolated,
         herdrSession: config.herdrSession,
-        herdrAgentId: agent.terminalId,
+        herdrAgentId: outcome.terminalId,
+        sandboxApplied: outcome.applied,
+        sandboxDegraded: outcome.degraded,
         claudeSessionId,
         model: input.model,
         auto: input.auto ?? false,
@@ -940,21 +1048,35 @@ export class SessionService {
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     if (agent) this.deps.herdr.stop(agent.terminalId);
-    const argv = [
+    const innerArgv = [
       "claude",
       "--dangerously-skip-permissions",
       "--resume",
       s.claudeSessionId,
       ...trim.extraFlags,
     ];
-    argv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
-    if (s.model) argv.push("--model", s.model);
-    const spawned = this.deps.herdr.start(s.name, s.worktreePath, argv);
+    innerArgv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
+    if (s.model) innerArgv.push("--model", s.model);
+    const outcome = this.prepareSpawn(innerArgv, {
+      name: s.name,
+      worktreePath: s.worktreePath,
+      repoPath: s.repoPath,
+      isolated: s.isolated,
+      auto: s.auto,
+      profileOverride: undefined, // no per-spawn override on resume
+    });
+    if (!outcome.ok) {
+      // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
+      // server returns 409 — so an auto-refused resume resolves null rather than throwing.
+      console.warn(`[sandbox] resume refused for ${s.id}: ${outcome.holdReason}`);
+      return null;
+    }
     this.deps.store.update(id, {
-      herdrAgentId: spawned.terminalId,
+      herdrAgentId: outcome.terminalId,
       status: "running",
       lastState: "idle",
     });
+    this.deps.store.setSandboxState(id, { applied: outcome.applied, degraded: outcome.degraded });
     return this.deps.store.get(id);
   }
 

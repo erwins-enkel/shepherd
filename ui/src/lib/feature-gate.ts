@@ -25,7 +25,9 @@ function cmp(a: [number, number, number], b: [number, number, number]): -1 | 0 |
  * - lastSeenVersion === null (fresh install) → []  (caller seeds baseline)
  * - lastSeenVersion unparseable → []
  * - current <= lastSeen → []
- * - otherwise: entries where sinceVersion > lastSeen (unparseable sinceVersion excluded)
+ * - otherwise: entries where sinceVersion > lastSeen (unparseable sinceVersion excluded),
+ *   ordered newest release first (catalog order within a release) so the What's-New
+ *   drawer leads with the latest changes
  */
 export function computeNewEntries(
   lastSeenVersion: string | null,
@@ -42,9 +44,14 @@ export function computeNewEntries(
 
   if (cmp(current, lastSeen) <= 0) return [];
 
-  return catalog.filter((entry) => {
+  const fresh: { entry: FeatureAnnouncement; since: [number, number, number] }[] = [];
+  for (const entry of catalog) {
     const since = parse(entry.sinceVersion);
-    if (!since) return false;
-    return cmp(since, lastSeen) > 0 && cmp(since, current) <= 0;
-  });
+    if (!since) continue;
+    if (cmp(since, lastSeen) > 0 && cmp(since, current) <= 0) fresh.push({ entry, since });
+  }
+  // The catalog is append-only (oldest first); sort is stable, so entries of the
+  // same release keep their catalog order.
+  fresh.sort((a, b) => cmp(b.since, a.since));
+  return fresh.map((f) => f.entry);
 }

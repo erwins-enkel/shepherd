@@ -1491,16 +1491,19 @@
     let locked = false; // recognised as an actionable horizontal swipe
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      // don't hijack text selection / cursor placement in editable fields, nor the
-      // horizontally-scrollable bottom bars (steer chips, control keys, compose) —
-      // those overflow off-screen on a phone and the operator scrolls them sideways
-      // to reach a hidden button; only the terminal pane itself pages between agents.
-      if (
-        (e.target as Element | null)?.closest(
-          "input, textarea, [contenteditable], [data-swipe-ignore]",
-        )
-      )
-        return;
+      const t = e.target as Element | null;
+      // Allow-list: page only from the terminal/panel body (`.vp-body`, tagged
+      // data-swipe-page). The surrounding chrome — header + tabs, the
+      // PR/automations strip, the build-queue panel, the steer + control bars, and
+      // any popover anchored to them — sits outside `.vp-body`, so it's excluded by
+      // omission (no per-container tagging, and new chrome is excluded automatically).
+      if (!t?.closest("[data-swipe-page]")) return;
+      // Within-body refinement: don't hijack text selection / cursor placement in
+      // editable fields that can appear inside a panel. [data-swipe-ignore] is a
+      // forward-compat opt-out for any FUTURE surface placed inside the body (e.g. a
+      // horizontally-scrollable panel) — today's markers (steer/control bars) live
+      // outside `.vp-body` and are already excluded by the allow-gate above.
+      if (t.closest("input, textarea, [contenteditable], [data-swipe-ignore]")) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       armed = true;
@@ -2079,7 +2082,7 @@
   {/if}
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
-  <div class="vp-body">
+  <div class="vp-body" data-swipe-page>
     <div class="scan" aria-hidden="true"></div>
     <div
       class="term-mount"

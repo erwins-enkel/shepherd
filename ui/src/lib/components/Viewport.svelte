@@ -940,9 +940,11 @@
     const term = termRef;
     const c = conn;
     if (!term || !c) return;
-    const { cols, rows } = term;
-    c.resize(Math.max(20, cols - 1), rows);
-    setTimeout(() => c.resize(cols, rows), 150);
+    c.resize(Math.max(20, term.cols - 1), term.rows);
+    // restore reads term.* at fire time, not call time: a real device resize
+    // within the window already refit to fresh dims, and re-sending those is
+    // deduped server-side — whereas restoring captured dims would be stale.
+    setTimeout(() => c.resize(term.cols, term.rows), 150);
   }
   // 2) Medium: rebuild the terminal + fresh herdr attach (takeover) at the
   //    current size — same path as the herdr-unreachable recovery.

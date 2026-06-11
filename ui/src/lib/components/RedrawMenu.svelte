@@ -33,9 +33,19 @@
   let el = $state<HTMLDivElement>();
 
   // Right-align under the anchor button, clamped inside the viewport (same
-  // clamp approach as CardMenu). Measured after mount; until then render
-  // off-screen-safe at the anchor's bottom edge.
+  // clamp approach as CardMenu); measured by the effect below once mounted.
   let pos = $state<{ left: number; top: number } | null>(null);
+  // Until the measuring effect runs, fall back to a concrete estimate from the
+  // anchor rect (230 = the menu's CSS min-width) so the menu is visible — and
+  // focusable — from its very first paint. Never visibility:hidden: a hidden
+  // element refuses focus, which would break the first-item-focused contract.
+  const shown = $derived(
+    pos ??
+      (() => {
+        const a = anchor.getBoundingClientRect();
+        return { left: Math.max(8, a.right - 230), top: a.bottom + 4 };
+      })(),
+  );
   $effect(() => {
     const node = el;
     if (!node) return;
@@ -101,7 +111,7 @@
   role="menu"
   tabindex="-1"
   aria-label={m.redrawmenu_label()}
-  style={pos ? `left:${pos.left}px;top:${pos.top}px` : "visibility:hidden"}
+  style="left:{shown.left}px;top:{shown.top}px"
   onkeydown={onNav}
 >
   <button

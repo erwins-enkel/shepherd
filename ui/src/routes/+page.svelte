@@ -137,10 +137,11 @@
   let clearMergedLeftovers = $state(0);
   let showTriage = $state(false);
   let showLearnings = $state(false);
-  // When the learnings drawer is opened from a repo's status row, this carries that
-  // repoPath so the drawer scrolls to the matching section; null = opened globally.
+  // When the learnings drawer is opened from a repo's chip (its ✦ in the RepoSwitcher
+  // rail), this carries that repoPath so the drawer scrolls to the matching section;
+  // null = opened globally.
   let learningsRepo = $state<string | null>(null);
-  // Herd repo filter (full repo path), toggled from the repo-status band or from a
+  // Herd repo filter (full repo path), toggled from a RepoSwitcher chip or from a
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
   // selection and global counts stay whole.
   let repoFilter = $state<string | null>(null);

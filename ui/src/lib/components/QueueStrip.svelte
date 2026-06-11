@@ -1,213 +1,16 @@
 <script lang="ts">
-  import type { AutoMergeStatus, DrainStatus, QueuedItem } from "$lib/types";
+  import type { AutoMergeStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { getDrainQueue } from "$lib/api";
   import { basename } from "./learnings-drawer";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import {
-    activeMergeTrain,
-    bandHasValue,
-    mergeTrainIsAttention,
-    mergeTrainLabel,
-    pausedText,
-    queueOpenable,
-  } from "./queue-strip";
-  import type { RepoStatusRow } from "./queue-strip";
+  import { activeMergeTrain, mergeTrainIsAttention, mergeTrainLabel } from "./queue-strip";
 
   let {
-    // precomputed repo-status rows (single source lives in +page); the band lists these.
-    rows = [],
     autoMerge = {},
-    onlearnings,
-    repoFilter = null,
-    onrepofilter,
   }: {
-    rows?: RepoStatusRow[];
     autoMerge?: Record<string, AutoMergeStatus>;
-    onlearnings?: (repoPath: string) => void;
-    // active herd repo filter (full repo path), or null when showing all repos
-    repoFilter?: string | null;
-    // toggle the herd filter for a repo; null clears it. Absent → repo names are inert.
-    onrepofilter?: (repoPath: string | null) => void;
   } = $props();
   const mergeRows = $derived(activeMergeTrain(autoMerge));
-  // Only render when the band carries value (info row, or ≥2 repos so the herd
-  // filter is useful); a single bare name-only row is suppressed.
-  const showBand = $derived(bandHasValue(rows));
-
-  // Lazy queue popover: at most one open at a time, fetched fresh on open.
-  let openRepo = $state<string | null>(null);
-  let queueItems = $state<QueuedItem[]>([]);
-  let loading = $state(false);
-  let failed = $state(false);
-  let stripEl = $state<HTMLElement | null>(null);
-
-  async function toggle(d: DrainStatus) {
-    if (openRepo === d.repoPath) {
-      openRepo = null;
-      return;
-    }
-    const repo = d.repoPath;
-    openRepo = repo;
-    queueItems = [];
-    failed = false;
-    loading = true;
-    try {
-      const q = await getDrainQueue(repo);
-      if (openRepo === repo) queueItems = q; // ignore a response for a since-switched popover
-    } catch {
-      if (openRepo === repo) failed = true;
-    } finally {
-      if (openRepo === repo) loading = false;
-    }
-  }
-
-  function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") openRepo = null;
-  }
-  function onWindowPointerdown(e: PointerEvent) {
-    if (openRepo && stripEl && !stripEl.contains(e.target as Node)) openRepo = null;
-  }
-
-  // The queue popover is anchored at its cell's left edge. In the wrapping chip row a
-  // right-side cell would push the fixed-width popover past the right viewport edge, so
-  // on mount measure it and shift left by any overflow (the popover width is content-
-  // independent, so a single clamp on open is enough).
-  function clampWithinViewport(node: HTMLElement) {
-    node.style.left = "0px";
-    node.style.right = "auto";
-    const overflow = node.getBoundingClientRect().right - (window.innerWidth - 8);
-    if (overflow > 0) node.style.left = `${-overflow}px`;
-  }
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
-
-{#if showBand}
-  <div
-    class="queue-strip qs-repos"
-    role="status"
-    aria-label={m.repo_status_label()}
-    bind:this={stripEl}
-  >
-    <span class="qs-label">{m.repo_status_label()}</span>
-    {#snippet chipBody(repoPath: string, icon: string | null)}
-      {#if icon}
-        <span aria-hidden="true">{icon}</span>
-      {:else}
-        <span class="qs-chip-fallback" aria-hidden="true">▣</span>{basename(repoPath)}
-      {/if}
-    {/snippet}
-    <ul class="qs-cells">
-      {#each rows as row (row.repoPath)}
-        {@const icon = projectIcons.iconFor(row.repoPath)}
-        <li class="qs-cell" class:paused={row.drain?.paused}>
-          {#if onrepofilter}
-            {@const active = repoFilter === row.repoPath}
-            <button
-              type="button"
-              class="qs-chip"
-              class:active
-              aria-pressed={active}
-              title={basename(row.repoPath)}
-              aria-label={active
-                ? m.repo_filter_active_aria({ repo: basename(row.repoPath) })
-                : m.repo_filter_apply_aria({ repo: basename(row.repoPath) })}
-              onclick={() => onrepofilter(active ? null : row.repoPath)}
-            >
-              {@render chipBody(row.repoPath, icon)}
-            </button>
-          {:else}
-            <span class="qs-chip" title={basename(row.repoPath)}>
-              {@render chipBody(row.repoPath, icon)}
-            </span>
-            {#if icon}
-              <span class="sr-only">{basename(row.repoPath)}</span>
-            {/if}
-          {/if}
-          {#if row.drain}
-            {@const d = row.drain}
-            <span class="qs-inflight">{m.drain_inflight({ count: d.inFlight, max: d.max })}</span>
-            {#if queueOpenable(d)}
-              <button
-                type="button"
-                class="qs-queued qs-queued-btn"
-                aria-haspopup="dialog"
-                aria-expanded={openRepo === d.repoPath}
-                aria-label={m.drain_queue_open_aria({
-                  count: d.queued,
-                  repo: basename(d.repoPath),
-                })}
-                onclick={() => toggle(d)}
-              >
-                {m.drain_queued({ count: d.queued })}
-              </button>
-            {:else}
-              <span class="qs-queued">{m.drain_queued({ count: d.queued })}</span>
-            {/if}
-            {#if d.paused}
-              <span class="qs-pause" title={pausedText(d)}>{pausedText(d)}</span>
-            {/if}
-          {/if}
-
-          {#if row.insights > 0 || row.curate > 0}
-            <button
-              type="button"
-              class="qs-insights"
-              title={m.learnings_badge_tip()}
-              aria-label={row.insights > 0
-                ? m.learnings_open_aria({ count: row.insights })
-                : m.learnings_open_curate_aria({ count: row.curate })}
-              onclick={() => onlearnings?.(row.repoPath)}
-            >
-              <span class="qs-insights-icon" aria-hidden="true">✦</span>{#if row.insights > 0}<span
-                  class="qs-insights-n">{row.insights}</span
-                >{/if}
-            </button>
-          {/if}
-
-          {#if row.drain && openRepo === row.repoPath}
-            {@const d = row.drain}
-            <div
-              class="qs-pop"
-              role="dialog"
-              aria-label={m.drain_queue_title({ repo: basename(d.repoPath) })}
-              use:clampWithinViewport
-            >
-              <div class="qs-pop-head">{m.drain_queue_title({ repo: basename(d.repoPath) })}</div>
-              {#if loading}
-                <div class="qs-pop-state">{m.common_loading()}</div>
-              {:else if failed}
-                <div class="qs-pop-state qs-pop-fail">{m.drain_queue_error()}</div>
-              {:else if queueItems.length === 0}
-                <div class="qs-pop-state">{m.drain_queue_empty()}</div>
-              {:else}
-                <ul class="qs-pop-list">
-                  {#each queueItems as it (it.number)}
-                    <li>
-                      <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-                      <a
-                        class="qs-pop-item"
-                        href={it.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={m.drain_queue_item_aria({ number: it.number })}
-                      >
-                        <span class="qs-pop-num">#{it.number}</span>
-                        <span class="qs-pop-title">{it.title}</span>
-                      </a>
-                      <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-  </div>
-{/if}
 
 {#if mergeRows.length > 0}
   <div class="queue-strip" role="status" aria-label={m.automation_automerge_name()}>
@@ -242,14 +45,6 @@
        band shrink-wraps its content instead of spanning the full viewport width */
     align-self: flex-start;
   }
-  /* REPO STATUS band: chips sit on one taller row, so center the label against
-     them (overriding the shared flex-start the MERGE TRAIN band still uses). */
-  .queue-strip.qs-repos {
-    align-items: center;
-  }
-  .qs-repos .qs-label {
-    padding-top: 0;
-  }
   .qs-label {
     font-size: var(--fs-micro);
     letter-spacing: 0.16em;
@@ -273,7 +68,6 @@
     min-width: 0;
   }
   .qs-row {
-    /* positioning context for the queue popover anchored to this row */
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -288,121 +82,12 @@
     color: var(--color-ink-bright);
     font-weight: 500;
   }
-  /* REPO STATUS band: a wrapping horizontal row of repo chips (replaces the old
-     stacked text list — MERGE TRAIN keeps .qs-rows/.qs-row). */
-  .qs-cells {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    min-width: 0;
-  }
-  .qs-cell {
-    /* positioning context for the queue popover anchored to this cell */
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    white-space: nowrap;
-  }
-  /* the repo chip — square, carrying the project emoji (or ▣+name fallback). The
-     button variant is the herd filter toggle (amber when active). */
-  .qs-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    line-height: 1;
-    padding: 2px 5px;
-    font-size: var(--fs-base);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    background: var(--color-inset);
-    color: var(--color-ink-bright);
-    letter-spacing: inherit;
-    text-transform: inherit;
-  }
-  button.qs-chip {
-    font: inherit;
-    cursor: pointer;
-  }
-  button.qs-chip:hover,
-  button.qs-chip:focus-visible {
-    border-color: var(--color-line-bright);
-    background: var(--color-hover);
-  }
-  button.qs-chip:focus-visible {
-    outline: 1.5px solid var(--color-line-bright);
-    outline-offset: 0;
-  }
-  .qs-chip.active {
-    border-color: var(--color-amber);
-    background: color-mix(in oklab, var(--color-amber) 14%, transparent);
-    color: var(--color-amber);
-  }
-  .qs-chip-fallback {
-    color: var(--color-muted);
-  }
-  .qs-inflight {
-    color: var(--color-ink);
-    font-variant-numeric: tabular-nums;
-  }
-  .qs-queued {
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
-  }
-  /* the queued count, when something is queued, is a button into the list popover */
-  .qs-queued-btn {
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: inherit;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-    text-decoration: underline dotted;
-    text-underline-offset: 2px;
-  }
-  .qs-queued-btn:hover,
-  .qs-queued-btn:focus-visible {
-    color: var(--color-ink-bright);
-  }
-  /* per-repo learnings entry point — ✦ + count, same inline-button chrome as the
-     queued button so the row reads as one band. */
-  .qs-insights {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font: inherit;
-    letter-spacing: inherit;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-    color: var(--color-faint);
-  }
-  .qs-insights:hover,
-  .qs-insights:focus-visible {
-    color: var(--color-ink-bright);
-  }
-  .qs-insights-n {
-    font-variant-numeric: tabular-nums;
-  }
   /* merge-train state: active tone (merging/rebasing) matches inflight color */
   .qs-mt-state {
     color: var(--color-ink);
   }
 
-  /* a paused drain is the loud thing in the band: red, with its reason inline */
+  /* merge-train attention state is the loud thing in the band: red, with its detail inline */
   .qs-pause {
     color: var(--color-red);
     background: color-mix(in oklab, var(--color-red) 12%, transparent);
@@ -413,104 +98,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: min(320px, 50vw);
-  }
-
-  /* queue popover — chrome mirrors GitRail's .pr-pop, anchored under the row */
-  .qs-pop {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    z-index: 20;
-    margin-top: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    width: min(360px, 90vw);
-    max-height: 50vh;
-    overflow: hidden;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    text-transform: none;
-    letter-spacing: normal;
-  }
-  .qs-pop-head {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .qs-pop-state {
-    font-size: var(--fs-base);
-    color: var(--color-muted);
-  }
-  .qs-pop-fail {
-    color: var(--color-red);
-  }
-  .qs-pop-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    overflow-y: auto;
-  }
-  .qs-pop-item {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 3px 4px;
-    border-radius: 2px;
-    color: var(--color-ink);
-    text-decoration: none;
-    font-size: var(--fs-base);
-  }
-  .qs-pop-item:hover,
-  .qs-pop-item:focus-visible {
-    background: var(--color-panel);
-    color: var(--color-ink-bright);
-  }
-  .qs-pop-num {
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
-  .qs-pop-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Coarse pointers: give the band's inline action buttons a ≥44px hit area
-     (mirrors the TopBar coarse-pointer pattern). The band reads a little taller on
-     touch, but the queued-count and learnings buttons clear the tap-target floor.
-     Desktop (pointer: fine) sizing is untouched, so the band stays compact there. */
-  @media (pointer: coarse) {
-    .qs-queued-btn,
-    .qs-insights,
-    .qs-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 44px;
-      min-width: 44px;
-    }
-  }
-
-  /* visually-hidden repo name companion for the inert (non-filter) chip, so the
-     repo stays nameable to screen readers (mirrors UnitRow's sr-only) */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 </style>

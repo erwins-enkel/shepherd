@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   activeMergeTrain,
-  bandHasValue,
   chipHasTelemetry,
   chipRailVisible,
   enabledDrains,
@@ -10,10 +9,9 @@ import {
   pausedText,
   queueOpenable,
   repoChipRows,
-  repoStatusRows,
   shouldClearRepoFilter,
 } from "./queue-strip";
-import type { RepoChip, RepoStatusRow } from "./queue-strip";
+import type { RepoChip } from "./queue-strip";
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
@@ -190,149 +188,6 @@ describe("mergeTrainLabel", () => {
   });
   it("merge_error label differs from merging label", () => {
     expect(mergeTrainLabel("merge_error")).not.toBe(mergeTrainLabel("merging"));
-  });
-});
-
-// ─── repoStatusRows (generalized per-repo band) ──────────────────────────────
-
-describe("repoStatusRows", () => {
-  // shorthand for the running-agent set the band gates on
-  const running = (...paths: string[]) => new Set(paths);
-
-  it("lists running-agent repos, enriched with drain/learnings, sorted by path", () => {
-    const rows = repoStatusRows(
-      { z: drain({ repoPath: "/repos/z" }) },
-      [learning({ repoPath: "/repos/a" })],
-      [],
-      running("/repos/a", "/repos/z"),
-    );
-    expect(rows.map((r) => r.repoPath)).toEqual(["/repos/a", "/repos/z"]);
-  });
-
-  it("excludes a repo with an enabled drain but no running agent", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", inFlight: 0 }) },
-      [],
-      [],
-      running(),
-    );
-    expect(rows).toEqual([]);
-  });
-
-  it("excludes a repo with pending learnings but no running agent", () => {
-    const rows = repoStatusRows({}, [learning({ repoPath: "/repos/a" })], [], running());
-    expect(rows).toEqual([]);
-  });
-
-  it("a running repo with learnings gets the proposal count, drain:null when not drained", () => {
-    const rows = repoStatusRows(
-      {},
-      [learning({ id: "1", repoPath: "/repos/a" }), learning({ id: "2", repoPath: "/repos/a" })],
-      [],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 2, curate: 0 });
-  });
-
-  it("a running repo with a drain but no learnings carries its drain, insights:0", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", inFlight: 1 }) },
-      [],
-      [],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].drain?.inFlight).toBe(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
-  });
-
-  it("a running repo with neither drain nor learnings still gets a name-only row", () => {
-    const rows = repoStatusRows({}, [], [], running("/repos/a"));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 });
-  });
-
-  it("a disabled drain never leaks into a running repo's row", () => {
-    const rows = repoStatusRows(
-      { a: drain({ repoPath: "/repos/a", enabled: false, inFlight: 5 }) },
-      [learning({ repoPath: "/repos/a" })],
-      [],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].drain).toBeNull(); // disabled drain stays out of the row
-  });
-
-  it("curate counts over-budget rules of an enabled repo with no proposals", () => {
-    const rows = repoStatusRows(
-      {},
-      [],
-      [injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] })],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 2 });
-  });
-
-  it("a disabled injectable repo never curates (pruning can't help)", () => {
-    const rows = repoStatusRows(
-      {},
-      [],
-      [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
-      running("/repos/a"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ insights: 0, curate: 0 });
-  });
-
-  it("proposals suppress the curate fallback (badge showed the count, not curate)", () => {
-    const rows = repoStatusRows(
-      {},
-      [learning({ repoPath: "/repos/a" })],
-      [injectable({ repoPath: "/repos/a", rules: [rule(false)] })],
-      running("/repos/a"),
-    );
-    expect(rows[0]).toMatchObject({ insights: 1, curate: 0 });
-  });
-
-  it("returns an empty list when no repo has a running agent", () => {
-    expect(repoStatusRows({ a: drain({}) }, [learning({})], [], running())).toEqual([]);
-  });
-});
-
-describe("bandHasValue", () => {
-  function row(over: Partial<RepoStatusRow>): RepoStatusRow {
-    return { repoPath: "/repos/a", drain: null, insights: 0, curate: 0, ...over };
-  }
-
-  it("single bare name-only row → false", () => {
-    expect(bandHasValue([row({ drain: null, insights: 0, curate: 0 })])).toBe(false);
-  });
-
-  it("single row with an enabled drain → true", () => {
-    expect(bandHasValue([row({ drain: drain({}), insights: 0, curate: 0 })])).toBe(true);
-  });
-
-  it("single row with insights → true", () => {
-    expect(bandHasValue([row({ drain: null, insights: 1, curate: 0 })])).toBe(true);
-  });
-
-  it("single row with curate (no insights) → true", () => {
-    expect(bandHasValue([row({ drain: null, insights: 0, curate: 2 })])).toBe(true);
-  });
-
-  it("two bare name-only rows → true", () => {
-    expect(
-      bandHasValue([
-        row({ repoPath: "/repos/a", drain: null, insights: 0, curate: 0 }),
-        row({ repoPath: "/repos/b", drain: null, insights: 0, curate: 0 }),
-      ]),
-    ).toBe(true);
-  });
-
-  it("empty array → false", () => {
-    expect(bandHasValue([])).toBe(false);
   });
 });
 

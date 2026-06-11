@@ -8,21 +8,6 @@ export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[]
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
-/** One row in the generalized per-repo status band: the repo's drain (only when
- *  enabled), plus its learnings footprint. A row exists only when the repo currently
- *  has a RUNNING agent; the drain/learnings data merely enriches that row. */
-export interface RepoStatusRow {
-  repoPath: string;
-  /** The enabled drain for this repo, or null when the repo has no enabled drain
-   *  (a name-only or insight-only row). */
-  drain: DrainStatus | null;
-  /** Count of pending (proposed) learnings for this repo. */
-  insights: number;
-  /** Over-budget rule count surfaced ONLY when there are no proposals — the #253
-   *  "curate" case the old TopBar badge fell back to. 0 = nothing to curate. */
-  curate: number;
-}
-
 /** Count of an injectable repo's active rules that didn't fit its budget — only
  *  meaningful when injection is enabled (pruning can free room; disabled → 0). */
 function overBudgetCount(repo: RepoInjectable): number {
@@ -56,7 +41,7 @@ export interface RepoChip {
   drain: DrainStatus | null;
   /** Pending (proposed) learnings count for this repo. */
   insights: number;
-  /** Over-budget rule count, surfaced ONLY when insights === 0 (mirrors repoStatusRows). */
+  /** Over-budget rule count, surfaced ONLY when insights === 0. */
   curate: number;
 }
 
@@ -64,7 +49,7 @@ export interface RepoChip {
  * One chip per repo that currently has ≥1 live session (any status EXCEPT "archived").
  * Sourced from the unfiltered herd `sessions` so the repo filter can scope to
  * idle/blocked/done repos too. Enriched with the repo's enabled drain + learnings
- * footprint, same enrichment rules as repoStatusRows. Sorted by repoPath.
+ * footprint (enabled drain only; insights, else over-budget curate). Sorted by repoPath.
  */
 export function repoChipRows(
   sessions: Session[],
@@ -113,47 +98,6 @@ export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip
   return (
     repoFilter !== null && !(chipRailVisible(chips) && chips.some((c) => c.repoPath === repoFilter))
   );
-}
-
-/**
- * Build the per-repo status rows for the QueueStrip's first band: one row per repo
- * that currently has a RUNNING agent (`runningRepoPaths`). Each row is enriched with
- * the repo's ENABLED drain (taken only from `enabledDrains` — a disabled drain entry
- * never leaks its inflight/queue/popover) and its learnings footprint (pending
- * proposals, or an over-budget curate need). A repo with an enabled drain or pending
- * learnings but NO running agent gets no row. Sorted by repoPath.
- */
-export function repoStatusRows(
-  drain: Record<string, DrainStatus>,
-  items: Learning[],
-  injectable: RepoInjectable[],
-  runningRepoPaths: Set<string>,
-): RepoStatusRow[] {
-  const drains = new Map(enabledDrains(drain).map((d) => [d.repoPath, d]));
-  const { insightsByRepo, curateByRepo } = buildInsightsCurateMaps(items, injectable);
-
-  return [...runningRepoPaths]
-    .map((repoPath) => {
-      const insights = insightsByRepo.get(repoPath) ?? 0;
-      return {
-        repoPath,
-        drain: drains.get(repoPath) ?? null,
-        insights,
-        curate: insights === 0 ? (curateByRepo.get(repoPath) ?? 0) : 0,
-      };
-    })
-    .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
-}
-
-/** Whether the repo-status band carries enough value to render: at least one row
- *  has drain/queue/learnings info, OR ≥2 repos run (so the herd filter is useful).
- *  The ≥2-rows case earns its space only because the band's repo-name buttons are
- *  interactive herd filters — i.e. QueueStrip is given `onrepofilter`. Without that
- *  the names are inert and ≥2 bare rows show nothing actionable. A single bare
- *  name-only row is pure noise — hide the whole band. */
-export function bandHasValue(rows: RepoStatusRow[]): boolean {
-  if (rows.length >= 2) return true;
-  return rows.some((r) => r.drain !== null || r.insights > 0 || r.curate > 0);
 }
 
 /** Whether the `queued` indicator is an interactive trigger (opens the queue

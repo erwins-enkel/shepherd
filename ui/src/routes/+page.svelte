@@ -1564,7 +1564,7 @@
     top: 0;
     z-index: 5;
     /* opaque base surface so list content scrolling underneath doesn't show
-       through the gap between TopBar and QueueStrip */
+       through the gaps in the chrome stack (TopBar → RepoSwitcher → QueueStrip) */
     background: var(--color-bg);
     /* own the top safe-area inset (mirrors the ActionBar's padding-bottom): keeps
        the TopBar clear of the notch / Dynamic Island while the chrome is stuck at

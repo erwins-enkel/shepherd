@@ -132,7 +132,6 @@
   "automation_plan_gate_desc": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
   "automation_plan_gate_task_planning": "Dieser Task: Gate aktiv (Planung)",
   "automation_plan_gate_task_executing": "Dieser Task: Plan genehmigt (Ausführung)",
-  "repo_status_label": "Repo-Status",
   "repo_filter_apply_aria": "Herde auf Agenten von {repo} filtern",
   "repo_filter_active_aria": "Nur Agenten von {repo} — klicken, um alle Repos anzuzeigen",
   "repo_filter_all": "Alle",

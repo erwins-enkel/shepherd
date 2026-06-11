@@ -132,7 +132,6 @@
   "automation_plan_gate_desc": "Grill + adversarial plan review before the agent runs",
   "automation_plan_gate_task_planning": "This task: gate active (planning)",
   "automation_plan_gate_task_executing": "This task: plan approved (executing)",
-  "repo_status_label": "Repo status",
   "repo_filter_apply_aria": "Filter the herd to {repo} agents only",
   "repo_filter_active_aria": "Showing {repo} agents only — click to show all repos",
   "repo_filter_all": "All",

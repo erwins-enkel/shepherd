@@ -288,7 +288,9 @@ export class DrainService {
     // defense-in-depth (its try releases the claim), but skipping here avoids that churn.
     const rc = this.deps.store.getRepoConfig(repoPath);
     const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
-    const hold = autoHoldReason(profile, detectBackend());
+    // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
+    // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
+    const hold = autoHoldReason(profile, profile === "trusted" ? null : detectBackend());
     if (hold) {
       console.warn(`[drain] issue #${number} held — ${hold}`);
       return;

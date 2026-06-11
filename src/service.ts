@@ -592,6 +592,23 @@ export class SessionService {
   }
 
   /**
+   * Auto-gate hold reason for resuming an auto session, or null when allowed. Prefers the
+   * profile the session was SPAWNED with (`s.sandboxApplied`) so a per-spawn override is
+   * preserved across resume; falls back to repo-config resolution only for legacy null rows.
+   * Skips the real bwrap self-test for trusted (backend-independent there). Run BEFORE the
+   * husk teardown so a refused resume leaves a live agent intact.
+   */
+  private resumeAutoHold(s: Session): string | null {
+    const rc = this.deps.store.getRepoConfig(s.repoPath);
+    const profile = resolveProfile(
+      s.sandboxApplied ?? undefined,
+      rc.sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    return autoHoldReason(profile, profile === "trusted" ? null : this.detectBackend());
+  }
+
+  /**
    * The single spawn-wrap helper both `create` and `resume` route through: resolve the
    * sandbox profile (per-spawn override ?? repo config ?? global default), probe the
    * backend, enforce the auto-gate, wrap the inner claude argv in the bwrap membrane
@@ -1059,21 +1076,10 @@ export class SessionService {
     // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or
     // backend change leaves the running session intact rather than stopping it dead.
     // prepareSpawn re-checks below (defense in depth); this just guards the teardown.
-    if (s.auto) {
-      const rc = this.deps.store.getRepoConfig(s.repoPath);
-      // Prefer the profile this session was SPAWNED with (s.sandboxApplied) so a per-spawn
-      // override is preserved across resume; fall back to repo-config resolution only for
-      // legacy rows with no recorded profile.
-      const profile = resolveProfile(
-        s.sandboxApplied ?? undefined,
-        rc.sandboxProfile,
-        config.sandboxDefaultProfile,
-      );
-      const hold = autoHoldReason(profile, this.detectBackend());
-      if (hold) {
-        console.warn(`[sandbox] resume refused for ${s.id} (husk preserved): ${hold}`);
-        return null;
-      }
+    const hold = s.auto ? this.resumeAutoHold(s) : null;
+    if (hold) {
+      console.warn(`[sandbox] resume refused for ${s.id} (husk preserved): ${hold}`);
+      return null;
     }
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the skill catalog + plugin hooks.

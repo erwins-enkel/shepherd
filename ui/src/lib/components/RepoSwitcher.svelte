@@ -231,18 +231,6 @@
            on it catches label/icon/count content-width changes at a fixed chip
            count (which the scroller's own resize does not). -->
       <div class="rs-track" bind:this={track}>
-        <!-- leading "all" chip -->
-        <button
-          type="button"
-          class="rs-chip rs-all"
-          class:active={repoFilter === null}
-          aria-pressed={repoFilter === null}
-          aria-label={m.repo_filter_all_aria()}
-          onclick={() => onrepofilter(null)}
-        >
-          {m.repo_filter_all()}
-        </button>
-
         {#each chips as chip (chip.repoPath)}
           {@const active = repoFilter === chip.repoPath}
           {@const repo = basename(chip.repoPath)}

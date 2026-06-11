@@ -40,16 +40,13 @@ function chip(partial: Partial<RepoChip> & { repoPath: string }): RepoChip {
 }
 
 describe("RepoSwitcher — filter rail", () => {
-  it("renders the rail with the leading 'all' chip + a chip per repo (≥2 chips)", async () => {
+  it("renders the rail with a chip per repo (≥2 chips) and no leading 'all' chip", async () => {
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha", count: 2 }), chip({ repoPath: "/repo/beta" })],
       repoFilter: null,
       onrepofilter: () => {},
     });
     await expect.element(page.getByRole("group", { name: m.repo_switcher_label() })).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: m.repo_filter_all_aria() }))
-      .toBeVisible();
     await expect
       .element(page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) }))
       .toBeVisible();
@@ -78,17 +75,6 @@ describe("RepoSwitcher — filter rail", () => {
     });
     // active chip carries the "showing X only — click to show all" aria label
     await page.getByRole("button", { name: m.repo_filter_active_aria({ repo: "alpha" }) }).click();
-    expect(filtered).toBe(null);
-  });
-
-  it("clicking the 'all' chip clears the filter (null)", async () => {
-    let filtered: string | null | undefined = "unset";
-    render(RepoSwitcher, {
-      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: "/repo/alpha",
-      onrepofilter: (p: string | null) => (filtered = p),
-    });
-    await page.getByRole("button", { name: m.repo_filter_all_aria() }).click();
     expect(filtered).toBe(null);
   });
 
@@ -202,12 +188,9 @@ describe("RepoSwitcher — filter rail", () => {
       repoFilter: null,
       onrepofilter: () => {},
     });
-    // telemetry shows, but there is no filter rail / 'all' chip
+    // telemetry shows, but there is no filter rail
     expect(container.querySelector(".rs-tele"), "telemetry line").not.toBeNull();
     expect(container.querySelector(".rs-scroller"), "no filter rail").toBeNull();
-    await expect
-      .element(page.getByRole("button", { name: m.repo_filter_all_aria() }))
-      .not.toBeInTheDocument();
   });
 
   it("<2 chips and no telemetry renders no chips (only the empty live region)", async () => {

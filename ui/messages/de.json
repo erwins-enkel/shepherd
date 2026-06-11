@@ -135,8 +135,6 @@
   "repo_filter_apply_aria": "Herde auf Agenten von {repo} filtern",
   "repo_filter_active_aria": "Nur Agenten von {repo} — klicken, um alle Repos anzuzeigen",
   "repo_chip_learnings_aria": "{count} Learnings zu prüfen",
-  "repo_filter_all": "Alle",
-  "repo_filter_all_aria": "Agenten aus allen Repos anzeigen",
   "repo_switcher_label": "Herde nach Repo filtern",
   "repo_drain_paused_announce": "{repo}: {text}",
   "automation_info_aria": "Ausführliche Erklärung zu {name} anzeigen",
@@ -963,5 +961,5 @@
   "feat_herdr_release_notes_link_title": "herdr-Release-Notes (Upstream)",
   "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten.",
   "feat_repo_switcher_title": "Der Repo-Filter ist jetzt eine Chip-Reihe",
-  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut oder auf „Alle“, um zurückzusetzen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht."
+  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut, um wieder alle anzuzeigen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht."
 }

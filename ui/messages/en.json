@@ -135,8 +135,6 @@
   "repo_filter_apply_aria": "Filter the herd to {repo} agents only",
   "repo_filter_active_aria": "Showing {repo} agents only — click to show all repos",
   "repo_chip_learnings_aria": "{count} learnings to review",
-  "repo_filter_all": "All",
-  "repo_filter_all_aria": "Show agents from every repo",
   "repo_switcher_label": "Filter the herd by repo",
   "repo_drain_paused_announce": "{repo}: {text}",
   "automation_info_aria": "Show a detailed explanation of {name}",
@@ -963,5 +961,5 @@
   "feat_herdr_release_notes_link_title": "Upstream herdr release notes",
   "feat_herdr_release_notes_link_body": "The herdr update panel now links to the full upstream release history on GitHub — handy when you're jumping across several versions and want every version's notes, not just the latest.",
   "feat_repo_switcher_title": "The repo filter is now a chip rail",
-  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again, or All, to clear. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too."
+  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again to show all repos. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too."
 }

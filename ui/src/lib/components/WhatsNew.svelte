@@ -29,7 +29,7 @@
   // Localized release date for an entry's `sinceVersion`, or "" if the version
   // isn't tagged yet (e.g. the in-development release) — then only the version
   // badge shows. Date is data formatted via Intl, so it needs no message key.
-  function entryDate(sinceVersion: string): string {
+  function releaseDate(sinceVersion: string): string {
     const iso = releaseDates[sinceVersion];
     if (!iso) return "";
     const d = new Date(`${iso}T00:00:00`);
@@ -40,6 +40,27 @@
       day: "numeric",
     }).format(d);
   }
+
+  // Entries arrive sorted newest release first (computeNewEntries); collapse
+  // consecutive same-version entries into one release group so version + date
+  // render once per release instead of repeating on every entry.
+  type ReleaseGroup = { version: string; date: string; entries: FeatureAnnouncement[] };
+  const groups = $derived.by(() => {
+    const out: ReleaseGroup[] = [];
+    for (const entry of entries) {
+      const last = out[out.length - 1];
+      if (last && last.version === entry.sinceVersion) {
+        last.entries.push(entry);
+      } else {
+        out.push({
+          version: entry.sinceVersion,
+          date: releaseDate(entry.sinceVersion),
+          entries: [entry],
+        });
+      }
+    }
+    return out;
+  });
 </script>
 
 <div
@@ -66,21 +87,26 @@
       <p class="empty">{m.whatsnew_empty()}</p>
     {:else}
       <ul class="list">
-        {#each entries as entry (entry.id)}
-          {@const date = entryDate(entry.sinceVersion)}
-          <li class="entry">
-            <div class="entry-meta">
-              <span class="entry-version">v{entry.sinceVersion}</span>
-              {#if date}
-                <span class="entry-date">{date}</span>
+        {#each groups as group (group.version)}
+          <li class="group">
+            <h3 class="ghead">
+              <span class="gversion">v{group.version}</span>
+              {#if group.date}
+                <span class="gdate">{group.date}</span>
               {/if}
-            </div>
-            <h3 class="entry-title">
-              {(m as unknown as Record<string, () => string>)[entry.titleKey]()}
             </h3>
-            <p class="entry-body">
-              {(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
-            </p>
+            <ul class="entries">
+              {#each group.entries as entry (entry.id)}
+                <li class="entry">
+                  <h4 class="entry-title">
+                    {(m as unknown as Record<string, () => string>)[entry.titleKey]()}
+                  </h4>
+                  <p class="entry-body">
+                    {(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
+                  </p>
+                </li>
+              {/each}
+            </ul>
           </li>
         {/each}
       </ul>
@@ -110,8 +136,10 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px;
-    overflow-y: auto;
+    /* safe-area: keep header/footer clear of the Dynamic Island / home indicator */
+    padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
+    /* the list is the single scroll container (header + footer stay pinned) */
+    overflow: hidden;
     z-index: 51;
   }
   .bar {
@@ -132,6 +160,9 @@
     color: var(--color-muted);
     cursor: pointer;
     font-size: var(--fs-lg);
+    /* ~44px touch target without shifting the visual layout */
+    padding: 14px;
+    margin: -14px;
   }
   .empty {
     color: var(--color-muted);
@@ -145,37 +176,62 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 22px;
     flex: 1;
     overflow-y: auto;
   }
+  .group {
+    display: flex;
+    flex-direction: column;
+  }
+  /* Release rail: version + date once per release, sticky while its entries
+     scroll past so the operator always knows which release they're reading. */
+  .ghead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-panel);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0;
+    padding: 2px 0 6px;
+    border-bottom: 1px solid var(--color-line-bright);
+    font-size: var(--fs-meta);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+  }
+  .gversion {
+    color: var(--color-amber);
+    font-variant-numeric: tabular-nums;
+  }
+  .gdate {
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+  .entries {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
   .entry {
-    border: 1px solid var(--color-line);
-    padding: 12px 14px;
+    padding: 12px 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
-  .entry-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-  }
-  .entry-version {
-    color: var(--color-amber);
-    font-variant-numeric: tabular-nums;
-  }
-  .entry-date {
-    color: var(--color-muted);
+  .entry + .entry {
+    border-top: 1px solid var(--color-line);
   }
   .entry-title {
     margin: 0;
-    font-size: var(--fs-base);
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--color-ink-bright);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
   }
   .entry-body {
     margin: 0;
@@ -204,5 +260,12 @@
   .dismiss:focus-visible {
     outline: 1px solid var(--color-amber);
     outline-offset: 2px;
+  }
+  /* phone steering is first-class: full-width, 44px primary action in thumb reach */
+  @media (pointer: coarse) {
+    .dismiss {
+      width: 100%;
+      min-height: 44px;
+    }
   }
 </style>

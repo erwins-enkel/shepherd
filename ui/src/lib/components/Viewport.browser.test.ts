@@ -399,4 +399,24 @@ describe("Viewport mobile page-swipe scoping", () => {
       ).toBeNull();
     }
   });
+
+  it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
+    const onnavigate = vi.fn();
+    const { container } = renderMobile(onnavigate);
+
+    const body = container.querySelector(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    // stand in for DiffFileBlock's horizontally-scrollable `.hunks`: an in-body
+    // surface that opts out so a sideways drag scrolls it instead of paging agents
+    const optOut = document.createElement("div");
+    optOut.setAttribute("data-swipe-ignore", "");
+    body!.appendChild(optOut);
+    // it IS inside the allow-list, so only the within-body deny check can suppress
+    // paging — this isolates that branch (distinct from the out-of-body chrome case)
+    expect(optOut.closest("[data-swipe-page]")).toBe(body);
+
+    leftwardDrag(optOut);
+
+    expect(onnavigate).not.toHaveBeenCalled();
+  });
 });

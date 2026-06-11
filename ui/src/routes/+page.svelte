@@ -150,8 +150,8 @@
   const repoChips = $derived(
     repoChipRows(store.sessions, store.drain, learnings.items, learnings.injectable),
   );
-  // Clear a stranded filter the moment its repo loses its rail chip (the only un-toggle
-  // control the grid view has, gone under the <2-repo gate).
+  // Clear the filter only when its repo has no live session left (no chip) —
+  // a filter on a vanished repo would strand an empty view.
   $effect(() => {
     if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
   });

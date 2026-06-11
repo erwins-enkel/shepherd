@@ -81,9 +81,11 @@ export function repoChipRows(
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
-/** The chip rail renders only when ≥2 repos have a live session (real filtering need). */
-export function chipRailVisible(chips: RepoChip[]): boolean {
-  return chips.length >= 2;
+/** The chip rail renders when ≥2 repos have a live session (real filtering need), OR when
+ *  an active filter's repo still has a live chip — so a lone-repo filter stays visible
+ *  and can be toggled off, even after all other repos leave the herd. */
+export function chipRailVisible(chips: RepoChip[], repoFilter: string | null): boolean {
+  return chips.length >= 2 || (repoFilter !== null && chips.some((c) => c.repoPath === repoFilter));
 }
 
 /** Whether a chip carries any drain/learnings telemetry worth showing on its own. */
@@ -91,13 +93,10 @@ export function chipHasTelemetry(chip: RepoChip): boolean {
   return chip.drain !== null || chip.insights > 0 || chip.curate > 0;
 }
 
-/** Whether an active repo filter should be cleared because the repo no longer has a
- *  rail chip to un-toggle it — the only repo-filter control the grid view has, and
- *  one that disappears under the <2-repo rail gate. Prevents an un-clearable strand. */
+/** Whether an active repo filter should be cleared because its repo no longer has any live
+ *  session (no chip) — a filter on a vanished repo would strand an empty view. */
 export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip[]): boolean {
-  return (
-    repoFilter !== null && !(chipRailVisible(chips) && chips.some((c) => c.repoPath === repoFilter))
-  );
+  return repoFilter !== null && !chips.some((c) => c.repoPath === repoFilter);
 }
 
 /** Whether the `queued` indicator is an interactive trigger (opens the queue

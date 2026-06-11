@@ -354,19 +354,33 @@ describe("chipRailVisible", () => {
   }
 
   it("false for empty array", () => {
-    expect(chipRailVisible([])).toBe(false);
+    expect(chipRailVisible([], null)).toBe(false);
   });
 
   it("false for 1 chip", () => {
-    expect(chipRailVisible([chip("/repos/a")])).toBe(false);
+    expect(chipRailVisible([chip("/repos/a")], null)).toBe(false);
   });
 
   it("true for 2 chips", () => {
-    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b")])).toBe(true);
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b")], null)).toBe(true);
   });
 
   it("true for 3+ chips", () => {
-    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b"), chip("/repos/c")])).toBe(true);
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b"), chip("/repos/c")], null)).toBe(
+      true,
+    );
+  });
+
+  it("true for 1 chip when filter matches that chip (lone-repo filter stays visible)", () => {
+    expect(chipRailVisible([chip("/repos/a")], "/repos/a")).toBe(true);
+  });
+
+  it("false for 1 chip when filter is a different repo (filter on repo with no chip)", () => {
+    expect(chipRailVisible([chip("/repos/a")], "/repos/b")).toBe(false);
+  });
+
+  it("false for empty array with an active filter", () => {
+    expect(chipRailVisible([], "/repos/a")).toBe(false);
   });
 });
 
@@ -413,7 +427,15 @@ describe("shouldClearRepoFilter", () => {
     expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a"), chip("/repos/b")])).toBe(true);
   });
 
-  it("TRUE when only 1 chip (rail hidden) even if it is that repo — the strand case", () => {
-    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a")])).toBe(true);
+  it("false when filtered repo is the lone live repo — keeps the filter while its session is alive", () => {
+    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a")])).toBe(false);
+  });
+
+  it("TRUE when filtered repo is absent from a 1-chip rail — its session is gone", () => {
+    expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a")])).toBe(true);
+  });
+
+  it("TRUE when no chips remain (all sessions ended)", () => {
+    expect(shouldClearRepoFilter("/repos/a", [])).toBe(true);
   });
 });

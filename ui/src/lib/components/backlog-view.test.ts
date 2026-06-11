@@ -40,6 +40,7 @@ function project(
     kind: "github",
     openIssues,
     openPRs,
+    prKinds: null,
     workflows,
     ciStatus,
   };

@@ -435,6 +435,8 @@ export interface BacklogProject {
   recentAgentCount?: number | null;
   openIssues: number | null;
   openPRs: number | null;
+  /** Open-PR breakdown by kind for the repo-list row; null for non-GitHub forges. */
+  prKinds: { release: number; dependabot: number; regular: number } | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
   workflows: number | null;
   /** Default-branch CI rollup for the Actions tab marker; null = unknown / non-GitHub. */

@@ -3,6 +3,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
+import { classifyPr } from "./forge/pr-kind";
 import type { ForgeMap } from "./forge/types";
 
 /** Default-branch CI rollup state, or null when unknown / no CI / non-GitHub. */
@@ -13,6 +14,8 @@ export interface RepoCounts {
   openPRs: number | null;
   /** Default-branch CI health for the Actions tab marker. GitHub-only; null otherwise. */
   ciStatus: CiStatus;
+  /** Open-PR breakdown by kind for the repo-list row. GitHub-only; null for Gitea/unknown. */
+  prKinds: { release: number; dependabot: number; regular: number } | null;
 }
 
 /**
@@ -38,7 +41,12 @@ const TTL_MS = 60_000;
  */
 const DEFAULT_MAX_CONCURRENCY = 6;
 
-const NULL_COUNTS: RepoCounts = { openIssues: null, openPRs: null, ciStatus: null };
+const NULL_COUNTS: RepoCounts = {
+  openIssues: null,
+  openPRs: null,
+  ciStatus: null,
+  prKinds: null,
+};
 
 /**
  * Minimal FIFO semaphore — bounds how many gated thunks run concurrently.
@@ -208,13 +216,21 @@ export class CountsService {
       "-F",
       `name=${name}`,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount} defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName labels(first:10){nodes{name}} } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
     ]);
     const json = JSON.parse(out) as {
       data?: {
         repository?: {
           issues?: { totalCount?: number };
-          pullRequests?: { totalCount?: number };
+          pullRequests?: {
+            totalCount?: number;
+            nodes?: Array<{
+              author?: { login?: string } | null;
+              title?: string;
+              headRefName?: string;
+              labels?: { nodes?: Array<{ name?: string } | null> } | null;
+            } | null>;
+          };
           defaultBranchRef?: {
             target?: { statusCheckRollup?: { state?: string } | null } | null;
           } | null;
@@ -224,10 +240,38 @@ export class CountsService {
     const repo = json.data?.repository;
     const issues = repo?.issues?.totalCount;
     const prs = repo?.pullRequests?.totalCount;
+    const openPRs = typeof prs === "number" ? prs : null;
+
+    // Open-PR breakdown for the repo-list row. We fetch only the first 100 open
+    // PRs (one page — no extra request); each node is classified once. `regular`
+    // is derived from the authoritative `totalCount` minus the bot kinds (clamped
+    // at 0), NOT by counting "regular" nodes — so a repo with >100 open PRs
+    // classifies the first page and its unfetched tail safely falls into
+    // `regular` rather than silently vanishing.
+    let prKinds: RepoCounts["prKinds"] = null;
+    if (openPRs !== null) {
+      const kinds = (repo?.pullRequests?.nodes ?? [])
+        .filter((n): n is NonNullable<typeof n> => !!n)
+        .map((n) =>
+          classifyPr({
+            author: n.author?.login ?? "",
+            title: n.title ?? "",
+            headRefName: n.headRefName ?? undefined,
+            labels: (n.labels?.nodes ?? [])
+              .map((l) => l?.name)
+              .filter((name): name is string => !!name),
+          }),
+        );
+      const release = kinds.filter((k) => k === "release").length;
+      const dependabot = kinds.filter((k) => k === "dependabot").length;
+      prKinds = { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) };
+    }
+
     return {
       openIssues: typeof issues === "number" ? issues : null,
-      openPRs: typeof prs === "number" ? prs : null,
+      openPRs,
       ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
+      prKinds,
     };
   }
 
@@ -255,6 +299,7 @@ export class CountsService {
       openIssues: typeof data.open_issues_count === "number" ? data.open_issues_count : null,
       openPRs: typeof data.open_pr_counter === "number" ? data.open_pr_counter : null,
       ciStatus: null,
+      prKinds: null,
     };
   }
 }

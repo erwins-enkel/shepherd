@@ -431,3 +431,72 @@ test("CountsService: Gitea repo → ciStatus null", async () => {
   const svc = new CountsService(forges, async () => "", fn);
   expect((await svc.counts(repoDir)).ciStatus).toBeNull();
 });
+
+// 15. prKinds: classifies the first-page open-PR nodes by kind
+test("CountsService: prKinds breaks open PRs down by kind", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-kinds"), "https://github.com/o/kinds");
+  const { run } = fakeRunner(
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 0 },
+          pullRequests: {
+            totalCount: 4,
+            nodes: [
+              { author: { login: "dependabot[bot]" }, title: "bump foo", labels: { nodes: [] } },
+              {
+                author: { login: "me" },
+                title: "chore(main): release 1.0.0",
+                labels: { nodes: [] },
+              },
+              { author: { login: "me" }, title: "fix: a bug", labels: { nodes: [] } },
+              { author: { login: "me" }, title: "feat: a thing", labels: { nodes: [] } },
+            ],
+          },
+        },
+      },
+    }),
+  );
+  const svc = new CountsService({}, run);
+  const result = await svc.counts(repoDir);
+  expect(result.openPRs).toBe(4);
+  expect(result.prKinds).toEqual({ release: 1, dependabot: 1, regular: 2 });
+});
+
+// 16. prKinds: >100 open PRs — only the first 100 are classified; the unfetched
+//     tail falls into `regular` (regular = totalCount − release − dependabot).
+test("CountsService: prKinds clamps the >100-PR tail into regular", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-kinds-cap"), "https://github.com/o/kinds-cap");
+  const nodes = Array.from({ length: 100 }, (_, i) =>
+    i === 0
+      ? { author: { login: "dependabot[bot]" }, title: "bump foo", labels: { nodes: [] } }
+      : { author: { login: "me" }, title: "feat: thing", labels: { nodes: [] } },
+  );
+  const { run } = fakeRunner(
+    JSON.stringify({
+      data: {
+        repository: {
+          issues: { totalCount: 0 },
+          pullRequests: { totalCount: 150, nodes },
+        },
+      },
+    }),
+  );
+  const svc = new CountsService({}, run);
+  const result = await svc.counts(repoDir);
+  expect(result.openPRs).toBe(150);
+  // 150 total − 1 dependabot − 0 release = 149 regular (the unfetched 50 tail
+  // all counted as regular even though only 100 nodes were classified).
+  expect(result.prKinds).toEqual({ release: 0, dependabot: 1, regular: 149 });
+});
+
+// 17. prKinds: Gitea repos stay count-only → prKinds null
+test("CountsService: Gitea repo → prKinds null", async () => {
+  const repoDir = gitInit(join(tmpBase, "gitea-kinds"), "https://git.example.com/team/proj");
+  const forges: ForgeMap = {
+    "git.example.com": { type: "gitea", baseUrl: "https://git.example.com", token: "tok" },
+  };
+  const { fn } = fakeFetch({ open_issues_count: 5, open_pr_counter: 1 });
+  const svc = new CountsService(forges, async () => "", fn);
+  expect((await svc.counts(repoDir)).prKinds).toBeNull();
+});

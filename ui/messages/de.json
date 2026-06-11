@@ -824,7 +824,7 @@
   "feat_backlog_pr_merge_train_body": "Mehrere offene PRs im Backlog-PRs-Tab eines Repos auswählen und einen Merge-Train starten, der auf genau diese PRs beschränkt ist.",
   "feat_header_fold_title": "Kopfbereich einklappen für mehr Terminal",
   "feat_header_fold_body": "Tippe auf dem Mobilgerät auf den Pfeil im Session-Kopf, um Tabs und PR-Leiste einzuklappen und den Platz dem Terminal zu geben. Deine Wahl bleibt über Sessions hinweg erhalten.",
-  "feat_learnings_per_repo_title": "Erkenntnisse in der Repo-Zeile",
+  "feat_learnings_per_repo_title": "Learnings am Repo-Chip",
   "feat_learnings_per_repo_body": "Die ausstehenden Hausregeln eines Repos erscheinen als ✦ an seinem Chip im Repo-Filter der Herde. Filtere auf dieses Repo und klicke auf das ✦, um die Learnings zu öffnen.",
   "feat_update_checkout_title": "Lokalen Checkout nach Merge aktualisieren",
   "feat_update_checkout_body": "Wenn du einen PR über einen der Merge-Buttons der App mergst, bietet ein Toast an, den lokalen Default-Branch des Repos per Fast-Forward auf den frisch gemergten Stand zu bringen — kein manuelles Pull nötig.",
@@ -963,5 +963,5 @@
   "feat_herdr_release_notes_link_title": "herdr-Release-Notes (Upstream)",
   "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten.",
   "feat_repo_switcher_title": "Der Repo-Filter ist jetzt eine Chip-Reihe",
-  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut oder auf „Alle“, um zurückzusetzen. Drain und Learnings eines Repos sitzen an seinem Chip, und das Filtern funktioniert jetzt auch in der Rasteransicht."
+  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut oder auf „Alle“, um zurückzusetzen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht."
 }

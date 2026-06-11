@@ -824,7 +824,7 @@
   "feat_backlog_pr_merge_train_body": "Multi-select open PRs in a repo's backlog PRs tab and launch a merge train scoped to just those PRs.",
   "feat_header_fold_title": "Fold the header for more terminal",
   "feat_header_fold_body": "On mobile, tap the chevron in the session header to collapse the tabs and PR rail and hand that space to the terminal. Your choice sticks across sessions.",
-  "feat_learnings_per_repo_title": "Learnings live on the repo row",
+  "feat_learnings_per_repo_title": "Learnings show on the repo chip",
   "feat_learnings_per_repo_body": "A repo's pending house rules show as a ✦ on its chip in the herd's repo filter. Filter to that repo and click the ✦ to open the learnings drawer.",
   "feat_update_checkout_title": "Update local checkout after merge",
   "feat_update_checkout_body": "When you merge a PR from one of the app's merge buttons, a toast offers to fast-forward that repo's local default branch to the freshly merged state — no manual pull needed.",
@@ -963,5 +963,5 @@
   "feat_herdr_release_notes_link_title": "Upstream herdr release notes",
   "feat_herdr_release_notes_link_body": "The herdr update panel now links to the full upstream release history on GitHub — handy when you're jumping across several versions and want every version's notes, not just the latest.",
   "feat_repo_switcher_title": "The repo filter is now a chip rail",
-  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again, or All, to clear. A repo's drain and learnings ride its chip, and filtering now works in the grid view too."
+  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again, or All, to clear. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too."
 }

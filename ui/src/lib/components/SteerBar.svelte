@@ -119,9 +119,11 @@
   </div>
 {/if}
 <!-- The ABC labels toggle lives OUTSIDE the scrolling/measured .steer-bar (as its
-     right-hand flex sibling) so it's always visible at the far right AND so its box
-     never enters fitLabels' scrollWidth measurement — an in-flow auto-margin would
-     make scrollWidth == clientWidth and poison the cached full-label width. -->
+     right-hand flex sibling) so its box never enters fitLabels' scrollWidth
+     measurement — an in-flow auto-margin would make scrollWidth == clientWidth and
+     poison the cached full-label width. It's shown only when there's actually a
+     collapsed label to reveal: when the bar collapses (`compact`) or on mobile
+     (≤768px); hidden on a desktop bar where everything fits. -->
 <div class="steer-row" data-swipe-ignore>
   <!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
        emoji collapse to emoji-only (label stays in title/aria); the rest keep their
@@ -162,9 +164,11 @@
     {/each}
   </div>
   <!-- Right-anchored labels toggle. Sits at the bar's far right as a flex sibling of
-       the scroll area (always visible, never scrolls under). The accessible name leads
-       with the visible "ABC" glyph so voice control can address it by what it reads
-       (WCAG 2.5.3 label-in-name); the title carries the plain description. -->
+       the scroll area (never scrolls under), shown only when a label is collapsed —
+       when the bar collapses (`compact`) or on mobile (≤768px); hidden on a desktop
+       bar where everything fits. The accessible name leads with the visible "ABC"
+       glyph so voice control can address it by what it reads (WCAG 2.5.3
+       label-in-name); the title carries the plain description. -->
   <button
     type="button"
     class="chip lbl-toggle"
@@ -182,7 +186,8 @@
 </div>
 
 <style>
-  /* Row = scrolling chip bar (flex:1) + the always-visible ABC toggle at the right.
+  /* Row = scrolling chip bar (flex:1) + the ABC toggle at the right (shown only when a
+     label is collapsed / on mobile; display:none on a desktop bar where everything fits).
      Background + top border live here so they span the full width including the toggle. */
   .steer-row {
     display: flex;
@@ -253,9 +258,13 @@
     padding: 0;
   }
   /* Labels toggle: a flat "ABC" key at the row's far right, outside the scroll area
-     (its own flex column), so it's always visible and never distorts the chip bar's
-     measured width. Margins mirror the bar's padding so it lines up vertically. */
+     (its own flex column), so it never distorts the chip bar's measured width. Hidden
+     by default and revealed only when a label is actually collapsed — when the bar
+     collapses (`compact`, rule below) or on mobile (≤768px, media block below); on a
+     desktop bar where everything fits it has nothing to reveal, so it stays hidden.
+     Margins mirror the bar's padding so it lines up vertically. */
   .lbl-toggle {
+    display: none;
     flex: 0 0 auto;
     align-self: center;
     margin: 6px 10px;
@@ -264,6 +273,13 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     color: var(--color-muted);
+  }
+  /* Overflow reveal: fitLabels adds `.compact` to .steer-bar when full labels
+     overflow. 3 classes (.steer-bar+.compact+.lbl-toggle) outrank the base rule's 1,
+     so this wins whenever compact regardless of source order. Independent of
+     .show-labels so the toggle stays visible to collapse back once ABC is pressed. */
+  .steer-bar:global(.compact) ~ .lbl-toggle {
+    display: inline-flex;
   }
   .lbl-toggle[aria-pressed="true"] {
     color: var(--color-ink-bright);
@@ -280,7 +296,12 @@
      (own box, frozen left) and the steer chips play the Tab/nav groups. To line
      the first steer chip up under the Tab key, the ⌁→first-chip channel must
      equal the Esc→Tab channel (3px Esc-well + 6px ctrl-row gap + 3px Tab-well =
-     12px). The flex `gap` already gives 4px, so add the remaining 8px here. */
+     12px). The flex `gap` already gives 4px, so add the remaining 8px here.
+     This block ALSO surfaces the ABC toggle: on mobile the ⌁ label collapses
+     regardless of `compact`, so there's always a label to reveal — the `.lbl-toggle`
+     reveal below is viewport-only (1 class, so it ties the base `display: none` and
+     wins by coming later in source order), independent of `.show-labels` so the
+     toggle stays visible to collapse back once ABC is pressed. */
   @media (max-width: 768px) {
     .steer-bar:not(.show-labels) .chip.bc {
       min-width: 44px;
@@ -290,6 +311,9 @@
     }
     .steer-bar:not(.show-labels) .bc-label {
       display: none;
+    }
+    .lbl-toggle {
+      display: inline-flex;
     }
   }
   /* one-time steer hint: flat, square, hairline-bordered, muted ink — sits

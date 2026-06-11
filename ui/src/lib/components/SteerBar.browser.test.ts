@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import { tick } from "svelte";
 import "../../app.css";
 import type { Steer } from "$lib/types";
@@ -70,5 +71,68 @@ describe("SteerBar labels toggle", () => {
     const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector(".steer-bar")!.classList.contains("show-labels")).toBe(true);
+  });
+});
+
+// fitLabels measures via rAF + ResizeObserver; let layout settle before reading style.
+const frames = (n = 2) =>
+  new Promise<void>((r) => {
+    let i = 0;
+    const step = () => (++i >= n ? r() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  });
+
+describe("ABC visibility gating", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900); // restore a sane width for other suites
+  });
+
+  it("desktop, not compact (everything fits) → ABC hidden", async () => {
+    await page.viewport(1000, 900);
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames();
+
+    const bar = document.querySelector(".steer-bar") as HTMLElement;
+    const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
+    expect(bar.classList.contains("compact"), "bar not compact when one chip fits").toBe(false);
+    expect(getComputedStyle(toggle).display, "ABC hidden on wide non-compact bar").toBe("none");
+  });
+
+  it("compact via real overflow (>768px) → ABC revealed by compact alone", async () => {
+    await page.viewport(800, 900);
+    // Many emoji chips with long labels so full labels overflow ~800px and fitLabels
+    // sets AND keeps `compact` (real overflow is stable because fitLabels owns the class;
+    // a hand-added one would be stripped on the next ResizeObserver/MutationObserver
+    // decide() since the cached fullWidth wouldn't justify it).
+    steers.list = Array.from({ length: 24 }, (_, i) =>
+      steer({
+        id: String(i + 1),
+        label: `Long Steering Label Number ${i + 1}`,
+        emoji: "🚀",
+      }),
+    );
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames(4); // 24-chip layout takes longer to settle than the 2-frame default
+
+    const bar = document.querySelector(".steer-bar") as HTMLElement;
+    const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
+    expect(bar.classList.contains("compact"), "bar compact on real overflow").toBe(true);
+    expect(getComputedStyle(toggle).display, "ABC revealed when compact").not.toBe("none");
+  });
+
+  it("mobile, not compact (≤768px) → ABC revealed, ⌁ label collapsed", async () => {
+    await page.viewport(400, 900);
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames();
+
+    const bar = document.querySelector(".steer-bar") as HTMLElement;
+    const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
+    const bcLabel = document.querySelector(".chip.bc .bc-label") as HTMLElement;
+    expect(bar.classList.contains("compact"), "single chip fits → not compact").toBe(false);
+    expect(getComputedStyle(toggle).display, "ABC revealed by mobile rule").not.toBe("none");
+    expect(getComputedStyle(bcLabel).display, "⌁ label collapsed on mobile").toBe("none");
   });
 });

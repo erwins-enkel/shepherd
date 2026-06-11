@@ -12,6 +12,7 @@
     resumable,
     opener,
     onresume,
+    onrelaunch,
     ondecommission,
     onclose,
   }: {
@@ -23,9 +24,33 @@
     // the element that opened the menu (the card hit-target) — focus returns here on close
     opener?: HTMLElement;
     onresume?: () => void;
+    // when provided, a two-step armed Relaunch item appears between Resume and
+    // Decommission (the parent closes over the session id, like onresume/ondecommission)
+    onrelaunch?: () => void;
     ondecommission?: () => void;
     onclose: () => void;
   } = $props();
+
+  // Two-step arm → confirm for Relaunch: relaunch is irreversible (it discards the
+  // original's worktree), so the first click arms (label switches to the confirm
+  // text) and only a second click within the window fires it. Auto-disarms after the
+  // window; the timer is cleared on unmount (the menu tears down on Esc / outside-click
+  // / scroll, and a dangling timer must not fire after teardown).
+  const RELAUNCH_ARM_MS = 3000;
+  let relaunchArmed = $state(false);
+  let relaunchTimer: ReturnType<typeof setTimeout> | undefined;
+  function onRelaunchClick() {
+    if (relaunchArmed) {
+      clearTimeout(relaunchTimer);
+      relaunchArmed = false;
+      onrelaunch?.();
+      return;
+    }
+    relaunchArmed = true;
+    clearTimeout(relaunchTimer);
+    relaunchTimer = setTimeout(() => (relaunchArmed = false), RELAUNCH_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(relaunchTimer));
 
   let el = $state<HTMLDivElement>();
 
@@ -110,6 +135,13 @@
   {#if resumable && onresume}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onresume}>
       <span class="cm-icon" aria-hidden="true">↻</span>{m.cardmenu_resume()}
+    </button>
+  {/if}
+  {#if onrelaunch}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onRelaunchClick}>
+      <span class="cm-icon" aria-hidden="true">♻</span>{relaunchArmed
+        ? m.cardmenu_relaunch_confirm()
+        : m.cardmenu_relaunch()}
     </button>
   {/if}
   {#if ondecommission}

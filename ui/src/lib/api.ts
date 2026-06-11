@@ -73,6 +73,19 @@ function apiError(
   return new Error(body?.error ?? fallback);
 }
 
+/** A failed API call that carries the HTTP `status` and the server's stable `code`
+ *  discriminator (when present), so callers can branch on the failure mode without
+ *  brittle message-matching (e.g. relaunch's `in_progress` / `issue_unresolved`). */
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 /** Build an Error from a failed response, preferring the server's `{error}` body
  *  (e.g. "no active workspace") over the bare status code so the UI shows the real
  *  cause. Falls back to "<label> failed: <status>" when the body carries no message;
@@ -323,6 +336,27 @@ export async function resumeSession(id: string, force = false): Promise<Session>
     throw apiError(r.status, msg as { error?: string }, `resume failed: ${r.status}`);
   }
   return r.json();
+}
+
+/**
+ * Relaunch a task: spawn a fresh replacement carrying the original's prompt and
+ * all per-task settings, then decommission the original. Returns the new session
+ * plus `archived` (false when the new task spawned but the original's teardown
+ * failed — surfaced so it isn't a silent success). On a non-ok response throws an
+ * {@link ApiError} carrying the HTTP `status` and the server's stable `code`
+ * (`in_progress` / `issue_unresolved`) so the caller can pick the right toast.
+ */
+export async function relaunchSession(
+  id: string,
+): Promise<{ session: Session; archived: boolean }> {
+  const r = await fetch(`/api/sessions/${id}/relaunch`, { method: "POST" });
+  if (r.ok) return r.json();
+  const body = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
+  // Keep the preview-origin 403 remap (and its translated message) consistent with
+  // the rest of the API; for every other failure carry status + code to the caller.
+  const base = apiError(r.status, body, `relaunch failed: ${r.status}`);
+  if (isPreviewBlocked(base)) throw base;
+  throw new ApiError(r.status, base.message, body?.code);
 }
 
 export async function dismissStall(id: string): Promise<void> {

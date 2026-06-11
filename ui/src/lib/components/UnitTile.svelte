@@ -35,6 +35,7 @@
     onselect,
     git,
     activity,
+    onrelaunch,
     workingBlocked = {},
   }: {
     session: Session;
@@ -44,6 +45,9 @@
     git?: GitState;
     // live per-session signal (heartbeat ts); feeds the TimePopover's last-activity line
     activity?: SessionActivity;
+    // when provided, the right-click / long-press CardMenu gains a two-step armed
+    // Relaunch action (spawns a fresh replacement + decommissions this session)
+    onrelaunch?: (id: string) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
   } = $props();
@@ -171,12 +175,12 @@
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || !resumable) return false;
+    if (menu || (!resumable && !onrelaunch)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable) return; // nothing to offer → leave the native menu
+    if (!resumable && !onrelaunch) return; // nothing to offer → leave the native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -188,6 +192,10 @@
     } catch {
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
     }
+  }
+  function relaunchFromMenu() {
+    menu = null;
+    onrelaunch?.(session.id);
   }
 
   // Time-breakdown popover: the .tile-hit overlay is the tile's only click/
@@ -296,6 +304,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrelaunch={onrelaunch ? relaunchFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

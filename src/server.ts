@@ -1263,6 +1263,27 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
 // across requests within a process.
 const inFlightRelaunch = new Set<string>();
 
+// Re-resolve a relaunch original's linked issue (by number) in the route — the service
+// has no forge access. The issue BODY rides the argv into the new prompt, so an
+// unresolvable issue would spawn a context-degraded replacement; the caller hard-aborts
+// (502) on a `false` result instead, leaving the original intact for a retry. Returns the
+// fresh IssueRef, or `false` when the issue is gone/unreachable; non-issue-linked → undefined.
+async function reResolveRelaunchIssue(
+  original: Session,
+  deps: Ctx["deps"],
+): Promise<IssueRef | undefined | false> {
+  if (original.issueNumber == null) return undefined;
+  const forge = deps.resolveForge?.(original.repoPath) ?? null;
+  let iss: import("./forge/types").Issue | null | undefined;
+  try {
+    iss = await forge?.getIssue?.(original.issueNumber);
+  } catch {
+    iss = null;
+  }
+  if (!iss) return false;
+  return { number: iss.number, url: iss.url, title: iss.title, body: iss.body };
+}
+
 // POST /api/sessions/:id/relaunch — spawn a fresh replacement carrying the original's
 // prompt + current per-task settings (re-resolving its linked issue), emit session:new,
 // then decommission the original (retaining its drain claim — a relaunch is not a retire).
@@ -1272,29 +1293,19 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
 
   // In-flight guard: reject a concurrent second relaunch of the same id (409) before
   // anything is spawned, so no duplicate replacement is created.
-  if (inFlightRelaunch.has(id)) return json({ error: "relaunch already in progress" }, 409);
+  if (inFlightRelaunch.has(id))
+    return json({ error: "relaunch already in progress", code: "in_progress" }, 409);
   inFlightRelaunch.add(id);
   try {
     const original = deps.store.get(id);
     if (!original) return json({ error: "not found" }, 404);
     if (original.status === "archived") return json({ error: "already archived" }, 409);
 
-    // Re-resolve the linked issue (by number) in the route — the service has no forge
-    // access. The issue BODY rides the argv into the new prompt, so an unresolvable
-    // issue would spawn a context-degraded replacement; hard-abort (502) instead,
-    // leaving the original fully intact for a retry once the forge recovers.
-    let issueRef: IssueRef | undefined;
-    if (original.issueNumber != null) {
-      const forge = deps.resolveForge?.(original.repoPath) ?? null;
-      let iss: import("./forge/types").Issue | null | undefined;
-      try {
-        iss = await forge?.getIssue?.(original.issueNumber);
-      } catch {
-        iss = null;
-      }
-      if (!iss) return json({ error: "could not re-resolve linked issue" }, 502);
-      issueRef = { number: iss.number, url: iss.url, title: iss.title, body: iss.body };
-    }
+    // Re-resolve the linked issue; `false` = gone/unreachable → hard-abort (502) without
+    // spawning or tearing anything down, so the original stays intact for a retry.
+    const issueRef = await reResolveRelaunchIssue(original, deps);
+    if (issueRef === false)
+      return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
 
     // Spawn the replacement. On failure the original is left fully intact (nothing torn
     // down yet — the service tears down its own partial new session).

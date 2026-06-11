@@ -19,6 +19,7 @@
     previewServe = {},
     onpreview = undefined,
     ondecommission,
+    onrelaunch = undefined,
     onclearmerged = undefined,
     onmergetrain = undefined,
     issueActionsUnset = false,
@@ -49,6 +50,8 @@
     onpreview?: (id: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
+    // when provided, each row's CardMenu gains a two-step armed Relaunch action
+    onrelaunch?: (id: string) => void;
     // when provided, the merged group header gains a "clear all" action
     onclearmerged?: () => void;
     // when provided, the ready-to-merge group header gains a "merge train" action
@@ -222,6 +225,7 @@
           previewServeFailed={previewServe[session.id] === "failed"}
           {onpreview}
           {ondecommission}
+          {onrelaunch}
           {repoFilter}
           {onrepofilter}
           {workingBlocked}
@@ -243,6 +247,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -265,6 +270,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -287,6 +293,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -311,6 +318,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -335,6 +343,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -354,6 +363,7 @@
             git={git[session.id]}
             activity={activity[session.id]}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -376,6 +386,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -398,6 +409,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -428,6 +440,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -458,6 +471,7 @@
             previewServeFailed={previewServe[session.id] === "failed"}
             {onpreview}
             {ondecommission}
+            {onrelaunch}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}

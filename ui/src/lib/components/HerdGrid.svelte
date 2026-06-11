@@ -16,6 +16,7 @@
     onsettings = undefined,
     filteredRepo = null,
     statusFilter = null,
+    onrelaunch = undefined,
     workingBlocked = {},
   }: {
     sessions: Session[];
@@ -26,6 +27,8 @@
     git: Record<string, GitState>;
     // per-session live activity (heartbeat) — threaded into the tiles' TimePopover
     activity?: Record<string, SessionActivity>;
+    // when provided, each tile's CardMenu gains a two-step armed Relaunch action
+    onrelaunch?: (id: string) => void;
     issueActionsUnset?: boolean;
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
@@ -70,6 +73,7 @@
         {onselect}
         git={git[session.id]}
         activity={activity[session.id]}
+        {onrelaunch}
         {workingBlocked}
       />
     {/each}

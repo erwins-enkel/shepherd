@@ -62,6 +62,7 @@
     previewServeFailed = false,
     onpreview,
     ondecommission,
+    onrelaunch,
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
@@ -83,6 +84,9 @@
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both
     ondecommission?: (id: string) => void;
+    // when provided, the right-click / long-press CardMenu gains a two-step armed
+    // Relaunch action (spawns a fresh replacement + decommissions this session)
+    onrelaunch?: (id: string) => void;
     // active page-level repo filter (full repoPath); drives the icon's pressed state
     repoFilter?: string | null;
     // when provided, clicking the inline repo emoji toggles the repo filter:
@@ -204,12 +208,12 @@
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !ondecommission)) return false;
+    if (menu || (!resumable && !ondecommission && !onrelaunch)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !ondecommission) return; // nothing to offer → leave native menu
+    if (!resumable && !ondecommission && !onrelaunch) return; // nothing to offer → leave native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -225,6 +229,10 @@
   function decommissionFromMenu() {
     menu = null;
     ondecommission?.(session.id);
+  }
+  function relaunchFromMenu() {
+    menu = null;
+    onrelaunch?.(session.id);
   }
 
   // Time-breakdown popover: the .unit-hit overlay is the row's only click/
@@ -499,6 +507,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrelaunch={onrelaunch ? relaunchFromMenu : undefined}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

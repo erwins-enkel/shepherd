@@ -44,7 +44,9 @@
 {/if}
 
 <style>
-  /* Bottom-center stack, clear of the safe area and the touch control bar. */
+  /* Desktop: a bottom-center floating stack, clear of the safe area. On phones
+     it becomes a full-width banner flush to the bottom edge — see the mobile
+     block at the foot of this file. */
   .toasts {
     position: fixed;
     left: 50%;

@@ -45,7 +45,7 @@ import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { StarPromptStatus } from "./star-prompt";
-import type { Session, LearningStatus, SignalKind, SessionPreviewState } from "./types";
+import type { Session, LearningStatus, SignalKind, SessionPreviewState, IssueRef } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -185,6 +185,9 @@ export interface AppDeps {
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
     queue(repoPath: string): Promise<QueuedItem[]>;
+    /** One-shot: keep ACTIVE_LABEL on the next `session:archived` for this id (a
+     *  relaunch is not a retire — the actively-worked issue stays claimed). */
+    retainClaim(id: string): void;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -1253,6 +1256,90 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
   return json(updated);
 }
 
+// Per-id guard against a concurrent second relaunch of the same card. The original
+// stays non-archived across the async spawn→teardown window (so the step-1
+// archived-check wouldn't catch it), and the UI's two-step arm is per-menu-instance
+// — a re-opened menu or a second client isn't covered. Module-level so it's shared
+// across requests within a process.
+const inFlightRelaunch = new Set<string>();
+
+// POST /api/sessions/:id/relaunch — spawn a fresh replacement carrying the original's
+// prompt + current per-task settings (re-resolving its linked issue), emit session:new,
+// then decommission the original (retaining its drain claim — a relaunch is not a retire).
+async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "relaunch")) return null;
+  const id = parts[2];
+
+  // In-flight guard: reject a concurrent second relaunch of the same id (409) before
+  // anything is spawned, so no duplicate replacement is created.
+  if (inFlightRelaunch.has(id)) return json({ error: "relaunch already in progress" }, 409);
+  inFlightRelaunch.add(id);
+  try {
+    const original = deps.store.get(id);
+    if (!original) return json({ error: "not found" }, 404);
+    if (original.status === "archived") return json({ error: "already archived" }, 409);
+
+    // Re-resolve the linked issue (by number) in the route — the service has no forge
+    // access. The issue BODY rides the argv into the new prompt, so an unresolvable
+    // issue would spawn a context-degraded replacement; hard-abort (502) instead,
+    // leaving the original fully intact for a retry once the forge recovers.
+    let issueRef: IssueRef | undefined;
+    if (original.issueNumber != null) {
+      const forge = deps.resolveForge?.(original.repoPath) ?? null;
+      let iss: import("./forge/types").Issue | null | undefined;
+      try {
+        iss = await forge?.getIssue?.(original.issueNumber);
+      } catch {
+        iss = null;
+      }
+      if (!iss) return json({ error: "could not re-resolve linked issue" }, 502);
+      issueRef = { number: iss.number, url: iss.url, title: iss.title, body: iss.body };
+    }
+
+    // Spawn the replacement. On failure the original is left fully intact (nothing torn
+    // down yet — the service tears down its own partial new session).
+    let fresh: Session;
+    try {
+      fresh = await deps.service.relaunch(id, issueRef);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "relaunch failed";
+      return json({ error: msg }, 502);
+    }
+
+    // The route emits session:new (service.relaunch/create do not), then re-stamps the
+    // new session's drain claim exactly like handleSessionCreate does.
+    deps.events.emit("session:new", fresh);
+    if (issueRef) {
+      const { repoPath } = original;
+      const number = issueRef.number;
+      setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number), 0);
+    }
+
+    // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
+    // isolates teardown failures (unlike a bare archive(id)).
+    const { cleared } = deps.service.archiveMany([id]);
+    const archived = cleared.includes(id);
+    if (archived) {
+      // Stamp the one-shot retain ONLY on a successful teardown, and BEFORE the
+      // session:archived emit so drain.onArchived consumes it: this keeps ACTIVE_LABEL
+      // (a relaunch is not a retire). On the not-cleared path below no archived event
+      // fires, so onArchived never runs — stamping there would leak a stale retain flag
+      // that would later mis-convert a manual abandon of the still-live original into a
+      // retire (claim kept, issue not re-queued).
+      deps.drain?.retainClaim(id);
+      deps.prCache?.drop(id);
+      deps.events.emit("session:archived", { id });
+    } else {
+      // Teardown threw: the new task is still valid; surface the failure (no silent
+      // success) — the original stays visible for manual decommission.
+      console.warn(`[relaunch] teardown of original ${id} failed; left active`);
+    }
+    return json({ session: fresh, archived }, 201);
+  } finally {
+    inFlightRelaunch.delete(id);
+  }
+}
+
 // Steer text sent to the agent when the operator approves the build queue.
 // Agent-facing — plain English, not user chrome, so no i18n.
 const APPROVE_STEER =
@@ -1335,6 +1422,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionDismissStall,
     handleSessionAutopilot,
     handleSessionAutoMerge,
+    handleSessionRelaunch,
   ]) {
     const res = await sub(ctx);
     if (res) return res;

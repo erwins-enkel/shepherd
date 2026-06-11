@@ -46,6 +46,7 @@ import {
 } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
+import { createIssueLogger } from "./issue-log";
 import { PlanGateService } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
@@ -420,6 +421,21 @@ events.subscribe((event, data) => {
   // work and log spam on every subsequent poll tick (mirrors how session:archived
   // gates forget() on the id being present before calling it).
   if (advanced) planGate.forget(id);
+});
+
+// Workflow protocol on the session's backlog issue: one comment when the PR enters
+// the waiting-on-handoff state (open + green + foreign reviewer/merger), one when it
+// merges. Stamped per PR in issue_log so each fires once, across restarts and CI
+// flaps; best-effort — a failed comment is retried on the next git event.
+const logIssueWorkflow = createIssueLogger({ resolveForge, store });
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  const s = store.get(id);
+  if (!s || s.issueNumber == null) return;
+  void logIssueWorkflow(s, git).catch((err) =>
+    console.warn(`[issue-log] comment on #${s.issueNumber} failed:`, err),
+  );
 });
 setInterval(() => {
   if (maintenance.active) return;

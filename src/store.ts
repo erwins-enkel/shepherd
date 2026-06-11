@@ -237,6 +237,12 @@ export class SessionStore implements CapStore {
     );
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
       sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`);
+    // One stamp per workflow-protocol comment posted on a session's backlog issue
+    // (issue-log: `waiting:<pr>` / `merged:<pr>`), so each transition comments exactly
+    // once per PR across restarts and CI flaps.
+    this.db.run(`CREATE TABLE IF NOT EXISTS issue_log (
+      sessionId TEXT NOT NULL, key TEXT NOT NULL, createdAt INTEGER NOT NULL,
+      PRIMARY KEY (sessionId, key))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -701,6 +707,23 @@ export class SessionStore implements CapStore {
     this.db.run(`DELETE FROM reviews WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── issue workflow log (one stamp per posted issue comment) ───────────────
+  hasIssueLog(sessionId: string, key: string): boolean {
+    return (
+      this.db
+        .query(`SELECT 1 FROM issue_log WHERE sessionId = ? AND key = ?`)
+        .get(sessionId, key) != null
+    );
+  }
+
+  markIssueLog(sessionId: string, key: string): void {
+    this.db.run(`INSERT OR IGNORE INTO issue_log (sessionId, key, createdAt) VALUES (?, ?, ?)`, [
+      sessionId,
+      key,
+      Date.now(),
+    ]);
+  }
+
   /** Re-point an existing verdict at a new head without re-reviewing. Used when a head
    *  change (rebase/force-push) leaves the reviewed diff content-identical (same patchId):
    *  the prior decision/findings/rounds still apply, so only headSha + updatedAt move. */
@@ -952,6 +975,10 @@ export class SessionStore implements CapStore {
       );
       this.db.run(
         `DELETE FROM plan_gates WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM issue_log WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);

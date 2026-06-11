@@ -35,6 +35,7 @@
   "emptyherd_verb_ready_desc": "Sitzungen mit grünem PR sammeln sich in einer eigenen Gruppe und warten auf deinen Merge.",
   "emptyherd_nudge_action": "Lege eine Issue-Aktion an",
   "emptyherd_nudge_tail": "in den Einstellungen unter Gespeicherte Steers, um Aufgaben direkt aus dem Backlog zu starten.",
+  "error_preview_readonly": "Die Vorschau ist schreibgeschützt. Öffne Shepherd direkt (nicht über die Live-Vorschau), um Änderungen vorzunehmen.",
   "status_working": "AKTIV",
   "status_idle": "INAKTIV",
   "status_blocked": "BLOCKIERT",

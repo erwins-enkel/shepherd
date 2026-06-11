@@ -40,18 +40,45 @@ import type {
   BuildStepStatus,
   PullResult,
 } from "./types";
+import { m } from "$lib/paraglide/messages";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
+/** Server's CSRF preview-origin rejection string. The HUD origin guard
+ *  (`src/validate.ts` `originAllowed` → `src/server.ts:214` `checkOrigin`) returns
+ *  `403 {error:"forbidden: origin not allowed"}` for any mutation from the live-preview
+ *  port range — kept in sync here so the matched string stays discoverable. */
+const ORIGIN_BLOCK = "forbidden: origin not allowed";
+
+/** Thrown when a mutation is rejected because it originated from the read-only live
+ *  preview (CSRF origin guard). Detect via `isPreviewBlocked`/`instanceof`. */
+class PreviewBlockedError extends Error {}
+
+/** True when `e` is a preview-origin rejection (see {@link PreviewBlockedError}). */
+export function isPreviewBlocked(e: unknown): boolean {
+  return e instanceof PreviewBlockedError;
+}
+
+/** Build an Error from a failed response body. A `403` carrying the server's
+ *  preview-origin rejection becomes a translated {@link PreviewBlockedError}; every
+ *  other failure becomes a plain Error preferring the server `{error}` over `fallback`. */
+function apiError(
+  status: number,
+  body: { error?: string } | null | undefined,
+  fallback: string,
+): Error {
+  if (status === 403 && body?.error === ORIGIN_BLOCK) {
+    return new PreviewBlockedError(m.error_preview_readonly());
+  }
+  return new Error(body?.error ?? fallback);
+}
+
 /** Build an Error from a failed response, preferring the server's `{error}` body
  *  (e.g. "no active workspace") over the bare status code so the UI shows the real
- *  cause. Falls back to "<label> failed: <status>" when the body carries no message. */
+ *  cause. Falls back to "<label> failed: <status>" when the body carries no message;
+ *  a preview-origin 403 is remapped to a {@link PreviewBlockedError} via `apiError`. */
 async function failed(r: Response, label: string): Promise<Error> {
-  const detail = await r
-    .json()
-    .then((b) => (b as { error?: string })?.error)
-    .catch(() => null);
-  return new Error(detail ?? `${label} failed: ${r.status}`);
+  return apiError(r.status, await r.json().catch(() => null), `${label} failed: ${r.status}`);
 }
 
 /** GET a JSON resource, throwing `<label> failed: <status>` on a non-2xx response. */
@@ -183,7 +210,7 @@ async function patchSettings<T>(patch: Record<string, unknown>): Promise<T> {
   });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
   return r.json();
 }
@@ -293,7 +320,7 @@ export async function resumeSession(id: string, force = false): Promise<Session>
   const r = await fetch(`/api/sessions/${id}/resume`, init);
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `resume failed: ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `resume failed: ${r.status}`);
   }
   return r.json();
 }
@@ -394,7 +421,7 @@ export async function mergeBacklogPr(
   const r = await fetch("/api/prs/merge", JSON_POST({ repo: repoPath, number, ...body }));
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -416,7 +443,7 @@ export async function requestDependabotRebase(repoPath: string, number: number):
   const r = await fetch("/api/prs/dependabot-rebase", JSON_POST({ repo: repoPath, number }));
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -430,7 +457,7 @@ export async function rerunWorkflowRun(
   const r = await fetch("/api/actions/rerun", JSON_POST({ repo: repoPath, runId, failedOnly }));
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -439,7 +466,7 @@ export async function cancelWorkflowRun(repoPath: string, runId: number): Promis
   const r = await fetch("/api/actions/cancel", JSON_POST({ repo: repoPath, runId }));
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -514,7 +541,7 @@ export async function previewStates(): Promise<
 async function gitJson<T = PrStatus>(res: Response): Promise<T> {
   if (!res.ok) {
     const msg = await res.json().catch(() => ({ error: `${res.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${res.status}`);
+    throw apiError(res.status, msg as { error?: string }, `error ${res.status}`);
   }
   return res.json();
 }
@@ -571,7 +598,7 @@ export async function applyHerdrUpdate(): Promise<void> {
   const r = await fetch("/api/herdr-update", { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -580,7 +607,7 @@ export async function applyUpdate(): Promise<void> {
   const r = await fetch("/api/update", { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -588,7 +615,7 @@ export async function redeploy(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}/git/redeploy`, JSON_POST());
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
 }
 
@@ -606,7 +633,7 @@ export async function putSteers(steers: Steer[]): Promise<Steer[]> {
   });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
   return r.json();
 }
@@ -646,7 +673,7 @@ export async function putProjectIcon(path: string, emoji: string): Promise<Proje
   });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw new Error((msg as { error?: string }).error ?? `error ${r.status}`);
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
   return r.json();
 }
@@ -911,7 +938,7 @@ export async function startPreview(
   if (r.ok) return { ok: true, command: body.command ?? "" };
   if (r.status === 409 && body.error === "command_unknown") return { needCommand: true };
   if (r.status === 409 && body.error === "already_bound") return { alreadyBound: true };
-  throw new Error(body.error ?? `startPreview failed: ${r.status}`);
+  throw apiError(r.status, body, `startPreview failed: ${r.status}`);
 }
 
 /** Force-stop the previewed dev server (SIGKILL on the server side).
@@ -924,5 +951,5 @@ export async function stopPreview(id: string): Promise<{ killed: number } | { no
   const body = (await r.json().catch(() => ({}))) as { killed?: number; error?: string };
   if (r.ok) return { killed: body.killed ?? 0 };
   if (r.status === 409 && body.error === "not_bound") return { notBound: true };
-  throw new Error(body.error ?? `stopPreview failed: ${r.status}`);
+  throw apiError(r.status, body, `stopPreview failed: ${r.status}`);
 }

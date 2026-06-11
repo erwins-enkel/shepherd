@@ -35,6 +35,7 @@
   "emptyherd_verb_ready_desc": "Sessions with a green PR park in their own group, waiting on your merge.",
   "emptyherd_nudge_action": "Add an issue action",
   "emptyherd_nudge_tail": "under Settings → Saved steers to quick-launch tasks straight from the backlog.",
+  "error_preview_readonly": "Preview is read-only. Open Shepherd directly (not through the live preview) to make changes.",
   "status_working": "BUSY",
   "status_idle": "IDLE",
   "status_blocked": "BLOCKED",

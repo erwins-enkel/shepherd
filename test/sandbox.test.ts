@@ -13,6 +13,7 @@ import {
   resetBackendCache,
   type MembraneInputs,
 } from "../src/sandbox";
+import { resolveNodeBin } from "../src/node-bin";
 
 // A deterministic MembraneInputs for flag-construction tests. exists is
 // injected so the host never influences the output.
@@ -435,6 +436,42 @@ describe("detectBackend (injected run)", () => {
     resetBackendCache();
     detectBackend(deps);
     expect(calls).toBeGreaterThan(after);
+  });
+
+  // Regression (#294): with no nodeBinReal dep the default resolves a REAL node
+  // path; the old `?? "node"` made dirname("node") === "." so the self-test bound
+  // the cwd instead of the toolchain root, diverging from real spawns -> null.
+  test("default nodeBinReal resolves a real toolchain dir, never '.'", () => {
+    let probeFlags: string[] = [];
+    const run = (cmd: string, args: string[]) => {
+      if (cmd === "bwrap" && args[0] === "--version") return { status: 0 };
+      probeFlags = args; // the wrapped self-test argv
+      return { status: 0 };
+    };
+    // omit nodeBinReal -> default resolver (safeRealpath(resolveNodeBin())) kicks in
+    const backend = detectBackend({ run, home: "/home/x", claudeDir: "/home/x/.claude" });
+    expect(backend).toBe("bwrap");
+
+    // No toolchain bind may have "." as its source.
+    const triples = (src: string) => {
+      for (let i = 0; i < probeFlags.length - 2; i++) {
+        if (probeFlags[i] === "--ro-bind-try" && probeFlags[i + 1] === src) return true;
+      }
+      return false;
+    };
+    expect(triples(".")).toBe(false);
+
+    // On a normal host resolveNodeBin() finds an absolute node path, so at least
+    // one toolchain bind is absolute. Guard for a bare-"node" host (no node found).
+    if (resolveNodeBin() !== "node") {
+      const hasAbsoluteToolchainBind = probeFlags.some(
+        (flag, i) =>
+          probeFlags[i - 1] === "--ro-bind-try" &&
+          flag.startsWith("/") &&
+          probeFlags[i + 1] === flag,
+      );
+      expect(hasAbsoluteToolchainBind).toBe(true);
+    }
   });
 });
 

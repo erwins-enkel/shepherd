@@ -583,7 +583,18 @@ export class SessionService {
    *  for the dep's PRESENCE rather than `?? real()` — the seam legitimately returns null
    *  (no backend), which `??` would collapse into the real probe. */
   private detectBackend(): SandboxBackend {
-    return this.deps.detectBackend ? this.deps.detectBackend() : detectSandboxBackend();
+    if (this.deps.detectBackend) return this.deps.detectBackend();
+    let nodeBinReal = config.nodeBin;
+    try {
+      nodeBinReal = realpathSync(config.nodeBin);
+    } catch {
+      /* keep config.nodeBin */
+    }
+    return detectSandboxBackend({
+      home: homedir(),
+      claudeDir: config.claudeDir,
+      nodeBinReal,
+    });
   }
 
   /**

@@ -15,9 +15,19 @@
  * `*-bind-try` for every host-variable path so an absent source is skipped
  * rather than hard-failing the spawn.
  */
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { execFileSync } from "./instrument";
+import { resolveNodeBin } from "./node-bin";
+
+/** realpath that falls back to the input on any error (broken/missing path). */
+function safeRealpath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 // ── profiles ────────────────────────────────────────────────────────────────
 
@@ -108,7 +118,7 @@ export function detectBackend(deps: BackendProbeDeps = {}): SandboxBackend {
   // exit-0 through the membrane proves the backend can actually create a sandbox.
   const home = deps.home ?? process.env.HOME ?? "/root";
   const claudeDir = deps.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? `${home}/.claude`;
-  const nodeBinReal = deps.nodeBinReal ?? "node";
+  const nodeBinReal = deps.nodeBinReal ?? safeRealpath(resolveNodeBin());
   const probeDir = "/tmp";
   const membrane: MembraneInputs = {
     worktreePath: probeDir,

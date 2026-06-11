@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -165,4 +165,35 @@ test("ensureShepherdExclude does not throw on a non-git path (best-effort)", () 
   tempDirs.push(nonGit);
   // Must not throw
   expect(() => ensureShepherdExclude(nonGit)).not.toThrow();
+});
+
+test("git status in worktree ignores .shepherd-* artifacts after ensureShepherdExclude", () => {
+  const mainRepo = makeGitRepo();
+  const worktreeDir = mkdtempSync(join(tmpdir(), "shepherd-exclude-gitstatus-"));
+  tempDirs.push(worktreeDir);
+  git(["worktree", "add", "--detach", worktreeDir], mainRepo);
+
+  // BEFORE: .shepherd-plan.md should appear as untracked (proves the test is meaningful)
+  writeFileSync(join(worktreeDir, ".shepherd-plan.md"), "# plan\n");
+  const beforeStatus = git(["status", "--porcelain"], worktreeDir);
+  expect(beforeStatus).toContain(".shepherd-plan.md");
+
+  // Apply the exclude
+  ensureShepherdExclude(mainRepo);
+
+  // Create shepherd artifacts in the worktree
+  mkdirSync(join(worktreeDir, ".shepherd-uploads"), { recursive: true });
+  writeFileSync(join(worktreeDir, ".shepherd-uploads", "x.png"), "");
+
+  // Control: a non-shepherd untracked file that must still show up
+  writeFileSync(join(worktreeDir, "unrelated.txt"), "hello\n");
+
+  const status = git(["status", "--porcelain"], worktreeDir);
+
+  // Shepherd artifacts must be excluded
+  expect(status).not.toContain(".shepherd-plan.md");
+  expect(status).not.toContain(".shepherd-uploads");
+
+  // Control file must remain visible (exclude is selective, not hiding everything)
+  expect(status).toContain("unrelated.txt");
 });

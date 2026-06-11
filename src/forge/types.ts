@@ -221,6 +221,11 @@ export interface GitForge {
   /** Close an issue by number (best-effort; used by the drain to retire a backlog
    *  issue once its auto PR merges). Optional: hosts without an issues-close API omit it. */
   closeIssue?(issueNumber: number): Promise<void>;
+  /** Post a plain comment on an issue (the issue-log's workflow protocol: one note
+   *  when the session's PR enters the waiting-on-handoff state, one when it merges).
+   *  Best-effort; optional (hosts without an issue-comment API omit it and the
+   *  issue-log stays silent). */
+  commentIssue?(issueNumber: number, body: string): Promise<void>;
   /** Ensure the PR body links the issue so the forge auto-closes it on merge.
    *  Idempotent: appends a `Closes #<issueNumber>` line only when no closing
    *  keyword for that issue is already present. Best-effort; optional (hosts

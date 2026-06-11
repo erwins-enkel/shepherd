@@ -504,6 +504,10 @@ export class GithubForge implements GitForge {
     await this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
   }
 
+  async commentIssue(issueNumber: number, body: string): Promise<void> {
+    await this.run(["issue", "comment", String(issueNumber), "--repo", this.slug, "--body", body]);
+  }
+
   async comment(prNumber: number, body: string): Promise<void> {
     await this.run(["pr", "comment", String(prNumber), "--repo", this.slug, "--body", body]);
   }

@@ -363,6 +363,10 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  async commentIssue(issueNumber: number, body: string): Promise<void> {
+    await this.req("POST", `/api/v1/repos/${this.slug}/issues/${issueNumber}/comments`, { body });
+  }
+
   async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
     const pr = (await this.req("GET", `/api/v1/repos/${this.slug}/pulls/${prNumber}`)) as {
       body?: string | null;

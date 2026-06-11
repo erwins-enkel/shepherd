@@ -20,7 +20,7 @@
         <span class="msg">{t.text}</span>
         {#if t.tone === "undo"}
           <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>
-            {t.undoLabel}
+            <span class="undo-label">{t.undoLabel}</span>
             <span class="bar" style="--ms:{t.durationMs}ms" aria-hidden="true"></span>
           </button>
         {:else}
@@ -98,8 +98,13 @@
   .undo:hover {
     background: var(--color-hover);
   }
+  .undo-label {
+    position: relative;
+    z-index: 1;
+  }
   /* Depleting underline counting down the commit window. transform-only (no
-     layout), and the app-wide reduced-motion guard zeroes it out. */
+     layout), and the app-wide reduced-motion guard zeroes it out. On phones it
+     grows into a full-height fill behind the label (see the mobile block). */
   .bar {
     position: absolute;
     left: 0;
@@ -109,6 +114,7 @@
     background: var(--color-amber);
     transform-origin: left;
     animation: toast-deplete var(--ms, 5000ms) linear forwards;
+    z-index: 0;
   }
   .x {
     margin-left: auto;
@@ -140,6 +146,39 @@
     }
     to {
       transform: scaleX(0);
+    }
+  }
+
+  /* On small phones the stack becomes a full-width banner flush to the bottom
+     edge, with a tighter type scale. The undo countdown grows from a hairline
+     underline into a translucent fill that drains across the whole button —
+     the receding amber wash reads the shrinking commit window at a glance. */
+  @media (max-width: 768px) {
+    .toasts {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      transform: none;
+      gap: 0;
+      align-items: stretch;
+    }
+    .toast {
+      max-width: none;
+      width: 100%;
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
+      border-bottom: 0;
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    }
+    .msg {
+      font-size: var(--fs-meta);
+    }
+    .bar {
+      top: 0;
+      bottom: auto;
+      height: 100%;
+      background: color-mix(in srgb, var(--color-amber) 22%, transparent);
     }
   }
 </style>

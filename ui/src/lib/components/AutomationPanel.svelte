@@ -541,8 +541,11 @@
 </div>
 
 <style>
-  /* anchored by the parent's positioning context (GitRail's .git-rail-wrap is
-     position: relative); this component must be mounted inside such a wrapper */
+  /* anchored to the nearest positioned ancestor: GitRail's .git-rail-wrap
+     (position: relative) on desktop, or the wider .vp-git-strip on mobile where
+     that wrapper goes position:static (see GitRail's .git-rail-wrap.mobile). The
+     flip/clamp effect re-measures offsetParent, so either anchor works — but this
+     component must still be mounted inside one such positioned ancestor. */
   .auto-pop {
     position: absolute;
     top: 100%;

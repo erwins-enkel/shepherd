@@ -291,6 +291,51 @@
       setTimeout(() => (reviewFlash = null), 1500);
     }
   }
+
+  // The mobile rail is a hidden-scrollbar horizontal scroller; without a visible
+  // bar nothing hints that trailing controls (auto-pill, verdict chip) scroll off
+  // the right edge. Fade whichever edge still has content beyond it, driven into
+  // the .rail.mobile mask via --fade-l/--fade-r (0 = no fade, 1 = fade). A row
+  // that fully fits shows no fade; an overflowing one cues the scroll. No-op (and
+  // self-cleans) on desktop, where the rail isn't a scroller.
+  function edgeFades(node: HTMLElement, enabled: boolean) {
+    let ro: ResizeObserver | undefined;
+    let mo: MutationObserver | undefined;
+    const update = () => {
+      const max = node.scrollWidth - node.clientWidth;
+      node.style.setProperty("--fade-l", node.scrollLeft > 1 ? "1" : "0");
+      node.style.setProperty("--fade-r", node.scrollLeft < max - 1 ? "1" : "0");
+    };
+    const start = () => {
+      update();
+      node.addEventListener("scroll", update, { passive: true });
+      ro = new ResizeObserver(update);
+      ro.observe(node);
+      // The rail's box is width:100% of its wrapper, so a content change that
+      // shifts scrollWidth without resizing that box (Merge arming to 'confirm ✓',
+      // the verdict chip appearing) won't trip ResizeObserver — watch the subtree
+      // too so the fade can't go stale. NOT attributes: our own --fade-* writes are
+      // style-attribute mutations and would loop.
+      mo = new MutationObserver(update);
+      mo.observe(node, { childList: true, subtree: true, characterData: true });
+    };
+    const stop = () => {
+      node.removeEventListener("scroll", update);
+      ro?.disconnect();
+      mo?.disconnect();
+      ro = mo = undefined;
+      node.style.removeProperty("--fade-l");
+      node.style.removeProperty("--fade-r");
+    };
+    if (enabled) start();
+    return {
+      update(next: boolean) {
+        stop();
+        if (next) start();
+      },
+      destroy: stop,
+    };
+  }
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
@@ -303,7 +348,7 @@
     <div class="review-scrim" aria-hidden="true"></div>
   {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
-    <span class="rail" class:mobile>
+    <span class="rail" class:mobile use:edgeFades={mobile}>
       {#if git.state === "none"}
         <button class="gbtn" type="button" disabled={busy} onclick={startPr}
           >{m.gitrail_open_pr()}</button
@@ -518,8 +563,10 @@
 {/if}
 
 <style>
-  /* own positioning context so .pr-pop anchors to the button in every
-     mount site (desktop header + compact strip), not to some far ancestor */
+  /* own positioning context so .pr-pop/.auto-pop/.review-pop anchor here in the
+     desktop (non-mobile) mount, not to some far ancestor. On mobile the wrapper
+     is narrower than the strip, so it goes position:static and the popovers
+     anchor to the wider .vp-git-strip instead — see .git-rail-wrap.mobile. */
   .git-rail-wrap {
     position: relative;
     display: inline-flex;
@@ -652,23 +699,68 @@
     cursor: default;
   }
 
-  /* touch layouts: bigger tap targets + readable PR link/dot. fill the strip and
-     wrap whole buttons onto a new right-aligned row, rather than letting a single
-     nowrap rail overflow and squeeze button labels across lines */
+  /* touch layouts: bigger tap targets + a single horizontally-scrollable row.
+     Whole badges never wrap to a second line (that read as a vertical stack on
+     phones); the rail (.rail.mobile below) scrolls instead. Because the strip
+     keeps .strip-controls on this same row, the wrapper is narrower than the
+     viewport — so go position:static here and let the popovers
+     (.pr-pop/.auto-pop/.review-pop) anchor to the full-width .vp-git-strip
+     (itself position:relative). Anchored to this narrow wrapper, a right:8px
+     popover would shoot off the left screen edge. */
   .git-rail-wrap.mobile {
+    position: static;
     flex: 1 1 auto;
     min-width: 0;
   }
   .rail.mobile {
     width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 10px;
-    row-gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    min-width: 0;
+    gap: 6px;
+    /* scroll affordance: with the scrollbar hidden, fade whichever edge has more
+       content beyond it so an overflowing row visibly cues the scroll (the edgeFades
+       action sets --fade-l/--fade-r to 0|1). The #000/transparent stops are mask
+       alpha, not a theme color — the faded edge just reveals the strip's own
+       --color-head behind the rail. Both vars 0 (fits / no action) → fully opaque. */
+    --rail-fade: 22px;
+    --fade-l: 0;
+    --fade-r: 0;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 calc(var(--fade-l) * var(--rail-fade)),
+      #000 calc(100% - var(--fade-r) * var(--rail-fade)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 calc(var(--fade-l) * var(--rail-fade)),
+      #000 calc(100% - var(--fade-r) * var(--rail-fade)),
+      transparent 100%
+    );
+  }
+  .rail.mobile::-webkit-scrollbar {
+    display: none;
+  }
+  /* horizontal-scroll row: items keep natural width and overflow → scroll,
+     never shrink-wrap (the PR link wrapped to 3 lines and the CI dot squished
+     to 0px otherwise). Mirrors the .tab-scroll recipe. */
+  .rail.mobile > * {
+    flex-shrink: 0;
+  }
+  /* right-pin the badge group when it fits; under overflow the auto margin
+     collapses to 0 so the row scrolls cleanly from the first badge (avoids the
+     flex justify-content:flex-end + overflow-x start-clip bug) */
+  .rail.mobile > :first-child {
+    margin-left: auto;
   }
   .rail.mobile .gbtn {
     min-height: 40px;
-    padding: 6px 14px;
+    padding: 6px 9px;
     font-size: var(--fs-base);
   }
   /* The critic chip is the gateway to the findings popover, but it's a
@@ -682,7 +774,7 @@
      40px button-looking element that does nothing on tap. */
   .rail.mobile button.verdict-chip {
     min-height: 40px;
-    padding: 6px 14px;
+    padding: 6px 9px;
     font-size: var(--fs-base);
     display: inline-flex;
     align-items: center;

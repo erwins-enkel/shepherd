@@ -3083,7 +3083,8 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    min-width: 0;
     gap: 6px;
     padding: 6px 10px;
     background: var(--color-head);
@@ -3097,8 +3098,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-shrink: 0;
-    padding-left: 10px;
+    flex: 0 0 auto;
+    padding-left: 8px;
     border-left: 1px solid var(--color-line);
   }
   /* the strip's GitRail always renders its ≥40px touch variant — match it so the
@@ -3106,7 +3107,7 @@
   .strip-controls .ap-toggle,
   .strip-controls .decom {
     min-height: 40px;
-    padding: 6px 14px;
+    padding: 6px 9px;
   }
 
   .vp-head.mobile {

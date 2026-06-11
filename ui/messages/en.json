@@ -20,6 +20,7 @@
   "herdrupdate_done_fail": "Update did not complete (still on {current}). Check the log; you can retry.",
   "herdrupdate_later": "Later",
   "herdrupdate_log_label": "Update log",
+  "herdrupdate_all_notes_link": "View all release notes",
   "common_needs_you": "NEEDS YOU · {count}",
   "common_no_open_issues": "no open issues",
   "main_no_unit_selected": "NO TASK SELECTED",
@@ -954,5 +955,7 @@
   "feat_new_project_title": "Start a new project",
   "feat_new_project_body": "Create a fresh git repo — optionally on GitHub — and kick off the first agent run, all without leaving Shepherd.",
   "feat_sidebar_collapse_title": "Collapsible sidebar",
-  "feat_sidebar_collapse_body": "On touch tablets and unfolded foldables, collapse the Herd sidebar to give the terminal more room. Your choice is remembered."
+  "feat_sidebar_collapse_body": "On touch tablets and unfolded foldables, collapse the Herd sidebar to give the terminal more room. Your choice is remembered.",
+  "feat_herdr_release_notes_link_title": "Upstream herdr release notes",
+  "feat_herdr_release_notes_link_body": "The herdr update panel now links to the full upstream release history on GitHub — handy when you're jumping across several versions and want every version's notes, not just the latest."
 }

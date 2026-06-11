@@ -112,9 +112,12 @@ describe("Viewport preview tab", () => {
     });
 
     // the Preview tab itself disappears (gated on hasPreview) and the terminal
-    // tab is active again — no stranded dead iframe
+    // tab is active again — no stranded dead iframe. exact: the header's redraw
+    // toggle ("…terminal text…") would otherwise also match by substring.
     await expect.element(previewTab()).not.toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "Terminal" })).toHaveClass(/active/);
+    await expect
+      .element(page.getByRole("button", { name: "Terminal", exact: true }))
+      .toHaveClass(/active/);
   });
 
   it("does not re-open Preview on a later null→port flip without a fresh tick bump", async () => {

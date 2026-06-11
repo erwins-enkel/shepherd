@@ -10,6 +10,7 @@
     hideStatusBadge,
     autopilotBadgeShown,
     canResume,
+    canRelaunch,
   } from "$lib/format";
   import { onDestroy } from "svelte";
   import { displayStatus } from "$lib/display-status";
@@ -171,16 +172,19 @@
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
+  // Relaunch only for an in-flight task (see canRelaunch) AND only when wired — never on
+  // a concluded/merged record, where it would spawn a duplicate and tear down the row.
+  const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !onrelaunch)) return false;
+    if (menu || (!resumable && !relaunchable)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !onrelaunch) return; // nothing to offer → leave the native menu
+    if (!resumable && !relaunchable) return; // nothing to offer → leave the native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -304,7 +308,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
-    onrelaunch={onrelaunch ? relaunchFromMenu : undefined}
+    onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

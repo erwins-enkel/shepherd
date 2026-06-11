@@ -6,9 +6,10 @@ import {
   formatAgo,
   heartbeatTone,
   canResume,
+  canRelaunch,
   waitTier,
 } from "./format";
-import type { Session, SessionStatus } from "./types";
+import type { Session, SessionStatus, GitState } from "./types";
 
 describe("canResume", () => {
   const session = (over: Partial<Session>): Session =>
@@ -32,6 +33,41 @@ describe("canResume", () => {
   it("keeps offering when liveness is unknown or the process is gone (husk)", () => {
     expect(canResume(session({}), undefined)).toBe(true);
     expect(canResume(session({}), false)).toBe(true);
+  });
+});
+
+describe("canRelaunch", () => {
+  const now = 1_000_000_000_000;
+  const session = (over: Partial<Session>): Session =>
+    ({
+      status: "running",
+      readyToMerge: false,
+      autopilotComplete: false,
+      mergingSince: null,
+      ...over,
+    }) as Session;
+
+  it("offers Relaunch for an in-flight task (any non-concluded status)", () => {
+    expect(canRelaunch(session({ status: "running" }), undefined, now)).toBe(true);
+    expect(canRelaunch(session({ status: "idle" }), undefined, now)).toBe(true);
+    expect(canRelaunch(session({ status: "blocked" }), undefined, now)).toBe(true);
+    expect(canRelaunch(session({ status: "done" }), undefined, now)).toBe(true);
+  });
+
+  it("offers Relaunch for an open or closed-unmerged PR (still in flight)", () => {
+    expect(canRelaunch(session({}), { state: "open" } as GitState, now)).toBe(true);
+    expect(canRelaunch(session({}), { state: "closed" } as GitState, now)).toBe(true);
+    expect(canRelaunch(session({}), { state: "none" } as GitState, now)).toBe(true);
+  });
+
+  it("withholds Relaunch from a concluded task — would duplicate + tear down the record", () => {
+    expect(canRelaunch(session({ readyToMerge: true }), undefined, now)).toBe(false);
+    expect(canRelaunch(session({ autopilotComplete: true }), undefined, now)).toBe(false);
+    expect(canRelaunch(session({}), { state: "merged" } as GitState, now)).toBe(false);
+  });
+
+  it("withholds Relaunch while mid-merge-train", () => {
+    expect(canRelaunch(session({ mergingSince: now }), undefined, now)).toBe(false);
   });
 });
 

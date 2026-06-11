@@ -206,6 +206,21 @@ test("issue-linked original whose getIssue throws → 502, nothing spawned", asy
   expect(h.emitted).toHaveLength(0);
 });
 
+test("issue-linked original on a forge lacking getIssue → relaunches WITHOUT issue (no 502)", async () => {
+  // Capability gap (getIssue is optional on GitForge): fall back to spawning without the
+  // issue rather than hard-failing, so issue-linked relaunch isn't permanently broken on
+  // such a host. The issue link is dropped (issueRef undefined), but the relaunch proceeds.
+  const h = harness({
+    original: { issueNumber: 42 },
+    resolveForge: () => fakeForge({ getIssue: undefined }),
+  });
+  const res = await h.app.fetch(relaunchReq());
+  expect(res.status).toBe(201);
+  expect(h.calls.relaunch).toHaveLength(1);
+  expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined });
+  expect(h.emitted.map((e) => e.event)).toEqual(["session:new", "session:archived"]);
+});
+
 test("spawn failure (service.relaunch throws) → 502, original left intact (no archive/emit)", async () => {
   const h = harness({
     original: { issueNumber: null },

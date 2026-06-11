@@ -23,6 +23,7 @@
     hideStatusBadge,
     autopilotBadgeShown,
     canResume,
+    canRelaunch,
   } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
@@ -202,18 +203,22 @@
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
+  // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
+  // parent wired a handler — never on a concluded/merged record, where it would spawn a
+  // duplicate and tear down the finished row.
+  const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !ondecommission && !onrelaunch)) return false;
+    if (menu || (!resumable && !ondecommission && !relaunchable)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !ondecommission && !onrelaunch) return; // nothing to offer → leave native menu
+    if (!resumable && !ondecommission && !relaunchable) return; // nothing to offer → leave native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -507,7 +512,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
-    onrelaunch={onrelaunch ? relaunchFromMenu : undefined}
+    onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

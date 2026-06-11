@@ -1267,19 +1267,36 @@ const inFlightRelaunch = new Set<string>();
 // has no forge access. The issue BODY rides the argv into the new prompt, so an
 // unresolvable issue would spawn a context-degraded replacement; the caller hard-aborts
 // (502) on a `false` result instead, leaving the original intact for a retry. Returns the
-// fresh IssueRef, or `false` when the issue is gone/unreachable; non-issue-linked → undefined.
+// fresh IssueRef, `false` when the issue is gone/unreachable, or `undefined` when there's
+// nothing to re-resolve (non-issue-linked, or a forge that can't fetch issues at all).
 async function reResolveRelaunchIssue(
   original: Session,
   deps: Ctx["deps"],
 ): Promise<IssueRef | undefined | false> {
   if (original.issueNumber == null) return undefined;
   const forge = deps.resolveForge?.(original.repoPath) ?? null;
+  // Capability gap: getIssue is OPTIONAL on GitForge. A forge that doesn't implement it
+  // can never re-resolve, so hard-aborting would permanently break issue-linked relaunch
+  // on that host. Fall back to relaunching WITHOUT the issue (drops the link — logged, not
+  // silent), mirroring the drain's "a host without getIssue never blocks" stance. Both
+  // supported forges (github/gitea) implement it, so today this is purely defensive.
+  if (forge && typeof forge.getIssue !== "function") {
+    console.warn(
+      `[relaunch] forge for ${original.repoPath} has no getIssue; relaunching #${original.issueNumber} without issue context`,
+    );
+    return undefined;
+  }
   let iss: import("./forge/types").Issue | null | undefined;
   try {
     iss = await forge?.getIssue?.(original.issueNumber);
   } catch {
     iss = null;
   }
+  // getIssue is best-effort: github/gitea swallow BOTH a gone/closed issue AND a transient
+  // forge error to null (they never throw), so the two are indistinguishable here. Both
+  // hard-abort (502, original kept) under one neutral "couldn't re-resolve" message rather
+  // than risk spawning a context-degraded replacement — distinguishing them would need a
+  // forge-layer redesign (a discriminated gone-vs-error result).
   if (!iss) return false;
   return { number: iss.number, url: iss.url, title: iss.title, body: iss.body };
 }

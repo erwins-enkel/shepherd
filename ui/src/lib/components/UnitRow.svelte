@@ -16,7 +16,14 @@
 
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
-  import { elapsed, STATUS_COLOR, statusLabel, hideStatusBadge, canResume } from "$lib/format";
+  import {
+    elapsed,
+    STATUS_COLOR,
+    statusLabel,
+    hideStatusBadge,
+    autopilotBadgeShown,
+    canResume,
+  } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
@@ -151,7 +158,9 @@
     if (openRow === close) openRow = null;
   });
 
-  const hideStatus = $derived(hideStatusBadge(dStatus, reviews.isReviewing(session.id)));
+  const reviewing = $derived(reviews.isReviewing(session.id));
+  const autopilotShown = $derived(autopilotBadgeShown(session));
+  const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
   // A status badge renders for merging / ready / a non-hidden status; only then
   // does #u-status-{id} exist. Build the overlay's aria-describedby so it omits
@@ -388,7 +397,8 @@
       <PrBadge {git} />
       <CriticBadge sessionId={session.id} />
       <PlanGateBadge {session} />
-      <AutopilotBadge {session} />
+      <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
+      {#if !reviewing}<AutopilotBadge {session} />{/if}
       {#if isMerging(session, nowMs)}
         <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
       {:else if session.readyToMerge}

@@ -3,7 +3,14 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import type { Session, GitState, SessionActivity } from "$lib/types";
-  import { STATUS_COLOR, statusLabel, elapsed, hideStatusBadge, canResume } from "$lib/format";
+  import {
+    STATUS_COLOR,
+    statusLabel,
+    elapsed,
+    hideStatusBadge,
+    autopilotBadgeShown,
+    canResume,
+  } from "$lib/format";
   import { onDestroy } from "svelte";
   import { displayStatus } from "$lib/display-status";
   import { connectPty } from "$lib/pty";
@@ -45,7 +52,9 @@
   // session gets the full working treatment. canResume stays on the raw status.
   const dStatus = $derived(displayStatus(session, workingBlocked));
 
-  const hideStatus = $derived(hideStatusBadge(dStatus, reviews.isReviewing(session.id)));
+  const reviewing = $derived(reviews.isReviewing(session.id));
+  const autopilotShown = $derived(autopilotBadgeShown(session));
+  const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
   // A status badge renders for ready / a non-hidden status; only then does
   // #tile-status-{id} exist. Build the overlay's aria-describedby so it omits
@@ -236,7 +245,8 @@
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
     <PlanGateBadge {session} />
-    <AutopilotBadge {session} />
+    <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
+    {#if !reviewing}<AutopilotBadge {session} />{/if}
     <AutoPip {session} />
     {#if session.readyToMerge}
       <span class="badge" id="tile-status-{session.id}">{m.status_ready_to_merge()}</span>

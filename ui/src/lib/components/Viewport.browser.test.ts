@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -18,7 +18,11 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 // Component must be imported AFTER the mock is registered.
 const { default: Viewport } = await import("./Viewport.svelte");
+// Dynamic import AFTER the $lib/api mock: reviews.svelte imports $lib/api, so a static
+// (hoisted) import would pull the real module in before the mock registers and break it.
+const { reviews } = await import("$lib/reviews.svelte");
 import { toasts } from "$lib/toasts.svelte";
+import { m } from "$lib/paraglide/messages";
 import type { Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -260,5 +264,38 @@ describe("Viewport preview stop — per-session pending resolution", () => {
     ).toBe(false);
 
     infoSpy.mockRestore();
+  });
+});
+
+// In the Viewport header the autopilot badge (NEEDS YOU / DELIVERED) can co-exist on
+// screen with the GitRail's in-flight REVIEWING indicator. Precedence mirrors the cards:
+// REVIEWING wins, so the header badge is suppressed while a critic review is in flight.
+describe("Viewport autopilot badge vs in-flight review", () => {
+  beforeEach(() => {
+    reviews.reviewing = {};
+  });
+
+  // Target the badge by its role="img" + aria-label, NOT getByText: the keynav hint
+  // ("g needs you") substring-matches the label and would mask the real badge.
+  const badge = () =>
+    page.getByRole("img", { name: m.session_autopilot_paused_label(), exact: true });
+
+  it("shows NEEDS YOU when no review is in flight", async () => {
+    render(Viewport, {
+      session: session({ id: "vr-ctl", autopilotPaused: true }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.element(badge()).toBeInTheDocument();
+  });
+
+  it("suppresses NEEDS YOU while a critic review is in flight (REVIEWING wins)", async () => {
+    reviews.setReviewing("vr-rev", true);
+    render(Viewport, {
+      session: session({ id: "vr-rev", autopilotPaused: true }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.element(badge()).not.toBeInTheDocument();
   });
 });

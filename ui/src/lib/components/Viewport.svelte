@@ -1848,7 +1848,10 @@
           title={m.session_autopilot_on_label()}>{m.viewport_autopilot_pip()}</span
         >
       {/if}
-      <AutopilotBadge {session} />
+      <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
+           autopilot badge — mirror the cards' precedence so NEEDS YOU/DELIVERED never
+           co-renders with REVIEWING anywhere. -->
+      {#if !reviews.isReviewing(session.id)}<AutopilotBadge {session} />{/if}
     {/if}
     <!-- trailing controls: on compact/phone they group + wrap together as a
          right-aligned cluster so the close button never orphans to its own row -->

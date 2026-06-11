@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   hideStatusBadge,
+  autopilotBadgeShown,
   relativeAge,
   formatAgo,
   heartbeatTone,
@@ -35,23 +36,43 @@ describe("canResume", () => {
 });
 
 describe("hideStatusBadge", () => {
-  const cases: [SessionStatus, boolean, boolean][] = [
-    // status, reviewing, hidden
-    ["done", true, true],
-    ["idle", true, true],
-    ["done", false, false],
-    ["idle", false, false],
-    ["running", true, false],
-    ["running", false, false],
-    ["blocked", true, false],
-    ["blocked", false, false],
-    ["archived", true, false],
+  const cases: [SessionStatus, boolean, boolean, boolean][] = [
+    // status, reviewing, autopilotShown, hidden
+    ["done", true, false, true],
+    ["idle", true, false, true],
+    ["done", false, false, false],
+    ["idle", false, false, false],
+    ["running", true, false, false],
+    ["running", false, false, false],
+    ["blocked", true, false, false],
+    ["blocked", false, false, false],
+    ["archived", true, false, false],
+    // autopilotShown cases
+    ["done", false, true, true],
+    ["idle", false, true, true],
+    ["running", false, true, false],
+    ["blocked", false, true, false],
+    ["done", true, true, true],
   ];
 
-  for (const [status, reviewing, hidden] of cases) {
-    it(`${status} + reviewing=${reviewing} → ${hidden ? "hidden" : "shown"}`, () =>
-      expect(hideStatusBadge(status, reviewing)).toBe(hidden));
+  for (const [status, reviewing, autopilotShown, hidden] of cases) {
+    it(`${status} + reviewing=${reviewing} + autopilotShown=${autopilotShown} → ${hidden ? "hidden" : "shown"}`, () =>
+      expect(hideStatusBadge(status, reviewing, autopilotShown)).toBe(hidden));
   }
+});
+
+describe("autopilotBadgeShown", () => {
+  const session = (over: Partial<Session>): Session =>
+    ({ autopilotPaused: false, autopilotComplete: false, ...over }) as Session;
+
+  it("returns true when autopilotPaused", () =>
+    expect(autopilotBadgeShown(session({ autopilotPaused: true }))).toBe(true));
+
+  it("returns true when autopilotComplete", () =>
+    expect(autopilotBadgeShown(session({ autopilotComplete: true }))).toBe(true));
+
+  it("returns false when neither paused nor complete", () =>
+    expect(autopilotBadgeShown(session({}))).toBe(false));
 });
 
 describe("relativeAge", () => {

@@ -5,6 +5,7 @@
   let { session }: { session: Session } = $props();
 </script>
 
+<!-- Keep in sync with autopilotBadgeShown() in $lib/format — both must list the same states or card status-badge suppression desyncs. -->
 {#if session.autopilotPaused}
   <span
     class="ap-paused"

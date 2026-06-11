@@ -335,6 +335,10 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push("--setenv", "HOME", home);
   f.push("--setenv", "PATH", `${home}/.local/bin:${nodeBinDir}:/usr/bin:/bin`);
   f.push("--setenv", "TERM", term);
+  // --clearenv strips CLAUDE_CONFIG_DIR; re-set it when the bound config dir is NOT the
+  // default ~/.claude, else claude would fall back to an empty ~/.claude tmpfs (the custom
+  // dir IS bound above) and lose auth/onboarding state.
+  if (claudeDir !== `${home}/.claude`) f.push("--setenv", "CLAUDE_CONFIG_DIR", claudeDir);
   for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {

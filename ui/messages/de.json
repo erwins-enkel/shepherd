@@ -1033,19 +1033,19 @@
   "sandbox_profile_trusted": "Vertraut (keine Sandbox)",
   "sandbox_profile_standard": "Standard",
   "sandbox_profile_autonomous": "Autonom",
-  "automation_sandbox_profile_hint": "Sandboxing ist optional. Standard und Autonom sperren den Agenten in sein Worktree ein — kein Zugriff auf ~/.ssh, Nachbar-Repositories oder $HOME-Geheimnisse. Autonom ist für Auto-/Drain-Sitzungen erforderlich, ist aber NOCH NICHT netzwerk-egress-abgeschottet.",
+  "automation_sandbox_profile_hint": "Sandboxing ist optional. Standard und Autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws, Nachbar-Repositories und andere $HOME-Dotfiles. Die für den Betrieb nötigen gh- und claude-Auth-Tokens bleiben lesbar — und sind, solange Egress nicht abgeschottet ist, weiterhin exfiltrierbar. Autonom ist für Auto-/Drain-Sitzungen erforderlich, ist aber NOCH NICHT netzwerk-egress-abgeschottet.",
   "automation_sandbox_profile_caveats": "Sandbox-Repositories müssen ein HTTPS-Git-Remote verwenden (Repositories mit SSH-Remote können nicht pushen), und MCP-Server, deren Abhängigkeiten außerhalb der eingebundenen Pfade liegen, lassen sich möglicherweise nicht laden.",
   "session_sandbox_degraded_label": "Sandbox aus",
   "session_sandbox_degraded_title": "Angeforderte Sandbox nicht verfügbar — dieser Agent läuft ohne Einschränkung.",
   "session_sandbox_autonomous_label": "Autonom",
-  "session_sandbox_autonomous_title": "Nur dateisystemseitig auf das Worktree eingeschränkt. NOCH NICHT netzwerk-egress-abgeschottet — ausgehender Netzwerkzugriff ist uneingeschränkt, also nicht überschätzen.",
+  "session_sandbox_autonomous_title": "Nur dateisystemseitig auf das Worktree eingeschränkt; die nötigen gh-/claude-Auth-Tokens bleiben lesbar. NOCH NICHT netzwerk-egress-abgeschottet — ausgehender Zugriff ist uneingeschränkt, diese Tokens bleiben also exfiltrierbar. Nicht überschätzen.",
   "session_sandbox_standard_label": "Sandbox",
-  "session_sandbox_standard_title": "Datei- und prozessseitig auf dieses Worktree eingeschränkt — kein Zugriff auf ~/.ssh, Nachbar-Repositories oder $HOME-Geheimnisse.",
+  "session_sandbox_standard_title": "Datei- und prozessseitig auf dieses Worktree eingeschränkt; blockiert ~/.ssh, ~/.aws und Nachbar-Repositories. Die nötigen gh-/claude-Auth-Tokens bleiben lesbar — und, solange Egress nicht abgeschottet ist, weiterhin exfiltrierbar.",
   "session_sandbox_unconfined_label": "Ungeschützt",
   "session_sandbox_unconfined_title": "Unbeaufsichtigter Agent läuft ohne Einschränkung — keine Sandbox angewendet.",
   "feat_sandbox_title": "Sandbox-Profile pro Repository",
   "feat_sandbox_body": "Jedes Repository kann jetzt im Automatisierungs-Panel ein Sandbox-Profil wählen: Vertraut (keine Sandbox, bisheriges Verhalten), Standard oder Autonom. Standard und Autonom sperren den Agenten in sein Worktree ein. Autonom ist für Auto-/Drain-Sitzungen erforderlich — beachte: nur dateisystemseitig eingeschränkt, noch nicht netzwerk-egress-abgeschottet. Sessions zeigen ihren angewendeten Sandbox-Status als Badge.",
   "newtask_sandbox_label": "Sandbox",
   "newtask_sandbox_default": "Repo-Standard",
-  "newtask_sandbox_hint": "Sandbox-Override pro Aufgabe. Bei 'Repo-Standard' wird das konfigurierte Profil dieses Repos übernommen. standard/autonom sperren den Agenten in sein Worktree ein (kein ~/.ssh, keine Nachbar-Repos, keine $HOME-Geheimnisse); autonom ist für Auto-Sitzungen erforderlich, ist aber noch nicht netzwerk-egress-abgeschottet."
+  "newtask_sandbox_hint": "Sandbox-Override pro Aufgabe. Bei 'Repo-Standard' wird das konfigurierte Profil dieses Repos übernommen. standard/autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws und andere $HOME-Dotfiles, aber die nötigen gh-/claude-Auth-Tokens bleiben lesbar (und exfiltrierbar, bis Egress abgeschottet ist); autonom ist für Auto-Sitzungen erforderlich, ist aber noch nicht netzwerk-egress-abgeschottet."
 }

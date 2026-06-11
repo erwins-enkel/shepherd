@@ -351,6 +351,19 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--setenv", "HOME", "/home/me")).toBe(true);
   });
 
+  test("custom CLAUDE_CONFIG_DIR is re-set after --clearenv (bound dir, not default)", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ claudeDir: "/home/me/.config/claude-alt" }),
+      detDeps,
+    );
+    expect(hasTriple(f, "--setenv", "CLAUDE_CONFIG_DIR", "/home/me/.config/claude-alt")).toBe(true);
+  });
+
+  test("default claudeDir does NOT emit CLAUDE_CONFIG_DIR (claude's own default)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps); // claudeDir = /home/me/.claude
+    expect(f.includes("CLAUDE_CONFIG_DIR")).toBe(false);
+  });
+
   test(".claude.json persisted RW bind via *-bind-try", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);

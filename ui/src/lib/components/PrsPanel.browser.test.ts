@@ -27,6 +27,7 @@ function pr(number: number, title = `PR ${number}`): PullRequest {
     title,
     url: `https://example.com/pr/${number}`,
     author: "octocat",
+    kind: "regular",
     createdAt: 0,
     isDraft: false,
     mergeable: true,

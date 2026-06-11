@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
+import { classifyPr } from "./pr-kind";
 import { CRITIC_REVIEW_MARKER } from "./types";
 import type {
   ForgeConfig,
@@ -183,7 +184,7 @@ export class GithubForge implements GitForge {
       "--state",
       "open",
       "--json",
-      "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews",
+      "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,labels",
       // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
       "--limit",
       "200",
@@ -193,15 +194,20 @@ export class GithubForge implements GitForge {
         author?: { login?: string } | null;
         createdAt?: string;
         isDraft?: boolean;
+        headRefName?: string;
+        labels?: Array<{ name?: string }>;
       }
     >;
     return raw.map((p) => {
       const ts = Date.parse(p.createdAt ?? "");
+      const author = p.author?.login ?? "";
+      const labels = (p.labels ?? []).map((l) => l.name).filter((n): n is string => !!n);
       return {
         number: p.number,
         title: p.title,
         url: p.url,
-        author: p.author?.login ?? "",
+        author,
+        kind: classifyPr({ author, title: p.title, headRefName: p.headRefName, labels }),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         isDraft: p.isDraft ?? false,
         mergeable: mapMergeable(p.mergeable),

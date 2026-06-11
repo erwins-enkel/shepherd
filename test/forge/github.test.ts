@@ -93,6 +93,7 @@ test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs,
       title: "feat: thing",
       url: "https://github.com/o/r/pull/7",
       author: "alice",
+      kind: "regular",
       createdAt: Date.parse("2024-02-02T00:00:00Z"),
       isDraft: true,
       mergeable: false,
@@ -112,6 +113,35 @@ test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs,
   // open-only, capped query
   const prListCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
   expect(prListCall).toContain("open");
+});
+
+test("GithubForge.listPullRequests: classifies dependabot + release PRs by kind", async () => {
+  const prsJson = JSON.stringify([
+    {
+      number: 1,
+      title: "Bump lodash from 1 to 2",
+      url: "u1",
+      author: { login: "app/dependabot" },
+      createdAt: "2024-02-02T00:00:00Z",
+    },
+    {
+      number: 2,
+      title: "chore(main): release 1.0.0",
+      url: "u2",
+      author: { login: "release-please[bot]" },
+      headRefName: "release-please--branches--main",
+    },
+    {
+      number: 3,
+      title: "feat: real work",
+      url: "u3",
+      author: { login: "carol" },
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prsJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs.map((p) => p.kind)).toEqual(["dependabot", "release", "regular"]);
 });
 
 test("GithubForge.listPullRequests: empty output → []", async () => {

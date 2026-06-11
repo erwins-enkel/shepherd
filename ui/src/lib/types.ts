@@ -132,12 +132,17 @@ export interface PrStatus {
   isDraft?: boolean;
 }
 
+/** Which kind of PR this is — drives the PRs tab type tag (mirrors server `PrKind`). */
+export type PrKind = "regular" | "dependabot" | "release";
+
 /** An open PR row in the backlog PRs tab (mirrors server `PullRequest`). */
 export interface PullRequest {
   number: number;
   title: string;
   url: string;
   author: string;
+  /** Which kind of PR this is — drives the PRs tab type tag. Computed via classifyPr. */
+  kind: PrKind;
   createdAt: number;
   isDraft: boolean;
   /** null = host still computing mergeability. */

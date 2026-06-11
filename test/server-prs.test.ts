@@ -24,6 +24,7 @@ const PR: PullRequest = {
   title: "feat: thing",
   url: "https://github.com/team/proj/pull/12",
   author: "alice",
+  kind: "regular",
   createdAt: 1_700_000_000_000,
   isDraft: false,
   mergeable: true,

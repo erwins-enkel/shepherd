@@ -1,3 +1,5 @@
+import type { PrKind } from "./pr-kind";
+
 export interface Issue {
   number: number;
   title: string;
@@ -54,6 +56,8 @@ export interface PullRequest {
   title: string;
   url: string;
   author: string;
+  /** Which kind of PR this is — drives the PRs tab type tag. Computed via classifyPr. */
+  kind: PrKind;
   createdAt: number; // epoch ms
   isDraft: boolean;
   /** null = host still computing mergeability. */

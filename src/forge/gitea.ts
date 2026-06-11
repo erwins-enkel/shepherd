@@ -1,4 +1,5 @@
 import { mapGiteaActionStatus, mapStatusState } from "./checks";
+import { classifyPr } from "./pr-kind";
 import type {
   ChecksState,
   ForgeConfig,
@@ -25,7 +26,8 @@ interface GiteaPr {
   html_url: string;
   user?: { login?: string } | null;
   created_at?: string;
-  head?: { ref: string; sha: string };
+  head?: { ref?: string; sha: string };
+  labels?: Array<{ name?: string }>;
 }
 
 /**
@@ -215,6 +217,12 @@ export class GiteaForge implements GitForge {
         title: pr.title ?? "",
         url: pr.html_url,
         author: pr.user?.login ?? "",
+        kind: classifyPr({
+          author: pr.user?.login ?? "",
+          title: pr.title ?? "",
+          headRefName: pr.head?.ref,
+          labels: (pr.labels ?? []).map((l) => l.name).filter((n): n is string => !!n),
+        }),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         isDraft: pr.draft ?? false,
         mergeable: pr.mergeable ?? null,

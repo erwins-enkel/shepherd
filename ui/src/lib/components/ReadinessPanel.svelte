@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { getReadiness } from "$lib/api";
+  import { getReadiness, adoptGitignore } from "$lib/api";
   import type { GuardrailId, ReadinessReport } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { toasts } from "$lib/toasts.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
 
   let {
@@ -134,6 +136,50 @@
       : m.readiness_adopt_intro_create();
     onadopt(repoPath, buildAdoptPrompt(intro, report.claudeMd));
   }
+
+  // Independent of `report`: this only needs `repoPath`, so it stays actionable
+  // even when the scorecard is loading-errored or the repo isn't JS/TS.
+  let adopting = $state(false);
+
+  async function adoptGitignoreClick() {
+    if (adopting) return;
+    const rp = repoPath;
+    adopting = true;
+    try {
+      const res = await adoptGitignore(rp);
+      // Ignore a result that landed after the operator switched repos.
+      if (rp !== repoPath) return;
+      if (res.status === "applied") {
+        const url = res.prUrl ?? "";
+        toasts.info(m.readiness_adopt_gitignore_applied({ url }), {
+          key: "adopt-gitignore-applied",
+          action: url
+            ? {
+                label: m.readiness_adopt_gitignore_view_pr(),
+                run: () => window.open(url, "_blank", "noopener,noreferrer"),
+              }
+            : undefined,
+        });
+      } else if (res.status === "already") {
+        toasts.info(m.readiness_adopt_gitignore_already(), { key: "adopt-gitignore-already" });
+      } else {
+        toasts.info(m.readiness_adopt_gitignore_no_access(), {
+          key: "adopt-gitignore-no-access",
+        });
+      }
+    } catch {
+      if (rp !== repoPath) return;
+      // Failure must not vanish: persistent (duration: null) + assertive, keyed
+      // per-tone so repeated failures collapse into one toast (house rule).
+      toasts.info(m.readiness_adopt_gitignore_error(), {
+        duration: null,
+        alert: true,
+        key: "adopt-gitignore-fail",
+      });
+    } finally {
+      if (rp === repoPath) adopting = false;
+    }
+  }
 </script>
 
 <div class="readiness-panel">
@@ -221,6 +267,23 @@
         {/if}
         <pre class="claudemd">{report.claudeMd}</pre>
       </div>
+    </div>
+  {/if}
+
+  <!-- Always-visible (whenever not loading): depends only on repoPath, so it stays
+       actionable across the applicable, not-applicable and load-error states. -->
+  {#if !loading}
+    <div class="adopt-gitignore">
+      <button
+        class="cta"
+        type="button"
+        disabled={adopting}
+        onclick={adoptGitignoreClick}
+        use:coachTarget={"adopt-gitignore"}
+      >
+        {m.readiness_adopt_gitignore_button()}
+      </button>
+      <div class="adopt-gitignore-note">{m.readiness_adopt_gitignore_note()}</div>
     </div>
   {/if}
 </div>
@@ -441,6 +504,10 @@
   .cta:hover {
     background: var(--color-hover);
   }
+  .cta:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
   .cta.primary {
     border-color: var(--color-line-bright);
     color: var(--color-ink-bright);
@@ -475,5 +542,19 @@
   .claudemd::-webkit-scrollbar-thumb {
     background: var(--color-faint);
     border-radius: 2px;
+  }
+
+  /* ── always-visible .gitignore adoption footer ── */
+  .adopt-gitignore {
+    padding: 12px 14px;
+    border-top: 1px solid var(--color-line);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .adopt-gitignore-note {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    line-height: 1.45;
   }
 </style>

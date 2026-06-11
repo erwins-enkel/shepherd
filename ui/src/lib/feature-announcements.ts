@@ -520,4 +520,15 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_redraw_menu_title",
     bodyKey: "feat_redraw_menu_body",
   },
+  {
+    // targetId "adopt-gitignore" matches the use:coachTarget id on the adopt button
+    // in ReadinessPanel.svelte (mounts on the Backlog Readiness tab). 1.24.0 is
+    // already tagged, so this ships in 1.25.0: computeNewEntries only surfaces
+    // entries with sinceVersion > lastSeen.
+    id: "adopt-gitignore",
+    sinceVersion: "1.25.0",
+    titleKey: "feat_adopt_gitignore_title",
+    bodyKey: "feat_adopt_gitignore_body",
+    targetId: "adopt-gitignore",
+  },
 ];

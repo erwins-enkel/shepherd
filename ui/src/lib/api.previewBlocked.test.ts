@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createSession, isPreviewBlocked } from "./api";
 import type { CreateInput } from "./types";
 
@@ -9,6 +9,13 @@ function mockFetch(status: number, body: unknown): typeof fetch {
 }
 
 describe("preview-origin blocked detection", () => {
+  // Each test reassigns globalThis.fetch; restore the real one so the mock
+  // doesn't leak into other suites that share the global.
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
   it("maps a 403 origin-block body to a PreviewBlockedError", async () => {
     globalThis.fetch = mockFetch(403, { error: "forbidden: origin not allowed" });
     const err = await createSession({ repo: "r", prompt: "p" } as unknown as CreateInput).then(

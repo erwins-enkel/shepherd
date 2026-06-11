@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import type { SessionStore } from "./store";
@@ -23,6 +22,7 @@ import {
   autoHoldReason,
   isDegraded,
   wrapArgv,
+  safeRealpath,
   SandboxAutoRefused,
   type SandboxProfile,
   type SandboxBackend,
@@ -584,16 +584,10 @@ export class SessionService {
    *  (no backend), which `??` would collapse into the real probe. */
   private detectBackend(): SandboxBackend {
     if (this.deps.detectBackend) return this.deps.detectBackend();
-    let nodeBinReal = config.nodeBin;
-    try {
-      nodeBinReal = realpathSync(config.nodeBin);
-    } catch {
-      /* keep config.nodeBin */
-    }
     return detectSandboxBackend({
       home: homedir(),
       claudeDir: config.claudeDir,
-      nodeBinReal,
+      nodeBinReal: safeRealpath(config.nodeBin),
     });
   }
 
@@ -635,14 +629,7 @@ export class SessionService {
     // wrapArgv ignores the membrane for trusted / no-backend (passthrough), so skipping the
     // git/realpath resolution avoids needless host work — and the placeholder is never read.
     const willWrap = profile !== "trusted" && backend !== null;
-    let nodeBinReal = config.nodeBin;
-    if (willWrap) {
-      try {
-        nodeBinReal = realpathSync(config.nodeBin);
-      } catch {
-        /* keep config.nodeBin */
-      }
-    }
+    const nodeBinReal = willWrap ? safeRealpath(config.nodeBin) : config.nodeBin;
     const membrane: MembraneInputs = willWrap
       ? {
           worktreePath: ctx.worktreePath,

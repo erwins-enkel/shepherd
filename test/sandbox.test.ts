@@ -4,8 +4,6 @@ import {
   isSandboxProfile,
   resolveProfile,
   autoHoldReason,
-  assertAutoAllowed,
-  SandboxAutoRefused,
   isDegraded,
   buildMembraneFlags,
   wrapArgv,
@@ -102,35 +100,6 @@ describe("autoHoldReason", () => {
     const r = autoHoldReason("autonomous", null);
     expect(r).toBeTruthy();
     expect(r).toContain("backend");
-  });
-});
-
-describe("assertAutoAllowed", () => {
-  test("no-op when auto is false even if reason would exist", () => {
-    expect(() => assertAutoAllowed(false, "standard", "bwrap")).not.toThrow();
-    expect(() => assertAutoAllowed(false, "autonomous", null)).not.toThrow();
-  });
-
-  test("no-op when auto undefined", () => {
-    expect(() => assertAutoAllowed(undefined, "standard", "bwrap")).not.toThrow();
-  });
-
-  test("no-op when auto true but no hold reason", () => {
-    expect(() => assertAutoAllowed(true, "trusted", null)).not.toThrow();
-    expect(() => assertAutoAllowed(true, "autonomous", "bwrap")).not.toThrow();
-  });
-
-  test("throws SandboxAutoRefused with the hold reason when auto && reason", () => {
-    let caught: unknown;
-    try {
-      assertAutoAllowed(true, "standard", "bwrap");
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeInstanceOf(SandboxAutoRefused);
-    expect((caught as SandboxAutoRefused).holdReason).toBe(autoHoldReason("standard", "bwrap")!);
-
-    expect(() => assertAutoAllowed(true, "autonomous", null)).toThrow(SandboxAutoRefused);
   });
 });
 

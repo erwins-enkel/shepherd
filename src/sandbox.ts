@@ -21,7 +21,7 @@ import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
-function safeRealpath(p: string): string {
+export function safeRealpath(p: string): string {
   try {
     return realpathSync(p);
   } catch {
@@ -345,7 +345,7 @@ export function autoHoldReason(profile: SandboxProfile, backend: SandboxBackend)
   return null;
 }
 
-/** Thrown by assertAutoAllowed when an auto spawn is refused. */
+/** Thrown when an auto spawn is refused (auto hold reason present). */
 export class SandboxAutoRefused extends Error {
   readonly holdReason: string;
   constructor(holdReason: string) {
@@ -353,20 +353,6 @@ export class SandboxAutoRefused extends Error {
     this.name = "SandboxAutoRefused";
     this.holdReason = holdReason;
   }
-}
-
-/**
- * Throws SandboxAutoRefused(holdReason) when auto===true AND autoHoldReason is
- * non-null. No-op otherwise (incl. auto false/undefined — never throws).
- */
-export function assertAutoAllowed(
-  auto: boolean | undefined,
-  profile: SandboxProfile,
-  backend: SandboxBackend,
-): void {
-  if (!auto) return;
-  const reason = autoHoldReason(profile, backend);
-  if (reason) throw new SandboxAutoRefused(reason);
 }
 
 /**

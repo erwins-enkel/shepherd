@@ -564,7 +564,7 @@
   "viewport_type_steer_hint": "⌁ type to steer",
   "viewport_detach_hint": "⇥ detach",
   "viewport_select_hint": "{key} drag to copy",
-  "viewport_keynav_hint": "j/k/1–9 switch session ({key} from terminal)",
+  "viewport_keynav_hint": "j/k/1–9 switch session: hold {key} from terminal",
   "viewport_keynav_needsyou_hint": "g needs you",
   "viewport_keynav_enter_hint": "↵ back to terminal",
   "viewport_parked_title": "Active on another device",

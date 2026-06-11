@@ -28,7 +28,7 @@ import {
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
-import { listRepos, readTodo, writeTodo, cloneRepo, createProject } from "./repos";
+import { listRepos, readTodo, writeTodo, cloneRepo, createProject, type GhRunner } from "./repos";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
@@ -184,6 +184,11 @@ export interface AppDeps {
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
+  /** Injectable `gh` CLI runner for the POST /api/projects remote step. Absent in
+   *  production (createProject falls back to the real `gh` runner); tests inject a
+   *  fake so the route's partial-success mapping can be exercised WITHOUT creating
+   *  real GitHub repos. */
+  newProjectGhRunner?: GhRunner;
 }
 
 const sessionUsage = (s: Session) =>
@@ -1590,13 +1595,13 @@ const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_generic: 422,
 };
 
-async function createProjectFromRequest(req: Request): Promise<Response> {
+async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = validateNewProject(body, config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
-  const r = await createProject(parsed.value, config.repoRoot);
+  const r = await createProject(parsed.value, config.repoRoot, ghRunner);
   if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
   return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
 }
@@ -1628,9 +1633,9 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
 }
 
 // POST /api/projects — bootstrap a new git project (git init + optional GitHub remote).
-async function handleProjects({ req, parts }: Ctx): Promise<Response | null> {
+async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "projects" && !parts[2]) {
-    if (req.method === "POST") return createProjectFromRequest(req);
+    if (req.method === "POST") return createProjectFromRequest(req, deps.newProjectGhRunner);
   }
   return null;
 }

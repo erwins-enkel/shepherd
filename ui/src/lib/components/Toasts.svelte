@@ -169,7 +169,12 @@
       border-left: 0;
       border-right: 0;
       border-bottom: 0;
-      padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+      padding: 10px 14px;
+    }
+    /* column-reverse puts the first DOM child at the bottom — only that banner
+       touches the screen edge, so only it reserves the home-bar safe area. */
+    .toast:first-child {
+      padding-bottom: calc(10px + env(safe-area-inset-bottom));
     }
     .msg {
       font-size: var(--fs-meta);

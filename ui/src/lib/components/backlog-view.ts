@@ -108,17 +108,22 @@ function projectName(p: BacklogProject): string {
  * pinned rows below), this persistent list hoists the recents — `rest` keeps
  * the parent's order minus the hoisted entries, so no repo appears twice.
  *
- * Deliberate divergence from RepoSelect, which drops its recents group while
- * the user types: there the filter is a *search* for one specific repo, so the
- * shortcut only gets in the way. The backlog chips are persistent *scope*
- * filters (has issues / has PRs) — running on the already-filtered list keeps
- * the group useful while a scope is active, and never re-surfaces a repo the
- * active chips exclude (which would break the filter's promise).
+ * The scope chips (has issues / has PRs) keep the recents group alive while
+ * active — they narrow the universe but don't make the shortcut confusing.
+ * An active *search* (`searching = true`) suppresses the group entirely and
+ * returns a flat list, mirroring RepoSelect's behaviour: when the user is
+ * hunting for a specific repo by name the shortcut group only gets in the way.
  */
-export function partitionRecents(projects: readonly BacklogProject[]): {
+export function partitionRecents(
+  projects: readonly BacklogProject[],
+  searching = false,
+): {
   recents: BacklogProject[];
   rest: BacklogProject[];
 } {
+  if (searching) {
+    return { recents: [], rest: [...projects] };
+  }
   const recents = projects
     .filter((p) => (p.recentAgentCount ?? 0) > 0)
     .sort(
@@ -133,10 +138,13 @@ export function partitionRecents(projects: readonly BacklogProject[]): {
 }
 
 /**
- * Narrow the repo list by activity. Each active flag is a *required* predicate
- * (AND semantics): `hasIssues` keeps only repos with open issues, `hasPRs` only
- * repos with open PRs, and both together keep only their intersection. With
- * both off, every project passes (an identity filter).
+ * Narrow the repo list by activity and optional name search. Each active
+ * predicate is AND'd together:
+ * - `hasIssues` keeps only repos with open issues.
+ * - `hasPRs` keeps only repos with open PRs.
+ * - `query` (optional) keeps only repos whose name + display path contains the
+ *   query string (case-insensitive substring, same rule as RepoSelect). An
+ *   undefined or blank/whitespace-only query is the identity predicate.
  *
  * Counts fail closed: `?? 0` maps an unknown count (`null`, e.g. a non-github
  * forge or a not-yet-fetched repo) to 0, so only a count strictly `> 0`
@@ -144,9 +152,13 @@ export function partitionRecents(projects: readonly BacklogProject[]): {
  */
 export function filterProjects(
   projects: readonly BacklogProject[],
-  opts: { hasIssues: boolean; hasPRs: boolean },
+  opts: { hasIssues: boolean; hasPRs: boolean; query?: string },
 ): BacklogProject[] {
+  const q = opts.query?.trim().toLowerCase() ?? "";
   return projects.filter(
-    (p) => (!opts.hasIssues || (p.openIssues ?? 0) > 0) && (!opts.hasPRs || (p.openPRs ?? 0) > 0),
+    (p) =>
+      (!opts.hasIssues || (p.openIssues ?? 0) > 0) &&
+      (!opts.hasPRs || (p.openPRs ?? 0) > 0) &&
+      (q === "" || (projectName(p) + " " + p.display).toLowerCase().includes(q)),
   );
 }

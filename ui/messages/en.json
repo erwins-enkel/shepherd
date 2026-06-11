@@ -730,6 +730,8 @@
   "backlog_filter_has_issues": "Has issues",
   "backlog_filter_has_prs": "Has PRs",
   "backlog_filter_none_match": "No repos match the filter",
+  "backlog_filter_search_placeholder": "Filter repos…",
+  "backlog_filter_search_clear": "Clear search",
   "a11y_skip_to_main": "Skip to main content",
   "todopanel_add_aria": "New to-do item",
   "todopanel_item_aria": "Toggle done: {item}",
@@ -993,5 +995,7 @@
   "feat_repo_switcher_title": "The repo filter is now a chip rail",
   "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again to show all repos. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too.",
   "feat_redraw_menu_title": "Terminal redraw menu",
-  "feat_redraw_menu_body": "Terminal history squished after viewing a session from a narrower device? The new ↔ Redraw button in the session header offers four repair variants to try — from a gentle resize nudge to a full claude --resume re-render."
+  "feat_redraw_menu_body": "Terminal history squished after viewing a session from a narrower device? The new ↔ Redraw button in the session header offers four repair variants to try — from a gentle resize nudge to a full claude --resume re-render.",
+  "feat_backlog_repo_search_title": "Search the backlog repo list",
+  "feat_backlog_repo_search_body": "Type in the new filter input at the top of the backlog repo list to narrow repos by name — combines with the Has issues / Has PRs chips."
 }

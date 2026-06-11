@@ -248,6 +248,75 @@ describe("filterProjects", () => {
   });
 });
 
+describe("filterProjects — query search", () => {
+  // Corpus: paths whose basenames and display paths vary for substring testing.
+  const alpha = { ...project("/repos/alpha", 2, 1), display: "/repos/alpha" };
+  const betaWidget = { ...project("/repos/beta-widget", 0, 3), display: "/work/beta-widget" };
+  const gamma = { ...project("/repos/gamma", 1, 0), display: "/repos/gamma" };
+  const projects = [alpha, betaWidget, gamma];
+
+  it("matches on the path basename (name)", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "alpha" })).toEqual([
+      alpha,
+    ]);
+  });
+
+  it("matches on the display path", () => {
+    // betaWidget has display "/work/beta-widget" — "work" only lives in display.
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "work" })).toEqual([
+      betaWidget,
+    ]);
+  });
+
+  it("is case-insensitive", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "GAMMA" })).toEqual([
+      gamma,
+    ]);
+  });
+
+  it("blank query is identity (all projects pass)", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "" })).toEqual(
+      projects,
+    );
+  });
+
+  it("whitespace-only query is identity", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "   " })).toEqual(
+      projects,
+    );
+  });
+
+  it("undefined query is identity (existing call sites unaffected)", () => {
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: false })).toEqual(projects);
+  });
+
+  it("AND-combines query with hasIssues", () => {
+    // alpha has issues (2>0) and matches "alpha"; betaWidget has no issues (0)
+    expect(filterProjects(projects, { hasIssues: true, hasPRs: false, query: "alpha" })).toEqual([
+      alpha,
+    ]);
+    // betaWidget matches "beta" but has 0 issues — excluded
+    expect(filterProjects(projects, { hasIssues: true, hasPRs: false, query: "beta" })).toEqual([]);
+  });
+
+  it("AND-combines query with hasPRs", () => {
+    // betaWidget has PRs (3>0) and matches "beta"
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: true, query: "beta" })).toEqual([
+      betaWidget,
+    ]);
+    // gamma matches "gamma" but 0 PRs — excluded
+    expect(filterProjects(projects, { hasIssues: false, hasPRs: true, query: "gamma" })).toEqual(
+      [],
+    );
+  });
+
+  it("returns empty array when query matches nothing", () => {
+    expect(
+      filterProjects(projects, { hasIssues: false, hasPRs: false, query: "zzz-no-match" }),
+    ).toEqual([]);
+  });
+});
+
 describe("partitionRecents", () => {
   // Same ranking criteria as the New Task repo picker (RepoSelect): recent agent
   // count desc, then lastUsedAt desc, then name asc — capped at RECENT_LIMIT.
@@ -305,6 +374,23 @@ describe("partitionRecents", () => {
     expect(rest).toEqual([a, c]);
     const all = [...recents, ...rest].map((p) => p.path);
     expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("searching=true returns empty recents and all projects flat in rest", () => {
+    const a = recentProject("/repos/a", 5);
+    const b = recentProject("/repos/b", 2);
+    const c = recentProject("/repos/c", null);
+    const { recents, rest } = partitionRecents([a, b, c], true);
+    expect(recents).toEqual([]);
+    expect(rest).toEqual([a, b, c]);
+  });
+
+  it("searching=false keeps existing hoist behaviour (default, backward-safe)", () => {
+    const a = recentProject("/repos/a", 5);
+    const b = recentProject("/repos/b", null);
+    const { recents, rest } = partitionRecents([a, b], false);
+    expect(recents).toEqual([a]);
+    expect(rest).toEqual([b]);
   });
 });
 

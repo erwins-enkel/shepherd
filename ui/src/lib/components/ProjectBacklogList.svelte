@@ -10,8 +10,10 @@
     selectedPath,
     hasIssues,
     hasPRs,
+    query,
     ontoggleissues,
     ontoggleprs,
+    onsearch,
     onselect,
   }: {
     /** Already filtered by the parent (BacklogView) via filterProjects — the
@@ -21,18 +23,50 @@
     selectedPath: string | null;
     hasIssues: boolean;
     hasPRs: boolean;
+    query: string;
     ontoggleissues: () => void;
     ontoggleprs: () => void;
+    onsearch: (q: string) => void;
     onselect: (path: string) => void;
   } = $props();
 
+  const searching = $derived(query.trim() !== "");
+
   // "Recently worked on" group at the top — same ranking criteria as the New
   // Task repo picker's pinned recents (see partitionRecents). Hoisted, not
-  // duplicated, so each repo keeps a single selectable row.
-  const grouped = $derived(partitionRecents(projects));
+  // duplicated, so each repo keeps a single selectable row. Suppressed while
+  // searching so the results read as a flat search list.
+  const grouped = $derived(partitionRecents(projects, searching));
 </script>
 
 <div class="filter-bar">
+  <div class="filter-search-wrap">
+    <input
+      class="filter-search"
+      type="text"
+      autocomplete="off"
+      spellcheck={false}
+      value={query}
+      placeholder={m.backlog_filter_search_placeholder()}
+      aria-label={m.backlog_filter_search_placeholder()}
+      oninput={(e) => onsearch(e.currentTarget.value)}
+      onkeydown={(e) => {
+        if (e.key === "Escape" && query !== "") {
+          e.stopPropagation();
+          e.preventDefault();
+          onsearch("");
+        }
+      }}
+    />
+    {#if searching}
+      <button
+        class="filter-search-clear"
+        type="button"
+        aria-label={m.backlog_filter_search_clear()}
+        onclick={() => onsearch("")}>×</button
+      >
+    {/if}
+  </div>
   <button
     class="filter-chip"
     class:active={hasIssues}
@@ -54,7 +88,7 @@
 </div>
 
 <!-- The parent only renders this list when there are forge repos, so an empty
-     `projects` here always means the active filter matched nothing. -->
+     `projects` here always means the active chips or search matched nothing. -->
 {#if projects.length === 0}
   <div class="filter-empty">
     <span class="filter-empty-label">{m.backlog_filter_none_match()}</span>
@@ -97,6 +131,58 @@
     margin-bottom: 2px;
     background: var(--color-inset);
     border-bottom: 1px solid var(--color-line);
+  }
+
+  .filter-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .filter-search {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.04em;
+    padding: 0 28px 0 10px;
+    min-height: 36px;
+    outline: none;
+    transition: border-color 0.12s;
+  }
+
+  .filter-search::placeholder {
+    color: var(--color-muted);
+  }
+
+  .filter-search:focus {
+    border-color: var(--color-line-bright);
+  }
+
+  .filter-search-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    padding: 0 8px;
+    min-height: 36px;
+    cursor: pointer;
+    line-height: 1;
+    touch-action: manipulation;
+  }
+
+  .filter-search-clear:hover {
+    color: var(--color-ink);
   }
 
   .filter-chip {

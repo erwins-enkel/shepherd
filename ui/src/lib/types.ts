@@ -132,12 +132,17 @@ export interface PrStatus {
   isDraft?: boolean;
 }
 
+/** Which kind of PR this is — drives the PRs tab type tag (mirrors server `PrKind`). */
+export type PrKind = "regular" | "dependabot" | "release";
+
 /** An open PR row in the backlog PRs tab (mirrors server `PullRequest`). */
 export interface PullRequest {
   number: number;
   title: string;
   url: string;
   author: string;
+  /** Which kind of PR this is — drives the PRs tab type tag. Computed via classifyPr. */
+  kind: PrKind;
   createdAt: number;
   isDraft: boolean;
   /** null = host still computing mergeability. */
@@ -430,6 +435,8 @@ export interface BacklogProject {
   recentAgentCount?: number | null;
   openIssues: number | null;
   openPRs: number | null;
+  /** Open-PR breakdown by kind for the repo-list row; null for non-GitHub forges. */
+  prKinds: { release: number; dependabot: number; regular: number } | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
   workflows: number | null;
   /** Default-branch CI rollup for the Actions tab marker; null = unknown / non-GitHub. */

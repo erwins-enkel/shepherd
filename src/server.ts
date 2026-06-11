@@ -2177,6 +2177,8 @@ export interface BacklogProject {
   recentAgentCount: number | null;
   openIssues: number | null;
   openPRs: number | null;
+  /** Open-PR breakdown by kind for the repo-list row; null for non-GitHub forges. */
+  prKinds: { release: number; dependabot: number; regular: number } | null;
   /** Workflows defined under .github/workflows; null for non-GitHub forges. */
   workflows: number | null;
   /** Default-branch CI rollup state for the Actions tab marker; null = unknown / non-GitHub. */
@@ -2246,6 +2248,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       recentAgentCount: recentCounts[r.path] ?? null,
       openIssues: counts.openIssues,
       openPRs: counts.openPRs,
+      prKinds: counts.prKinds,
       // GitHub-only: the Actions panel is github-gated, so other forges get null
       // (plain "Actions" label) rather than a count that has no panel behind it.
       workflows: r.forge.kind === "github" ? countDefinedWorkflows(r.path) : null,

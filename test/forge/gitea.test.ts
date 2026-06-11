@@ -66,6 +66,7 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
       title: "feat: gitea pr",
       url: "https://git.example.com/team/proj/pulls/9",
       author: "carol",
+      kind: "regular",
       createdAt: Date.parse("2024-03-03T00:00:00Z"),
       isDraft: false,
       mergeable: true,
@@ -78,6 +79,45 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
   ]);
   // list call + one commit-status call
   expect(calls.length).toBe(2);
+});
+
+test("GiteaForge.listPullRequests: classifies dependabot + release PRs by kind", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
+      json: [
+        {
+          number: 1,
+          title: "Bump lodash from 1 to 2",
+          state: "open",
+          html_url: "u1",
+          user: { login: "dependabot[bot]" },
+          head: { ref: "dependabot/npm/lodash", sha: "a" },
+        },
+        {
+          number: 2,
+          title: "chore(main): release 1.0.0",
+          state: "open",
+          html_url: "u2",
+          user: { login: "release-please" },
+          head: { ref: "release-please--branches--main", sha: "b" },
+        },
+        {
+          number: 3,
+          title: "feat: real work",
+          state: "open",
+          html_url: "u3",
+          user: { login: "carol" },
+          head: { ref: "feature", sha: "c" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/a/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/b/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/c/status": { json: { state: "success" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const prs = await forge.listPullRequests();
+  expect(prs.map((p) => p.kind)).toEqual(["dependabot", "release", "regular"]);
 });
 
 test("GiteaForge.listPullRequests: a failing per-PR status call degrades to checks:none, not a rejected list", async () => {

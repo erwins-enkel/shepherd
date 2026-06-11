@@ -96,7 +96,12 @@ function makeDeps(
     backlog: {
       counts: async (path: string): Promise<RepoCounts> => {
         const c = backlogCounts[path] ?? { openIssues: null, openPRs: null };
-        return { openIssues: c.openIssues, openPRs: c.openPRs, ciStatus: c.ciStatus ?? null };
+        return {
+          openIssues: c.openIssues,
+          openPRs: c.openPRs,
+          ciStatus: c.ciStatus ?? null,
+          prKinds: null,
+        };
       },
     },
   };

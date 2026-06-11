@@ -53,7 +53,7 @@
   // conflict on a draft, or the row shows a bogus "conflicts" chip.
   const blocked = $derived(pr.mergeable === false && !pr.isDraft);
 
-  const offerRebase = $derived(showRebaseOffer({ author: pr.author, blocked, failed, requested }));
+  const offerRebase = $derived(showRebaseOffer({ kind: pr.kind, blocked, failed, requested }));
 
   const ciStatus = $derived(m.gitrail_ci_status({ status: pr.checks }));
   const ciToggleTitle = $derived(expanded ? m.prspanel_jobs_hide() : m.prspanel_jobs_show());
@@ -148,6 +148,13 @@
         title={m.prspanel_open_link()}>{pr.title}</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      {#if pr.kind === "dependabot"}
+        <span class="kind-tag dep" title={m.prkind_dependabot_tag()}
+          >{m.prkind_dependabot_tag()}</span
+        >
+      {:else if pr.kind === "release"}
+        <span class="kind-tag rel" title={m.prkind_release_tag()}>{m.prkind_release_tag()}</span>
+      {/if}
       {#if pr.isDraft}<span class="draft-chip">{m.prspanel_draft()}</span>{/if}
     </div>
 
@@ -327,6 +334,27 @@
   }
   .pr-title:hover {
     color: var(--color-ink-bright);
+  }
+
+  /* PR-kind tag — same hairline-badge recipe as ProjectRow's .kind-badge, here a
+     per-row marker for non-regular PRs. Regular PRs render no tag. Semantic hues:
+     dependabot = blue, release = amber; never a status green. */
+  .kind-tag {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 5px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+  }
+  .kind-tag.dep {
+    color: var(--color-blue);
+    border-color: var(--color-blue);
+  }
+  .kind-tag.rel {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
   }
 
   /* DRAFT is metadata, not state — a neutral hairline chip, never a status hue. */

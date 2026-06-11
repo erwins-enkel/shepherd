@@ -15,7 +15,7 @@ test("warms only forge-backed repos", async () => {
     (p) => (p === "/no-forge" ? null : { kind: "github", slug: "o/r" }),
     async (p) => {
       warmed.push(p);
-      return { openIssues: 1, openPRs: 0, ciStatus: null };
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
     },
   );
 
@@ -32,7 +32,7 @@ test("a rejecting warm does not sink the tick or sibling repos", async () => {
     async (p) => {
       warmed.push(p);
       if (p === "/bad") throw new Error("gh down");
-      return { openIssues: 2, openPRs: 1, ciStatus: null };
+      return { openIssues: 2, openPRs: 1, ciStatus: null, prKinds: null };
     },
   );
 
@@ -48,7 +48,7 @@ test("resolves forge once per path, even across ticks (no per-tick git I/O)", as
       resolveCalls.push(p);
       return p === "/no-forge" ? null : { kind: "github", slug: "o/r" };
     },
-    async () => ({ openIssues: 1, openPRs: 0, ciStatus: null }),
+    async () => ({ openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null }),
   );
 
   await poller.tick();
@@ -66,7 +66,7 @@ test("empty repo list is a no-op", async () => {
     () => ({ kind: "github", slug: "o/r" }),
     async () => {
       calls++;
-      return { openIssues: 0, openPRs: 0, ciStatus: null };
+      return { openIssues: 0, openPRs: 0, ciStatus: null, prKinds: null };
     },
   );
   await poller.tick();
@@ -80,7 +80,7 @@ test("calls onWarmed once after warming completes each tick", async () => {
     () => ({ kind: "github", slug: "o/r" }),
     async (p) => {
       order.push(`warm:${p}`);
-      return { openIssues: 1, openPRs: 0, ciStatus: null };
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
     },
     60_000,
     async () => {
@@ -98,7 +98,7 @@ test("a throwing onWarmed does not sink the tick", async () => {
   const poller = new BacklogPoller(
     () => [{ path: "/a" }],
     () => ({ kind: "github", slug: "o/r" }),
-    async () => ({ openIssues: 1, openPRs: 0, ciStatus: null }),
+    async () => ({ openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null }),
     60_000,
     async () => {
       throw new Error("broadcast boom");
@@ -113,7 +113,7 @@ test("start/stop manage the interval timer without throwing", () => {
   const poller = new BacklogPoller(
     () => [],
     () => null,
-    async () => ({ openIssues: null, openPRs: null, ciStatus: null }),
+    async () => ({ openIssues: null, openPRs: null, ciStatus: null, prKinds: null }),
     60_000,
   );
   poller.start();

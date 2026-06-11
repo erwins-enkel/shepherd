@@ -73,10 +73,19 @@ test("idempotent: feeding output back → changed:false", () => {
   expect(changed).toBe(false);
 });
 
-test("bare .shepherd-* line OUTSIDE markers → managed block still appended", () => {
-  const input = `${SHEPHERD_IGNORE_GLOB}\n`;
+test("bare .shepherd-* line already present → no-op (no redundant managed block)", () => {
+  const input = `node_modules\n${SHEPHERD_IGNORE_GLOB}\ndist\n`;
   const { content, changed } = upsertShepherdIgnoreBlock(input);
-  // The bare line is outside markers, so we append a fresh managed block
+  // The glob is already listed verbatim, so the artifacts are already ignored:
+  // no managed block is appended.
+  expect(changed).toBe(false);
+  expect(content).toBe(input);
+  expect(content).not.toContain(SHEPHERD_EXCLUDE_START);
+});
+
+test("commented-out glob does NOT count as covered → managed block appended", () => {
+  const input = `# ${SHEPHERD_IGNORE_GLOB}\n`;
+  const { content, changed } = upsertShepherdIgnoreBlock(input);
   expect(changed).toBe(true);
   expect(content).toContain(SHEPHERD_EXCLUDE_START);
   expect(content).toContain(SHEPHERD_EXCLUDE_END);

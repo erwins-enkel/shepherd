@@ -166,6 +166,21 @@ describe("GitignoreAdopter", () => {
     expect(openPrCalls.length).toBe(0);
   });
 
+  test("bare glob already in base .gitignore (no markers) → 'already'; no redundant PR", async () => {
+    seedOnBase(".gitignore", `node_modules\n${SHEPHERD_IGNORE_GLOB}\n`);
+
+    const openPrCalls: OpenPrCall[] = [];
+    const wt = new WorktreeMgr();
+    const a = new GitignoreAdopter({
+      worktree: { create: (...args) => wt.create(...args), remove: (p) => wt.remove(p) },
+      resolveForge: () => fakeForge({}, openPrCalls),
+    });
+
+    const res = await a.adopt(repo);
+    expect(res).toEqual({ ok: true, status: "already" });
+    expect(openPrCalls.length).toBe(0);
+  });
+
   test("concurrent double-click → one returns 409", async () => {
     const wt = new WorktreeMgr();
     let releaseForge: () => void = () => {};

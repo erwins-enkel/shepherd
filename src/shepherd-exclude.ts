@@ -26,8 +26,10 @@ export const SHEPHERD_EXCLUDE_END = "# shepherd:ignore:end";
 
 /**
  * Insert or replace the managed shepherd:ignore block in gitignore-syntax
- * content. Idempotent: replaces the existing block's contents rather than
- * appending a duplicate; appends a fresh block when no markers are present.
+ * content. Idempotent: replaces an existing managed block's contents rather
+ * than appending a duplicate; treats a pre-existing bare `.shepherd-*` line
+ * (the glob already present outside the markers) as already-covered → no-op;
+ * otherwise appends a fresh block.
  *
  * Generic over the target file — used for BOTH `.git/info/exclude` (via
  * `ensureShepherdExclude`) and a committed `.gitignore` (via `GitignoreAdopter`),
@@ -44,6 +46,14 @@ export function upsertShepherdIgnoreBlock(existing: string): { content: string; 
     const content =
       existing.slice(0, start) + block + existing.slice(end + SHEPHERD_EXCLUDE_END.length);
     return { content, changed: content !== existing };
+  }
+
+  // No managed block. If the glob is already listed verbatim (e.g. a repo whose
+  // committed .gitignore lists `.shepherd-*` by hand), the artifacts are already
+  // ignored — don't append a redundant managed block. A commented-out line
+  // (`# .shepherd-*`) does not match, so it isn't treated as covered.
+  if (existing.split("\n").some((line) => line.trim() === SHEPHERD_IGNORE_GLOB)) {
+    return { content: existing, changed: false };
   }
 
   const sep = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";

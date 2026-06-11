@@ -172,7 +172,7 @@
         toasts.info(m.readiness_adopt_gitignore_no_forge(), {
           key: "adopt-gitignore-no-forge",
         });
-      } else {
+      } else if (res.status === "no-access") {
         toasts.info(m.readiness_adopt_gitignore_no_access(), {
           key: "adopt-gitignore-no-access",
         });

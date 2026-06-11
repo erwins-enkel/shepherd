@@ -294,6 +294,17 @@ export class GiteaForge implements GitForge {
     return repo.default_branch;
   }
 
+  async canPush(): Promise<boolean> {
+    try {
+      const repo = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
+        permissions?: { push?: boolean };
+      };
+      return repo.permissions?.push === true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Gitea has no draft boolean in CreatePullRequestOption (confirmed via swagger.v1.json
    *  on gitea.com). Draft PRs are signalled by prefixing the title with `WIP: `.
    *  LIMITATIONS (Gitea is the secondary, non-production forge): (1) Gitea's WIP markers are

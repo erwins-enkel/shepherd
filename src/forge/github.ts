@@ -419,6 +419,20 @@ export class GithubForge implements GitForge {
     return this.cachedUser;
   }
 
+  async canPush(): Promise<boolean> {
+    try {
+      const out = await this.run(["repo", "view", this.slug, "--json", "viewerPermission"]);
+      const { viewerPermission } = JSON.parse(out || "{}") as { viewerPermission?: string };
+      return (
+        viewerPermission === "ADMIN" ||
+        viewerPermission === "MAINTAIN" ||
+        viewerPermission === "WRITE"
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
     try {
       // --paginate so a repo with >30 collaborators isn't silently truncated.

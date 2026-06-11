@@ -862,3 +862,50 @@ test("GithubForge.convertToDraft: invokes gh pr ready <n> --repo --undo", async 
   await forge.convertToDraft!(42);
   expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r", "--undo"]);
 });
+
+test("GithubForge.canPush: WRITE → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "WRITE" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: ADMIN → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "ADMIN" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: MAINTAIN → true", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "MAINTAIN" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(true);
+});
+
+test("GithubForge.canPush: READ → false", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "READ" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+test("GithubForge.canPush: NONE → false", async () => {
+  const { run } = fakeRunner({
+    "repo view": JSON.stringify({ viewerPermission: "NONE" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+test("GithubForge.canPush: garbled JSON → false", async () => {
+  const { run } = fakeRunner({ "repo view": "not-json{{" });
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});
+
+test("GithubForge.canPush: runner throws → false", async () => {
+  const run = async (): Promise<string> => {
+    throw new Error("network error");
+  };
+  expect(await new GithubForge("o/r", {}, run).canPush!()).toBe(false);
+});

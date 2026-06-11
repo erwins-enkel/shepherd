@@ -40,10 +40,37 @@
       {m.backlog_tab_issues()}
     </span>
     <span class="sep">·</span>
-    <span class="count-item">
-      {project.openPRs ?? "—"}
-      {m.backlog_tab_prs()}
-    </span>
+    {#if project.prKinds}
+      <span
+        class="count-item"
+        title={m.backlog_code_prs_title()}
+        aria-label={m.backlog_code_prs_title()}
+      >
+        {project.prKinds.regular}
+        {m.backlog_tab_prs()}
+      </span>
+      {#if project.prKinds.dependabot > 0}
+        <span
+          class="kind-badge dep"
+          title={m.prkind_dependabot_title({ count: project.prKinds.dependabot })}
+        >
+          {m.prkind_dependabot_badge({ count: project.prKinds.dependabot })}
+        </span>
+      {/if}
+      {#if project.prKinds.release > 0}
+        <span
+          class="kind-badge rel"
+          title={m.prkind_release_title({ count: project.prKinds.release })}
+        >
+          {m.prkind_release_badge({ count: project.prKinds.release })}
+        </span>
+      {/if}
+    {:else}
+      <span class="count-item">
+        {project.openPRs ?? "—"}
+        {m.backlog_tab_prs()}
+      </span>
+    {/if}
   </div>
 </button>
 
@@ -121,5 +148,26 @@
 
   .sep {
     color: var(--color-faint);
+  }
+
+  .kind-badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 5px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kind-badge.dep {
+    color: var(--color-blue);
+    border-color: var(--color-blue);
+  }
+
+  .kind-badge.rel {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
   }
 </style>

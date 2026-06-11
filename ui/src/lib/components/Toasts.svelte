@@ -12,6 +12,7 @@
         class="toast"
         class:is-undo={t.tone === "undo"}
         role={t.alert ? "alert" : "status"}
+        style="--ms:{t.durationMs}ms"
         onpointerenter={() => toasts.hold(t.id)}
         onpointerleave={() => toasts.release(t.id)}
         onfocusin={() => toasts.hold(t.id)}
@@ -20,8 +21,8 @@
         <span class="msg">{t.text}</span>
         {#if t.tone === "undo"}
           <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>
-            <span class="undo-label">{t.undoLabel}</span>
-            <span class="bar" style="--ms:{t.durationMs}ms" aria-hidden="true"></span>
+            {t.undoLabel}
+            <span class="bar" aria-hidden="true"></span>
           </button>
         {:else}
           {#if t.actionLabel}
@@ -61,6 +62,7 @@
   }
   /* A summoned overlay, so the lift shadow is earned (DESIGN.md: flat at rest). */
   .toast {
+    position: relative;
     pointer-events: auto;
     display: flex;
     align-items: center;
@@ -100,13 +102,10 @@
   .undo:hover {
     background: var(--color-hover);
   }
-  .undo-label {
-    position: relative;
-    z-index: 1;
-  }
-  /* Depleting underline counting down the commit window. transform-only (no
-     layout), and the app-wide reduced-motion guard zeroes it out. On phones it
-     grows into a full-height fill behind the label (see the mobile block). */
+  /* Depleting underline at the bottom of the UNDO button counting down the commit
+     window. transform-only (no layout), and the app-wide reduced-motion guard
+     zeroes it out. On phones the in-button bar is hidden in favor of a
+     full-width amber drain bar along the top edge of the banner (see mobile block). */
   .bar {
     position: absolute;
     left: 0;
@@ -116,7 +115,6 @@
     background: var(--color-amber);
     transform-origin: left;
     animation: toast-deplete var(--ms, 5000ms) linear forwards;
-    z-index: 0;
   }
   .x {
     margin-left: auto;
@@ -152,9 +150,11 @@
   }
 
   /* On small phones the stack becomes a full-width banner flush to the bottom
-     edge, with a tighter type scale. The undo countdown grows from a hairline
-     underline into a translucent fill that drains across the whole button —
-     the receding amber wash reads the shrinking commit window at a glance. */
+     edge, with a tighter type scale. The undo banner's top border is neutralized
+     so the ONLY amber at the top edge is the draining bar — a full-width amber
+     strip along the top of the banner that drains left→right to count down the
+     commit window. Bottom edge carries the home-bar safe area, so the bar lives
+     at the top. */
   @media (max-width: 768px) {
     .toasts {
       left: 0;
@@ -178,14 +178,31 @@
     .toast:first-child {
       padding-bottom: calc(10px + env(safe-area-inset-bottom));
     }
+    /* The global .is-undo rule sets all four borders amber; mobile zeroes only
+       left/right/bottom widths, leaving a permanent amber top border. Neutralize
+       it so the neutral separator line is visible when the drain bar is gone. */
+    .is-undo {
+      border-top-color: var(--color-line-bright);
+    }
     .msg {
       font-size: var(--fs-meta);
     }
+    /* In-button underline bar is hidden on mobile — the ::after drain bar takes over. */
     .bar {
+      display: none;
+    }
+    /* Full-width amber bar along the top edge that drains left→right, overlaying
+       the neutral top border. Full = amber strip, drained = neutral line only. */
+    .is-undo::after {
+      content: "";
+      position: absolute;
       top: 0;
-      bottom: auto;
-      height: 100%;
-      background: color-mix(in srgb, var(--color-amber) 22%, transparent);
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: var(--color-amber);
+      transform-origin: left;
+      animation: toast-deplete var(--ms, 5000ms) linear forwards;
     }
   }
 </style>

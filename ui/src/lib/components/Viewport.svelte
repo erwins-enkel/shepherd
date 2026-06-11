@@ -1923,31 +1923,36 @@
       {/if}
       <!-- squished-history repair variants under field test (see redrawNudge etc.
            above) — a quiet ↔ toggle opening an anchored popover with the four
-           candidates. The losing variants get removed after testing. -->
-      <button
-        class="vp-redraw"
-        bind:this={redrawBtnEl}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={redrawOpen}
-        onclick={() => (redrawOpen = !redrawOpen)}
-        title={m.viewport_redraw_title()}
-        aria-label={m.viewport_redraw_title()}
-      >
-        <span aria-hidden="true">↔</span>
-        {#if !compact}<span>{m.viewport_redraw_btn()}</span>{/if}
-      </button>
-      {#if redrawOpen && redrawBtnEl}
-        <RedrawMenu
-          anchor={redrawBtnEl}
-          live={!ended && !parked}
-          {resuming}
-          onnudge={redrawNudge}
-          onreattach={redrawReattach}
-          onfullscreen={redrawFullscreen}
-          onresume={redrawResume}
-          onclose={() => (redrawOpen = false)}
-        />
+           candidates. The losing variants get removed after testing. Terminal-tab
+           only: every variant acts on the terminal, so the control can't issue a
+           silent nudge/fullscreen against a hidden mount from another tab (the
+           button unmounting also drops redrawBtnEl, which closes an open menu). -->
+      {#if tab === "term"}
+        <button
+          class="vp-redraw"
+          bind:this={redrawBtnEl}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={redrawOpen}
+          onclick={() => (redrawOpen = !redrawOpen)}
+          title={m.viewport_redraw_title()}
+          aria-label={m.viewport_redraw_title()}
+        >
+          <span aria-hidden="true">↔</span>
+          {#if !compact}<span>{m.viewport_redraw_btn()}</span>{/if}
+        </button>
+        {#if redrawOpen && redrawBtnEl}
+          <RedrawMenu
+            anchor={redrawBtnEl}
+            live={!ended && !parked}
+            {resuming}
+            onnudge={redrawNudge}
+            onreattach={redrawReattach}
+            onfullscreen={redrawFullscreen}
+            onresume={redrawResume}
+            onclose={() => (redrawOpen = false)}
+          />
+        {/if}
       {/if}
       {#if resumable}
         <!-- bring claude back when the session is parked (idle/done) — e.g. claude

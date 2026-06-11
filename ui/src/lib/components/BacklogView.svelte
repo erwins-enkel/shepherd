@@ -44,12 +44,14 @@
   // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
-  // Repo-list filter (chips live in ProjectBacklogList, state owned here so the
-  // selection effects below can stay in sync with what the list actually shows).
+  // Repo-list filter (chips + search input live in ProjectBacklogList, state
+  // owned here so the selection effects below can stay in sync with what the
+  // list actually shows).
   let hasIssues = $state(false);
   let hasPRs = $state(false);
+  let query = $state("");
   let visibleProjects = $derived(
-    payload ? filterProjects(payload.projects, { hasIssues, hasPRs }) : [],
+    payload ? filterProjects(payload.projects, { hasIssues, hasPRs, query }) : [],
   );
 
   // Tab badges count the SELECTED repo's items — the same repo the detail pane
@@ -129,8 +131,10 @@
         {selectedPath}
         {hasIssues}
         {hasPRs}
+        {query}
         ontoggleissues={() => (hasIssues = !hasIssues)}
         ontoggleprs={() => (hasPRs = !hasPRs)}
+        onsearch={(q) => (query = q)}
         onselect={(p) => (selectedPath = p)}
       />
     </div>
@@ -232,8 +236,10 @@
           {selectedPath}
           {hasIssues}
           {hasPRs}
+          {query}
           ontoggleissues={() => (hasIssues = !hasIssues)}
           ontoggleprs={() => (hasPRs = !hasPRs)}
+          onsearch={(q) => (query = q)}
           onselect={(p) => (selectedPath = p)}
         />
       </div>

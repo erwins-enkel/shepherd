@@ -730,6 +730,8 @@
   "backlog_filter_has_issues": "Hat Issues",
   "backlog_filter_has_prs": "Hat PRs",
   "backlog_filter_none_match": "Keine Repos entsprechen dem Filter",
+  "backlog_filter_search_placeholder": "Repos filtern…",
+  "backlog_filter_search_clear": "Suche löschen",
   "a11y_skip_to_main": "Zum Hauptinhalt springen",
   "todopanel_add_aria": "Neuer To-do-Eintrag",
   "todopanel_item_aria": "Erledigt umschalten: {item}",
@@ -993,5 +995,7 @@
   "feat_repo_switcher_title": "Der Repo-Filter ist jetzt eine Chip-Reihe",
   "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut, um wieder alle anzuzeigen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht.",
   "feat_redraw_menu_title": "Terminal-Neuzeichnen-Menü",
-  "feat_redraw_menu_body": "Terminal-Verlauf gestaucht, nachdem die Session auf einem schmaleren Gerät offen war? Der neue ↔ Neu-zeichnen-Button im Session-Header bietet vier Reparatur-Varianten zum Ausprobieren — vom sanften Resize-Impuls bis zum vollen claude --resume-Re-Render."
+  "feat_redraw_menu_body": "Terminal-Verlauf gestaucht, nachdem die Session auf einem schmaleren Gerät offen war? Der neue ↔ Neu-zeichnen-Button im Session-Header bietet vier Reparatur-Varianten zum Ausprobieren — vom sanften Resize-Impuls bis zum vollen claude --resume-Re-Render.",
+  "feat_backlog_repo_search_title": "Backlog-Repoliste durchsuchen",
+  "feat_backlog_repo_search_body": "Tippe in das neue Filtereingabefeld oben in der Backlog-Repoliste, um Repos nach Name einzuschränken — kombinierbar mit den Chips Hat Issues und Hat PRs."
 }

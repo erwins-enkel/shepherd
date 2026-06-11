@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listRepos, listBranches, getCommands, uploadImage } from "$lib/api";
+  import { listRepos, listBranches, getCommands, uploadImage, isPreviewBlocked } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
   import { MODELS, type Issue, type IssueRef, type RepoEntry, type SlashCommand } from "$lib/types";
   import { promoDefaultModel } from "$lib/fable-promo";
@@ -192,8 +192,12 @@
         images.push({ path, name: f.name });
       }
     } catch (err) {
-      error = m.newtask_upload_failed({ reason: reason(err, m.newtask_attach_image()) });
-      retry = () => addFiles(imgs);
+      if (isPreviewBlocked(err)) {
+        error = (err as Error).message;
+      } else {
+        error = m.newtask_upload_failed({ reason: reason(err, m.newtask_attach_image()) });
+        retry = () => addFiles(imgs);
+      }
     } finally {
       uploading = false;
     }
@@ -321,8 +325,12 @@
         planGateEnabled: planGate,
       });
     } catch (err) {
-      error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
-      retry = () => submit(e);
+      if (isPreviewBlocked(err)) {
+        error = (err as Error).message;
+      } else {
+        error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+        retry = () => submit(e);
+      }
       submitting = false;
     }
   }

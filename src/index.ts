@@ -62,6 +62,7 @@ import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
+import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
@@ -664,6 +665,7 @@ setInterval(() => {
   void distiller.tick();
 }, 30_000);
 const promoter = new Promoter({ store, worktree, resolveForge });
+const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
 const runDailySweep = () => {
@@ -824,6 +826,7 @@ const server = serve(
     },
     distiller,
     promoter,
+    gitignoreAdopter,
     drain: { snapshot: () => drain.snapshot(), queue: (repoPath) => drain.queue(repoPath) },
     autoMerge: { snapshot: () => autoMerge.snapshot() },
   },

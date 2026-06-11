@@ -24,7 +24,11 @@ export interface GitignoreAdopterDeps {
 export type AdoptResult =
   | { ok: true; status: "applied"; url: string }
   | { ok: true; status: "already" }
-  | { ok: false; reason: "no-access" }
+  // Expected non-error outcomes (a PR can't be opened, but the local
+  // `.git/info/exclude` already hides the artifacts): the caller shows an info
+  // toast, never a retryable failure. `no-forge` = no git forge configured for
+  // the repo; `no-access` = a forge exists but we lack push permission.
+  | { ok: false; reason: "no-forge" | "no-access" }
   | { ok: false; error: string; status: number };
 
 /**
@@ -60,10 +64,12 @@ export class GitignoreAdopter {
   }
 
   private async run(repoPath: string): Promise<AdoptResult> {
+    // No forge / no push access are NOT errors — a committed .gitignore PR is
+    // simply unavailable here, and the local exclude already hides the artifacts.
+    // The caller shows an info toast, not a retryable failure.
     const forge = this.deps.resolveForge(repoPath);
-    if (!forge) return { ok: false, error: "no forge configured for repo", status: 400 };
+    if (!forge) return { ok: false, reason: "no-forge" };
 
-    // No push access is NOT an error — the caller shows an info toast, not a failure.
     const can = forge.canPush ? await forge.canPush() : false;
     if (!can) return { ok: false, reason: "no-access" };
 

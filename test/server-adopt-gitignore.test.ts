@@ -63,6 +63,15 @@ test("adopt no-access → 200 {status:no-access} (expected outcome, not an error
   expect(await res.json()).toEqual({ status: "no-access" });
 });
 
+test("adopt no-forge → 200 {status:no-forge} (expected outcome, not a retryable error)", async () => {
+  const stub: AppDeps["gitignoreAdopter"] = {
+    adopt: async (): Promise<AdoptResult> => ({ ok: false, reason: "no-forge" }),
+  };
+  const res = await harness(stub).fetch(post(repoDir));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ status: "no-forge" });
+});
+
 test("adopt failure → propagates status code with error", async () => {
   const stub: AppDeps["gitignoreAdopter"] = {
     adopt: async (): Promise<AdoptResult> => ({

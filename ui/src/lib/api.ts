@@ -733,11 +733,14 @@ export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
  *  locally via git exclude). Resolves to the server's outcome:
  *  - `applied` — a PR was opened (`prUrl` carries its link),
  *  - `already`  — the entries are already present in `.gitignore` (no-op),
- *  - `no-access` — no push access; the artifacts stay hidden locally only.
+ *  - `no-access` — a forge exists but no push access; hidden locally only,
+ *  - `no-forge` — no git forge configured for the repo; hidden locally only.
  *  Throws the server's `{error}` body on a non-2xx response (see `failed`). */
-export async function adoptGitignore(
-  repoPath: string,
-): Promise<{ status: "applied" | "already" | "no-access"; prUrl?: string; error?: string }> {
+export async function adoptGitignore(repoPath: string): Promise<{
+  status: "applied" | "already" | "no-access" | "no-forge";
+  prUrl?: string;
+  error?: string;
+}> {
   const r = await fetch(`/api/adopt-gitignore?repo=${encodeURIComponent(repoPath)}`, {
     method: "POST",
     headers: JSON_HEADERS,

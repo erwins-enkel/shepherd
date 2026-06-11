@@ -112,15 +112,14 @@ describe("GitignoreAdopter", () => {
     expect(created.length).toBe(0);
   });
 
-  test("resolveForge returns null → { ok:false, status:400 }", async () => {
+  test("resolveForge returns null → { ok:false, reason:'no-forge' } (expected, not an error)", async () => {
     const wt = new WorktreeMgr();
     const a = new GitignoreAdopter({
       worktree: { create: (...args) => wt.create(...args), remove: (p) => wt.remove(p) },
       resolveForge: () => null,
     });
     const res = await a.adopt(repo);
-    expect(res.ok).toBe(false);
-    if (!res.ok && "status" in res) expect(res.status).toBe(400);
+    expect(res).toEqual({ ok: false, reason: "no-forge" });
   });
 
   test("happy path: fresh .gitignore → applied; PR opened once; pushed branch carries the block", async () => {

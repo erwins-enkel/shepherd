@@ -2312,7 +2312,9 @@ async function handleAdoptGitignore({ req, parts, url, deps }: Ctx): Promise<Res
       ? json({ status: "applied", prUrl: res.url })
       : json({ status: "already" });
   }
-  if ("reason" in res) return json({ status: "no-access" });
+  // Expected non-error outcomes (no-forge / no-access): a 200 status the UI maps
+  // to an info toast, not a retryable error.
+  if ("reason" in res) return json({ status: res.reason });
   return json({ error: res.error }, res.status);
 }
 

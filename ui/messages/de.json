@@ -795,6 +795,7 @@
   "readiness_adopt_gitignore_view_pr": "PR ansehen",
   "readiness_adopt_gitignore_already": ".shepherd-* steht bereits in der .gitignore.",
   "readiness_adopt_gitignore_no_access": "Kein Push-Zugriff – die Sitzungsartefakte sind bereits lokal per git exclude ausgeblendet.",
+  "readiness_adopt_gitignore_no_forge": "Keine Git-Forge konfiguriert – die Sitzungsartefakte sind bereits lokal per git exclude ausgeblendet.",
   "readiness_adopt_gitignore_error": ".gitignore konnte nicht aktualisiert werden. Erneut versuchen.",
   "feat_adopt_gitignore_title": ".shepherd-* in .gitignore aufnehmen",
   "feat_adopt_gitignore_body": "Der Reife-Tab kann jetzt mit einem Klick einen PR öffnen, der Shepherds Sitzungsartefakte (.shepherd-*) zur .gitignore eines Repos hinzufügt – für Repos, in die du pushen kannst. Wo das nicht geht, bleiben sie lokal per git exclude ausgeblendet, sodass sie deine Diffs in keinem Fall überfrachten.",

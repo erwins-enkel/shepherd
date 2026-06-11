@@ -162,6 +162,12 @@
         });
       } else if (res.status === "already") {
         toasts.info(m.readiness_adopt_gitignore_already(), { key: "adopt-gitignore-already" });
+      } else if (res.status === "no-forge") {
+        // No forge configured: a PR is impossible, but the local exclude already
+        // hides the artifacts — an info outcome, not a retryable error.
+        toasts.info(m.readiness_adopt_gitignore_no_forge(), {
+          key: "adopt-gitignore-no-forge",
+        });
       } else {
         toasts.info(m.readiness_adopt_gitignore_no_access(), {
           key: "adopt-gitignore-no-access",

@@ -795,6 +795,7 @@
   "readiness_adopt_gitignore_view_pr": "View PR",
   "readiness_adopt_gitignore_already": ".shepherd-* is already in .gitignore.",
   "readiness_adopt_gitignore_no_access": "No push access — session artifacts are already hidden locally via git exclude.",
+  "readiness_adopt_gitignore_no_forge": "No git forge configured — session artifacts are already hidden locally via git exclude.",
   "readiness_adopt_gitignore_error": "Couldn't update .gitignore. Try again.",
   "feat_adopt_gitignore_title": "Commit .shepherd-* to .gitignore",
   "feat_adopt_gitignore_body": "The Readiness tab can now open a PR adding Shepherd's session artifacts (.shepherd-*) to a repo's .gitignore in one click — for repos you can push to. Where you can't, they stay hidden locally via git exclude, so they never clutter your diffs either way.",

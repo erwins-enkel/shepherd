@@ -579,6 +579,17 @@
   "viewport_resume_title": "Session zurückholen",
   "viewport_resume_sub": "Tippen zum Fortsetzen",
   "viewport_resume_failed": "Konnte nicht fortsetzen. Nochmal tippen",
+  "viewport_redraw_btn": "Neu zeichnen",
+  "viewport_redraw_title": "Neu zeichnen: gestauchten Terminal-Text reparieren (Testvarianten)",
+  "redrawmenu_label": "Neuzeichnen-Varianten",
+  "redrawmenu_nudge": "Resize-Impuls",
+  "redrawmenu_nudge_hint": "Verkleinert das Terminal kurz um eine Spalte und zurück, damit Claude den sichtbaren Bereich neu zeichnet.",
+  "redrawmenu_reattach": "Terminal neu verbinden",
+  "redrawmenu_reattach_hint": "Verbindet diese Ansicht in aktueller Größe neu mit dem Agenten.",
+  "redrawmenu_fullscreen": "Claude-Fullscreen-Modus",
+  "redrawmenu_fullscreen_hint": "Sendet /tui fullscreen — Claude verwaltet und rendert seinen Verlauf dann selbst.",
+  "redrawmenu_resume": "Force-Resume",
+  "redrawmenu_resume_hint": "Startet claude --resume neu und rendert die komplette Historie in aktueller Breite. Bricht einen laufenden Turn ab!",
   "cardmenu_label": "Sitzungs-Aktionen",
   "cardmenu_resume": "Sitzung fortsetzen",
   "cardmenu_decommission": "Stilllegen",
@@ -961,5 +972,7 @@
   "feat_herdr_release_notes_link_title": "herdr-Release-Notes (Upstream)",
   "feat_herdr_release_notes_link_body": "Das herdr-Update-Panel verlinkt jetzt den vollständigen Upstream-Release-Verlauf auf GitHub — praktisch, wenn du mehrere Versionen überspringst und die Notizen aller Versionen sehen willst, nicht nur der neuesten.",
   "feat_repo_switcher_title": "Der Repo-Filter ist jetzt eine Chip-Reihe",
-  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut, um wieder alle anzuzeigen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht."
+  "feat_repo_switcher_body": "Der Repo-Filter ist jetzt eine Chip-Reihe über der Herde. Klicke ein Repo an, um jede Ansicht darauf einzuschränken; klicke erneut, um wieder alle anzuzeigen. Ausstehende Learnings und Pausen eines Repos erscheinen an seinem Chip, die übrigen Drain-Details beim Filtern auf das Repo. Das Filtern funktioniert jetzt auch in der Rasteransicht.",
+  "feat_redraw_menu_title": "Terminal-Neuzeichnen-Menü",
+  "feat_redraw_menu_body": "Terminal-Verlauf gestaucht, nachdem die Session auf einem schmaleren Gerät offen war? Der neue ↔ Neu-zeichnen-Button im Session-Header bietet vier Reparatur-Varianten zum Ausprobieren — vom sanften Resize-Impuls bis zum vollen claude --resume-Re-Render."
 }

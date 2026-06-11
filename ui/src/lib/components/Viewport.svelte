@@ -50,6 +50,7 @@
   import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import RedrawMenu from "$lib/components/RedrawMenu.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import type { BuildQueue } from "$lib/types";
@@ -922,6 +923,49 @@
     ended = false;
     resumeFailed = false;
     resumeEpoch++;
+  }
+
+  // ── redraw menu: squished-history repair variants under field test ──────────
+  // Scrollback rendered while a narrow device owned the shared PTY is hard-
+  // wrapped at that width forever (Claude Code writes real newlines). These four
+  // variants are repair *candidates* — Kai + Patrick A/B them in the wild and the
+  // losers get deleted, so keep each one self-contained and trivially removable.
+  let redrawOpen = $state(false);
+  let redrawBtnEl = $state<HTMLButtonElement>();
+  // 1) Gentle: shrink the PTY by one column and restore it. Both SIGWINCHes make
+  //    Claude Code repaint its visible screen at the (now correct) width. Safe
+  //    while the agent is working; doesn't touch deep scrollback.
+  function redrawNudge() {
+    redrawOpen = false;
+    const term = termRef;
+    const c = conn;
+    if (!term || !c) return;
+    c.resize(Math.max(20, term.cols - 1), term.rows);
+    // restore reads term.* at fire time, not call time: a real device resize
+    // within the window already refit to fresh dims, and re-sending those is
+    // deduped server-side — whereas restoring captured dims would be stale.
+    setTimeout(() => c.resize(term.cols, term.rows), 150);
+  }
+  // 2) Medium: rebuild the terminal + fresh herdr attach (takeover) at the
+  //    current size — same path as the herdr-unreachable recovery.
+  function redrawReattach() {
+    redrawOpen = false;
+    reattach();
+  }
+  // 3) Claude-side: switch Claude Code to its alternate-screen renderer, which
+  //    owns its scrollback and re-renders from its own message model instead of
+  //    printing into ours. Sent as an atomic bracketed paste + Enter (same byte
+  //    path as the mobile compose bar) so the slash-command autocomplete can't
+  //    intercept mid-typing.
+  function redrawFullscreen() {
+    redrawOpen = false;
+    conn?.send(composeKeystrokes("/tui fullscreen"));
+  }
+  // 4) Heavy: force a fresh `claude --resume` — re-renders the FULL conversation
+  //    at the current width, but aborts an in-flight turn (hence last + hinted).
+  function redrawResume() {
+    redrawOpen = false;
+    void resumeSession(true);
   }
 
   // Self-heal when the session is resumed from OUTSIDE this terminal — e.g. the
@@ -1877,6 +1921,34 @@
           <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
         </button>
       {/if}
+      <!-- squished-history repair variants under field test (see redrawNudge etc.
+           above) — a quiet ↔ toggle opening an anchored popover with the four
+           candidates. The losing variants get removed after testing. -->
+      <button
+        class="vp-redraw"
+        bind:this={redrawBtnEl}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={redrawOpen}
+        onclick={() => (redrawOpen = !redrawOpen)}
+        title={m.viewport_redraw_title()}
+        aria-label={m.viewport_redraw_title()}
+      >
+        <span aria-hidden="true">↔</span>
+        {#if !compact}<span>{m.viewport_redraw_btn()}</span>{/if}
+      </button>
+      {#if redrawOpen && redrawBtnEl}
+        <RedrawMenu
+          anchor={redrawBtnEl}
+          live={!ended && !parked}
+          {resuming}
+          onnudge={redrawNudge}
+          onreattach={redrawReattach}
+          onfullscreen={redrawFullscreen}
+          onresume={redrawResume}
+          onclose={() => (redrawOpen = false)}
+        />
+      {/if}
       {#if resumable}
         <!-- bring claude back when the session is parked (idle/done) — e.g. claude
              exited to a shell after a herdr restart. Forces a fresh claude --resume. -->
@@ -2686,6 +2758,33 @@
   /* Resume: the primary action of a parked session, so it stays on the identity
      row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
      → no green/red), brightening to ink on hover. */
+  /* redraw-variants toggle: mirrors .vp-resume's quiet ghost styling so the
+     trailing header controls read as one set */
+  .vp-redraw {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  .vp-redraw:hover,
+  .vp-redraw[aria-expanded="true"] {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+  }
+
   .vp-resume {
     flex-shrink: 0;
     display: inline-flex;

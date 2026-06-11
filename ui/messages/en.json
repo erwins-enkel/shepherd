@@ -579,6 +579,17 @@
   "viewport_resume_title": "Resume session",
   "viewport_resume_sub": "Tap to bring it back",
   "viewport_resume_failed": "Couldn't resume. Tap to retry",
+  "viewport_redraw_btn": "Redraw",
+  "viewport_redraw_title": "Redraw: fix squished terminal text (test variants)",
+  "redrawmenu_label": "Redraw variants",
+  "redrawmenu_nudge": "Resize nudge",
+  "redrawmenu_nudge_hint": "Briefly shrinks the terminal by one column and back so Claude repaints the visible screen.",
+  "redrawmenu_reattach": "Re-attach terminal",
+  "redrawmenu_reattach_hint": "Reconnects this view to the agent at the current size.",
+  "redrawmenu_fullscreen": "Claude fullscreen mode",
+  "redrawmenu_fullscreen_hint": "Sends /tui fullscreen — Claude then manages and re-renders its own scrollback.",
+  "redrawmenu_resume": "Force resume",
+  "redrawmenu_resume_hint": "Respawns claude --resume and re-renders the full history at the current width. Aborts a running turn!",
   "cardmenu_label": "Session actions",
   "cardmenu_resume": "Resume session",
   "cardmenu_decommission": "Decommission",
@@ -961,5 +972,7 @@
   "feat_herdr_release_notes_link_title": "Upstream herdr release notes",
   "feat_herdr_release_notes_link_body": "The herdr update panel now links to the full upstream release history on GitHub — handy when you're jumping across several versions and want every version's notes, not just the latest.",
   "feat_repo_switcher_title": "The repo filter is now a chip rail",
-  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again to show all repos. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too."
+  "feat_repo_switcher_body": "The repo filter is now a row of chips above the herd. Click a repo to scope every view to it; click it again to show all repos. A repo's pending learnings and pauses show on its chip, with the rest of its drain detail when you filter to it. Filtering now works in the grid view too.",
+  "feat_redraw_menu_title": "Terminal redraw menu",
+  "feat_redraw_menu_body": "Terminal history squished after viewing a session from a narrower device? The new ↔ Redraw button in the session header offers four repair variants to try — from a gentle resize nudge to a full claude --resume re-render."
 }

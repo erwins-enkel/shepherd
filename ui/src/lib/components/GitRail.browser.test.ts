@@ -48,8 +48,10 @@ const { default: GitRail } = await import("./GitRail.svelte");
 const { planGates } = await import("$lib/reviews.svelte");
 
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
-// local agree. The rail mounts into a fixed-width host cell (a session row's git
-// column); overflow within that cell is the failure we guard against.
+// local agree. The rail mounts into a fixed-width host cell. On desktop the
+// failure we guard against is overflow past that cell; on mobile the rail is a
+// single horizontally-scrollable row, so there the guard is that it stays one
+// line high (no vertical stacking) with no squished-to-zero controls.
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
   fontStyle = document.createElement("style");
@@ -65,7 +67,8 @@ afterEach(() => {
 
 // A fixed-width host cell. overflow:visible means getBoundingClientRect reports
 // the true painted rect of each control even if it escapes the cell — that's
-// exactly what we want so assertControlsWithin can catch overflows directly.
+// exactly what we want so assertControlsWithin can catch desktop overflows (and
+// measure the mobile row's true painted height) directly.
 function host(width: number): HTMLDivElement {
   const h = document.createElement("div");
   h.style.width = `${width}px`;
@@ -77,18 +80,51 @@ function host(width: number): HTMLDivElement {
 function assertControlsWithin(cell: HTMLElement) {
   const wrap = cell.querySelector<HTMLElement>(".git-rail-wrap");
   expect(wrap, ".git-rail-wrap mounted").not.toBeNull();
-  const cellRect = cell.getBoundingClientRect();
+  const rail = wrap!.querySelector<HTMLElement>(".rail");
+  expect(rail, ".rail mounted").not.toBeNull();
   const controls = wrap!.querySelectorAll<HTMLElement>("button, a[href]");
   expect(controls.length, "rail has controls").toBeGreaterThan(0);
+
+  // Every control must stay sized — no squished-to-zero element (regression:
+  // flex-shrink let the PR link wrap and the CI dot collapse to 0px).
   for (const c of controls) {
     const r = c.getBoundingClientRect();
     const label = c.getAttribute("aria-label") || c.textContent?.trim() || c.className;
-    // Labels may ellipsis-truncate, but the clickable element must stay sized
-    // and within the cell's left and right edges (2px slack for borders/rounding).
     expect(r.width, `${label} zero width`).toBeGreaterThan(0);
     expect(r.height, `${label} zero height`).toBeGreaterThan(0);
-    expect(r.left, `${label} escapes cell left edge`).toBeGreaterThanOrEqual(cellRect.left - 2);
-    expect(r.right, `${label} escapes cell right edge`).toBeLessThanOrEqual(cellRect.right + 2);
+  }
+  const dot = wrap!.querySelector<HTMLElement>(".dot");
+  if (dot) {
+    expect(dot.getBoundingClientRect().width, "CI dot not squished to 0").toBeGreaterThan(0);
+  }
+
+  if (rail!.classList.contains("mobile")) {
+    // Mobile: one horizontally-scrollable row, never a vertical stack. Controls
+    // may run past the cell's RIGHT edge (that's the scroll, not a failure), so
+    // assert the row stays one line high and is actually a scroll container. The
+    // left edge still holds — the leading auto-margin collapses to 0 under
+    // overflow, so nothing paints left of the cell's origin.
+    const cellRect = cell.getBoundingClientRect();
+    expect(getComputedStyle(rail!).overflowX, "mobile rail scrolls horizontally").toBe("auto");
+    const tallest = Math.max(...[...controls].map((c) => c.getBoundingClientRect().height));
+    const railH = rail!.getBoundingClientRect().height;
+    expect(railH, "rail stays a single row (no vertical stacking)").toBeLessThanOrEqual(
+      tallest + 8,
+    );
+    for (const c of controls) {
+      const r = c.getBoundingClientRect();
+      const label = c.getAttribute("aria-label") || c.textContent?.trim() || c.className;
+      expect(r.left, `${label} escapes cell left edge`).toBeGreaterThanOrEqual(cellRect.left - 2);
+    }
+  } else {
+    // Desktop: the rail must fit within its fixed-width cell (no overflow).
+    const cellRect = cell.getBoundingClientRect();
+    for (const c of controls) {
+      const r = c.getBoundingClientRect();
+      const label = c.getAttribute("aria-label") || c.textContent?.trim() || c.className;
+      expect(r.left, `${label} escapes cell left edge`).toBeGreaterThanOrEqual(cellRect.left - 2);
+      expect(r.right, `${label} escapes cell right edge`).toBeLessThanOrEqual(cellRect.right + 2);
+    }
   }
 }
 
@@ -213,7 +249,7 @@ describe("GitRail — controls stay within the cell", () => {
     assertControlsWithin(h);
   });
 
-  it("mobile 360px — open, mergeable:false → Merge button disabled, all controls in-bounds", async () => {
+  it("mobile 360px — open, mergeable:false → Merge button disabled, single scroll row", async () => {
     const conflictState: GitState = {
       ...openPrState,
       checks: "success",
@@ -264,7 +300,7 @@ describe("GitRail — controls stay within the cell", () => {
   // distinct GitRail rail state — the component has no git.state === "draining"
   // branch. The widest real label is the armed merge-confirm text; that's the
   // actual overflow stressor the critic named.
-  it("mobile 360px — open, Merge armed → 'confirm ✓' label fits in cell (key stressor)", async () => {
+  it("mobile 360px — open, Merge armed → 'confirm ✓' stays one scroll row (key stressor)", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
@@ -278,7 +314,7 @@ describe("GitRail — controls stay within the cell", () => {
     // Wait for the armed label to appear.
     await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
 
-    // Assert all controls (including the now-armed "confirm ✓" button) stay in-bounds.
+    // Assert the now-armed "confirm ✓" button keeps the rail one scrollable row.
     assertControlsWithin(h);
   });
 
@@ -294,6 +330,54 @@ describe("GitRail — controls stay within the cell", () => {
     await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
 
     assertControlsWithin(h);
+  });
+});
+
+describe("GitRail — mobile scroll affordance", () => {
+  it("mobile 360px — overflowing rail fades its trailing edge to cue the scroll", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const rail = h.querySelector<HTMLElement>(".rail.mobile");
+    expect(rail, ".rail.mobile mounted").not.toBeNull();
+    // content overflows the 360px cell → the right edge fades (--fade-r = 1)
+    expect(rail!.scrollWidth, "rail actually overflows").toBeGreaterThan(rail!.clientWidth);
+    await vi.waitFor(() =>
+      expect(rail!.style.getPropertyValue("--fade-r"), "trailing edge faded").toBe("1"),
+    );
+    // start is in view (scrollLeft 0) → leading edge not faded
+    expect(rail!.style.getPropertyValue("--fade-l"), "leading edge not faded").toBe("0");
+  });
+
+  it("mobile 360px — recomputes the fade on content change, not just scroll/resize", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const rail = h.querySelector<HTMLElement>(".rail.mobile")!;
+    await vi.waitFor(() => expect(rail.style.getPropertyValue("--fade-r")).toBe("1"));
+
+    // Shrink the content so it no longer overflows — WITHOUT scrolling or resizing
+    // the rail's (width:100%) box. Only the MutationObserver can catch this; with a
+    // scroll/resize-only watcher --fade-r would stay stale at "1".
+    while (rail.children.length > 1) rail.removeChild(rail.lastElementChild!);
+    await vi.waitFor(() => expect(rail.style.getPropertyValue("--fade-r")).toBe("0"));
+  });
+
+  it("desktop 600px — no fade vars (rail is not a scroller)", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const rail = h.querySelector<HTMLElement>(".rail");
+    expect(rail!.style.getPropertyValue("--fade-r"), "no fade var on desktop").toBe("");
   });
 });
 

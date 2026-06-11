@@ -187,6 +187,33 @@ test("resume + trusted → resumes normally, passthrough argv", async () => {
   expect(out!.sandboxApplied).toBe("trusted");
 });
 
+test("resume preserves a per-spawn override stricter than the repo default (no silent unconfine)", async () => {
+  const store = new SessionStore(":memory:");
+  // Repo default is trusted (unset), but the session was SPAWNED with sandboxApplied=standard
+  // (a per-spawn override). On resume it must stay wrapped, not fall back to trusted.
+  const record: { argv?: string[] } = {};
+  const service = makeService({ store, record, detectBackend: () => "bwrap" });
+  const s = store.create({
+    name: "s",
+    prompt: "x",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/s",
+    worktreePath: "/wt/s",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "33333333-3333-3333-3333-333333333333",
+    auto: false,
+    sandboxApplied: "standard",
+    sandboxDegraded: false,
+  });
+  const out = await service.resume(s.id, { force: true });
+  expect(out).not.toBeNull();
+  expect(record.argv?.[0]).toBe("bwrap"); // still confined, NOT passthrough
+  expect(out!.sandboxApplied).toBe("standard"); // badge preserved, not overwritten to trusted
+});
+
 test("drain pre-check: standard profile holds → service.create NOT called", async () => {
   const store = new SessionStore(":memory:");
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });

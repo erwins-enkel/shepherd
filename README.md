@@ -145,6 +145,7 @@ Shepherd can wrap each spawned `claude` process in an OS-level filesystem/proces
 
 - SSH-remote repos cannot `git push` from inside the membrane (the `~/.ssh` key dir is excluded). Use an HTTPS remote with the `gh` token instead.
 - MCP servers whose dependencies live outside the bound `$HOME` paths (e.g. a server installed in an arbitrary prefix) may fail to load inside the membrane.
+- The membrane relies on **OAuth/subscription auth** (`~/.claude/.credentials.json`, which it binds). `--clearenv` deliberately strips `ANTHROPIC_API_KEY` (and all other env), so a `claude` install that authenticates via that env var rather than OAuth will fail to authenticate inside `standard`/`autonomous` — and the node/git backend self-test won't catch it. This matches Shepherd's subscription-only ToS model; use OAuth login.
 
 The membrane bind set is **host-derived** — Shepherd probes the node/claude install locations and `gh`/gitconfig paths at startup and uses `--bind-try` for optional paths, so no hardcoded path list needs maintenance.
 

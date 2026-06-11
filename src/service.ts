@@ -1057,7 +1057,14 @@ export class SessionService {
     // prepareSpawn re-checks below (defense in depth); this just guards the teardown.
     if (s.auto) {
       const rc = this.deps.store.getRepoConfig(s.repoPath);
-      const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
+      // Prefer the profile this session was SPAWNED with (s.sandboxApplied) so a per-spawn
+      // override is preserved across resume; fall back to repo-config resolution only for
+      // legacy rows with no recorded profile.
+      const profile = resolveProfile(
+        s.sandboxApplied ?? undefined,
+        rc.sandboxProfile,
+        config.sandboxDefaultProfile,
+      );
       const hold = autoHoldReason(profile, this.detectBackend());
       if (hold) {
         console.warn(`[sandbox] resume refused for ${s.id} (husk preserved): ${hold}`);
@@ -1085,7 +1092,10 @@ export class SessionService {
       repoPath: s.repoPath,
       isolated: s.isolated,
       auto: s.auto,
-      profileOverride: undefined, // no per-spawn override on resume
+      // Preserve spawn-time confinement: a session created with a stricter per-spawn
+      // profile must NOT silently resume weaker (e.g. trusted) just because the repo
+      // default is weaker. Legacy rows (null) fall back to repo-config resolution.
+      profileOverride: s.sandboxApplied ?? undefined,
     });
     if (!outcome.ok) {
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,

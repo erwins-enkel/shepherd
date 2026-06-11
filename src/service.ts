@@ -620,7 +620,11 @@ export class SessionService {
       repoConfig.sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    const backend = this.detectBackend();
+    // Skip the (real subprocess) backend self-test for trusted: backend is irrelevant there
+    // — autoHoldReason/isDegraded/wrapArgv are all backend-independent for trusted (passthrough,
+    // never held, never degraded). This keeps a default/trusted install from paying a bwrap
+    // node/git probe on its first spawn.
+    const backend = profile === "trusted" ? null : this.detectBackend();
     const hold = autoHoldReason(profile, backend);
     if (ctx.auto && hold) return { ok: false, holdReason: hold };
     const degraded = isDegraded(profile, backend);

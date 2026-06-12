@@ -533,7 +533,7 @@
     leftovers = found;
   }
 
-  // ── rename: one click opens an inline editor; Enter/blur commits, Esc cancels ──
+  // ── rename: ✎ click or title double-tap opens an inline editor; Enter/blur commits, Esc cancels ──
   let renaming = $state(false);
   let renameDraft = $state("");
   let renameError = $state<string | null>(null);
@@ -585,6 +585,31 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       cancelRename();
+    }
+  }
+  // Double-tap / double-click on the session title also opens the editor.
+  // Hand-rolled click timing instead of ondblclick so touch and mouse behave
+  // identically (iOS Safari fires dblclick unreliably) — the first tap keeps
+  // its existing job (meta popover via focus), the second one renames.
+  // The timestamp is deliberately shared across the title elements (desig +
+  // vp-name co-render on compact desktops): both carry the same session
+  // identity side by side, so a double-tap straddling them still reads as
+  // "double-tap the title" and should rename.
+  let lastTitleTap = 0;
+  function onTitleTap() {
+    const now = Date.now();
+    // 500ms matches the common OS double-click default (400 dropped slow double-clicks)
+    if (now - lastTitleTap < 500) {
+      lastTitleTap = 0;
+      void startRename();
+    } else {
+      lastTitleTap = now;
+    }
+  }
+  function onTitleKey(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      void startRename();
     }
   }
 
@@ -1707,7 +1732,9 @@
           class="ctx-trigger"
           role="button"
           tabindex="0"
-          aria-label={m.topbar_detail_context_aria({ repo: repoName, name: session.name })}
+          aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
+          onclick={onTitleTap}
+          onkeydown={onTitleKey}
         >
           {#if !repoIcon}
             <span class="ctx-glyph" aria-hidden="true">▣</span>
@@ -1724,14 +1751,23 @@
       <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
       <span class="desig-wrap">
-        <span class="desig" role="button" tabindex="0" aria-label={m.viewport_meta_aria()}
-          >{session.desig}</span
+        <span
+          class="desig"
+          role="button"
+          tabindex="0"
+          aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
+          onclick={onTitleTap}
+          onkeydown={onTitleKey}>{session.desig}</span
         >
         {@render metaPop()}
       </span>
       {#if compact}
-        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry -->
-        <span class="vp-name" title={session.name}>{session.name}</span>
+        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry.
+             Pointer-only rename target — the adjacent desig owns the keyboard/AT path
+             (a button role here would announce a second, redundant control for the
+             same identity), so no role/tabindex/keydown by design. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <span class="vp-name" title={session.name} onclick={onTitleTap}>{session.name}</span>
       {/if}
     {/if}
     {#if !compact}
@@ -2441,6 +2477,10 @@
     flex-shrink: 0;
     cursor: default;
     border-bottom: 1px dotted var(--color-line);
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .desig-wrap:hover .desig {
     color: var(--color-ink);
@@ -2493,6 +2533,10 @@
   .vp-name {
     color: var(--color-ink);
     font-size: var(--fs-base);
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
     /* flex-basis 0 (not auto) so the name's content width doesn't drive the
        wrap calc on mobile — otherwise a long name reserves the whole row and
        pushes the decommission button onto the next line. It absorbs the slack
@@ -2686,6 +2730,10 @@
     gap: 6px;
     min-width: 0;
     cursor: default;
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .ctx-glyph {
     color: var(--color-amber);

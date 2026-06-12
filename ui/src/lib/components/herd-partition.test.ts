@@ -33,6 +33,8 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     auto: false,
     sandboxApplied: null,
     sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
     issueNumber: null,
     lastState: "working",
     createdAt: 0,

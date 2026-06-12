@@ -240,8 +240,9 @@ export interface ReviewVerdict {
   updatedAt: number;
 }
 /** The per-repo sandbox confinement profile. trusted = no sandbox (default);
- *  standard = filesystem/process membrane; autonomous = same membrane + required
- *  for auto/drain sessions (network-egress allowlist not yet implemented). */
+ *  standard = filesystem/process membrane (interactive-only, unrestricted network);
+ *  autonomous = same membrane + network-egress allowlist (Anthropic + forge),
+ *  required for auto/drain sessions. */
 export type SandboxProfile = "trusted" | "standard" | "autonomous";
 
 export interface RepoConfig {
@@ -420,6 +421,10 @@ export interface Session {
   sandboxApplied: SandboxProfile | null;
   /** True when the requested sandbox couldn't be applied — the agent ran unconfined. */
   sandboxDegraded: boolean;
+  /** True when the network-egress allowlist was applied (autonomous sessions only). */
+  egressApplied: boolean;
+  /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
+  egressDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
   lastState: string;
@@ -638,7 +643,8 @@ export type WsEvent =
   | { event: "halt:done"; data: { halted: number } }
   | { event: "mergetrain:landed"; data: { repoPath: string } }
   | { event: "draftreconcile:status"; data: DraftReconcileStatus }
-  | { event: "epic:update"; data: Epic };
+  | { event: "epic:update"; data: Epic }
+  | { event: "session:egress-drop"; data: { id: string; host: string } };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {

@@ -280,6 +280,12 @@ export class HerdStore {
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
         break;
+      case "session:egress-drop":
+        toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
+          key: "egress-drop-" + ev.data.id,
+          alert: true,
+        });
+        break;
       default:
         // Review/plan-gate and app-global (non-per-session-row) events are handled
         // out of line to keep this dispatch switch under the complexity gate.

@@ -110,6 +110,16 @@ export interface BlockReason {
 export type ForgeKind = "github" | "gitea";
 export type MergeMethod = "merge" | "squash" | "rebase";
 export type ChecksState = "none" | "pending" | "success" | "failure";
+/** GitHub's mergeStateStatus (mirrors server `MergeStateStatus`); absent for Gitea. */
+export type MergeStateStatus =
+  | "behind"
+  | "blocked"
+  | "clean"
+  | "dirty"
+  | "draft"
+  | "has_hooks"
+  | "unknown"
+  | "unstable";
 
 export interface PrStatus {
   state: "none" | "open" | "merged" | "closed";
@@ -121,6 +131,8 @@ export interface PrStatus {
   createdAt?: number;
   mergeable?: boolean | null;
   checks: ChecksState;
+  /** GitHub's precise merge-state signal; absent for Gitea (mirrors server PrStatus). */
+  mergeStateStatus?: MergeStateStatus;
   deployConfigured: boolean;
   headSha?: string;
   latestReview?: {

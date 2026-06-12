@@ -227,6 +227,99 @@ test("emits when only the latest review changes", async () => {
   expect(emitted.length).toBe(2);
 });
 
+test("emits when only mergeStateStatus changes (blocked → unstable)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { id: string; git: any }[] = [];
+  let cur: PrStatus = {
+    state: "open",
+    number: 7,
+    checks: "failure",
+    headSha: "abc",
+    mergeStateStatus: "blocked",
+    deployConfigured: false,
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (id, git) => emitted.push({ id, git }),
+  );
+
+  await poller.tick();
+  expect(emitted.length).toBe(1);
+
+  // required check passes → merge now allowed, but checks rollup + headSha unchanged
+  cur = { ...cur, mergeStateStatus: "unstable" };
+  await poller.tick();
+  expect(emitted.length).toBe(2);
+  expect(emitted[1]!.git.mergeStateStatus).toBe("unstable");
+
+  await poller.tick(); // unchanged → no new emit
+  expect(emitted.length).toBe(2);
+});
+
+test("emits when only isDraft changes (true → false)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { id: string; git: any }[] = [];
+  let cur: PrStatus = {
+    state: "open",
+    number: 7,
+    checks: "success",
+    headSha: "abc",
+    isDraft: true,
+    deployConfigured: false,
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (id, git) => emitted.push({ id, git }),
+  );
+
+  await poller.tick();
+  expect(emitted.length).toBe(1);
+
+  // draft marked ready-for-review → Merge un-blocks, but no other field changes
+  cur = { ...cur, isDraft: false };
+  await poller.tick();
+  expect(emitted.length).toBe(2);
+  expect(emitted[1]!.git.isDraft).toBe(false);
+
+  await poller.tick(); // unchanged → no new emit
+  expect(emitted.length).toBe(2);
+});
+
+test("emits when only mergeable changes (false → true)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { id: string; git: any }[] = [];
+  let cur: PrStatus = {
+    state: "open",
+    number: 7,
+    checks: "success",
+    headSha: "abc",
+    mergeable: false,
+    deployConfigured: false,
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (id, git) => emitted.push({ id, git }),
+  );
+
+  await poller.tick();
+  expect(emitted.length).toBe(1);
+
+  // conflict resolved via a base-branch change — mergeable flips without a new head commit
+  cur = { ...cur, mergeable: true };
+  await poller.tick();
+  expect(emitted.length).toBe(2);
+  expect(emitted[1]!.git.mergeable).toBe(true);
+
+  await poller.tick(); // unchanged → no new emit
+  expect(emitted.length).toBe(2);
+});
+
 function forgeByBranch(byBranch: Record<string, PrStatus>): GitForge {
   return {
     kind: "github",

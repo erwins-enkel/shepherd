@@ -210,7 +210,33 @@
   }
 
   const mergeBlocked = $derived(
-    !git || git.mergeable === false || git.checks === "failure" || busy,
+    !git ||
+      git.mergeable === false ||
+      busy ||
+      git.isDraft === true ||
+      (git.mergeStateStatus && git.mergeStateStatus !== "unknown"
+        ? git.mergeStateStatus === "blocked" || git.mergeStateStatus === "behind"
+        : git.checks === "failure"),
+  );
+
+  const mergeBlockedReason = $derived(
+    !mergeBlocked
+      ? undefined
+      : busy
+        ? m.gitrail_merge_blocked_busy()
+        : git?.isDraft === true
+          ? m.gitrail_merge_blocked_draft()
+          : git?.mergeable === false
+            ? m.gitrail_merge_blocked_conflict()
+            : git?.mergeStateStatus === "behind"
+              ? m.gitrail_merge_blocked_behind()
+              : git?.mergeStateStatus === "blocked"
+                ? m.gitrail_merge_blocked_protected()
+                : git?.checks === "failure"
+                  ? m.gitrail_merge_blocked_checks()
+                  : // Unreachable: the merge button renders only under git.state==="open",
+                    // so `git` is truthy and `mergeBlocked` ⇒ one predicate above always holds.
+                    undefined,
   );
 
   const verdict = $derived(reviews.map[sessionId]);
@@ -370,6 +396,7 @@
           class:armed={armed === "merge"}
           type="button"
           disabled={mergeBlocked}
+          title={mergeBlockedReason}
           onclick={() => doMerge()}
         >
           {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}

@@ -10,6 +10,7 @@ import type {
   Issue,
   MergeInput,
   MergeMethod,
+  MergeStateStatus,
   OpenPrInput,
   PostReviewInput,
   PrComment,
@@ -72,6 +73,7 @@ interface GhPr {
   state: string; // OPEN | MERGED | CLOSED
   createdAt?: string;
   mergeable?: string; // MERGEABLE | CONFLICTING | UNKNOWN
+  mergeStateStatus?: string; // BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS | UNKNOWN | UNSTABLE
   isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
@@ -82,6 +84,23 @@ function mapMergeable(v: string | undefined): boolean | null {
   if (v === "MERGEABLE") return true;
   if (v === "CONFLICTING") return false;
   return null; // UNKNOWN / undefined
+}
+
+const MERGE_STATE_VALUES = new Set<string>([
+  "behind",
+  "blocked",
+  "clean",
+  "dirty",
+  "draft",
+  "has_hooks",
+  "unknown",
+  "unstable",
+]);
+
+function mapMergeStateStatus(v: string | undefined): MergeStateStatus | undefined {
+  if (!v) return undefined;
+  const lower = v.toLowerCase();
+  return MERGE_STATE_VALUES.has(lower) ? (lower as MergeStateStatus) : undefined;
 }
 
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
@@ -380,7 +399,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,createdAt,mergeable,isDraft,statusCheckRollup,headRefOid,reviews",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews",
       "--limit",
       "1",
     ]);
@@ -396,6 +415,7 @@ export class GithubForge implements GitForge {
       title: pr.title,
       createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: mapMergeable(pr.mergeable),
+      mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
       isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,

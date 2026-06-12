@@ -67,6 +67,25 @@ export function trustsTerminal(
   return !!prev && prev.number != null && prev.number === raw.number && prev.state !== "none";
 }
 
+/** True when a freshly polled PR state differs from the cached one in any field
+ *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
+ *  pushing a session:git update. */
+function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
+  return (
+    !prev ||
+    prev.state !== git.state ||
+    prev.number !== git.number ||
+    prev.checks !== git.checks ||
+    prev.mergeable !== git.mergeable ||
+    prev.mergeStateStatus !== git.mergeStateStatus ||
+    prev.isDraft !== git.isDraft ||
+    prev.headSha !== git.headSha ||
+    prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
+    prev.handoff !== git.handoff ||
+    prev.handoffWho !== git.handoffWho
+  );
+}
+
 /**
  * Polls PR status for active sessions and caches it in memory. One `gh` process
  * runs at a time (sequential awaits) to bound the synchronous `execFileSync`
@@ -227,16 +246,7 @@ export class PrPoller implements PrCache {
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     git = annotateHandoff(git, s.repoPath, me);
-    if (
-      !prev ||
-      prev.state !== git.state ||
-      prev.number !== git.number ||
-      prev.checks !== git.checks ||
-      prev.headSha !== git.headSha ||
-      prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
-      prev.handoff !== git.handoff ||
-      prev.handoffWho !== git.handoffWho
-    ) {
+    if (gitStateChanged(prev, git)) {
       this.cache.set(s.id, git);
       this.onChange(s.id, git);
     }

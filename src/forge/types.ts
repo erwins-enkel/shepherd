@@ -41,6 +41,19 @@ export interface PrComment {
 /** Worst-of CI rollup: failure dominates, then pending, then success. */
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
+/** GitHub's merge-eligibility signal (`mergeStateStatus`). Lowercase mirror of
+ *  the GitHub enum (BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS |
+ *  UNKNOWN | UNSTABLE). */
+export type MergeStateStatus =
+  | "behind"
+  | "blocked"
+  | "clean"
+  | "dirty"
+  | "draft"
+  | "has_hooks"
+  | "unknown"
+  | "unstable";
+
 /** A newest-review summary (critic-marked reviews excluded). Shared by PrStatus
  *  and the backlog PullRequest row. */
 export interface PrReview {
@@ -90,6 +103,8 @@ export interface PrStatus {
   latestReview?: PrReview;
   /** true = PR is a draft / not ready-for-review. Optional; absent ⇒ treat as false downstream. */
   isDraft?: boolean;
+  /** GitHub's merge-eligibility signal; undefined on forges that don't supply it (Gitea). */
+  mergeStateStatus?: MergeStateStatus;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

@@ -40,18 +40,19 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("CriticBadge composite badge", () => {
-  it("verdict + in-progress round → single badge containing both verdict and round suffix", async () => {
+describe("CriticBadge streak label", () => {
+  it("verdict + in-progress round → streak label replaces the verdict word", async () => {
     reviews.map = { s1: v({ addressRound: 1 }) };
     render(CriticBadge, { sessionId: "s1" });
 
     const badges = document.querySelectorAll(".critic-badge");
     expect(badges.length, "exactly one .critic-badge").toBe(1);
 
-    // verdict text present
-    await expect.element(page.getByText(/CHANGES/)).toBeInTheDocument();
-    // round suffix present — m.criticbadge_round with round=1, cap=5 → "↻ 1/5"
-    await expect.element(page.getByText(/1\/5/)).toBeInTheDocument();
+    // streak label present — m.criticbadge_round with round=1, cap=5 → "REVIEW 1/5"
+    await expect.element(page.getByText(/REVIEW 1\/5/)).toBeInTheDocument();
+    // verdict word replaced, not appended
+    expect(document.querySelector(".critic-changes_requested")).toBeNull();
+    expect(page.getByText(/CHANGES/).elements().length, "no CHANGES text").toBe(0);
   });
 
   it("verdict with no address round → single badge, no suffix", async () => {
@@ -62,8 +63,8 @@ describe("CriticBadge composite badge", () => {
     expect(badges.length, "exactly one .critic-badge").toBe(1);
 
     await expect.element(page.getByText(/CHANGES/)).toBeInTheDocument();
-    // no round fraction visible
-    expect(document.querySelector(".addr")).toBeNull();
+    // no streak label visible
+    expect(document.querySelector('[class*="streak-"]')).toBeNull();
   });
 
   it("no verdict and no round → nothing rendered", async () => {
@@ -72,7 +73,7 @@ describe("CriticBadge composite badge", () => {
     expect(badges.length, "no badge when nothing to show").toBe(0);
   });
 
-  it("reviewing state + round → single reviewing badge with round suffix", async () => {
+  it("reviewing state + round → streak label replaces REVIEWING, with pulsing dot", async () => {
     reviews.map = { s1: v({ addressRound: 2 }) };
     reviews.reviewing = { s1: true };
     render(CriticBadge, { sessionId: "s1" });
@@ -80,13 +81,16 @@ describe("CriticBadge composite badge", () => {
     const badges = document.querySelectorAll(".critic-badge");
     expect(badges.length, "exactly one .critic-badge while reviewing").toBe(1);
 
-    await expect.element(page.getByText(/REVIEWING/)).toBeInTheDocument();
-    await expect.element(page.getByText(/2\/5/)).toBeInTheDocument();
+    await expect.element(page.getByText(/REVIEW 2\/5/)).toBeInTheDocument();
+    // reviewing word replaced by the streak label, not appended
+    expect(page.getByText(/REVIEWING/).elements().length, "no REVIEWING text").toBe(0);
+    // running indicator still present
+    expect(document.querySelector(".rev-dot"), "rev-dot rendered while reviewing").not.toBeNull();
   });
 
-  it("commented verdict + stalled round → single composite badge", async () => {
+  it("commented verdict + stalled round → STALLED REVIEW replaces the verdict word", async () => {
     // addressRound at cap, not pending → stalled status; decision "commented" → "REVIEWED" label.
-    // Both should appear in one composite .critic-badge, not two separate elements.
+    // The streak label takes over the pill, no verdict word remains.
     reviews.map = {
       s1: v({
         decision: "commented",
@@ -101,11 +105,15 @@ describe("CriticBadge composite badge", () => {
     const badges = document.querySelectorAll(".critic-badge");
     expect(badges.length, "exactly one .critic-badge for stalled").toBe(1);
 
-    await expect.element(page.getByText(/REVIEWED/)).toBeInTheDocument();
-    await expect.element(page.getByText(/STALLED/)).toBeInTheDocument();
+    await expect.element(page.getByText(/STALLED REVIEW/)).toBeInTheDocument();
+    expect(page.getByText(/REVIEWED/).elements().length, "no REVIEWED text").toBe(0);
+    expect(
+      document.querySelector(".streak-stalled"),
+      "badge carries streak-stalled class",
+    ).not.toBeNull();
   });
 
-  it("verdict + final round → single composite badge with addr-final suffix", async () => {
+  it("verdict + final round → FINAL REVIEW streak label with streak-final class", async () => {
     // addressRound === addressCap, findings present, finalRoundPending true, updatedAt recent
     // → addressRoundInfo returns status "final" (dim).
     reviews.map = {
@@ -122,13 +130,12 @@ describe("CriticBadge composite badge", () => {
     const badges = document.querySelectorAll(".critic-badge");
     expect(badges.length, "exactly one .critic-badge for final").toBe(1);
 
-    // verdict text present
-    await expect.element(page.getByText(/CHANGES/)).toBeInTheDocument();
-    // final suffix present — m.criticbadge_final with round=5, cap=5
-    await expect.element(page.getByText(/FINAL/)).toBeInTheDocument();
-    // suffix carries the dim class
-    const suffix = document.querySelector(".addr");
-    expect(suffix, "addr suffix rendered").not.toBeNull();
-    expect(suffix!.classList.contains("addr-final"), "addr-final class present").toBe(true);
+    // streak label present — m.criticbadge_final → "FINAL REVIEW"
+    await expect.element(page.getByText(/FINAL REVIEW/)).toBeInTheDocument();
+    // verdict word replaced, not appended
+    expect(page.getByText(/CHANGES/).elements().length, "no CHANGES text").toBe(0);
+    // badge carries the dim class
+    const streak = document.querySelector(".streak-final");
+    expect(streak, "streak-final rendered").not.toBeNull();
   });
 });

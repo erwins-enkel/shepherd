@@ -22,8 +22,9 @@ export function criticBadgeLabel(v: ReviewVerdict | undefined): string | null {
  *                 so a consumer can keep the findings popover reachable during re-review.
  *  - "verdict":   not reviewing; show the verdict badge/label.
  *  - "none":      nothing to show.
- * The auto-address streak info (addressRoundInfo) renders as an inline suffix inside the same
- * badge element via CriticBadge.svelte; the selector still returns it independently.
+ * When an auto-address streak is active (addressRoundInfo non-null), its compact streak label
+ * REPLACES the reviewing/verdict pill in CriticBadge.svelte rather than rendering as an inline
+ * suffix; the selector still returns the chip independently.
  */
 export type CriticChip =
   | { kind: "reviewing"; hasFindings: boolean }

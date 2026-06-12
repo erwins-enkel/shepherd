@@ -3623,18 +3623,22 @@
     border-color: var(--color-red);
     color: var(--color-red);
   }
-  /* Enter — the single affirmative "do it" key, the only filled accent in the
-     row so it reads as the primary action */
+  /* Enter — primary affirmative action. Amber outline-ghost (transparent fill,
+     amber border + text, inset amber glow) per the design-system primary recipe.
+     Four-Light Rule: green is reserved for READY agent state; primary buttons
+     are never solid-filled — always outline + inset glow. Mirrors EmptyHerd .spawn. */
   .ctrl-row .enter {
     font-family: var(--font-mono);
     font-size: var(--fs-xl);
-    color: var(--color-green);
-    border-color: color-mix(in srgb, var(--color-green) 60%, var(--color-line-bright));
-    background: color-mix(in srgb, var(--color-green) 18%, var(--color-inset));
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: transparent;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .ctrl-row .enter:active {
-    background: color-mix(in srgb, var(--color-green) 34%, var(--color-inset));
-    border-color: var(--color-green);
+    background: var(--color-hover);
+    border-color: var(--color-amber);
+    box-shadow: inset 0 0 22px -10px var(--color-amber);
   }
   /* "add notes" affordance — only mounted while Claude's prompt offers it. Amber
      (the same attention hue as the running pip) plus a soft halo pulse so it's

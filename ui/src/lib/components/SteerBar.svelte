@@ -245,6 +245,12 @@
   .bc-label {
     margin-left: 6px;
   }
+  .chip-emoji {
+    /* operator-set emoji are useful identifiers but full-saturation colour leaks
+       outside the controlled palette on the always-present steer bar — desaturate
+       modestly so glyphs stay recognizable while the ground stays quiet (Quiet-Ground rule) */
+    filter: saturate(0.6);
+  }
   .chip-emoji + .chip-label {
     margin-left: 6px;
   }

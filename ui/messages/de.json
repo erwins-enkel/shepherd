@@ -1094,5 +1094,10 @@
   "feat_dependency_automation_title": "Reife-Analyse prüft Abhängigkeits-Automatisierung",
   "feat_dependency_automation_body": "Der Backlog → Reife-Tab bewertet jetzt, ob ein Repo seine Abhängigkeiten mit Dependabot oder Renovate aktuell hält, und empfiehlt sie, wenn sie fehlt.",
   "feat_pr_target_branch_title": "PR-Zeilen zeigen einen abweichenden Ziel-Branch",
-  "feat_pr_target_branch_body": "Im Backlog → PRs-Tab zeigt ein PR, der auf einen abweichenden (Epic-/gestapelten) Branch zielt, jetzt einen kleinen Chip mit seinem Ziel – so sehen gestapelte PRs nicht mehr identisch zu denen aus, die auf den Standard-Branch zielen."
+  "feat_pr_target_branch_body": "Im Backlog → PRs-Tab zeigt ein PR, der auf einen abweichenden (Epic-/gestapelten) Branch zielt, jetzt einen kleinen Chip mit seinem Ziel – so sehen gestapelte PRs nicht mehr identisch zu denen aus, die auf den Standard-Branch zielen.",
+  "epic_group_collapse_aria": "Epic #{number} einklappen",
+  "epic_group_expand_aria": "Epic #{number} aufklappen",
+  "epic_group_cue_ci_failed": "{count} CI fehlgeschlagen",
+  "epic_group_cue_ready": "{count} bereit zum Mergen",
+  "epic_group_cue_blocked": "{count} brauchen dich"
 }

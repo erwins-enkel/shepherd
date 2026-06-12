@@ -1,18 +1,27 @@
-import type { Session, GitState } from "$lib/types";
-import { partitionSessions, shownSessions, STAGE_ORDER, type HerdFilter } from "./herd-partition";
+import type { Session, GitState, Epic } from "$lib/types";
+import {
+  partitionSessions,
+  shownSessions,
+  flattenByStage,
+  type HerdFilter,
+} from "./herd-partition";
+import { groupSessionsByEpic } from "./epic-grouping";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
  *  rail's visible order here instead of duplicating Herd.svelte's template walk. */
 
-/** Top→bottom group order of Herd.svelte's template — MUST match the order the
- *  rail renders its stage groups in (active first, merged last). Derived from
- *  herd-partition's `STAGE_ORDER` so there is exactly one source of stage order. */
-const RAIL_GROUP_ORDER = STAGE_ORDER;
-
-/** Session ids in the exact order the herd rail renders them: the same shown
- *  set (rail filter applied) and partition Herd.svelte derives, flattened in
- *  its template's group order. */
+/** Session ids in the exact order the herd rail renders them. Mirrors Herd.svelte's
+ *  template: epic groups render at the TOP (in `groupSessionsByEpic` order, each
+ *  group's sessions already lifecycle-flattened, a collapsed group contributing
+ *  nothing), then the lifecycle sections render over the non-epic `rest` in
+ *  `STAGE_ORDER`. Reuses the SAME `groupSessionsByEpic` + `flattenByStage` the
+ *  template does, so the rail can never drift from the render.
+ *
+ *  The trailing epic args default empty: with no epics, `grouped.groups` is empty
+ *  and `grouped.rest === shown`, so the output equals the pre-epic behavior
+ *  (`flattenByStage(partitionSessions(shownSessions(...)))`) — existing callers and
+ *  tests that pass no grouping args see identical order. */
 export function railOrder(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -20,14 +29,19 @@ export function railOrder(
   now: number = Date.now(),
   filter: HerdFilter = "all",
   workingBlocked: Record<string, boolean> = {},
+  epics: Record<string, Epic> = {},
+  activeEpicKeys: Set<string> = new Set(),
+  collapsedKeys: Set<string> = new Set(),
 ): string[] {
-  const partition = partitionSessions(
-    shownSessions(sessions, filter, isReviewing, workingBlocked),
-    git,
-    isReviewing,
-    now,
+  const shown = shownSessions(sessions, filter, isReviewing, workingBlocked);
+  const grouped = groupSessionsByEpic(shown, epics, activeEpicKeys, git, isReviewing, now);
+  const groupIds = grouped.groups.flatMap((g) =>
+    collapsedKeys.has(g.key) ? [] : g.sessions.map((s) => s.id),
   );
-  return RAIL_GROUP_ORDER.flatMap((group) => partition[group].map((s) => s.id));
+  const restIds = flattenByStage(partitionSessions(grouped.rest, git, isReviewing, now)).map(
+    (s) => s.id,
+  );
+  return [...groupIds, ...restIds];
 }
 
 /** The id one step (+1 down / -1 up) from `currentId` in `order`, wrapping at

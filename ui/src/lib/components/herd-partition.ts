@@ -36,7 +36,7 @@ import { isMerging } from "./merge-train";
  *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
  *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
  *  awaitingMerge → ready → merging → merged (Herd.svelte's template order, mirrored
- *  by herd-keynav's RAIL_GROUP_ORDER), tracking the session lifecycle. `isReviewing`
+ *  by herd-keynav's railOrder via flattenByStage), tracking the session lifecycle. `isReviewing`
  *  is injected so this stays a pure function (the caller wires it to the reviews store). */
 type Stage =
   | "merged"
@@ -121,8 +121,8 @@ function stageOf(
 
 /** The canonical top→bottom lifecycle stage order of Herd.svelte's template (active
  *  first, merged last). Single source of truth for stage ordering: `flattenByStage`
- *  here and herd-keynav's `RAIL_GROUP_ORDER` both derive from it, so the render and the
- *  keyboard-nav rail can never drift on order. */
+ *  here (used by both the render and herd-keynav's `railOrder`) derives from it, so the
+ *  render and the keyboard-nav rail can never drift on order. */
 export const STAGE_ORDER = [
   "active",
   "ciRunning",

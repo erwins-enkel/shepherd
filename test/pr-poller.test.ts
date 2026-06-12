@@ -258,6 +258,37 @@ test("emits when only mergeStateStatus changes (blocked → unstable)", async ()
   expect(emitted.length).toBe(2);
 });
 
+test("emits when only isDraft changes (true → false)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: { id: string; git: any }[] = [];
+  let cur: PrStatus = {
+    state: "open",
+    number: 7,
+    checks: "success",
+    headSha: "abc",
+    isDraft: true,
+    deployConfigured: false,
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (id, git) => emitted.push({ id, git }),
+  );
+
+  await poller.tick();
+  expect(emitted.length).toBe(1);
+
+  // draft marked ready-for-review → Merge un-blocks, but no other field changes
+  cur = { ...cur, isDraft: false };
+  await poller.tick();
+  expect(emitted.length).toBe(2);
+  expect(emitted[1]!.git.isDraft).toBe(false);
+
+  await poller.tick(); // unchanged → no new emit
+  expect(emitted.length).toBe(2);
+});
+
 test("emits when only mergeable changes (false → true)", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);

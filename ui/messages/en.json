@@ -203,6 +203,8 @@
   "gitrail_merge_blocked_conflict": "Merge blocked: branch has conflicts — resolve on the PR first.",
   "gitrail_merge_blocked_protected": "Merge blocked: required checks or reviews aren't satisfied — see the PR.",
   "gitrail_merge_blocked_checks": "Merge unavailable: a CI check is failing.",
+  "gitrail_merge_blocked_draft": "Merge unavailable: this PR is still a draft.",
+  "gitrail_merge_blocked_behind": "Merge blocked: branch is behind base — update it on the PR first.",
   "gitrail_open_pr_failed": "Open PR failed: {reason}. Check git host auth (gh login / token), then retry.",
   "gitrail_redeploy_failed": "Redeploy failed: {reason}. Retry once the cause is clear.",
   "herd_title": "The Herd",

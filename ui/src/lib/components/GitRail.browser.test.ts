@@ -313,6 +313,44 @@ describe("GitRail — controls stay within the cell", () => {
     assertControlsWithin(h);
   });
 
+  it("desktop 600px — open, mergeStateStatus:behind → Merge disabled with behind-base tooltip", async () => {
+    const behindState: GitState = {
+      ...openPrState,
+      checks: "success",
+      mergeable: true,
+      mergeStateStatus: "behind",
+    };
+    gitStateFn.mockResolvedValue(behindState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+    expect(mergeBtn, "Merge button present").not.toBeNull();
+    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
+    expect(mergeBtn!.title, "behind-base tooltip").toBe(m.gitrail_merge_blocked_behind());
+    assertControlsWithin(h);
+  });
+
+  it("desktop 600px — open, isDraft:true → Merge disabled with draft tooltip", async () => {
+    const draftState: GitState = {
+      ...openPrState,
+      checks: "success",
+      mergeable: true,
+      isDraft: true,
+    };
+    gitStateFn.mockResolvedValue(draftState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+    expect(mergeBtn, "Merge button present").not.toBeNull();
+    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
+    expect(mergeBtn!.title, "draft tooltip").toBe(m.gitrail_merge_blocked_draft());
+    assertControlsWithin(h);
+  });
+
   // ── open + ReadyToggle hidden (status:running) ────────────────────────────
   it("desktop 600px — open, status:running → ReadyToggle absent, rail in-bounds", async () => {
     gitStateFn.mockResolvedValue(openPrState);

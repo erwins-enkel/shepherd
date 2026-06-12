@@ -78,6 +78,7 @@ function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
     prev.checks !== git.checks ||
     prev.mergeable !== git.mergeable ||
     prev.mergeStateStatus !== git.mergeStateStatus ||
+    prev.isDraft !== git.isDraft ||
     prev.headSha !== git.headSha ||
     prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
     prev.handoff !== git.handoff ||

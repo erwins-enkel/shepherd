@@ -213,7 +213,10 @@
     !git ||
       git.mergeable === false ||
       busy ||
-      (git.mergeStateStatus ? git.mergeStateStatus === "blocked" : git.checks === "failure"),
+      git.isDraft === true ||
+      (git.mergeStateStatus
+        ? git.mergeStateStatus === "blocked" || git.mergeStateStatus === "behind"
+        : git.checks === "failure"),
   );
 
   const mergeBlockedReason = $derived(
@@ -221,16 +224,19 @@
       ? undefined
       : busy
         ? m.gitrail_merge_blocked_busy()
-        : git?.mergeable === false
-          ? m.gitrail_merge_blocked_conflict()
-          : git?.mergeStateStatus === "blocked"
-            ? m.gitrail_merge_blocked_protected()
-            : git?.checks === "failure"
-              ? m.gitrail_merge_blocked_checks()
-              : // Unreachable: the merge button renders only under git.state==="open", so
-                // `git` is truthy and `mergeBlocked` ⇒ one of the predicates above always
-                // holds. Kept so the exhaustive ternary isn't read as a 4th silent-disable case.
-                undefined,
+        : git?.isDraft === true
+          ? m.gitrail_merge_blocked_draft()
+          : git?.mergeable === false
+            ? m.gitrail_merge_blocked_conflict()
+            : git?.mergeStateStatus === "behind"
+              ? m.gitrail_merge_blocked_behind()
+              : git?.mergeStateStatus === "blocked"
+                ? m.gitrail_merge_blocked_protected()
+                : git?.checks === "failure"
+                  ? m.gitrail_merge_blocked_checks()
+                  : // Unreachable: the merge button renders only under git.state==="open",
+                    // so `git` is truthy and `mergeBlocked` ⇒ one predicate above always holds.
+                    undefined,
   );
 
   const verdict = $derived(reviews.map[sessionId]);

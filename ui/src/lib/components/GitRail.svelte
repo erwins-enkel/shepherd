@@ -210,7 +210,27 @@
   }
 
   const mergeBlocked = $derived(
-    !git || git.mergeable === false || git.checks === "failure" || busy,
+    !git ||
+      git.mergeable === false ||
+      busy ||
+      (git.mergeStateStatus ? git.mergeStateStatus === "blocked" : git.checks === "failure"),
+  );
+
+  const mergeBlockedReason = $derived(
+    !mergeBlocked
+      ? undefined
+      : busy
+        ? m.gitrail_merge_blocked_busy()
+        : git?.mergeable === false
+          ? m.gitrail_merge_blocked_conflict()
+          : git?.mergeStateStatus === "blocked"
+            ? m.gitrail_merge_blocked_protected()
+            : git?.checks === "failure"
+              ? m.gitrail_merge_blocked_checks()
+              : // Unreachable: the merge button renders only under git.state==="open", so
+                // `git` is truthy and `mergeBlocked` ⇒ one of the predicates above always
+                // holds. Kept so the exhaustive ternary isn't read as a 4th silent-disable case.
+                undefined,
   );
 
   const verdict = $derived(reviews.map[sessionId]);
@@ -370,6 +390,7 @@
           class:armed={armed === "merge"}
           type="button"
           disabled={mergeBlocked}
+          title={mergeBlockedReason}
           onclick={() => doMerge()}
         >
           {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}

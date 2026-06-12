@@ -31,7 +31,20 @@
   <div class="row-main">
     <span class="row-name">{displayName}</span>
     {#if pinned}
-      <span class="pinned-badge">{m.backlog_pinned_label()}</span>
+      <span class="pin-icon" role="img" aria-label={m.backlog_pinned_label()}>
+        <svg
+          viewBox="0 0 16 16"
+          width="1em"
+          height="1em"
+          fill="currentColor"
+          fill-rule="evenodd"
+          aria-hidden="true"
+        >
+          <path
+            d="M8 1.4a4.3 4.3 0 0 0-4.3 4.3c0 3.2 4.3 8.6 4.3 8.6s4.3-5.4 4.3-8.6A4.3 4.3 0 0 0 8 1.4Zm0 6a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4Z"
+          />
+        </svg>
+      </span>
     {/if}
   </div>
   <div class="row-counts">
@@ -122,15 +135,16 @@
     text-overflow: ellipsis;
   }
 
-  .pinned-badge {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+  .pin-icon {
+    display: inline-flex;
+    align-items: center;
     color: var(--color-amber);
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    padding: 1px 5px;
+    font-size: var(--fs-base);
     flex-shrink: 0;
+  }
+
+  .pin-icon svg {
+    vertical-align: -0.125em;
   }
 
   .row-counts {

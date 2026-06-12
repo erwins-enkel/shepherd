@@ -193,8 +193,15 @@ export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBa
 
 /**
  * Hosts that a compliant `claude` turn needs to reach Anthropic's API and
- * telemetry. Seeded empirically; the full set is finalized in a later task
- * (issue #551 Step 6) by reading the egress-drop log.
+ * telemetry. FINALIZED EMPIRICALLY (issue #551 Step 6): a real autonomous
+ * `claude -p` turn run under this firewall completed successfully reaching ONLY
+ * `api.anthropic.com`. Hosts claude additionally *probed* but does not need —
+ * `mcp-proxy.anthropic.com`, `mcp.vercel.com` (MCP connectors), `registry.npmjs.org`,
+ * `http-intake.logs.*.datadoghq.com` (Datadog telemetry) — are intentionally NOT
+ * allowlisted: optional, an exfil surface, and the turn degraded gracefully without
+ * them. `statsig.anthropic.com` (feature-gate telemetry) is kept as harmless
+ * best-effort. Operators who need a registry/MCP host in autonomous mode add it via
+ * SHEPHERD_SANDBOX_EXTRA_HOSTS / the per-repo egressExtraHosts setting.
  */
 export const ANTHROPIC_EGRESS_HOSTS: readonly string[] = [
   "api.anthropic.com",

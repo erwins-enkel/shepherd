@@ -30,10 +30,10 @@
 </span>
 
 <style>
-  /* 24 equal cells; intensity via opacity on currentColor, so it follows the
-     theme's running-status hue (--status-running, amber in Shepherd) — same
-     colour the StatusPip and the prior Heartbeat dot used. No motion — the
-     StatusPip already pulses (matches the prior Heartbeat.svelte decision). */
+  /* 24 equal cells; amber (--status-running) for live/recent signal (level ≥ 2
+     and .now); low-activity cells (level 0–1) render neutral faint ink so idle
+     strips read grey, not orange — amber is reserved for genuine "alive" signal.
+     No motion — StatusPip already pulses (matches prior Heartbeat.svelte decision). */
   .strip {
     display: inline-flex;
     align-items: stretch;
@@ -42,27 +42,35 @@
     max-width: 40vw;
     height: 12px;
     flex: none;
-    color: var(--status-running);
   }
   .cell {
     flex: 1 1 0;
     border-radius: 1px;
     background: currentColor;
+    /* faint neutral track by default; live cells (level ≥ 2 / now) re-set amber below */
+    color: var(--color-faint);
     opacity: 0.12; /* level 0 = faint empty track */
   }
   .cell[data-level="1"] {
+    color: var(--color-faint);
     opacity: 0.35;
   }
+  /* level ≥ 2 is genuine activity — restore amber over the faint base so the
+     live signal still glows while the empty track + trickle stay grey. */
   .cell[data-level="2"] {
+    color: var(--status-running);
     opacity: 0.6;
   }
   .cell[data-level="3"] {
+    color: var(--status-running);
     opacity: 0.82;
   }
   .cell[data-level="4"] {
+    color: var(--status-running);
     opacity: 1;
   }
   .cell.now {
+    color: var(--status-running);
     opacity: 1;
   }
   /* an errored slice (always level ≥ 1) renders red instead of amber. A

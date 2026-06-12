@@ -341,6 +341,7 @@ export class AutopilotService {
     if (!this.enabled(s)) return false;
     if (s.autopilotPaused) return false; // already handed back; waits for operator
     if (s.autopilotComplete) return false; // terminal
+    if (this.pending.has(id)) return false; // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
     if (!this.deps.fullAuto(id)) return false; // only full-auto owns the post-PR CI loop
     const git = this.deps.prGit(id);
     if (!git || git.state !== "open" || git.checks !== "failure") return false;

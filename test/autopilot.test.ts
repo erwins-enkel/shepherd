@@ -698,6 +698,26 @@ test("onDone guard: stuck-red full-auto re-engages and does NOT classify", async
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
+test("pending guard: tick() does not re-engage while a classify is mid-flight", async () => {
+  // A `done`/idle session is exactly the status held while onDone→consider→classify() awaits the
+  // LLM. Without the `pending` guard a tick would steer CI_FIX_STEER + bump over that in-flight
+  // classify, racing its dispatch. The guard makes reEngageCi bail so the classify's own dispatch acts.
+  const h = stuckRed();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  (h.svc as any).deps.classify = async (): Promise<AutopilotVerdict> => {
+    await gate;
+    return { kind: "complete", summary: "done" };
+  };
+  const inflight = h.svc.onBlock("s1", block()); // consider() adds `pending`, then awaits classify
+  await Promise.resolve(); // yield so onBlock reaches the classify await with `pending` set
+  h.svc.tick(); // `pending` set → reEngageCi bails → no CI steer, no bump
+  expect(h.events.some((e) => "steer" in e && e.steer === CI_FIX_STEER)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+  release();
+  await inflight; // let the gated classify settle so no promise dangles
+});
+
 test("guaranteed hand-back on a dead pane: failed resume still bumps toward the cap", async () => {
   const h = harness({
     session: sess({ status: "done" }),

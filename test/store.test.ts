@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
-import type { ReviewVerdict } from "../src/types";
+import type { PrReview, ReviewVerdict } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
 function mk() {
@@ -60,6 +60,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -76,6 +77,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
+    criticAllPrs: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -92,6 +94,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
+    criticAllPrs: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -108,6 +111,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -124,6 +128,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -151,6 +156,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
   });
   store.setRepoConfig("/repo/d", {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -777,4 +783,127 @@ test("reviewer_spawns survive task archive + prune (the load-bearing guarantee)"
   expect(rows.length).toBe(1); // but the cost-attribution fact outlives it
   expect(rows[0]!.reviewerSessionId).toBe("rev-1");
   expect(rows[0]!.taskSessionId).toBe(task.id);
+});
+
+// ── criticAllPrs ─────────────────────────────────────────────────────────────
+
+test("repo_config: criticAllPrs defaults false for an unconfigured repo", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/a").criticAllPrs).toBe(false);
+});
+
+test("repo_config: criticAllPrs round-trips true and false", () => {
+  const store = new SessionStore(":memory:");
+  const cfg = store.getRepoConfig("/repo/a");
+  store.setRepoConfig("/repo/a", { ...cfg, criticAllPrs: true });
+  expect(store.getRepoConfig("/repo/a").criticAllPrs).toBe(true);
+  store.setRepoConfig("/repo/a", { ...cfg, criticAllPrs: false });
+  expect(store.getRepoConfig("/repo/a").criticAllPrs).toBe(false);
+});
+
+test("repo_config: criticAllPrs toggle doesn't disturb other fields", () => {
+  const store = new SessionStore(":memory:");
+  const before = {
+    ...store.getRepoConfig("/repo/a"),
+    criticEnabled: false,
+    learningsEnabled: false,
+    autoDrainEnabled: true,
+    maxAuto: 5,
+    autoLabel: "go",
+  };
+  store.setRepoConfig("/repo/a", before);
+  store.setRepoConfig("/repo/a", { ...store.getRepoConfig("/repo/a"), criticAllPrs: true });
+  const after = store.getRepoConfig("/repo/a");
+  expect(after.criticAllPrs).toBe(true);
+  expect(after.criticEnabled).toBe(false);
+  expect(after.learningsEnabled).toBe(false);
+  expect(after.autoDrainEnabled).toBe(true);
+  expect(after.maxAuto).toBe(5);
+  expect(after.autoLabel).toBe("go");
+});
+
+test("repo_config migration: old DB without criticAllPrs gains the default-0 column", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-criticallprs-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
+    raw.run(`INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES ('/old', 1, 1)`);
+    raw.close();
+    const store = new SessionStore(dbPath);
+    expect(store.getRepoConfig("/old").criticAllPrs).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── pr_reviews ────────────────────────────────────────────────────────────────
+
+function prReview(over: Partial<PrReview> = {}): PrReview {
+  return {
+    repoPath: "/repo/x",
+    prNumber: 42,
+    headSha: "abc123",
+    patchId: "pid-abc",
+    decision: "changes_requested",
+    reviewedPatchIds: ["pid-old", "pid-abc"],
+    updatedAt: 1000,
+    ...over,
+  };
+}
+
+test("pr_reviews: getPrReview returns null when absent", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getPrReview("/repo/x", 42)).toBeNull();
+});
+
+test("pr_reviews: putPrReview then getPrReview round-trips all fields incl. reviewedPatchIds array", () => {
+  const store = new SessionStore(":memory:");
+  const r = prReview();
+  store.putPrReview(r);
+  expect(store.getPrReview("/repo/x", 42)).toEqual(r);
+});
+
+test("pr_reviews: putPrReview upserts — second put on same key updates, doesn't duplicate", () => {
+  const store = new SessionStore(":memory:");
+  store.putPrReview(prReview());
+  const updated = prReview({ headSha: "def456", decision: "commented", updatedAt: 2000 });
+  store.putPrReview(updated);
+  expect(store.getPrReview("/repo/x", 42)).toEqual(updated);
+});
+
+test("pr_reviews: bumpPrReviewHead changes only headSha + updatedAt", () => {
+  const store = new SessionStore(":memory:");
+  const r = prReview();
+  store.putPrReview(r);
+  store.bumpPrReviewHead("/repo/x", 42, "newhead", 9999);
+  expect(store.getPrReview("/repo/x", 42)).toEqual({ ...r, headSha: "newhead", updatedAt: 9999 });
+});
+
+test("pr_reviews: bumpPrReviewHead is a no-op when row doesn't exist", () => {
+  const store = new SessionStore(":memory:");
+  store.bumpPrReviewHead("/repo/x", 42, "newhead", 9999);
+  expect(store.getPrReview("/repo/x", 42)).toBeNull();
+});
+
+test("pr_reviews: dropPrReview removes the row", () => {
+  const store = new SessionStore(":memory:");
+  store.putPrReview(prReview());
+  store.dropPrReview("/repo/x", 42);
+  expect(store.getPrReview("/repo/x", 42)).toBeNull();
+});
+
+test("pr_reviews: rows for different (repoPath, prNumber) are independent", () => {
+  const store = new SessionStore(":memory:");
+  const a = prReview({ repoPath: "/repo/a", prNumber: 1, headSha: "sha-a" });
+  const b = prReview({ repoPath: "/repo/b", prNumber: 2, headSha: "sha-b" });
+  store.putPrReview(a);
+  store.putPrReview(b);
+  expect(store.getPrReview("/repo/a", 1)?.headSha).toBe("sha-a");
+  expect(store.getPrReview("/repo/b", 2)?.headSha).toBe("sha-b");
+  store.dropPrReview("/repo/a", 1);
+  expect(store.getPrReview("/repo/a", 1)).toBeNull();
+  expect(store.getPrReview("/repo/b", 2)).not.toBeNull();
 });

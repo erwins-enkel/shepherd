@@ -182,6 +182,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
   seedSignals(store, "/r", 5);
   store.setRepoConfig("/r", {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -215,6 +216,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
       listActiveLearnings: () => active as never,
       getRepoConfig: () => ({
         criticEnabled: true,
+        criticAllPrs: false,
         autoAddressEnabled: false,
         learningsEnabled: true,
         autopilotEnabled: false,

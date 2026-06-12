@@ -13,6 +13,7 @@ import type {
   BuildQueue,
   BuildStepInput,
   ReviewerSpawnRow,
+  PrReview,
 } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
@@ -48,6 +49,8 @@ const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
 
 export interface RepoConfig {
   criticEnabled: boolean;
+  /** Standalone repo-level PR critic: review every open CI-green PR in the repo, not just session PRs (default OFF). */
+  criticAllPrs: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
@@ -178,6 +181,7 @@ export class SessionStore implements CapStore {
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      criticAllPrs INTEGER NOT NULL DEFAULT 0,
       learningsEnabled INTEGER NOT NULL DEFAULT 1,
       autoDrainEnabled INTEGER NOT NULL DEFAULT 0,
       autoMergeEnabled INTEGER NOT NULL DEFAULT 0,
@@ -198,6 +202,13 @@ export class SessionStore implements CapStore {
       finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000,
       url TEXT, updatedAt INTEGER NOT NULL)`);
     this.migrateReviewColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS pr_reviews (
+      repoPath TEXT NOT NULL, prNumber INTEGER NOT NULL,
+      headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
+      decision TEXT NOT NULL DEFAULT '',
+      reviewedPatchIds TEXT NOT NULL DEFAULT '[]',
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, prNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS plan_gates (
       sessionId TEXT PRIMARY KEY, planHash TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
@@ -301,13 +312,14 @@ export class SessionStore implements CapStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+        `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
       criticEnabled: number;
+      criticAllPrs: number;
       autoAddressEnabled: number;
       learningsEnabled: number;
       autopilotEnabled: number;
@@ -326,6 +338,7 @@ export class SessionStore implements CapStore {
     // drain fields default OFF / cap-1 / default-label / ceiling-80
     return {
       criticEnabled: r ? !!r.criticEnabled : true,
+      criticAllPrs: r ? !!r.criticAllPrs : false,
       autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
       learningsEnabled: r ? !!r.learningsEnabled : true,
       autopilotEnabled: r ? !!r.autopilotEnabled : false,
@@ -345,11 +358,12 @@ export class SessionStore implements CapStore {
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
       `INSERT INTO repo_config
-         (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+         (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
+         criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
@@ -367,6 +381,7 @@ export class SessionStore implements CapStore {
       [
         repoPath,
         cfg.criticEnabled ? 1 : 0,
+        cfg.criticAllPrs ? 1 : 0,
         cfg.autoAddressEnabled ? 1 : 0,
         cfg.learningsEnabled ? 1 : 0,
         cfg.autopilotEnabled ? 1 : 0,
@@ -1090,6 +1105,7 @@ export class SessionStore implements CapStore {
         this.db.run(`ALTER TABLE repo_config ADD COLUMN ${ddl}`);
     };
     add("autoAddressEnabled", `autoAddressEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("criticAllPrs", `criticAllPrs INTEGER NOT NULL DEFAULT 0`);
     add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("planGateEnabled", `planGateEnabled INTEGER NOT NULL DEFAULT 0`);
@@ -1396,6 +1412,57 @@ export class SessionStore implements CapStore {
        ON CONFLICT(sessionId) DO UPDATE SET approved = excluded.approved, updatedAt = excluded.updatedAt`,
       [sessionId, approved ? 1 : 0, Date.now()],
     );
+  }
+
+  // ── standalone repo-level PR reviews ─────────────────────────────────────
+  getPrReview(repoPath: string, prNumber: number): PrReview | null {
+    const r = this.db
+      .query(
+        `SELECT repoPath, prNumber, headSha, patchId, decision, reviewedPatchIds, updatedAt
+         FROM pr_reviews WHERE repoPath = ? AND prNumber = ?`,
+      )
+      .get(repoPath, prNumber) as any;
+    if (!r) return null;
+    return {
+      repoPath: r.repoPath,
+      prNumber: r.prNumber,
+      headSha: r.headSha,
+      patchId: r.patchId ?? "",
+      decision: r.decision ?? "",
+      reviewedPatchIds: parseFindings(r.reviewedPatchIds),
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  putPrReview(r: PrReview): void {
+    this.db.run(
+      `INSERT INTO pr_reviews (repoPath, prNumber, headSha, patchId, decision, reviewedPatchIds, updatedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(repoPath, prNumber) DO UPDATE SET headSha=excluded.headSha,
+         patchId=excluded.patchId, decision=excluded.decision,
+         reviewedPatchIds=excluded.reviewedPatchIds, updatedAt=excluded.updatedAt`,
+      [
+        r.repoPath,
+        r.prNumber,
+        r.headSha,
+        r.patchId ?? "",
+        r.decision ?? "",
+        JSON.stringify(r.reviewedPatchIds ?? []),
+        r.updatedAt,
+      ],
+    );
+  }
+
+  /** Re-point an existing pr_review at a new head without changing the verdict. No-op when no row exists. */
+  bumpPrReviewHead(repoPath: string, prNumber: number, headSha: string, now: number): void {
+    this.db.run(
+      `UPDATE pr_reviews SET headSha = ?, updatedAt = ? WHERE repoPath = ? AND prNumber = ?`,
+      [headSha, now, repoPath, prNumber],
+    );
+  }
+
+  dropPrReview(repoPath: string, prNumber: number): void {
+    this.db.run(`DELETE FROM pr_reviews WHERE repoPath = ? AND prNumber = ?`, [repoPath, prNumber]);
   }
 
   private hydrate(r: any): Session {

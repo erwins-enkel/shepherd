@@ -392,6 +392,7 @@ function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
+  "criticAllPrs",
   "autoAddressEnabled",
   "learningsEnabled",
   "autopilotEnabled",
@@ -404,6 +405,7 @@ const REPO_CFG_BOOL_FIELDS = [
 
 type RepoCfgBody = {
   criticEnabled?: unknown;
+  criticAllPrs?: unknown;
   autoAddressEnabled?: unknown;
   learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
@@ -476,6 +478,7 @@ function parseRepoCfgScalars(body: RepoCfgBody):
 async function parseRepoConfigPatch(req: Request): Promise<
   | {
       criticEnabled?: boolean;
+      criticAllPrs?: boolean;
       autoAddressEnabled?: boolean;
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
@@ -523,6 +526,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   }
   return {
     criticEnabled: body.criticEnabled as boolean | undefined,
+    criticAllPrs: body.criticAllPrs as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
@@ -546,6 +550,7 @@ function mergeRepoConfig(
 ): RepoConfig {
   return {
     criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
+    criticAllPrs: patch.criticAllPrs ?? cur.criticAllPrs,
     autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
     learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
     autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,

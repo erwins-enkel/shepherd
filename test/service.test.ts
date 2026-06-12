@@ -1637,6 +1637,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
   store.setLearningStatus(a.id, "active");
   store.setRepoConfig("/repo", {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -1677,6 +1678,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
   const store = new SessionStore(":memory:");
   store.setRepoConfig("/repo", {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: true,
@@ -2236,6 +2238,7 @@ function buildQueueDeps(
   if (repoConfig) {
     store.setRepoConfig("/repo", {
       criticEnabled: true,
+      criticAllPrs: false,
       autoAddressEnabled: false,
       learningsEnabled: false,
       autopilotEnabled: false,

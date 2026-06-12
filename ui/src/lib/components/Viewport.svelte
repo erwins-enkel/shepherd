@@ -3141,6 +3141,8 @@
   .next-yu.compact {
     justify-content: center;
     gap: 4px;
+    /* not the 44px floor: this chip's content (icon + count + arrow) + padding
+       already renders wider than 44px; the floor only guards against collapse. */
     min-width: 40px;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
@@ -3168,8 +3170,8 @@
     font: inherit;
     font-size: var(--fs-lg);
     line-height: 1;
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 44px;
+    min-height: 44px;
     cursor: pointer;
   }
   .queue-nav button:active {
@@ -3209,11 +3211,11 @@
     padding-left: 8px;
     border-left: 1px solid var(--color-line);
   }
-  /* the strip's GitRail always renders its ≥40px touch variant — match it so the
+  /* the strip's GitRail always renders its ≥44px touch variant — match it so the
      cluster doesn't sit half-height beside the rail buttons */
   .strip-controls .ap-toggle,
   .strip-controls .decom {
-    min-height: 40px;
+    min-height: 44px;
     padding: 6px 9px;
   }
 
@@ -3294,12 +3296,12 @@
   .tab-group.mobile .preview-tab {
     flex-shrink: 0;
   }
-  /* finger-sized header controls on touch layouts (≥40px) */
+  /* finger-sized header controls on touch layouts (≥44px) */
   .vp-head.mobile .back,
   .vp-head.mobile .next-yu,
   .vp-head.mobile .vp-fold,
   .vp-head.mobile .decom {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 12px;
     font-size: var(--fs-base);
   }
@@ -3310,7 +3312,7 @@
     padding: 6px 12px;
   }
   /* the fold toggle is likewise a bare chevron — at --fs-base it reads as a
-     dot, so it gets the same icon-size bump (hit area stays ≥40px above) */
+     dot, so it gets the same icon-size bump (hit area stays ≥44px above) */
   .vp-head.mobile .vp-fold {
     font-size: var(--fs-xl);
     line-height: 1;

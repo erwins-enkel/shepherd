@@ -2118,7 +2118,11 @@
             : m.session_autopilot_off_label()}
           onclick={toggleSessionAutopilot}
         >
-          {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
+          {#if compact}
+            {autopilotEffective ? m.session_autopilot_on_short() : m.session_autopilot_off_short()}
+          {:else}
+            {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
+          {/if}
         </button>
         {#if compact && !prReady}
           <!-- compact only: the rare destructive action, parked at the strip's far

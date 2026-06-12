@@ -63,10 +63,16 @@ export function reviewPrompt(
     "",
     "Judge ONLY whether the implementation satisfies that task and is free of bugs, security issues, and clear quality problems. Tests and lint are handled by CI — do not run them.",
     "",
-    "LATENT-DEFECT LENS — surface defects that are dormant today but real, WITHOUT blocking on them:",
+    // LATENT-DEFECT LENS: surface dormant-but-real defects (the class Seer catches and we miss).
+    // Routing splits on present-day reachability — a defect reachable TODAY is a normal blockable
+    // finding; one reachable only via foreshadowed-but-unwired future code is informational-only.
+    // The informational path is deliberate: dormant items placed in `findings` would increment the
+    // streak counter (buildVerdict/finalize), be auto-addressed (runAutoAddress), and be re-raised
+    // against author notes — looping forever on code that cannot yet be exercised.
+    "LATENT-DEFECT LENS — surface defects that are dormant today but real:",
     "- A guard/validation present on one code path but MISSING from its sibling path (e.g. one branch floors a value with Math.max(0, …) and a parallel branch computing the same kind of value does not) is a defect even when the unguarded path is currently unreachable.",
-    '- A bug that is currently unreachable but becomes reachable through change THIS PR foreshadows (a param wired only in tests, a value a follow-up will populate, a path behind a not-yet-set flag) is real. "Descoped", "handled in another ticket", or "never reached in production" does NOT make such an in-diff defect a non-issue.',
-    '- Report these in a SINGLE "body" section headed exactly `Latent / future-reachable (non-blocking):`, ONE LINE PER DISTINCT ITEM. They are informational: do NOT put them in "findings", and they NEVER make the decision "request-changes". (They still must concern a file in the diff per the SCOPE rule above.)',
+    '- A bug currently unreachable but made reachable by change THIS PR foreshadows (a param wired only in tests, a value a follow-up will populate, a path behind a not-yet-set flag) is real — "descoped", "handled in another ticket", or "never reached in production" does NOT make such an in-diff defect a non-issue.',
+    '- Route by reachability TODAY. If the defect is reachable on a path that ALREADY executes, treat it as a normal bug: put it in "findings" and block it per the usual rules. If it is reachable ONLY through the foreshadowed-but-not-yet-wired future above (dormant today), it is informational: report it in a SINGLE "body" section headed exactly `Latent / future-reachable (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes". Either way it must concern a file in the diff per the SCOPE rule above.',
     "When done, write your verdict as JSON to the file `.shepherd-review.json` in the repository root, with EXACTLY this shape:",
     '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "body": "<full markdown review>", "findings": ["<discrete actionable item>", ...]}',
     'The "findings" array lists every discrete change the author must make — one entry per point, blocking or not. A non-blocking nit STILL goes in "findings" (under a "comment" decision). Use [] ONLY when there is genuinely nothing to address; "request-changes" requires at least one finding.',

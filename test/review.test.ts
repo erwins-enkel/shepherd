@@ -562,11 +562,11 @@ test("reviewPrompt asks for structured findings", () => {
   expect(p).toContain('"findings"');
 });
 
-test("reviewPrompt carries the informational-only latent-defect lens", () => {
+test("reviewPrompt latent-defect lens routes by reachability", () => {
   const p = reviewPrompt("main", "do the thing");
   expect(p).toContain("LATENT-DEFECT LENS");
-  expect(p).toContain("Latent / future-reachable (non-blocking):");
-  expect(p).toContain("do NOT put them in"); // informational-only: never blocking findings
+  expect(p).toContain("Latent / future-reachable (non-blocking):"); // dormant → informational body section
+  expect(p).toContain('put it in "findings"'); // reachable-today defect stays blockable
 });
 
 test("reviewPrompt injects prior findings for verification (accountability)", () => {

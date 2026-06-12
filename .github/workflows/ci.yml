@@ -17,6 +17,13 @@ concurrency:
 jobs:
   verify:
     name: verify
+    # Don't run the full suite on release-please's generated PR: it only bumps the
+    # version + CHANGELOG, so verify is wasted minutes. That PR DOES trigger this
+    # workflow (event=pull_request, actor=github-actions[bot]) — see release-please.yml.
+    # head_ref is empty on push-to-main, so main still runs. NB: this only skips the
+    # JOB once the run starts; GitHub's separate "awaiting approval" gate on bot PRs
+    # is a repo Actions setting, not something a workflow file can control.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
     # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes

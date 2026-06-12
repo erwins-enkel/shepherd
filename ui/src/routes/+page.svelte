@@ -1001,9 +1001,10 @@
   class:mobile={mobile.current}
   class:list={mobile.current && mobileScreen === "list"}
 >
-  <!-- a11y: a single top-level heading for the app shell — visually hidden (no
-       layout change), gives screen-reader users an h1 to orient by. Always
-       present, even on the phone terminal screen where the chrome is hidden. -->
+  <!-- a11y: a single top-level heading for the app shell, visually hidden via the
+       scoped .sr-only rule below (no layout change), gives screen-reader users an
+       h1 to orient by. Always present, even on the phone terminal screen where the
+       chrome is hidden. -->
   <h1 class="sr-only">{m.app_shell_heading()}</h1>
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
        viewport's merged header (repo · session + back + status tint), so it's
@@ -1462,6 +1463,20 @@
 <Toasts />
 
 <style>
+  /* Visually-hidden utility, scoped here explicitly rather than leaning on
+     Tailwind's content-scanned global `.sr-only` (which other components in this
+     repo also hand-roll). Canonical clip recipe — see GitRail/UnitRow. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .shell {
     /* No max-width cap: the desktop layout fills the viewport so widening the
        browser scales the terminal column (1fr) instead of leaving dead space at

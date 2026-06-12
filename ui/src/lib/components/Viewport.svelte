@@ -1915,25 +1915,16 @@
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
-      <!-- passive at-rest pips: the READY / AUTOPILOT *controls* moved into the
-           git strip (one disclosure away), but their ON state must stay readable
-           at a glance — a quiet pill each, only when on, never interactive. The
-           autopilot pip yields to AutopilotBadge when paused/complete (those
-           states already imply autopilot, so two amber pills would be noise). -->
+      <!-- passive at-rest pip: the READY control lives in the git strip; its ON
+           state stays glance-able here. Autopilot's ON state is surfaced solely
+           by the Automation pill in GitRail; paused/complete states still appear
+           via AutopilotBadge below. -->
       {#if session.readyToMerge}
         <span
           class="state-pip ready"
           role="img"
           aria-label={m.gitrail_ready_on_title()}
           title={m.gitrail_ready_on_title()}>✓</span
-        >
-      {/if}
-      {#if autopilotEffective && !session.autopilotPaused && !session.autopilotComplete}
-        <span
-          class="state-pip auto"
-          role="img"
-          aria-label={m.session_autopilot_on_label()}
-          title={m.session_autopilot_on_label()}>{m.viewport_autopilot_pip()}</span
         >
       {/if}
       <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
@@ -2653,10 +2644,6 @@
   .state-pip.ready {
     color: var(--color-green);
     border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
-  }
-  .state-pip.auto {
-    color: var(--color-amber);
-    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
   }
 
   /* per-session autopilot toggle (git strip): matches .git-toggle sizing */

@@ -483,7 +483,6 @@
   "viewport_git_actions_state_clear": "bereit zum Mergen",
   "viewport_git_actions_title_state": "PR, Merge, Kritiker & Merge-Freigabe ({state})",
   "viewport_git_actions_aria_state": "PR- und Merge-Aktionen ein-/ausblenden ({state})",
-  "viewport_autopilot_pip": "AP",
   "viewport_fold_aria": "Kopfbereich einklappen: Tabs und PR-Aktionen ausblenden für mehr Terminal-Platz",
   "viewport_unfold_aria": "Kopfbereich ausklappen: Tabs und PR-Aktionen anzeigen",
   "diff_refresh": "Diff aktualisieren",

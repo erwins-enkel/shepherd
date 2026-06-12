@@ -293,13 +293,10 @@ export interface GitForge {
   issueId?(issueNumber: number): Promise<number | null>;
   addSubIssue?(parentNumber: number, childNumber: number): Promise<void>;
   addBlockedBy?(issueNumber: number, blockerNumber: number): Promise<void>;
-  /** Cheap per-parent native sub-issue summary for the backlog epic-badge discovery
+  /** Cheap per-parent native sub-issue counts for the backlog epic-badge discovery
    *  (GitHub only; absent → no native-epic discovery, markdown fallback only). Map keyed
-   *  by parent issue number; only entries with total > 0 are included. `title` lets a native
-   *  candidate reconstruct its own IssueHint independent of the listIssues() 200-issue window. */
-  listSubIssueSummaries?(): Promise<
-    Map<number, { total: number; completed: number; title: string }>
-  >;
+   *  by parent issue number; only entries with total > 0 are included. */
+  listSubIssueSummaries?(): Promise<Map<number, { total: number; completed: number }>>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

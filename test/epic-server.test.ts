@@ -557,7 +557,7 @@ describe("GET /api/epics", () => {
 
   // native-only parent (no markdown body) → source:"native", counts from summary map
   test("native-only parent: source is native, counts from listSubIssueSummaries", async () => {
-    const summaryMap = new Map([[42, { total: 5, completed: 3, title: "Native Epic" }]]);
+    const summaryMap = new Map([[42, { total: 5, completed: 3 }]]);
     const forge: any = {
       listIssues: async () => [
         // issue 42 has no markdown body — purely native
@@ -581,7 +581,7 @@ describe("GET /api/epics", () => {
 
   // markdown parent → source:"markdown", counts unchanged
   test("markdown parent: source is markdown, counts from markdown members", async () => {
-    const summaryMap = new Map<number, { total: number; completed: number; title: string }>();
+    const summaryMap = new Map<number, { total: number; completed: number }>();
     const forge: any = {
       listIssues: async () => [
         {
@@ -609,7 +609,7 @@ describe("GET /api/epics", () => {
 
   // both markdown + native → source:"markdown" (markdown takes precedence in list)
   test("both markdown and native: source is markdown (list precedence)", async () => {
-    const summaryMap = new Map([[8, { total: 10, completed: 7, title: "Both Epic" }]]);
+    const summaryMap = new Map([[8, { total: 10, completed: 7 }]]);
     const forge: any = {
       listIssues: async () => [
         {
@@ -632,10 +632,12 @@ describe("GET /api/epics", () => {
     expect(body[0].source).toBe("markdown");
   });
 
-  // native parent absent from listIssues window → still surfaced with real title, source:"native"
-  test("native parent outside listIssues window: surfaced with title from summary, source native", async () => {
-    // listIssues returns only issue 1; native parent #999 is beyond the window
-    const summaryMap = new Map([[999, { total: 3, completed: 1, title: "Out-of-window Epic" }]]);
+  // native parent absent from the visible listIssues set → NOT surfaced. IssuesPanel renders an
+  // epic badge only on a matching visible issue row, so an out-of-window summary could never be
+  // displayed; surfacing it would only emit an unused row.
+  test("native parent outside listIssues window: not surfaced (gated to visible issues)", async () => {
+    // listIssues returns only issue 1; native parent #999 is beyond the visible window
+    const summaryMap = new Map([[999, { total: 3, completed: 1 }]]);
     const forge: any = {
       listIssues: async () => [
         { number: 1, title: "Unrelated", body: "", url: "", labels: [], createdAt: 0 },
@@ -647,12 +649,7 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    const epic = body.find((e: any) => e.parentIssueNumber === 999);
-    expect(epic).toBeDefined();
-    expect(epic.source).toBe("native");
-    expect(epic.parentTitle).toBe("Out-of-window Epic"); // real title from summary, not "#999"
-    expect(epic.total).toBe(3);
-    expect(epic.merged).toBe(1);
+    expect(body.find((e: any) => e.parentIssueNumber === 999)).toBeUndefined();
   });
 
   // forge without listSubIssueSummaries → no native candidates, no error
@@ -673,7 +670,7 @@ describe("GET /api/epics", () => {
   // native discovery adds no extra listSubIssues probe for native candidates
   test("native candidate: no per-candidate listSubIssues probe called", async () => {
     let listSubIssuesCallCount = 0;
-    const summaryMap = new Map([[55, { total: 4, completed: 2, title: "Native only" }]]);
+    const summaryMap = new Map([[55, { total: 4, completed: 2 }]]);
     const forge: any = {
       listIssues: async () => [
         { number: 55, title: "Native only", body: "", url: "", labels: [], createdAt: 0 },

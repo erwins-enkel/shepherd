@@ -87,9 +87,9 @@ describe("GithubForge listSubIssueSummaries", () => {
           issues: {
             pageInfo: { hasNextPage: false, endCursor: null },
             nodes: [
-              { number: 1, title: "Epic A", subIssuesSummary: { total: 3, completed: 1 } },
-              { number: 2, title: "No subs", subIssuesSummary: { total: 0, completed: 0 } },
-              { number: 3, title: "Epic B", subIssuesSummary: { total: 5, completed: 5 } },
+              { number: 1, subIssuesSummary: { total: 3, completed: 1 } },
+              { number: 2, subIssuesSummary: { total: 0, completed: 0 } },
+              { number: 3, subIssuesSummary: { total: 5, completed: 5 } },
             ],
           },
         },
@@ -99,9 +99,9 @@ describe("GithubForge listSubIssueSummaries", () => {
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     expect(calls.length).toBe(1);
     expect(result.size).toBe(2);
-    expect(result.get(1)).toEqual({ total: 3, completed: 1, title: "Epic A" });
+    expect(result.get(1)).toEqual({ total: 3, completed: 1 });
     expect(result.get(2)).toBeUndefined(); // total === 0 excluded
-    expect(result.get(3)).toEqual({ total: 5, completed: 5, title: "Epic B" });
+    expect(result.get(3)).toEqual({ total: 5, completed: 5 });
   });
 
   test("runner throws → returns empty Map (no rethrow)", async () => {
@@ -119,7 +119,7 @@ describe("GithubForge listSubIssueSummaries", () => {
         repository: {
           issues: {
             pageInfo: { hasNextPage: true, endCursor: "cursor-abc" },
-            nodes: [{ number: 10, title: "Epic X", subIssuesSummary: { total: 2, completed: 0 } }],
+            nodes: [{ number: 10, subIssuesSummary: { total: 2, completed: 0 } }],
           },
         },
       },
@@ -129,7 +129,7 @@ describe("GithubForge listSubIssueSummaries", () => {
         repository: {
           issues: {
             pageInfo: { hasNextPage: false, endCursor: null },
-            nodes: [{ number: 20, title: "Epic Y", subIssuesSummary: { total: 4, completed: 2 } }],
+            nodes: [{ number: 20, subIssuesSummary: { total: 4, completed: 2 } }],
           },
         },
       },
@@ -138,8 +138,8 @@ describe("GithubForge listSubIssueSummaries", () => {
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     expect(calls.length).toBe(2);
     expect(result.size).toBe(2);
-    expect(result.get(10)).toEqual({ total: 2, completed: 0, title: "Epic X" });
-    expect(result.get(20)).toEqual({ total: 4, completed: 2, title: "Epic Y" });
+    expect(result.get(10)).toEqual({ total: 2, completed: 0 });
+    expect(result.get(20)).toEqual({ total: 4, completed: 2 });
     // First call must NOT pass an endCursor field arg; second must pass cursor-abc.
     const firstCallArgs = calls[0]!.join(" ");
     const secondCallArgs = calls[1]!.join(" ");
@@ -149,6 +149,7 @@ describe("GithubForge listSubIssueSummaries", () => {
     expect(firstCallArgs).toContain("graphql");
     expect(firstCallArgs).toContain("endCursor");
     expect(firstCallArgs).toContain("pageInfo");
+    expect(firstCallArgs).not.toContain("title"); // counts-only query — no title/body fetched
   });
 
   test("cap: runner always returns hasNextPage:true → called at most MAX_SUMMARY_PAGES (2) times", async () => {
@@ -157,7 +158,7 @@ describe("GithubForge listSubIssueSummaries", () => {
         repository: {
           issues: {
             pageInfo: { hasNextPage: true, endCursor: "cursor-loop" },
-            nodes: [{ number: 99, title: "Looping", subIssuesSummary: { total: 1, completed: 0 } }],
+            nodes: [{ number: 99, subIssuesSummary: { total: 1, completed: 0 } }],
           },
         },
       },

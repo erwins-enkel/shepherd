@@ -35,7 +35,7 @@ const MAX_SUMMARY_PAGES = 2;
  *  total > 0 into `into` (keyed by issue number) and return the page's cursor info. */
 function collectSubIssueSummaryPage(
   out: string,
-  into: Map<number, { total: number; completed: number; title: string }>,
+  into: Map<number, { total: number; completed: number }>,
 ): { hasNextPage: boolean; endCursor: string | null } {
   const json = JSON.parse(out) as {
     data?: {
@@ -44,7 +44,6 @@ function collectSubIssueSummaryPage(
           pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
           nodes?: Array<{
             number: number;
-            title: string;
             subIssuesSummary?: { total: number; completed: number };
           } | null>;
         };
@@ -55,7 +54,7 @@ function collectSubIssueSummaryPage(
   for (const node of issues?.nodes ?? []) {
     const s = node?.subIssuesSummary;
     if (node && s && s.total > 0) {
-      into.set(node.number, { total: s.total, completed: s.completed, title: node.title });
+      into.set(node.number, { total: s.total, completed: s.completed });
     }
   }
   return {
@@ -831,18 +830,16 @@ export class GithubForge implements GitForge {
     ]);
   }
 
-  async listSubIssueSummaries(): Promise<
-    Map<number, { total: number; completed: number; title: string }>
-  > {
+  async listSubIssueSummaries(): Promise<Map<number, { total: number; completed: number }>> {
     // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
     // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
     // REST sub_issues endpoints above.
     const [owner, name] = this.slug.split("/");
-    // GraphQL query: body is deliberately omitted (only relevant to a beyond-window markdown
-    // edge the UI never renders); fetching body for every node would pull ~200 full bodies/call.
+    // Only number + counts are selected: the backlog renders this badge on the matching visible
+    // issue row, so the row already supplies title/body — no need to fetch them here.
     const query =
-      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number title subIssuesSummary{total completed}}}}}";
-    const result = new Map<number, { total: number; completed: number; title: string }>();
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed}}}}}";
+    const result = new Map<number, { total: number; completed: number }>();
     try {
       let endCursor: string | null = null;
       for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {

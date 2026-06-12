@@ -2707,11 +2707,13 @@ async function summarizeEpicCandidate(
   return markdownCounts(issueHint, openNumbers);
 }
 
-/** Best-effort fetch of native sub-issue summaries (GitHub only; one bounded GraphQL call).
- *  Returns an empty map on any error so discovery degrades to markdown-only. */
-async function fetchNativeSummaries(
-  forge: GitForge,
-): Promise<Map<number, { total: number; completed: number; title: string }>> {
+/** Per-parent native sub-issue counts keyed by parent issue number (from listSubIssueSummaries). */
+type NativeSummaryMap = Map<number, { total: number; completed: number }>;
+
+/** Best-effort fetch of native sub-issue summaries (GitHub only; one bounded forge call that
+ *  internally pages up to MAX_SUMMARY_PAGES GraphQL requests). Returns an empty map on any error
+ *  so discovery degrades to markdown-only. */
+async function fetchNativeSummaries(forge: GitForge): Promise<NativeSummaryMap> {
   try {
     // The method catches internally today; this guard keeps discovery alive if that changes.
     return (await forge.listSubIssueSummaries?.()) ?? new Map();
@@ -2733,7 +2735,7 @@ async function resolveEpicSummary(
   forge: GitForge,
   parentNumber: number,
   issueHint: IssueHint | undefined,
-  nativeSummaries: Map<number, { total: number; completed: number; title: string }>,
+  nativeSummaries: NativeSummaryMap,
   openNumbers: Set<number>,
   openTruncated: boolean,
 ): Promise<{ counts: { total: number; merged: number }; source: EpicSource } | null> {
@@ -2756,19 +2758,22 @@ async function resolveEpicSummary(
   return counts && { counts, source: "markdown" };
 }
 
-/** Build the epic-candidate map: markdown + stored-run candidates, plus any native-summary
- *  parents not already present. Native parents get a title-only IssueHint from the summary
- *  (window-independent — they may be beyond the ≤200-issue listIssues window, so this keeps
- *  the route from emitting a bare "#N" title). Parents already present keep their existing
- *  hint (which carries the body markdown precedence needs). */
+/** Build the epic-candidate map: markdown + stored-run candidates (from collectEpicCandidates),
+ *  plus any *visible* open issue that has native sub-issues but no markdown body. Native parents
+ *  are gated to the visible listIssues set on purpose: IssuesPanel renders an epic badge only by
+ *  matching a summary to a rendered issue row (by number), so a native parent beyond the ≤200
+ *  listIssues window could never be displayed — surfacing it would only emit an unused row. A
+ *  visible native parent already carries its real IssueHint (title + body) from listIssues. */
 function buildEpicCandidates(
   openIssues: IssueHint[],
   storedRunParent: number | null,
-  nativeSummaries: Map<number, { total: number; completed: number; title: string }>,
+  nativeSummaries: NativeSummaryMap,
 ): Map<number, IssueHint | undefined> {
   const candidates = collectEpicCandidates(openIssues, storedRunParent);
-  for (const [n, summary] of nativeSummaries) {
-    if (!candidates.has(n)) candidates.set(n, { number: n, title: summary.title });
+  const openByNumber = new Map(openIssues.map((i) => [i.number!, i]));
+  for (const n of nativeSummaries.keys()) {
+    const hint = openByNumber.get(n);
+    if (hint && !candidates.has(n)) candidates.set(n, hint);
   }
   return candidates;
 }
@@ -2778,7 +2783,7 @@ function buildEpicCandidates(
 async function buildEpicSummaries(
   forge: GitForge,
   candidates: Map<number, IssueHint | undefined>,
-  nativeSummaries: Map<number, { total: number; completed: number; title: string }>,
+  nativeSummaries: NativeSummaryMap,
   storedRun: EpicRun | null,
   openNumbers: Set<number>,
   openTruncated: boolean,
@@ -2824,7 +2829,7 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     return json([]);
   }
 
-  // Fetch native sub-issue summaries cheaply (one bounded GraphQL call, GitHub only).
+  // Fetch native sub-issue summaries cheaply (one bounded forge call, ≤2 GraphQL pages, GitHub only).
   const nativeSummaries = await fetchNativeSummaries(forge);
 
   // openNumbers: a member absent from the open set is considered closed (markdown fallback).

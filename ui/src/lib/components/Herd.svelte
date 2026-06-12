@@ -420,11 +420,19 @@
             />
           {/each}
         {/if}
-        {#if partition.merging.length > 0}
-          <div class="merging-head micro">
-            {m.herd_merging_group({ count: partition.merging.length })}
+        {#if partition.ready.length > 0}
+          <div class="ready-head micro">
+            {m.herd_ready_group({ count: partition.ready.length })}
+            {#if onmergetrain && readyPrCount > 0}
+              <button
+                type="button"
+                class="merge-train micro"
+                title={m.herd_merge_train_title()}
+                onclick={onmergetrain}>{m.herd_merge_train_action()}</button
+              >
+            {/if}
           </div>
-          {#each partition.merging as session (session.id)}
+          {#each partition.ready as session (session.id)}
             <UnitRow
               {session}
               selected={session.id === selectedId}
@@ -446,19 +454,11 @@
             />
           {/each}
         {/if}
-        {#if partition.ready.length > 0}
-          <div class="ready-head micro">
-            {m.herd_ready_group({ count: partition.ready.length })}
-            {#if onmergetrain && readyPrCount > 0}
-              <button
-                type="button"
-                class="merge-train micro"
-                title={m.herd_merge_train_title()}
-                onclick={onmergetrain}>{m.herd_merge_train_action()}</button
-              >
-            {/if}
+        {#if partition.merging.length > 0}
+          <div class="merging-head micro">
+            {m.herd_merging_group({ count: partition.merging.length })}
           </div>
-          {#each partition.ready as session (session.id)}
+          {#each partition.merging as session (session.id)}
             <UnitRow
               {session}
               selected={session.id === selectedId}

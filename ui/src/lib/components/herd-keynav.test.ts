@@ -47,16 +47,19 @@ function git(state: GitState["state"], checks: GitState["checks"] = "none"): Git
 
 test("railOrder flattens the partition in the rail's render order", () => {
   // input order interleaves stages; the rail renders active → ciRunning →
-  // ready → merged (among others), preserving input order within each group
+  // ready → merging → merged (among others), preserving input order within each
+  // group — ready precedes merging precedes merged in the flattened output.
+  const merging1 = { ...session("merging1"), mergingSince: Date.now(), mergingTrainId: "t" };
   const list = [
     session("merged1"),
     session("ready1", true),
     session("a"),
+    merging1,
     session("ci1"),
     session("b"),
   ];
   const order = railOrder(list, { merged1: git("merged"), ci1: git("open", "pending") });
-  expect(order).toEqual(["a", "b", "ci1", "ready1", "merged1"]);
+  expect(order).toEqual(["a", "b", "ci1", "ready1", "merging1", "merged1"]);
 });
 
 test("railOrder under the ready filter only walks rows the rail shows", () => {

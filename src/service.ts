@@ -115,6 +115,14 @@ export function installedPluginIds(read?: (path: string) => Promise<string>): Pr
   }));
 }
 
+/** Test seam: drop the process-lifetime plugin-ids cache. The cache is populated for
+ *  good by the first real spawn (which reads it via the default env path), so the
+ *  order-sensitive installedPluginIds cache test must clear it first to assert from a
+ *  clean slate regardless of which other suite ran before it. Not used in production. */
+export function resetPluginIdsCacheForTests(): void {
+  pluginIdsCache = null;
+}
+
 /**
  * Per-spawn `--settings` overlay merged on top of the user's settings files. Applied to every
  * Shepherd task spawn — both `create` (`buildSpawnArgv`) and `resume`.

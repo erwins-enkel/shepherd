@@ -9,6 +9,7 @@ import {
   composeSystemPrompt,
   readInstalledPluginIds,
   installedPluginIds,
+  resetPluginIdsCacheForTests,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
@@ -2701,7 +2702,10 @@ test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/pa
 });
 
 test("installedPluginIds: errors resolve [] but are NOT cached; successes are", async () => {
-  // Order matters: the success case below populates the module-level cache for good.
+  // The module-level cache is global + process-lifetime: a real spawn in any earlier-running
+  // suite populates it via the default env read. Clear it so this test asserts from null
+  // regardless of suite ordering (its own success case below then re-populates it).
+  resetPluginIdsCacheForTests();
   let throws = 0;
   const throwing = async () => {
     throws++;

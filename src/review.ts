@@ -955,21 +955,20 @@ function isPathShaped(token: string): boolean {
  * Deterministic scope backstop (Fix B2) — PURE, SYNC, git-free (operates on the already-resolved
  * `files` set carried on InFlight, so it never touches the poll loop). For each finding, parse a
  * leading `<path>: ` token (stripping an optional `:<line>` suffix on the path) and DROP it iff:
- *   `files` is non-empty AND the leading token is path-shaped AND it is NOT in `files`.
+ *   `files` is non-empty AND the leading token is path-shaped AND it does NOT correspond to any
+ *   changed file (see `correspondsToChangedFile`: exact, trailing-segment, or basename match).
  * Findings with no parseable path prefix are KEPT (unattributed → never drop something we can't
  * attribute). Note this means a finding prefixed with an extensionless path (`Makefile: ...`,
  * `Dockerfile: ...`, `LICENSE: ...`) is NOT path-shaped per isPathShaped, so it is treated as
- * unattributed → KEPT even when outside the diff; the "path-shaped AND not in files" drop rule
- * does not cover those. When `files` is empty, NOTHING is dropped (caller skips the filter
- * entirely; this is belt-and-suspenders). Returns the kept + dropped split so the caller can log
- * each drop.
+ * unattributed → KEPT even when outside the diff; the drop rule does not cover those. When `files`
+ * is empty, NOTHING is dropped (caller skips the filter entirely; this is belt-and-suspenders).
+ * Returns the kept + dropped split so the caller can log each drop.
  */
 export function scopeFindings(
   findings: string[],
   files: string[],
 ): { kept: string[]; dropped: string[] } {
   if (files.length === 0) return { kept: [...findings], dropped: [] };
-  const inDiff = new Set(files);
   const kept: string[] = [];
   const dropped: string[] = [];
   for (const f of findings) {
@@ -985,8 +984,25 @@ export function scopeFindings(
       kept.push(f); // prose prefix (e.g. "Note", "Nit") → not a path → keep
       continue;
     }
-    if (inDiff.has(token)) kept.push(f);
+    if (correspondsToChangedFile(token, files)) kept.push(f);
     else dropped.push(f); // path-shaped + provably outside the diff → drop
   }
   return { kept, dropped };
+}
+
+/** Does a path-shaped finding token correspond to a file actually changed in the diff? The critic
+ *  is instructed to prefix the full repo-relative path, but it sometimes uses just the basename
+ *  (`Viewport.svelte:`) or a trailing slice (`components/Viewport.svelte:`). Match on any of:
+ *  exact equality, the token being a trailing path-segment of a changed file, OR a bare basename
+ *  match. Erring toward correspondence (KEEP) is the safe direction — a missed drop only wastes a
+ *  round, whereas a false drop hides a real in-diff finding. The cost is that a basename shared by
+ *  an unrelated changed file (`index.ts`) won't drop; acceptable given the prompt asks for full
+ *  paths and this is only a fallback. */
+function correspondsToChangedFile(token: string, files: string[]): boolean {
+  const base = baseName(token);
+  return files.some((f) => f === token || f.endsWith("/" + token) || baseName(f) === base);
+}
+
+function baseName(p: string): string {
+  return p.slice(p.lastIndexOf("/") + 1);
 }

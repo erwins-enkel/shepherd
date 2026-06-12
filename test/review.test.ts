@@ -651,6 +651,25 @@ test("scopeFindings drops nothing when the file set is empty", () => {
   expect(kept).toEqual(["any/where.ts: x", "y"]);
 });
 
+test("scopeFindings keeps a basename- or partial-path-prefixed in-diff finding (full-path fallback)", () => {
+  const files = ["ui/src/lib/components/Viewport.svelte", "src/a.ts"];
+  const { kept, dropped } = scopeFindings(
+    [
+      "Viewport.svelte: bare basename of an in-diff file",
+      "components/Viewport.svelte:12: a trailing path slice",
+      "PrRow.svelte: a basename matching NO changed file",
+    ],
+    files,
+  );
+  // basename + trailing-segment matches correspond to a changed file → kept; an unrelated
+  // basename (PrRow.svelte) matches nothing in the diff → still dropped.
+  expect(kept).toEqual([
+    "Viewport.svelte: bare basename of an in-diff file",
+    "components/Viewport.svelte:12: a trailing path slice",
+  ]);
+  expect(dropped).toEqual(["PrRow.svelte: a basename matching NO changed file"]);
+});
+
 // ── deterministic scope backstop in finalize (Fix B2, integration) ───────────────
 
 test("backstop drops an out-of-diff path-attributed finding on finalize", async () => {

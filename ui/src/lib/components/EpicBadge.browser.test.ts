@@ -12,6 +12,7 @@ const summary = (p: Partial<EpicSummary> = {}): EpicSummary => ({
   total: 5,
   merged: 2,
   status: "idle",
+  source: "native",
   ...p,
 });
 

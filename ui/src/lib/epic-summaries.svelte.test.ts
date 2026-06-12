@@ -14,6 +14,7 @@ function S(parentIssueNumber: number): EpicSummary {
     total: 3,
     merged: 1,
     status: "running",
+    source: "native",
   };
 }
 

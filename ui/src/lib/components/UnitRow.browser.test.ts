@@ -343,6 +343,7 @@ describe("UnitRow epic badge", () => {
     total: 4,
     merged: 1,
     status: "running",
+    source: "native",
   };
 
   it("renders the EPIC m/n badge when the seeding issue has a matching summary", async () => {

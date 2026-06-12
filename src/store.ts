@@ -336,22 +336,41 @@ export class SessionStore implements CapStore {
     } | null;
     // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
     // drain fields default OFF / cap-1 / default-label / ceiling-80
+    if (!r) {
+      return {
+        criticEnabled: true,
+        criticAllPrs: false,
+        autoAddressEnabled: false,
+        learningsEnabled: true,
+        autopilotEnabled: false,
+        planGateEnabled: false,
+        autoDrainEnabled: false,
+        autoMergeEnabled: false,
+        buildQueueEnabled: false,
+        draftMode: false,
+        signoffAuthority: "human",
+        maxAuto: 1,
+        autoLabel: "shepherd:auto",
+        usageCeilingPct: 80,
+        sandboxProfile: "trusted",
+      };
+    }
     return {
-      criticEnabled: r ? !!r.criticEnabled : true,
-      criticAllPrs: r ? !!r.criticAllPrs : false,
-      autoAddressEnabled: r ? !!r.autoAddressEnabled : false,
-      learningsEnabled: r ? !!r.learningsEnabled : true,
-      autopilotEnabled: r ? !!r.autopilotEnabled : false,
-      planGateEnabled: r ? !!r.planGateEnabled : false,
-      autoDrainEnabled: r ? !!r.autoDrainEnabled : false,
-      autoMergeEnabled: r ? !!r.autoMergeEnabled : false,
-      buildQueueEnabled: r ? !!r.buildQueueEnabled : false,
-      draftMode: r ? !!r.draftMode : false,
-      signoffAuthority: r ? (r.signoffAuthority as RepoConfig["signoffAuthority"]) : "human",
-      maxAuto: r ? r.maxAuto : 1,
-      autoLabel: r ? r.autoLabel : "shepherd:auto",
-      usageCeilingPct: r ? r.usageCeilingPct : 80,
-      sandboxProfile: r && isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+      criticEnabled: !!r.criticEnabled,
+      criticAllPrs: !!r.criticAllPrs,
+      autoAddressEnabled: !!r.autoAddressEnabled,
+      learningsEnabled: !!r.learningsEnabled,
+      autopilotEnabled: !!r.autopilotEnabled,
+      planGateEnabled: !!r.planGateEnabled,
+      autoDrainEnabled: !!r.autoDrainEnabled,
+      autoMergeEnabled: !!r.autoMergeEnabled,
+      buildQueueEnabled: !!r.buildQueueEnabled,
+      draftMode: !!r.draftMode,
+      signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
+      maxAuto: r.maxAuto,
+      autoLabel: r.autoLabel,
+      usageCeilingPct: r.usageCeilingPct,
+      sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     };
   }
 
@@ -1459,10 +1478,6 @@ export class SessionStore implements CapStore {
       `UPDATE pr_reviews SET headSha = ?, updatedAt = ? WHERE repoPath = ? AND prNumber = ?`,
       [headSha, now, repoPath, prNumber],
     );
-  }
-
-  dropPrReview(repoPath: string, prNumber: number): void {
-    this.db.run(`DELETE FROM pr_reviews WHERE repoPath = ? AND prNumber = ?`, [repoPath, prNumber]);
   }
 
   private hydrate(r: any): Session {

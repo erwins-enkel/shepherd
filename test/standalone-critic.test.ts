@@ -430,6 +430,29 @@ test("clean verdict resets reviewedPatchIds to []", async () => {
   expect(spies.puts[0]!.decision).toBe("commented");
 });
 
+test("error verdict: persists decision=error; a new push with the same diff re-reviews (patch-id skip bypassed)", async () => {
+  // Simulate a timed-out run: readVerdict returns null, timeout fires (timeoutMs=0, clock advances).
+  let clock = 0;
+  const { deps, spies } = makeDeps({
+    readVerdict: () => null, // no verdict file ever written
+    computePatchId: async () => ({ patchId: "p1", baseSha: null, files: [] }),
+    timeoutMs: 0,
+    now: () => ++clock,
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  await svc.tick(); // clock advanced → timedOut=true; finalizes with raw=null → error
+  // dedup row must carry decision:"error"
+  expect(spies.puts).toHaveLength(1);
+  expect(spies.puts[0]!.decision).toBe("error");
+  // New push (different headSha, same diff patch-id). A non-error prior with patchId="p1" would
+  // be skipped by shouldSkipForPatchId; an error prior is NEVER skipped by the patch-id gate.
+  const newHead = pr({ headSha: "newpush123" });
+  deps.resolveForge = () => makeForge(spies, { prs: [newHead] });
+  await svc.sweep();
+  expect(spies.started).toHaveLength(2); // re-reviewed despite same patch-id
+});
+
 // ── 9. round-robin fairness ──────────────────────────────────────────────────
 
 test("two enabled repos: the round-robin offset rotates which repo is considered first", async () => {

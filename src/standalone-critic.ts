@@ -457,9 +457,9 @@ export class StandalonePrCriticService {
       // Persist the (repoPath, prNumber) dedup row. reviewedPatchIds mirrors ReviewService:
       // a CLEAN verdict (no findings) RESETS the set to [] (so a later revert to an earlier
       // buggy diff is re-reviewed), a findings verdict APPENDS this run's patch-id (deduped) to
-      // the prior set (so an identical-diff rebase is skipped). An error verdict carries
-      // patchId:'' from buildVerdictCore, so it lands here with findings (the summary fallback)
-      // and an empty patchId — append is a no-op and the same diff re-reviews next push.
+      // the prior set (so an identical-diff rebase is skipped). An error verdict stores
+      // patchId:'' (from buildVerdictCore) — shouldSkipForPatchId short-circuits on
+      // decision==="error" before checking set membership, so the same diff re-reviews next push.
       const reviewedPatchIds =
         verdict.findings.length === 0 ? [] : [...new Set([...f.priorReviewedPatchIds, f.patchId])];
       this.deps.store.putPrReview({

@@ -888,13 +888,6 @@ test("pr_reviews: bumpPrReviewHead is a no-op when row doesn't exist", () => {
   expect(store.getPrReview("/repo/x", 42)).toBeNull();
 });
 
-test("pr_reviews: dropPrReview removes the row", () => {
-  const store = new SessionStore(":memory:");
-  store.putPrReview(prReview());
-  store.dropPrReview("/repo/x", 42);
-  expect(store.getPrReview("/repo/x", 42)).toBeNull();
-});
-
 test("pr_reviews: rows for different (repoPath, prNumber) are independent", () => {
   const store = new SessionStore(":memory:");
   const a = prReview({ repoPath: "/repo/a", prNumber: 1, headSha: "sha-a" });
@@ -903,7 +896,4 @@ test("pr_reviews: rows for different (repoPath, prNumber) are independent", () =
   store.putPrReview(b);
   expect(store.getPrReview("/repo/a", 1)?.headSha).toBe("sha-a");
   expect(store.getPrReview("/repo/b", 2)?.headSha).toBe("sha-b");
-  store.dropPrReview("/repo/a", 1);
-  expect(store.getPrReview("/repo/a", 1)).toBeNull();
-  expect(store.getPrReview("/repo/b", 2)).not.toBeNull();
 });

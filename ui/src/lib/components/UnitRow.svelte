@@ -106,8 +106,8 @@
     // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — the
     // WS-live Epic for this row's seeding issue is preferred over the cached summary
     epics?: Record<string, Epic>;
-    // an epic badge was clicked → open the backlog (args ignored for now; targeted
-    // navigation is a later task)
+    // an epic badge was clicked → open the backlog on this repo, expanded and
+    // scrolled to the epic (repoPath + issueNumber target the IssuesPanel row)
     onepic?: (repoPath: string, issueNumber: number) => void;
   } = $props();
 

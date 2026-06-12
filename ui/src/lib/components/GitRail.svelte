@@ -58,6 +58,12 @@
   // Critic-findings popover (read the full verdict body without leaving the app)
   let showReview = $state(false);
   let wrapEl = $state<HTMLElement | null>(null);
+  // The findings popover is modal (a scrim makes it modal on every size), so it
+  // needs real focus semantics: focus moves in on open, restores to the opener on
+  // close, and Tab is trapped inside. reviewPopEl is the dialog container;
+  // reviewOpener is the chip that opened it (so focus can return there).
+  let reviewPopEl = $state<HTMLElement | null>(null);
+  let reviewOpener: HTMLElement | null = null;
 
   // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
   let showAutomation = $state(false);
@@ -113,9 +119,13 @@
     retry = null;
   }
 
-  function toggleReview() {
+  function toggleReview(e?: Event) {
     showReview = !showReview;
     if (showReview) {
+      // remember which chip opened the dialog so focus can be restored on close;
+      // fall back to the active element (e.g. keyboard activation without currentTarget)
+      reviewOpener =
+        (e?.currentTarget as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
       showPr = false; // one popover at a time
       showAutomation = false;
     }
@@ -143,6 +153,48 @@
     if (wrapEl && !wrapEl.contains(e.target as Node)) {
       if (showReview) showReview = false;
       if (showAutomation) showAutomation = false;
+    }
+  }
+
+  // Modal focus management for the findings dialog, scoped strictly to showReview
+  // (the PR popover + AutomationPanel are unaffected). On open: move focus into the
+  // dialog. On close: restore focus to the opener — guarded so a now-detached opener
+  // (e.g. a session switch reset showReview while the dialog was open) is a no-op.
+  $effect(() => {
+    if (showReview && reviewPopEl) {
+      reviewPopEl.focus();
+    } else if (!showReview) {
+      const opener = reviewOpener;
+      reviewOpener = null;
+      if (opener?.isConnected) opener.focus();
+    }
+  });
+
+  // Minimal Tab focus-trap. Focusable nodes are enumerated DYNAMICALLY at trap time
+  // so links inside the rendered (sanitized markdown) body are included; the dialog
+  // container itself (tabindex="-1") is excluded by the selector.
+  function onReviewKeydown(e: KeyboardEvent) {
+    if (e.key !== "Tab" || !reviewPopEl) return;
+    const nodes = reviewPopEl.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (nodes.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || active === reviewPopEl) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (active === last || active === reviewPopEl) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
 
@@ -434,7 +486,7 @@
             aria-haspopup="dialog"
             aria-expanded={showReview}
             title={m.criticbadge_reviewing_title()}
-            onclick={toggleReview}
+            onclick={(e) => toggleReview(e)}
           >
             <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
           </button>
@@ -450,7 +502,7 @@
           aria-haspopup="dialog"
           aria-expanded={showReview}
           title={m.gitrail_review_title()}
-          onclick={toggleReview}
+          onclick={(e) => toggleReview(e)}
         >
           {chip.label}
         </button>
@@ -542,7 +594,15 @@
     {/if}
 
     {#if showReview && verdict}
-      <div class="review-pop" role="dialog" aria-label={m.gitrail_review_title()}>
+      <div
+        class="review-pop"
+        role="dialog"
+        aria-modal="true"
+        aria-label={m.gitrail_review_title()}
+        tabindex="-1"
+        bind:this={reviewPopEl}
+        onkeydown={onReviewKeydown}
+      >
         <div class="review-head">
           {#if chip.kind === "reviewing"}
             <span class="rv-label critic-reviewing" title={m.criticbadge_reviewing_title()}>
@@ -925,7 +985,10 @@
   }
 
   /* findings popover: same anchoring as .pr-pop, wider + scrollable body.
-     Rides above .review-scrim (z-index 50) so it stays lit while the page dims. */
+     Rides above .review-scrim (z-index 50) so it stays lit while the page dims.
+     On touch (@media pointer: coarse, below) this absolute anchor is overridden
+     into a centered fixed modal sheet — anchored to the 44px strip it would hang
+     below and clip the body + action footer out of reach. */
   .review-pop {
     position: absolute;
     top: 100%;
@@ -1129,5 +1192,30 @@
     border-top: 1px solid var(--color-line);
     /* pinned footer: never compressed away by a tall body */
     flex-shrink: 0;
+  }
+
+  /* Touch layouts (phones + unfolded folds — the repo's canonical coarse-pointer
+     gate). The strip is position:static here, so the absolute .review-pop hangs
+     below the 44px strip and clips. Override it into a centered fixed modal sheet
+     over the existing .review-scrim. z-index:51 already sits above the scrim's 50;
+     the existing overflow:hidden + .rv-body scroller + pinned head/footer keep the
+     action footer reachable. */
+  @media (pointer: coarse) {
+    .review-pop {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      right: auto;
+      transform: translate(-50%, -50%);
+      margin-top: 0;
+      width: min(480px, 92vw);
+      max-height: 85vh;
+    }
+    /* the rail's 40px tap-target rule is scoped to .rail.mobile, not this popover —
+       give the dialog's own controls a ≥40px touch target too */
+    .review-head .gbtn,
+    .review-actions .gbtn {
+      min-height: 40px;
+    }
   }
 </style>

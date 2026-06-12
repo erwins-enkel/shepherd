@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { GitState } from "$lib/types";
+import type { GitState, ReviewVerdict } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 
 // GitRail loads PR state from $lib/api.gitState on mount; mock it to a populated
@@ -46,7 +46,7 @@ const { default: GitRail } = await import("./GitRail.svelte");
 // The plan-gate reviewing store drives the auto-pill pulse for plan reviews,
 // mirroring the critic (reviews) store. Imported from the same module the
 // component reads so toggling it reactively updates the rendered pill.
-const { planGates } = await import("$lib/reviews.svelte");
+const { planGates, reviews } = await import("$lib/reviews.svelte");
 
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
 // local agree. The rail mounts into a fixed-width host cell. On desktop the
@@ -539,5 +539,155 @@ describe("GitRail — plan review pulses the automation pill", () => {
       expect(pill!.classList.contains("reviewing"), "pulse cleared").toBe(false),
     );
     expect(pill!.getAttribute("aria-busy")).toBe("false");
+  });
+});
+
+describe("GitRail — review popover is a modal dialog with real focus semantics", () => {
+  // A changes_requested verdict whose body contains a markdown link, so the
+  // Tab-trap's DYNAMIC enumeration must include the rendered <a> (the body is
+  // sanitized markdown → it lands inside .rv-body as a real focusable link).
+  const verdict: ReviewVerdict = {
+    sessionId: baseProps.sessionId,
+    headSha: "deadbeef",
+    decision: "changes_requested",
+    summary: "Two issues to address before merge.",
+    body: "See [the failing case](https://example.com/issue) and fix the guard.",
+    findings: ["fix the guard"],
+    addressRound: 0,
+    addressCap: 2,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900000,
+    updatedAt: Date.now(),
+  };
+
+  beforeEach(() => {
+    reviews.apply({ id: baseProps.sessionId, review: verdict });
+  });
+  afterEach(() => {
+    reviews.drop(baseProps.sessionId);
+  });
+
+  // Open the popover by clicking the REVIEWED/CHANGES verdict chip; returns the
+  // chip (opener), the dialog, and the host. Waits a microtask flush so the
+  // dynamically-imported marked+DOMPurify body render resolves before asserting.
+  async function openReview(h: HTMLElement) {
+    const chip = h.querySelector<HTMLButtonElement>("button.verdict-chip");
+    expect(chip, "verdict chip present").not.toBeNull();
+    chip!.click();
+    const dialog = await vi.waitFor(() => {
+      const d = h.querySelector<HTMLElement>(".review-pop");
+      expect(d, "review dialog opened").not.toBeNull();
+      return d!;
+    });
+    // give marked+DOMPurify (dynamic import in an $effect) a tick to render the body
+    await vi.waitFor(() => {
+      expect(dialog.querySelector(".rv-body a"), "body link rendered").not.toBeNull();
+    });
+    return { chip: chip!, dialog };
+  }
+
+  it("dialog has role=dialog AND aria-modal=true", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { dialog } = await openReview(h);
+    expect(dialog.getAttribute("role")).toBe("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { dialog } = await openReview(h);
+    await vi.waitFor(() => {
+      expect(dialog.contains(document.activeElement), "focus inside the dialog").toBe(true);
+    });
+  });
+
+  it("restores focus to the opener chip when closed via the ✕ button", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { chip, dialog } = await openReview(h);
+    const closeBtn = dialog.querySelector<HTMLButtonElement>(
+      `button[aria-label="${m.common_close()}"]`,
+    );
+    expect(closeBtn, "close button present").not.toBeNull();
+    closeBtn!.click();
+    await vi.waitFor(() => {
+      expect(h.querySelector(".review-pop"), "dialog closed").toBeNull();
+      expect(document.activeElement, "focus restored to opener").toBe(chip);
+    });
+  });
+
+  it("restores focus to the opener chip when closed via Escape", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { chip } = await openReview(h);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(h.querySelector(".review-pop"), "dialog closed").toBeNull();
+      expect(document.activeElement, "focus restored to opener").toBe(chip);
+    });
+  });
+
+  it("Tab from the last focusable node wraps to the first (trap stays inside)", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { dialog } = await openReview(h);
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    expect(focusables.length, "more than one focusable").toBeGreaterThan(1);
+    // the rendered body link must be in the enumerated set
+    expect(
+      [...focusables].some((n) => n.matches(".rv-body a")),
+      "body link in trap set",
+    ).toBe(true);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    last.focus();
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(document.activeElement, "Tab wraps last → first").toBe(first);
+  });
+
+  it("Shift+Tab from the first focusable node wraps to the last", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    const { dialog } = await openReview(h);
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    first.focus();
+    dialog.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }),
+    );
+    expect(document.activeElement, "Shift+Tab wraps first → last").toBe(last);
   });
 });

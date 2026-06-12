@@ -19,6 +19,17 @@
   const displayName = $derived(
     project.path.replace(/\/+$/, "").split("/").pop() || project.slug || project.display,
   );
+
+  const issuesLabel = $derived(
+    project.openIssues != null
+      ? m.backlog_tab_issues_count({ count: project.openIssues })
+      : m.backlog_tab_issues(),
+  );
+  const prsLabel = $derived(
+    project.openPRs != null
+      ? m.backlog_tab_prs_count({ count: project.openPRs })
+      : m.backlog_tab_prs(),
+  );
 </script>
 
 <button
@@ -41,9 +52,8 @@
     {/if}
   </div>
   <div class="row-counts">
-    <span class="count-item">
+    <span class="count-item" title={issuesLabel} aria-label={issuesLabel}>
       {project.openIssues ?? "—"}
-      {m.backlog_tab_issues()}
     </span>
     <span class="sep">·</span>
     {#if project.prKinds}
@@ -51,10 +61,9 @@
         class="count-item count-prs"
         class:prom={project.prKinds.regular > 0}
         title={m.backlog_code_prs_title()}
-        aria-label={m.backlog_code_prs_title()}
+        aria-label={m.backlog_tab_prs_count({ count: project.prKinds.regular })}
       >
         {project.prKinds.regular}
-        {m.backlog_tab_prs()}
       </span>
       {#if project.prKinds.dependabot > 0}
         <span
@@ -70,9 +79,13 @@
         </span>
       {/if}
     {:else}
-      <span class="count-item">
+      <span
+        class="count-item count-prs"
+        class:prom={(project.openPRs ?? 0) > 0}
+        title={m.backlog_code_prs_title()}
+        aria-label={prsLabel}
+      >
         {project.openPRs ?? "—"}
-        {m.backlog_tab_prs()}
       </span>
     {/if}
   </div>
@@ -123,6 +136,7 @@
     font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.03em;
+    min-width: 12ch;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -144,7 +158,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
     font-size: var(--fs-meta);
     color: var(--color-muted);
     letter-spacing: 0.04em;

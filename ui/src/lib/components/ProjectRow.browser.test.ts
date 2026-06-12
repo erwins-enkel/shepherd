@@ -30,9 +30,8 @@ describe("ProjectRow PR-kind counts", () => {
       onselect: () => {},
     });
     // prominent count = regular (2), not openPRs (4)
-    await expect
-      .element(page.getByText(`2 ${m.backlog_tab_prs()}`, { exact: false }))
-      .toBeInTheDocument();
+    const prs = document.body.querySelector(".count-prs");
+    expect(prs?.textContent?.trim()).toBe("2");
     await expect
       .element(page.getByText(m.prkind_dependabot_badge({ count: 1 })))
       .toBeInTheDocument();
@@ -46,9 +45,8 @@ describe("ProjectRow PR-kind counts", () => {
       selected: false,
       onselect: () => {},
     });
-    await expect
-      .element(page.getByText(`0 ${m.backlog_tab_prs()}`, { exact: false }))
-      .toBeInTheDocument();
+    const prs = document.body.querySelector(".count-prs");
+    expect(prs?.textContent?.trim()).toBe("0");
     await expect.element(page.getByText(m.prkind_release_badge({ count: 1 }))).toBeInTheDocument();
     await expect
       .element(page.getByText(m.prkind_dependabot_badge({ count: 0 })))
@@ -63,9 +61,8 @@ describe("ProjectRow PR-kind counts", () => {
       selected: false,
       onselect: () => {},
     });
-    await expect
-      .element(page.getByText(`3 ${m.backlog_tab_prs()}`, { exact: false }))
-      .toBeInTheDocument();
+    const prs = document.body.querySelector(".count-prs");
+    expect(prs?.textContent?.trim()).toBe("3");
     expect(document.body.querySelector(".bot-note")).toBeNull();
   });
 
@@ -76,9 +73,8 @@ describe("ProjectRow PR-kind counts", () => {
       selected: false,
       onselect: () => {},
     });
-    await expect
-      .element(page.getByText(`5 ${m.backlog_tab_prs()}`, { exact: false }))
-      .toBeInTheDocument();
+    const prs = document.body.querySelector(".count-prs");
+    expect(prs?.textContent?.trim()).toBe("5");
     expect(document.body.querySelector(".bot-note")).toBeNull();
   });
 });

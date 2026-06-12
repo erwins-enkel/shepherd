@@ -26,7 +26,7 @@ const dashify = (p: string): string => p.replace(/[/.]/g, "-");
  * The claude tmp root for this user. Read from env at call time so tests and operators
  * can redirect it; falls back to the conventional `<tmpdir>/claude-$uid`.
  */
-export function claudeTmpRoot(): string {
+function claudeTmpRoot(): string {
   return (
     process.env.SHEPHERD_TMP_SWEEP_DIR ??
     process.env.CLAUDE_CODE_TMPDIR ??
@@ -76,6 +76,97 @@ interface SweepOpts {
   log?: (msg: string) => void;
 }
 
+/** Resolved options for one sweep run, threaded through the internal helpers. */
+interface SweepCtx {
+  ops: FsOps;
+  now: number;
+  staleMs: number;
+  nestedName: string;
+  log: (msg: string) => void;
+}
+
+/**
+ * Resolves the fail-open inode gate. Returns the numeric inode use% when readable, or a
+ * string skip-reason when the guard cannot read inode pressure:
+ *  - `"statfs-unavailable"` — `statfs` is not a function, or reports non-finite `files`/`ffree`
+ *    or `files <= 0` (an unusable count).
+ *  - `"root-missing"` — `statfs(root)` throws (root absent / unstatfs-able).
+ */
+async function inodeUsePct(
+  root: string,
+  statfs: FsOps["statfs"],
+  log: (msg: string) => void,
+): Promise<number | string> {
+  // Fail-open: without a usable statfs we cannot read inode pressure, so do nothing.
+  if (typeof statfs !== "function") {
+    log("[tmp-sweep] statfs unavailable — skipping inode guard");
+    return "statfs-unavailable";
+  }
+
+  let stats: Awaited<ReturnType<typeof fsp.statfs>>;
+  try {
+    stats = await statfs(root);
+  } catch {
+    // Root absent / unstatfs-able — nothing to guard.
+    return "root-missing";
+  }
+
+  const files = Number((stats as { files?: unknown }).files);
+  const ffree = Number((stats as { ffree?: unknown }).ffree);
+  if (!Number.isFinite(files) || !Number.isFinite(ffree) || files <= 0) {
+    return "statfs-unavailable";
+  }
+  return (1 - ffree / files) * 100;
+}
+
+/**
+ * Handles ONE directory entry, returning the count removed (0 or 1). Fail-closed per-entry:
+ * its own try/catch surfaces a removal failure in the log and continues, so a bad entry NEVER
+ * aborts the sweep and is never miscounted as success. The three cases:
+ *  - `node-compile-cache` — pure V8 compile cache, dropped wholesale regardless of age.
+ *  - the nested `claude-$uid` root — never wholesale-removed (its children are age-gated when
+ *    it is itself the sweep root); skipped here.
+ *  - anything else — age-gated by the entry's own top-level mtime.
+ */
+async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<number> {
+  const p = join(dir, ent.name);
+  try {
+    if (ent.name === "node-compile-cache") {
+      await ctx.ops.rm(p, { recursive: true, force: true });
+      return 1;
+    }
+    if (ent.name === ctx.nestedName) return 0;
+
+    const st = await ctx.ops.stat(p);
+    // Deliberately the top-level entry's own mtime, not a recursive
+    // newest-descendant walk — don't "fix" this into a sync/expensive tree traversal.
+    if (ctx.now - st.mtimeMs > ctx.staleMs) {
+      await ctx.ops.rm(p, { recursive: true, force: true });
+      return 1;
+    }
+    return 0;
+  } catch (err) {
+    // Fail-closed per-entry: a removal that fails is surfaced in the log and
+    // skipped — it NEVER aborts the sweep and is never miscounted as success.
+    ctx.log(`[tmp-sweep] failed to remove ${p}: ${String(err)}`);
+    return 0;
+  }
+}
+
+/** Sweep one directory: readdir (skip a missing/unreadable dir) then sum sweepEntry over it. */
+async function sweepDir(dir: string, ctx: SweepCtx): Promise<number> {
+  let entries: Dirent[];
+  try {
+    entries = (await ctx.ops.readdir(dir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    // Missing/unreadable dir (e.g. no nested claude root yet) — skip it.
+    return 0;
+  }
+  let removed = 0;
+  for (const ent of entries) removed += await sweepEntry(dir, ent, ctx);
+  return removed;
+}
+
 /**
  * Threshold-gated inode guard. TOTAL by contract: it NEVER throws or rejects — any
  * unexpected error resolves to `{ swept:false, reason:"error", removed:0 }` after logging,
@@ -104,27 +195,11 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
       rm: fsp.rm,
     };
 
-    // Fail-open: without a usable statfs we cannot read inode pressure, so do nothing.
-    if (typeof ops.statfs !== "function") {
-      log("[tmp-sweep] statfs unavailable — skipping inode guard");
-      return { swept: false, reason: "statfs-unavailable", removed: 0 };
+    const usePct = await inodeUsePct(root, ops.statfs, log);
+    if (typeof usePct === "string") {
+      return { swept: false, reason: usePct, removed: 0 };
     }
 
-    let stats: Awaited<ReturnType<typeof fsp.statfs>>;
-    try {
-      stats = await ops.statfs(root);
-    } catch {
-      // Root absent / unstatfs-able — nothing to guard.
-      return { swept: false, reason: "root-missing", removed: 0 };
-    }
-
-    const files = Number((stats as { files?: unknown }).files);
-    const ffree = Number((stats as { ffree?: unknown }).ffree);
-    if (!Number.isFinite(files) || !Number.isFinite(ffree) || files <= 0) {
-      return { swept: false, reason: "statfs-unavailable", removed: 0 };
-    }
-
-    const usePct = (1 - ffree / files) * 100;
     if (usePct < thresholdPct) {
       return {
         swept: false,
@@ -134,44 +209,11 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
     }
 
     const nestedName = `claude-${uid()}`;
-    let removed = 0;
+    const ctx: SweepCtx = { ops, now, staleMs, nestedName, log };
     const sweepRoots = [root, join(root, nestedName)];
 
-    for (const dir of sweepRoots) {
-      let entries: Dirent[];
-      try {
-        entries = (await ops.readdir(dir, { withFileTypes: true })) as Dirent[];
-      } catch {
-        // Missing/unreadable dir (e.g. no nested claude root yet) — skip it.
-        continue;
-      }
-      for (const ent of entries) {
-        const p = join(dir, ent.name);
-        try {
-          if (ent.name === "node-compile-cache") {
-            // Pure V8 compile cache — safe to drop wholesale regardless of age.
-            await ops.rm(p, { recursive: true, force: true });
-            removed++;
-          } else if (ent.name === nestedName) {
-            // The nested scratch root: never wholesale-removed; its children are
-            // age-gated when it is itself swept (as the second sweep root).
-            continue;
-          } else {
-            const st = await ops.stat(p);
-            // Deliberately the top-level entry's own mtime, not a recursive
-            // newest-descendant walk — don't "fix" this into a sync/expensive tree traversal.
-            if (now - st.mtimeMs > staleMs) {
-              await ops.rm(p, { recursive: true, force: true });
-              removed++;
-            }
-          }
-        } catch (err) {
-          // Fail-closed per-entry: a removal that fails is surfaced in the log and
-          // skipped — it NEVER aborts the sweep and is never miscounted as success.
-          log(`[tmp-sweep] failed to remove ${p}: ${String(err)}`);
-        }
-      }
-    }
+    let removed = 0;
+    for (const dir of sweepRoots) removed += await sweepDir(dir, ctx);
 
     return {
       swept: true,

@@ -27,6 +27,11 @@ import { fileURLToPath } from "node:url";
  *   edited while the other deleted) — these are left for manual resolution.
  */
 export function mergeCatalogs(base, ours, theirs) {
+  // Value comparisons below use `===`, which assumes the catalogs are flat
+  // string→string maps (the inlang message-format here). If the format ever
+  // gains nested plural/variant *objects*, `===` compares object identity, not
+  // content — two equal-but-distinct objects would look "changed" and a real
+  // edit could look unchanged. Switch to a deep compare before adopting nesting.
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const conflicts = [];
   // Start from ours so base keys ours kept + ours-added keys retain their order.
@@ -77,6 +82,15 @@ function serializeClean(merged) {
  * (build, check:i18n) until a human resolves it, never look like a clean pass.
  */
 function serializeConflicted(merged, conflicts, ours, theirs) {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  // Render one side of a conflicting key. An edit/delete conflict means the key
+  // is absent on the deleting side — show that explicitly rather than emitting a
+  // literal `undefined` value, which would read as a real (and invalid) entry.
+  const side = (obj, k) =>
+    has(obj, k)
+      ? `  ${JSON.stringify(k)}: ${JSON.stringify(obj[k])}`
+      : `  (${JSON.stringify(k)} deleted)`;
+
   const conflictSet = new Set(conflicts);
   // Render every surviving key in order, plus the conflicting keys (which may
   // have been dropped from `merged`) so both sides' values stay visible.
@@ -87,9 +101,9 @@ function serializeConflicted(merged, conflicts, ours, theirs) {
     }
     return (
       "<<<<<<< ours\n" +
-      `  ${JSON.stringify(k)}: ${JSON.stringify(ours[k])}\n` +
+      `${side(ours, k)}\n` +
       "=======\n" +
-      `  ${JSON.stringify(k)}: ${JSON.stringify(theirs[k])}\n` +
+      `${side(theirs, k)}\n` +
       ">>>>>>> theirs"
     );
   });
@@ -115,8 +129,11 @@ function main(argv) {
   const ours = readJson(oursPath);
   const theirs = readJson(theirsPath);
 
-  // If any side isn't parseable JSON, fall back to git's default text conflict
-  // rather than risk mangling the file.
+  // If any side isn't parseable JSON, don't risk mangling the file: leave
+  // `ours` untouched and exit non-zero. Git then marks the path unmerged (with
+  // no conflict markers, since we wrote nothing), so a human resolves it by
+  // hand. This is NOT git's default text merge — that already ran and produced
+  // the unparseable input we're declining to touch.
   if (base === null || ours === null || theirs === null) {
     process.stderr.write(
       `i18n-union: ${label ?? oursPath} not parseable as JSON — leaving for manual merge\n`,

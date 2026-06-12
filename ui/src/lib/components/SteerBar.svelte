@@ -5,7 +5,11 @@
   import { fitLabels } from "$lib/fit-labels";
   import { m } from "$lib/paraglide/messages";
 
-  let { focusedId, onbroadcast }: { focusedId: string; onbroadcast: () => void } = $props();
+  let {
+    focusedId,
+    onbroadcast,
+    onedit,
+  }: { focusedId: string; onbroadcast: () => void; onedit?: () => void } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
   const chips = $derived(steers.list.filter((s) => s.inSteerBar));
@@ -118,12 +122,15 @@
     >
   </div>
 {/if}
-<!-- The ABC labels toggle lives OUTSIDE the scrolling/measured .steer-bar (as its
-     right-hand flex sibling) so its box never enters fitLabels' scrollWidth
-     measurement — an in-flow auto-margin would make scrollWidth == clientWidth and
-     poison the cached full-label width. It's shown only when there's actually a
-     collapsed label to reveal: when the bar collapses (`compact`) or on mobile
-     (≤768px); hidden on a desktop bar where everything fits. -->
+<!-- The right-hand slot lives OUTSIDE the scrolling/measured .steer-bar (its flex
+     siblings) so neither button enters fitLabels' scrollWidth measurement — an
+     in-flow auto-margin would make scrollWidth == clientWidth and poison the cached
+     full-label width. The slot holds EITHER the ABC labels toggle (when a label is
+     collapsed: bar `compact` or mobile ≤768px) OR the Edit-steers pencil (desktop bar
+     where everything fits). They're complementary — exactly one shows, never both —
+     and dimensionally identical so the reserved slot width is constant on desktop
+     (swapping equal-width buttons never changes .steer-bar's clientWidth, so fitLabels
+     can't oscillate). -->
 <div class="steer-row" data-swipe-ignore>
   <!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
        emoji collapse to emoji-only (label stays in title/aria); the rest keep their
@@ -182,6 +189,22 @@
     onpointermove={move}
     onpointercancel={cancel}
     onpointerup={(e) => tap(e, toggleLabels)}>ABC</button
+  >
+  <!-- Edit-steers pencil: fills the same right slot when the ABC toggle is hidden
+       (desktop bar where everything fits). Pencil-only glyph; the title/aria-label
+       carry "Edit steers" (WCAG: a visible label would be a glyph, so the name lives
+       in the attributes). Follows .lbl-toggle in source so the `.steer-bar.compact ~`
+       general-sibling reveal/hide rules can reach it. Same tap-vs-drag wiring. -->
+  <button
+    type="button"
+    class="chip edit-steers"
+    title={m.steerbar_edit()}
+    aria-label={m.steerbar_edit()}
+    data-swipe-ignore
+    onpointerdown={down}
+    onpointermove={move}
+    onpointercancel={cancel}
+    onpointerup={(e) => tap(e, () => onedit?.())}>✎</button
   >
 </div>
 
@@ -291,6 +314,25 @@
   .steer-bar:global(.compact) ~ .lbl-toggle {
     display: inline-flex;
   }
+  /* Edit-steers: fills the right slot on a desktop bar where everything fits (the
+     ABC toggle's complement). Same box as .lbl-toggle so the reserved right slot is
+     the same width whichever button shows — fitLabels never sees the channel width
+     change, so no compaction oscillation. Pencil-only; the title/aria-label carry
+     "Edit steers". Hidden whenever ABC takes the slot: on overflow (.compact) and on
+     mobile (≤768px). */
+  .edit-steers {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 6px 10px;
+    min-width: 44px;
+    padding: 0;
+    font-size: var(--fs-base);
+    color: var(--color-muted);
+  }
+  .steer-bar:global(.compact) ~ .edit-steers {
+    display: none;
+  }
   .lbl-toggle[aria-pressed="true"] {
     color: var(--color-ink-bright);
     border-color: var(--color-ink);
@@ -324,6 +366,9 @@
     }
     .lbl-toggle {
       display: inline-flex;
+    }
+    .edit-steers {
+      display: none;
     }
   }
   /* one-time steer hint: flat, square, hairline-bordered, muted ink — sits

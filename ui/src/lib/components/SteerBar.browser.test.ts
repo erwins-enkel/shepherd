@@ -136,3 +136,85 @@ describe("ABC visibility gating", () => {
     expect(getComputedStyle(bcLabel).display, "⌁ label collapsed on mobile").toBe("none");
   });
 });
+
+describe("SteerBar edit-steers button", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900); // restore a sane width for other suites
+  });
+
+  it("renders the pencil edit button, outside the measured bar, with an accessible name", async () => {
+    await page.viewport(1000, 900);
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames();
+
+    const editBtn = document.querySelector(".edit-steers") as HTMLElement;
+    expect(editBtn, "edit-steers button rendered").not.toBeNull();
+    expect(editBtn.textContent).toContain("✎");
+    expect(editBtn.getAttribute("title")?.trim()).toBeTruthy();
+    expect(editBtn.getAttribute("aria-label")?.trim()).toBeTruthy();
+    expect(editBtn.getAttribute("title")).toBe(editBtn.getAttribute("aria-label"));
+    // Lives OUTSIDE the measured/scrolling .steer-bar so it can't poison fitLabels.
+    expect(document.querySelector(".steer-bar")!.contains(editBtn)).toBe(false);
+  });
+
+  it("clicking it fires onedit", async () => {
+    await page.viewport(1000, 900);
+    const onedit = vi.fn();
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {}, onedit });
+    await tick();
+    await frames();
+
+    const editBtn = document.querySelector(".edit-steers") as HTMLElement;
+    editBtn.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
+    editBtn.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+    await tick();
+
+    expect(onedit).toHaveBeenCalledOnce();
+  });
+
+  it("desktop fits → edit shown, ABC hidden", async () => {
+    await page.viewport(1000, 900);
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames();
+
+    const editBtn = document.querySelector(".edit-steers") as HTMLElement;
+    const abc = document.querySelector(".lbl-toggle") as HTMLElement;
+    expect(getComputedStyle(editBtn).display, "edit shown on wide non-compact bar").not.toBe(
+      "none",
+    );
+    expect(getComputedStyle(abc).display, "ABC hidden on wide non-compact bar").toBe("none");
+  });
+
+  it("compact overflow (>768px) → edit hidden, ABC shown", async () => {
+    await page.viewport(800, 900);
+    steers.list = Array.from({ length: 24 }, (_, i) =>
+      steer({
+        id: String(i + 1),
+        label: `Long Steering Label Number ${i + 1}`,
+        emoji: "🚀",
+      }),
+    );
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames(4); // 24-chip layout takes longer to settle than the 2-frame default
+
+    const editBtn = document.querySelector(".edit-steers") as HTMLElement;
+    const abc = document.querySelector(".lbl-toggle") as HTMLElement;
+    expect(getComputedStyle(editBtn).display, "edit hidden when compact").toBe("none");
+    expect(getComputedStyle(abc).display, "ABC revealed when compact").not.toBe("none");
+  });
+
+  it("mobile (≤768px) → edit hidden, ABC shown", async () => {
+    await page.viewport(400, 900);
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+    await frames();
+
+    const editBtn = document.querySelector(".edit-steers") as HTMLElement;
+    const abc = document.querySelector(".lbl-toggle") as HTMLElement;
+    expect(getComputedStyle(editBtn).display, "edit hidden on mobile").toBe("none");
+    expect(getComputedStyle(abc).display, "ABC revealed by mobile rule").not.toBe("none");
+  });
+});

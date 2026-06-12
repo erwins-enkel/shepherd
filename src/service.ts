@@ -687,6 +687,29 @@ export class SessionService {
   }
 
   /**
+   * Copy an original session's staged uploads into the repo staging dir with fresh
+   * filenames (extension preserved) so create() lands them in the new worktree like
+   * New Task. Copy-not-move keeps the original recoverable on a spawn failure. Returns
+   * the new staged paths (empty when the original has no uploads dir).
+   */
+  private copyOriginalUploads(worktreePath: string): string[] {
+    const srcDir = worktreeUploadsDir(worktreePath);
+    if (!existsSync(srcDir)) return [];
+    const stage = stagingDir(config.repoRoot);
+    mkdirSync(stage, { recursive: true });
+    const copied: string[] = [];
+    for (const name of readdirSync(srcDir)) {
+      const src = join(srcDir, name);
+      if (!statSync(src).isFile()) continue;
+      const ext = extname(name).replace(/^\./, "");
+      const dest = join(stage, uploadFilename(ext));
+      copyFileSync(src, dest);
+      copied.push(dest);
+    }
+    return copied;
+  }
+
+  /**
    * Spawn a fresh replacement for an existing task, carrying its prompt and all
    * per-task settings — including the spawn-baked ones that can't be changed after
    * the fact (model, repoPath, baseBranch, planGateEnabled) plus the runtime
@@ -717,24 +740,10 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
 
-    // Carry over the original's images: copy each staged into the repo staging dir
-    // with a fresh filename (extension preserved) so create() can land them in the
-    // new worktree like New Task. Copy-not-move keeps the original recoverable on
-    // a spawn failure.
-    const copiedOriginalImages: string[] = [];
-    const srcDir = worktreeUploadsDir(s.worktreePath);
-    if (existsSync(srcDir)) {
-      const stage = stagingDir(config.repoRoot);
-      mkdirSync(stage, { recursive: true });
-      for (const name of readdirSync(srcDir)) {
-        const src = join(srcDir, name);
-        if (!statSync(src).isFile()) continue;
-        const ext = extname(name).replace(/^\./, "");
-        const dest = join(stage, uploadFilename(ext));
-        copyFileSync(src, dest);
-        copiedOriginalImages.push(dest);
-      }
-    }
+    // Carry over the original's images: copied (not moved) into staging so create()
+    // can land them in the new worktree like New Task, and the originals stay
+    // recoverable on a spawn failure.
+    const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
 
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.

@@ -390,47 +390,39 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
   }
 
   const obj = body as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    if (!RELAUNCH_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
-  }
+  const unknown = rejectUnknownRelaunchKeys(obj);
+  if (unknown) return unknown;
 
-  const out: RelaunchOverrides = {};
   const root = resolve(expandHome(repoRoot));
-
-  if (obj.prompt !== undefined) {
-    const prompt = validatePrompt(obj.prompt);
-    if (!prompt.ok) return prompt;
-    out.prompt = prompt.value;
-  }
-  if (obj.baseBranch !== undefined) {
-    const baseBranch = validateBaseBranch(obj.baseBranch);
-    if (!baseBranch.ok) return baseBranch;
-    out.baseBranch = baseBranch.value;
-  }
   // model: an explicit `null` is legal ("default", no --model flag); only an absent key
-  // inherits the original's model, so validate whenever the key is present (incl. null).
-  if (obj.model !== undefined) {
-    const model = validateModel(obj.model);
-    if (!model.ok) return model;
-    out.model = model.value;
-  }
-  if (obj.planGateEnabled !== undefined) {
-    const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
-    if (!planGateEnabled.ok) return planGateEnabled;
-    out.planGateEnabled = planGateEnabled.value;
-  }
-  if (obj.repoPath !== undefined) {
-    const repoPath = validateRepoPath(obj.repoPath, root);
-    if (!repoPath.ok) return repoPath;
-    out.repoPath = repoPath.value;
-  }
-  if (obj.images !== undefined) {
-    const images = validateImages(obj.images, root);
-    if (!images.ok) return images;
-    out.images = images.value;
+  // inherits the original's model, so each validator runs whenever its key is present
+  // (incl. null). Each row maps a present field through the SAME validator create uses,
+  // writing the typed value onto `out`; the first failure short-circuits.
+  const out: RelaunchOverrides = {};
+  const fields: { key: keyof RelaunchOverrides; apply: () => Field<unknown> }[] = [
+    { key: "prompt", apply: () => validatePrompt(obj.prompt) },
+    { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
+    { key: "model", apply: () => validateModel(obj.model) },
+    { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
+    { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
+    { key: "images", apply: () => validateImages(obj.images, root) },
+  ];
+  for (const { key, apply } of fields) {
+    if (obj[key] === undefined) continue;
+    const r = apply();
+    if (!r.ok) return r;
+    (out as Record<string, unknown>)[key] = r.value;
   }
 
   return { ok: true, value: out };
+}
+
+/** Reject any key not in the relaunch override allow-list; null when all keys are allowed. */
+function rejectUnknownRelaunchKeys(obj: Record<string, unknown>): RelaunchResult | null {
+  for (const key of Object.keys(obj)) {
+    if (!RELAUNCH_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
+  }
+  return null;
 }
 
 /**

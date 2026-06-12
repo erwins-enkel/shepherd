@@ -1309,6 +1309,85 @@ async function reResolveRelaunchIssue(
   return { number: iss.number, url: iss.url, title: iss.title, body: iss.body };
 }
 
+// Parse + validate the optional relaunch override body. A bare POST / empty body yields
+// null (req.json() THROWS on an empty body — the .catch is load-bearing) → the unchanged
+// quick-relaunch path (validateRelaunchOverrides(null) yields {}, so no validation runs).
+// When a body IS present, every supplied field is run through the SAME validators create
+// uses (confined repoPath, BRANCH_RE baseBranch, MODELS model, staging-dir images,
+// unknown-key reject) — closing the create/relaunch asymmetry so an override can't reach
+// worktree.create / the --model flag unguarded. Absent fields inherit the original's
+// already-validated values and are NOT re-checked. Returns the overrides (null = quick
+// relaunch) or a 400 Response mirroring create's body.
+async function parseRelaunchOverrides(
+  req: Request,
+): Promise<{ overrides: RelaunchOverrides | null } | { error: Response }> {
+  const rawBody = (await req.json().catch(() => null)) as unknown;
+  const validated = validateRelaunchOverrides(rawBody, config.repoRoot);
+  if (!validated.ok) return { error: json({ error: validated.error }, 400) };
+  return { overrides: rawBody === null ? null : validated.value };
+}
+
+// Sentinel: the linked issue could not be re-resolved (gone/unreachable) → the handler
+// maps it to a 502 without spawning or tearing anything down, so the original stays intact.
+const RELAUNCH_ISSUE_UNRESOLVED = Symbol("relaunch-issue-unresolved");
+
+// Decide the replacement's issueRef from the relaunch target repo. Re-resolve the linked
+// issue ONLY for a same-repo relaunch (the service has no forge access). A cross-repo
+// relaunch DROPS the issue (it belongs to the old repo's tracker) → undefined, so the
+// original's claim is later released back to its backlog on archive (intentional,
+// user-confirmed). Returns the sentinel when a same-repo re-resolve fails (gone/unreachable).
+async function resolveRelaunchIssueRef(
+  original: Session,
+  targetRepo: string,
+  deps: Ctx["deps"],
+): Promise<IssueRef | undefined | typeof RELAUNCH_ISSUE_UNRESOLVED> {
+  if (targetRepo !== original.repoPath) return undefined;
+  const resolved = await reResolveRelaunchIssue(original, deps);
+  return resolved === false ? RELAUNCH_ISSUE_UNRESOLVED : resolved;
+}
+
+// After a successful spawn: emit session:new (service.relaunch/create do not), re-stamp the
+// new session's drain claim exactly like handleSessionCreate, then tear down the original.
+// Returns whether the original was actually archived (teardown can fail, leaving it active).
+function finalizeRelaunch(
+  original: Session,
+  fresh: Session,
+  issueRef: IssueRef | undefined,
+  deps: Ctx["deps"],
+): { archived: boolean } {
+  const id = original.id;
+  deps.events.emit("session:new", fresh);
+  if (issueRef) {
+    const { repoPath } = original;
+    const number = issueRef.number;
+    setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number), 0);
+  }
+
+  // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
+  // isolates teardown failures (unlike a bare archive(id)).
+  const { cleared } = deps.service.archiveMany([id]);
+  const archived = cleared.includes(id);
+  if (archived) {
+    // Retain the original's claim ONLY when the replacement actually carries the issue
+    // (issueRef truthy): then the new session owns ACTIVE_LABEL, so a relaunch isn't a
+    // retire. If the issue was dropped (forge-without-getIssue fallback) or there was
+    // none, do NOT retain — let drain.onArchived release the label so the issue is
+    // re-queued, never left orphaned-claimed with nothing tracking it. Stamped on a
+    // successful teardown and BEFORE the session:archived emit so the synchronous
+    // onArchived consumes the flag. (On the not-cleared path no archived event fires, so
+    // stamping there would leak a stale flag that could later mis-convert a manual abandon
+    // of the still-live original into a retire.)
+    if (issueRef) deps.drain?.retainClaim(id);
+    deps.prCache?.drop(id);
+    deps.events.emit("session:archived", { id });
+  } else {
+    // Teardown threw: the new task is still valid; surface the failure (no silent
+    // success) — the original stays visible for manual decommission.
+    console.warn(`[relaunch] teardown of original ${id} failed; left active`);
+  }
+  return { archived };
+}
+
 // POST /api/sessions/:id/relaunch — spawn a fresh replacement carrying the original's
 // prompt + current per-task settings (re-resolving its linked issue), emit session:new,
 // then decommission the original (retaining its drain claim — a relaunch is not a retire).
@@ -1326,32 +1405,15 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
     if (!original) return json({ error: "not found" }, 404);
     if (original.status === "archived") return json({ error: "already archived" }, 409);
 
-    // Optional override body: a bare POST / empty body yields null (req.json() THROWS on
-    // an empty body — the .catch is load-bearing) → the unchanged quick-relaunch path
-    // (validateRelaunchOverrides(null) yields {}, so no validation runs). When a body IS
-    // present, every supplied field is run through the SAME validators create uses (confined
-    // repoPath, BRANCH_RE baseBranch, MODELS model, staging-dir images, unknown-key reject)
-    // BEFORE service.relaunch → create — closing the create/relaunch asymmetry so an override
-    // can't reach worktree.create / the --model flag unguarded. Absent fields inherit the
-    // original's already-validated values and are NOT re-checked. 400 mirrors create's body.
-    const rawBody = (await req.json().catch(() => null)) as unknown;
-    const validated = validateRelaunchOverrides(rawBody, config.repoRoot);
-    if (!validated.ok) return json({ error: validated.error }, 400);
-    const overrides: RelaunchOverrides | null = rawBody === null ? null : validated.value;
+    const parsed = await parseRelaunchOverrides(req);
+    if ("error" in parsed) return parsed.error;
+    const { overrides } = parsed;
     const targetRepo = overrides?.repoPath ?? original.repoPath;
 
-    // Re-resolve the linked issue ONLY for a same-repo relaunch; `false` = gone/unreachable
-    // → hard-abort (502) without spawning or tearing anything down, so the original stays
-    // intact for a retry. A cross-repo relaunch DROPS the issue (it belongs to the old
-    // repo's tracker) → issueRef undefined, so the original's claim is later released back
-    // to its backlog on archive (intentional, user-confirmed).
-    let issueRef: IssueRef | undefined;
-    if (targetRepo === original.repoPath) {
-      const resolved = await reResolveRelaunchIssue(original, deps);
-      if (resolved === false)
-        return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
-      issueRef = resolved;
-    }
+    // Decide the issueRef (502 on a same-repo re-resolve failure, leaving the original intact).
+    const issueRef = await resolveRelaunchIssueRef(original, targetRepo, deps);
+    if (issueRef === RELAUNCH_ISSUE_UNRESOLVED)
+      return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
 
     // Spawn the replacement. On failure the original is left fully intact (nothing torn
     // down yet — the service tears down its own partial new session).
@@ -1363,37 +1425,7 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
       return json({ error: msg }, 502);
     }
 
-    // The route emits session:new (service.relaunch/create do not), then re-stamps the
-    // new session's drain claim exactly like handleSessionCreate does.
-    deps.events.emit("session:new", fresh);
-    if (issueRef) {
-      const { repoPath } = original;
-      const number = issueRef.number;
-      setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number), 0);
-    }
-
-    // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
-    // isolates teardown failures (unlike a bare archive(id)).
-    const { cleared } = deps.service.archiveMany([id]);
-    const archived = cleared.includes(id);
-    if (archived) {
-      // Retain the original's claim ONLY when the replacement actually carries the issue
-      // (issueRef truthy): then the new session owns ACTIVE_LABEL, so a relaunch isn't a
-      // retire. If the issue was dropped (forge-without-getIssue fallback) or there was
-      // none, do NOT retain — let drain.onArchived release the label so the issue is
-      // re-queued, never left orphaned-claimed with nothing tracking it. Stamped on a
-      // successful teardown and BEFORE the session:archived emit so the synchronous
-      // onArchived consumes the flag. (On the not-cleared path below no archived event
-      // fires, so stamping there would leak a stale flag that could later mis-convert a
-      // manual abandon of the still-live original into a retire.)
-      if (issueRef) deps.drain?.retainClaim(id);
-      deps.prCache?.drop(id);
-      deps.events.emit("session:archived", { id });
-    } else {
-      // Teardown threw: the new task is still valid; surface the failure (no silent
-      // success) — the original stays visible for manual decommission.
-      console.warn(`[relaunch] teardown of original ${id} failed; left active`);
-    }
+    const { archived } = finalizeRelaunch(original, fresh, issueRef, deps);
     return json({ session: fresh, archived }, 201);
   } finally {
     inFlightRelaunch.delete(id);

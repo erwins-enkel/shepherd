@@ -818,6 +818,51 @@
     relaunchIssueNumber = null;
   }
 
+  // Relaunch-elsewhere submit: route to relaunchSession(originalId, overrides) instead of
+  // createSession. The server owns issue handling (cross-repo drops it + releases its claim),
+  // so we never pass issueRef. Errors THROW so NewTask renders them inline (keeps the dialog
+  // open with a Retry); success mirrors onrelaunch's toast semantics.
+  async function submitRelaunch(
+    id: string,
+    input: {
+      repoPath: string;
+      baseBranch: string;
+      prompt: string;
+      model: string | null;
+      images: string[];
+      planGateEnabled: boolean;
+    },
+  ) {
+    let result: { session: Session; archived: boolean };
+    try {
+      result = await relaunchSession(id, {
+        repoPath: input.repoPath,
+        baseBranch: input.baseBranch,
+        prompt: input.prompt,
+        model: input.model,
+        planGateEnabled: input.planGateEnabled,
+        images: input.images,
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "in_progress")
+        throw new Error(m.relaunch_in_progress(), { cause: e });
+      if (e instanceof ApiError && e.code === "issue_unresolved")
+        throw new Error(m.relaunch_issue_unresolved(), { cause: e });
+      throw e instanceof Error ? e : new Error(m.relaunch_failed(), { cause: e });
+    }
+    selectedId = result.session.id;
+    showNew = false;
+    resetCompose();
+    if (result.archived) toasts.info(m.relaunch_done({ desig: result.session.desig }));
+    else
+      // Same persistent + assertive failure toast onrelaunch uses (deduped per id).
+      toasts.info(m.relaunch_archive_failed(), {
+        duration: null,
+        alert: true,
+        key: `relaunch-fail:${id}`,
+      });
+  }
+
   async function onsubmit(input: {
     repoPath: string;
     baseBranch: string;
@@ -827,42 +872,8 @@
     issueRef?: IssueRef;
     planGateEnabled: boolean;
   }) {
-    // Relaunch-elsewhere path: route to relaunchSession(originalId, overrides) instead
-    // of createSession. The server owns issue handling (cross-repo drops it + releases
-    // its claim), so we never pass issueRef. Errors THROW so NewTask renders them inline
-    // (keeps the dialog open with a Retry); success mirrors onrelaunch's toast semantics.
-    if (relaunchOriginalId !== null) {
-      const id = relaunchOriginalId;
-      let result: { session: Session; archived: boolean };
-      try {
-        result = await relaunchSession(id, {
-          repoPath: input.repoPath,
-          baseBranch: input.baseBranch,
-          prompt: input.prompt,
-          model: input.model,
-          planGateEnabled: input.planGateEnabled,
-          images: input.images,
-        });
-      } catch (e) {
-        if (e instanceof ApiError && e.code === "in_progress")
-          throw new Error(m.relaunch_in_progress(), { cause: e });
-        if (e instanceof ApiError && e.code === "issue_unresolved")
-          throw new Error(m.relaunch_issue_unresolved(), { cause: e });
-        throw e instanceof Error ? e : new Error(m.relaunch_failed(), { cause: e });
-      }
-      selectedId = result.session.id;
-      showNew = false;
-      resetCompose();
-      if (result.archived) toasts.info(m.relaunch_done({ desig: result.session.desig }));
-      else
-        // Same persistent + assertive failure toast onrelaunch uses (deduped per id).
-        toasts.info(m.relaunch_archive_failed(), {
-          duration: null,
-          alert: true,
-          key: `relaunch-fail:${id}`,
-        });
-      return;
-    }
+    // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
+    if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
     const s = await createSession(input);
     selectedId = s.id;
     showNew = false;

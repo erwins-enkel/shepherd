@@ -49,3 +49,27 @@ describe("PrRow kind tag", () => {
     expect(document.body.querySelector(".kind-tag")).toBeNull();
   });
 });
+
+describe("PrRow target branch chip", () => {
+  it("renders the target-branch chip when nonDefaultBase is set", async () => {
+    render(PrRow, {
+      repoPath: "/repo/a",
+      pr: pr({ nonDefaultBase: "epic/foo" }),
+      onreview: () => {},
+      onmerged: () => {},
+    });
+    const chip = document.body.querySelector(".target-branch");
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toContain("epic/foo");
+  });
+
+  it("renders no target-branch chip when nonDefaultBase is unset", () => {
+    render(PrRow, {
+      repoPath: "/repo/a",
+      pr: pr(),
+      onreview: () => {},
+      onmerged: () => {},
+    });
+    expect(document.body.querySelector(".target-branch")).toBeNull();
+  });
+});

@@ -733,6 +733,7 @@
   "prspanel_open_link": "PR öffnen",
   "prspanel_draft": "Entwurf",
   "prspanel_conflicts": "Konflikte",
+  "prspanel_targets": "Ziel-Branch {branch}",
   "prspanel_review_button": "+ Review",
   "prspanel_review_button_title": "Review-Aufgabe mit diesem PR vorbefüllt öffnen",
   "prspanel_merge_button": "Merge",
@@ -1088,5 +1089,7 @@
   "readiness_g_dependency_automation_title": "Abhängigkeits-Automatisierung (Dependabot/Renovate)",
   "readiness_g_dependency_automation_removes": "Ohne sie häufen sich Abhängigkeits-Updates als manuelle Fleißarbeit an, statt als automatische PRs, die du nur noch prüfst und mergst.",
   "feat_dependency_automation_title": "Reife-Analyse prüft Abhängigkeits-Automatisierung",
-  "feat_dependency_automation_body": "Der Backlog → Reife-Tab bewertet jetzt, ob ein Repo seine Abhängigkeiten mit Dependabot oder Renovate aktuell hält, und empfiehlt sie, wenn sie fehlt."
+  "feat_dependency_automation_body": "Der Backlog → Reife-Tab bewertet jetzt, ob ein Repo seine Abhängigkeiten mit Dependabot oder Renovate aktuell hält, und empfiehlt sie, wenn sie fehlt.",
+  "feat_pr_target_branch_title": "PR-Zeilen zeigen einen abweichenden Ziel-Branch",
+  "feat_pr_target_branch_body": "Im Backlog → PRs-Tab zeigt ein PR, der auf einen abweichenden (Epic-/gestapelten) Branch zielt, jetzt einen kleinen Chip mit seinem Ziel – so sehen gestapelte PRs nicht mehr identisch zu denen aus, die auf den Standard-Branch zielen."
 }

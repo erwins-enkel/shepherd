@@ -28,6 +28,7 @@ interface GiteaPr {
   user?: { login?: string } | null;
   created_at?: string;
   head?: { ref?: string; sha: string };
+  base?: { ref?: string };
   labels?: Array<{ name?: string }>;
 }
 
@@ -179,10 +180,14 @@ export class GiteaForge implements GitForge {
 
   async listPullRequests(): Promise<PullRequest[]> {
     // See listIssues: 200 cap vs the unbounded PR count (open_pr_counter).
-    const prs = (await this.req(
-      "GET",
-      `/api/v1/repos/${this.slug}/pulls?state=open&limit=200`,
-    )) as GiteaPr[];
+    // Resolve the default branch concurrently — used to flag non-default-targeting
+    // (stacked/epic) PRs; a failure degrades to null (no chip), never rejects the list.
+    const [prs, def] = await Promise.all([
+      this.req("GET", `/api/v1/repos/${this.slug}/pulls?state=open&limit=200`) as Promise<
+        GiteaPr[]
+      >,
+      this.defaultBranch().catch(() => null),
+    ]);
     // Checks ride a per-PR commit-status call (same shape as prStatus); fan out
     // (bounded — see STATUS_FETCH_CONCURRENCY) so the list isn't serialized on a
     // chain of round-trips, nor bursts 50 requests at once. Gitea's list API
@@ -211,6 +216,7 @@ export class GiteaForge implements GitForge {
         mergeable: pr.mergeable ?? null,
         checks,
         jobs,
+        nonDefaultBase: def && pr.base?.ref && pr.base.ref !== def ? pr.base.ref : undefined,
       } satisfies PullRequest;
     });
   }
@@ -277,11 +283,18 @@ export class GiteaForge implements GitForge {
     return this.toStatus(pr);
   }
 
+  private cachedDefaultBranch?: string;
+  /** The repo's default branch (`GET /api/v1/repos/{slug}`), cached for the
+   *  forge's lifetime — it never changes mid-session, and listPullRequests polls
+   *  this. Cached ONLY on success: a transient failure rethrows so the next call
+   *  retries rather than sticking. Mirrors GithubForge.defaultBranch. */
   async defaultBranch(): Promise<string> {
+    if (this.cachedDefaultBranch !== undefined) return this.cachedDefaultBranch;
     const repo = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
       default_branch?: string;
     };
     if (!repo.default_branch) throw new Error("could not resolve default branch");
+    this.cachedDefaultBranch = repo.default_branch;
     return repo.default_branch;
   }
 

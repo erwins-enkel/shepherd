@@ -57,6 +57,9 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
         ],
       },
     },
+    // defaultBranch() — needed so nonDefaultBase can be computed (and so this call
+    // is recorded by fakeFetch, see the count assertion below).
+    "GET /api/v1/repos/team/proj": { json: { default_branch: "main" } },
   });
   const forge = new GiteaForge("team/proj", CFG, fn);
   const prs = await forge.listPullRequests();
@@ -77,8 +80,41 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
       ],
     },
   ]);
-  // list call + one commit-status call
-  expect(calls.length).toBe(2);
+  // list call + default-branch call + one commit-status call
+  expect(calls.length).toBe(3);
+});
+
+test("GiteaForge.listPullRequests: nonDefaultBase set only for non-default-targeting PRs", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
+      json: [
+        {
+          number: 1,
+          title: "targets default",
+          state: "open",
+          mergeable: true,
+          html_url: "u1",
+          head: { ref: "f1", sha: "a" },
+          base: { ref: "main" },
+        },
+        {
+          number: 2,
+          title: "stacked on epic",
+          state: "open",
+          mergeable: true,
+          html_url: "u2",
+          head: { ref: "f2", sha: "b" },
+          base: { ref: "epic/foo" },
+        },
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/a/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/b/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj": { json: { default_branch: "main" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const prs = await forge.listPullRequests();
+  expect(prs.map((p) => p.nonDefaultBase)).toEqual([undefined, "epic/foo"]);
 });
 
 test("GiteaForge.listPullRequests: classifies dependabot + release PRs by kind", async () => {

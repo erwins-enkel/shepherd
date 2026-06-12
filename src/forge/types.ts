@@ -95,6 +95,12 @@ export interface PullRequest {
   jobs: WorkflowJob[];
   /** Newest *human* review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
+  /** The PR's base (target) branch, populated ONLY when it is NOT the repo's
+   *  default branch (e.g. an epic/stacked branch); `undefined` for the common
+   *  default-targeting PR. This is intentionally NOT the raw base ref — do not
+   *  rely on it to read a PR's actual target; it exists solely to surface
+   *  non-default (stacked) PRs in the backlog PRs tab. */
+  nonDefaultBase?: string;
 }
 
 export interface PrStatus {

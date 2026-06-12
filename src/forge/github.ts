@@ -232,18 +232,21 @@ export class GithubForge implements GitForge {
   }
 
   async listPullRequests(): Promise<PullRequest[]> {
-    const out = await this.run([
-      "pr",
-      "list",
-      "--repo",
-      this.slug,
-      "--state",
-      "open",
-      "--json",
-      "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,labels",
-      // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
-      "--limit",
-      "200",
+    const [out, def] = await Promise.all([
+      this.run([
+        "pr",
+        "list",
+        "--repo",
+        this.slug,
+        "--state",
+        "open",
+        "--json",
+        "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,baseRefName,labels",
+        // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
+        "--limit",
+        "200",
+      ]),
+      this.defaultBranch().catch(() => null),
     ]);
     const raw = JSON.parse(out || "[]") as Array<
       GhPr & {
@@ -251,6 +254,7 @@ export class GithubForge implements GitForge {
         createdAt?: string;
         isDraft?: boolean;
         headRefName?: string;
+        baseRefName?: string;
         labels?: Array<{ name?: string }>;
       }
     >;
@@ -270,15 +274,15 @@ export class GithubForge implements GitForge {
         checks: rollupChecks(p.statusCheckRollup ?? []),
         jobs: jobsFromRollup(p.statusCheckRollup ?? []),
         latestReview: latestHumanReview(p.reviews),
+        nonDefaultBase: def && p.baseRefName && p.baseRefName !== def ? p.baseRefName : undefined,
       };
     });
   }
 
   async listWorkflowRuns(): Promise<WorkflowRun[]> {
     // Resolve the default branch; CI health is read from its runs, not PR branches.
-    const repoOut = await this.run(["repo", "view", this.slug, "--json", "defaultBranchRef"]);
-    const branch = (JSON.parse(repoOut || "{}") as { defaultBranchRef?: { name?: string } })
-      .defaultBranchRef?.name;
+    // A lookup failure degrades to [] (fail-quiet, matching the other forge readers).
+    const branch = await this.defaultBranch().catch(() => null);
     if (!branch) return [];
 
     const listOut = await this.run([
@@ -461,11 +465,17 @@ export class GithubForge implements GitForge {
     };
   }
 
+  private cachedDefaultBranch?: string;
+  /** The repo's default branch (`gh repo view ... defaultBranchRef`), cached for
+   *  the forge's lifetime — it never changes mid-session. Cached ONLY on success:
+   *  a transient failure rethrows so the next call retries rather than sticking. */
   async defaultBranch(): Promise<string> {
+    if (this.cachedDefaultBranch !== undefined) return this.cachedDefaultBranch;
     const out = await this.run(["repo", "view", this.slug, "--json", "defaultBranchRef"]);
     const name = (JSON.parse(out || "{}") as { defaultBranchRef?: { name?: string } })
       .defaultBranchRef?.name;
     if (!name) throw new Error("could not resolve default branch");
+    this.cachedDefaultBranch = name;
     return name;
   }
 

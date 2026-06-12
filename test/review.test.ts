@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { ReviewService, reviewPrompt } from "../src/review";
+import { ReviewService, reviewPrompt, scopeFindings } from "../src/review";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
 import type { Session, ReviewVerdict } from "../src/types";
@@ -325,6 +325,12 @@ test("task prompt survives the variadic allowlist (not swallowed → no task →
   // single-value flag MUST sit between the allowlist and the prompt — otherwise
   // the real `claude` CLI folds the prompt into the allowlist and the critic
   // launches with no task, hanging until the 10-min timeout (every review).
+  //
+  // FRAGILE COUPLING: this stays green only because makeDeps({}) injects no computePatchId,
+  // so the real defaultComputePatchId runs against the nonexistent "/review-wt" path, git
+  // fails, baseSha → null, diffBase falls back to session.baseBranch ("main"), and the
+  // assertion is self-referential (reviewPrompt("main", …) on both sides). It would BREAK if
+  // rev-parse ever resolved a SHA on that path (diffBase would become that SHA, not "main").
   expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
   expect(argv.at(-3)).toBe("--permission-mode");
   expect(argv.at(-2)).toBe("dontAsk");
@@ -436,7 +442,7 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
     removed,
     bumped,
   } = makeDeps({
-    computePatchId: async () => "pid-same",
+    computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
   });
   // prior verdict was for head "old"; the branch is force-pushed/rebased to "newsha"
   // but its diff is identical → same patch-id.
@@ -452,7 +458,14 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
 });
 
 test("new commit (different diff): reviews and records the new fingerprint", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => "pid-new" });
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }),
+  });
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
@@ -463,7 +476,13 @@ test("new commit (different diff): reviews and records the new fingerprint", asy
 });
 
 test("first review records the fingerprint for later rebase-skip", async () => {
-  const { deps: d, reviews, started } = makeDeps({ computePatchId: async () => "pid-first" });
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-first", baseSha: "base-pid-first", files: ["f"] }),
+  });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN); // no prior
   expect(started).toHaveLength(1);
@@ -472,7 +491,12 @@ test("first review records the fingerprint for later rebase-skip", async () => {
 });
 
 test("unresolvable fingerprint never skips: reviews even with a prior verdict", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => null });
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({ computePatchId: async () => ({ patchId: null, baseSha: null, files: [] }) });
   // prior has a real patch-id, but this run can't fingerprint (git failed / empty diff)
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
@@ -487,7 +511,9 @@ test("prior error verdict never rebase-skips (retries the transient failure)", a
     reviews,
     started,
     bumped,
-  } = makeDeps({ computePatchId: async () => "pid-same" });
+  } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
+  });
   // an errored prior that (legacy row / defensive) still carries a matching fingerprint
   reviews["s1"] = priorReview({ decision: "error", patchId: "pid-same", headSha: "old" });
   const svc = new ReviewService(d as any);
@@ -498,7 +524,7 @@ test("prior error verdict never rebase-skips (retries the transient failure)", a
 
 test("error verdict records no fingerprint (so a later head always re-reviews)", async () => {
   const { deps: d, reviews } = makeDeps({
-    computePatchId: async () => "pid-x",
+    computePatchId: async () => ({ patchId: "pid-x", baseSha: "base-pid-x", files: ["f"] }),
     readVerdict: () => ({ decision: "bogus", summary: "?", body: "" }), // unparseable → error
   });
   const svc = new ReviewService(d as any);
@@ -514,7 +540,12 @@ test("rebase-skip short-circuits before any forge call (no author-notes fetch)",
     reviews,
     started,
     commentCalls,
-  } = makeDeps({ computePatchId: async () => "pid-same" }, { autoAddressEnabled: true });
+  } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
+    },
+    { autoAddressEnabled: true },
+  );
   reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" }); // has findings
   const svc = new ReviewService(d as any);
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
@@ -543,6 +574,224 @@ test("reviewPrompt injects author notes with accept-if-justified guidance", () =
   // notes are an injection surface (anyone can comment on a PR) → frame them as
   // unverified claims the critic must judge against the diff, not take on faith.
   expect(p.toLowerCase()).toContain("unverified");
+});
+
+// ── fresh-base threading (Fix A) ────────────────────────────────────────────────
+
+test("divergence guard: critic prompt diffs the exact threaded baseSha, not the branch name", async () => {
+  // Inject computePatchId returning a fresh base SHA distinct from session.baseBranch ("main").
+  // The spawned critic prompt (trailing positional) must diff that exact SHA — proving the
+  // resolved fresh base is threaded through, not the stale local "main" ref.
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({
+      patchId: "pid-z",
+      baseSha: "deadbeefcafe1234",
+      files: ["x.ts"],
+    }),
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("git diff deadbeefcafe1234...HEAD");
+  expect(prompt).not.toContain("git diff main...HEAD");
+});
+
+test("baseSha-null fallback: prompt diffs the local base branch", async () => {
+  // A total git failure (baseSha null) degrades to session.baseBranch — today's behavior.
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-z", baseSha: null, files: [] }),
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv.at(-1)!).toContain("git diff main...HEAD");
+});
+
+// ── diff-scope prompt rule + precedence (Fix B1) ─────────────────────────────────
+
+test("reviewPrompt carries the diff-scope rule, path-prefix requirement, and re-raise carve-out", () => {
+  const p = reviewPrompt("base-sha", "do the thing", ["PrRow.svelte: stale nit"], ["a note"]);
+  // scope block restricts findings to the diff
+  expect(p).toContain("SCOPE");
+  expect(p).toContain("git diff base-sha...HEAD");
+  // path-prefix requirement
+  expect(p).toContain('repo-relative path followed by ": "');
+  // the precedence carve-out amends the re-raise directives: drop, don't re-raise, if the
+  // finding's file isn't in the diff
+  expect(p).toContain("UNLESS its file is not in");
+  expect(p.toLowerCase()).toContain("do not re-raise");
+  // out-of-scope body section + decision-consistency note
+  expect(p).toContain("Out of scope (pre-existing, not in this PR):");
+  expect(p).toContain('the decision is "comment", never "request-changes"');
+});
+
+// ── deterministic scope backstop helper (Fix B2, unit) ───────────────────────────
+
+test("scopeFindings drops path-attributed out-of-diff findings, keeps in-diff + unattributed", () => {
+  const files = ["in/Bar.svelte", "src/a.ts"];
+  const { kept, dropped } = scopeFindings(
+    [
+      "outdir/Foo.svelte: out of scope",
+      "in/Bar.svelte: in scope",
+      "src/a.ts:42: with a line suffix",
+      "Nit: a prose prefix, not a path",
+      "no prefix at all",
+    ],
+    files,
+  );
+  expect(dropped).toEqual(["outdir/Foo.svelte: out of scope"]);
+  expect(kept).toEqual([
+    "in/Bar.svelte: in scope",
+    "src/a.ts:42: with a line suffix",
+    "Nit: a prose prefix, not a path",
+    "no prefix at all",
+  ]);
+});
+
+test("scopeFindings drops nothing when the file set is empty", () => {
+  const { kept, dropped } = scopeFindings(["any/where.ts: x", "y"], []);
+  expect(dropped).toEqual([]);
+  expect(kept).toEqual(["any/where.ts: x", "y"]);
+});
+
+// ── deterministic scope backstop in finalize (Fix B2, integration) ───────────────
+
+test("backstop drops an out-of-diff path-attributed finding on finalize", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: ["in/Bar.svelte"] }),
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "nit",
+        body: "b",
+        findings: ["outdir/Foo.svelte: pre-existing, not this PR"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.findings).toEqual([]); // out-of-diff finding dropped
+  expect(steers).toHaveLength(0); // nothing in-scope → not steered
+});
+
+test("backstop keeps an in-diff path-attributed finding", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: ["in/Bar.svelte"] }),
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "nit",
+        body: "b",
+        findings: ["in/Bar.svelte: fix this"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.findings).toEqual(["in/Bar.svelte: fix this"]);
+  expect(steers).toHaveLength(1);
+});
+
+test("backstop keeps an unattributed (no path prefix) finding", async () => {
+  const { deps: d, reviews } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: ["in/Bar.svelte"] }),
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "nit",
+        body: "b",
+        findings: ["does not satisfy the task"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.findings).toEqual(["does not satisfy the task"]);
+});
+
+test("backstop skipped (empty files) → all findings kept", async () => {
+  const { deps: d, reviews } = makeDeps(
+    {
+      // baseSha resolved but no diff files → backstop can't run reliably → keep everything
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: [] }),
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "nit",
+        body: "b",
+        findings: ["outdir/Foo.svelte: would be dropped if the guard ran"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.findings).toEqual(["outdir/Foo.svelte: would be dropped if the guard ran"]);
+});
+
+test("request-changes emptied by the backstop flips to commented + [] (no steer)", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    rec,
+  } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: ["in/Bar.svelte"] }),
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["outdir/Foo.svelte: pre-existing only"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("commented"); // flipped, never request-changes + []
+  expect(reviews["s1"]?.findings).toEqual([]);
+  expect(steers).toHaveLength(0); // no out-of-diff churn steered
+  expect(rec.event).toBe("COMMENT"); // posts as a comment, not REQUEST_CHANGES
+});
+
+test("partial drop: request-changes keeps the in-diff finding, drops the out-of-diff one, stays changes_requested", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p", baseSha: "b", files: ["in/Bar.svelte"] }),
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["outside/Foo.svelte: pre-existing, not this PR", "in/Bar.svelte: fix this"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.findings).toEqual(["in/Bar.svelte: fix this"]); // out-of-diff dropped, in-diff kept
+  expect(reviews["s1"]?.decision).toBe("changes_requested"); // findings remain → NOT flipped
+  expect(steers).toHaveLength(1); // steered only for the kept finding
+  expect(steers[0]!.text).toContain("in/Bar.svelte: fix this");
+  expect(steers[0]!.text).not.toContain("outside/Foo.svelte");
 });
 
 test("auto-address on: feeds findings back to the agent and advances the round", async () => {
@@ -1102,7 +1351,10 @@ test("ceiling reached: does NOT spawn (no worktree allocated, no re-signal)", as
     started,
     removed,
     signals,
-  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  } = makeDeps(
+    { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
+    { autoAddressEnabled: true },
+  );
   // cap default 3 → ceiling 6; a streak already AT the ceiling with outstanding findings.
   reviews["s1"] = priorReview({ streakReviews: 6, headSha: "old" });
   const svc = new ReviewService(d as any);
@@ -1120,7 +1372,11 @@ test("ceiling crossing emits exactly one stall signal", async () => {
     signals,
   } = makeDeps(
     {
-      computePatchId: async () => "pid-cross",
+      computePatchId: async () => ({
+        patchId: "pid-cross",
+        baseSha: "base-pid-cross",
+        files: ["f"],
+      }),
       readVerdict: () => ({
         decision: "request-changes",
         summary: "still broken",
@@ -1156,7 +1412,7 @@ test("a higher live cap raises the ceiling: a streak at 6 still spawns + the sig
   } = makeDeps(
     {
       cap: 4, // ceiling = 8
-      computePatchId: async () => "pid-h",
+      computePatchId: async () => ({ patchId: "pid-h", baseSha: "base-pid-h", files: ["f"] }),
       readVerdict: () => ({
         decision: "request-changes",
         summary: "still broken",
@@ -1181,7 +1437,10 @@ test("under the ceiling still spawns normally", async () => {
     deps: d,
     reviews,
     started,
-  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  } = makeDeps(
+    { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
+    { autoAddressEnabled: true },
+  );
   reviews["s1"] = priorReview({ streakReviews: 3, headSha: "old" }); // well under 6
   const svc = new ReviewService(d as any);
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
@@ -1200,7 +1459,10 @@ test("ceiling is strict for findings reviews but NOT total spawns: an error verd
     deps: d,
     reviews,
     started,
-  } = makeDeps({ computePatchId: async () => "pid-new" }, { autoAddressEnabled: true });
+  } = makeDeps(
+    { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
+    { autoAddressEnabled: true },
+  );
   reviews["s1"] = priorReview({
     decision: "error",
     findings: [], // error verdicts carry no findings
@@ -1215,7 +1477,11 @@ test("ceiling is strict for findings reviews but NOT total spawns: an error verd
 test("clean verdict resets streakReviews and reviewedPatchIds (un-suppresses)", async () => {
   const { deps: d, reviews } = makeDeps(
     {
-      computePatchId: async () => "pid-clean-run",
+      computePatchId: async () => ({
+        patchId: "pid-clean-run",
+        baseSha: "base-pid-clean-run",
+        files: ["f"],
+      }),
       readVerdict: () => ({ decision: "comment", summary: "lgtm", body: "b", findings: [] }),
     },
     { autoAddressEnabled: true },
@@ -1241,7 +1507,7 @@ test("revert to an earlier (not immediately-prior) reviewed patch-id skips", asy
     started,
     bumped,
   } = makeDeps({
-    computePatchId: async () => "pid-a", // bounced back to a diff reviewed earlier this streak
+    computePatchId: async () => ({ patchId: "pid-a", baseSha: "base-pid-a", files: ["f"] }), // bounced back to a diff reviewed earlier this streak
   });
   // prior verdict's own patchId is pid-c, but pid-a was reviewed earlier in the streak.
   reviews["s1"] = priorReview({
@@ -1257,7 +1523,14 @@ test("revert to an earlier (not immediately-prior) reviewed patch-id skips", asy
 });
 
 test("after a clean verdict cleared the set, a pre-clean patch-id is reviewed again", async () => {
-  const { deps: d, reviews, started, bumped } = makeDeps({ computePatchId: async () => "pid-a" });
+  const {
+    deps: d,
+    reviews,
+    started,
+    bumped,
+  } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-a", baseSha: "base-pid-a", files: ["f"] }),
+  });
   // a clean verdict reset the set to []; pid-a was reviewed pre-clean but is no longer tracked.
   reviews["s1"] = priorReview({
     decision: "commented",
@@ -1275,7 +1548,7 @@ test("after a clean verdict cleared the set, a pre-clean patch-id is reviewed ag
 
 test("error verdict does not poison the dedup set (same diff re-reviews)", async () => {
   const { deps: d, reviews } = makeDeps({
-    computePatchId: async () => "pid-x",
+    computePatchId: async () => ({ patchId: "pid-x", baseSha: "base-pid-x", files: ["f"] }),
     // first run errors on pid-x; it must NOT be added to reviewedPatchIds.
     readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }),
   });
@@ -1295,7 +1568,9 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
     reviews,
     started,
     bumped,
-  } = makeDeps({ computePatchId: async () => "pid-clean" });
+  } = makeDeps({
+    computePatchId: async () => ({ patchId: "pid-clean", baseSha: "base-pid-clean", files: ["f"] }),
+  });
   // a CLEAN verdict: reviewedPatchIds is [] but patchId is preserved. The OR-branch
   // (prior.patchId === patchId) must still fire even with an empty set.
   reviews["s1"] = priorReview({

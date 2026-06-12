@@ -82,7 +82,7 @@
       <span
         class="count-item count-prs"
         class:prom={(project.openPRs ?? 0) > 0}
-        title={m.backlog_code_prs_title()}
+        title={prsLabel}
         aria-label={prsLabel}
       >
         {project.openPRs ?? "—"}

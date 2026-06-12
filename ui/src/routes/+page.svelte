@@ -50,6 +50,7 @@
   import { displayStatus } from "$lib/display-status";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { epicSummaries } from "$lib/epic-summaries.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -475,6 +476,18 @@
   let mobileScreen = $state<"list" | "detail">("list");
   let showBacklog = $state(false);
 
+  // EPIC badge → open the backlog targeted at that session's repo + epic issue
+  // (Issues tab, row expanded + scrolled). Cleared on every backlog close so a
+  // normal reopen never re-applies a stale target.
+  let epicTarget = $state<{ repoPath: string; issueNumber: number } | null>(null);
+  function openEpicInBacklog(repoPath: string, issueNumber: number) {
+    epicTarget = { repoPath, issueNumber };
+    showBacklog = true;
+  }
+  $effect(() => {
+    if (!showBacklog) epicTarget = null;
+  });
+
   // Whether the *next* terminal remount should grab the keyboard. Deliberately a
   // plain (non-reactive) let, NOT $state: nothing renders it and the consumer
   // (Viewport's mount rAF) reads it imperatively, so reactivity buys nothing —
@@ -789,9 +802,13 @@
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("pageshow", onPageShow);
+    // Keep epic summary counts fresh on a long-open dashboard. Reads the live
+    // epicRepoPaths each tick (not a captured snapshot); the singleton throttles.
+    const epicPoll = setInterval(() => epicSummaries.refresh(epicRepoPaths), 45_000);
     return () => {
       dispose();
       disposeSelect();
+      clearInterval(epicPoll);
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };
@@ -810,6 +827,19 @@
     nowMs = Date.now(); // refresh on the empty→non-empty flip so the first frame isn't up to 1s stale
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => clearInterval(t);
+  });
+
+  // Epic badges: the distinct repos of sessions whose seeding issue could be an epic.
+  // Drives the per-repo summary fetch (epicSummaries throttles internally). Sessions are
+  // WS-pushed, not polled, so the badge data is refreshed off this set + a slow interval —
+  // never the 1s nowMs tick.
+  const epicRepoPaths = $derived([
+    ...new Set(store.sessions.filter((s) => s.issueNumber != null).map((s) => s.repoPath)),
+  ]);
+  // Fetch promptly when the set changes (a newly-appearing epic-session repo). The
+  // singleton throttles per-repo, so re-running on every change is safe.
+  $effect(() => {
+    epicSummaries.refresh(epicRepoPaths);
   });
 
   // Clear ALL compose + relaunch seed state. Called on every dialog dismissal and
@@ -1182,6 +1212,8 @@
             preview={store.preview}
             previewServe={store.previewServe}
             onpreview={openPreview}
+            epics={store.epics}
+            onepic={openEpicInBacklog}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -1302,6 +1334,8 @@
             preview={store.preview}
             previewServe={store.previewServe}
             onpreview={openPreview}
+            epics={store.epics}
+            onepic={openEpicInBacklog}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -1604,6 +1638,7 @@
     {onlaunchtrain}
     onclose={() => (showBacklog = false)}
     epics={store.epics}
+    target={epicTarget}
   />
 {/if}
 

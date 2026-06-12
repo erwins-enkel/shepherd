@@ -1079,5 +1079,9 @@
   "feat_epic_runner_title": "Epics geordnet abarbeiten",
   "feat_epic_runner_body": "Shepherd auf ein Tracking-Issue zeigen und es arbeitet die Kind-Issues in Abhängigkeitsreihenfolge ab — ein PR pro Issue, weiter sobald Blocker gemergt sind.",
   "feat_native_sub_issues_title": "Native GitHub-Teilaufgaben",
-  "feat_native_sub_issues_body": "Issues mit nativen GitHub-Teilaufgaben (ohne Markdown-Checkliste) zeigen jetzt im Backlog ein TEILAUFGABEN-Badge, das wie Epics auf- und zugeklappt werden kann."
+  "feat_native_sub_issues_body": "Issues mit nativen GitHub-Teilaufgaben (ohne Markdown-Checkliste) zeigen jetzt im Backlog ein TEILAUFGABEN-Badge, das wie Epics auf- und zugeklappt werden kann.",
+  "feat_session_epic_badge_title": "Epics in deinen Sessions erkennen",
+  "feat_session_epic_badge_body": "Eine Session, die an einem Tracking-Issue arbeitet, zeigt jetzt ein EPIC-Badge mit Live-Fortschritt der Unter-Issues — klick es an, um das Epic im Backlog zu öffnen.",
+  "epic_badge_open_title": "Epic #{number}: {merged}/{total} Unteraufgaben erledigt — im Backlog öffnen",
+  "epic_badge_open_aria": "Epic #{number} im Backlog öffnen ({merged} von {total} Unteraufgaben erledigt)"
 }

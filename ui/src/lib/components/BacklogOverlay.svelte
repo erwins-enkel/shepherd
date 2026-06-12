@@ -14,6 +14,7 @@
     onlaunchtrain,
     onclose,
     epics = undefined,
+    target = null,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -25,6 +26,9 @@
     onclose: () => void;
     /** Live epic record from the store, threaded to BacklogView → IssuesPanel. */
     epics?: Record<string, Epic>;
+    /** EPIC-badge target (repo + issue), forwarded to BacklogView to drive
+     *  selection + epic expansion. */
+    target?: { repoPath: string; issueNumber: number } | null;
   } = $props();
 </script>
 
@@ -58,6 +62,7 @@
         {onadopt}
         {onlaunchtrain}
         {epics}
+        {target}
       />
     </div>
   </div>

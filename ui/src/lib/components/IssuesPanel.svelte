@@ -9,6 +9,7 @@
   import { filterIssues } from "./issues-panel";
   import EpicPanel from "./EpicPanel.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
+  import { tick } from "svelte";
 
   // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
   // issue it has claimed (auto session or human-linked task). Highlighted so a
@@ -22,6 +23,7 @@
     bodyPreview = false,
     age = false,
     epics = undefined,
+    expandEpic = null,
   }: {
     repoPath: string;
     onnewtask: (issue: Issue) => void;
@@ -33,6 +35,9 @@
     /** Live epic record from the store, keyed `${repoPath}#${parentIssueNumber}`.
      *  When present, WS-pushed updates refresh open panels without a re-fetch. */
     epics?: Record<string, Epic>;
+    /** When set (e.g. from an EPIC badge click), expand that epic's row and scroll
+     *  it into view — used to land the user on a specific epic in the backlog. */
+    expandEpic?: number | null;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -83,19 +88,53 @@
     return epics?.[`${repoPath}#${n}`] ?? fetched.get(n);
   }
 
+  /** Expand an epic's panel + one-shot fetch its record if the store lacks it. */
+  function expandEpicRow(number: number) {
+    expanded.add(number);
+    // Trigger a one-shot fetch if the live store doesn't have this epic yet.
+    if (!epics?.[`${repoPath}#${number}`] && !fetched.has(number)) {
+      getEpic(repoPath, number)
+        .then((e) => fetched.set(number, e))
+        .catch(() => {});
+    }
+  }
+
   function toggleEpic(number: number) {
     if (expanded.has(number)) {
       expanded.delete(number);
     } else {
-      expanded.add(number);
-      // Trigger a one-shot fetch if the live store doesn't have this epic yet.
-      if (!epics?.[`${repoPath}#${number}`] && !fetched.has(number)) {
-        getEpic(repoPath, number)
-          .then((e) => fetched.set(number, e))
-          .catch(() => {});
-      }
+      expandEpicRow(number);
     }
   }
+
+  // Targeted expand+scroll driven by the `expandEpic` prop (e.g. EPIC badge click).
+  // The expand fires as soon as a target is set; the scroll waits until the issue
+  // row exists in the DOM (issues load async). Both are one-shot per target value.
+  let scrolledTo = $state<number | null>(null);
+  let appliedExpand = $state<number | null>(null);
+  $effect(() => {
+    const target = expandEpic;
+    if (target == null) {
+      appliedExpand = null;
+      scrolledTo = null;
+      return;
+    }
+    // Expand exactly once per target value. Keying off `appliedExpand` (NOT the
+    // reactive `expanded` membership) means a later user collapse of the targeted
+    // epic no longer re-fires this effect into re-expanding it.
+    if (target !== appliedExpand) {
+      appliedExpand = target;
+      if (!expanded.has(target)) expandEpicRow(target);
+    }
+    // Scroll once the targeted row is actually rendered (its issue is loaded).
+    if (target !== scrolledTo && issues.some((i) => i.number === target)) {
+      scrolledTo = target;
+      tick().then(() => {
+        const el = document.getElementById(`epic-issue-row-${target}`);
+        el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      });
+    }
+  });
 </script>
 
 <div class="issues-panel">
@@ -124,7 +163,7 @@
       {#each visibleIssues as issue (issue.number)}
         {@const epicSummary = epicByNumber.get(issue.number)}
         {@const isExpanded = expanded.has(issue.number)}
-        <div class="issue-row">
+        <div class="issue-row" id={`epic-issue-row-${issue.number}`}>
           <div class="issue-top">
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
             <a

@@ -18,6 +18,14 @@
 *.yaml  text diff
 *.sh    text eol=lf diff
 
+# Flat i18n message catalogs: every feature PR appends keys to the same files,
+# so concurrent branches collide on the tail hunk on every rebase. The custom
+# union driver merges by key — additive/one-sided changes auto-resolve, only a
+# real same-key clash conflicts. Defined in scripts/json-union-merge.mjs and
+# registered per-clone by scripts/register-merge-driver.mjs (husky `prepare`).
+ui/messages/*.json        merge=i18n-union
+extension/messages/*.json merge=i18n-union
+
 # Vendored, minified inlang/Paraglide plugins (copied verbatim into ui/ and
 # extension/). Not our source — mark generated + vendored so linguist and code
 # analysis skip them and diffs collapse. Hand-editing them would diverge from the

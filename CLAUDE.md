@@ -50,6 +50,8 @@ Data passed through verbatim (tool-use summaries, PR titles, designations like `
 
 **Gate:** `cd ui && bun run check:i18n` enforces that all locale catalogs share an identical, non-empty key set (Paraglide silently falls back to EN for a missing key, so an incomplete `de.json` would otherwise ship looking fine). It runs in CI `verify` and the pre-push hook — a PR that adds an EN key without its DE counterpart fails. It does not detect hardcoded strings that skip the catalog entirely; that's on you and review.
 
+**Merge conflicts auto-resolve.** Because every PR appends keys to the same `ui/messages/*.json` + `extension/messages/*.json`, concurrent branches used to collide on the tail hunk on every rebase. A custom **union merge driver** (`scripts/json-union-merge.mjs`, bound in `.gitattributes`, registered per-clone by `scripts/register-merge-driver.mjs` from the root `prepare` script) now merges these catalogs **by key**: additive and one-sided edits resolve silently; only a genuine same-key-different-value clash falls through as a normal conflict. It activates on the next `bun install`; no action needed when rebasing. If you ever do see a catalog conflict, it's a real one — two branches gave the **same** key different values.
+
 ## Feature discovery (REQUIRED for user-facing features)
 
 New user-facing capabilities surface to users through the What's-New drawer + first-view coachmarks, both driven by the catalog `ui/src/lib/feature-announcements.ts`. **A `feat` that ships UX but skips the catalog rots it silently** — it builds, passes CI, and deploys while the discovery system stops reflecting reality. So every shipped user-facing feature adds **one** catalog entry **in the same PR as the feature**:

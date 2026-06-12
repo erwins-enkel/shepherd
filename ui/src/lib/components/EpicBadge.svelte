@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Epic, EpicSummary } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     summary,
@@ -50,7 +49,6 @@
     merged: counts.merged,
     total: counts.total,
   })}
-  use:coachTarget={"session-epic-badge"}
   onclick={handleClick}
 >
   <span class="epic-label">{m.epic_badge({ merged: counts.merged, total: counts.total })}</span>

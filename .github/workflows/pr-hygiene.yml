@@ -10,6 +10,10 @@ on:
 jobs:
   branch-hygiene:
     name: branch hygiene
+    # Skip release-please's own bot PRs: opened by github-actions[bot], they sit
+    # behind GitHub's "Approve and run" gate and never run, so they'd only accrue
+    # as awaiting-approval noise. Branch hygiene is moot on a generated release PR.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
     # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes

@@ -17,6 +17,12 @@ concurrency:
 jobs:
   verify:
     name: verify
+    # Skip release-please's own bot PRs: opened by github-actions[bot], they're
+    # parked behind GitHub's "Approve and run" gate and never auto-run, so they'd
+    # just accrue as awaiting-approval noise. release-please uses GITHUB_TOKEN by
+    # design (see release-please.yml) precisely so release PRs don't need CI.
+    # head_ref is empty on push-to-main, so this stays true there.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
     # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes

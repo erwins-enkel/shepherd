@@ -13,6 +13,7 @@ import {
 } from "./types";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
+import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -36,6 +37,7 @@ const ALLOWED_KEYS = new Set([
   "images",
   "issueRef",
   "planGateEnabled",
+  "sandboxProfile",
 ]);
 
 /** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
@@ -345,6 +347,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
 
+  const sandboxProfile = validateSandboxProfile(obj.sandboxProfile);
+  if (!sandboxProfile.ok) return sandboxProfile;
+
   return {
     ok: true,
     value: {
@@ -355,6 +360,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       images: images.value,
       issueRef: issueRef.value,
       planGateEnabled: planGateEnabled.value,
+      sandboxProfile: sandboxProfile.value,
     },
   };
 }
@@ -427,6 +433,14 @@ function rejectUnknownRelaunchKeys(obj: Record<string, unknown>): RelaunchResult
     if (!RELAUNCH_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
   return null;
+}
+
+/** sandboxProfile — per-spawn override; absent/null → inherit the repo default. */
+function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | undefined> {
+  if (value === undefined) return field(undefined);
+  if (value === null) return field(null);
+  if (isSandboxProfile(value)) return field(value);
+  return err(`sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, null, or absent`);
 }
 
 /**

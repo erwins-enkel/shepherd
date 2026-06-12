@@ -1,4 +1,4 @@
-import type { ReviewVerdict, PlanGate, RepoConfig } from "./types";
+import type { ReviewVerdict, PlanGate, RepoConfig, SandboxProfile } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import {
   getReviews,
@@ -163,27 +163,33 @@ class RepoConfigStore {
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
+  sandboxProfile = $state<Record<string, SandboxProfile>>({}); // per-repo sandbox confinement (default "trusted")
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
 
+  /** Spread a fetched RepoConfig into every per-field $state map for `repoPath`. */
+  private ingest(repoPath: string, c: RepoConfig) {
+    this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
+    this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
+    this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
+    this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
+    this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
+    this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
+    this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
+    this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
+    this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
+    this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
+    this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
+    this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
+    this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
+    this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
+  }
+
   async ensure(repoPath: string) {
     if (repoPath in this.enabled) return;
     try {
-      const c = await getRepoConfig(repoPath);
-      this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
-      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
-      this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
-      this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
-      this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
-      this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
-      this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
-      this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
-      this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
-      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
-      this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
-      this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
-      this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
+      this.ingest(repoPath, await getRepoConfig(repoPath));
     } catch {
       /* leave unset; UI shows defaults optimistically */
     }
@@ -205,6 +211,7 @@ class RepoConfigStore {
         | "planGateEnabled"
         | "draftMode"
         | "signoffAuthority"
+        | "sandboxProfile"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -213,20 +220,7 @@ class RepoConfigStore {
     revert: () => void,
   ) {
     try {
-      const c = await putRepoConfig(repoPath, patch);
-      this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
-      this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
-      this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
-      this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
-      this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
-      this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
-      this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
-      this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
-      this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
-      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
-      this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
-      this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
-      this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
+      this.ingest(repoPath, await putRepoConfig(repoPath, patch));
     } catch {
       revert();
     }
@@ -319,6 +313,14 @@ class RepoConfigStore {
     });
   }
 
+  async setSandboxProfile(repoPath: string, profile: SandboxProfile) {
+    const prev = this.sandboxProfile[repoPath];
+    this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: profile }; // optimistic
+    await this.apply(repoPath, { sandboxProfile: profile }, () => {
+      this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: prev };
+    });
+  }
+
   async toggleBuildQueue(repoPath: string) {
     const prev = this.buildQueue[repoPath];
     const next = !this.isBuildQueueEnabled(repoPath);
@@ -399,6 +401,10 @@ class RepoConfigStore {
 
   signoffAuthorityFor(repoPath: string): "human" | "critic" | "either" {
     return this.signoffAuthority[repoPath] ?? "human";
+  }
+
+  sandboxProfileFor(repoPath: string): SandboxProfile {
+    return this.sandboxProfile[repoPath] ?? "trusted";
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's

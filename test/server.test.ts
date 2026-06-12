@@ -1149,6 +1149,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
 
   const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
@@ -1587,6 +1588,43 @@ test("PUT /api/repo-config empty body error message includes draftMode and signo
   const body = await res.json();
   expect(body.error).toContain("draftMode");
   expect(body.error).toContain("signoffAuthority");
+});
+
+// ── sandboxProfile repo-config ─────────────────────────────────────────────────
+
+test("PUT /api/repo-config accepts sandboxProfile autonomous → 200 and GET reflects it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { sandboxProfile: "autonomous" });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
+});
+
+test("PUT /api/repo-config rejects unknown sandboxProfile → 400 with error message", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { sandboxProfile: "bogus" });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("sandboxProfile");
+});
+
+test("PUT /api/repo-config with only sandboxProfile is present → not empty-patch 400", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { sandboxProfile: "standard" });
+  expect(res.status).toBe(200);
+});
+
+test("PUT /api/repo-config omitting sandboxProfile preserves existing value", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // Set sandboxProfile to autonomous first
+  await putRepoConfig(app, validRepo, { sandboxProfile: "autonomous" });
+  expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
+  // PUT without sandboxProfile — should preserve autonomous
+  await putRepoConfig(app, validRepo, { criticEnabled: true });
+  expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
 });
 
 test("PUT /api/sessions/:id/automerge sets the override", async () => {

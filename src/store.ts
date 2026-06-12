@@ -16,6 +16,7 @@ import type {
 } from "./types";
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
+import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -26,6 +27,11 @@ function parseFindings(raw: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+/** Coerce a persisted tri-state flag: null/undefined stays null (inherit), else a real boolean. */
+function nullableBool(v: unknown): boolean | null {
+  return v === null || v === undefined ? null : !!v;
 }
 
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
@@ -64,6 +70,8 @@ export interface RepoConfig {
   autoLabel: string;
   /** Pause auto-spawns when usage % is at or above this threshold (default 80). */
   usageCeilingPct: number;
+  /** OS-level sandbox membrane for spawned task agents (default "trusted" = unconfined). */
+  sandboxProfile: SandboxProfile;
 }
 
 export interface PushSubInput {
@@ -114,6 +122,8 @@ type NewSession = Omit<
   | "autoMergeRebaseHead"
   | "auto"
   | "issueNumber"
+  | "sandboxApplied"
+  | "sandboxDegraded"
 > & {
   id?: string;
   model?: string | null;
@@ -122,6 +132,8 @@ type NewSession = Omit<
   issueNumber?: number | null;
   planGateEnabled?: boolean | null;
   planPhase?: Session["planPhase"];
+  sandboxApplied?: SandboxProfile | null;
+  sandboxDegraded?: boolean;
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
@@ -129,7 +141,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
-  auto, issueNumber,
+  auto, issueNumber, sandboxApplied, sandboxDegraded,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
 export class SessionStore implements CapStore {
@@ -287,7 +299,7 @@ export class SessionStore implements CapStore {
       .query(
         `SELECT criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -304,6 +316,7 @@ export class SessionStore implements CapStore {
       maxAuto: number;
       autoLabel: string;
       usageCeilingPct: number;
+      sandboxProfile: string;
     } | null;
     // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
     // drain fields default OFF / cap-1 / default-label / ceiling-80
@@ -321,6 +334,7 @@ export class SessionStore implements CapStore {
       maxAuto: r ? r.maxAuto : 1,
       autoLabel: r ? r.autoLabel : "shepherd:auto",
       usageCeilingPct: r ? r.usageCeilingPct : 80,
+      sandboxProfile: r && isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     };
   }
 
@@ -329,8 +343,8 @@ export class SessionStore implements CapStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
@@ -344,6 +358,7 @@ export class SessionStore implements CapStore {
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
+         sandboxProfile = excluded.sandboxProfile,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -360,6 +375,7 @@ export class SessionStore implements CapStore {
         cfg.maxAuto,
         cfg.autoLabel,
         cfg.usageCeilingPct,
+        cfg.sandboxProfile,
         Date.now(),
       ],
     );
@@ -419,39 +435,46 @@ export class SessionStore implements CapStore {
     return row.next;
   }
 
+  /** Assemble a fresh Session row from creation input + the assigned seq/timestamp. */
+  private buildSessionRow(input: NewSession, seq: number, now: number): Session {
+    return {
+      ...input,
+      model: input.model ?? null,
+      claudeSessionId: input.claudeSessionId ?? "",
+      id: input.id ?? randomUUID(),
+      desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
+      readyToMerge: false,
+      autopilotEnabled: null,
+      autopilotStepCount: 0,
+      autopilotPaused: false,
+      autopilotComplete: false,
+      autopilotQuestion: null,
+      planGateEnabled: input.planGateEnabled ?? null,
+      planPhase: input.planPhase ?? null,
+      autoMergeEnabled: null,
+      autoMergeRebaseCount: 0,
+      autoMergeRebaseHead: null,
+      auto: input.auto ?? false,
+      issueNumber: input.issueNumber ?? null,
+      sandboxApplied: input.sandboxApplied ?? null,
+      sandboxDegraded: input.sandboxDegraded ?? false,
+      status: "running",
+      lastState: "idle",
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      mergingSince: null,
+      mergingTrainId: null,
+    };
+  }
+
   create(input: NewSession): Session {
     return this.db.transaction(() => {
       const now = Date.now();
       const seq = this.nextDesignationSeq();
-      const s: Session = {
-        ...input,
-        model: input.model ?? null,
-        claudeSessionId: input.claudeSessionId ?? "",
-        id: input.id ?? randomUUID(),
-        desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
-        readyToMerge: false,
-        autopilotEnabled: null,
-        autopilotStepCount: 0,
-        autopilotPaused: false,
-        autopilotComplete: false,
-        autopilotQuestion: null,
-        planGateEnabled: input.planGateEnabled ?? null,
-        planPhase: input.planPhase ?? null,
-        autoMergeEnabled: null,
-        autoMergeRebaseCount: 0,
-        autoMergeRebaseHead: null,
-        auto: input.auto ?? false,
-        issueNumber: input.issueNumber ?? null,
-        status: "running",
-        lastState: "idle",
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-        mergingSince: null,
-        mergingTrainId: null,
-      };
+      const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -481,6 +504,8 @@ export class SessionStore implements CapStore {
           null, // autoMergeRebaseHead — none outstanding
           s.auto ? 1 : 0,
           s.issueNumber,
+          s.sandboxApplied,
+          s.sandboxDegraded ? 1 : 0,
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -538,6 +563,24 @@ export class SessionStore implements CapStore {
         id,
       ],
     );
+  }
+
+  /** Patch a session's applied sandbox state (set at spawn by the sandbox wrapper).
+   *  Only the provided keys are written. */
+  setSandboxState(
+    id: string,
+    patch: { applied?: SandboxProfile | null; degraded?: boolean },
+  ): void {
+    const cur = this.get(id);
+    if (!cur) return;
+    const applied = patch.applied === undefined ? cur.sandboxApplied : patch.applied;
+    const degraded = patch.degraded === undefined ? cur.sandboxDegraded : patch.degraded;
+    this.db.run(`UPDATE sessions SET sandboxApplied=?, sandboxDegraded=?, updatedAt=? WHERE id=?`, [
+      applied,
+      degraded ? 1 : 0,
+      Date.now(),
+      id,
+    ]);
   }
 
   /** Patch a session's autopilot fields. Only the provided keys are written. */
@@ -1010,6 +1053,9 @@ export class SessionStore implements CapStore {
     add("autoMergeRebaseHead", `autoMergeRebaseHead TEXT`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
+    // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
+    add("sandboxApplied", `sandboxApplied TEXT`);
+    add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
     add("mergingSince", `mergingSince INTEGER`);
     add("mergingTrainId", `mergingTrainId TEXT`);
   }
@@ -1034,6 +1080,7 @@ export class SessionStore implements CapStore {
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
     add("draftMode", `draftMode INTEGER NOT NULL DEFAULT 0`);
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
+    add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
   }
 
   private migrateReviewColumns(): void {
@@ -1336,25 +1383,20 @@ export class SessionStore implements CapStore {
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
-      autopilotEnabled:
-        r.autopilotEnabled === null || r.autopilotEnabled === undefined
-          ? null
-          : !!r.autopilotEnabled,
+      autopilotEnabled: nullableBool(r.autopilotEnabled),
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,
       autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
-      planGateEnabled:
-        r.planGateEnabled === null || r.planGateEnabled === undefined ? null : !!r.planGateEnabled,
+      planGateEnabled: nullableBool(r.planGateEnabled),
       planPhase: r.planPhase ?? null,
-      autoMergeEnabled:
-        r.autoMergeEnabled === null || r.autoMergeEnabled === undefined
-          ? null
-          : !!r.autoMergeEnabled,
+      autoMergeEnabled: nullableBool(r.autoMergeEnabled),
       autoMergeRebaseCount: r.autoMergeRebaseCount ?? 0,
       autoMergeRebaseHead: r.autoMergeRebaseHead ?? null,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
+      sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
+      sandboxDegraded: !!r.sandboxDegraded,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
     } as Session;

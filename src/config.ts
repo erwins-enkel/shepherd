@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
 import { normalizeDefaultModelSetting } from "./default-model";
+import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
@@ -152,6 +153,11 @@ export function parseTrimAutoContext(raw: string | undefined): boolean {
   return !["false", "0", "off"].includes((raw ?? "").toLowerCase());
 }
 
+/** Parse SHEPHERD_SANDBOX_DEFAULT_PROFILE: a valid profile wins, else "trusted". Exported for tests. */
+export function parseSandboxProfile(v: string | undefined): SandboxProfile {
+  return isSandboxProfile(v) ? v : "trusted";
+}
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -169,6 +175,11 @@ export const config = {
   claudeProjectsDir:
     process.env.CLAUDE_PROJECTS_DIR ??
     `${process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`}/projects`,
+  // base claude config dir (sandbox membrane binds resolve from it).
+  claudeDir: process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`,
+  // Default sandbox profile for spawned task agents. "trusted" = unconfined (opt-in
+  // sandboxing); set SHEPHERD_SANDBOX_DEFAULT_PROFILE=standard|autonomous to sandbox by default.
+  sandboxDefaultProfile: parseSandboxProfile(process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE),
   // security
   // immutable ceiling: the absolute outermost dir the UI may ever reach. captured
   // once from the env (or $HOME) and NEVER mutated by settings. the settable

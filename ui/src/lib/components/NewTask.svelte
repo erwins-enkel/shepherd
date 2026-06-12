@@ -2,7 +2,14 @@
   import { onMount } from "svelte";
   import { listRepos, listBranches, getCommands, uploadImage, isPreviewBlocked } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
-  import { MODELS, type Issue, type IssueRef, type RepoEntry, type SlashCommand } from "$lib/types";
+  import {
+    MODELS,
+    type Issue,
+    type IssueRef,
+    type RepoEntry,
+    type SandboxProfile,
+    type SlashCommand,
+  } from "$lib/types";
   import { promoDefaultModel } from "$lib/fable-promo";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import RepoSelect from "./RepoSelect.svelte";
@@ -35,6 +42,7 @@
       images: string[];
       issueRef?: IssueRef;
       planGateEnabled: boolean;
+      sandboxProfile?: SandboxProfile;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -84,6 +92,8 @@
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   let planGate = $state(false);
   let planGateTouched = $state(false);
+  // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
+  let sandboxProfile = $state<"default" | SandboxProfile>("default");
   let submitting = $state(false);
   let error = $state<string | null>(null);
   // re-invokes whichever action last failed (upload or create) from an inline Retry
@@ -342,6 +352,7 @@
             }
           : undefined,
         planGateEnabled: planGate,
+        sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
       });
     } catch (err) {
       if (isPreviewBlocked(err)) {
@@ -539,6 +550,16 @@
           {#each MODELS as mdl (mdl)}
             <option value={mdl}>{mdl}</option>
           {/each}
+        </select>
+      </div>
+
+      <div class="model-field">
+        <label class="micro" for="nt-sandbox">{m.newtask_sandbox_label()}</label>
+        <select id="nt-sandbox" bind:value={sandboxProfile} title={m.newtask_sandbox_hint()}>
+          <option value="default">{m.newtask_sandbox_default()}</option>
+          <option value="trusted">{m.sandbox_profile_trusted()}</option>
+          <option value="standard">{m.sandbox_profile_standard()}</option>
+          <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
         </select>
       </div>
     </div>

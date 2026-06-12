@@ -78,6 +78,12 @@ import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
 import { normalizeDefaultModelSetting } from "./default-model";
+import {
+  type SandboxProfile,
+  SANDBOX_PROFILES,
+  isSandboxProfile,
+  SandboxAutoRefused,
+} from "./sandbox";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -365,6 +371,14 @@ function parseSignoffAuthority(v: unknown): "human" | "critic" | "either" | { er
   return v as "human" | "critic" | "either";
 }
 
+// sandboxProfile: one of the three valid profile values
+function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
+  if (!isSandboxProfile(v)) {
+    return { error: `sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}` };
+  }
+  return v;
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -389,6 +403,7 @@ type RepoCfgBody = {
   buildQueueEnabled?: unknown;
   draftMode?: unknown;
   signoffAuthority?: unknown;
+  sandboxProfile?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -412,6 +427,7 @@ function parseRepoCfgScalars(body: RepoCfgBody):
       autoLabel?: string;
       usageCeilingPct?: number;
       signoffAuthority?: "human" | "critic" | "either";
+      sandboxProfile?: SandboxProfile;
     }
   | Response {
   let maxAuto: number | undefined;
@@ -438,7 +454,13 @@ function parseRepoCfgScalars(body: RepoCfgBody):
     if (typeof r !== "string") return json(r, 400);
     signoffAuthority = r;
   }
-  return { maxAuto, autoLabel, usageCeilingPct, signoffAuthority };
+  let sandboxProfile: SandboxProfile | undefined;
+  if (body.sandboxProfile !== undefined) {
+    const r = parseSandboxProfile(body.sandboxProfile);
+    if (typeof r !== "string") return json(r, 400);
+    sandboxProfile = r;
+  }
+  return { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile };
 }
 
 async function parseRepoConfigPatch(req: Request): Promise<
@@ -453,6 +475,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       buildQueueEnabled?: boolean;
       draftMode?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
+      sandboxProfile?: SandboxProfile;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -471,18 +494,19 @@ async function parseRepoConfigPatch(req: Request): Promise<
   }
   const scalars = parseRepoCfgScalars(body);
   if (scalars instanceof Response) return scalars;
-  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority } = scalars;
+  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||
     autoLabel !== undefined ||
     usageCeilingPct !== undefined ||
-    signoffAuthority !== undefined;
+    signoffAuthority !== undefined ||
+    sandboxProfile !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -498,6 +522,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     draftMode: body.draftMode as boolean | undefined,
     signoffAuthority,
+    sandboxProfile,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -523,6 +548,7 @@ function mergeRepoConfig(
     maxAuto: patch.maxAuto ?? cur.maxAuto,
     autoLabel: patch.autoLabel ?? cur.autoLabel,
     usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
+    sandboxProfile: patch.sandboxProfile ?? cur.sandboxProfile,
   };
 }
 
@@ -896,6 +922,10 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   try {
     s = await deps.service.create(result.value);
   } catch (e) {
+    // A sandbox auto-gate refusal is a POLICY decision, not infra failure — return 403
+    // with the hold reason so the dialog shows "auto requires the autonomous profile"
+    // rather than a misleading 502.
+    if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
     // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).

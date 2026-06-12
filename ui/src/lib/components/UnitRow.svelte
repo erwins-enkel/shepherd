@@ -450,6 +450,37 @@
       <PlanGateBadge {session} />
       <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
       {#if !reviewing}<AutopilotBadge {session} />{/if}
+      <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
+           are quiet informational badges (slate). Trusted-manual renders nothing. -->
+      {#if session.sandboxDegraded}
+        <span
+          class="badge sandbox-warn"
+          role="img"
+          aria-label={m.session_sandbox_degraded_label()}
+          title={m.session_sandbox_degraded_title()}>{m.session_sandbox_degraded_label()}</span
+        >
+      {:else if session.sandboxApplied === "autonomous"}
+        <span
+          class="badge sandbox"
+          role="img"
+          aria-label={m.session_sandbox_autonomous_label()}
+          title={m.session_sandbox_autonomous_title()}>{m.session_sandbox_autonomous_label()}</span
+        >
+      {:else if session.sandboxApplied === "standard"}
+        <span
+          class="badge sandbox"
+          role="img"
+          aria-label={m.session_sandbox_standard_label()}
+          title={m.session_sandbox_standard_title()}>{m.session_sandbox_standard_label()}</span
+        >
+      {:else if session.sandboxApplied === "trusted" && session.auto}
+        <span
+          class="badge sandbox-warn"
+          role="img"
+          aria-label={m.session_sandbox_unconfined_label()}
+          title={m.session_sandbox_unconfined_title()}>{m.session_sandbox_unconfined_label()}</span
+        >
+      {/if}
       {#if isMerging(session, nowMs)}
         <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
       {:else if session.readyToMerge}
@@ -989,6 +1020,23 @@
   .badge.merging {
     color: var(--color-amber);
     animation: merge-pulse 1.5s ease-in-out infinite;
+  }
+
+  /* SANDBOX (confined): a quiet informational badge — slate reads as "noted, parked"
+     (done-state hue), not actionable. Outlined to set it apart from plain text badges. */
+  .badge.sandbox {
+    padding: 1px 6px;
+    border: 1px solid var(--color-slate);
+    border-radius: 2px;
+    color: var(--color-slate);
+  }
+  /* SANDBOX (warn): degraded sandbox or an unattended agent running unconfined —
+     amber = attention/degraded (NOT red, reserved for a blocked session). */
+  .badge.sandbox-warn {
+    padding: 1px 6px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
   }
 
   .elapsed {

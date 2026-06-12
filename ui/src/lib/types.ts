@@ -230,6 +230,11 @@ export interface ReviewVerdict {
   url?: string;
   updatedAt: number;
 }
+/** The per-repo sandbox confinement profile. trusted = no sandbox (default);
+ *  standard = filesystem/process membrane; autonomous = same membrane + required
+ *  for auto/drain sessions (network-egress allowlist not yet implemented). */
+export type SandboxProfile = "trusted" | "standard" | "autonomous";
+
 export interface RepoConfig {
   criticEnabled: boolean;
   autoAddressEnabled: boolean;
@@ -244,6 +249,8 @@ export interface RepoConfig {
   draftMode: boolean;
   /** Who may promote a draft PR to ready-for-review (default "human"). */
   signoffAuthority: "human" | "critic" | "either";
+  /** Per-repo sandbox confinement profile (default "trusted" = no sandbox). */
+  sandboxProfile: SandboxProfile;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
@@ -353,6 +360,10 @@ export interface Session {
   autoMergeRebaseCount: number;
   /** Whether this session was launched by the auto-drain queue. */
   auto: boolean;
+  /** The sandbox profile actually applied to this session's spawn; null if not stamped. */
+  sandboxApplied: SandboxProfile | null;
+  /** True when the requested sandbox couldn't be applied — the agent ran unconfined. */
+  sandboxDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
   lastState: string;
@@ -566,6 +577,7 @@ export interface CreateInput {
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
+  sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

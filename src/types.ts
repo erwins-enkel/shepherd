@@ -1,3 +1,5 @@
+import type { SandboxProfile } from "./sandbox";
+
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
 
@@ -52,6 +54,10 @@ export interface Session {
   auto: boolean;
   /** Backlog issue number this session was spawned for; null for manual/non-issue sessions. */
   issueNumber: number | null;
+  /** Sandbox profile actually applied at spawn; null for legacy rows spawned before the feature. */
+  sandboxApplied: SandboxProfile | null;
+  /** True when a sandboxed profile was requested but no backend was available → ran unconfined. */
+  sandboxDegraded: boolean;
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;
@@ -84,6 +90,8 @@ export interface CreateSessionInput {
   auto?: boolean;
   /** Per-task plan-gate override; absent → inherit repo default. */
   planGateEnabled?: boolean | null;
+  /** Per-spawn sandbox profile override; absent → inherit repo default. */
+  sandboxProfile?: SandboxProfile | null;
 }
 
 /**

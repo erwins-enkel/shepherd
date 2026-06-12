@@ -206,6 +206,24 @@ export class WorktreeMgr {
     }
   }
 
+  /** The ABSOLUTE shared git object store for `worktreePath` (`git rev-parse
+   *  --git-common-dir`, resolved against the worktree). A worktree's own `.git` is a
+   *  file pointing here; the bwrap membrane must bind this store rw so the agent's
+   *  git ops reach the real refs/objects. Falls back to `<worktreePath>/.git` on any
+   *  git error so a non-worktree (isolated:false) still yields a usable path. */
+  gitCommonDir(worktreePath: string): string {
+    try {
+      const out = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+        cwd: worktreePath,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      return resolve(worktreePath, out.trim());
+    } catch {
+      return join(worktreePath, ".git");
+    }
+  }
+
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {

@@ -34,6 +34,8 @@ const SESSION: Session = {
   autoMergeRebaseHead: null,
   auto: false,
   issueNumber: null,
+  sandboxApplied: null,
+  sandboxDegraded: false,
   status: "running",
   lastState: "working",
   createdAt: 0,

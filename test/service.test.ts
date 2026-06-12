@@ -787,6 +787,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
@@ -827,6 +828,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {}, stopListenersOnPort: () => 0 },
@@ -869,6 +871,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -909,6 +912,7 @@ test("archive with no reap keys never calls the reaper", () => {
       renameBranch: () => {},
       commitsAhead: () => 0,
       currentBranch: () => null,
+      gitCommonDir: () => "/wt/.git",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -1636,6 +1640,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -1675,6 +1680,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    sandboxProfile: "trusted",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -2233,6 +2239,7 @@ function buildQueueDeps(
       maxAuto: 1,
       autoLabel: "shepherd:auto",
       usageCeilingPct: 80,
+      sandboxProfile: "trusted",
       ...repoConfig,
     });
   }

@@ -34,6 +34,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
     autoMergeEnabled: null,
     autoMergeRebaseCount: 0,
     auto: false,
+    sandboxApplied: null,
+    sandboxDegraded: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,

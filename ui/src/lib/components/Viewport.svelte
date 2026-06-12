@@ -591,10 +591,15 @@
   // Hand-rolled click timing instead of ondblclick so touch and mouse behave
   // identically (iOS Safari fires dblclick unreliably) — the first tap keeps
   // its existing job (meta popover via focus), the second one renames.
+  // The timestamp is deliberately shared across the title elements (desig +
+  // vp-name co-render on compact desktops): both carry the same session
+  // identity side by side, so a double-tap straddling them still reads as
+  // "double-tap the title" and should rename.
   let lastTitleTap = 0;
   function onTitleTap() {
     const now = Date.now();
-    if (now - lastTitleTap < 400) {
+    // 500ms matches the common OS double-click default (400 dropped slow double-clicks)
+    if (now - lastTitleTap < 500) {
       lastTitleTap = 0;
       void startRename();
     } else {
@@ -1727,7 +1732,7 @@
           class="ctx-trigger"
           role="button"
           tabindex="0"
-          aria-label={m.topbar_detail_context_aria({ repo: repoName, name: session.name })}
+          aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
           onclick={onTitleTap}
           onkeydown={onTitleKey}
         >
@@ -1750,7 +1755,7 @@
           class="desig"
           role="button"
           tabindex="0"
-          aria-label={m.viewport_meta_aria()}
+          aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
           onclick={onTitleTap}
           onkeydown={onTitleKey}>{session.desig}</span
         >
@@ -1758,16 +1763,11 @@
       </span>
       {#if compact}
         <!-- foldable/touch desktop only: surfaces the full name the desig can't carry.
-             tabindex -1: double-tap target only — the adjacent desig already carries
-             the keyboard path, a second tab stop on the same identity would be noise -->
-        <span
-          class="vp-name"
-          title={session.name}
-          role="button"
-          tabindex="-1"
-          onclick={onTitleTap}
-          onkeydown={onTitleKey}>{session.name}</span
-        >
+             Pointer-only rename target — the adjacent desig owns the keyboard/AT path
+             (a button role here would announce a second, redundant control for the
+             same identity), so no role/tabindex/keydown by design. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <span class="vp-name" title={session.name} onclick={onTitleTap}>{session.name}</span>
       {/if}
     {/if}
     {#if !compact}

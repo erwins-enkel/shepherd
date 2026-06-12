@@ -558,6 +558,7 @@
   "viewport_decommission": "✕ stilllegen",
   "viewport_decommission_aria": "Einheit stilllegen",
   "viewport_rename_aria": "Task umbenennen",
+  "viewport_title_enter_renames": "Enter zum Umbenennen",
   "viewport_rename_placeholder": "Neuer Name",
   "viewport_rename_failed": "Umbenennen fehlgeschlagen",
   "viewport_rename_name_taken": "Name bereits vergeben",

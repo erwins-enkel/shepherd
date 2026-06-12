@@ -371,6 +371,18 @@ export async function relaunchSession(
   throw new ApiError(r.status, base.message, body?.code);
 }
 
+/**
+ * Stage the original session's uploads for a relaunch-elsewhere so the composer
+ * can seed them as removable chips. Returns the carried images (server path +
+ * display name); throws a `failed` error on a non-2xx response.
+ */
+export async function stageRelaunchImages(id: string): Promise<{ path: string; name: string }[]> {
+  const r = await fetch(`/api/sessions/${id}/relaunch-uploads`, { method: "POST" });
+  if (!r.ok) throw await failed(r, "relaunch-uploads");
+  const body = (await r.json()) as { images?: { path: string; name: string }[] };
+  return body.images ?? [];
+}
+
 export async function dismissStall(id: string): Promise<void> {
   const r = await fetch(`/api/sessions/${id}/dismiss-stall`, { method: "POST" });
   if (!r.ok) throw await failed(r, "dismiss-stall");

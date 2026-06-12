@@ -8,6 +8,7 @@
     startMergeTrain,
     archiveSession,
     relaunchSession,
+    stageRelaunchImages,
     ApiError,
     getUsageLimits,
     replySession,
@@ -218,6 +219,11 @@
   let composeBaseBranch = $state<string | null>(null);
   // Relaunch source issue number (null = none); drives the relaunch note's cross-repo issue-drop line.
   let relaunchIssueNumber = $state<number | null>(null);
+  // Carried images from the original session, staged on relaunch-elsewhere so the composer
+  // seeds them as removable chips (its image list is the single source of truth on submit).
+  let composeImages = $state<{ path: string; name: string }[]>([]);
+  // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
+  let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
@@ -817,6 +823,7 @@
     composeBaseBranch = null;
     relaunchOriginalId = null;
     relaunchIssueNumber = null;
+    composeImages = [];
   }
 
   // Relaunch-elsewhere submit: route to relaunchSession(originalId, overrides) instead of
@@ -885,9 +892,12 @@
   // Relaunch elsewhere: open the New Task composer pre-filled from this session so the
   // operator can pick a different repo / base branch / prompt before submitting. The
   // submit routes through onsubmit's relaunch branch (relaunchOriginalId set).
-  function onrelaunchElsewhere(id: string) {
+  async function onrelaunchElsewhere(id: string) {
     const s = store.sessions.find((x) => x.id === id);
     if (!s) return;
+    // Guard a double-invoke while a slow upload-stage is in flight (don't double-seed).
+    if (relaunchStaging) return;
+    relaunchStaging = true;
     composePrompt = s.prompt;
     composeRepoPath = s.repoPath;
     composeBaseBranch = s.baseBranch;
@@ -898,6 +908,17 @@
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
+    // Stage the original's uploads so the composer seeds them as removable chips. On
+    // failure, seed empty + warn so the operator knows to re-attach (never double-attach).
+    try {
+      composeImages = await stageRelaunchImages(id);
+    } catch {
+      composeImages = [];
+      toasts.info(m.relaunch_images_carry_failed(), { alert: true });
+    } finally {
+      relaunchStaging = false;
+    }
+    // Open AFTER the seed resolves so NewTask's one-time initialImages seed picks it up at mount.
     showNew = true;
   }
 
@@ -1459,6 +1480,7 @@
     initialBaseBranch={composeBaseBranch ?? undefined}
     initialIssue={composeIssue ?? undefined}
     {relaunchIssueNumber}
+    initialImages={composeImages}
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
     defaultModel={settings?.defaultModel}

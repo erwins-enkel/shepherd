@@ -33,6 +33,7 @@
     relaunch = false,
     initialBaseBranch,
     relaunchIssueNumber,
+    initialImages,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -55,6 +56,7 @@
     relaunch?: boolean;
     initialBaseBranch?: string;
     relaunchIssueNumber?: number | null;
+    initialImages?: { path: string; name: string }[];
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -112,7 +114,9 @@
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);
-  let images = $state<{ path: string; name: string }[]>([]);
+  // intentional one-time seed; NewTask remounts per open
+  // svelte-ignore state_referenced_locally
+  let images = $state<{ path: string; name: string }[]>(initialImages ? [...initialImages] : []);
   let dragging = $state(false);
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();

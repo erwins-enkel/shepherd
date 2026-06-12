@@ -615,6 +615,7 @@
   "relaunch_in_progress": "Relaunch already in progress",
   "relaunch_issue_unresolved": "Couldn't re-resolve the linked issue; original kept, retry later",
   "relaunch_failed": "Couldn't relaunch; the original was kept",
+  "relaunch_images_carry_failed": "Couldn't load the original's images — re-attach them if needed.",
   "viewport_herdr_unreachable": "── herdr unreachable; reconnect paused ──",
   "viewport_reconnect_title": "Reconnect",
   "viewport_reconnect_sub": "herdr is down. Tap once it's back.",

@@ -130,10 +130,10 @@ function main(argv) {
   const theirs = readJson(theirsPath);
 
   // If any side isn't parseable JSON, don't risk mangling the file: leave
-  // `ours` untouched and exit non-zero. Git then marks the path unmerged (with
-  // no conflict markers, since we wrote nothing), so a human resolves it by
-  // hand. This is NOT git's default text merge — that already ran and produced
-  // the unparseable input we're declining to touch.
+  // `ours` (%A) untouched and exit non-zero. A custom driver runs INSTEAD of
+  // git's built-in text merge, so %A is the verbatim `ours` blob, not a
+  // pre-merged result — exiting here just marks the path unmerged with no
+  // conflict markers, leaving it as `ours` for a human to resolve by hand.
   if (base === null || ours === null || theirs === null) {
     process.stderr.write(
       `i18n-union: ${label ?? oursPath} not parseable as JSON — leaving for manual merge\n`,

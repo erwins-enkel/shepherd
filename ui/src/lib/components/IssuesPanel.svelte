@@ -143,16 +143,23 @@
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {#if epicSummary}
+              {@const isNative = epicSummary.source === "native"}
               <button
                 class="epic-badge"
                 class:expanded={isExpanded}
                 type="button"
                 aria-expanded={isExpanded}
-                aria-label={isExpanded
-                  ? m.epic_badge_collapse_aria({ parent: issue.number })
-                  : m.epic_badge_expand_aria({ parent: issue.number })}
+                aria-label={isNative
+                  ? isExpanded
+                    ? m.subissues_badge_collapse_aria({ parent: issue.number })
+                    : m.subissues_badge_expand_aria({ parent: issue.number })
+                  : isExpanded
+                    ? m.epic_badge_collapse_aria({ parent: issue.number })
+                    : m.epic_badge_expand_aria({ parent: issue.number })}
                 onclick={() => toggleEpic(issue.number)}
-                >{m.epic_badge({ merged: epicSummary.merged, total: epicSummary.total })}</button
+                >{isNative
+                  ? m.subissues_badge({ merged: epicSummary.merged, total: epicSummary.total })
+                  : m.epic_badge({ merged: epicSummary.merged, total: epicSummary.total })}</button
               >
             {/if}
           </div>

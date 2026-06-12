@@ -1070,7 +1070,12 @@
   "epic_badge": "EPIC {merged}/{total}",
   "epic_badge_expand_aria": "Expand epic #{parent}",
   "epic_badge_collapse_aria": "Collapse epic #{parent}",
+  "subissues_badge": "SUB-ISSUES {merged}/{total}",
+  "subissues_badge_expand_aria": "Expand sub-issues #{parent}",
+  "subissues_badge_collapse_aria": "Collapse sub-issues #{parent}",
   "epic_mode_active": "Epic mode · #{parent} — label-drain suspended",
   "feat_epic_runner_title": "Work an ordered epic of issues",
-  "feat_epic_runner_body": "Point Shepherd at a tracking issue and it works the child issues in dependency order — one PR per issue, advancing as blockers merge."
+  "feat_epic_runner_body": "Point Shepherd at a tracking issue and it works the child issues in dependency order — one PR per issue, advancing as blockers merge.",
+  "feat_native_sub_issues_title": "Native GitHub sub-issues",
+  "feat_native_sub_issues_body": "Issues with native GitHub sub-issues (no markdown checklist) now show a SUB-ISSUES badge in the backlog, expandable just like epics."
 }

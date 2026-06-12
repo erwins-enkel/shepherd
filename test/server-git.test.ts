@@ -40,6 +40,8 @@ const SESSION: Session = {
   issueNumber: null,
   sandboxApplied: null,
   sandboxDegraded: false,
+  egressApplied: false,
+  egressDegraded: false,
   status: "running",
   lastState: "working",
   createdAt: 0,

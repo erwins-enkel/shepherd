@@ -47,6 +47,8 @@ function sess(over: Partial<Session> = {}): Session {
     issueNumber: null,
     sandboxApplied: null,
     sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
     status: "blocked",
     lastState: "blocked",
     createdAt: 0,

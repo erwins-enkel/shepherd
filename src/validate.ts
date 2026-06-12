@@ -443,6 +443,28 @@ function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | u
   return err(`sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, null, or absent`);
 }
 
+// hostname shape: lowercase alphanum, hyphens, dots; must contain a dot (no bare labels).
+const HOST_RE = /^[a-z0-9.-]+$/;
+const isPlausibleHost = (h: string): boolean => HOST_RE.test(h) && h.includes(".");
+
+/**
+ * egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall.
+ * Absent → default []. Must be an array of plausible hostname strings.
+ */
+export function validateEgressExtraHosts(value: unknown): Field<string[]> {
+  if (value === undefined || value === null) return field([]);
+  if (!Array.isArray(value)) return err("egressExtraHosts must be an array of hostname strings");
+  for (let i = 0; i < value.length; i++) {
+    const h = value[i];
+    if (typeof h !== "string") return err(`egressExtraHosts[${i}]: must be a string`);
+    if (!isPlausibleHost(h))
+      return err(
+        `egressExtraHosts[${i}]: "${h}" is not a valid hostname (lowercase alphanum/hyphens/dots, must contain a dot)`,
+      );
+  }
+  return field(value as string[]);
+}
+
 /**
  * Timing-safe token check.
  * Returns true when token config is null (auth disabled) or header matches.

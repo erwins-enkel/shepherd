@@ -197,6 +197,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -232,6 +233,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         usageCeilingPct: 80,
         sandboxProfile: "trusted",
         defaultModel: "inherit",
+        egressExtraHosts: [],
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

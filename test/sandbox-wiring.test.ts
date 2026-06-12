@@ -208,6 +208,8 @@ test("resume preserves a per-spawn override stricter than the repo default (no s
     auto: false,
     sandboxApplied: "standard",
     sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
   });
   const out = await service.resume(s.id, { force: true });
   expect(out).not.toBeNull();
@@ -282,6 +284,7 @@ function defaultRepoConfig() {
     usageCeilingPct: 80,
     sandboxProfile: "trusted" as const,
     defaultModel: "inherit",
+    egressExtraHosts: [] as string[],
   };
 }
 

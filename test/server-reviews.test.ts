@@ -106,6 +106,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 });
 
@@ -154,6 +155,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 
   const get = await app.fetch(new Request(url));
@@ -175,6 +177,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 });
 
@@ -206,6 +209,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 });
 
@@ -237,6 +241,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 });
 

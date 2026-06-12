@@ -171,6 +171,7 @@ function makeHarness(
     usageCeilingPct: opts.usageCeilingPct ?? 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 
   const forgeRec: ForgeRec = {
@@ -730,6 +731,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -748,6 +750,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 
   const forgeRec: ForgeRec = {

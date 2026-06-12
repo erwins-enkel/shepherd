@@ -1679,6 +1679,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -1721,6 +1722,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -2285,6 +2287,7 @@ function buildQueueDeps(
       usageCeilingPct: 80,
       sandboxProfile: "trusted",
       defaultModel: "inherit",
+      egressExtraHosts: [],
       ...repoConfig,
     });
   }

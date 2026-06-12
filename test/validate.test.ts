@@ -11,6 +11,7 @@ import {
   isValidTerminalId,
   expandHome,
   parseTermDims,
+  validateEgressExtraHosts,
 } from "../src/validate";
 import { stagingDir } from "../src/uploads";
 
@@ -722,4 +723,62 @@ test("validateNewProject: containment guard fires for a crafted escaping path", 
   const r = validateNewProject({ name: "my-project" }, subRoot);
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.value.name).toBe("my-project");
+});
+
+// ── validateEgressExtraHosts ──────────────────────────────────────────────────
+
+test("egressExtraHosts: absent → []", () => {
+  const r = validateEgressExtraHosts(undefined);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: null → []", () => {
+  const r = validateEgressExtraHosts(null);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: valid array passes", () => {
+  const r = validateEgressExtraHosts(["registry.npmjs.org", "pkg.debian.org"]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual(["registry.npmjs.org", "pkg.debian.org"]);
+});
+
+test("egressExtraHosts: empty array passes", () => {
+  const r = validateEgressExtraHosts([]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: non-array → error", () => {
+  expect(validateEgressExtraHosts("registry.npmjs.org").ok).toBe(false);
+  expect(validateEgressExtraHosts(42).ok).toBe(false);
+  expect(validateEgressExtraHosts({}).ok).toBe(false);
+  const r = validateEgressExtraHosts("not-an-array");
+  if (!r.ok) expect(r.error).toMatch(/array/);
+});
+
+test("egressExtraHosts: non-string element → error", () => {
+  const r = validateEgressExtraHosts(["good.example.com", 123]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/string/);
+});
+
+test("egressExtraHosts: hostname without dot → error", () => {
+  const r = validateEgressExtraHosts(["localhost"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: hostname with invalid chars → error", () => {
+  const r = validateEgressExtraHosts(["UPPER.example.com"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: hostname with spaces → error", () => {
+  const r = validateEgressExtraHosts(["bad host.example.com"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
 });

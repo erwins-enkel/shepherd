@@ -27,6 +27,7 @@ import {
   validateBuildSteps,
   validateBuildStepStatus,
   validateEpicRunPatch,
+  validateEgressExtraHosts,
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
@@ -428,6 +429,7 @@ type RepoCfgBody = {
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
+  egressExtraHosts?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -448,7 +450,15 @@ type RepoCfgScalars = {
   signoffAuthority?: "human" | "critic" | "either";
   sandboxProfile?: SandboxProfile;
   defaultModel?: string;
+  egressExtraHosts?: string[];
 };
+
+/** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
+ *  return the validated host array, or a { error } object the loop turns into a 400. */
+function parseRepoEgressExtraHosts(v: unknown): unknown {
+  const r = validateEgressExtraHosts(v);
+  return r.ok ? r.value : { error: r.error };
+}
 
 // Each non-boolean field paired with its validator. A validator returns the
 // validated value, or a { error } object that becomes a 400 Response.
@@ -459,6 +469,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["signoffAuthority", parseSignoffAuthority],
   ["sandboxProfile", parseSandboxProfile],
   ["defaultModel", parseRepoDefaultModel],
+  ["egressExtraHosts", parseRepoEgressExtraHosts],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -490,6 +501,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
+      egressExtraHosts?: string[];
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -508,8 +520,15 @@ async function parseRepoConfigPatch(req: Request): Promise<
   }
   const scalars = parseRepoCfgScalars(body);
   if (scalars instanceof Response) return scalars;
-  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile, defaultModel } =
-    scalars;
+  const {
+    maxAuto,
+    autoLabel,
+    usageCeilingPct,
+    signoffAuthority,
+    sandboxProfile,
+    defaultModel,
+    egressExtraHosts,
+  } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||
@@ -517,12 +536,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
     usageCeilingPct !== undefined ||
     signoffAuthority !== undefined ||
     sandboxProfile !== undefined ||
-    defaultModel !== undefined;
+    defaultModel !== undefined ||
+    egressExtraHosts !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct",
       },
       400,
     );
@@ -541,6 +561,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority,
     sandboxProfile,
     defaultModel,
+    egressExtraHosts,
     maxAuto,
     autoLabel,
     usageCeilingPct,

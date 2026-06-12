@@ -10,8 +10,8 @@ describe("prBadgeLabel", () => {
   it("returns null for an absent entry (renders nothing)", () => {
     expect(prBadgeLabel(undefined)).toBeNull();
   });
-  it("labels state none as NO PR", () => {
-    expect(prBadgeLabel(git({ state: "none" }))).toBe("NO PR");
+  it("renders nothing (null) for state none", () => {
+    expect(prBadgeLabel(git({ state: "none" }))).toBeNull();
   });
   it("labels an open PR with its number", () => {
     expect(prBadgeLabel(git({ state: "open", number: 12 }))).toBe("PR #12");

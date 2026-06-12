@@ -519,7 +519,6 @@
   "prbadge_open": "PR #{number}",
   "prbadge_merged": "✓ GEMERGT",
   "prbadge_closed": "GESCHLOSSEN",
-  "prbadge_none": "KEIN PR",
   "prbadge_review_approved": "Reviewer hat genehmigt",
   "prbadge_review_changes": "Reviewer fordert Änderungen",
   "prbadge_review_comment": "Reviewer hat kommentiert",

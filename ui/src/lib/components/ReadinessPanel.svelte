@@ -69,6 +69,8 @@
         return m.readiness_g_agent_instructions_title();
       case "ci":
         return m.readiness_g_ci_title();
+      case "dependency_automation":
+        return m.readiness_g_dependency_automation_title();
       case "lint_staged":
         return m.readiness_g_lint_staged_title();
       case "commit_lint":
@@ -96,6 +98,8 @@
         return m.readiness_g_agent_instructions_removes();
       case "ci":
         return m.readiness_g_ci_removes();
+      case "dependency_automation":
+        return m.readiness_g_dependency_automation_removes();
       case "lint_staged":
         return m.readiness_g_lint_staged_removes();
       case "commit_lint":

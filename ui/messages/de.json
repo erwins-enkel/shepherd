@@ -1084,5 +1084,9 @@
   "feat_session_epic_badge_title": "Epics in deinen Sessions erkennen",
   "feat_session_epic_badge_body": "Eine Session, die an einem Tracking-Issue arbeitet, zeigt jetzt ein EPIC-Badge mit Live-Fortschritt der Unter-Issues — klick es an, um das Epic im Backlog zu öffnen.",
   "epic_badge_open_title": "Epic #{number}: {merged}/{total} Unteraufgaben erledigt — im Backlog öffnen",
-  "epic_badge_open_aria": "Epic #{number} im Backlog öffnen ({merged} von {total} Unteraufgaben erledigt)"
+  "epic_badge_open_aria": "Epic #{number} im Backlog öffnen ({merged} von {total} Unteraufgaben erledigt)",
+  "readiness_g_dependency_automation_title": "Abhängigkeits-Automatisierung (Dependabot/Renovate)",
+  "readiness_g_dependency_automation_removes": "Ohne sie häufen sich Abhängigkeits-Updates als manuelle Fleißarbeit an, statt als automatische PRs, die du nur noch prüfst und mergst.",
+  "feat_dependency_automation_title": "Reife-Analyse prüft Abhängigkeits-Automatisierung",
+  "feat_dependency_automation_body": "Der Backlog → Reife-Tab bewertet jetzt, ob ein Repo seine Abhängigkeiten mit Dependabot oder Renovate aktuell hält, und empfiehlt sie, wenn sie fehlt."
 }

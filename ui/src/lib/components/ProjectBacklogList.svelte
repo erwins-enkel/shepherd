@@ -41,6 +41,7 @@
 
 <div class="filter-bar">
   <div class="filter-search-wrap">
+    <span class="filter-search-icon" aria-hidden="true">⌕</span>
     <input
       class="filter-search"
       type="text"
@@ -67,24 +68,26 @@
       >
     {/if}
   </div>
-  <button
-    class="filter-chip"
-    class:active={hasIssues}
-    type="button"
-    aria-pressed={hasIssues}
-    onclick={ontoggleissues}
-  >
-    {m.backlog_filter_has_issues()}
-  </button>
-  <button
-    class="filter-chip"
-    class:active={hasPRs}
-    type="button"
-    aria-pressed={hasPRs}
-    onclick={ontoggleprs}
-  >
-    {m.backlog_filter_has_prs()}
-  </button>
+  <div class="filter-chips">
+    <button
+      class="filter-chip"
+      class:active={hasIssues}
+      type="button"
+      aria-pressed={hasIssues}
+      onclick={ontoggleissues}
+    >
+      {m.backlog_filter_has_issues()}
+    </button>
+    <button
+      class="filter-chip"
+      class:active={hasPRs}
+      type="button"
+      aria-pressed={hasPRs}
+      onclick={ontoggleprs}
+    >
+      {m.backlog_filter_has_prs()}
+    </button>
+  </div>
 </div>
 
 <!-- The parent only renders this list when there are forge repos, so an empty
@@ -126,7 +129,8 @@
     top: 0;
     z-index: 1;
     display: flex;
-    gap: 2px;
+    flex-direction: column;
+    gap: 4px;
     padding: 4px 4px 6px;
     margin-bottom: 2px;
     background: var(--color-inset);
@@ -150,10 +154,21 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
-    padding: 0 28px 0 10px;
+    padding: 0 28px 0 26px;
     min-height: 36px;
     outline: none;
     transition: border-color 0.12s;
+  }
+
+  .filter-search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    pointer-events: none;
   }
 
   .filter-search::placeholder {
@@ -183,6 +198,11 @@
 
   .filter-search-clear:hover {
     color: var(--color-ink);
+  }
+
+  .filter-chips {
+    display: flex;
+    gap: 2px;
   }
 
   .filter-chip {

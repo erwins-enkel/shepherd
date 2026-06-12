@@ -51,6 +51,7 @@ import {
   sweepEgressTmp,
   type EgressBackend,
 } from "./egress";
+import type { EgressWatcher } from "./egress-watch";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
  *  rejected/held-back PR (never merged, train never archived) can't stay
@@ -103,6 +104,8 @@ export interface ServiceDeps {
    *  so no real netns/dnsmasq stack is spawned); defaults to the cached real self-test in
    *  egress.ts. Probed only for an autonomous spawn that already has an FS backend. */
   detectEgressBackend?: () => EgressBackend;
+  /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
+  egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
 }
 
 /**
@@ -744,6 +747,8 @@ export class SessionService {
       : ({} as MembraneInputs);
 
     let wrapped: string[];
+    let egressAllowlist: string[] | undefined;
+    let egressDnsLog: string | undefined;
     if (egressOn) {
       // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
       // egress override binds (between the membrane flags and `--`), then wrap that in the
@@ -767,10 +772,20 @@ export class SessionService {
         ...innerArgv,
       ];
       wrapped = wrapEgress(bwrapArgv, tmp);
+      egressAllowlist = allowlist;
+      egressDnsLog = join(tmp, "dns.log");
     } else {
       wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
     }
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped);
+    // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
+    if (egressOn && egressAllowlist && egressDnsLog) {
+      this.deps.egressWatcher?.start(ctx.sessionId, {
+        repoPath: ctx.repoPath,
+        dnsLogPath: egressDnsLog,
+        allowlist: egressAllowlist,
+      });
+    }
     return {
       ok: true,
       terminalId: agent.terminalId,
@@ -1700,6 +1715,8 @@ export class SessionService {
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     if (s.isolated)
       this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
+    // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
+    this.deps.egressWatcher?.stop(id);
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);

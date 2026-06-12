@@ -73,6 +73,7 @@ import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import { normalizeDefaultModelSetting } from "./default-model";
+import { EgressWatcher } from "./egress-watch";
 
 const execFileAsync = promisify(execFile);
 
@@ -177,6 +178,11 @@ const previewService = new PreviewService({
   onChange: (id, previewPort) =>
     events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
 });
+const egressWatcher = new EgressWatcher({
+  addSignal: (input) => store.addSignal(input),
+  emit: (event, data) => events.emit(event, data),
+});
+
 const service = new SessionService({
   store,
   worktree,
@@ -192,6 +198,7 @@ const service = new SessionService({
   // archives before the 120s PR sweep credits it (the merge-train completion race).
   // prPoller is defined below; this closure is only invoked at runtime, after init.
   refreshPr: (id) => prPoller.pollSession(id),
+  egressWatcher,
 });
 
 const accountIndex = new AccountUsageIndex();

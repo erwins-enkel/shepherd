@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { CreateSessionInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
 import type { UsageLimits } from "../src/usage-limits";
+import type { EgressWatcher } from "../src/egress-watch";
 
 // A herdr stub that records the argv it was started with (the assertion target).
 function herdrStub(record: { argv?: string[] }) {
@@ -457,6 +458,99 @@ test("drain + autonomous repo + egress NULL → held, service.create NOT called"
   });
   await drain.pump("/repo");
   expect(createCalls).toBe(0);
+});
+
+// ── egressWatcher wiring tests ────────────────────────────────────────────────
+
+function makeWatcherStub(): Pick<EgressWatcher, "start" | "stop"> & {
+  starts: Array<{ sessionId: string; opts: Parameters<EgressWatcher["start"]>[1] }>;
+  stops: string[];
+} {
+  const starts: Array<{ sessionId: string; opts: Parameters<EgressWatcher["start"]>[1] }> = [];
+  const stops: string[] = [];
+  return {
+    starts,
+    stops,
+    start: (sessionId, opts) => starts.push({ sessionId, opts }),
+    stop: (sessionId) => stops.push(sessionId),
+  };
+}
+
+test("egressWatcher.start called on autonomous egress spawn", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+  const record: { argv?: string[] } = {};
+  const watcher = makeWatcherStub();
+  const service = new SessionService({
+    store,
+    namer: async () => "s",
+    worktree: worktreeStub(),
+    herdr: herdrStub(record),
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    egressWatcher: watcher,
+  });
+
+  const s = await service.create(baseInput({ auto: true }));
+  try {
+    expect(watcher.starts).toHaveLength(1);
+    expect(watcher.starts[0]!.sessionId).toBe(s.id);
+    expect(watcher.starts[0]!.opts.repoPath).toBe("/repo");
+    expect(watcher.starts[0]!.opts.dnsLogPath).toContain("dns.log");
+    expect(watcher.starts[0]!.opts.allowlist.length).toBeGreaterThan(0);
+  } finally {
+    rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+  }
+});
+
+test("egressWatcher.stop called on archive (before removeEgressTmp)", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+  const record: { argv?: string[] } = {};
+  const watcher = makeWatcherStub();
+  const service = new SessionService({
+    store,
+    namer: async () => "s",
+    worktree: {
+      ...worktreeStub(),
+      remove: () => {},
+    },
+    herdr: herdrStub(record),
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    egressWatcher: watcher,
+  });
+
+  const s = await service.create(baseInput({ auto: true }));
+  try {
+    service.archive(s.id);
+    expect(watcher.stops).toContain(s.id);
+  } finally {
+    // egressTmpDir already removed by archive; ignore if already gone.
+    try {
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    } catch {
+      /* already removed */
+    }
+  }
+});
+
+test("egressWatcher NOT called for trusted spawn (no egress)", async () => {
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[] } = {};
+  const watcher = makeWatcherStub();
+  const service = new SessionService({
+    store,
+    namer: async () => "s",
+    worktree: worktreeStub(),
+    herdr: herdrStub(record),
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    egressWatcher: watcher,
+  });
+
+  await service.create(baseInput()); // trusted profile → no egress
+  expect(watcher.starts).toHaveLength(0);
 });
 
 // ── local helpers ─────────────────────────────────────────────────────────────

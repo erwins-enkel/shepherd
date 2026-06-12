@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     getSettings,
     putSettings,
@@ -52,7 +52,6 @@
     { id: "device", label: m.settings_tab_device },
   ] as const;
   type TabId = (typeof TABS)[number]["id"];
-  let tab = $state<TabId>("workspace");
   let tabEls: HTMLButtonElement[] = [];
 
   function onTabKey(e: KeyboardEvent, i: number) {
@@ -75,6 +74,7 @@
     herdrUpdate = null,
     onherdrupdate,
     onwhatsnew,
+    initialTab = "workspace",
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -82,7 +82,19 @@
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
     onwhatsnew?: () => void;
+    initialTab?: TabId;
   } = $props();
+
+  // initialTab seeds the starting tab; the user then freely switches it, so we
+  // only ever read the prop once (untrack silences the initial-value warning).
+  let tab = $state<TabId>(untrack(() => initialTab));
+  let steersEl = $state<HTMLDivElement | null>(null);
+
+  onMount(() => {
+    if (initialTab === "session") {
+      requestAnimationFrame(() => steersEl?.scrollIntoView({ behavior: "auto", block: "start" }));
+    }
+  });
 
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
@@ -542,7 +554,7 @@
           <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
         {/if}
       </div>
-      <SteersEditor />
+      <div bind:this={steersEl}><SteersEditor /></div>
     </div>
 
     <div

@@ -210,6 +210,13 @@
   let composePrompt = $state<string | null>(null);
   // Seed model for the New Task dialog (Fable celebration "Try it" path); null = picker default.
   let composeModel = $state<string | null>(null);
+  // Relaunch-elsewhere: when set, the New Task dialog runs in relaunch mode and its
+  // submit routes to relaunchSession(originalId, …) instead of createSession.
+  let relaunchOriginalId = $state<string | null>(null);
+  // Seed base branch for the New Task dialog (preserved across a relaunch); null = repo default.
+  let composeBaseBranch = $state<string | null>(null);
+  // Relaunch source issue number (null = none); drives the relaunch note's cross-repo issue-drop line.
+  let relaunchIssueNumber = $state<number | null>(null);
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
@@ -798,6 +805,19 @@
     return () => clearInterval(t);
   });
 
+  // Clear ALL compose + relaunch seed state. Called on every dialog dismissal and
+  // after a successful submit so no seed (repo / issue / prompt / model / base branch /
+  // relaunch origin + issue) leaks into the next New Task open.
+  function resetCompose() {
+    composeRepoPath = null;
+    composeIssue = null;
+    composePrompt = null;
+    composeModel = null;
+    composeBaseBranch = null;
+    relaunchOriginalId = null;
+    relaunchIssueNumber = null;
+  }
+
   async function onsubmit(input: {
     repoPath: string;
     baseBranch: string;
@@ -807,12 +827,65 @@
     issueRef?: IssueRef;
     planGateEnabled: boolean;
   }) {
+    // Relaunch-elsewhere path: route to relaunchSession(originalId, overrides) instead
+    // of createSession. The server owns issue handling (cross-repo drops it + releases
+    // its claim), so we never pass issueRef. Errors THROW so NewTask renders them inline
+    // (keeps the dialog open with a Retry); success mirrors onrelaunch's toast semantics.
+    if (relaunchOriginalId !== null) {
+      const id = relaunchOriginalId;
+      let result: { session: Session; archived: boolean };
+      try {
+        result = await relaunchSession(id, {
+          repoPath: input.repoPath,
+          baseBranch: input.baseBranch,
+          prompt: input.prompt,
+          model: input.model,
+          planGateEnabled: input.planGateEnabled,
+          images: input.images,
+        });
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "in_progress")
+          throw new Error(m.relaunch_in_progress(), { cause: e });
+        if (e instanceof ApiError && e.code === "issue_unresolved")
+          throw new Error(m.relaunch_issue_unresolved(), { cause: e });
+        throw e instanceof Error ? e : new Error(m.relaunch_failed(), { cause: e });
+      }
+      selectedId = result.session.id;
+      showNew = false;
+      resetCompose();
+      if (result.archived) toasts.info(m.relaunch_done({ desig: result.session.desig }));
+      else
+        // Same persistent + assertive failure toast onrelaunch uses (deduped per id).
+        toasts.info(m.relaunch_archive_failed(), {
+          duration: null,
+          alert: true,
+          key: `relaunch-fail:${id}`,
+        });
+      return;
+    }
     const s = await createSession(input);
     selectedId = s.id;
     showNew = false;
-    composeRepoPath = null;
+    resetCompose();
+  }
+
+  // Relaunch elsewhere: open the New Task composer pre-filled from this session so the
+  // operator can pick a different repo / base branch / prompt before submitting. The
+  // submit routes through onsubmit's relaunch branch (relaunchOriginalId set).
+  function onrelaunchElsewhere(id: string) {
+    const s = store.sessions.find((x) => x.id === id);
+    if (!s) return;
+    composePrompt = s.prompt;
+    composeRepoPath = s.repoPath;
+    composeBaseBranch = s.baseBranch;
+    // null model = "claude default": map to the literal "default" so the composer's
+    // model select shows Default and submits null back (preserving the original's model
+    // exactly). `?? undefined` would wrongly fall back to the operator default.
+    composeModel = s.model ?? "default";
     composeIssue = null;
-    composePrompt = null;
+    relaunchIssueNumber = s.issueNumber;
+    relaunchOriginalId = id;
+    showNew = true;
   }
 
   function onarchive(id: string, reap?: string[]) {
@@ -1071,6 +1144,7 @@
             onpreview={openPreview}
             ondecommission={onarchive}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
@@ -1144,6 +1218,7 @@
           git={store.git}
           activity={store.activity}
           {onrelaunch}
+          {onrelaunchElsewhere}
           onselect={(id) => {
             selectedId = id;
             viewMode = "focus";
@@ -1187,6 +1262,7 @@
             onpreview={openPreview}
             ondecommission={onarchive}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
@@ -1361,23 +1437,30 @@
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
   <NewTask
     {onsubmit}
+    relaunch={relaunchOriginalId !== null}
     initialRepoPath={composeRepoPath ?? repoFilter ?? undefined}
+    initialBaseBranch={composeBaseBranch ?? undefined}
     initialIssue={composeIssue ?? undefined}
+    {relaunchIssueNumber}
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
     defaultModel={settings?.defaultModel}
     onclose={() => {
       showNew = false;
-      composeRepoPath = null;
-      composeIssue = null;
-      composePrompt = null;
-      composeModel = null;
+      resetCompose();
     }}
     onclone={() => {
+      // Clear stale relaunch/compose state before handing off to Clone: its ondone
+      // reopens NewTask, and a lingering relaunchOriginalId would wrongly put that
+      // fresh-create into relaunch mode (archiving the original session).
+      resetCompose();
       showNew = false;
       showClone = true;
     }}
     onnewproject={() => {
+      // Same as onclone: NewProject.ondone reopens NewTask, so drop any stale
+      // relaunch/compose seed first to avoid an unintended relaunch.
+      resetCompose();
       showNew = false;
       showNewProject = true;
     }}

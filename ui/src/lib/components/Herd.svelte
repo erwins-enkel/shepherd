@@ -20,6 +20,7 @@
     onpreview = undefined,
     ondecommission,
     onrelaunch = undefined,
+    onrelaunchElsewhere = undefined,
     onclearmerged = undefined,
     onmergetrain = undefined,
     issueActionsUnset = false,
@@ -52,6 +53,8 @@
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
     onrelaunch?: (id: string) => void;
+    // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
+    onrelaunchElsewhere?: (id: string) => void;
     // when provided, the merged group header gains a "clear all" action
     onclearmerged?: () => void;
     // when provided, the ready-to-merge group header gains a "merge train" action
@@ -226,6 +229,7 @@
           {onpreview}
           {ondecommission}
           {onrelaunch}
+          {onrelaunchElsewhere}
           {repoFilter}
           {onrepofilter}
           {workingBlocked}
@@ -248,6 +252,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -271,6 +276,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -294,6 +300,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -319,6 +326,7 @@
             activity={activity[session.id]}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -344,6 +352,7 @@
             activity={activity[session.id]}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -364,6 +373,7 @@
             activity={activity[session.id]}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -387,6 +397,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -410,6 +421,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -441,6 +453,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
@@ -472,6 +485,7 @@
             {onpreview}
             {ondecommission}
             {onrelaunch}
+            {onrelaunchElsewhere}
             {repoFilter}
             {onrepofilter}
             {workingBlocked}

@@ -37,6 +37,7 @@
     git,
     activity,
     onrelaunch,
+    onrelaunchElsewhere,
     workingBlocked = {},
   }: {
     session: Session;
@@ -49,6 +50,9 @@
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
     onrelaunch?: (id: string) => void;
+    // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
+    // opens the new-task composer pre-filled from this session (cross-repo relaunch)
+    onrelaunchElsewhere?: (id: string) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
   } = $props();
@@ -175,16 +179,19 @@
   // Relaunch only for an in-flight task (see canRelaunch) AND only when wired — never on
   // a concluded/merged record, where it would spawn a duplicate and tear down the row.
   const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
+  // Relaunch-elsewhere reuses the same eligibility as Relaunch, just routed to the
+  // cross-repo composer instead of the in-place two-step arm.
+  const relaunchElsewhereAble = $derived(!!onrelaunchElsewhere && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !relaunchable)) return false;
+    if (menu || (!resumable && !relaunchable && !relaunchElsewhereAble)) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !relaunchable) return; // nothing to offer → leave the native menu
+    if (!resumable && !relaunchable && !relaunchElsewhereAble) return; // nothing to offer → leave the native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -200,6 +207,10 @@
   function relaunchFromMenu() {
     menu = null;
     onrelaunch?.(session.id);
+  }
+  function relaunchElsewhereFromMenu() {
+    menu = null;
+    onrelaunchElsewhere?.(session.id);
   }
 
   // Time-breakdown popover: the .tile-hit overlay is the tile's only click/
@@ -309,6 +320,7 @@
     opener={menu.opener}
     onresume={resumeFromMenu}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
+    onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

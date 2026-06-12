@@ -13,6 +13,7 @@
     opener,
     onresume,
     onrelaunch,
+    onrelaunchElsewhere,
     ondecommission,
     onclose,
   }: {
@@ -27,6 +28,9 @@
     // when provided, a two-step armed Relaunch item appears between Resume and
     // Decommission (the parent closes over the session id, like onresume/ondecommission)
     onrelaunch?: () => void;
+    // when provided, a one-click "Relaunch elsewhere" item appears below Relaunch —
+    // no two-step arm (the composer dialog + explicit submit is the confirmation)
+    onrelaunchElsewhere?: () => void;
     ondecommission?: () => void;
     onclose: () => void;
   } = $props();
@@ -142,6 +146,17 @@
       <span class="cm-icon" aria-hidden="true">♻</span>{relaunchArmed
         ? m.cardmenu_relaunch_confirm()
         : m.cardmenu_relaunch()}
+    </button>
+  {/if}
+  {#if onrelaunchElsewhere}
+    <button
+      class="cm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onrelaunchElsewhere}
+    >
+      <span class="cm-icon" aria-hidden="true">⇄</span>{m.cardmenu_relaunch_elsewhere()}
     </button>
   {/if}
   {#if ondecommission}

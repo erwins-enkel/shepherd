@@ -31,6 +31,39 @@ const MAX_WORKFLOWS = 10;
  *  mirroring the listIssues() 200-open-issue cap. */
 const MAX_SUMMARY_PAGES = 2;
 
+/** Parse one page of the sub-issue-summary GraphQL response: record every node with
+ *  total > 0 into `into` (keyed by issue number) and return the page's cursor info. */
+function collectSubIssueSummaryPage(
+  out: string,
+  into: Map<number, { total: number; completed: number; title: string }>,
+): { hasNextPage: boolean; endCursor: string | null } {
+  const json = JSON.parse(out) as {
+    data?: {
+      repository?: {
+        issues?: {
+          pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+          nodes?: Array<{
+            number: number;
+            title: string;
+            subIssuesSummary?: { total: number; completed: number };
+          } | null>;
+        };
+      };
+    };
+  };
+  const issues = json.data?.repository?.issues;
+  for (const node of issues?.nodes ?? []) {
+    const s = node?.subIssuesSummary;
+    if (node && s && s.total > 0) {
+      into.set(node.number, { total: s.total, completed: s.completed, title: node.title });
+    }
+  }
+  return {
+    hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
+    endCursor: issues?.pageInfo?.endCursor ?? null,
+  };
+}
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -824,35 +857,10 @@ export class GithubForge implements GitForge {
           `query=${query}`,
         ];
         // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
-        if (endCursor !== null) {
-          args.push("-f", `endCursor=${endCursor}`);
-        }
-        const out = await this.run(args);
-        const json = JSON.parse(out) as {
-          data?: {
-            repository?: {
-              issues?: {
-                pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
-                nodes?: Array<{
-                  number: number;
-                  title: string;
-                  subIssuesSummary?: { total: number; completed: number };
-                } | null>;
-              };
-            };
-          };
-        };
-        const issues = json.data?.repository?.issues;
-        for (const node of issues?.nodes ?? []) {
-          if (!node) continue;
-          const s = node.subIssuesSummary;
-          if (s && s.total > 0) {
-            result.set(node.number, { total: s.total, completed: s.completed, title: node.title });
-          }
-        }
-        const pageInfo = issues?.pageInfo;
-        if (!pageInfo?.hasNextPage) break;
-        endCursor = pageInfo.endCursor ?? null;
+        if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
+        const pageInfo = collectSubIssueSummaryPage(await this.run(args), result);
+        if (!pageInfo.hasNextPage) break;
+        endCursor = pageInfo.endCursor;
       }
     } catch {
       // Best-effort; degrade to markdown-only discovery rather than failing the route.

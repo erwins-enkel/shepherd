@@ -59,7 +59,6 @@
   .pr-merged {
     color: var(--color-slate);
   }
-  .pr-none,
   .pr-closed {
     color: var(--color-faint);
   }

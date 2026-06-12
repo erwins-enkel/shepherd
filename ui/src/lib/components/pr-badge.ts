@@ -1,8 +1,9 @@
 import type { GitState } from "../types";
 import { m } from "$lib/paraglide/messages";
 
-/** Badge text for a session's PR state, or null when there is no entry to show.
- *  `none` is a real state ("NO PR"); only an absent entry renders nothing. */
+/** Badge text for a session's PR state, or null when there is nothing to show.
+ *  Both an absent entry and the `none` state render nothing; only open/merged/closed
+ *  produce a visible badge. */
 export function prBadgeLabel(git: GitState | undefined): string | null {
   if (!git) return null;
   switch (git.state) {
@@ -13,7 +14,7 @@ export function prBadgeLabel(git: GitState | undefined): string | null {
     case "closed":
       return m.prbadge_closed();
     default:
-      return m.prbadge_none();
+      return null;
   }
 }
 

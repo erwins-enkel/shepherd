@@ -130,6 +130,7 @@
   }
   let showNew = $state(false);
   let showSettings = $state(false);
+  let settingsTab = $state<"workspace" | "session" | "device">("workspace");
   let showClone = $state(false);
   let showNewProject = $state(false);
   let showBroadcast = $state(false);
@@ -1018,7 +1019,10 @@
         mobile={mobile.current}
         touch={touch.current}
         limits={store.usageLimits}
-        onsettings={() => (showSettings = true)}
+        onsettings={() => {
+          settingsTab = "workspace";
+          showSettings = true;
+        }}
         onhalt={haltHerd}
         needsYou={blockedEntries.length}
         ontriage={() => (showTriage = true)}
@@ -1070,7 +1074,10 @@
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
-            onsettings={() => (showSettings = true)}
+            onsettings={() => {
+              settingsTab = "workspace";
+              showSettings = true;
+            }}
             flow={true}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
@@ -1119,6 +1126,10 @@
             nextNeedsYou={otherNeedsYou.length}
             onnextneedsyou={jumpNextNeedsYou}
             onbroadcast={() => (showBroadcast = true)}
+            onedit={() => {
+              settingsTab = "session";
+              showSettings = true;
+            }}
           />
         </div>
       {/if}
@@ -1139,7 +1150,10 @@
           }}
           onnew={() => (showNew = true)}
           {issueActionsUnset}
-          onsettings={() => (showSettings = true)}
+          onsettings={() => {
+            settingsTab = "workspace";
+            showSettings = true;
+          }}
           workingBlocked={store.workingBlocked}
         />
       </div>
@@ -1176,7 +1190,10 @@
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
-            onsettings={() => (showSettings = true)}
+            onsettings={() => {
+              settingsTab = "workspace";
+              showSettings = true;
+            }}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             collapsible={canCollapse}
@@ -1214,6 +1231,10 @@
             {onarchive}
             workingBlocked={store.workingBlocked}
             onbroadcast={() => (showBroadcast = true)}
+            onedit={() => {
+              settingsTab = "session";
+              showSettings = true;
+            }}
           />
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>
@@ -1365,6 +1386,7 @@
 
 {#if showSettings}
   <Settings
+    initialTab={settingsTab}
     onclose={() => {
       showSettings = false;
       loadSettings();

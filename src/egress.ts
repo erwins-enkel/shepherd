@@ -12,8 +12,18 @@
  * wiring). It never spawns processes itself.
  */
 
-import { lstatSync } from "node:fs";
-import { type PathProbeDeps, safeRealpath } from "./sandbox";
+import { existsSync, lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { resolveNodeBin } from "./node-bin";
+import {
+  type BackendProbeDeps,
+  type MembraneInputs,
+  type PathProbeDeps,
+  buildMembraneFlags,
+  defaultRun,
+  safeRealpath,
+} from "./sandbox";
 import type { ForgeMap } from "./forge/types";
 
 // ── backend type ──────────────────────────────────────────────────────────────
@@ -23,6 +33,150 @@ import type { ForgeMap } from "./forge/types";
  * null = not available / disabled.
  */
 export type EgressBackend = "slirp4netns" | null;
+
+// ── backend detection ─────────────────────────────────────────────────────────
+
+/**
+ * Injectable deps for detectEgressBackend. Extends BackendProbeDeps (home,
+ * claudeDir, nodeBinReal, run, exists) so the probe membrane and egress overrides
+ * can share the same injected host fields.
+ *
+ * Also carries the EgressOverrideDeps fields (realpath, isSymlink) so the same
+ * deps object can be forwarded to egressMembraneOverrideFlags without a cast.
+ * The EgressOverrideDeps interface is defined later in this file; inlining the two
+ * optional fields here avoids a circular reference with that later type.
+ */
+export interface EgressBackendProbeDeps extends BackendProbeDeps {
+  /** realpath for /etc/resolv.conf symlink resolution (forwarded to egressMembraneOverrideFlags). */
+  realpath?: (p: string) => string;
+  /** isSymlink probe for /etc/resolv.conf (forwarded to egressMembraneOverrideFlags). */
+  isSymlink?: (p: string) => boolean;
+  /**
+   * Override for writing config files in the temp dir; default writeFileSync.
+   * Injectable so tests can skip real I/O.
+   */
+  writeFile?: (path: string, data: string) => void;
+  /**
+   * Override for mkdtempSync; default mkdtempSync from node:fs.
+   * Injectable so tests can provide a deterministic path.
+   */
+  mkdtemp?: (prefix: string) => string;
+  /**
+   * Override for rmSync (cleanup); default rmSync from node:fs.
+   */
+  rmdir?: (path: string) => void;
+  /**
+   * Override for the egress-runner.sh absolute path resolution.
+   * When provided, used directly instead of resolving relative to import.meta.dir.
+   */
+  runnerPath?: string;
+}
+
+/** Required tools for the egress firewall stack. */
+const EGRESS_REQUIRED_TOOLS = ["setpriv", "unshare", "slirp4netns", "nft", "dnsmasq"] as const;
+
+let _egressBackendCache: EgressBackend | undefined;
+
+/** Clear the per-process egress backend cache (tests). */
+export function resetEgressBackendCache(): void {
+  _egressBackendCache = undefined;
+}
+
+/**
+ * Detect the egress-firewall backend with a real per-host SELF-TEST (cached per process).
+ *
+ * Not merely checking for tool presence: the probe builds the FULL production nesting
+ * (membrane bwrap inside egress-runner.sh's netns) and runs it. Only an exit-0 proves
+ * the entire stack — userns-in-userns, nft load, dnsmasq start — actually works.
+ *
+ * Available ("slirp4netns") iff ALL required tools exist AND the full-nesting probe exits 0.
+ * Returns null on any failure, including throws (never crashes the caller).
+ */
+export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBackend {
+  if (_egressBackendCache !== undefined) return _egressBackendCache;
+
+  const run = deps.run ?? defaultRun;
+  const exists = deps.exists ?? existsSync;
+  const cleanupFn =
+    deps.rmdir ??
+    ((p: string) => {
+      try {
+        rmSync(p, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    });
+
+  let tmpDir: string | undefined;
+  try {
+    // 1. Cheap presence gate: all required tools must be runnable.
+    for (const tool of EGRESS_REQUIRED_TOOLS) {
+      if (run(tool, ["--version"]).status !== 0) {
+        _egressBackendCache = null;
+        return _egressBackendCache;
+      }
+    }
+
+    // 2. Resolve the egress-runner.sh absolute path.
+    let runnerPath: string;
+    if (deps.runnerPath !== undefined) {
+      runnerPath = deps.runnerPath;
+    } else {
+      // import.meta.dir is the directory of this file (src/); go up one level to repo root.
+      const repoRoot = resolve(import.meta.dir, "..");
+      runnerPath = join(repoRoot, "scripts", "egress-runner.sh");
+    }
+
+    if (!exists(runnerPath)) {
+      _egressBackendCache = null;
+      return _egressBackendCache;
+    }
+
+    // 3. Full-nesting self-test.
+    const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
+    const mkdtemp = deps.mkdtemp ?? ((prefix: string) => mkdtempSync(prefix));
+
+    tmpDir = mkdtemp(join(tmpdir(), "shepherd-egress-probe-"));
+
+    // Build config artefacts for the probe.
+    const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir });
+    writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset);
+    writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
+    writeFile(join(tmpDir, "resolv.conf"), cfg.resolvConf);
+    writeFile(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf);
+
+    // Build the probe membrane (mirrors sandbox.ts detectBackend).
+    const home = deps.home ?? process.env.HOME ?? "/root";
+    const claudeDir = deps.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? `${home}/.claude`;
+    const nodeBinReal = deps.nodeBinReal ?? safeRealpath(resolveNodeBin());
+    const probeDir = tmpDir;
+
+    const probeMembrane: MembraneInputs = {
+      worktreePath: probeDir,
+      gitCommonDir: probeDir,
+      isolated: false,
+      repoPath: probeDir,
+      claudeDir,
+      home,
+      nodeBinReal,
+    };
+
+    // Inner argv: bwrap <membrane flags> <egress override flags> -- /bin/sh -c "exit 0"
+    // This exercises userns-in-userns + egress override binds; exit 0 proves the stack.
+    const membraneFlags = buildMembraneFlags(probeMembrane, deps);
+    const overrideFlags = egressMembraneOverrideFlags(tmpDir, deps);
+    const inner = ["bwrap", ...membraneFlags, ...overrideFlags, "--", "/bin/sh", "-c", "exit 0"];
+
+    const probe = run(runnerPath, ["--tmp", tmpDir, "--", ...inner]);
+    _egressBackendCache = probe.status === 0 ? "slirp4netns" : null;
+    return _egressBackendCache;
+  } catch {
+    _egressBackendCache = null;
+    return _egressBackendCache;
+  } finally {
+    if (tmpDir !== undefined) cleanupFn(tmpDir);
+  }
+}
 
 // ── Anthropic base set ────────────────────────────────────────────────────────
 

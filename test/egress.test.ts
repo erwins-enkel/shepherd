@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import {
   ANTHROPIC_EGRESS_HOSTS,
   GITHUB_EGRESS_HOSTS,
@@ -6,7 +6,10 @@ import {
   hostMatchesAllowlist,
   buildEgressConfig,
   egressMembraneOverrideFlags,
+  detectEgressBackend,
+  resetEgressBackendCache,
   type EgressConfig,
+  type EgressBackendProbeDeps,
 } from "../src/egress";
 import type { ForgeMap } from "../src/forge/types";
 
@@ -465,5 +468,322 @@ describe("egressMembraneOverrideFlags", () => {
       },
     });
     expect(realpathCalls).toBe(1);
+  });
+});
+
+// ── detectEgressBackend ──────────────────────────────────────────────────────
+
+describe("detectEgressBackend", () => {
+  // Stable probe dir used by all injected mkdtemp.
+  const PROBE_TMP = "/tmp/shepherd-egress-probe-test";
+  // Fake runner path that "exists".
+  const FAKE_RUNNER = "/fake/scripts/egress-runner.sh";
+
+  /** Build a spy-tracking run function. Calls is an array of [cmd, args[]] pairs. */
+  function makeRunSpy(
+    exitMap: Record<string, number> = {},
+    defaultStatus = 0,
+  ): { run: (cmd: string, args: string[]) => { status: number }; calls: [string, string[]][] } {
+    const calls: [string, string[]][] = [];
+    const run = (cmd: string, args: string[]): { status: number } => {
+      calls.push([cmd, [...args]]);
+      const status = cmd in exitMap ? (exitMap[cmd] ?? defaultStatus) : defaultStatus;
+      return { status };
+    };
+    return { run, calls };
+  }
+
+  /** Minimal passing deps: all tools present, runner returns 0. */
+  function passingDeps(runnerExitStatus = 0): EgressBackendProbeDeps {
+    const { run } = makeRunSpy({ [FAKE_RUNNER]: runnerExitStatus });
+    return {
+      run,
+      exists: (p: string) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p: string) => p,
+    };
+  }
+
+  beforeEach(() => {
+    resetEgressBackendCache();
+  });
+
+  test("returns 'slirp4netns' when all tools present and runner exits 0", () => {
+    const result = detectEgressBackend(passingDeps(0));
+    expect(result).toBe("slirp4netns");
+  });
+
+  test("returns null when a required tool fails --version", () => {
+    // Make 'nft' fail --version; runner should NEVER be called.
+    const runnerCalls: string[] = [];
+    let mkdtempCalls = 0;
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd, args) => {
+        if (cmd === FAKE_RUNNER) runnerCalls.push(cmd);
+        // nft --version returns 1
+        if (cmd === "nft" && args[0] === "--version") return { status: 1 };
+        return { status: 0 };
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => {
+        mkdtempCalls++;
+        return PROBE_TMP;
+      },
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+    const result = detectEgressBackend(deps);
+    expect(result).toBe(null);
+    // Runner must never be invoked when the presence gate fails.
+    expect(runnerCalls).toHaveLength(0);
+    // Expensive probe (mkdtemp) must be skipped entirely.
+    expect(mkdtempCalls).toBe(0);
+  });
+
+  test("run throws during --version presence gate: returns null, does not throw, runner never invoked", () => {
+    // C2: injected run throws (not returns {status:nonzero}) during tool --version probe.
+    let runnerInvoked = false;
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd) => {
+        if (cmd === FAKE_RUNNER) {
+          runnerInvoked = true;
+          return { status: 0 };
+        }
+        // throws during the first --version probe
+        throw new Error("spawn ENOENT");
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+    expect(() => detectEgressBackend(deps)).not.toThrow();
+    expect(detectEgressBackend(deps)).toBe(null);
+    expect(runnerInvoked).toBe(false);
+  });
+
+  test("returns null when runner exits nonzero", () => {
+    const result = detectEgressBackend(passingDeps(1));
+    expect(result).toBe(null);
+  });
+
+  test("returns null when runner script does not exist", () => {
+    const runnerCalls: string[] = [];
+    let mkdtempCalls = 0;
+    const deps: EgressBackendProbeDeps = {
+      ...passingDeps(0),
+      exists: () => false, // runner not found
+      run: (cmd) => {
+        if (cmd === FAKE_RUNNER) runnerCalls.push(cmd);
+        return { status: 0 };
+      },
+      mkdtemp: () => {
+        mkdtempCalls++;
+        return PROBE_TMP;
+      },
+    };
+    const result = detectEgressBackend(deps);
+    expect(result).toBe(null);
+    expect(runnerCalls).toHaveLength(0);
+    // Expensive probe (mkdtemp) must be skipped when runner is absent.
+    expect(mkdtempCalls).toBe(0);
+  });
+
+  test("caches result: second call does not re-run anything", () => {
+    const { run, calls } = makeRunSpy({ [FAKE_RUNNER]: 0 });
+    const deps: EgressBackendProbeDeps = {
+      run,
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+
+    const first = detectEgressBackend(deps);
+    const callsAfterFirst = calls.length;
+    const second = detectEgressBackend(deps);
+
+    expect(first).toBe("slirp4netns");
+    expect(second).toBe("slirp4netns");
+    // No additional calls on the second invocation.
+    expect(calls.length).toBe(callsAfterFirst);
+  });
+
+  test("resetEgressBackendCache forces a re-probe", () => {
+    const { run, calls } = makeRunSpy({ [FAKE_RUNNER]: 0 });
+    const deps: EgressBackendProbeDeps = {
+      run,
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+
+    detectEgressBackend(deps);
+    const callsAfterFirst = calls.length;
+
+    resetEgressBackendCache();
+    detectEgressBackend(deps);
+    const callsAfterSecond = calls.length;
+
+    // After reset, the probe must have re-run (more calls total).
+    expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
+  });
+
+  test("runner invoked as: <runner> --tmp <dir> -- bwrap <flags> -- /bin/sh -c exit 0", () => {
+    const runnerArgvCapture: { cmd: string; args: string[] }[] = [];
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd, args) => {
+        if (cmd === FAKE_RUNNER) runnerArgvCapture.push({ cmd, args: [...args] });
+        return { status: 0 };
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+
+    detectEgressBackend(deps);
+
+    expect(runnerArgvCapture).toHaveLength(1);
+    const captured = runnerArgvCapture[0];
+    if (!captured) throw new Error("runner was not invoked");
+    const { args } = captured;
+
+    // First two args: --tmp <probeDir>
+    expect(args[0]).toBe("--tmp");
+    expect(args[1]).toBe(PROBE_TMP);
+    // Third arg: --
+    expect(args[2]).toBe("--");
+    // Inner argv starts with bwrap
+    expect(args[3]).toBe("bwrap");
+
+    // Inner argv must contain the egress override flags:
+    // --ro-bind <tmpDir>/nsswitch.conf /etc/nsswitch.conf
+    // --ro-bind <tmpDir>/resolv.conf /etc/resolv.conf
+    expect(args).toContain(`${PROBE_TMP}/nsswitch.conf`);
+    expect(args).toContain(`${PROBE_TMP}/resolv.conf`);
+
+    // Tail: -- /bin/sh -c exit 0
+    const lastFour = args.slice(-4);
+    expect(lastFour).toEqual(["--", "/bin/sh", "-c", "exit 0"]);
+  });
+
+  test("runner is never called when missing tool causes early return", () => {
+    const runCalls: string[] = [];
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd) => {
+        runCalls.push(cmd);
+        // slirp4netns missing
+        if (cmd === "slirp4netns") return { status: 127 };
+        return { status: 0 };
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+    detectEgressBackend(deps);
+    expect(runCalls).not.toContain(FAKE_RUNNER);
+  });
+
+  test("handles thrown exceptions from run gracefully (returns null)", () => {
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd) => {
+        if (cmd === FAKE_RUNNER) throw new Error("unexpected spawn failure");
+        return { status: 0 };
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+    expect(() => detectEgressBackend(deps)).not.toThrow();
+    expect(detectEgressBackend(deps)).toBe(null);
+  });
+
+  test("rmdir is always called (cleanup even on runner failure)", () => {
+    let cleaned = false;
+    const deps: EgressBackendProbeDeps = {
+      ...passingDeps(1), // runner fails
+      rmdir: () => {
+        cleaned = true;
+      },
+    };
+    detectEgressBackend(deps);
+    expect(cleaned).toBe(true);
+  });
+
+  test("rmdir called even when runner throws", () => {
+    let cleaned = false;
+    const deps: EgressBackendProbeDeps = {
+      run: (cmd) => {
+        if (cmd === FAKE_RUNNER) throw new Error("crash");
+        return { status: 0 };
+      },
+      exists: (p) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {
+        cleaned = true;
+      },
+      isSymlink: () => false,
+      realpath: (p) => p,
+    };
+    detectEgressBackend(deps);
+    expect(cleaned).toBe(true);
   });
 });

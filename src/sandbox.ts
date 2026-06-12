@@ -76,7 +76,7 @@ export interface BackendProbeDeps extends PathProbeDeps {
 }
 
 /** Default `run`: spawn via the regression-guarded wrapper, mapping to {status}. */
-function defaultRun(cmd: string, args: string[]): { status: number } {
+export function defaultRun(cmd: string, args: string[]): { status: number } {
   try {
     execFileSync(cmd, args, { stdio: "ignore" });
     return { status: 0 };

@@ -9,7 +9,7 @@
     issueNumber,
     onepic,
   }: {
-    summary: EpicSummary;
+    summary?: EpicSummary;
     live?: Epic;
     repoPath: string;
     issueNumber: number;
@@ -17,13 +17,17 @@
   } = $props();
 
   // Prefer the WS-live Epic over the cached summary, mirroring IssuesPanel.epicFor().
+  // The header reuses this badge with `live` only (no summary); fall back to zero
+  // counts when neither is present (not expected in practice, kept safe).
   const counts = $derived(
     live
       ? {
           total: live.children.length,
           merged: live.children.filter((c) => c.state === "merged").length,
         }
-      : { total: summary.total, merged: summary.merged },
+      : summary
+        ? { total: summary.total, merged: summary.merged }
+        : { total: 0, merged: 0 },
   );
 
   // Progress meter width — derived from merged/total, never hardcoded. Guard divide-by-zero.

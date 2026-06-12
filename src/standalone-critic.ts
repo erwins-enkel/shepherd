@@ -426,9 +426,13 @@ export class StandalonePrCriticService {
         );
       }
 
-      if (forge && state === "open") {
+      if (forge && state === "open" && verdict.decision !== "error") {
         // COMMENT only — never REQUEST_CHANGES on a session-less third-party PR. Post even when
-        // findings are empty: a visible "the critic looked at this" signal.
+        // findings are empty (a clean "comment" verdict): a visible "the critic looked at this"
+        // signal. EXCEPT an error verdict (timeout / unparseable run) — it has no real content
+        // (body:""), so posting would leave a contentless comment on a third-party PR. Mirror
+        // ReviewService, which emits nothing on error verdicts; the dedup row + usage capture
+        // below still run, and shouldSkipForPatchId re-reviews the same diff next push.
         try {
           await forge.postReview(f.prNumber, {
             event: "COMMENT",
@@ -452,7 +456,7 @@ export class StandalonePrCriticService {
           );
         }
       }
-      // else: closed-unmerged / clean-merged / unconfirmable → silent.
+      // else: error verdict / closed-unmerged / clean-merged / unconfirmable → silent.
 
       // Persist the (repoPath, prNumber) dedup row. reviewedPatchIds mirrors ReviewService:
       // a CLEAN verdict (no findings) RESETS the set to [] (so a later revert to an earlier

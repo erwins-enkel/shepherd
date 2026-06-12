@@ -445,6 +445,9 @@ test("error verdict: persists decision=error; a new push with the same diff re-r
   // dedup row must carry decision:"error"
   expect(spies.puts).toHaveLength(1);
   expect(spies.puts[0]!.decision).toBe("error");
+  // ...and NOTHING is posted: an error verdict (body:"") on an OPEN PR must not leave a
+  // contentless review comment on a third-party PR. Mirrors ReviewService (posts nothing on error).
+  expect(spies.posted).toHaveLength(0);
   // New push (different headSha, same diff patch-id). A non-error prior with patchId="p1" would
   // be skipped by shouldSkipForPatchId; an error prior is NEVER skipped by the patch-id gate.
   const newHead = pr({ headSha: "newpush123" });

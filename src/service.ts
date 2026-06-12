@@ -145,7 +145,9 @@ export function resetPluginIdsCacheForTests(): void {
  * autonomous coding agent has no business reaching the operator's personal Gmail/Notion.
  * Unconditional and not opt-out'able by design; the overlay `env` merges key-by-key over the
  * user's settings so the rest of their env is untouched. (Reviewer/critic/plan-gate spawns don't
- * use this overlay — they run `--safe-mode`, which already disables ALL MCP.)
+ * use this overlay — they run `--safe-mode`, which disables file/plugin MCP *loading* + other
+ * customizations, plus `enableAllProjectMcpServers` in their own `--settings` to clear Claude's
+ * interactive project-.mcp.json approval gate; see readonlyReviewerArgv.)
  *
  * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
  * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin

@@ -162,6 +162,7 @@
       {/if}
       {#each visibleIssues as issue (issue.number)}
         {@const epicSummary = epicByNumber.get(issue.number)}
+        {@const isEpicParent = !!epicSummary}
         {@const isExpanded = expanded.has(issue.number)}
         <div class="issue-row" id={`epic-issue-row-${issue.number}`}>
           <div class="issue-top">
@@ -238,8 +239,12 @@
             {/if}
             <button
               class="task-btn has-emoji"
+              disabled={isEpicParent}
               onclick={() => onnewtask(issue)}
-              aria-label={m.issuespanel_task_button()}
+              title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : undefined}
+              aria-label={isEpicParent
+                ? m.issuespanel_task_button_epic_disabled()
+                : m.issuespanel_task_button()}
               ><span class="act-emoji" aria-hidden="true">+</span><span class="act-label"
                 >{m.issuespanel_task_button()}</span
               ></button
@@ -472,9 +477,16 @@
       color 0.12s;
   }
 
-  .task-btn:hover {
+  .task-btn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+
+  /* Epic-parent rows disable +Task: an epic is launched via the epic panel's Start,
+     not by spawning a manual task against the parent tracking issue (footgun). */
+  .task-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .muted {

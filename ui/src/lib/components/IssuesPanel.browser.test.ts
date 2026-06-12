@@ -95,6 +95,28 @@ describe("IssuesPanel epic badge", () => {
     expect(badge).not.toBeNull();
     expect(badge!.textContent?.trim()).toBe(expectedText);
   });
+
+  it("disables the +Task button on an epic-parent row, enables it on a normal one", async () => {
+    seed([issue(30, "Epic parent"), issue(31, "Plain issue")], [epic(30, 1, 2, "markdown")]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // Wait until both rows have rendered their +Task buttons.
+    await expect.poll(() => document.querySelectorAll(".task-btn").length).toBe(2);
+
+    const rows = document.querySelectorAll(".issue-row");
+    const taskBtn = (row: Element) => row.querySelector(".task-btn") as HTMLButtonElement;
+
+    // Row order mirrors the seeded issue order: 30 (epic parent) then 31 (plain).
+    const epicTask = taskBtn(rows[0]);
+    const plainTask = taskBtn(rows[1]);
+
+    expect(epicTask.disabled).toBe(true);
+    expect(epicTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button_epic_disabled());
+    expect(epicTask.getAttribute("title")).toBe(m.issuespanel_task_button_epic_disabled());
+
+    expect(plainTask.disabled).toBe(false);
+    expect(plainTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button());
+  });
 });
 
 describe("IssuesPanel expandEpic", () => {

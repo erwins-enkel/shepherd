@@ -241,6 +241,7 @@
   "issuespanel_no_host": "no git host configured for this repo",
   "issuespanel_open_on_github": "open on GitHub",
   "issuespanel_task_button": "Task",
+  "issuespanel_task_button_epic_disabled": "Epics launch via Start — open the epic, not a task.",
   "issuespanel_active_label_title": "Claimed by an active Shepherd agent; this issue is already being worked on",
   "issuespanel_filter_placeholder": "search issues…",
   "issuespanel_no_match": "no issues match the search",

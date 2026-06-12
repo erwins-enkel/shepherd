@@ -67,6 +67,7 @@
     onnextneedsyou,
     nextNeedsYou = 0,
     onbroadcast,
+    onedit,
     mobile = false,
     touch = false,
     queue = [],
@@ -94,6 +95,7 @@
     /** How many *other* sessions are waiting on the operator; gates the button. */
     nextNeedsYou?: number;
     onbroadcast?: () => void;
+    onedit?: () => void;
     mobile?: boolean;
     touch?: boolean;
     // ordered ids of sessions currently waiting on the operator ("needs you"),
@@ -2269,7 +2271,11 @@
   </div>
 
   {#if tab === "term"}
-    <SteerBar focusedId={session.id} onbroadcast={() => onbroadcast?.()} />
+    <SteerBar
+      focusedId={session.id}
+      onbroadcast={() => onbroadcast?.()}
+      onedit={() => onedit?.()}
+    />
   {/if}
 
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the

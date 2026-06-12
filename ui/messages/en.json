@@ -626,6 +626,7 @@
   "steerbar_labels_show": "Show button labels",
   "steerbar_labels_hide": "Show icons only",
   "steerbar_labels_aria": "ABC: {action}",
+  "steerbar_edit": "Edit steers",
   "steerseditor_title": "Saved Steers",
   "steerseditor_label_placeholder": "label",
   "steerseditor_text_placeholder": "prompt text",
@@ -1016,5 +1017,7 @@
   "feat_redraw_menu_title": "Terminal redraw menu",
   "feat_redraw_menu_body": "Terminal history squished after viewing a session from a narrower device? The new ↔ Redraw button in the session header offers four repair variants to try, from a gentle resize nudge to a full claude --resume re-render.",
   "feat_backlog_repo_search_title": "Search the backlog repo list",
-  "feat_backlog_repo_search_body": "Type in the new filter input at the top of the backlog repo list to narrow repos by name; combines with the Has issues / Has PRs chips."
+  "feat_backlog_repo_search_body": "Type in the new filter input at the top of the backlog repo list to narrow repos by name; combines with the Has issues / Has PRs chips.",
+  "feat_steerbar_edit_title": "Edit steers from the bar",
+  "feat_steerbar_edit_body": "When the steer bar isn't crowded, a pencil button sits at its right edge — tap it to jump straight into the steers editor."
 }

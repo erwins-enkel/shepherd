@@ -1,7 +1,7 @@
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
-import type { GitForge, GitState } from "./forge/types";
+import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
@@ -587,22 +587,44 @@ export class ReviewService {
   }
 
   /**
-   * Emit a real verdict's outward effects — post the review, steer findings to the agent,
-   * record the critic signal — but ONLY if the PR is still open. Critic spawn and PR merge
-   * both fire on CI-green, so they race by construction: the critic can finish AFTER the PR
-   * merged/closed, at which point the verdict is moot. Live fetch (not the cached snapshot —
-   * the 120s poll can lag the merge). Fail-closed: if we can't confirm "open" (no forge /
-   * forge throws) we emit nothing. The verdict row itself is still persisted by the caller.
+   * Emit a real verdict's outward effects, branching on the PR's LIVE state. Critic spawn and
+   * PR merge both fire on CI-green, so they race by construction: the critic can finish AFTER
+   * the PR merged/closed. Live fetch (not the cached snapshot — the 120s poll can lag the merge).
+   *  - open   → full effects: post the review, steer findings to the agent, record the critic
+   *             signal, set finalRoundPending. (Unchanged.)
+   *  - merged → the critic lost the race. We can't request-changes on a merged PR, so when there
+   *             are findings we record them as a best-effort post-merge ISSUE COMMENT (for a
+   *             human follow-up), then RETURN — no auto-address / signal (the merge is done;
+   *             steering findings about merged code is noise). A clean verdict stays silent.
+   *  - closed (unmerged) → moot (the code won't land) → stay silent.
+   * Fail-closed: if we can't confirm the state (no forge / forge throws / unexpected state) we
+   * emit nothing. The verdict row itself is still persisted by the caller.
    */
   private async publishVerdict(f: InFlight, verdict: ReviewVerdict): Promise<void> {
     const forge = this.deps.resolveForge(f.repoPath);
-    let open = false;
+    let state: PrStatus["state"] | undefined;
     try {
-      open = (await forge?.prStatus(f.branch))?.state === "open";
+      state = (await forge?.prStatus(f.branch))?.state;
     } catch (err) {
       console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
     }
-    if (!open || !forge) return; // not open (or unconfirmable) → moot, emit nothing
+    if (!forge) return; // no forge → can't confirm anything, emit nothing
+    if (state === "merged") {
+      // Critic finished after the PR merged: record findings (if any) as a post-merge comment so
+      // they aren't silently dropped, then stop — there's no merge left to gate (#596 gap a).
+      if (verdict.findings.length > 0 && forge.comment) {
+        try {
+          await forge.comment(
+            f.prNumber,
+            `_Critic review completed after this PR merged — recording the findings here for a follow-up._\n\n${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+          );
+        } catch (err) {
+          console.warn(`[review] post-merge comment failed for ${f.sessionId}:`, err);
+        }
+      }
+      return; // no auto-address / signal: the PR is gone, addressRound/finalRoundPending keep their buildVerdict defaults
+    }
+    if (state !== "open") return; // closed-unmerged (or unconfirmable) → moot, emit nothing
     try {
       const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
       const { url } = await forge.postReview(f.prNumber, {

@@ -58,8 +58,9 @@ function fakeForge(
   comments: PrComment[],
   commentCalls: number[],
   prStatus: () => Promise<PrStatus> = async () => OPEN_GREEN as PrStatus,
+  postedComments?: { n: number; body: string }[], // when provided, forge exposes a comment() spy
 ): GitForge {
-  return {
+  const forge: GitForge = {
     kind: "github",
     slug: "o/r",
     mergeMethod: "squash",
@@ -81,6 +82,12 @@ function fakeForge(
     },
     defaultBranch: async () => "main",
   };
+  if (postedComments) {
+    forge.comment = async (n, body) => {
+      postedComments.push({ n, body });
+    };
+  }
+  return forge;
 }
 
 function makeDeps(
@@ -90,6 +97,7 @@ function makeDeps(
     autoAddressReturns?: boolean;
     comments?: PrComment[];
     prStatus?: () => Promise<PrStatus>;
+    noCommentApi?: boolean; // when true the fake forge omits comment() (non-GitHub host)
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -100,6 +108,7 @@ function makeDeps(
   const steers: { id: string; text: string }[] = [];
   const signals: { kind: string; payload: string }[] = [];
   const commentCalls: number[] = []; // prNumbers passed to listPrComments
+  const postedComments: { n: number; body: string }[] = []; // forge.comment() calls (post-merge critic)
   const recordedSpawns: any[] = []; // recordReviewerSpawn calls
   const completedSpawns: any[] = []; // completeReviewerSpawn calls
   const rec: { event?: string; body?: string } = {};
@@ -138,7 +147,14 @@ function makeDeps(
       createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
       remove: (p: string) => removed.push(p),
     },
-    resolveForge: () => fakeForge(rec, opts.comments ?? [], commentCalls, opts.prStatus),
+    resolveForge: () =>
+      fakeForge(
+        rec,
+        opts.comments ?? [],
+        commentCalls,
+        opts.prStatus,
+        opts.noCommentApi ? undefined : postedComments,
+      ),
     onChange: () => {},
     autoAddress: (id: string, text: string) => {
       steers.push({ id, text });
@@ -158,6 +174,7 @@ function makeDeps(
     steers,
     signals,
     commentCalls,
+    postedComments,
     recordedSpawns,
     completedSpawns,
     rec,
@@ -963,13 +980,14 @@ test("round cap reached: holds the round, posts the review + signal, does not st
   expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human/learnings
 });
 
-test("PR merged before finalize: verdict is moot — no review posted, no steer, no signal", async () => {
+test("PR merged before finalize (findings): post-merge comment, no review/steer/signal (#596 gap a)", async () => {
   const {
     deps: d,
     reviews,
     steers,
     signals,
     rec,
+    postedComments,
   } = makeDeps(
     {
       readVerdict: () => ({
@@ -984,12 +1002,66 @@ test("PR merged before finalize: verdict is moot — no review posted, no steer,
   );
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
-  await svc.tick(); // finalize: live recheck sees "merged" → fully inert
+  await svc.tick(); // finalize: live recheck sees "merged" → record findings as a comment
+  // critic lost the race → findings recorded as a post-merge ISSUE COMMENT (can't request-changes)
+  expect(postedComments).toHaveLength(1);
+  expect(postedComments[0]!.n).toBe(7); // f.prNumber
+  expect(postedComments[0]!.body).toContain("b"); // verdict body
+  expect(postedComments[0]!.body).toContain(CRITIC_REVIEW_MARKER); // marked as a critic review
+  expect(postedComments[0]!.body).toContain("merged"); // explains why findings arrive post-merge
+  // …but nothing that gates/steers a merge that already happened
+  expect(rec.event).toBeUndefined(); // no PR review posted on a merged PR
   expect(steers).toHaveLength(0); // no churn steered onto a merged branch
-  expect(rec.event).toBeUndefined(); // moot: no review posted on a merged PR
   expect(signals.some((s) => s.kind === "critic")).toBe(false); // and no learnings signal
   expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted (UI/dedup)
   expect(reviews["s1"]?.addressRound).toBe(0); // no steer round
+});
+
+test("PR merged before finalize (clean verdict): silent — nothing posted (#596 gap a)", async () => {
+  const {
+    deps: d,
+    steers,
+    rec,
+    postedComments,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "comment", summary: "lgtm", body: "b", findings: [] }) },
+    { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "merged" }) },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(postedComments).toHaveLength(0); // clean verdict → nothing to record post-merge
+  expect(rec.event).toBeUndefined();
+  expect(steers).toHaveLength(0);
+});
+
+test("PR merged before finalize but host lacks comment(): best-effort, no throw (#596 gap a)", async () => {
+  const {
+    deps: d,
+    steers,
+    rec,
+    postedComments,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["fix x"],
+      }),
+    },
+    {
+      autoAddressEnabled: true,
+      prStatus: async () => ({ ...OPEN_GREEN, state: "merged" }),
+      noCommentApi: true, // non-GitHub host: no comment API
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick(); // must NOT reject when the host can't post comments
+  expect(postedComments).toHaveLength(0); // nothing posted (host has no comment API)
+  expect(rec.event).toBeUndefined();
+  expect(steers).toHaveLength(0);
 });
 
 test("PR-state recheck throws: fail-closed — fully inert", async () => {
@@ -1020,6 +1092,7 @@ test("PR closed (not merged) before finalize: also fully inert", async () => {
     deps: d,
     steers,
     rec,
+    postedComments,
   } = makeDeps(
     { readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }) },
     { autoAddressEnabled: true, prStatus: async () => ({ ...OPEN_GREEN, state: "closed" }) },
@@ -1029,6 +1102,7 @@ test("PR closed (not merged) before finalize: also fully inert", async () => {
   await svc.tick();
   expect(steers).toHaveLength(0); // guard is state !== "open", not just merged
   expect(rec.event).toBeUndefined(); // closed PR → review not posted
+  expect(postedComments).toHaveLength(0); // closed-unmerged → moot, no post-merge comment either
 });
 
 test("advancing into the cap marks the final round pending (not yet stalled)", async () => {

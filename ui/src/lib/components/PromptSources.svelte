@@ -213,6 +213,7 @@
               <span class="row-text">{i.title}</span>
               <span class="chips">
                 <span class="chip chip-epic">{m.promptsources_epic_tag()}</span>
+                {@render labelChips(ordered)}
               </span>
             </div>
           {:else}
@@ -220,21 +221,7 @@
               <span class="issue-num">#{i.number}</span>
               <span class="row-text">{i.title}</span>
               {#if ordered.length > 0}
-                <span class="chips">
-                  {#each ordered.slice(0, 3) as lbl (lbl)}
-                    <span
-                      class="chip"
-                      class:active={lbl === ACTIVE_LABEL}
-                      title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
-                      >{lbl}</span
-                    >
-                  {/each}
-                  {#if ordered.length > 3}
-                    <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
-                      {m.promptsources_more_labels({ count: ordered.length - 3 })}
-                    </span>
-                  {/if}
-                </span>
+                <span class="chips">{@render labelChips(ordered)}</span>
               {/if}
             </button>
           {/if}
@@ -243,6 +230,21 @@
     {/if}
   </div>
 </div>
+
+{#snippet labelChips(ordered: string[])}
+  {#each ordered.slice(0, 3) as lbl (lbl)}
+    <span
+      class="chip"
+      class:active={lbl === ACTIVE_LABEL}
+      title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}>{lbl}</span
+    >
+  {/each}
+  {#if ordered.length > 3}
+    <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
+      {m.promptsources_more_labels({ count: ordered.length - 3 })}
+    </span>
+  {/if}
+{/snippet}
 
 <style>
   .ps-wrap {

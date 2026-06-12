@@ -84,13 +84,13 @@ describe("NewTask initialImages seed", () => {
 });
 
 describe("NewTask issue picker epic-parent rows", () => {
-  function issue(number: number, title: string): Issue {
+  function issue(number: number, title: string, labels: string[] = []): Issue {
     return {
       number,
       title,
       body: "",
       url: `https://example.com/i/${number}`,
-      labels: [],
+      labels,
       createdAt: 0,
     };
   }
@@ -98,7 +98,7 @@ describe("NewTask issue picker epic-parent rows", () => {
   it("renders the epic-parent row non-selectable and the normal row selectable", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",
-      issues: [issue(30, "Epic parent"), issue(31, "Plain issue")],
+      issues: [issue(30, "Epic parent", ["shepherd:active"]), issue(31, "Plain issue")],
     });
     mockGetEpics.mockResolvedValue([
       {
@@ -132,6 +132,15 @@ describe("NewTask issue picker epic-parent rows", () => {
     expect(epicRow.tagName).not.toBe("BUTTON");
     expect(epicRow.getAttribute("aria-disabled")).toBe("true");
     expect(epicRow.textContent).toContain(m.promptsources_epic_tag());
+
+    // The epic row keeps the issue's normal label chips ALONGSIDE the EPIC tag:
+    // the EPIC chip and the "shepherd:active" highlight chip both render.
+    expect(epicRow.querySelector(".chip-epic")?.textContent).toBe(m.promptsources_epic_tag());
+    const epicLabelChips = Array.from(
+      epicRow.querySelectorAll<HTMLElement>(".chip:not(.chip-epic)"),
+    );
+    expect(epicLabelChips.map((c) => c.textContent?.trim())).toContain("shepherd:active");
+    expect(epicLabelChips.some((c) => c.classList.contains("active"))).toBe(true);
 
     // Clicking it does NOT seed the prompt (no pick handler fires).
     const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;

@@ -78,6 +78,8 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
         { name: "build", state: "success", url: "https://git.example.com/build" },
         { name: "test", state: "success", url: undefined },
       ],
+      headSha: "deadbeef",
+      headRefName: "feature",
     },
   ]);
   // list call + default-branch call + one commit-status call

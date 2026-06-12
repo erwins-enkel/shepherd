@@ -1628,31 +1628,26 @@
       {/if}
     </span>
   {/snippet}
-  {#snippet renameControl()}
-    {#if renaming}
-      <span class="rename-edit">
-        <input
-          bind:this={renameInput}
-          class="rename-input"
-          class:err={renameError}
-          bind:value={renameDraft}
-          placeholder={m.viewport_rename_placeholder()}
-          aria-label={m.viewport_rename_aria()}
-          onkeydown={onRenameKey}
-          onblur={commitRename}
-        />
-        {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
-      </span>
-    {:else}
-      <button
-        class="rename-btn"
-        type="button"
-        onclick={startRename}
-        title={m.viewport_rename_aria()}
-        aria-label={m.viewport_rename_aria()}>✎</button
-      >
-      {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
-    {/if}
+  <!-- rename is a double-tap/dblclick on the title itself: the input takes the
+       title's own slot in place (see desig/ctx-name below), so there is no
+       separate field or pencil button. -->
+  {#snippet renameField()}
+    <span class="rename-edit">
+      <input
+        bind:this={renameInput}
+        class="rename-input"
+        class:err={renameError}
+        bind:value={renameDraft}
+        placeholder={m.viewport_rename_placeholder()}
+        aria-label={m.viewport_rename_aria()}
+        onkeydown={onRenameKey}
+        onblur={commitRename}
+      />
+      {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
+    </span>
+  {/snippet}
+  {#snippet renameNoteEl()}
+    {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
   {/snippet}
   <!-- header -->
   <div
@@ -1735,44 +1730,53 @@
         >
       {/if}
       <span class="desig-wrap ctx">
-        <span
-          class="ctx-trigger"
-          role="button"
-          tabindex="0"
-          aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
-          onclick={onTitleTap}
-          onkeydown={onTitleKey}
-        >
-          {#if !repoIcon}
-            <span class="ctx-glyph" aria-hidden="true">▣</span>
-          {/if}
-          {#if !repoIcon || ctxRepoShown}
-            <span class="ctx-repo">{repoName}</span>
-            <span class="ctx-sep">·</span>
-          {/if}
-          <span class="ctx-name">{session.name}</span>
-        </span>
-        {@render metaPop()}
+        {#if renaming}
+          {@render renameField()}
+        {:else}
+          <span
+            class="ctx-trigger"
+            role="button"
+            tabindex="0"
+            aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
+            onclick={onTitleTap}
+            onkeydown={onTitleKey}
+          >
+            {#if !repoIcon}
+              <span class="ctx-glyph" aria-hidden="true">▣</span>
+            {/if}
+            {#if !repoIcon || ctxRepoShown}
+              <span class="ctx-repo">{repoName}</span>
+              <span class="ctx-sep">·</span>
+            {/if}
+            <span class="ctx-name">{session.name}</span>
+          </span>
+          {@render metaPop()}
+        {/if}
       </span>
     {:else}
       <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
       <span class="desig-wrap">
-        <span
-          class="desig"
-          role="button"
-          tabindex="0"
-          aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
-          onclick={onTitleTap}
-          onkeydown={onTitleKey}>{session.desig}</span
-        >
-        {@render metaPop()}
+        {#if renaming}
+          {@render renameField()}
+        {:else}
+          <span
+            class="desig"
+            role="button"
+            tabindex="0"
+            aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
+            onclick={onTitleTap}
+            onkeydown={onTitleKey}>{session.desig}</span
+          >
+          {@render metaPop()}
+        {/if}
       </span>
-      {#if compact}
+      {#if compact && !renaming}
         <!-- foldable/touch desktop only: surfaces the full name the desig can't carry.
              Pointer-only rename target — the adjacent desig owns the keyboard/AT path
              (a button role here would announce a second, redundant control for the
-             same identity), so no role/tabindex/keydown by design. -->
+             same identity), so no role/tabindex/keydown by design. Hidden while
+             renaming: the input already shows the editable name in the desig slot. -->
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <span class="vp-name" title={session.name} onclick={onTitleTap}>{session.name}</span>
       {/if}
@@ -1780,9 +1784,9 @@
     {#if !compact}
       <span class="sep">·</span>
       <span class="branch">{session.branch ?? session.worktreePath}</span>
-      <!-- desktop: rename affordance sits right after the identity, next to the
-           task name (compact/phone keeps it in the trailing .vp-actions cluster) -->
-      {@render renameControl()}
+      <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
+           takes the title's slot in place when active -->
+      {@render renameNoteEl()}
     {/if}
     <div class="spacer"></div>
     <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
@@ -1979,7 +1983,7 @@
          right-aligned cluster so the close button never orphans to its own row -->
     <div class="vp-actions">
       {#if compact}
-        {@render renameControl()}
+        {@render renameNoteEl()}
         <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
              terminal claims the freed height. State persists across sessions. -->
         <button
@@ -2988,27 +2992,9 @@
     padding: 2px 6px;
   }
 
-  /* rename: pencil affordance + inline editor — next to the task name on desktop,
-     in the trailing cluster (left of decommission) on compact/phone */
-  .rename-btn {
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    line-height: 1;
-    padding: 2px 6px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-  .rename-btn:hover {
-    color: var(--color-ink);
-    border-color: color-mix(in srgb, var(--color-ink) 30%, transparent);
-  }
-
+  /* rename: inline editor that takes the title's own slot in place (double-tap/
+     dblclick the title to open it); the post-rename note sits in the trailing
+     cluster on compact/phone, after the branch on desktop */
   .rename-edit {
     display: inline-flex;
     align-items: center;

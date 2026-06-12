@@ -1094,5 +1094,15 @@
       text-align: left;
       gap: 6px;
     }
+    /* The decommission ✕ is invisible-but-keyboard-focusable (opacity, not
+       display:none), so as the rail's first flex child it would indent the
+       horizontal strip. Lift it out of flow to the row's top-right corner (its
+       prior position when the rail was a right-hand column) so the strip starts
+       flush left; it stays in the tab order and reveals on hover/focus as before. */
+    :global(.units:not(.flow)) .row-decom {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+    }
   }
 </style>

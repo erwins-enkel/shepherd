@@ -336,7 +336,7 @@
     color: var(--color-ink-bright);
   }
 
-  /* PR-kind tag — same hairline-badge recipe as ProjectRow's .kind-badge, here a
+  /* PR-kind tag — same hairline-badge recipe as ProjectRow's .bot-note, here a
      per-row marker for non-regular PRs. Regular PRs render no tag. Semantic hues:
      dependabot = blue, release = amber; never a status green. */
   .kind-tag {

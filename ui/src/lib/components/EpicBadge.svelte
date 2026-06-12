@@ -40,12 +40,12 @@
   type="button"
   class="epic-badge"
   style="--epic-pct: {pct}%"
-  title={m.epicbadge_open_title({
+  title={m.epic_badge_open_title({
     number: issueNumber,
     merged: counts.merged,
     total: counts.total,
   })}
-  aria-label={m.epicbadge_open_aria({
+  aria-label={m.epic_badge_open_aria({
     number: issueNumber,
     merged: counts.merged,
     total: counts.total,

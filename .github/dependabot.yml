@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Bun version updates across all three packages. Bun *security* updates are
+  # unsupported by Dependabot and are disabled at the repo level; daily keeps the
+  # version-update (= effective security-fix) latency to ~1 day.
+  - package-ecosystem: "bun"
+    directories:
+      - "/"
+      - "/ui"
+      - "/extension"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      development-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]

@@ -3,8 +3,11 @@ import { EgressWatcher, EGRESS_DROP_CAP } from "../src/egress-watch";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
+// Real dnsmasq writes each log line newline-TERMINATED; fixtures match that so the
+// watcher's line-boundary buffering processes complete lines (a line caught without
+// its terminating newline is intentionally deferred to the next tick).
 function dnsLine(host: string, type = "A"): string {
-  return `Jun 12 10:00:00 dnsmasq[123]: query[${type}] ${host} from 127.0.0.1`;
+  return `Jun 12 10:00:00 dnsmasq[123]: query[${type}] ${host} from 127.0.0.1\n`;
 }
 
 interface FakeSignal {
@@ -55,7 +58,7 @@ const ALLOWLIST = ["api.anthropic.com", "github.com", "objects.githubusercontent
 // ── tests ──────────────────────────────────────────────────────────────────────
 
 test("blocked host → addSignal(egress_drop) + emit(session:egress-drop)", async () => {
-  const log = [dnsLine("evil.example.com"), dnsLine("api.anthropic.com")].join("\n");
+  const log = [dnsLine("evil.example.com"), dnsLine("api.anthropic.com")].join("");
   const { watcher, signals, emits } = makeWatcher(log);
 
   watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
@@ -117,7 +120,7 @@ test("cursor: host in first read not reprocessed on second tick (only tail)", as
 
   const readTail = async (_path: string, fromByte: number) => {
     callCount++;
-    const c = callCount === 1 ? firstLine : firstLine + "\n" + secondLine;
+    const c = callCount === 1 ? firstLine : firstLine + secondLine;
     return { data: c.slice(fromByte), size: c.length };
   };
 
@@ -140,6 +143,33 @@ test("cursor: host in first read not reprocessed on second tick (only tail)", as
   expect(signals.map((s) => s.payload)).toEqual(["first.example.com", "second.example.com"]);
 });
 
+test("split line across poll boundary: a mid-write query line is buffered + reported exactly", async () => {
+  // dnsmasq line caught mid-write: tick 1 sees only the prefix (no terminating newline),
+  // tick 2 sees the rest. The host must be reported once, not lost.
+  const full = dnsLine("split.evil.example.com"); // ends with "\n"
+  const cut = Math.floor(full.length / 2);
+  let content = full.slice(0, cut); // tick 1: partial, no newline yet
+  const signals: FakeSignal[] = [];
+  const watcher = new EgressWatcher({
+    readTail: async (_path: string, fromByte: number) => ({
+      data: content.slice(fromByte),
+      size: content.length,
+    }),
+    addSignal: (s) => signals.push(s),
+    setInterval: (() => 1) as unknown as typeof setInterval,
+    clearInterval: () => {},
+  });
+  const o = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+  watcher.start(SESSION, o);
+
+  await watcher.tick(SESSION, o); // only the partial prefix is visible → nothing reported yet
+  expect(signals).toHaveLength(0);
+
+  content = full; // the rest (incl. the terminating newline) lands
+  await watcher.tick(SESSION, o); // partial reassembled with the tail → reported exactly once
+  expect(signals.map((s) => s.payload)).toEqual(["split.evil.example.com"]);
+});
+
 test("positional read: second tick reads from the cursor, not byte 0 (no O(n^2) re-read)", async () => {
   const firstLine = dnsLine("a.example.com");
   let content = firstLine;
@@ -157,7 +187,7 @@ test("positional read: second tick reads from the cursor, not byte 0 (no O(n^2) 
   const o = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
   watcher.start(SESSION, o);
   await watcher.tick(SESSION, o); // reads from 0
-  content = firstLine + "\n" + dnsLine("b.example.com");
+  content = firstLine + dnsLine("b.example.com");
   await watcher.tick(SESSION, o); // must read from the end of the first read, not 0
 
   expect(fromBytes[0]).toBe(0);
@@ -184,12 +214,13 @@ test("ENOENT → no throw, no signal", async () => {
 });
 
 test("malformed / non-query lines → no signal, no throw", async () => {
-  const log = [
-    "Jun 12 10:00:00 dnsmasq[123]: started, version 2.89 cachesize 150",
-    "Jun 12 10:00:00 dnsmasq[123]: forwarding",
-    "",
-    "some garbage line",
-  ].join("\n");
+  const log =
+    [
+      "Jun 12 10:00:00 dnsmasq[123]: started, version 2.89 cachesize 150",
+      "Jun 12 10:00:00 dnsmasq[123]: forwarding",
+      "",
+      "some garbage line",
+    ].join("\n") + "\n";
 
   const { watcher, signals } = makeWatcher(log);
   watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
@@ -200,7 +231,7 @@ test("malformed / non-query lines → no signal, no throw", async () => {
 
 test(`cap: >${EGRESS_DROP_CAP} distinct blocked hosts → at most ${EGRESS_DROP_CAP} signals`, async () => {
   const hosts = Array.from({ length: EGRESS_DROP_CAP + 5 }, (_, i) => `host${i}.evil.com`);
-  const log = hosts.map((h) => dnsLine(h)).join("\n");
+  const log = hosts.map((h) => dnsLine(h)).join("");
 
   const { watcher, signals } = makeWatcher(log);
   watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
@@ -211,7 +242,7 @@ test(`cap: >${EGRESS_DROP_CAP} distinct blocked hosts → at most ${EGRESS_DROP_
 
 test("cap: further ticks after cap emit no more signals", async () => {
   const hosts = Array.from({ length: EGRESS_DROP_CAP }, (_, i) => `cap${i}.evil.com`);
-  const log = hosts.map((h) => dnsLine(h)).join("\n");
+  const log = hosts.map((h) => dnsLine(h)).join("");
 
   const { watcher, signals } = makeWatcher(log);
   watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
@@ -220,7 +251,7 @@ test("cap: further ticks after cap emit no more signals", async () => {
 
   // Add a new host in the second tick (simulate append).
   // Even though the file grew, the watcher is capped and should emit nothing.
-  const afterLog = log + "\n" + dnsLine("extra.evil.com");
+  const afterLog = log + dnsLine("extra.evil.com");
   const watcher2 = new EgressWatcher({
     readTail: async (_path: string, fromByte: number) => ({
       data: afterLog.slice(fromByte),

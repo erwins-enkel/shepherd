@@ -73,13 +73,21 @@ export interface EgressWatcherDeps {
 
 interface SessionState {
   interval: ReturnType<typeof setInterval>;
-  /** Byte offset into dns.log — only new bytes are processed each tick. */
+  /** Byte offset into dns.log — only new bytes are read each tick. */
   cursor: number;
+  /** Trailing bytes after the last newline of the previous read — a line caught
+   *  mid-write. Prepended to the next read so a query line split across a poll
+   *  boundary is reassembled and reported exactly. */
+  partial: string;
   /** Hosts already reported for this session (deduplication). */
   reported: Set<string>;
   /** Drop the watcher after the cap is reached. */
   capped: boolean;
 }
+
+/** Safety bound on a buffered partial line so a never-terminated line can't grow
+ *  unbounded (dnsmasq lines are short + newline-terminated; this never trips normally). */
+const MAX_PARTIAL_BYTES = 64 * 1024;
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +139,13 @@ export class EgressWatcher {
 
     const tick = () => this.#tick(sessionId, opts);
     const interval = this.deps.setInterval(tick, this.deps.intervalMs);
-    this.sessions.set(sessionId, { interval, cursor: 0, reported: new Set(), capped: false });
+    this.sessions.set(sessionId, {
+      interval,
+      cursor: 0,
+      partial: "",
+      reported: new Set(),
+      capped: false,
+    });
   }
 
   /**
@@ -211,11 +225,23 @@ export class EgressWatcher {
       return;
     }
     state.cursor = res.size;
-    const tail = res.data;
 
-    if (!tail) return;
+    // Reassemble across poll boundaries: a line caught mid-write last tick is
+    // buffered in `partial` and completed by this read. Process only COMPLETE lines
+    // (up to the last newline); re-buffer the trailing partial for the next tick so
+    // no split query line is dropped. (Real dnsmasq output is newline-terminated, so
+    // in the common case `partial` ends empty and every line is processed at once.)
+    const combined = state.partial + res.data;
+    const lastNl = combined.lastIndexOf("\n");
+    if (lastNl === -1) {
+      // No complete line yet — buffer everything (bounded) and wait for a newline.
+      state.partial = combined.length > MAX_PARTIAL_BYTES ? "" : combined;
+      return;
+    }
+    state.partial = combined.slice(lastNl + 1);
+    const complete = combined.slice(0, lastNl);
 
-    for (const line of tail.split("\n")) {
+    for (const line of complete.split("\n")) {
       if (state.capped) break;
 
       const host = extractQueriedHost(line);

@@ -27,6 +27,10 @@ import type {
  *  `gh run view` subprocess, so bound the fan-out. */
 const MAX_WORKFLOWS = 10;
 
+/** Cap on summary pages for listSubIssueSummaries: 2 pages × 100 issues = ~200 issues,
+ *  mirroring the listIssues() 200-open-issue cap. */
+const MAX_SUMMARY_PAGES = 2;
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -792,5 +796,68 @@ export class GithubForge implements GitForge {
       "-F",
       `issue_id=${id}`,
     ]);
+  }
+
+  async listSubIssueSummaries(): Promise<
+    Map<number, { total: number; completed: number; title: string }>
+  > {
+    // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
+    // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
+    // REST sub_issues endpoints above.
+    const [owner, name] = this.slug.split("/");
+    // GraphQL query: body is deliberately omitted (only relevant to a beyond-window markdown
+    // edge the UI never renders); fetching body for every node would pull ~200 full bodies/call.
+    const query =
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number title subIssuesSummary{total completed}}}}}";
+    const result = new Map<number, { total: number; completed: number; title: string }>();
+    try {
+      let endCursor: string | null = null;
+      for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
+        const args = [
+          "api",
+          "graphql",
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-f",
+          `query=${query}`,
+        ];
+        // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
+        if (endCursor !== null) {
+          args.push("-f", `endCursor=${endCursor}`);
+        }
+        const out = await this.run(args);
+        const json = JSON.parse(out) as {
+          data?: {
+            repository?: {
+              issues?: {
+                pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+                nodes?: Array<{
+                  number: number;
+                  title: string;
+                  subIssuesSummary?: { total: number; completed: number };
+                } | null>;
+              };
+            };
+          };
+        };
+        const issues = json.data?.repository?.issues;
+        for (const node of issues?.nodes ?? []) {
+          if (!node) continue;
+          const s = node.subIssuesSummary;
+          if (s && s.total > 0) {
+            result.set(node.number, { total: s.total, completed: s.completed, title: node.title });
+          }
+        }
+        const pageInfo = issues?.pageInfo;
+        if (!pageInfo?.hasNextPage) break;
+        endCursor = pageInfo.endCursor ?? null;
+      }
+    } catch {
+      // Best-effort; degrade to markdown-only discovery rather than failing the route.
+      return new Map();
+    }
+    return result;
   }
 }

@@ -73,7 +73,7 @@ import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
-import type { Epic, EpicRun } from "./epic-core";
+import type { Epic, EpicRun, EpicSource } from "./epic-core";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
@@ -2667,6 +2667,8 @@ async function probeNative(
 }
 
 /** Resolve total/merged counts for one epic candidate (the backlog badge summary only).
+ *  Accepts pre-parsed `mdMembers` (from `parseEpicBody`) to avoid a redundant re-parse
+ *  at the call site.
  *  When the open-issue list is complete (!openTruncated) and the candidate has
  *  markdown members, counts are derived from markdown alone — no network call.
  *  Otherwise a native listSubIssues probe is made; on empty result, markdown
@@ -2683,12 +2685,12 @@ async function probeNative(
  *  authoritative native state. */
 async function summarizeEpicCandidate(
   forge: GitForge,
+  mdMembers: number[],
   issueHint: IssueHint | undefined,
   parentNumber: number,
   openNumbers: Set<number>,
   openTruncated: boolean,
 ): Promise<{ total: number; merged: number } | null> {
-  const mdMembers = parseEpicBody(issueHint?.body ?? "").members;
   const hasMarkdown = mdMembers.length > 0;
 
   // Fast path: open list is complete + candidate has markdown — no network call needed.
@@ -2723,6 +2725,16 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     return json([]);
   }
 
+  // Fetch native sub-issue summaries cheaply (one bounded GraphQL call, GitHub only).
+  // Gracefully degrade to empty map on any error — falls back to markdown-only discovery.
+  let nativeSummaries: Map<number, { total: number; completed: number; title: string }>;
+  try {
+    // belt-and-suspenders: the method catches internally today, but the guard keeps discovery alive if that contract ever changes
+    nativeSummaries = (await forge.listSubIssueSummaries?.()) ?? new Map();
+  } catch {
+    nativeSummaries = new Map();
+  }
+
   // openNumbers: a member absent from the open set is considered closed (markdown fallback).
   // openTruncated: listIssues caps at 200; when true the open set may be incomplete so
   // markdown-only counting could undercount, and native probes are needed.
@@ -2730,19 +2742,56 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
   const openTruncated = openIssues.length >= 200;
   const candidates = collectEpicCandidates(openIssues, storedRun?.parentIssueNumber ?? null);
 
+  // Add any native-summary parents not already in the candidate set (window-independent
+  // discovery). These may be parents beyond the ≤200-issue listIssues window. We build
+  // their IssueHint solely from the summary (title only, no body) so the route never
+  // emits a bare "#N" title for a real out-of-window parent.
+  for (const [n, summary] of nativeSummaries) {
+    if (!candidates.has(n)) {
+      candidates.set(n, { number: n, title: summary.title });
+    }
+    // When the parent IS already a candidate (has markdown body from listIssues), keep the
+    // existing hint so markdown precedence logic below sees the body.
+  }
+
   const result = [];
   for (const [parentNumber, issueHint] of candidates) {
-    const counts = await summarizeEpicCandidate(
-      forge,
-      issueHint,
-      parentNumber,
-      openNumbers,
-      openTruncated,
-    );
-    if (counts === null) continue; // native probe threw — skip this candidate
+    const mdMembers = parseEpicBody(issueHint?.body ?? "").members;
+    const hasMarkdown = mdMembers.length > 0;
+
+    // Source determination is markdown-first BY DESIGN — the intentional INVERSE of
+    // assembleEpic's native-first Epic.source (src/epic-model.ts:126).
+    // A both-present parent is source:"native" on the assembled Epic (native structure
+    // is authoritative for execution) but must be source:"markdown" in this list summary
+    // (the badge label reflects the declared-epic-first convention).
+    const source: EpicSource = hasMarkdown
+      ? "markdown"
+      : nativeSummaries.has(parentNumber)
+        ? "native"
+        : "markdown";
+
+    let counts: { total: number; merged: number } | null;
+    if (source === "native") {
+      // Native candidate: read counts directly from the summary map — no per-candidate
+      // listSubIssues probe. The summary map already has total/completed for this parent.
+      const s = nativeSummaries.get(parentNumber)!;
+      counts = { total: s.total, merged: s.completed };
+    } else {
+      // Markdown candidate (or markdown+native, markdown takes precedence for counts too).
+      counts = await summarizeEpicCandidate(
+        forge,
+        mdMembers,
+        issueHint,
+        parentNumber,
+        openNumbers,
+        openTruncated,
+      );
+    }
+
+    if (counts === null) continue; // counts === null only when summarizeEpicCandidate's listSubIssues probe threw (markdown path) — skip
     const title = issueHint?.title ?? `#${parentNumber}`;
     const status = storedRun?.parentIssueNumber === parentNumber ? storedRun.status : "idle";
-    result.push({ parentIssueNumber: parentNumber, parentTitle: title, ...counts, status });
+    result.push({ parentIssueNumber: parentNumber, parentTitle: title, ...counts, status, source });
   }
   return json(result);
 }

@@ -553,6 +553,143 @@ describe("GET /api/epics", () => {
     expect(body[0].merged).toBe(2); // #31 and #33 not in open set
   });
 
+  // ── listSubIssueSummaries integration ────────────────────────────────────
+
+  // native-only parent (no markdown body) → source:"native", counts from summary map
+  test("native-only parent: source is native, counts from listSubIssueSummaries", async () => {
+    const summaryMap = new Map([[42, { total: 5, completed: 3, title: "Native Epic" }]]);
+    const forge: any = {
+      listIssues: async () => [
+        // issue 42 has no markdown body — purely native
+        { number: 42, title: "Native Epic", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => summaryMap,
+      listSubIssues: async () => [],
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.length).toBe(1);
+    expect(body[0].parentIssueNumber).toBe(42);
+    expect(body[0].source).toBe("native");
+    expect(body[0].total).toBe(5);
+    expect(body[0].merged).toBe(3);
+    // native candidate must NOT trigger listSubIssues per-candidate probe
+    // (counts come from the summary map directly)
+  });
+
+  // markdown parent → source:"markdown", counts unchanged
+  test("markdown parent: source is markdown, counts from markdown members", async () => {
+    const summaryMap = new Map<number, { total: number; completed: number; title: string }>();
+    const forge: any = {
+      listIssues: async () => [
+        {
+          number: 7,
+          title: "Md Epic",
+          body: "- [x] #100\n- [ ] #101",
+          url: "",
+          labels: [],
+          createdAt: 0,
+        },
+        { number: 101, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => summaryMap,
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.length).toBe(1);
+    expect(body[0].parentIssueNumber).toBe(7);
+    expect(body[0].source).toBe("markdown");
+    expect(body[0].total).toBe(2);
+    expect(body[0].merged).toBe(1); // #100 absent from open set
+  });
+
+  // both markdown + native → source:"markdown" (markdown takes precedence in list)
+  test("both markdown and native: source is markdown (list precedence)", async () => {
+    const summaryMap = new Map([[8, { total: 10, completed: 7, title: "Both Epic" }]]);
+    const forge: any = {
+      listIssues: async () => [
+        {
+          number: 8,
+          title: "Both Epic",
+          body: "- [x] #200\n- [ ] #201",
+          url: "",
+          labels: [],
+          createdAt: 0,
+        },
+        { number: 201, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => summaryMap,
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.length).toBe(1);
+    expect(body[0].source).toBe("markdown");
+  });
+
+  // native parent absent from listIssues window → still surfaced with real title, source:"native"
+  test("native parent outside listIssues window: surfaced with title from summary, source native", async () => {
+    // listIssues returns only issue 1; native parent #999 is beyond the window
+    const summaryMap = new Map([[999, { total: 3, completed: 1, title: "Out-of-window Epic" }]]);
+    const forge: any = {
+      listIssues: async () => [
+        { number: 1, title: "Unrelated", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => summaryMap,
+      listSubIssues: async () => [],
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const epic = body.find((e: any) => e.parentIssueNumber === 999);
+    expect(epic).toBeDefined();
+    expect(epic.source).toBe("native");
+    expect(epic.parentTitle).toBe("Out-of-window Epic"); // real title from summary, not "#999"
+    expect(epic.total).toBe(3);
+    expect(epic.merged).toBe(1);
+  });
+
+  // forge without listSubIssueSummaries → no native candidates, no error
+  test("forge without listSubIssueSummaries: no native candidates, no error", async () => {
+    const forge: any = {
+      listIssues: async () => [
+        { number: 5, title: "Plain", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      // listSubIssueSummaries intentionally absent (Gitea-like)
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([]); // no epics — no markdown, no native
+  });
+
+  // native discovery adds no extra listSubIssues probe for native candidates
+  test("native candidate: no per-candidate listSubIssues probe called", async () => {
+    let listSubIssuesCallCount = 0;
+    const summaryMap = new Map([[55, { total: 4, completed: 2, title: "Native only" }]]);
+    const forge: any = {
+      listIssues: async () => [
+        { number: 55, title: "Native only", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => summaryMap,
+      listSubIssues: async () => {
+        listSubIssuesCallCount++;
+        return [];
+      },
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    expect(listSubIssuesCallCount).toBe(0); // no per-candidate probe for native
+  });
+
   // Status: stored run's status is reflected; non-stored defaults to "idle"
   test("status: reflects storedRun.status for matched parent, idle otherwise", async () => {
     const { app, store } = harness({

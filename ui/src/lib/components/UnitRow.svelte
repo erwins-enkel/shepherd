@@ -1171,10 +1171,14 @@
     }
     /* Reserve room on the name row so a long name ellipsizes BEFORE the clock
        rather than sliding under it (the clock still paints over the name —
-       pointer-events stops event capture, not painting). 62px ≈ widest elapsed()
-       "29d 23h" (~7 tabular chars) + the right offset. */
+       pointer-events stops event capture, not painting). 72px clears realistic
+       elapsed() widths incl. the multi-day forms "29d 23h" / "100d 23h" (8
+       tabular chars) + the right offset. elapsed() has no day cap, so a
+       pathological 1000d+ run (9+ chars) would still overflow — accepted: such a
+       session is unreachable in practice and it degrades gracefully (the name
+       just paints under the clock, same tradeoff as everywhere else here). */
     :global(.units:not(.flow)) .u-top {
-      padding-right: 62px;
+      padding-right: 72px;
     }
     /* The decommission ✕ is invisible-but-keyboard-focusable (opacity:0 +
        pointer-events:none from the base .row-decom rule, NOT display:none) so it

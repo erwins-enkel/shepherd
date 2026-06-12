@@ -62,10 +62,12 @@ function harness(opts: {
   relaunchThrows?: Error;
   resolveForge?: AppDeps["resolveForge"];
   archiveCleared?: string[]; // ids archiveMany reports cleared (default: the requested id)
+  staged?: { path: string; name: string }[]; // what stageRelaunchImages returns
 }) {
   const emitted: Spy[] = [];
   const calls = {
     relaunch: [] as Array<{ id: string; issueRef: unknown; overrides: unknown }>,
+    stageRelaunchImages: [] as string[],
   };
   let retainClaimSeenArchived = false;
 
@@ -112,6 +114,10 @@ function harness(opts: {
       cleared: opts.archiveCleared ?? ids,
       leftovers: 0,
     }),
+    stageRelaunchImages: (id: string) => {
+      calls.stageRelaunchImages.push(id);
+      return opts.staged ?? [{ path: "/stage/carried.png", name: "carried.png" }];
+    },
   } as unknown as SessionService;
 
   const events = {
@@ -465,14 +471,45 @@ test("same-repo relaunch with { prompt, model, planGateEnabled, baseBranch } app
   expect(h.drainCalls).toEqual(["orig"]); // retainClaim called
 });
 
-test("images override is threaded through to service.relaunch (appended to originals)", async () => {
-  // The append-to-copied-originals merge lives in the service; at the route boundary we
-  // assert the supplied images ride through verbatim for the service to append.
+test("images override is threaded through to service.relaunch as the authoritative set", async () => {
+  // Image semantics live in the service (overrides → verbatim, no auto-carry); at the route
+  // boundary we assert the supplied images ride through unchanged as that authoritative set.
   const h = harness({ original: { issueNumber: null, repoPath: REPO } });
   const res = await h.app.fetch(relaunchReq("orig", { images: [STAGED_IMAGE] }));
   expect(res.status).toBe(201);
   // validateImages resolves each entry to its realpath; that resolved path rides through.
   expect(h.calls.relaunch[0]?.overrides).toMatchObject({ images: [STAGED_IMAGE] });
+});
+
+// ── POST /api/sessions/:id/relaunch-uploads — stage carried images for the composer ──────
+function relaunchUploadsReq(id = "orig"): Request {
+  return new Request(`http://localhost/api/sessions/${id}/relaunch-uploads`, { method: "POST" });
+}
+
+test("POST /api/sessions/:id/relaunch-uploads returns staged { images }", async () => {
+  const staged = [
+    { path: "/stage/a.png", name: "a.png" },
+    { path: "/stage/b.jpg", name: "b.jpg" },
+  ];
+  const h = harness({ original: { issueNumber: null, repoPath: REPO }, staged });
+  const res = await h.app.fetch(relaunchUploadsReq("orig"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ images: staged });
+  expect(h.calls.stageRelaunchImages).toEqual(["orig"]); // sourced from the service
+});
+
+test("POST /api/sessions/:id/relaunch-uploads → 404 for a missing original", async () => {
+  const h = harness({ original: null });
+  const res = await h.app.fetch(relaunchUploadsReq("ghost"));
+  expect(res.status).toBe(404);
+  expect(h.calls.stageRelaunchImages).toHaveLength(0); // never staged
+});
+
+test("POST /api/sessions/:id/relaunch-uploads → 409 for an archived original", async () => {
+  const h = harness({ original: { status: "archived", issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchUploadsReq("orig"));
+  expect(res.status).toBe(409);
+  expect(h.calls.stageRelaunchImages).toHaveLength(0);
 });
 
 // ── Override validation (closes the create/relaunch asymmetry — fail-closed) ──────────

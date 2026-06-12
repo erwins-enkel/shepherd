@@ -8,6 +8,7 @@
     startMergeTrain,
     archiveSession,
     relaunchSession,
+    stageRelaunchImages,
     ApiError,
     getUsageLimits,
     replySession,
@@ -218,6 +219,11 @@
   let composeBaseBranch = $state<string | null>(null);
   // Relaunch source issue number (null = none); drives the relaunch note's cross-repo issue-drop line.
   let relaunchIssueNumber = $state<number | null>(null);
+  // Carried images from the original session, staged on relaunch-elsewhere so the composer
+  // seeds them as removable chips (its image list is the single source of truth on submit).
+  let composeImages = $state<{ path: string; name: string }[]>([]);
+  // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
+  let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
@@ -817,6 +823,7 @@
     composeBaseBranch = null;
     relaunchOriginalId = null;
     relaunchIssueNumber = null;
+    composeImages = [];
   }
 
   // Relaunch-elsewhere submit: route to relaunchSession(originalId, overrides) instead of
@@ -885,9 +892,28 @@
   // Relaunch elsewhere: open the New Task composer pre-filled from this session so the
   // operator can pick a different repo / base branch / prompt before submitting. The
   // submit routes through onsubmit's relaunch branch (relaunchOriginalId set).
-  function onrelaunchElsewhere(id: string) {
+  async function onrelaunchElsewhere(id: string) {
     const s = store.sessions.find((x) => x.id === id);
     if (!s) return;
+    // Guard a double-invoke while a slow upload-stage is in flight (don't double-seed).
+    if (relaunchStaging) return;
+    relaunchStaging = true;
+    // Stage the original's uploads FIRST and assign the relaunch/compose seed state only
+    // AFTER it resolves: a bare New-Task opener (onnew) can fire during this await, and if
+    // relaunchOriginalId were already set the composer would mount in a half-set relaunch
+    // state (and submit would wrongly archive the original). On failure, seed empty + warn
+    // so the operator knows to re-attach (never double-attach).
+    let staged: { path: string; name: string }[] = [];
+    try {
+      staged = await stageRelaunchImages(id);
+    } catch {
+      toasts.info(m.relaunch_images_carry_failed(), { alert: true });
+    } finally {
+      relaunchStaging = false;
+    }
+    // No await past this point: assign all seeds + open synchronously so nothing can
+    // interleave a half-set state. NewTask's one-time initialImages seed reads composeImages
+    // at mount, so it must be set before showNew flips true.
     composePrompt = s.prompt;
     composeRepoPath = s.repoPath;
     composeBaseBranch = s.baseBranch;
@@ -898,6 +924,7 @@
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
+    composeImages = staged;
     showNew = true;
   }
 
@@ -1459,6 +1486,7 @@
     initialBaseBranch={composeBaseBranch ?? undefined}
     initialIssue={composeIssue ?? undefined}
     {relaunchIssueNumber}
+    initialImages={composeImages}
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
     defaultModel={settings?.defaultModel}

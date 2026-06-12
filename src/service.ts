@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
@@ -10,7 +10,14 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
-import { moveStagedIntoWorktree, stagingDir, uploadFilename, worktreeUploadsDir } from "./uploads";
+import {
+  moveStagedIntoWorktree,
+  stagingDir,
+  sweepStaging,
+  STAGING_TTL_MS,
+  uploadFilename,
+  worktreeUploadsDir,
+} from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
@@ -752,8 +759,8 @@ export class SessionService {
   }
 
   async create(input: CreateSessionInput): Promise<Session> {
-    const basename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
-    const herdSlug = basename ? slugifyManual(basename) : undefined;
+    const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
+    const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug);
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
     // The worktree is created before the agent can start, so any failure past this
@@ -868,11 +875,17 @@ export class SessionService {
    * `overrides` is an optional bag applied over the original (absent field keeps the
    * original's value; a present one — incl. explicit `null` — replaces it), letting a
    * caller relaunch into a DIFFERENT repo while carrying prompt/model/base-branch
-   * forward. Supplied `images` are appended to the carried-over originals. Omitted →
-   * byte-for-byte the original quick-relaunch.
+   * forward. Image handling forks on whether overrides are present:
+   *   - quick relaunch (`overrides == null`) → the original's uploads are auto-carried
+   *     (copied into staging), byte-for-byte the original spawn.
+   *   - relaunch WITH overrides → `overrides.images` is used VERBATIM and the original's
+   *     uploads are NOT auto-carried. The composer is the single source of truth here: it
+   *     seeds the carried originals (via `stageRelaunchImages`) into the override list and
+   *     the operator edits that list, so re-merging server-side would double the images.
    *
-   * The original's uploaded images are COPIED (not moved) into staging and passed
-   * to `create`, which lands them in the new worktree — so a spawn failure here
+   * On the quick-relaunch branch, the original's uploaded images are COPIED (not
+   * moved) into staging and passed to `create`, which lands them in the new
+   * worktree — so a spawn failure here
    * leaves the original's images intact on disk (the originals are reclaimed only
    * when the original's worktree is torn down by the route, after a successful
    * spawn). On any error AFTER `create`, the just-created session is best-effort
@@ -887,21 +900,26 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
 
-    // Carry over the original's images: copied (not moved) into staging so create()
-    // can land them in the new worktree like New Task, and the originals stay
-    // recoverable on a spawn failure.
-    const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
-
-    // Supplied images append to the carried-over originals. Each list is independently
-    // ≤ MAX_IMAGES (validated at the original's creation / on the override body), but the
-    // concatenation can exceed it — cap the merged list to the per-spawn limit, originals
-    // first, and log any drop rather than silently overflowing the spawn prompt.
-    const mergedImages = [...copiedOriginalImages, ...(overrides?.images ?? [])];
-    const images = mergedImages.slice(0, MAX_IMAGES);
-    if (mergedImages.length > images.length)
-      console.warn(
-        `[relaunch] ${originalId}: ${mergedImages.length} images exceed cap ${MAX_IMAGES}; dropped ${mergedImages.length - images.length}`,
-      );
+    // Image handling forks on whether overrides are present:
+    //   - quick relaunch (no overrides) → auto-carry the original's uploads, copied (not
+    //     moved) into staging so create() can land them in the new worktree like New Task,
+    //     with the originals staying recoverable on a spawn failure. Cap at MAX_IMAGES and
+    //     warn on drop rather than silently overflowing the spawn prompt.
+    //   - relaunch WITH overrides → use overrides.images VERBATIM and do NOT auto-carry.
+    //     The composer already seeded the carried originals into overrides.images (via
+    //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
+    //     re-merging here would double the carried images.
+    let images: string[];
+    if (overrides == null) {
+      const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
+      images = copiedOriginalImages.slice(0, MAX_IMAGES);
+      if (copiedOriginalImages.length > images.length)
+        console.warn(
+          `[relaunch] ${originalId}: ${copiedOriginalImages.length} images exceed cap ${MAX_IMAGES}; dropped ${copiedOriginalImages.length - images.length}`,
+        );
+    } else {
+      images = overrides.images ?? [];
+    }
 
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
@@ -935,6 +953,27 @@ export class SessionService {
 
     // Re-fetch AFTER the override writes so the returned session reflects them.
     return this.deps.store.get(newSession.id)!;
+  }
+
+  /**
+   * Stage an original session's uploaded images for a relaunch-WITH-overrides composer
+   * to seed. Copies (not moves) the original's worktree uploads into the repo staging dir
+   * — like the quick-relaunch branch and New Task — and returns the staged path plus its
+   * basename for each, capped at MAX_IMAGES so the UI never seeds more chips than a spawn
+   * accepts. The copies are recoverable on disk; relaunch() then takes the (possibly
+   * operator-edited) list back verbatim, so there is no server-side re-merge.
+   *
+   * Each open copies fresh into staging, so a cancelled open or a removed chip orphans
+   * its copies. Before staging, we reclaim staged uploads past the TTL (the same sweep the
+   * server runs at startup, over the shared staging dir) so repeated opens don't accumulate.
+   */
+  stageRelaunchImages(originalId: string): { path: string; name: string }[] {
+    const s = this.deps.store.get(originalId);
+    if (!s || s.status === "archived")
+      throw new Error(`cannot stage relaunch images for ${originalId}: missing or archived`);
+    sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+    const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
+    return paths.map((p) => ({ path: p, name: basename(p) }));
   }
 
   /**

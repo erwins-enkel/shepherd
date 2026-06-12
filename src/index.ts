@@ -31,7 +31,7 @@ import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
-import { sweepStaging } from "./uploads";
+import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
@@ -156,8 +156,8 @@ if (savedDm !== null) {
   }
 }
 
-// drop abandoned New-Task uploads (attached but never submitted) older than 24h
-sweepStaging(config.repoRoot, 24 * 60 * 60 * 1000, Date.now());
+// drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL
+sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
 const herdr = new HerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();

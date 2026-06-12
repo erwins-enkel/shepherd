@@ -615,6 +615,7 @@
   "relaunch_in_progress": "Neustart läuft bereits",
   "relaunch_issue_unresolved": "Das verknüpfte Issue konnte nicht erneut aufgelöst werden – Original behalten, später erneut versuchen",
   "relaunch_failed": "Neustart fehlgeschlagen – das Original wurde behalten",
+  "relaunch_images_carry_failed": "Bilder des Originals konnten nicht geladen werden – bei Bedarf erneut anhängen.",
   "viewport_herdr_unreachable": "── herdr nicht erreichbar; Neuverbindung pausiert ──",
   "viewport_reconnect_title": "Neu verbinden",
   "viewport_reconnect_sub": "herdr ist offline. Tippen, sobald es zurück ist.",

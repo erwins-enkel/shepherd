@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -18,6 +25,7 @@ import {
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseTrimAutoContext } from "../src/config";
+import { MAX_IMAGES } from "../src/validate";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
   const store = new SessionStore(":memory:");
@@ -3088,7 +3096,7 @@ test("relaunch overrides treat an absent field as keep-original (explicit null r
   expect(cleared.planGateEnabled).toBe(null);
 });
 
-test("relaunch images override appends to the carried-over originals", async () => {
+test("relaunch WITH overrides uses override images verbatim (no auto-carry)", async () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "relaunch-imgroot-"));
   const wt = mkdtempSync(join(tmpdir(), "relaunch-imgwt-"));
@@ -3104,44 +3112,84 @@ test("relaunch images override appends to the carried-over originals", async () 
 
     await service.relaunch(orig.id, undefined, { images: ["/stage/supplied.jpg"] });
 
-    // The new session's spawn argv carries BOTH the copied original and the supplied one.
+    // With overrides present, the composer is authoritative: copyOriginalUploads must NOT
+    // run, so the staging dir is absent or empty (no carried originals re-staged).
+    const stagingDir = join(root, ".shepherd-uploads-staging");
+    if (existsSync(stagingDir)) expect(readdirSync(stagingDir)).toHaveLength(0);
+
+    // Spawn argv carries ONLY the supplied override, never a copied original.
     const argv = calls.started[0]!.argv;
     const promptArg = argv[argv.length - 1]!;
     expect(promptArg).toContain("Attached images:");
-    // moveUploads mock maps each staged path to <wt>/.shepherd-uploads/<basename>
-    expect(promptArg).toMatch(/\.shepherd-uploads\/.+\.png/); // copied original
-    expect(promptArg).toContain("supplied.jpg"); // supplied override appended
+    expect(promptArg).toContain("supplied.jpg"); // the authoritative override list
+    expect(promptArg).not.toContain("orig"); // no auto-carried original
+    expect(promptArg).not.toMatch(/\.png/); // only the supplied .jpg made it
   } finally {
     config.repoRoot = prevRoot;
   }
 });
 
-test("relaunch caps the merged image list at MAX_IMAGES, carried-over originals first", async () => {
+test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAGES, returns path+name", () => {
   const store = new SessionStore(":memory:");
-  const root = mkdtempSync(join(tmpdir(), "relaunch-caproot-"));
-  const wt = mkdtempSync(join(tmpdir(), "relaunch-capwt-"));
+  const root = mkdtempSync(join(tmpdir(), "relaunch-stageroot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-stagewt-"));
   const uploads = join(wt, ".shepherd-uploads");
   mkdirSync(uploads, { recursive: true });
-  // 8 carried-over originals + 5 supplied overrides = 13 → must cap to 10.
-  for (let i = 0; i < 8; i++) writeFileSync(join(uploads, `orig${i}.png`), "PNGDATA");
+  // More than MAX_IMAGES originals on disk → staging must cap at MAX_IMAGES.
+  for (let i = 0; i < 12; i++) writeFileSync(join(uploads, `orig${i}.png`), "PNGDATA");
 
   const prevRoot = config.repoRoot;
   config.repoRoot = root;
   try {
-    const { service, calls } = relaunchHarness(store);
+    const { service } = relaunchHarness(store);
     const orig = originalSession(store, { worktreePath: wt });
 
-    await service.relaunch(orig.id, undefined, {
-      images: ["/stage/a.jpg", "/stage/b.jpg", "/stage/c.jpg", "/stage/d.jpg", "/stage/e.jpg"],
-    });
+    const staged = service.stageRelaunchImages(orig.id);
 
-    const argv = calls.started[0]!.argv;
-    const promptArg = argv[argv.length - 1]!;
-    const moved = promptArg.split("Attached images:\n")[1]!.trim().split("\n");
-    expect(moved).toHaveLength(10); // capped from 13
-    // Originals come first and all 8 fit, so only 2 of the 5 supplied survive the cap.
-    const survivingSupplied = moved.filter((p) => /\/[a-e]\.jpg$/.test(p));
-    expect(survivingSupplied).toHaveLength(2);
+    expect(staged).toHaveLength(MAX_IMAGES);
+    const stagingDir = join(root, ".shepherd-uploads-staging");
+    for (const entry of staged) {
+      expect(entry.path.startsWith(stagingDir)).toBe(true);
+      expect(entry.name.length).toBeGreaterThan(0);
+      expect(entry.name).toBe(entry.path.split("/").pop()!);
+    }
+    // originals on disk untouched (all 12 still present)
+    expect(readdirSync(uploads)).toHaveLength(12);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("stageRelaunchImages reclaims abandoned staged uploads past the TTL before copying", () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-sweeproot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-sweepwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "orig.png"), "PNGDATA");
+
+  const stagingDir = join(root, ".shepherd-uploads-staging");
+  mkdirSync(stagingDir, { recursive: true });
+  // An abandoned carry from a prior cancelled open, aged well past the 24h TTL.
+  const stale = join(stagingDir, "stale.png");
+  writeFileSync(stale, "OLD");
+  utimesSync(stale, 1000, 1000); // mtime ~1970 → past TTL
+  // A fresh, in-flight upload (recent mtime) that must survive the sweep.
+  const fresh = join(stagingDir, "fresh.png");
+  writeFileSync(fresh, "NEW");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    const staged = service.stageRelaunchImages(orig.id);
+
+    expect(existsSync(stale)).toBe(false); // aged orphan reclaimed
+    expect(existsSync(fresh)).toBe(true); // recent upload untouched
+    expect(staged).toHaveLength(1); // the carried original still staged
+    expect(existsSync(staged[0]!.path)).toBe(true);
   } finally {
     config.repoRoot = prevRoot;
   }

@@ -13,6 +13,9 @@ import type { SessionStore } from "./store";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
+/** Age after which an abandoned staged upload (New Task or relaunch carry) is reclaimed. */
+export const STAGING_TTL_MS = 24 * 60 * 60 * 1000;
+
 const MIME_EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",

@@ -17,6 +17,7 @@
     filteredRepo = null,
     statusFilter = null,
     onrelaunch = undefined,
+    onrelaunchElsewhere = undefined,
     workingBlocked = {},
   }: {
     sessions: Session[];
@@ -29,6 +30,8 @@
     activity?: Record<string, SessionActivity>;
     // when provided, each tile's CardMenu gains a two-step armed Relaunch action
     onrelaunch?: (id: string) => void;
+    // when provided, each tile's CardMenu gains a one-click "Relaunch elsewhere" item
+    onrelaunchElsewhere?: (id: string) => void;
     issueActionsUnset?: boolean;
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
@@ -74,6 +77,7 @@
         git={git[session.id]}
         activity={activity[session.id]}
         {onrelaunch}
+        {onrelaunchElsewhere}
         {workingBlocked}
       />
     {/each}

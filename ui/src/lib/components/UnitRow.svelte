@@ -64,6 +64,7 @@
     onpreview,
     ondecommission,
     onrelaunch,
+    onrelaunchElsewhere,
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
@@ -88,6 +89,9 @@
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
     onrelaunch?: (id: string) => void;
+    // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
+    // opens the new-task composer pre-filled from this session (cross-repo relaunch)
+    onrelaunchElsewhere?: (id: string) => void;
     // active page-level repo filter (full repoPath); drives the icon's pressed state
     repoFilter?: string | null;
     // when provided, clicking the inline repo emoji toggles the repo filter:
@@ -207,18 +211,22 @@
   // parent wired a handler — never on a concluded/merged record, where it would spawn a
   // duplicate and tear down the finished row.
   const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
+  // Relaunch-elsewhere reuses the same eligibility as Relaunch, just routed to the
+  // cross-repo composer instead of the in-place two-step arm.
+  const relaunchElsewhereAble = $derived(!!onrelaunchElsewhere && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !ondecommission && !relaunchable)) return false;
+    if (menu || (!resumable && !ondecommission && !relaunchable && !relaunchElsewhereAble))
+      return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !ondecommission && !relaunchable) return; // nothing to offer → leave native menu
+    if (!resumable && !ondecommission && !relaunchable && !relaunchElsewhereAble) return; // nothing to offer → leave native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -238,6 +246,10 @@
   function relaunchFromMenu() {
     menu = null;
     onrelaunch?.(session.id);
+  }
+  function relaunchElsewhereFromMenu() {
+    menu = null;
+    onrelaunchElsewhere?.(session.id);
   }
 
   // Time-breakdown popover: the .unit-hit overlay is the row's only click/
@@ -513,6 +525,7 @@
     opener={menu.opener}
     onresume={resumeFromMenu}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
+    onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

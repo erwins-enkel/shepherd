@@ -6,6 +6,7 @@ import {
   MODELS,
   type CreateSessionInput,
   type IssueRef,
+  type RelaunchOverrides,
   type Steer,
   type BuildStepInput,
   type BuildStepStatus,
@@ -36,6 +37,10 @@ const ALLOWED_KEYS = new Set([
   "issueRef",
   "planGateEnabled",
 ]);
+
+/** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
+ *  carried-over originals + supplied overrides) so a spawn's prompt stays sane. */
+export const MAX_IMAGES = 10;
 
 // The issue body rides out-of-band into the agent prompt — generous cap, separate
 // from the 8000-char human-prompt guard. Title/URL bounded to sane sizes.
@@ -134,7 +139,7 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   const images: string[] = [];
   if (value == null) return field(images);
   if (!Array.isArray(value)) return err("images must be an array");
-  if (value.length > 10) return err("images must be ≤ 10 entries");
+  if (value.length > MAX_IMAGES) return err(`images must be ≤ ${MAX_IMAGES} entries`);
   // an empty list needs no confinement — don't require a staging dir to exist
   // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
   if (value.length === 0) return field(images);
@@ -359,6 +364,69 @@ function validatePlanGateEnabled(value: unknown): Field<boolean | null | undefin
   if (value === undefined) return field(undefined);
   if (value === null || typeof value === "boolean") return field(value);
   return err("planGateEnabled must be a boolean, null, or absent");
+}
+
+type RelaunchResult = { ok: true; value: RelaunchOverrides } | { ok: false; error: string };
+
+const RELAUNCH_ALLOWED_KEYS = new Set([
+  "repoPath",
+  "baseBranch",
+  "prompt",
+  "model",
+  "planGateEnabled",
+  "images",
+]);
+
+/**
+ * Validate a POST /api/sessions/:id/relaunch override body — the SAME fields create
+ * validates, but every one is OPTIONAL (an absent field inherits the original session's
+ * already-validated value, so it is NOT re-checked). Closes the create/relaunch asymmetry:
+ * a present `repoPath`/`baseBranch`/`model`/`images` is run through the identical validator
+ * `validateCreate` uses, and unknown keys are rejected — so an override can never reach
+ * `worktree.create` / the `--model` spawn flag unguarded. Pure (only `validateRepoPath` /
+ * `validateImages` touch the fs); never throws. Mirrors `validateCreate`'s `{ ok, error }`
+ * contract so the route can return the same 400 body. `null` → no overrides (quick relaunch).
+ */
+export function validateRelaunchOverrides(body: unknown, repoRoot: string): RelaunchResult {
+  if (body === null) return { ok: true, value: {} };
+  if (typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+
+  const obj = body as Record<string, unknown>;
+  const unknown = rejectUnknownRelaunchKeys(obj);
+  if (unknown) return unknown;
+
+  const root = resolve(expandHome(repoRoot));
+  // model: an explicit `null` is legal ("default", no --model flag); only an absent key
+  // inherits the original's model, so each validator runs whenever its key is present
+  // (incl. null). Each row maps a present field through the SAME validator create uses,
+  // writing the typed value onto `out`; the first failure short-circuits.
+  const out: RelaunchOverrides = {};
+  const fields: { key: keyof RelaunchOverrides; apply: () => Field<unknown> }[] = [
+    { key: "prompt", apply: () => validatePrompt(obj.prompt) },
+    { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
+    { key: "model", apply: () => validateModel(obj.model) },
+    { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
+    { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
+    { key: "images", apply: () => validateImages(obj.images, root) },
+  ];
+  for (const { key, apply } of fields) {
+    if (obj[key] === undefined) continue;
+    const r = apply();
+    if (!r.ok) return r;
+    (out as Record<string, unknown>)[key] = r.value;
+  }
+
+  return { ok: true, value: out };
+}
+
+/** Reject any key not in the relaunch override allow-list; null when all keys are allowed. */
+function rejectUnknownRelaunchKeys(obj: Record<string, unknown>): RelaunchResult | null {
+  for (const key of Object.keys(obj)) {
+    if (!RELAUNCH_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
+  }
+  return null;
 }
 
 /**

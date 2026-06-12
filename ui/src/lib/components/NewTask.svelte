@@ -23,6 +23,9 @@
     initialIssue,
     initialModel,
     defaultModel,
+    relaunch = false,
+    initialBaseBranch,
+    relaunchIssueNumber,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -41,6 +44,9 @@
     initialIssue?: Issue;
     initialModel?: string;
     defaultModel?: string;
+    relaunch?: boolean;
+    initialBaseBranch?: string;
+    relaunchIssueNumber?: number | null;
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -57,7 +63,12 @@
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
-  let baseBranch = $state("main");
+  // svelte-ignore state_referenced_locally
+  let baseBranch = $state(initialBaseBranch ?? "main");
+  // One-shot: keep the seeded base on the initial repo's first branch load, then
+  // let the repo's current branch win on every subsequent load / repo switch.
+  // svelte-ignore state_referenced_locally
+  let seededBase = $state(initialBaseBranch != null);
   // Picker preselect precedence: explicit initialModel (e.g. the "Try Fable" CTA) wins;
   // else the operator's configured default if it's an explicit model; else the fresh
   // client promo (configured "auto", or settings not yet loaded). Resolved at mount,
@@ -67,6 +78,8 @@
   }
   // svelte-ignore state_referenced_locally
   let model = $state(initialModel ?? preselectModel(defaultModel));
+  // Relaunch reuses this composer with a distinct title + note set.
+  const heading = $derived(relaunch ? m.newtask_relaunch_title() : m.newtask_title());
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   let planGate = $state(false);
@@ -144,7 +157,13 @@
       .then((b) => {
         if (rp !== repoPath) return;
         branches = b.branches;
-        baseBranch = b.current ?? b.branches[0] ?? "main";
+        // Preserve a relaunch-seeded base on the initial repo's first load;
+        // once consumed (or on any other repo) use the repo's current branch.
+        if (seededBase && rp === initialRepoPath) {
+          seededBase = false;
+        } else {
+          baseBranch = b.current ?? b.branches[0] ?? "main";
+        }
       })
       .catch(() => {
         branches = [];
@@ -327,6 +346,11 @@
     } catch (err) {
       if (isPreviewBlocked(err)) {
         error = (err as Error).message;
+      } else if (relaunch) {
+        // The page maps relaunch ApiError codes to localized messages before
+        // throwing; render that verbatim, falling back to a generic relaunch error.
+        error = reason(err, m.relaunch_failed());
+        retry = () => submit(e);
       } else {
         error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
         retry = () => submit(e);
@@ -353,7 +377,7 @@
     class:dragging
     role="dialog"
     aria-modal="true"
-    aria-label={m.newtask_title()}
+    aria-label={heading}
     use:dialog={{ onclose: () => onclose?.() }}
     onsubmit={submit}
     ondragover={(e) => {
@@ -366,7 +390,7 @@
     ondrop={onDrop}
   >
     <div class="chead">
-      <span class="micro">{m.newtask_title()}</span>
+      <span class="micro">{heading}</span>
       <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
         >✕</button
       >
@@ -383,6 +407,15 @@
         {onnewproject}
       />
     </div>
+
+    {#if relaunch}
+      <div class="relaunch-note">
+        <span>{m.newtask_relaunch_note()}</span>
+        {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
+          <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+        {/if}
+      </div>
+    {/if}
 
     <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
     <div class="prompt-wrap">
@@ -412,6 +445,9 @@
       </button>
       <span class="hint">{m.newtask_drop_hint()}</span>
     </div>
+    {#if relaunch}
+      <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
+    {/if}
     <input
       bind:this={fileInput}
       type="file"
@@ -440,7 +476,7 @@
       </div>
     {/if}
 
-    {#if issueRef}
+    {#if issueRef && !relaunch}
       <div class="issue-ref">
         <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
@@ -459,6 +495,7 @@
     {#if repoPath}
       <PromptSources
         {repoPath}
+        allowIssues={!relaunch}
         onpick={(p) => {
           prompt = p;
           // resize, then land focus + caret at the end so a seeded command like
@@ -850,6 +887,10 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
   }
+  .attach-relaunch-note {
+    display: block;
+    margin-top: 4px;
+  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -881,6 +922,18 @@
     cursor: pointer;
     font: inherit;
     line-height: 1;
+  }
+  .relaunch-note {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-inset);
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
   }
   .issue-ref {
     display: flex;

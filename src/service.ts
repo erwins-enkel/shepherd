@@ -9,12 +9,13 @@ import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
-import type { CreateSessionInput, IssueRef, Session } from "./types";
+import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
 import { moveStagedIntoWorktree, stagingDir, uploadFilename, worktreeUploadsDir } from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import { MAX_IMAGES } from "./validate";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
  *  rejected/held-back PR (never merged, train never archived) can't stay
@@ -687,6 +688,29 @@ export class SessionService {
   }
 
   /**
+   * Copy an original session's staged uploads into the repo staging dir with fresh
+   * filenames (extension preserved) so create() lands them in the new worktree like
+   * New Task. Copy-not-move keeps the original recoverable on a spawn failure. Returns
+   * the new staged paths (empty when the original has no uploads dir).
+   */
+  private copyOriginalUploads(worktreePath: string): string[] {
+    const srcDir = worktreeUploadsDir(worktreePath);
+    if (!existsSync(srcDir)) return [];
+    const stage = stagingDir(config.repoRoot);
+    mkdirSync(stage, { recursive: true });
+    const copied: string[] = [];
+    for (const name of readdirSync(srcDir)) {
+      const src = join(srcDir, name);
+      if (!statSync(src).isFile()) continue;
+      const ext = extname(name).replace(/^\./, "");
+      const dest = join(stage, uploadFilename(ext));
+      copyFileSync(src, dest);
+      copied.push(dest);
+    }
+    return copied;
+  }
+
+  /**
    * Spawn a fresh replacement for an existing task, carrying its prompt and all
    * per-task settings — including the spawn-baked ones that can't be changed after
    * the fact (model, repoPath, baseBranch, planGateEnabled) plus the runtime
@@ -695,6 +719,12 @@ export class SessionService {
    * those are the route handler's job. Always `auto: false` (relaunch is an
    * explicit operator action).
    *
+   * `overrides` is an optional bag applied over the original (absent field keeps the
+   * original's value; a present one — incl. explicit `null` — replaces it), letting a
+   * caller relaunch into a DIFFERENT repo while carrying prompt/model/base-branch
+   * forward. Supplied `images` are appended to the carried-over originals. Omitted →
+   * byte-for-byte the original quick-relaunch.
+   *
    * The original's uploaded images are COPIED (not moved) into staging and passed
    * to `create`, which lands them in the new worktree — so a spawn failure here
    * leaves the original's images intact on disk (the originals are reclaimed only
@@ -702,36 +732,40 @@ export class SessionService {
    * spawn). On any error AFTER `create`, the just-created session is best-effort
    * torn down and the error rethrown, so no orphaned new session leaks.
    */
-  async relaunch(originalId: string, issueRef?: IssueRef): Promise<Session> {
+  async relaunch(
+    originalId: string,
+    issueRef?: IssueRef,
+    overrides?: RelaunchOverrides,
+  ): Promise<Session> {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
 
-    // Carry over the original's images: copy each staged into the repo staging dir
-    // with a fresh filename (extension preserved) so create() can land them in the
-    // new worktree like New Task. Copy-not-move keeps the original recoverable on
-    // a spawn failure.
-    const images: string[] = [];
-    const srcDir = worktreeUploadsDir(s.worktreePath);
-    if (existsSync(srcDir)) {
-      const stage = stagingDir(config.repoRoot);
-      mkdirSync(stage, { recursive: true });
-      for (const name of readdirSync(srcDir)) {
-        const src = join(srcDir, name);
-        if (!statSync(src).isFile()) continue;
-        const ext = extname(name).replace(/^\./, "");
-        const dest = join(stage, uploadFilename(ext));
-        copyFileSync(src, dest);
-        images.push(dest);
-      }
-    }
+    // Carry over the original's images: copied (not moved) into staging so create()
+    // can land them in the new worktree like New Task, and the originals stay
+    // recoverable on a spawn failure.
+    const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
 
+    // Supplied images append to the carried-over originals. Each list is independently
+    // ≤ MAX_IMAGES (validated at the original's creation / on the override body), but the
+    // concatenation can exceed it — cap the merged list to the per-spawn limit, originals
+    // first, and log any drop rather than silently overflowing the spawn prompt.
+    const mergedImages = [...copiedOriginalImages, ...(overrides?.images ?? [])];
+    const images = mergedImages.slice(0, MAX_IMAGES);
+    if (mergedImages.length > images.length)
+      console.warn(
+        `[relaunch] ${originalId}: ${mergedImages.length} images exceed cap ${MAX_IMAGES}; dropped ${mergedImages.length - images.length}`,
+      );
+
+    // Apply overrides over the original: an ABSENT field keeps the original's value;
+    // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
     const input: CreateSessionInput = {
-      repoPath: s.repoPath,
-      baseBranch: s.baseBranch,
-      prompt: s.prompt,
-      model: s.model,
-      planGateEnabled: s.planGateEnabled,
+      repoPath: overrides?.repoPath ?? s.repoPath,
+      baseBranch: overrides?.baseBranch ?? s.baseBranch,
+      prompt: overrides?.prompt ?? s.prompt,
+      model: overrides?.model !== undefined ? overrides.model : s.model,
+      planGateEnabled:
+        overrides?.planGateEnabled !== undefined ? overrides.planGateEnabled : s.planGateEnabled,
       images,
       issueRef,
       auto: false,

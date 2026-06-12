@@ -39,6 +39,7 @@ import type {
   BuildQueue,
   BuildStepStatus,
   PullResult,
+  RelaunchOverrides,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -348,8 +349,16 @@ export async function resumeSession(id: string, force = false): Promise<Session>
  */
 export async function relaunchSession(
   id: string,
+  overrides?: RelaunchOverrides,
 ): Promise<{ session: Session; archived: boolean }> {
-  const r = await fetch(`/api/sessions/${id}/relaunch`, { method: "POST" });
+  const init: RequestInit = { method: "POST" };
+  // With overrides, POST a JSON body (server relaunches into the new repo/settings);
+  // without, keep the bare POST so the quick-relaunch path is byte-for-byte unchanged.
+  if (overrides) {
+    init.headers = JSON_HEADERS;
+    init.body = JSON.stringify(overrides);
+  }
+  const r = await fetch(`/api/sessions/${id}/relaunch`, init);
   if (r.ok) return r.json();
   const body = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
   // Keep the preview-origin 403 remap (and its translated message) consistent with

@@ -86,6 +86,23 @@ export interface CreateSessionInput {
   planGateEnabled?: boolean | null;
 }
 
+/**
+ * Optional override bag applied over the original session on relaunch. Every field is
+ * optional: an ABSENT field keeps the original's value, a PRESENT one (including an
+ * explicit `null` for `model`/`planGateEnabled`) replaces it. Lets a caller relaunch
+ * into a different repo (`repoPath`) while carrying prompt/model/base-branch/images
+ * forward; `images` are appended to the original's carried-over uploads. A bare relaunch
+ * sends no body → no overrides → byte-for-byte the original quick-relaunch.
+ */
+export interface RelaunchOverrides {
+  repoPath?: string;
+  baseBranch?: string;
+  prompt?: string;
+  model?: string | null;
+  planGateEnabled?: boolean | null;
+  images?: string[];
+}
+
 /** Selectable claude model aliases; absent/"default" means no --model flag.
  *  Ordered most- to least-powerful so the picker leads with the top tier. */
 export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;

@@ -3038,6 +3038,104 @@ test("relaunch tears down the just-created session if a post-create step throws 
   expect(calls.stopped[0]).not.toBe("term_orig");
 });
 
+test("relaunch overrides apply repo/baseBranch/prompt/model/planGateEnabled over the original", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store); // repo /repo, develop, opus, planGate true
+
+  const fresh = await service.relaunch(orig.id, undefined, {
+    repoPath: "/other-repo",
+    baseBranch: "release",
+    prompt: "do something else",
+    model: "sonnet",
+    planGateEnabled: false,
+  });
+
+  expect(fresh.repoPath).toBe("/other-repo");
+  expect(fresh.baseBranch).toBe("release");
+  expect(fresh.prompt).toBe("do something else");
+  expect(fresh.model).toBe("sonnet");
+  expect(fresh.planGateEnabled).toBe(false);
+});
+
+test("relaunch overrides treat an absent field as keep-original (explicit null replaces)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store); // model opus, planGate true
+
+  // Empty override bag → every field keeps the original's value.
+  const kept = await service.relaunch(orig.id, undefined, {});
+  expect(kept.model).toBe("opus");
+  expect(kept.planGateEnabled).toBe(true);
+
+  // Explicit null is a PRESENT value → replaces (clears) the original's.
+  const cleared = await service.relaunch(orig.id, undefined, {
+    model: null,
+    planGateEnabled: null,
+  });
+  expect(cleared.model).toBe(null);
+  expect(cleared.planGateEnabled).toBe(null);
+});
+
+test("relaunch images override appends to the carried-over originals", async () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-imgroot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-imgwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "orig.png"), "PNGDATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service, calls } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    await service.relaunch(orig.id, undefined, { images: ["/stage/supplied.jpg"] });
+
+    // The new session's spawn argv carries BOTH the copied original and the supplied one.
+    const argv = calls.started[0]!.argv;
+    const promptArg = argv[argv.length - 1]!;
+    expect(promptArg).toContain("Attached images:");
+    // moveUploads mock maps each staged path to <wt>/.shepherd-uploads/<basename>
+    expect(promptArg).toMatch(/\.shepherd-uploads\/.+\.png/); // copied original
+    expect(promptArg).toContain("supplied.jpg"); // supplied override appended
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("relaunch caps the merged image list at MAX_IMAGES, carried-over originals first", async () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-caproot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-capwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  // 8 carried-over originals + 5 supplied overrides = 13 → must cap to 10.
+  for (let i = 0; i < 8; i++) writeFileSync(join(uploads, `orig${i}.png`), "PNGDATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service, calls } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    await service.relaunch(orig.id, undefined, {
+      images: ["/stage/a.jpg", "/stage/b.jpg", "/stage/c.jpg", "/stage/d.jpg", "/stage/e.jpg"],
+    });
+
+    const argv = calls.started[0]!.argv;
+    const promptArg = argv[argv.length - 1]!;
+    const moved = promptArg.split("Attached images:\n")[1]!.trim().split("\n");
+    expect(moved).toHaveLength(10); // capped from 13
+    // Originals come first and all 8 fit, so only 2 of the 5 supplied survive the cap.
+    const survivingSupplied = moved.filter((p) => /\/[a-e]\.jpg$/.test(p));
+    expect(survivingSupplied).toHaveLength(2);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
 test("resume of a non-auto session stays untrimmed even with trim on", async () => {
   const prev = config.trimAutoContext;
   try {

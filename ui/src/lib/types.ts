@@ -548,6 +548,16 @@ export type WsEvent =
   | { event: "mergetrain:landed"; data: { repoPath: string } }
   | { event: "draftreconcile:status"; data: DraftReconcileStatus };
 
+/** Optional override bag for relaunch; absent fields inherit the original session. */
+export interface RelaunchOverrides {
+  repoPath?: string;
+  baseBranch?: string;
+  prompt?: string;
+  model?: string | null;
+  planGateEnabled?: boolean | null;
+  images?: string[];
+}
+
 export interface CreateInput {
   repoPath: string;
   baseBranch: string;

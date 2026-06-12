@@ -39,7 +39,11 @@
             ✕
           </button>
           {#if t.durationMs !== undefined}
-            <span class="countdown" class:paused={t.held} aria-hidden="true"></span>
+            <!-- Keyed on armSeq so a keyed refresh recreates the node, restarting
+                 the drain animation in sync with the freshly re-armed timer. -->
+            {#key t.armSeq}
+              <span class="countdown" class:paused={t.held} aria-hidden="true"></span>
+            {/key}
           {/if}
         {/if}
       </div>

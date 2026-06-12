@@ -23,6 +23,10 @@ interface Toast {
   /** True while hover/focus has paused an info toast's auto-dismiss; drives the
    *  bar's animation-play-state so it freezes instead of draining. (Info only.) */
   held?: boolean;
+  /** Bumped each time the auto-dismiss timer is (re-)armed. The countdown bar is
+   *  keyed on it so a keyed refresh recreates the element, restarting its CSS
+   *  drain animation in lockstep with the freshly re-armed timer. (Info only.) */
+  armSeq?: number;
   /** Dedupe key; on undo toasts it also lets the UI find the deferred target. */
   key?: string;
   /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
@@ -99,7 +103,14 @@ class ToastStore {
       else this.#actions.delete(prev);
       this.items = this.items.map((t) =>
         t.id === prev
-          ? { ...t, text, actionLabel: opts.action?.label, alert: opts.alert, durationMs }
+          ? {
+              ...t,
+              text,
+              actionLabel: opts.action?.label,
+              alert: opts.alert,
+              durationMs,
+              armSeq: (t.armSeq ?? 0) + 1,
+            }
           : t,
       );
       this.#armInfo(prev, opts.duration);
@@ -116,6 +127,7 @@ class ToastStore {
         alert: opts.alert,
         key: opts.key,
         durationMs,
+        armSeq: 0,
       },
     ];
     if (opts.action) this.#actions.set(id, opts.action.run);

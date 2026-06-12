@@ -128,6 +128,13 @@ test("a persistent info toast has no durationMs (no bar)", () => {
   expect(toasts.items.find((t) => t.id === id)?.durationMs).toBeUndefined();
 });
 
+test("a keyed refresh bumps armSeq (restarts the bar animation)", () => {
+  const id = toasts.info("saved", { key: "k", duration: 4000 });
+  expect(toasts.items.find((t) => t.id === id)?.armSeq).toBe(0);
+  expect(toasts.info("saved again", { key: "k", duration: 4000 })).toBe(id);
+  expect(toasts.items.find((t) => t.id === id)?.armSeq).toBe(1);
+});
+
 test("hold()/release() toggle the item's held flag; ref-counted", () => {
   const id = toasts.info("saved", { duration: 4000 });
   const get = () => toasts.items.find((t) => t.id === id);

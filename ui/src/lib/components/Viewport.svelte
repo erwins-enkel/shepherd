@@ -533,7 +533,7 @@
     leftovers = found;
   }
 
-  // ── rename: one click opens an inline editor; Enter/blur commits, Esc cancels ──
+  // ── rename: ✎ click or title double-tap opens an inline editor; Enter/blur commits, Esc cancels ──
   let renaming = $state(false);
   let renameDraft = $state("");
   let renameError = $state<string | null>(null);
@@ -585,6 +585,26 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       cancelRename();
+    }
+  }
+  // Double-tap / double-click on the session title also opens the editor.
+  // Hand-rolled click timing instead of ondblclick so touch and mouse behave
+  // identically (iOS Safari fires dblclick unreliably) — the first tap keeps
+  // its existing job (meta popover via focus), the second one renames.
+  let lastTitleTap = 0;
+  function onTitleTap() {
+    const now = Date.now();
+    if (now - lastTitleTap < 400) {
+      lastTitleTap = 0;
+      void startRename();
+    } else {
+      lastTitleTap = now;
+    }
+  }
+  function onTitleKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void startRename();
     }
   }
 
@@ -1708,6 +1728,8 @@
           role="button"
           tabindex="0"
           aria-label={m.topbar_detail_context_aria({ repo: repoName, name: session.name })}
+          onclick={onTitleTap}
+          onkeydown={onTitleKey}
         >
           {#if !repoIcon}
             <span class="ctx-glyph" aria-hidden="true">▣</span>
@@ -1724,14 +1746,28 @@
       <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
       <span class="desig-wrap">
-        <span class="desig" role="button" tabindex="0" aria-label={m.viewport_meta_aria()}
-          >{session.desig}</span
+        <span
+          class="desig"
+          role="button"
+          tabindex="0"
+          aria-label={m.viewport_meta_aria()}
+          onclick={onTitleTap}
+          onkeydown={onTitleKey}>{session.desig}</span
         >
         {@render metaPop()}
       </span>
       {#if compact}
-        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry -->
-        <span class="vp-name" title={session.name}>{session.name}</span>
+        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry.
+             tabindex -1: double-tap target only — the adjacent desig already carries
+             the keyboard path, a second tab stop on the same identity would be noise -->
+        <span
+          class="vp-name"
+          title={session.name}
+          role="button"
+          tabindex="-1"
+          onclick={onTitleTap}
+          onkeydown={onTitleKey}>{session.name}</span
+        >
       {/if}
     {/if}
     {#if !compact}
@@ -2441,6 +2477,10 @@
     flex-shrink: 0;
     cursor: default;
     border-bottom: 1px dotted var(--color-line);
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .desig-wrap:hover .desig {
     color: var(--color-ink);
@@ -2493,6 +2533,10 @@
   .vp-name {
     color: var(--color-ink);
     font-size: var(--fs-base);
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
     /* flex-basis 0 (not auto) so the name's content width doesn't drive the
        wrap calc on mobile — otherwise a long name reserves the whole row and
        pushes the decommission button onto the next line. It absorbs the slack
@@ -2686,6 +2730,10 @@
     gap: 6px;
     min-width: 0;
     cursor: default;
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .ctx-glyph {
     color: var(--color-amber);

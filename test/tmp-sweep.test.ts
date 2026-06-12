@@ -82,6 +82,31 @@ describe("sweepClaudeTmp", () => {
     expect(existsSync(ncc)).toBe(true);
   });
 
+  test("honors a configured 0 threshold (not coerced to the default 80)", async () => {
+    // SHEPHERD_TMP_INODE_PCT=0 means "always sweep". With the old `Number(x)||80`
+    // parse this 0 was silently coerced back to 80, so a 10%-used fs would NOT sweep.
+    setEnv("SHEPHERD_TMP_INODE_PCT", "0");
+    const root = mkTmp();
+    const ncc = join(root, "node-compile-cache");
+    mkdirSync(ncc);
+    writeFileSync(join(ncc, "blob.bin"), "x");
+
+    const fsp = await import("node:fs/promises");
+    const res = await sweepClaudeTmp({
+      root,
+      fsOps: {
+        statfs: fakeStatfs(1000, 900), // 10% used — below the default 80, at/over 0
+        readdir: fsp.readdir,
+        stat: fsp.stat,
+        rm: fsp.rm,
+      } as never,
+      log: () => {},
+    });
+
+    expect(res.swept).toBe(true);
+    expect(existsSync(ncc)).toBe(false); // dropped because threshold 0 was honored
+  });
+
   test("over threshold: removes node-compile-cache wholesale + stale entries, keeps fresh", async () => {
     const root = mkTmp();
     const ncc = join(root, "node-compile-cache");

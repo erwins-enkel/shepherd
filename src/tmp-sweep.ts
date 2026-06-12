@@ -23,6 +23,16 @@ const uid = (): number => process.getuid?.() ?? 1000;
 const dashify = (p: string): string => p.replace(/[/.]/g, "-");
 
 /**
+ * Parse a numeric env override, honoring a legitimate `0` (unlike `Number(x) || d`, which
+ * coerces a configured `0` back to the default). Empty/whitespace/non-finite → the fallback.
+ */
+const envNum = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value.trim() === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/**
  * The claude tmp root for this user. Read from env at call time so tests and operators
  * can redirect it; falls back to the conventional `<tmpdir>/claude-$uid`.
  */
@@ -184,9 +194,8 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
   const log = opts?.log ?? console.warn;
   try {
     const root = opts?.root ?? claudeTmpRoot();
-    const thresholdPct = opts?.thresholdPct ?? (Number(process.env.SHEPHERD_TMP_INODE_PCT) || 80);
-    const staleMs =
-      opts?.staleMs ?? (Number(process.env.SHEPHERD_TMP_STALE_HOURS) || 24) * 3600_000;
+    const thresholdPct = opts?.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, 80);
+    const staleMs = opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000;
     const now = opts?.now ?? Date.now();
     const ops: FsOps = opts?.fsOps ?? {
       statfs: fsp.statfs,

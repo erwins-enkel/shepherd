@@ -12,7 +12,7 @@
     "format": "prettier --write .",
     "start": "bun run src/index.ts",
     "update": "bash deploy/update.sh",
-    "prepare": "husky"
+    "prepare": "husky && node scripts/register-merge-driver.mjs"
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write",

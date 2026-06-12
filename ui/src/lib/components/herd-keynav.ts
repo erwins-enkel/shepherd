@@ -1,25 +1,14 @@
 import type { Session, GitState } from "$lib/types";
-import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
+import { partitionSessions, shownSessions, STAGE_ORDER, type HerdFilter } from "./herd-partition";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
  *  rail's visible order here instead of duplicating Herd.svelte's template walk. */
 
 /** Top→bottom group order of Herd.svelte's template — MUST match the order the
- *  rail renders its stage groups in (active first, merged last). */
-const RAIL_GROUP_ORDER = [
-  "active",
-  "ciRunning",
-  "ciFailed",
-  "reviewerRunning",
-  "waitingOnReviewer",
-  "waitingOnMerger",
-  "draftAwaitingSignoff",
-  "awaitingMerge",
-  "ready",
-  "merging",
-  "merged",
-] as const;
+ *  rail renders its stage groups in (active first, merged last). Derived from
+ *  herd-partition's `STAGE_ORDER` so there is exactly one source of stage order. */
+const RAIL_GROUP_ORDER = STAGE_ORDER;
 
 /** Session ids in the exact order the herd rail renders them: the same shown
  *  set (rail filter applied) and partition Herd.svelte derives, flattened in

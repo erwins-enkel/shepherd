@@ -119,6 +119,29 @@ function stageOf(
   return greenIdle ? handoffStage(g) : "active";
 }
 
+/** The canonical top→bottom lifecycle stage order of Herd.svelte's template (active
+ *  first, merged last). Single source of truth for stage ordering: `flattenByStage`
+ *  here and herd-keynav's `RAIL_GROUP_ORDER` both derive from it, so the render and the
+ *  keyboard-nav rail can never drift on order. */
+export const STAGE_ORDER = [
+  "active",
+  "ciRunning",
+  "ciFailed",
+  "reviewerRunning",
+  "waitingOnReviewer",
+  "waitingOnMerger",
+  "draftAwaitingSignoff",
+  "awaitingMerge",
+  "ready",
+  "merging",
+  "merged",
+] as const satisfies readonly Stage[];
+
+/** Flatten a partitionSessions result into a single list in STAGE_ORDER. */
+export function flattenByStage(p: ReturnType<typeof partitionSessions>): Session[] {
+  return STAGE_ORDER.flatMap((stage) => p[stage]);
+}
+
 export function partitionSessions(
   sessions: Session[],
   git: Record<string, GitState>,

@@ -53,7 +53,7 @@ describe("ProjectRow PR-kind counts", () => {
     await expect
       .element(page.getByText(m.prkind_dependabot_badge({ count: 0 })))
       .not.toBeInTheDocument();
-    expect(document.body.querySelector(".kind-badge.dep")).toBeNull();
+    expect(document.body.querySelectorAll(".bot-note").length).toBe(1);
   });
 
   it("all-regular repo: shows the count and no badges", async () => {
@@ -66,7 +66,7 @@ describe("ProjectRow PR-kind counts", () => {
     await expect
       .element(page.getByText(`3 ${m.backlog_tab_prs()}`, { exact: false }))
       .toBeInTheDocument();
-    expect(document.body.querySelector(".kind-badge")).toBeNull();
+    expect(document.body.querySelector(".bot-note")).toBeNull();
   });
 
   it("null prKinds (Gitea fallback): renders openPRs and no badges", async () => {
@@ -79,6 +79,6 @@ describe("ProjectRow PR-kind counts", () => {
     await expect
       .element(page.getByText(`5 ${m.backlog_tab_prs()}`, { exact: false }))
       .toBeInTheDocument();
-    expect(document.body.querySelector(".kind-badge")).toBeNull();
+    expect(document.body.querySelector(".bot-note")).toBeNull();
   });
 });

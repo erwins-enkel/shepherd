@@ -1630,6 +1630,19 @@ test("error verdict does not poison the dedup set (same diff re-reviews)", async
   expect(reviews["s1"]?.reviewedPatchIds).toEqual([]);
 });
 
+test("reviewPrompt enforces verification discipline (grounding, not plausibility)", () => {
+  const p = reviewPrompt("main", "do the thing");
+  // intro rule: no asserting plausibility
+  expect(p).toContain("VERIFY — do not assert plausibility");
+  // citation requirement: concrete ground truth + path:line
+  expect(p).toContain("cite the concrete ground truth");
+  expect(p).toContain("path:line");
+  // cannot-verify vs wrong distinction
+  expect(p).toContain("CANNOT-VERIFY vs WRONG");
+  // attribution rule for cross-tree findings
+  expect(p).toContain("ATTRIBUTION when a verified problem points outside the diff");
+});
+
 test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-branch)", async () => {
   const {
     deps: d,

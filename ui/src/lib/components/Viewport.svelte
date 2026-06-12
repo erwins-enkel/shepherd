@@ -1648,7 +1648,12 @@
            plain onclick would always lose to the blur and ✕ could never cancel.
            tabindex=-1: tabbing out of the input already commits and unmounts
            these, so a tab stop here would be dead — Enter/Esc are the keyboard
-           path. -->
+           path. The onclick handlers are NOT dead code: assistive-tech
+           activation (VoiceOver/TalkBack, voice control) dispatches a synthetic
+           click without real pointer events, so onclick is that path. Both
+           actions are idempotent, so a real pointer firing pointerdown + click
+           is harmless (cancel unmounts the buttons; commit re-entry is guarded
+           by renaming/renameSaving). -->
       <button
         class="rename-btn cancel"
         type="button"

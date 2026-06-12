@@ -562,6 +562,13 @@ test("reviewPrompt asks for structured findings", () => {
   expect(p).toContain('"findings"');
 });
 
+test("reviewPrompt carries the informational-only latent-defect lens", () => {
+  const p = reviewPrompt("main", "do the thing");
+  expect(p).toContain("LATENT-DEFECT LENS");
+  expect(p).toContain("Latent / future-reachable (non-blocking):");
+  expect(p).toContain("do NOT put them in"); // informational-only: never blocking findings
+});
+
 test("reviewPrompt injects prior findings for verification (accountability)", () => {
   const p = reviewPrompt("main", "do the thing", ["fix the race", "rename foo"]);
   expect(p).toContain("fix the race");

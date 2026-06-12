@@ -5,13 +5,24 @@
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import type { Session, RepoRoles, SandboxProfile } from "$lib/types";
+  import type { Session, RepoRoles, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
     repoPath,
     sessionId,
     planPhase = null,
-  }: { repoPath: string; sessionId: string; planPhase?: Session["planPhase"] } = $props();
+    drain = null,
+  }: {
+    repoPath: string;
+    sessionId: string;
+    planPhase?: Session["planPhase"];
+    /** Live drain status for this repo; passed from GitRail via the store.
+     *  When drain.epicParent is set, label-drain is suspended by the active epic. */
+    drain?: DrainStatus | null;
+  } = $props();
+
+  /** True when a running epic has taken over label-drain for this repo. */
+  const epicActive = $derived(drain?.epicParent != null);
 
   const flags = $derived(repoConfig.flags(repoPath));
   const reviewing = $derived(reviews.isReviewing(sessionId));
@@ -340,7 +351,12 @@
 
   <!-- Work queue -->
   <div class="auto-group">{m.automation_group_queue()}</div>
-  <div class="auto-row">
+  {#if epicActive}
+    <div class="epic-mode-banner" role="status">
+      ◈ {m.epic_mode_active({ parent: drain!.epicParent! })}
+    </div>
+  {/if}
+  <div class={["auto-row", { disabled: epicActive }]}>
     <div class="auto-meta">
       <div class="auto-name">
         ▽ {m.automation_autodrain_name()}
@@ -350,10 +366,12 @@
       {@render detail("auto-drain", m.automation_autodrain_detail())}
     </div>
     <button
-      class={["sw", { on: flags.autoDrain }]}
+      class={["sw", { on: flags.autoDrain && !epicActive }]}
       type="button"
       role="switch"
-      aria-checked={flags.autoDrain}
+      aria-checked={flags.autoDrain && !epicActive}
+      disabled={epicActive}
+      title={epicActive ? m.epic_mode_active({ parent: drain!.epicParent! }) : undefined}
       aria-label={m.automation_autodrain_name()}
       onclick={() => repoConfig.toggleAutoDrain(repoPath)}
     >
@@ -828,5 +846,19 @@
     text-align: left;
     cursor: pointer;
     appearance: auto;
+  }
+  /* Epic-mode precedence banner: unmistakable amber notice inside the Work queue
+     section that label-drain is suspended while an epic runs. Sits above the
+     auto-drain row (which is also dimmed via .auto-row.disabled). */
+  .epic-mode-banner {
+    margin: 0 12px 4px;
+    padding: 5px 8px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    color: var(--status-running);
+    background: color-mix(in oklab, var(--status-running) 12%, transparent);
+    border: 1px solid var(--status-running);
+    border-radius: 2px;
+    line-height: 1.4;
   }
 </style>

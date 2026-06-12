@@ -1,5 +1,17 @@
 import type { PrKind } from "./pr-kind";
 
+/** Per-child native state from the sub_issues REST payload — carries closed/labels/body so
+ * gating escapes listIssues()'s 200-open-issue cap.
+ */
+export interface SubIssueRef {
+  number: number;
+  title: string;
+  url: string;
+  body: string;
+  closed: boolean;
+  labels: string[];
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -275,6 +287,12 @@ export interface GitForge {
    *  issue's number + URL. Optional: hosts without an issue-create API omit it
    *  and POST /api/issues 400s. */
   createIssue?(o: { title: string; body: string }): Promise<{ number: number; url: string }>;
+  // Epic structure (GitHub only; absent → markdown fallback)
+  listSubIssues?(parentNumber: number): Promise<SubIssueRef[]>;
+  listBlockedBy?(issueNumber: number): Promise<number[]>;
+  issueId?(issueNumber: number): Promise<number | null>;
+  addSubIssue?(parentNumber: number, childNumber: number): Promise<void>;
+  addBlockedBy?(issueNumber: number, blockerNumber: number): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

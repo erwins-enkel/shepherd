@@ -48,6 +48,8 @@ function state(over: Partial<DrainRepoState> = {}): DrainRepoState {
     autoSessions: [],
     mappedIssueNumbers: new Set<number>(),
     candidates: [],
+    epicAttended: false,
+    epicApprovedNext: false,
     ...over,
   };
 }
@@ -509,5 +511,23 @@ describe("selectCandidates", () => {
       AUTO_LABEL,
     );
     expect(out.map((i) => i.number)).toEqual([5]);
+  });
+});
+
+describe("epic attended gate", () => {
+  test("attended + not approved → awaiting_approval(detail=next#)", () => {
+    const d = computeNext(
+      state({ candidates: [issue(322)], epicAttended: true, epicApprovedNext: false }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "awaiting_approval", detail: "322" } });
+  });
+  test("attended + approved → spawn", () => {
+    const d = computeNext(
+      state({ candidates: [issue(322)], epicAttended: true, epicApprovedNext: true }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: expect.objectContaining({ number: 322 }) });
+  });
+  test("label mode (epicAttended false) unaffected → spawn", () => {
+    expect(computeNext(state({ candidates: [issue(322)] })).kind).toBe("spawn");
   });
 });

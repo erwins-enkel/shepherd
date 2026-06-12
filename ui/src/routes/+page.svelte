@@ -1179,6 +1179,7 @@
               {onadopt}
               {onlaunchtrain}
               flow={true}
+              epics={store.epics}
             />
           {/if}
         </div>
@@ -1217,6 +1218,7 @@
               settingsTab = "session";
               showSettings = true;
             }}
+            drain={store.drain[selected.repoPath] ?? null}
           />
         </div>
       {/if}
@@ -1298,6 +1300,7 @@
             {onpr}
             {onadopt}
             {onlaunchtrain}
+            epics={store.epics}
           />
         {:else if selected}
           <Viewport
@@ -1324,6 +1327,7 @@
               settingsTab = "session";
               showSettings = true;
             }}
+            drain={store.drain[selected.repoPath] ?? null}
           />
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>
@@ -1571,6 +1575,7 @@
     {onadopt}
     {onlaunchtrain}
     onclose={() => (showBacklog = false)}
+    epics={store.epics}
   />
 {/if}
 

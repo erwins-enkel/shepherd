@@ -1,5 +1,5 @@
 import type { SessionStore } from "./store";
-import type { GitForge, GitState, Issue } from "./forge/types";
+import type { GitForge, GitState, Issue, SubIssueRef } from "./forge/types";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 import { settleMergedSession } from "./merge-teardown";
@@ -12,9 +12,24 @@ import {
   type DrainDecision,
   type DrainRepoState,
 } from "./drain-core";
+import { assembleEpic } from "./epic-model";
+import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
+import { mapBounded } from "./map-bounded";
 import { config } from "./config";
+
+/** Concurrency cap for the per-child blocked_by fan-out when assembling an epic.
+ *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
+ *  trip GitHub secondary rate limits. */
+const EPIC_BLOCKED_BY_CONCURRENCY = 8;
 import { drainSpawnModel } from "./default-model";
 import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
+
+/** Cached epic structure for one pump cycle. */
+interface EpicStructure {
+  parent: Issue | null;
+  subIssues: SubIssueRef[];
+  blockedBy: Map<number, number[]>;
+}
 
 /** Live per-repo drain status pushed to the client (and used for bootstrap). */
 export interface DrainStatus {
@@ -32,6 +47,8 @@ export interface DrainStatus {
   inFlight: number;
   /** maxAuto. */
   max: number;
+  /** Parent issue number when an epic is running; null in label-mode. */
+  epicParent: number | null;
 }
 
 /** One queued backlog issue behind {@link DrainStatus.queued} — the rows the
@@ -43,7 +60,10 @@ export interface QueuedItem {
 }
 
 export interface DrainDeps {
-  store: Pick<SessionStore, "get" | "list" | "getRepoConfig" | "getReview" | "archive">;
+  store: Pick<
+    SessionStore,
+    "get" | "list" | "getRepoConfig" | "getReview" | "archive" | "getEpicRun" | "setEpicRun"
+  >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
   prCache: { snapshot(): Record<string, GitState> };
@@ -56,6 +76,8 @@ export interface DrainDeps {
   emitArchived: (id: string) => void;
   /** → prPoller.drop(id). */
   dropPrCache: (id: string) => void;
+  /** → events.emit("epic:update", epic). Optional — absent in tests that don't need it. */
+  emitEpic?: (epic: Epic) => void;
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
@@ -86,6 +108,9 @@ export class DrainService {
   // and re-queues the issue. Consumed (deleted) in onArchived.
   private retainClaimOnArchive = new Set<string>();
   private issuesCache = new Map<string, { issues: Issue[]; ts: number }>();
+  private epicStructureCache = new Map<string, { reads: EpicStructure; ts: number }>();
+  private lastEpicSig = new Map<string, string>();
+  private approvedNext = new Set<string>();
   private now: () => number;
   private issuesTtlMs: number;
 
@@ -94,9 +119,94 @@ export class DrainService {
     this.issuesTtlMs = deps.issuesTtlMs ?? 10_000;
   }
 
+  /** Operator approves the next epic-attended spawn for the given repo. */
+  approveEpicNext(repoPath: string): void {
+    this.approvedNext.add(repoPath);
+  }
+
+  /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). */
+  private async epicStructure(repoPath: string, run: EpicRun): Promise<EpicStructure | null> {
+    const key = `${repoPath}:${run.parentIssueNumber}`;
+    const cached = this.epicStructureCache.get(key);
+    if (cached && this.now() - cached.ts < this.issuesTtlMs) return cached.reads;
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge) return null;
+    const parent = (await forge.getIssue?.(run.parentIssueNumber)) ?? null;
+    const subIssues = (await forge.listSubIssues?.(run.parentIssueNumber)) ?? [];
+    // Each child's blocked_by is independent — fetch concurrently (once per epic per TTL
+    // window, not per pump) but BOUNDED: a 100+-child epic must not spawn 100 `gh api`
+    // subprocesses at once (FD/process pressure + GitHub secondary rate limits).
+    const blockedByEntries = await mapBounded(
+      subIssues,
+      EPIC_BLOCKED_BY_CONCURRENCY,
+      async (s) => [s.number, (await forge.listBlockedBy?.(s.number)) ?? []] as const,
+    );
+    const blockedBy = new Map<number, number[]>(blockedByEntries);
+    const reads: EpicStructure = { parent, subIssues, blockedBy };
+    this.epicStructureCache.set(key, { reads, ts: this.now() });
+    return reads;
+  }
+
+  // public: also called by the epic server routes (Task 9) for on-demand epic assembly
+  /** Assemble the live Epic for this repo's running epic (used by buildState + server). */
+  async buildEpic(repoPath: string, run: EpicRun): Promise<Epic | null> {
+    const struct = await this.epicStructure(repoPath, run);
+    if (!struct) return null;
+    const native = struct.subIssues.length > 0;
+    let openIssues: { number: number; body: string; labels: string[] }[] = [];
+    let openIssuesTruncated = false;
+    if (!native) {
+      const open = await this.listIssues(repoPath);
+      openIssues = open.map((i) => ({ number: i.number, body: i.body, labels: i.labels }));
+      openIssuesTruncated = open.length >= 200;
+    }
+    const prSnap = this.deps.prCache.snapshot();
+    const sessions = this.deps.store
+      .list()
+      .filter(
+        (x) =>
+          x.repoPath === repoPath && x.auto && x.issueNumber != null && x.status !== "archived",
+      )
+      .map((x) => ({
+        id: x.id,
+        issueNumber: x.issueNumber,
+        prNumber: prSnap[x.id]?.number ?? null,
+      }));
+    return assembleEpic({
+      repoPath,
+      run,
+      parent: {
+        number: run.parentIssueNumber,
+        title: struct.parent?.title ?? `#${run.parentIssueNumber}`,
+        body: struct.parent?.body ?? "",
+      },
+      subIssues: struct.subIssues,
+      blockedBy: struct.blockedBy,
+      openIssues,
+      openIssuesTruncated,
+      sessions,
+    });
+  }
+
+  /** Emit the epic only when something meaningful changed (de-dup by signature). */
+  private emitEpicIfChanged(repoPath: string, epic: Epic): void {
+    const sig = JSON.stringify({
+      st: epic.run.status,
+      md: epic.run.mode,
+      kids: epic.children.map((c) => [c.number, c.state, c.prNumber] as const),
+      warn: epic.warnings.length,
+    });
+    if (this.lastEpicSig.get(repoPath) === sig) return;
+    this.lastEpicSig.set(repoPath, sig);
+    this.deps.emitEpic?.(epic);
+  }
+
   // ── state assembly ──────────────────────────────────────────────────────────
 
-  private async buildState(repoPath: string): Promise<DrainRepoState> {
+  private async buildState(repoPath: string): Promise<{
+    state: DrainRepoState & { epicParent: number | null };
+    epic: Epic | null;
+  }> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     // ALL sessions (incl. archived) for dedup: an issue drained once stays mapped via
     // its archived session, so a retired-but-not-yet-merged issue isn't re-pulled (bounded by
@@ -126,22 +236,51 @@ export class DrainService {
     );
     const limits = this.deps.usage.limits(this.now());
     const usagePct = Math.max(limits.session5h?.pct ?? 0, limits.week?.pct ?? 0);
-    // Only hit the forge when drain is enabled — don't hammer listIssues for
-    // repos that aren't draining.
-    const candidates = cfg.autoDrainEnabled
-      ? selectCandidates(await this.listIssues(repoPath), cfg.autoLabel)
-      : [];
+
+    // Epic branch: only override label-drain when the epic is actively running or paused.
+    // An idle epic_run row (or no row at all) falls through to label-drain as normal.
+    const epicRun = this.deps.store.getEpicRun(repoPath);
+    const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
+    let candidates: Issue[] = [];
+    let epicAttended = false;
+    let epicParent: number | null = null;
+    let builtEpic: Epic | null = null;
+    if (epicActive) {
+      // Epic is running/paused: source candidates from its dependency-gated children
+      // instead of the label-based listIssues path.
+      builtEpic = await this.buildEpic(repoPath, epicRun!);
+      if (builtEpic) {
+        epicParent = epicRun!.parentIssueNumber;
+        if (epicRun!.status === "running") candidates = selectEpicCandidates(builtEpic.children);
+        epicAttended = epicRun!.mode === "attended";
+      }
+    } else if (cfg.autoDrainEnabled) {
+      // Label mode: only hit the forge when drain is enabled — don't hammer listIssues for
+      // repos that aren't draining.
+      candidates = selectCandidates(await this.listIssues(repoPath), cfg.autoLabel);
+    }
+    // enabled reflects whether spawning is active: epic running → use epic's running
+    // status; otherwise fall back to the label-drain toggle. An idle/paused epic or no
+    // epic row at all defers to autoDrainEnabled.
+    const enabled = epicActive ? epicRun!.status === "running" : cfg.autoDrainEnabled;
+
     return {
-      enabled: cfg.autoDrainEnabled,
-      criticEnabled: cfg.criticEnabled,
-      draftMode: cfg.draftMode,
-      signoffAuthority: cfg.signoffAuthority,
-      maxAuto: cfg.maxAuto,
-      usageCeilingPct: cfg.usageCeilingPct,
-      usagePct,
-      autoSessions,
-      mappedIssueNumbers,
-      candidates,
+      state: {
+        enabled,
+        criticEnabled: cfg.criticEnabled,
+        draftMode: cfg.draftMode,
+        signoffAuthority: cfg.signoffAuthority,
+        maxAuto: cfg.maxAuto,
+        usageCeilingPct: cfg.usageCeilingPct,
+        usagePct,
+        autoSessions,
+        mappedIssueNumbers,
+        candidates,
+        epicAttended,
+        epicApprovedNext: this.approvedNext.has(repoPath),
+        epicParent,
+      },
+      epic: builtEpic,
     };
   }
 
@@ -162,7 +301,11 @@ export class DrainService {
     }
   }
 
-  private toStatus(repoPath: string, state: DrainRepoState, decision: DrainDecision): DrainStatus {
+  private toStatus(
+    repoPath: string,
+    state: DrainRepoState & { epicParent: number | null },
+    decision: DrainDecision,
+  ): DrainStatus {
     const hold = decision.kind === "hold" ? decision.reason : null;
     // cap is conveyed by inFlight/max, empty is normal idle — neither pauses.
     const paused =
@@ -177,10 +320,87 @@ export class DrainService {
       queued,
       inFlight: state.autoSessions.length,
       max: state.maxAuto,
+      epicParent: state.epicParent,
     };
   }
 
   // ── the loop ────────────────────────────────────────────────────────────────
+
+  /**
+   * Auto-complete check + emit for an in-flight epic.
+   * If the epic is running and every child is merged, transitions the stored run
+   * to idle and emits the updated epic. Otherwise just emits the current state.
+   * Pump-only — snapshot()/queue() must never call this.
+   * Returns true when it auto-completed the epic this call (running→idle).
+   */
+  private handleEpicSideEffects(repoPath: string, epicRun: EpicRun, epic: Epic): boolean {
+    if (
+      epicRun.status === "running" &&
+      epic.children.length > 0 &&
+      epic.children.every((c) => c.state === "merged")
+    ) {
+      const completedRun = { ...epicRun, status: "idle" as const };
+      this.deps.store.setEpicRun(completedRun);
+      // Emit a final epic:update reflecting the completed/idle state before
+      // the next buildState sees idle and stops emitting epicParent.
+      this.emitEpicIfChanged(repoPath, { ...epic, run: completedRun });
+      return true;
+    } else {
+      this.emitEpicIfChanged(repoPath, epic);
+      return false;
+    }
+  }
+
+  /**
+   * Execute one step of the drain loop: build state, run epic side-effects,
+   * compute the next decision, emit status, then apply the decision.
+   * Returns false when the loop should break (hold or error), true to continue.
+   */
+  private async pumpStep(
+    repoPath: string,
+    attemptedRetire: Set<string>,
+    attemptedSpawn: Set<number>,
+  ): Promise<boolean> {
+    let decision: DrainDecision;
+    try {
+      const { state, epic } = await this.buildState(repoPath);
+      // Auto-complete: a running epic whose every child is merged transitions to idle.
+      // This clears the banner, re-enables label-drain, and ensures the panel updates.
+      let epicAutoCompleted = false;
+      if (epic && state.epicParent !== null) {
+        const epicRun = this.deps.store.getEpicRun(repoPath);
+        if (epicRun) epicAutoCompleted = this.handleEpicSideEffects(repoPath, epicRun, epic);
+      }
+      decision = computeNext(state);
+      // When the epic just auto-completed (running→idle), the state we built still
+      // carries epicParent from the now-idle run. Emit a corrected status built from
+      // the post-transition state (epicParent=null) so the AutomationPanel banner
+      // clears immediately without a manual reload. The decision for THIS step can
+      // still use the original state — only the emitted status needs the correction.
+      if (epicAutoCompleted) {
+        const { state: idleState } = await this.buildState(repoPath);
+        this.deps.emitStatus(this.toStatus(repoPath, idleState, decision));
+      } else {
+        this.deps.emitStatus(this.toStatus(repoPath, state, decision));
+      }
+    } catch (err) {
+      console.warn(`[drain] pump iteration failed for ${repoPath}:`, err);
+      return false; // don't spin on a bad iteration
+    }
+    if (decision.kind === "retire") {
+      if (attemptedRetire.has(decision.sessionId)) return false; // defer to next tick
+      attemptedRetire.add(decision.sessionId);
+      await this.doRetire(repoPath, decision);
+      return true;
+    }
+    if (decision.kind === "spawn") {
+      if (attemptedSpawn.has(decision.issue.number)) return false; // defer to next tick
+      attemptedSpawn.add(decision.issue.number);
+      await this.doSpawn(repoPath, decision);
+      return true;
+    }
+    return false; // hold
+  }
 
   /** Drain `repoPath`: build state → computeNext → apply, until the core holds.
    *  Re-entrant-safe via the per-repo `pumping` lock. */
@@ -188,41 +408,15 @@ export class DrainService {
     if (this.pumping.has(repoPath)) return; // a drain for this repo is already running
     this.pumping.add(repoPath);
     try {
-      // Per-pump guard: each session is retire-attempted at most once per pump
-      // invocation. service.archive takes effect immediately, so the next buildState
-      // sees the session as archived and won't re-select it — but if computeNext
-      // somehow re-selects the same session anyway, we break rather than loop.
+      // Per-pump guard: each session is retire-attempted / spawn-attempted at most
+      // once per pump invocation to avoid churning on repeated failures.
       const attemptedRetire = new Set<string>();
-      // Same guard for spawns: a successful spawn maps the issue (so it won't be
-      // re-selected), but a FAILED spawn leaves it unmapped — without this the loop
-      // would re-pick the same failing issue every iteration up to the cap, churning
-      // its claim label on each try. Break instead and let the next tick retry.
       const attemptedSpawn = new Set<number>();
       // Hard iteration cap as a runaway backstop; each spawn/retire changes state,
       // so a well-behaved drain ends on a hold well before this.
       for (let i = 0; i < 100; i++) {
-        let decision: DrainDecision;
-        try {
-          const state = await this.buildState(repoPath);
-          decision = computeNext(state);
-          this.deps.emitStatus(this.toStatus(repoPath, state, decision));
-        } catch (err) {
-          console.warn(`[drain] pump iteration failed for ${repoPath}:`, err);
-          break; // don't spin on a bad iteration
-        }
-        if (decision.kind === "retire") {
-          if (attemptedRetire.has(decision.sessionId)) break; // already tried this pump; defer to next tick
-          attemptedRetire.add(decision.sessionId);
-          await this.doRetire(repoPath, decision);
-          continue;
-        }
-        if (decision.kind === "spawn") {
-          if (attemptedSpawn.has(decision.issue.number)) break; // already tried this pump; defer to next tick
-          attemptedSpawn.add(decision.issue.number);
-          await this.doSpawn(repoPath, decision);
-          continue;
-        }
-        break; // hold
+        const shouldContinue = await this.pumpStep(repoPath, attemptedRetire, attemptedSpawn);
+        if (!shouldContinue) break;
       }
     } finally {
       this.pumping.delete(repoPath);
@@ -328,6 +522,8 @@ export class DrainService {
     } catch (err) {
       console.warn(`[drain] claim label for issue #${number} failed:`, err);
     }
+    // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
+    this.approvedNext.delete(repoPath);
     try {
       const base = await forge.defaultBranch();
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
@@ -449,26 +645,33 @@ export class DrainService {
     await this.pumpIfEnabled(s.repoPath);
   }
 
-  /** Pump a repo unless its drain toggle is off — the shared tail of every handler. */
+  /** Pump a repo unless its drain toggle is off AND no epic is running. */
   private async pumpIfEnabled(repoPath: string): Promise<void> {
-    if (!this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) return;
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const er = this.deps.store.getEpicRun(repoPath);
+    // a paused epic must not pump (no new spawns) but still appears in snapshot()
+    if (!(cfg.autoDrainEnabled || er?.status === "running")) return;
     await this.pump(repoPath);
   }
 
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
     for (const repoPath of this.deps.repos()) {
-      if (this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) await this.pump(repoPath);
+      const cfg = this.deps.store.getRepoConfig(repoPath);
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
     }
   }
 
-  /** Client bootstrap: a status per drain-enabled repo, WITHOUT applying side
-   *  effects (no spawn/retire). Disabled repos are skipped. */
+  /** Client bootstrap: a status per drain-enabled or epic-running repo, WITHOUT applying side
+   *  effects (no spawn/retire). Disabled repos with no active epic are skipped. */
   async snapshot(): Promise<DrainStatus[]> {
     const out: DrainStatus[] = [];
     for (const repoPath of this.deps.repos()) {
-      if (!this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) continue;
-      const state = await this.buildState(repoPath);
+      const cfg = this.deps.store.getRepoConfig(repoPath);
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (!cfg.autoDrainEnabled && !(er?.status === "running" || er?.status === "paused")) continue;
+      const { state } = await this.buildState(repoPath);
       out.push(this.toStatus(repoPath, state, computeNext(state)));
     }
     return out;
@@ -479,7 +682,7 @@ export class DrainService {
    *  No side effects. Empty for drain-disabled repos (buildState yields no
    *  candidates there — and the forge is never hit). */
   async queue(repoPath: string): Promise<QueuedItem[]> {
-    const state = await this.buildState(repoPath);
+    const { state } = await this.buildState(repoPath);
     return state.candidates
       .filter((c) => !state.mappedIssueNumbers.has(c.number))
       .map((c) => ({ number: c.number, title: c.title, url: c.url }));

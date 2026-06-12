@@ -24,6 +24,7 @@ function drain(over: Partial<DrainStatus>): DrainStatus {
     queued: 0,
     inFlight: 0,
     max: 1,
+    epicParent: null,
     ...over,
   };
 }

@@ -1,5 +1,6 @@
 import { mapGiteaActionStatus, mapStatusState } from "./checks";
 import { classifyPr } from "./pr-kind";
+import { mapBounded } from "../map-bounded";
 import type {
   ChecksState,
   ForgeConfig,
@@ -41,24 +42,6 @@ const STATUS_FETCH_CONCURRENCY = 6;
 /** Cap on workflows surfaced in the Actions tab (one row per workflow, latest
  *  run). Mirrors github.ts's own MAX_WORKFLOWS — the two packages don't share it. */
 const MAX_WORKFLOWS = 10;
-
-/** Order-preserving bounded-concurrency map: at most `limit` `fn`s run at once. */
-async function mapBounded<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
 
 /** Gitea/Forgejo forge driven through the /api/v1 REST API (API-compatible). */
 export class GiteaForge implements GitForge {

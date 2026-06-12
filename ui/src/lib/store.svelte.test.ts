@@ -70,6 +70,7 @@ const DRAIN: DrainStatus = {
   queued: 2,
   inFlight: 1,
   max: 3,
+  epicParent: null,
 };
 
 test("setGit hydrates the git map", () => {

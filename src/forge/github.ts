@@ -18,6 +18,7 @@ import type {
   PullRequest,
   RedeployInput,
   RollupEntry,
+  SubIssueRef,
   WorkflowJob,
   WorkflowRun,
 } from "./types";
@@ -702,5 +703,94 @@ export class GithubForge implements GitForge {
       body: c.body ?? "",
       createdAt: c.createdAt ? Date.parse(c.createdAt) : 0,
     }));
+  }
+
+  private readonly apiVersion = ["-H", "X-GitHub-Api-Version: 2026-03-10"];
+
+  async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
+    try {
+      const out = await this.run([
+        "api",
+        ...this.apiVersion,
+        `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
+        "--paginate",
+      ]);
+      return (
+        JSON.parse(out || "[]") as Array<{
+          number: number;
+          title: string;
+          html_url: string;
+          body?: string;
+          state: string;
+          labels?: Array<{ name: string }>;
+        }>
+      ).map((i) => ({
+        number: i.number,
+        title: i.title,
+        url: i.html_url,
+        body: i.body ?? "",
+        closed: i.state === "closed",
+        labels: (i.labels ?? []).map((l) => l.name),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async listBlockedBy(issueNumber: number): Promise<number[]> {
+    try {
+      const out = await this.run([
+        "api",
+        ...this.apiVersion,
+        `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
+        "--paginate",
+      ]);
+      return (JSON.parse(out || "[]") as Array<{ number: number }>).map((i) => i.number);
+    } catch {
+      return [];
+    }
+  }
+
+  async issueId(issueNumber: number): Promise<number | null> {
+    try {
+      const out = await this.run([
+        "api",
+        `repos/${this.slug}/issues/${issueNumber}`,
+        "--jq",
+        ".id",
+      ]);
+      const id = Number(out.trim());
+      return Number.isFinite(id) ? id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async addSubIssue(parentNumber: number, childNumber: number): Promise<void> {
+    const id = await this.issueId(childNumber);
+    if (id == null) throw new Error(`cannot resolve id for #${childNumber}`);
+    await this.run([
+      "api",
+      "-X",
+      "POST",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
+      "-F",
+      `sub_issue_id=${id}`,
+    ]);
+  }
+
+  async addBlockedBy(issueNumber: number, blockerNumber: number): Promise<void> {
+    const id = await this.issueId(blockerNumber);
+    if (id == null) throw new Error(`cannot resolve id for #${blockerNumber}`);
+    await this.run([
+      "api",
+      "-X",
+      "POST",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
+      "-F",
+      `issue_id=${id}`,
+    ]);
   }
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { gitState, openPr, mergePr, redeploy, replySession } from "$lib/api";
-  import type { GitState, Session, SessionStatus } from "$lib/types";
+  import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
@@ -27,6 +27,7 @@
     planPhase = null,
     isolated = false,
     baseBranch = "",
+    drain = null,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -39,6 +40,8 @@
     planPhase?: Session["planPhase"];
     isolated?: boolean;
     baseBranch?: string;
+    /** Live drain status for this session's repo; passed through to AutomationPanel. */
+    drain?: DrainStatus | null;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -519,7 +522,7 @@
     {/if}
 
     {#if showAutomation}
-      <AutomationPanel {repoPath} {sessionId} {planPhase} />
+      <AutomationPanel {repoPath} {sessionId} {planPhase} {drain} />
     {/if}
 
     {#if armedEntry}

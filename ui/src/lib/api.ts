@@ -40,6 +40,9 @@ import type {
   BuildStepStatus,
   PullResult,
   RelaunchOverrides,
+  Epic,
+  EpicRun,
+  EpicSummary,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -1018,4 +1021,53 @@ export async function stopPreview(id: string): Promise<{ killed: number } | { no
   if (r.ok) return { killed: body.killed ?? 0 };
   if (r.status === 409 && body.error === "not_bound") return { notBound: true };
   throw apiError(r.status, body, `stopPreview failed: ${r.status}`);
+}
+
+// ── epics ──────────────────────────────────────────────────────────────────
+
+export async function getEpics(repoPath: string): Promise<EpicSummary[]> {
+  return getJson(`/api/epics?repo=${encodeURIComponent(repoPath)}`, "get epics");
+}
+
+export async function getEpic(repoPath: string, parent: number): Promise<Epic> {
+  return getJson(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, "get epic");
+}
+
+export async function updateEpic(
+  repoPath: string,
+  parent: number,
+  patch: Partial<Pick<EpicRun, "mode" | "status">>,
+): Promise<Epic> {
+  const r = await fetch(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw await failed(r, "update epic");
+  return r.json();
+}
+
+export async function approveEpicNext(repoPath: string, parent: number): Promise<Epic> {
+  const r = await fetch(
+    `/api/epic/approve-next?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,
+    { method: "POST" },
+  );
+  if (!r.ok) throw await failed(r, "approve next");
+  return r.json();
+}
+
+export async function importEpic(
+  repoPath: string,
+  parent: number,
+): Promise<{
+  subIssuesAdded: number;
+  dependenciesAdded: number;
+  skipped: number;
+  unresolved: number[];
+}> {
+  const r = await fetch(`/api/epic/import?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "import epic");
+  return r.json();
 }

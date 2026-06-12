@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload, Issue, PullRequest, Steer } from "$lib/types";
+  import type { BacklogPayload, Epic, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
@@ -18,6 +18,7 @@
     onadopt,
     onlaunchtrain,
     flow = false,
+    epics = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -34,6 +35,8 @@
     /** When true, renders at natural height for parent-page scrolling (mobile list);
      *  default false preserves existing viewport-filling behavior. */
     flow?: boolean;
+    /** Live epic record from the store, threaded down to IssuesPanel. */
+    epics?: Record<string, Epic>;
   } = $props();
 
   type Tab = "issues" | "prs" | "actions" | "readiness";
@@ -207,6 +210,7 @@
                 : undefined}
               bodyPreview
               age
+              {epics}
             />
           {:else if activeTab === "prs"}
             <PrsPanel
@@ -302,6 +306,7 @@
                   : undefined}
                 bodyPreview
                 age
+                {epics}
               />
             {:else if activeTab === "prs"}
               <PrsPanel

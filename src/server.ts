@@ -26,6 +26,7 @@ import {
   validateIconPatch,
   validateBuildSteps,
   validateBuildStepStatus,
+  validateEpicRunPatch,
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
@@ -72,6 +73,9 @@ import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
+import type { Epic, EpicRun } from "./epic-core";
+import { importEpicLinks, type ImportResult } from "./epic-import";
+import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
 import { homedir } from "node:os";
@@ -202,6 +206,12 @@ export interface AppDeps {
     /** One-shot: keep ACTIVE_LABEL on the next `session:archived` for this id (a
      *  relaunch is not a retire — the actively-worked issue stays claimed). */
     retainClaim(id: string): void;
+    /** Assemble the live Epic for a repo's running epic (server routes + pump). */
+    buildEpic(repoPath: string, run: EpicRun): Promise<Epic | null>;
+    /** Operator approves the next epic-attended spawn for the given repo. */
+    approveEpicNext(repoPath: string): void;
+    /** Drive one pump cycle across all drain-enabled repos. */
+    tick(): Promise<void>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -2591,6 +2601,261 @@ function handlePing({ req, parts }: Ctx): Response | null {
   return json({ ok: true });
 }
 
+// ── Epic API routes ──────────────────────────────────────────────────────────
+
+/** Build a default EpicRun from repo + parent when no stored run exists. */
+function defaultEpicRun(repoPath: string, parentIssueNumber: number): EpicRun {
+  return { repoPath, parentIssueNumber, mode: "auto", status: "idle" };
+}
+
+// GET /api/epics?repo= — list epic parent issues for a repo.
+// Pre-filters candidates cheaply (free string parse) before any network call:
+// an issue is a candidate iff its body has a non-empty markdown member list OR
+// it is the repo's stored epic_run parent. Counts are computed directly —
+// no buildEpic (which would add per-child blocked_by calls).
+// Probe strategy: when the open-issue list is complete (<200 items) and the
+// candidate has markdown members, counts are derived from markdown alone —
+// absent-from-open-set == closed, no cap risk, no network call. When the open
+// list is truncated (>=200) OR the candidate has no markdown body, a native
+// listSubIssues call is made to avoid undercounting capped issues.
+
+type IssueHint = { body?: string; title?: string; number?: number };
+
+/** Collect epic-candidate map from open issues + any stored run parent.
+ *  Keys are parent issue numbers; values are the issue hint (may be undefined
+ *  when the stored-run parent isn't in the open list). */
+function collectEpicCandidates(
+  openIssues: IssueHint[],
+  storedRunParent: number | null,
+): Map<number, IssueHint | undefined> {
+  const issueByNumber = new Map(openIssues.map((i) => [i.number!, i]));
+  const candidates = new Map<number, IssueHint | undefined>();
+  for (const issue of openIssues) {
+    if (parseEpicBody(issue.body ?? "").members.length > 0) candidates.set(issue.number!, issue);
+  }
+  // Stored-run parent may be closed / beyond the page cap — include it anyway.
+  if (storedRunParent !== null && !candidates.has(storedRunParent)) {
+    candidates.set(storedRunParent, issueByNumber.get(storedRunParent));
+  }
+  return candidates;
+}
+
+/** Compute markdown-only counts for a candidate (fast, no network call). */
+function markdownCounts(
+  issueHint: IssueHint | undefined,
+  openNumbers: Set<number>,
+): { total: number; merged: number } {
+  const members = parseEpicBody(issueHint?.body ?? "").members;
+  return { total: members.length, merged: members.filter((m) => !openNumbers.has(m)).length };
+}
+
+/** Probe native sub_issues API for a candidate. Returns counts when non-empty,
+ *  null when the API throws (caller should skip the candidate). */
+async function probeNative(
+  forge: GitForge,
+  parentNumber: number,
+): Promise<{ total: number; merged: number } | "empty" | null> {
+  if (!forge.listSubIssues) return "empty";
+  try {
+    const subs = await forge.listSubIssues(parentNumber);
+    if (subs.length === 0) return "empty";
+    return { total: subs.length, merged: subs.filter((s) => s.closed).length };
+  } catch {
+    // one failure skips this candidate, not the whole route
+    return null;
+  }
+}
+
+/** Resolve total/merged counts for one epic candidate (the backlog badge summary only).
+ *  When the open-issue list is complete (!openTruncated) and the candidate has
+ *  markdown members, counts are derived from markdown alone — no network call.
+ *  Otherwise a native listSubIssues probe is made; on empty result, markdown
+ *  fallback is used.
+ *  Returns null when the native probe throws (caller skips the candidate).
+ *
+ *  NOTE: in that fast path the markdown count takes precedence over the native
+ *  sub-issue count, so this summary can diverge from `GET /api/epic`'s buildEpic
+ *  (which is always native-first/authoritative) if a parent's markdown checklist
+ *  and its native sub-issue links disagree (e.g. a stale checklist body). This is
+ *  an intentional cost/accuracy trade for the list badge: it stays cap-safe (the
+ *  fast path only runs when the open list is complete, so markdown==native counts
+ *  for well-maintained bodies) and free, while the per-epic view shows the
+ *  authoritative native state. */
+async function summarizeEpicCandidate(
+  forge: GitForge,
+  issueHint: IssueHint | undefined,
+  parentNumber: number,
+  openNumbers: Set<number>,
+  openTruncated: boolean,
+): Promise<{ total: number; merged: number } | null> {
+  const mdMembers = parseEpicBody(issueHint?.body ?? "").members;
+  const hasMarkdown = mdMembers.length > 0;
+
+  // Fast path: open list is complete + candidate has markdown — no network call needed.
+  if (hasMarkdown && !openTruncated) {
+    return { total: mdMembers.length, merged: mdMembers.filter((m) => !openNumbers.has(m)).length };
+  }
+
+  // Probe native: truncated list or no markdown body.
+  const native = await probeNative(forge, parentNumber);
+  if (native === null) return null; // forge threw — skip candidate
+  if (native !== "empty") return native; // native counts available
+
+  // Native returned nothing — fall back to markdown if available.
+  return markdownCounts(issueHint, openNumbers);
+}
+
+async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "epics" && !parts[2]))
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.drain) return json([]);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return json([]);
+
+  const storedRun = deps.store.getEpicRun(dir);
+  let openIssues: Awaited<ReturnType<typeof forge.listIssues>>;
+  try {
+    openIssues = await forge.listIssues();
+  } catch {
+    // forge/network error → graceful empty (matches handleIssues/handlePrsList convention)
+    return json([]);
+  }
+
+  // openNumbers: a member absent from the open set is considered closed (markdown fallback).
+  // openTruncated: listIssues caps at 200; when true the open set may be incomplete so
+  // markdown-only counting could undercount, and native probes are needed.
+  const openNumbers = new Set(openIssues.map((i) => i.number));
+  const openTruncated = openIssues.length >= 200;
+  const candidates = collectEpicCandidates(openIssues, storedRun?.parentIssueNumber ?? null);
+
+  const result = [];
+  for (const [parentNumber, issueHint] of candidates) {
+    const counts = await summarizeEpicCandidate(
+      forge,
+      issueHint,
+      parentNumber,
+      openNumbers,
+      openTruncated,
+    );
+    if (counts === null) continue; // native probe threw — skip this candidate
+    const title = issueHint?.title ?? `#${parentNumber}`;
+    const status = storedRun?.parentIssueNumber === parentNumber ? storedRun.status : "idle";
+    result.push({ parentIssueNumber: parentNumber, parentTitle: title, ...counts, status });
+  }
+  return json(result);
+}
+
+// GET /api/epic?repo=&parent= — assemble the Epic for a single parent issue.
+async function handleEpicGet({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "epic" && !parts[2]))
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentRaw = url.searchParams.get("parent");
+  const parentNumber = parseInt(parentRaw ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
+  const stored = deps.store.getEpicRun(dir);
+  const run =
+    stored && stored.parentIssueNumber === parentNumber
+      ? stored
+      : defaultEpicRun(dir, parentNumber);
+  const epic = await deps.drain.buildEpic(dir, run);
+  if (!epic) return json({ error: "not found" }, 404);
+  return json(epic);
+}
+
+// PUT /api/epic?repo=&parent= — patch the EpicRun settings, re-assemble, emit.
+async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2]))
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentRaw = url.searchParams.get("parent");
+  const parentNumber = parseInt(parentRaw ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  const body = await req.json().catch(() => null);
+  const patch = validateEpicRunPatch(body);
+  if (patch === null) return json({ error: "invalid epic run patch" }, 400);
+  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
+  const storedForPut = deps.store.getEpicRun(dir);
+  const base =
+    storedForPut && storedForPut.parentIssueNumber === parentNumber
+      ? storedForPut
+      : defaultEpicRun(dir, parentNumber);
+  const merged: EpicRun = {
+    ...base,
+    ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+  };
+  deps.store.setEpicRun(merged);
+  const epic = await deps.drain.buildEpic(dir, merged);
+  if (epic) deps.events?.emit("epic:update", epic);
+  return json(epic ?? { ok: true });
+}
+
+// POST /api/epic/approve-next?repo=&parent= — approve the next attended epic spawn.
+async function handleEpicApproveNext({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "POST" &&
+      parts[0] === "api" &&
+      parts[1] === "epic" &&
+      parts[2] === "approve-next"
+    )
+  )
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentRaw = url.searchParams.get("parent");
+  const parentNumber = parseInt(parentRaw ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  deps.drain.approveEpicNext(dir);
+  await deps.drain.tick();
+  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
+  const storedAfterTick = deps.store.getEpicRun(dir);
+  const run =
+    storedAfterTick && storedAfterTick.parentIssueNumber === parentNumber
+      ? storedAfterTick
+      : defaultEpicRun(dir, parentNumber);
+  const epic = await deps.drain.buildEpic(dir, run);
+  if (epic) deps.events?.emit("epic:update", epic);
+  return json(epic ?? { ok: true });
+}
+
+// POST /api/epic/import?repo=&parent= — import markdown epic links as native sub-issues.
+async function handleEpicImport({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(req.method === "POST" && parts[0] === "api" && parts[1] === "epic" && parts[2] === "import")
+  )
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentRaw = url.searchParams.get("parent");
+  const parentNumber = parseInt(parentRaw ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return json({ error: "no forge for this repo" }, 404);
+  const issue = await forge.getIssue?.(parentNumber);
+  if (!issue) return json({ error: "parent issue not found" }, 404);
+  let result: ImportResult;
+  try {
+    result = await importEpicLinks(forge, parentNumber, issue.body);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "import failed" }, 400);
+  }
+  return json(result);
+}
+
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handlePing,
@@ -2603,6 +2868,11 @@ const ROUTE_HANDLERS = [
   handlePlanGates,
   handleDrain,
   handleAutoMerge,
+  handleEpicsList,
+  handleEpicApproveNext,
+  handleEpicImport,
+  handleEpicGet,
+  handleEpicPut,
   handleRepoConfig,
   handleRepoRoles,
   handleRepoCollaborators,

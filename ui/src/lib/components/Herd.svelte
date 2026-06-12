@@ -560,6 +560,10 @@
   .fbtn.active {
     color: var(--color-amber);
   }
+  .fbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   /* collapse trigger — far-right of .phead, visually quiet chrome (no accent
      hue); mirrors .fbtn style but sized to the ~44px touch guideline, matching
@@ -582,6 +586,10 @@
   }
   .collapse-btn:hover {
     color: var(--color-ink);
+  }
+  .collapse-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .micro {
@@ -671,6 +679,10 @@
   .merge-train:hover {
     color: var(--color-green);
   }
+  .merge-train:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   /* right-aligned bulk action in the merged group header */
   .clear-merged {
@@ -685,6 +697,10 @@
   }
   .clear-merged:hover {
     color: var(--color-blue);
+  }
+  .clear-merged:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .units {

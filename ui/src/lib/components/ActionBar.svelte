@@ -152,6 +152,17 @@
   .btn:hover {
     background: var(--color-hover);
   }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* primary/active carry a resting amber glow — keep it under the focus ring */
+  .btn.primary:focus-visible,
+  .btn.active:focus-visible {
+    box-shadow:
+      inset 0 0 0 1px var(--color-amber),
+      inset 0 0 18px -10px var(--color-amber);
+  }
   .btn.active {
     border-color: var(--color-amber);
     color: var(--color-amber);
@@ -210,6 +221,12 @@
   .t-opt:hover {
     color: var(--color-ink-bright);
   }
+  /* seg group clips overflow, so an inset ring would be cropped — use the
+     brightened-hairline outline instead */
+  .t-opt:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
+  }
   .t-opt.on {
     color: var(--color-amber);
     background: var(--color-inset);
@@ -228,6 +245,10 @@
   }
   .contrast-toggle:hover {
     color: var(--color-ink-bright);
+  }
+  .contrast-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .contrast-toggle.on {
     color: var(--color-amber);

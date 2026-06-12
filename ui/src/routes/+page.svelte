@@ -1522,6 +1522,10 @@
   .reopen-tab:hover {
     color: var(--color-ink);
   }
+  .reopen-tab:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   .grid-all {
     flex: 1;
     min-height: 0;

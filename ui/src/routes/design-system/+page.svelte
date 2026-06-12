@@ -91,6 +91,8 @@
   padding: 2px 8px;
 }
 .gbtn:hover:not(:disabled) { border-color: var(--color-amber); color: var(--color-amber); }
+/* keyboard focus — flat inset amber ring (never an outer glow) */
+.gbtn:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--color-amber); }
 .gbtn:disabled { opacity: 0.4; cursor: not-allowed; }
 .gbtn.primary { border-color: var(--color-amber); color: var(--color-amber); }`;
 
@@ -500,6 +502,10 @@ input, select, textarea {
   .gbtn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .gbtn:disabled {
     opacity: 0.4;

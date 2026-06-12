@@ -1,5 +1,18 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { HerdrDriver, mapState, matchAgent, matchAgents, type HerdrAgent } from "../src/herdr";
+
+// Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
+// shim that start() prepends to every agent argv is assertable.
+const NCC_SENTINEL = "/disk/ncc";
+let prevNcc: string | undefined;
+beforeEach(() => {
+  prevNcc = process.env.SHEPHERD_NODE_COMPILE_CACHE;
+  process.env.SHEPHERD_NODE_COMPILE_CACHE = NCC_SENTINEL;
+});
+afterEach(() => {
+  if (prevNcc === undefined) delete process.env.SHEPHERD_NODE_COMPILE_CACHE;
+  else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
+});
 
 const FIXTURE = JSON.stringify({
   result: {
@@ -90,6 +103,8 @@ test("start gives each agent its own full-width tab, not a shared split pane", (
     "/wt/a",
     "--no-focus",
     "--",
+    "env",
+    "NODE_COMPILE_CACHE=/disk/ncc",
     "claude",
     "--dangerously-skip-permissions",
     "go",
@@ -97,6 +112,19 @@ test("start gives each agent its own full-width tab, not a shared split pane", (
   // 3) the leftover shell root pane is closed so the agent is the tab's sole,
   //    full-width pane — a split pane would only get ~window/N width (the bug)
   expect(calls[3]).toEqual(["pane", "close", "p_root"]);
+});
+
+test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tmpfs, #560)", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
+  const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
+  const post = startCall.slice(startCall.indexOf("--") + 1);
+  // env shim is the first three post-`--` tokens, and claude is still argv[0] after it
+  expect(post.slice(0, 3)).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude"]);
 });
 
 test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restarted daemon)", () => {

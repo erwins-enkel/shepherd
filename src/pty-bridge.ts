@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { isValidTerminalId } from "./validate";
 import { markPtyEvent } from "./instrument";
+import { compileCacheDir } from "./tmp-sweep";
 
 export interface PtySocket {
   send(data: string | Uint8Array): void;
@@ -27,7 +28,8 @@ export class PtyBridge {
         stdin: "pipe" as const,
         stdout: "pipe" as const,
         stderr: "inherit" as const,
-        env: { ...process.env, HERDR_BIN: config.herdrBin },
+        // Pin the V8 compile cache off the tmpfs (see usage-probe for the shared rationale).
+        env: { ...process.env, HERDR_BIN: config.herdrBin, NODE_COMPILE_CACHE: compileCacheDir() },
         onExit: () => this.ws.close(),
       },
     ) as NodeProc;

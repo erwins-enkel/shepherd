@@ -1084,5 +1084,9 @@
   "feat_session_epic_badge_title": "Spot epics in your sessions",
   "feat_session_epic_badge_body": "A session working a tracking issue now shows an EPIC badge with live sub-issue progress — click it to open that epic in the backlog.",
   "epic_badge_open_title": "Epic #{number}: {merged}/{total} sub-issues done — open in backlog",
-  "epic_badge_open_aria": "Open epic #{number} in the backlog ({merged} of {total} sub-issues done)"
+  "epic_badge_open_aria": "Open epic #{number} in the backlog ({merged} of {total} sub-issues done)",
+  "readiness_g_dependency_automation_title": "Dependency automation (Dependabot/Renovate)",
+  "readiness_g_dependency_automation_removes": "Without it, dependency bumps pile up as manual busywork instead of automated PRs you just review and merge.",
+  "feat_dependency_automation_title": "Readiness checks dependency automation",
+  "feat_dependency_automation_body": "The Backlog → Readiness tab now scores whether a repo keeps dependencies current with Dependabot or Renovate, and prescribes it when missing."
 }

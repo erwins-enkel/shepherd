@@ -101,6 +101,7 @@ test("a fully-equipped repo (Shepherd-shaped) scores 100 with all guardrails pre
   write(".husky/commit-msg", "commitlint");
   write(".fallowrc.jsonc", "{}");
   write(".github/workflows/ci.yml", "name: ci");
+  write(".github/dependabot.yml", "version: 2");
   write("CLAUDE.md", "# rules");
 
   const r = analyzeReadiness(dir);
@@ -123,6 +124,31 @@ test("detects individual guardrails from their markers", () => {
   expect(present("test_runner", r)).toBe(true); // real test script
   expect(present("linter", r)).toBe(false);
   expect(present("git_hooks", r)).toBe(false);
+});
+
+test("detects dependency automation from a Dependabot config", () => {
+  pkg({ name: "bot" });
+  write(".github/dependabot.yml", "version: 2");
+  const r = analyzeReadiness(dir);
+  expect(present("dependency_automation", r)).toBe(true);
+  const ev = r.checks.find((c) => c.id === "dependency_automation")?.evidence ?? [];
+  expect(ev).toContain("dependabot.yml");
+});
+
+test("detects dependency automation from a Renovate config", () => {
+  pkg({ name: "renovated" });
+  write("renovate.json", "{}");
+  const r = analyzeReadiness(dir);
+  expect(present("dependency_automation", r)).toBe(true);
+  const ev = r.checks.find((c) => c.id === "dependency_automation")?.evidence ?? [];
+  expect(ev).toContain("renovate config");
+});
+
+test("absent dependency automation is prescribed in the generated CLAUDE.md", () => {
+  pkg({ name: "no-bot" });
+  const r = analyzeReadiness(dir);
+  expect(present("dependency_automation", r)).toBe(false);
+  expect(r.claudeMd).toContain("Dependency automation");
 });
 
 test("the npm placeholder test script does not count as a test runner", () => {

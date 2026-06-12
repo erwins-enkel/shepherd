@@ -25,6 +25,7 @@ export type GuardrailId =
   | "test_runner"
   | "dead_code_audit"
   | "ci"
+  | "dependency_automation"
   | "agent_instructions";
 
 export interface GuardrailCheck {
@@ -168,6 +169,24 @@ export const GUARDRAILS: GuardrailDef[] = [
       const wf = s.glob(".github/workflows", (n) => n.endsWith(".yml") || n.endsWith(".yaml"));
       if (wf.length) ev.push(`.github/workflows (${wf.length})`);
       if (s.has(".gitlab-ci.yml")) ev.push(".gitlab-ci.yml");
+      return ev;
+    },
+  },
+  {
+    id: "dependency_automation",
+    weight: 5,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".github/dependabot.yml") || s.has(".github/dependabot.yaml"))
+        ev.push("dependabot.yml");
+      if (
+        s.has("renovate.json") ||
+        s.has("renovate.json5") ||
+        s.has(".github/renovate.json") ||
+        s.has(".github/renovate.json5") ||
+        s.glob(".", (n) => n.startsWith(".renovaterc")).length
+      )
+        ev.push("renovate config");
       return ev;
     },
   },
@@ -360,6 +379,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   test_runner: "A test runner wired into the hook",
   agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
   ci: "A CI workflow",
+  dependency_automation: "Dependency automation (Dependabot/Renovate)",
   lint_staged: "lint-staged on staged files",
   commit_lint: "Conventional-commit lint (commitlint)",
   dead_code_audit: "A dead-code/complexity audit (fallow/knip)",
@@ -378,6 +398,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
     "without tests in the hook, regressions reach you instead of failing the agent first.",
   agent_instructions: "without house rules, you re-explain the same posture in chat every task.",
   ci: "without CI, nothing independently re-checks what the agent self-reported.",
+  dependency_automation:
+    "without it dependency bumps pile up as manual busywork and stale-dep bugs reach you instead of an automated PR.",
   lint_staged:
     "without it the whole tree is re-checked or skipped; staged-only keeps the hook fast.",
   commit_lint: "without it you correct commit message format by hand.",

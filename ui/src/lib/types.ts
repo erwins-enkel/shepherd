@@ -526,6 +526,7 @@ export type GuardrailId =
   | "test_runner"
   | "dead_code_audit"
   | "ci"
+  | "dependency_automation"
   | "agent_instructions";
 export interface GuardrailCheck {
   id: GuardrailId;

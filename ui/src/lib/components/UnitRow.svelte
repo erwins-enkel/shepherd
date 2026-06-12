@@ -15,7 +15,7 @@
 </script>
 
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, Epic } from "$lib/types";
+  import type { Session, GitState, SessionActivity } from "$lib/types";
   import {
     elapsed,
     STATUS_COLOR,
@@ -42,8 +42,6 @@
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
   import PlanGateBadge from "./PlanGateBadge.svelte";
-  import EpicBadge from "./EpicBadge.svelte";
-  import { epicSummaries } from "$lib/epic-summaries.svelte";
   import { onDestroy } from "svelte";
   import {
     REVEAL_PX,
@@ -70,8 +68,6 @@
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
-    epics = {},
-    onepic,
   }: {
     session: Session;
     selected: boolean;
@@ -103,25 +99,7 @@
     onrepofilter?: (repoPath: string | null) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
-    // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — the
-    // WS-live Epic for this row's seeding issue is preferred over the cached summary
-    epics?: Record<string, Epic>;
-    // an epic badge was clicked → open the backlog on this repo, expanded and
-    // scrolled to the epic (repoPath + issueNumber target the IssuesPanel row)
-    onepic?: (repoPath: string, issueNumber: number) => void;
   } = $props();
-
-  // Epic badge data, keyed off this row's own seeding issue. The cached summary comes
-  // from the global epicSummaries singleton (its cache is $state, so this stays
-  // reactive); the live Epic (if any) is preferred inside EpicBadge.
-  const epicSummary = $derived(
-    session.issueNumber != null
-      ? epicSummaries.lookup(session.repoPath, session.issueNumber)
-      : undefined,
-  );
-  const epicLive = $derived(
-    session.issueNumber != null ? epics?.[`${session.repoPath}#${session.issueNumber}`] : undefined,
-  );
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
   // working-while-blocked session gets the full working treatment. Behavioral
@@ -472,19 +450,6 @@
       <PlanGateBadge {session} />
       <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
       {#if !reviewing}<AutopilotBadge {session} />{/if}
-      <!-- EPIC: the seeding issue is an epic — blue badge mirroring the backlog,
-           clicking it opens the backlog. A <button> is valid here (sibling of the
-           .unit-hit overlay; raised by the .u-right > button z-index rule), and
-           EpicBadge's stopPropagation keeps the row from also selecting. -->
-      {#if session.issueNumber != null && epicSummary}
-        <EpicBadge
-          summary={epicSummary}
-          live={epicLive}
-          repoPath={session.repoPath}
-          issueNumber={session.issueNumber}
-          {onepic}
-        />
-      {/if}
       <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
            are quiet informational badges (slate). Trusted-manual renders nothing. -->
       {#if session.sandboxDegraded}

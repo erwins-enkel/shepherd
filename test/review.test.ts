@@ -632,6 +632,7 @@ test("scopeFindings drops path-attributed out-of-diff findings, keeps in-diff + 
       "in/Bar.svelte: in scope",
       "src/a.ts:42: with a line suffix",
       "Nit: a prose prefix, not a path",
+      "Animation at 1.5s: too slow", // spaced prose ending in a dotted word → not a path
       "no prefix at all",
     ],
     files,
@@ -641,6 +642,7 @@ test("scopeFindings drops path-attributed out-of-diff findings, keeps in-diff + 
     "in/Bar.svelte: in scope",
     "src/a.ts:42: with a line suffix",
     "Nit: a prose prefix, not a path",
+    "Animation at 1.5s: too slow",
     "no prefix at all",
   ]);
 });

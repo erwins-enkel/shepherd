@@ -940,14 +940,17 @@ function normalizeFindings(raw: unknown): string[] {
     .filter(Boolean);
 }
 
-/** A leading token looks like a repo-relative file path: it contains a `/` OR a filename with
- *  an extension (a dot followed by 1-8 word chars at the end). Prose prefixes like "Note: " or
- *  "Bug: " have no slash and no extension, so they're treated as unattributed (kept). NOTE: a
- *  bare extensionless path with no slash (`Makefile`, `Dockerfile`, `LICENSE`) is likewise NOT
- *  path-shaped, so a finding prefixed with one is treated as unattributed → KEPT (never dropped),
- *  even if it sits outside the diff. This is deliberate: better to keep an out-of-diff finding
- *  than to risk dropping an attributed one we can't reliably recognize as a path. */
+/** A leading token looks like a repo-relative file path: it has no space AND (contains a `/` OR
+ *  ends in a filename extension — a dot followed by 1-8 word chars). Prose prefixes like "Note: "
+ *  or "Bug: " have no slash and no extension; a spaced prose phrase that merely ends in a dotted
+ *  word (`"Animation at 1.5s"`) is excluded by the no-space guard — real path prefixes never
+ *  contain a space — so both are treated as unattributed (kept). NOTE: a bare extensionless path
+ *  with no slash (`Makefile`, `Dockerfile`, `LICENSE`) is likewise NOT path-shaped, so a finding
+ *  prefixed with one is treated as unattributed → KEPT (never dropped), even if it sits outside
+ *  the diff. This is deliberate: better to keep an out-of-diff finding than to risk dropping an
+ *  attributed one we can't reliably recognize as a path. */
 function isPathShaped(token: string): boolean {
+  if (token.includes(" ")) return false;
   return token.includes("/") || /\.\w{1,8}$/.test(token);
 }
 

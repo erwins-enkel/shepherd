@@ -314,7 +314,12 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   // thrash). NOT --bare (it would break subscription-OAuth auth).
   expect(argv).not.toContain("--bare");
   expect(argv).toContain("--disable-slash-commands");
-  expect(argv[argv.indexOf("--settings") + 1]).toBe('{"disableAllHooks":true}');
+  const settingsRaw = argv[argv.indexOf("--settings") + 1];
+  expect(settingsRaw).toBeDefined();
+  expect(JSON.parse(settingsRaw!)).toEqual({
+    disableAllHooks: true,
+    enableAllProjectMcpServers: true,
+  });
   expect(argv).toContain("--safe-mode");
 });
 

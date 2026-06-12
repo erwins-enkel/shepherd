@@ -31,7 +31,7 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   const { argv: a } = reviewerArgv(null, "PROMPT");
   expect(a).not.toContain("--bare");
   expect(a).toContain("--disable-slash-commands");
-  expect(a.join(" ")).toContain('{"disableAllHooks":true}');
+  expect(a.join(" ")).toContain('{"disableAllHooks":true,"enableAllProjectMcpServers":true}');
   const dontAsk = a.indexOf("dontAsk");
   expect(dontAsk).toBeGreaterThan(-1);
   expect(a[dontAsk - 1]).toBe("--permission-mode");

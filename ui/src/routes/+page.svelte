@@ -898,6 +898,22 @@
     // Guard a double-invoke while a slow upload-stage is in flight (don't double-seed).
     if (relaunchStaging) return;
     relaunchStaging = true;
+    // Stage the original's uploads FIRST and assign the relaunch/compose seed state only
+    // AFTER it resolves: a bare New-Task opener (onnew) can fire during this await, and if
+    // relaunchOriginalId were already set the composer would mount in a half-set relaunch
+    // state (and submit would wrongly archive the original). On failure, seed empty + warn
+    // so the operator knows to re-attach (never double-attach).
+    let staged: { path: string; name: string }[] = [];
+    try {
+      staged = await stageRelaunchImages(id);
+    } catch {
+      toasts.info(m.relaunch_images_carry_failed(), { alert: true });
+    } finally {
+      relaunchStaging = false;
+    }
+    // No await past this point: assign all seeds + open synchronously so nothing can
+    // interleave a half-set state. NewTask's one-time initialImages seed reads composeImages
+    // at mount, so it must be set before showNew flips true.
     composePrompt = s.prompt;
     composeRepoPath = s.repoPath;
     composeBaseBranch = s.baseBranch;
@@ -908,17 +924,7 @@
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
-    // Stage the original's uploads so the composer seeds them as removable chips. On
-    // failure, seed empty + warn so the operator knows to re-attach (never double-attach).
-    try {
-      composeImages = await stageRelaunchImages(id);
-    } catch {
-      composeImages = [];
-      toasts.info(m.relaunch_images_carry_failed(), { alert: true });
-    } finally {
-      relaunchStaging = false;
-    }
-    // Open AFTER the seed resolves so NewTask's one-time initialImages seed picks it up at mount.
+    composeImages = staged;
     showNew = true;
   }
 

@@ -1472,6 +1472,19 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+// POST /api/sessions/:id/relaunch-uploads — stage the original's uploaded images so a
+// relaunch composer can seed them as carried-over chips. Read-only on the session: it
+// copies (not moves) the originals into staging and returns { images: [{ path, name }] }.
+// Distinct from /relaunch (different parts[3]) — no spawn, no decommission.
+function handleRelaunchUploads({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "relaunch-uploads")) return null;
+  const id = parts[2];
+  const original = deps.store.get(id);
+  if (!original) return json({ error: "not found" }, 404);
+  if (original.status === "archived") return json({ error: "already archived" }, 409);
+  return json({ images: deps.service.stageRelaunchImages(id) }, 200);
+}
+
 // Steer text sent to the agent when the operator approves the build queue.
 // Agent-facing — plain English, not user chrome, so no i18n.
 const APPROVE_STEER =
@@ -1555,6 +1568,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAutopilot,
     handleSessionAutoMerge,
     handleSessionRelaunch,
+    handleRelaunchUploads,
   ]) {
     const res = await sub(ctx);
     if (res) return res;

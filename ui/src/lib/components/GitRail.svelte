@@ -418,28 +418,6 @@
         <span class="merged">{m.gitrail_closed()}</span>
       {/if}
 
-      {#if repoPath}
-        <button
-          class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={showAutomation}
-          aria-busy={pillReviewing}
-          aria-label={pillReviewing
-            ? m.automation_pill_reviewing_aria()
-            : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
-          use:coachTarget={"critic"}
-          use:coachTarget={"auto-address"}
-          use:coachTarget={"learnings"}
-          onclick={toggleAutomation}
-        >
-          ⚙ {m.automation_pill_label()}
-          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
-          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
-              class="sr-only">{m.newdot_aria()}</span
-            >{/if}
-        </button>
-      {/if}
       {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
         <ReadyToggle {sessionId} {ready} {mobile} />
       {/if}
@@ -472,6 +450,30 @@
           onclick={toggleReview}
         >
           {chip.label}
+        </button>
+      {/if}
+
+      {#if repoPath}
+        <span class="rail-sep" aria-hidden="true"></span>
+        <button
+          class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={showAutomation}
+          aria-busy={pillReviewing}
+          aria-label={pillReviewing
+            ? m.automation_pill_reviewing_aria()
+            : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
+          use:coachTarget={"critic"}
+          use:coachTarget={"auto-address"}
+          use:coachTarget={"learnings"}
+          onclick={toggleAutomation}
+        >
+          ⚙ {m.automation_pill_label()}
+          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
+          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
+              class="sr-only">{m.newdot_aria()}</span
+            >{/if}
         </button>
       {/if}
 
@@ -604,6 +606,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .rail-sep {
+    width: 1px;
+    background: var(--color-line);
+    flex-shrink: 0;
+    align-self: stretch;
   }
 
   .gbtn {

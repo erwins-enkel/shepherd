@@ -1155,15 +1155,41 @@
       text-align: left;
       gap: 6px;
     }
-    /* The decommission ✕ is invisible-but-keyboard-focusable (opacity, not
-       display:none), so as the rail's first flex child it would indent the
-       horizontal strip. Lift it out of flow to the row's top-right corner (its
-       prior position when the rail was a right-hand column) so the strip starts
-       flush left; it stays in the tab order and reveals on hover/focus as before. */
+    /* Pin the elapsed clock to the card's top-right, aligned with the name row,
+       instead of letting it ride along in the own-row badge strip. pointer-events
+       is none (MANDATORY, not cosmetic): .elapsed paints above the .unit-hit
+       overlay (it's later in the DOM), so without this it would swallow row-select
+       clicks in the top-right corner and starve onHitMove's mousemove — breaking
+       the TimePopover hover trigger. none passes events through to the overlay
+       while getBoundingClientRect() still measures the clock for the bounds test
+       + popover anchor. */
+    :global(.units:not(.flow)) .elapsed {
+      position: absolute;
+      top: 11px;
+      right: 14px;
+      pointer-events: none;
+    }
+    /* Reserve room on the name row so a long name ellipsizes BEFORE the clock
+       rather than sliding under it (the clock still paints over the name —
+       pointer-events stops event capture, not painting). 62px ≈ widest elapsed()
+       "29d 23h" (~7 tabular chars) + the right offset. */
+    :global(.units:not(.flow)) .u-top {
+      padding-right: 62px;
+    }
+    /* The decommission ✕ is invisible-but-keyboard-focusable (opacity:0 +
+       pointer-events:none from the base .row-decom rule, NOT display:none) so it
+       stays in the tab order and reveals on hover/focus. Keep it absolute and out
+       of flow, parked just below the pinned clock in the right gutter (on the
+       prompt's first line) so it clears the clock and doesn't indent the badge
+       strip. top: 30px = the clock's top: 11px + ~one clock line-height, dropping
+       the ✕ just under the clock onto the prompt's first line. Unlike .u-top, .u-sub
+       (the prompt) reserves no right gutter, so a very long prompt's first line can
+       run under the ✕ — acceptable: the ✕ is hover-only, tiny, and sits over muted
+       secondary text, so it merely paints over (same as the clock-over-name case). */
     :global(.units:not(.flow)) .row-decom {
       position: absolute;
-      top: 8px;
-      right: 10px;
+      top: 30px;
+      right: 12px;
     }
   }
 </style>

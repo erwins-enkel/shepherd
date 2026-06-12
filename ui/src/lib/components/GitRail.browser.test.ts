@@ -332,6 +332,50 @@ describe("GitRail — controls stay within the cell", () => {
     assertControlsWithin(h);
   });
 
+  // `unknown` is GitHub's transient "merge-eligibility not computed yet" state —
+  // not a reliable signal, so it must be treated as ABSENT and defer to the checks
+  // rollup (exactly like a forge without mergeStateStatus, e.g. Gitea). Without the
+  // fix, the truthy `"unknown"` string took the ternary's signal branch, skipped the
+  // checks fallback, and left a failing-check PR's Merge button wrongly ENABLED.
+  it("desktop 600px — open, mergeStateStatus:unknown + checks:failure → Merge disabled with checks tooltip", async () => {
+    const unknownFailState: GitState = {
+      ...openPrState,
+      checks: "failure",
+      mergeable: true,
+      mergeStateStatus: "unknown",
+    };
+    gitStateFn.mockResolvedValue(unknownFailState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+    expect(mergeBtn, "Merge button present").not.toBeNull();
+    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
+    // unknown defers to checks: failing check → checks-fallback block reason.
+    expect(mergeBtn!.title, "checks fallback tooltip").toBe(m.gitrail_merge_blocked_checks());
+    assertControlsWithin(h);
+  });
+
+  it("desktop 600px — open, mergeStateStatus:unknown + checks:success → Merge ENABLED", async () => {
+    const unknownOkState: GitState = {
+      ...openPrState,
+      checks: "success",
+      mergeable: true,
+      mergeStateStatus: "unknown",
+    };
+    gitStateFn.mockResolvedValue(unknownOkState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+    expect(mergeBtn, "Merge button present").not.toBeNull();
+    // unknown defers to checks: green checks → no over-block during the unknown window.
+    expect(mergeBtn!.disabled, "Merge button enabled while unknown + checks green").toBe(false);
+    assertControlsWithin(h);
+  });
+
   it("desktop 600px — open, isDraft:true → Merge disabled with draft tooltip", async () => {
     const draftState: GitState = {
       ...openPrState,

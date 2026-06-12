@@ -214,7 +214,7 @@
       git.mergeable === false ||
       busy ||
       git.isDraft === true ||
-      (git.mergeStateStatus
+      (git.mergeStateStatus && git.mergeStateStatus !== "unknown"
         ? git.mergeStateStatus === "blocked" || git.mergeStateStatus === "behind"
         : git.checks === "failure"),
   );

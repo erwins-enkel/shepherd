@@ -177,6 +177,7 @@
             <textarea
               class="text"
               rows="2"
+              data-1p-ignore
               use:autosize={draft(l)}
               value={draft(l)}
               oninput={(e) => (drafts = { ...drafts, [l.id]: e.currentTarget.value })}

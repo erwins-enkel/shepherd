@@ -125,6 +125,7 @@
       bind:value={text}
       oninput={disarm}
       rows="2"
+      data-1p-ignore
       placeholder={m.broadcast_placeholder()}
       aria-label={m.broadcast_textarea_aria()}
     ></textarea>

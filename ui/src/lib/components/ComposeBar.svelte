@@ -339,6 +339,7 @@
         autocapitalize="sentences"
         autocomplete="on"
         spellcheck="true"
+        data-1p-ignore
         placeholder={m.composebar_placeholder()}
         aria-label={m.composebar_input_aria()}
         onkeydown={onKeydown}

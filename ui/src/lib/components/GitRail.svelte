@@ -500,6 +500,7 @@
         />
         <textarea
           class="pr-body"
+          data-1p-ignore
           bind:value={prBody}
           placeholder={m.gitrail_pr_description_placeholder()}
           aria-label={m.gitrail_pr_body_aria()}

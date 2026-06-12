@@ -1081,5 +1081,7 @@
   "feat_native_sub_issues_title": "Native GitHub sub-issues",
   "feat_native_sub_issues_body": "Issues with native GitHub sub-issues (no markdown checklist) now show a SUB-ISSUES badge in the backlog, expandable just like epics.",
   "epicbadge_open_title": "Epic #{number}: {merged}/{total} sub-issues done — open in backlog",
-  "epicbadge_open_aria": "Open epic #{number} in the backlog ({merged} of {total} sub-issues done)"
+  "epicbadge_open_aria": "Open epic #{number} in the backlog ({merged} of {total} sub-issues done)",
+  "feat_session_epic_badge_title": "Spot epics in your sessions",
+  "feat_session_epic_badge_body": "A session working a tracking issue now shows an EPIC badge with live sub-issue progress — click it to open that epic in the backlog."
 }

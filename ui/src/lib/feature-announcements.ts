@@ -615,4 +615,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_native_sub_issues_title",
     bodyKey: "feat_native_sub_issues_body",
   },
+  {
+    // Anchored at the EPIC badge on epic-seeded session rows (use:coachTarget="session-epic-badge").
+    // v1.27.0 is the latest released tag, so this ships in 1.28.0 — computeNewEntries only
+    // surfaces entries with sinceVersion > lastSeen.
+    id: "session-epic-badge",
+    sinceVersion: "1.28.0",
+    titleKey: "feat_session_epic_badge_title",
+    bodyKey: "feat_session_epic_badge_body",
+    targetId: "session-epic-badge",
+  },
 ];

@@ -81,6 +81,21 @@ describe("computeNewEntries", () => {
     expect(computeNewEntries("1.9.0", "1.10.0", [])).toEqual([]);
   });
 
+  it("orders results newest release first, catalog order within a release", () => {
+    const c: readonly FeatureAnnouncement[] = [
+      { id: "old", sinceVersion: "1.10.0", titleKey: "t", bodyKey: "b" },
+      { id: "mid-1", sinceVersion: "1.11.0", titleKey: "t", bodyKey: "b" },
+      { id: "new", sinceVersion: "1.12.0", titleKey: "t", bodyKey: "b" },
+      { id: "mid-2", sinceVersion: "1.11.0", titleKey: "t", bodyKey: "b" },
+    ];
+    expect(computeNewEntries("1.9.0", "1.12.0", c).map((e) => e.id)).toEqual([
+      "new",
+      "mid-1",
+      "mid-2",
+      "old",
+    ]);
+  });
+
   it("real catalog: upgrade from 1.9.0 → 1.10.0 shows the three 1.10.0 seed entries", () => {
     // sinceVersion "1.10.0" <= current "1.10.0" → included (upper-bound is inclusive);
     // later entries (e.g. the 1.15.0 halt-the-herd e-stop) are future-dated → excluded.

@@ -537,10 +537,10 @@
       <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
     {/if}
 
-    <!-- Both are per-task run settings: plan-gate takes the primary slot,
-         the model select sits compact beside it on desktop (stacked on phones). -->
+    <!-- Per-task run settings. Plan gate gets its own full-width row so its explainer
+         reads on one line; Model + Sandbox share a 50/50 row beneath. -->
     <div class="opts-row">
-      <label class="plan-gate" use:coachTarget={"plan-gate"} title={m.newtask_plan_gate_hint()}>
+      <label class="plan-gate" use:coachTarget={"plan-gate"}>
         <input type="checkbox" bind:checked={planGate} onchange={() => (planGateTouched = true)} />
         <span class="pg-text">
           <span class="pg-label">{m.newtask_plan_gate_label()}</span>
@@ -548,24 +548,26 @@
         </span>
       </label>
 
-      <div class="model-field">
-        <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
-        <select id="nt-model" bind:value={model}>
-          <option value="default">{m.newtask_model_default()}</option>
-          {#each MODELS as mdl (mdl)}
-            <option value={mdl}>{mdl}</option>
-          {/each}
-        </select>
-      </div>
+      <div class="run-config">
+        <div class="model-field">
+          <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
+          <select id="nt-model" bind:value={model}>
+            <option value="default">{m.newtask_model_default()}</option>
+            {#each MODELS as mdl (mdl)}
+              <option value={mdl}>{mdl}</option>
+            {/each}
+          </select>
+        </div>
 
-      <div class="model-field">
-        <label class="micro" for="nt-sandbox">{m.newtask_sandbox_label()}</label>
-        <select id="nt-sandbox" bind:value={sandboxProfile} title={m.newtask_sandbox_hint()}>
-          <option value="default">{m.newtask_sandbox_default()}</option>
-          <option value="trusted">{m.sandbox_profile_trusted()}</option>
-          <option value="standard">{m.sandbox_profile_standard()}</option>
-          <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
-        </select>
+        <div class="model-field">
+          <label class="micro" for="nt-sandbox">{m.newtask_sandbox_label()}</label>
+          <select id="nt-sandbox" bind:value={sandboxProfile} title={m.newtask_sandbox_hint()}>
+            <option value="default">{m.newtask_sandbox_default()}</option>
+            <option value="trusted">{m.sandbox_profile_trusted()}</option>
+            <option value="standard">{m.sandbox_profile_standard()}</option>
+            <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -698,22 +700,26 @@
     border-color: var(--color-line-bright);
   }
   .opts-row {
-    /* flex-start: plan-gate label and MODEL caption share a top edge */
     display: flex;
-    align-items: flex-start;
-    gap: 14px;
+    flex-direction: column;
+    gap: 12px;
     margin-top: 10px;
   }
   .plan-gate {
-    flex: 1;
     min-width: 0;
     display: flex;
     align-items: flex-start;
     gap: 8px;
     cursor: pointer;
   }
+  .run-config {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
   .model-field {
-    flex: 0 0 180px;
+    flex: 1 1 0;
+    min-width: 120px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -861,16 +867,6 @@
       max-height: 40dvh;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-    }
-    /* Stack the run settings again on phones — the sheet is too narrow for
-       the side-by-side row. */
-    .opts-row {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 10px;
-    }
-    .model-field {
-      flex: none;
     }
   }
 

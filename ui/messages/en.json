@@ -537,7 +537,7 @@
   "criticbadge_final": "FINAL REVIEW",
   "criticbadge_final_title": "Addressing the last allowed round; no more rounds after this.",
   "newtask_plan_gate_label": "Plan gate",
-  "newtask_plan_gate_hint": "Grill + adversarial plan review before the agent runs",
+  "newtask_plan_gate_hint": "Grill + adversarial review before the agent runs",
   "plangate_planning": "PLANNING",
   "plangate_reviewing": "REVIEWING…",
   "plangate_changes": "REWORK · {round}/{cap}",

@@ -200,6 +200,16 @@ export function buildEgressConfig(
   // ── dnsmasq argv ────────────────────────────────────────────────────────────
   // Resolves only allowlisted domains, pins resolved IPs into the nft set,
   // filters AAAA, logs queries.
+  //
+  // -d (--no-daemon), NOT -k (--keep-in-foreground): both stay foreground for the
+  // runner's liveness supervision, but ONLY -d also skips dnsmasq's privilege drop
+  // (setgid/setgroups to "nobody") and pidfile write. Inside the rootless user+net
+  // namespace the supplementary group "nobody" (65534) is UNMAPPED, so -k's
+  // setgroups() call fails EPERM and dnsmasq refuses to start — which would make
+  // the (now fail-closed) runner abort EVERY spawn. -d is the only foreground mode
+  // that starts here. Its one downside — logging to stderr — is neutralised by the
+  // runner redirecting dnsmasq's stdio to /dev/null, so nothing leaks onto the
+  // agent's inherited PTY; the queries still land in --log-facility.
   const dnsmasqArgv: string[] = [
     "-d",
     "--no-resolv",

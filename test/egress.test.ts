@@ -273,9 +273,14 @@ describe("buildEgressConfig", () => {
     expect(dnsmasqArgv).toContain(`--log-facility=${tmpDir}/dns.log`);
   });
 
-  test("-d, --no-resolv, --no-hosts present", () => {
+  test("-d (not -k), --no-resolv, --no-hosts present", () => {
     const { dnsmasqArgv } = config();
+    // -d (--no-daemon): the only foreground mode that starts inside the rootless
+    // user+net namespace — -k would EPERM on dropping the unmapped "nobody"
+    // supplementary group. -d's stderr logging is suppressed by the runner
+    // redirecting dnsmasq's stdio to /dev/null, so nothing leaks to the agent PTY.
     expect(dnsmasqArgv).toContain("-d");
+    expect(dnsmasqArgv).not.toContain("-k");
     expect(dnsmasqArgv).toContain("--no-resolv");
     expect(dnsmasqArgv).toContain("--no-hosts");
   });

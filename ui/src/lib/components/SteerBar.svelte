@@ -209,9 +209,11 @@
 </div>
 
 <style>
-  /* Row = scrolling chip bar (flex:1) + the ABC toggle at the right (shown only when a
-     label is collapsed / on mobile; display:none on a desktop bar where everything fits).
-     Background + top border live here so they span the full width including the toggle. */
+  /* Row = scrolling chip bar (flex:1) + a right-hand slot holding exactly one of two
+     complementary buttons: the ABC toggle (when a label is collapsed / on mobile) or the
+     Edit-steers pencil (on a desktop bar where everything fits). Both are sized identically
+     so the slot's width is constant whichever shows. Background + top border live here so
+     they span the full width including that slot. */
   .steer-row {
     display: flex;
     align-items: stretch;

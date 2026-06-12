@@ -8,10 +8,12 @@
     repoPath,
     onpick,
     onpickissue,
+    allowIssues = true,
   }: {
     repoPath: string;
     onpick: (prompt: string) => void;
     onpickissue: (issue: Issue) => void;
+    allowIssues?: boolean;
   } = $props();
 
   let tab = $state<"todo" | "issues" | "commands">("todo");
@@ -57,13 +59,13 @@
         }
         todos = matches;
         // Don't leave the user on a tab that's about to vanish.
-        if (!r.exists) untrack(() => tab === "todo" && (tab = "issues"));
+        if (!r.exists) untrack(() => tab === "todo" && (tab = allowIssues ? "issues" : "commands"));
       })
       .catch(() => {
         if (rp !== repoPath) return;
         hasTodo = false;
         todos = [];
-        untrack(() => tab === "todo" && (tab = "issues"));
+        untrack(() => tab === "todo" && (tab = allowIssues ? "issues" : "commands"));
       });
   });
 
@@ -133,14 +135,16 @@
           {m.promptsources_todo_tab()}
         </button>
       {/if}
-      <button
-        class="tab"
-        class:active={tab === "issues"}
-        type="button"
-        onclick={() => (tab = "issues")}
-      >
-        {m.promptsources_issues_tab()}
-      </button>
+      {#if allowIssues}
+        <button
+          class="tab"
+          class:active={tab === "issues"}
+          type="button"
+          onclick={() => (tab = "issues")}
+        >
+          {m.promptsources_issues_tab()}
+        </button>
+      {/if}
       <button
         class="tab"
         class:active={tab === "commands"}
@@ -187,35 +191,40 @@
           </button>
         {/each}
       {/if}
-    {:else if slug === null}
-      <div class="muted">{m.promptsources_no_github()}</div>
-    {:else if issues.length === 0}
-      <div class="muted">{m.common_no_open_issues()}</div>
-    {:else}
-      {#each issues as i (i.number)}
-        {@const ordered = orderedLabels(i.labels)}
-        <button class="row" type="button" onclick={() => onpickissue(i)}>
-          <span class="issue-num">#{i.number}</span>
-          <span class="row-text">{i.title}</span>
-          {#if ordered.length > 0}
-            <span class="chips">
-              {#each ordered.slice(0, 3) as lbl (lbl)}
-                <span
-                  class="chip"
-                  class:active={lbl === ACTIVE_LABEL}
-                  title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
-                  >{lbl}</span
-                >
-              {/each}
-              {#if ordered.length > 3}
-                <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
-                  {m.promptsources_more_labels({ count: ordered.length - 3 })}
-                </span>
-              {/if}
-            </span>
-          {/if}
-        </button>
-      {/each}
+    {:else if allowIssues}
+      <!-- Issues path: only reachable when allowIssues. The "issues" tab is
+           absent and the no-TODO auto-switch is redirected to Commands when
+           !allowIssues, so this branch is provably unreachable in that mode. -->
+      {#if slug === null}
+        <div class="muted">{m.promptsources_no_github()}</div>
+      {:else if issues.length === 0}
+        <div class="muted">{m.common_no_open_issues()}</div>
+      {:else}
+        {#each issues as i (i.number)}
+          {@const ordered = orderedLabels(i.labels)}
+          <button class="row" type="button" onclick={() => onpickissue(i)}>
+            <span class="issue-num">#{i.number}</span>
+            <span class="row-text">{i.title}</span>
+            {#if ordered.length > 0}
+              <span class="chips">
+                {#each ordered.slice(0, 3) as lbl (lbl)}
+                  <span
+                    class="chip"
+                    class:active={lbl === ACTIVE_LABEL}
+                    title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
+                    >{lbl}</span
+                  >
+                {/each}
+                {#if ordered.length > 3}
+                  <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
+                    {m.promptsources_more_labels({ count: ordered.length - 3 })}
+                  </span>
+                {/if}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      {/if}
     {/if}
   </div>
 </div>

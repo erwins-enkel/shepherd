@@ -456,7 +456,7 @@
     sidebarShouldCollapse(touch.current, mobile.current, sidebarCollapse.collapsed),
   );
 
-  // Toggling unmounts whichever control was clicked (Herd's chevron on collapse,
+  // Toggling unmounts whichever control was clicked (Herd's collapse tab on collapse,
   // the reopen tab on expand), which would drop focus to <body>. After the DOM
   // settles, move focus to the counterpart control so keyboard/SR users keep place.
   async function toggleSidebar() {

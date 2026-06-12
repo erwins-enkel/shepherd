@@ -106,20 +106,25 @@ describe("sweepClaudeTmp", () => {
     expect(existsSync(ncc)).toBe(false); // dropped because threshold 0 was honored
   });
 
-  test("over threshold: removes node-compile-cache wholesale + stale entries, keeps fresh", async () => {
+  test("over threshold: node-compile-cache wholesale + stale caches removed, fresh caches + session scratch kept", async () => {
     const root = mkTmp();
     const ncc = join(root, "node-compile-cache");
     mkdirSync(ncc); // freshly created (recent mtime) yet must still be removed wholesale
     writeFileSync(join(ncc, "blob.bin"), "x");
 
-    const stale = join(root, "stale-scratch");
-    mkdirSync(stale);
-    const fresh = join(root, "fresh-scratch");
-    mkdirSync(fresh);
+    const staleCache = join(root, "bunx-1000-typescript"); // known regenerable cache, stale → removed
+    mkdirSync(staleCache);
+    const freshCache = join(root, "fallow-audit-base-cache-abc"); // known cache, fresh → kept
+    mkdirSync(freshCache);
+    // A still-active session's scratch: NOT a cache name, stale top-level mtime → must be KEPT
+    // (only `removeWorktreeScratch` on archival may reclaim it, never this sweep).
+    const sessionScratch = join(root, "-home-patrick-Work--shepherd-worktrees-x-review-0a928a8b");
+    mkdirSync(sessionScratch);
 
     const now = Date.now();
     const old = new Date(now - 48 * 3600_000); // 48h ago
-    utimesSync(stale, old, old);
+    utimesSync(staleCache, old, old);
+    utimesSync(sessionScratch, old, old);
 
     // Fake statfs forces over-threshold deterministically (real tmpfs use varies).
     const fsp = await import("node:fs/promises");
@@ -137,31 +142,30 @@ describe("sweepClaudeTmp", () => {
 
     expect(res.swept).toBe(true);
     expect(res.reason).toContain("inode use");
-    expect(existsSync(ncc)).toBe(false);
-    expect(existsSync(stale)).toBe(false);
-    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(ncc)).toBe(false); // wholesale
+    expect(existsSync(staleCache)).toBe(false); // known cache, stale → removed
+    expect(existsSync(freshCache)).toBe(true); // known cache, fresh → kept
+    expect(existsSync(sessionScratch)).toBe(true); // non-cache scratch → kept despite being stale
     expect(existsSync(root)).toBe(true); // root itself never removed
-    expect(res.removed).toBe(2);
+    expect(res.removed).toBe(2); // ncc + staleCache only
   });
 
-  test("over threshold via fake statfs removes only stale, keeps fresh", async () => {
+  test("over threshold: a stale NON-cache (session) scratch dir is left in place", async () => {
     const root = mkTmp();
-    const ncc = join(root, "node-compile-cache");
-    mkdirSync(ncc);
-    const stale = join(root, "stale");
-    mkdirSync(stale);
-    const fresh = join(root, "fresh");
-    mkdirSync(fresh);
+    // Mimics a live long-running session whose top-level mtime is stale (writes go to subdirs).
+    const sessionScratch = join(root, "-home-fake-session");
+    mkdirSync(sessionScratch);
+    mkdirSync(join(sessionScratch, "1778cf88-session-id")); // in-use subdir
     const now = Date.now();
-    const old = new Date(now - 48 * 3600_000);
-    utimesSync(stale, old, old);
+    const old = new Date(now - 72 * 3600_000);
+    utimesSync(sessionScratch, old, old);
 
     const fsp = await import("node:fs/promises");
     const res = await sweepClaudeTmp({
       root,
       now,
       fsOps: {
-        statfs: fakeStatfs(1000, 100), // 90% used
+        statfs: fakeStatfs(1000, 50), // 95% used
         readdir: fsp.readdir,
         stat: fsp.stat,
         rm: fsp.rm,
@@ -170,10 +174,8 @@ describe("sweepClaudeTmp", () => {
     });
 
     expect(res.swept).toBe(true);
-    expect(existsSync(ncc)).toBe(false);
-    expect(existsSync(stale)).toBe(false);
-    expect(existsSync(fresh)).toBe(true);
-    expect(existsSync(root)).toBe(true);
+    expect(res.removed).toBe(0); // nothing eligible — session scratch is not a known cache
+    expect(existsSync(sessionScratch)).toBe(true);
   });
 
   test("nested claude-$uid dir is not wholesale-removed; its stale child is swept", async () => {
@@ -184,11 +186,14 @@ describe("sweepClaudeTmp", () => {
     const now = Date.now();
     const old = new Date(now - 72 * 3600_000);
 
-    const staleChild = join(nestedDir, "old-session");
-    mkdirSync(staleChild);
-    const freshChild = join(nestedDir, "live-session");
+    const staleCacheChild = join(nestedDir, "bunx-1000-old"); // known cache, stale → swept
+    mkdirSync(staleCacheChild);
+    const freshChild = join(nestedDir, "bunx-1000-live"); // known cache, fresh → kept
     mkdirSync(freshChild);
-    utimesSync(staleChild, old, old);
+    const staleSessionChild = join(nestedDir, "-home-old-worktree"); // session scratch, stale → kept
+    mkdirSync(staleSessionChild);
+    utimesSync(staleCacheChild, old, old);
+    utimesSync(staleSessionChild, old, old);
     utimesSync(nestedDir, old, old);
 
     const fsp = await import("node:fs/promises");
@@ -206,8 +211,9 @@ describe("sweepClaudeTmp", () => {
 
     expect(res.swept).toBe(true);
     expect(existsSync(nestedDir)).toBe(true); // never wholesale-removed
-    expect(existsSync(staleChild)).toBe(false); // swept as the second root
+    expect(existsSync(staleCacheChild)).toBe(false); // known cache swept as the second root
     expect(existsSync(freshChild)).toBe(true);
+    expect(existsSync(staleSessionChild)).toBe(true); // session scratch preserved even when stale
   });
 
   test("fail-open: statfs not a function → statfs-unavailable, nothing removed", async () => {

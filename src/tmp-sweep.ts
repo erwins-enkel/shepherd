@@ -9,8 +9,9 @@ import { join } from "node:path";
  * unbounded there and exhaust the tmpfs *inodes* (ENOSPC with bytes to spare).
  *
  * The proven operator fix is `rm -rf /tmp/claude-$uid/node-compile-cache` (inode use
- * ~88%→16%); this module automates that plus age-gated scratch cleanup, but only once
- * inode use crosses a threshold — so a healthy tmpfs is never disturbed.
+ * ~88%→16%); this module automates that plus age-gated removal of known regenerable tool
+ * caches, but only once inode use crosses a threshold — so a healthy tmpfs is never
+ * disturbed, and a live session's per-session scratch is never wholesale-removed.
  *
  * The server runs on a single Bun event loop, so EVERYTHING here is async `fs/promises`:
  * a sync stat/rm on the loop freezes the live web terminal.
@@ -130,13 +131,26 @@ async function inodeUsePct(
 }
 
 /**
+ * Entry names this sweep is willing to age-gate-remove: regenerable tool caches that hold NO
+ * live session working state (Bun's bunx cache, fallow's audit base cache, agent-browser's
+ * Chrome profiles). Per-session scratch — the dashified `-home-…` worktree dirs and their
+ * session-id subdirs — is deliberately EXCLUDED: a still-running session leaves a stale
+ * TOP-LEVEL mtime because it only writes into subdirs, so a coarse mtime check would let this
+ * best-effort sweep `rm -rf` a live agent's scratch out from under it. Those dirs are reclaimed
+ * precisely by `removeWorktreeScratch` on archival, when the session is known to be finished.
+ */
+const REGENERABLE_CACHE = /^(bunx-|fallow-|agent-browser-)/;
+
+/**
  * Handles ONE directory entry, returning the count removed (0 or 1). Fail-closed per-entry:
  * its own try/catch surfaces a removal failure in the log and continues, so a bad entry NEVER
- * aborts the sweep and is never miscounted as success. The three cases:
+ * aborts the sweep and is never miscounted as success. The cases:
  *  - `node-compile-cache` — pure V8 compile cache, dropped wholesale regardless of age.
- *  - the nested `claude-$uid` root — never wholesale-removed (its children are age-gated when
- *    it is itself the sweep root); skipped here.
- *  - anything else — age-gated by the entry's own top-level mtime.
+ *  - the nested `claude-$uid` root — never wholesale-removed (its children are swept when it is
+ *    itself the sweep root); skipped here.
+ *  - a known regenerable cache (see `REGENERABLE_CACHE`) — age-gated by its top-level mtime.
+ *  - anything else (per-session/unknown scratch) — LEFT in place; never wholesale-removed by
+ *    this sweep (reclaimed via `removeWorktreeScratch` on archival instead).
  */
 async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<number> {
   const p = join(dir, ent.name);
@@ -146,6 +160,9 @@ async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<numb
       return 1;
     }
     if (ent.name === ctx.nestedName) return 0;
+    // Only known regenerable caches are eligible for age-gated removal; everything else
+    // (live/orphaned session scratch, unrecognized dirs) is left untouched by the sweep.
+    if (!REGENERABLE_CACHE.test(ent.name)) return 0;
 
     const st = await ctx.ops.stat(p);
     // Deliberately the top-level entry's own mtime, not a recursive
@@ -184,11 +201,12 @@ async function sweepDir(dir: string, ctx: SweepCtx): Promise<number> {
  *
  * Only sweeps once inode use ≥ `thresholdPct`; below that it removes NOTHING. When it does
  * sweep, it walks `root` and the nested `root/claude-$uid`, removing `node-compile-cache`
- * wholesale (pure cache) and age-gating everything else, but never the nested scratch dir
- * itself (its children are age-gated when it is the sweep root) and never a root dir itself.
- * Age-gating is evaluated at stat time: an entry that looks fresh by mtime is kept. This is a
- * best-effort age check, not a TOCTOU-atomic guarantee — a writer touching an entry between
- * our stat and rm is not fenced out.
+ * wholesale (pure cache) and age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
+ * while LEAVING per-session/unknown scratch in place, the nested scratch dir itself (its
+ * children are swept when it is the sweep root), and every root dir itself. Age-gating is
+ * evaluated at stat time: an entry that looks fresh by mtime is kept. This is a best-effort age
+ * check, not a TOCTOU-atomic guarantee — a writer touching an entry between our stat and rm is
+ * not fenced out.
  */
 export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
   const log = opts?.log ?? console.warn;

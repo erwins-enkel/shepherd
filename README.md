@@ -210,9 +210,10 @@ Access control is **tailnet membership** — there is no app-level password.
 ### Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs (it points
-`NODE_COMPILE_CACHE` at a disk dir) and runs an inode-guard sweep on **startup + daily** that
-drops the compile cache and stale per-session scratch once `/tmp` inode use crosses a threshold —
-so a long-lived host doesn't ENOSPC on inodes (with bytes to spare).
+`NODE_COMPILE_CACHE` at a disk dir) and runs an inode-guard sweep on **startup + daily** that, once
+`/tmp` inode use crosses a threshold, drops the compile cache and stale regenerable tool caches
+(bunx / fallow / agent-browser) — but never a live session's scratch, which is reclaimed on archival
+instead. So a long-lived host doesn't ENOSPC on inodes (with bytes to spare).
 
 The in-app guard bounds Shepherd's _own_ churn; as a host-level belt, raise `/tmp`'s `nr_inodes` in
 `/etc/fstab` on long-uptime hosts (e.g. `tmpfs /tmp tmpfs nr_inodes=4194304 0 0`) so a higher inode

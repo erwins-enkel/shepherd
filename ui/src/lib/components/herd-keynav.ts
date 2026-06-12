@@ -16,8 +16,8 @@ const RAIL_GROUP_ORDER = [
   "waitingOnMerger",
   "draftAwaitingSignoff",
   "awaitingMerge",
-  "merging",
   "ready",
+  "merging",
   "merged",
 ] as const;
 

@@ -86,6 +86,37 @@ describe("Herd merging group", () => {
     });
     await expect.element(page.getByText(/Merging \(1\)/i)).toBeInTheDocument();
   });
+
+  it("orders the section heads ready → merging → merged top→bottom", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "rdy", readyToMerge: true }),
+        session({
+          id: "mrg",
+          readyToMerge: true,
+          mergingSince: Date.now(),
+          mergingTrainId: "t",
+        }),
+        session({ id: "mgd" }),
+      ],
+      git: {
+        rdy: openPr,
+        mrg: { kind: "github", state: "open", checks: "success", deployConfigured: false },
+        mgd: { kind: "github", state: "merged", checks: "success", deployConfigured: false },
+      },
+    });
+    // all three heads present
+    await expect.element(page.getByText(/Ready to merge \(1\)/i)).toBeInTheDocument();
+    await expect.element(page.getByText(/Merging \(1\)/i)).toBeInTheDocument();
+    await expect.element(page.getByText(/Merged \(1\)/i)).toBeInTheDocument();
+    // compare document positions: ready before merging before merged
+    const ready = document.querySelector(".ready-head")!;
+    const merging = document.querySelector(".merging-head")!;
+    const merged = document.querySelector(".merged-head")!;
+    expect(ready.compareDocumentPosition(merging) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(merging.compareDocumentPosition(merged) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 describe("Herd merge-train link", () => {

@@ -560,7 +560,6 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_relaunch_title",
     bodyKey: "feat_relaunch_body",
   },
-<<<<<<< HEAD
   {
     // No targetId: only the automation-pill coachmarks are armed (PILL_FEATURE_IDS
     // in GitRail.svelte), so an anchor on the header title would never fire —

@@ -267,6 +267,7 @@
   "newtask_relaunch_title": "Relaunch Task",
   "newtask_relaunch_note": "The original task will be archived; its prompt, model, base branch and attached images carry over.",
   "newtask_relaunch_issue_drop_note": "Linked issue #{number} will be unlinked and returned to its backlog.",
+  "newtask_relaunch_image_note": "This task's images are carried over and kept first; newly attached images past the limit are dropped.",
   "promptsources_title": "Seed From",
   "promptsources_todo_tab": "To-Do",
   "promptsources_issues_tab": "Issues",

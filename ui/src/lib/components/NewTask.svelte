@@ -445,6 +445,9 @@
       </button>
       <span class="hint">{m.newtask_drop_hint()}</span>
     </div>
+    {#if relaunch}
+      <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
+    {/if}
     <input
       bind:this={fileInput}
       type="file"
@@ -883,6 +886,10 @@
   .hint {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  .attach-relaunch-note {
+    display: block;
+    margin-top: 4px;
   }
   .chips {
     display: flex;

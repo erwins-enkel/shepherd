@@ -267,6 +267,7 @@
   "newtask_relaunch_title": "Task neu starten",
   "newtask_relaunch_note": "Der ursprüngliche Task wird archiviert; Prompt, Modell, Basis-Branch und angehängte Bilder werden übernommen.",
   "newtask_relaunch_issue_drop_note": "Die Verknüpfung zu Issue #{number} wird aufgehoben; es kehrt in sein Backlog zurück.",
+  "newtask_relaunch_image_note": "Die Bilder dieses Tasks werden übernommen und zuerst behalten; darüber hinaus angehängte Bilder werden verworfen.",
   "promptsources_title": "Übernehmen aus",
   "promptsources_todo_tab": "To-Do",
   "promptsources_issues_tab": "Issues",

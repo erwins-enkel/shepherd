@@ -61,7 +61,7 @@
         class="count-item count-prs"
         class:prom={project.prKinds.regular > 0}
         title={m.backlog_code_prs_title()}
-        aria-label={m.backlog_tab_prs_count({ count: project.prKinds.regular })}
+        aria-label={m.backlog_code_prs_count({ count: project.prKinds.regular })}
       >
         {project.prKinds.regular}
       </span>

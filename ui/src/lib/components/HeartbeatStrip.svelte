@@ -65,9 +65,18 @@
   .cell.now {
     opacity: 1;
   }
-  /* an errored slice (always level ≥ 1) renders red instead of green */
+  /* an errored slice (always level ≥ 1) renders red instead of amber. A
+     non-color cue rides alongside the hue (WCAG 1.4.1): the cell is rendered
+     as a shorter bottom-anchored stub (~55% of full height), so an error reads
+     as a "dropped" bar with a gap along the top edge of the strip. This
+     silhouette difference remains perceptible even at ~1.7px cell width
+     (collapsed strip in UnitRow) because it is an edge/outline difference, not
+     an interior detail, and it does not collide with the opacity-based recency
+     encoding (every normal cell is full height regardless of level). */
   .cell.err {
     color: var(--color-red);
     opacity: 0.85;
+    align-self: flex-end;
+    height: 55%;
   }
 </style>

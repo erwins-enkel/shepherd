@@ -258,6 +258,10 @@
   // the fold, so they can't carry a stable controlled-region id). Per-session id so
   // it stays unique if ever more than one viewport mounts.
   const foldRegionId = $derived(`vp-fold-region-${session.id}`);
+  // a11y: tablist wiring — per-session ids so the tab buttons' aria-controls and the
+  // panel's aria-labelledby resolve uniquely if more than one viewport ever mounts.
+  const vpBodyId = $derived(`vp-panel-${session.id}`);
+  const tabId = $derived((t: typeof tab) => `vp-tab-${t}-${session.id}`);
 
   function toggleFold() {
     headerCollapsed = !headerCollapsed;
@@ -1739,22 +1743,46 @@
     {/if}
     <div class="spacer"></div>
     <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
-      <div class="tab-scroll">
-        <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
-          >{m.viewport_terminal_tab()}</button
+      <div class="tab-scroll" role="tablist" aria-label={m.viewport_tablist_aria()}>
+        <button
+          class="tab-btn"
+          class:active={tab === "term"}
+          role="tab"
+          id={tabId("term")}
+          aria-selected={tab === "term"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "term")}>{m.viewport_terminal_tab()}</button
         >
         {#if todoExists}
           <!-- only when the repo has a TODO.md (server-resolved); skips the empty
                "add your first item" tab so the strip stays meaningful. -->
-          <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
-            >{m.viewport_todo_tab()}</button
+          <button
+            class="tab-btn"
+            class:active={tab === "todo"}
+            role="tab"
+            id={tabId("todo")}
+            aria-selected={tab === "todo"}
+            aria-controls={vpBodyId}
+            onclick={() => (tab = "todo")}>{m.viewport_todo_tab()}</button
           >
         {/if}
-        <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
-          >{m.viewport_activity_tab()}</button
+        <button
+          class="tab-btn"
+          class:active={tab === "activity"}
+          role="tab"
+          id={tabId("activity")}
+          aria-selected={tab === "activity"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
         >
-        <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
-          >{m.viewport_diff_tab()}</button
+        <button
+          class="tab-btn"
+          class:active={tab === "diff"}
+          role="tab"
+          id={tabId("diff")}
+          aria-selected={tab === "diff"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
         >
       </div>
       {#if hasPreview}
@@ -1763,6 +1791,10 @@
         <button
           class="tab-btn preview-tab"
           class:active={tab === "preview"}
+          role="tab"
+          id={tabId("preview")}
+          aria-selected={tab === "preview"}
+          aria-controls={vpBodyId}
           onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
         >
       {:else if session && !session.archivedAt}
@@ -2082,7 +2114,7 @@
   {/if}
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
-  <div class="vp-body" data-swipe-page>
+  <div class="vp-body" data-swipe-page role="tabpanel" id={vpBodyId} aria-labelledby={tabId(tab)}>
     <div class="scan" aria-hidden="true"></div>
     <div
       class="term-mount"

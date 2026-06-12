@@ -69,7 +69,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
 // vanishes, and NOT re-yanking the user on a later null→port flip with no bump)
 // is regression-prone, so exercise it through the real component.
 describe("Viewport preview tab", () => {
-  const previewTab = () => page.getByRole("button", { name: "Preview" });
+  // view tabs carry role="tab" (tablist a11y), so query them by that role
+  const previewTab = () => page.getByRole("tab", { name: "Preview" });
 
   it("opens the Preview tab + renders the iframe on a badge-click tick bump", async () => {
     const { rerender } = render(Viewport, {
@@ -116,7 +117,7 @@ describe("Viewport preview tab", () => {
     // toggle ("…terminal text…") would otherwise also match by substring.
     await expect.element(previewTab()).not.toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Terminal", exact: true }))
+      .element(page.getByRole("tab", { name: "Terminal", exact: true }))
       .toHaveClass(/active/);
   });
 
@@ -131,7 +132,7 @@ describe("Viewport preview tab", () => {
 
     // exact: the open DiffPanel also exposes a "Refresh diff" button whose
     // accessible name otherwise matches; we want the tab button itself.
-    const diffTab = page.getByRole("button", { name: "Diff", exact: true });
+    const diffTab = page.getByRole("tab", { name: "Diff", exact: true });
     await diffTab.click();
     await expect.element(diffTab).toHaveClass(/active/);
 

@@ -1001,11 +1001,15 @@
   class:mobile={mobile.current}
   class:list={mobile.current && mobileScreen === "list"}
 >
+  <!-- a11y: a single top-level heading for the app shell — visually hidden (no
+       layout change), gives screen-reader users an h1 to orient by. Always
+       present, even on the phone terminal screen where the chrome is hidden. -->
+  <h1 class="sr-only">{m.app_shell_heading()}</h1>
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
        viewport's merged header (repo · session + back + status tint), so it's
        hidden there; settings + global chrome stay on the herd overview. -->
   {#if !(mobile.current && mobileScreen === "detail")}
-    <div class="chrome">
+    <header class="chrome">
       <TopBar
         sessions={store.sessions}
         {nowMs}
@@ -1037,7 +1041,7 @@
         }}
       />
       <QueueStrip autoMerge={store.autoMerge} />
-    </div>
+    </header>
   {/if}
 
   <main id="main-content" class="main-region">

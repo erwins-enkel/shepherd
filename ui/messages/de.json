@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "app_shell_heading": "Shepherd Missionskontrolle",
   "common_loading": "lädt…",
   "common_close": "schließen",
   "common_retry": "Erneut versuchen",
@@ -442,6 +443,7 @@
   "viewport_meta_aria": "Profil und Token-Verbrauch für diese Aufgabe",
   "viewport_profile_label": "Profil",
   "viewport_tokens_meta_label": "Tokens",
+  "viewport_tablist_aria": "Viewport-Bereiche",
   "viewport_terminal_tab": "Terminal",
   "viewport_todo_tab": "To-Do",
   "viewport_activity_tab": "Aktivität",

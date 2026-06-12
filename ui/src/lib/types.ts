@@ -328,6 +328,7 @@ export interface EpicSummary {
   total: number;
   merged: number;
   status: EpicRunStatus;
+  source: EpicSource;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

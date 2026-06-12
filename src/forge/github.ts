@@ -27,6 +27,42 @@ import type {
  *  `gh run view` subprocess, so bound the fan-out. */
 const MAX_WORKFLOWS = 10;
 
+/** Cap on summary pages for listSubIssueSummaries: 2 pages × 100 issues = ~200 issues,
+ *  mirroring the listIssues() 200-open-issue cap. */
+const MAX_SUMMARY_PAGES = 2;
+
+/** Parse one page of the sub-issue-summary GraphQL response: record every node with
+ *  total > 0 into `into` (keyed by issue number) and return the page's cursor info. */
+function collectSubIssueSummaryPage(
+  out: string,
+  into: Map<number, { total: number; completed: number }>,
+): { hasNextPage: boolean; endCursor: string | null } {
+  const json = JSON.parse(out) as {
+    data?: {
+      repository?: {
+        issues?: {
+          pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+          nodes?: Array<{
+            number: number;
+            subIssuesSummary?: { total: number; completed: number };
+          } | null>;
+        };
+      };
+    };
+  };
+  const issues = json.data?.repository?.issues;
+  for (const node of issues?.nodes ?? []) {
+    const s = node?.subIssuesSummary;
+    if (node && s && s.total > 0) {
+      into.set(node.number, { total: s.total, completed: s.completed });
+    }
+  }
+  return {
+    hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
+    endCursor: issues?.pageInfo?.endCursor ?? null,
+  };
+}
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -792,5 +828,41 @@ export class GithubForge implements GitForge {
       "-F",
       `issue_id=${id}`,
     ]);
+  }
+
+  async listSubIssueSummaries(): Promise<Map<number, { total: number; completed: number }>> {
+    // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
+    // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
+    // REST sub_issues endpoints above.
+    const [owner, name] = this.slug.split("/");
+    // Only number + counts are selected: the backlog renders this badge on the matching visible
+    // issue row, so the row already supplies title/body — no need to fetch them here.
+    const query =
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed}}}}}";
+    const result = new Map<number, { total: number; completed: number }>();
+    try {
+      let endCursor: string | null = null;
+      for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
+        const args = [
+          "api",
+          "graphql",
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-f",
+          `query=${query}`,
+        ];
+        // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
+        if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
+        const pageInfo = collectSubIssueSummaryPage(await this.run(args), result);
+        if (!pageInfo.hasNextPage) break;
+        endCursor = pageInfo.endCursor;
+      }
+    } catch {
+      // Best-effort; degrade to markdown-only discovery rather than failing the route.
+      return new Map();
+    }
+    return result;
   }
 }

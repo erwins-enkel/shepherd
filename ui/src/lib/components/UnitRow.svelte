@@ -1061,4 +1061,38 @@
       width: 64px;
     }
   }
+
+  /* Desktop Herd sidebar (never the mobile .units.flow list): drop the badge/
+     status rail to its own full-width row beneath the name+prompt so a wide
+     badge (e.g. the critic chip) can't crush the name to an ellipsis stub. The
+     sidebar is always ≤360px (routes/+page.svelte .grid minmax(244,288)/(300,
+     360)), so this is the sidebar's standing layout; the container query is a
+     future-proof guard against any hypothetical wide non-flow herd. Scoped to
+     :not(.flow) so the wider mobile flow list is genuinely untouched (no
+     360-vs-375 cliff). */
+  @container herd (max-width: 360px) {
+    :global(.units:not(.flow)) .unit {
+      grid-template-columns: 16px 1fr;
+      grid-template-areas:
+        "pip main"
+        "pip right"
+        "pip meta";
+    }
+    :global(.units:not(.flow)) .unit.has-activity {
+      grid-template-areas:
+        "pip main"
+        "pip act"
+        "pip right"
+        "pip meta";
+    }
+    /* badge rail → left-aligned, wrapping horizontal strip on its own row */
+    :global(.units:not(.flow)) .u-right {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-start;
+      text-align: left;
+      gap: 6px;
+    }
+  }
 </style>

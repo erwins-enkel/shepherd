@@ -1099,5 +1099,6 @@
   "epic_group_expand_aria": "Epic #{number} aufklappen",
   "epic_group_cue_ci_failed": "{count} CI fehlgeschlagen",
   "epic_group_cue_ready": "{count} bereit zum Mergen",
-  "epic_group_cue_blocked": "{count} brauchen dich"
+  "epic_group_cue_blocked": "{count} brauchen dich",
+  "herd_in_epics_above": "{count} weiter oben in Epics"
 }

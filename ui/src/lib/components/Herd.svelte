@@ -2,8 +2,11 @@
   import type { Session, GitState, SessionActivity, Epic } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
+  import EpicGroupHeader from "./EpicGroupHeader.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
+  import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
+  import { displayStatus } from "$lib/display-status";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -20,6 +23,9 @@
     onpreview = undefined,
     epics = {},
     onepic = undefined,
+    activeEpicKeys = new Set(),
+    collapsedKeys = new Set(),
+    oncollapsetoggle = undefined,
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
@@ -54,8 +60,16 @@
     // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — threaded
     // into each row so an epic-seeded session can badge with WS-live counts
     epics?: Record<string, Epic>;
-    // a row's Epic badge was clicked → open the backlog
+    // an epic group header's badge was clicked → open the backlog
     onepic?: (repoPath: string, issueNumber: number) => void;
+    // keys (`${repoPath}#${parentIssueNumber}`) of currently-active epics — only these
+    // group their child sessions under an epic headline; others stay in the lifecycle list
+    activeEpicKeys?: Set<string>;
+    // epic group keys the user has collapsed — collapsed groups hide their child rows
+    // (page-owned state, shared with the keyboard-nav rail so render and nav agree)
+    collapsedKeys?: Set<string>;
+    // toggles a group's collapse — the page owns the actual collapsedKeys mutation
+    oncollapsetoggle?: (key: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
@@ -130,11 +144,50 @@
   // `session:reviewing` and `session:plangate-reviewing` events respectively.
   // nowMs (the reactive clock tick) is threaded in so the Merging group re-partitions
   // as the per-session merge TTL elapses, matching the badge/pip which also use nowMs.
-  const partition = $derived(partitionSessions(shown, git, inReview, nowMs));
+  // Active epics gather their child sessions under one headline at the top; only the
+  // REST (non-grouped) sessions flow into the lifecycle partition below. `shown` stays
+  // the FULL filtered set so the global action counts (merge-train/clear-merged) still
+  // see grouped rows.
+  const grouped = $derived(
+    groupSessionsByEpic(shown, epics ?? {}, activeEpicKeys ?? new Set(), git, inReview, nowMs),
+  );
+  const partition = $derived(partitionSessions(grouped.rest, git, inReview, nowMs));
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   // In-review sessions are excluded so the link's count matches the launch action.
+  // Global (over `shown`, not `rest`) so grouped epic-child PRs still arm the action.
   const readyPrCount = $derived(collectReadyPrs(shown, git, inReview).length);
+
+  // ONE partition per epic group, keyed by group key — the cue chips, the grouped
+  // ready/merged tallies, and the "in epics above" annotation all read from it, so we
+  // partition each small group exactly once. Re-derives on the same inputs the per-group
+  // partition depends on (grouped, git, inReview, nowMs).
+  const groupParts = $derived(
+    new Map(
+      grouped.groups.map((g) => [g.key, partitionSessions(g.sessions, git, inReview, nowMs)]),
+    ),
+  );
+  // Per-group attention cues — reads the shared partition; the blocked count still scans
+  // g.sessions directly via displayStatus (it's not a partition bucket).
+  function cuesFor(g: { key: string; sessions: Session[] }): {
+    ciFailed: number;
+    ready: number;
+    blocked: number;
+  } {
+    const p = groupParts.get(g.key);
+    return {
+      ciFailed: p?.ciFailed.length ?? 0,
+      ready: p?.ready.length ?? 0,
+      blocked: g.sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
+    };
+  }
+  // ready/merged rows that live in epic groups above the lifecycle list — used both to
+  // gate the ready/merged section headers (which must render even when their only rows
+  // are grouped) and to drive the "N in epics above" annotation.
+  const readyAbove = $derived([...groupParts.values()].reduce((n, p) => n + p.ready.length, 0));
+  const mergedAbove = $derived([...groupParts.values()].reduce((n, p) => n + p.merged.length, 0));
+  // global merged count (rest + grouped) — drives clear-merged enablement
+  const mergedCount = $derived(partition.merged.length + mergedAbove);
 
   // The waiting-on-* group headers name the responsible person when the whole
   // group shares one (the common case: one repo, one merger). The herd can span
@@ -216,6 +269,38 @@
       {:else if shown.length === 0}
         <div class="empty micro static">{m.herd_ready_empty()}</div>
       {:else}
+        {#each grouped.groups as g (g.key)}
+          <EpicGroupHeader
+            epic={g.epic}
+            collapsed={collapsedKeys?.has(g.key) ?? false}
+            cues={cuesFor(g)}
+            ontoggle={() => oncollapsetoggle?.(g.key)}
+            {onepic}
+          />
+          {#if !(collapsedKeys?.has(g.key) ?? false)}
+            <div class="epic-children">
+              {#each g.sessions as session (session.id)}
+                <UnitRow
+                  {session}
+                  selected={session.id === selectedId}
+                  {nowMs}
+                  {onselect}
+                  git={git[session.id]}
+                  activity={activity[session.id]}
+                  previewPort={preview[session.id] ?? null}
+                  previewServeFailed={previewServe[session.id] === "failed"}
+                  {onpreview}
+                  {ondecommission}
+                  {onrelaunch}
+                  {onrelaunchElsewhere}
+                  {repoFilter}
+                  {onrepofilter}
+                  {workingBlocked}
+                />
+              {/each}
+            </div>
+          {/if}
+        {/each}
         {#each partition.active as session (session.id)}
           <UnitRow
             {session}
@@ -233,8 +318,6 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
-            {epics}
-            {onepic}
           />
         {/each}
         {#if partition.ciRunning.length > 0}
@@ -258,8 +341,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -284,8 +365,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -310,8 +389,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -338,8 +415,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -366,8 +441,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -389,8 +462,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -415,14 +486,17 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
-        {#if partition.ready.length > 0}
+        {#if partition.ready.length + readyAbove > 0}
           <div class="ready-head micro">
-            {m.herd_ready_group({ count: partition.ready.length })}
+            {#if partition.ready.length > 0}
+              {m.herd_ready_group({ count: partition.ready.length })}
+            {/if}
+            {#if readyAbove > 0}
+              <span class="above">{m.herd_in_epics_above({ count: readyAbove })}</span>
+            {/if}
             {#if onmergetrain && readyPrCount > 0}
               <button
                 type="button"
@@ -449,8 +523,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -475,15 +547,18 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
-        {#if partition.merged.length > 0}
+        {#if partition.merged.length + mergedAbove > 0}
           <div class="merged-head micro">
-            {m.herd_merged_group({ count: partition.merged.length })}
-            {#if onclearmerged}
+            {#if partition.merged.length > 0}
+              {m.herd_merged_group({ count: partition.merged.length })}
+            {/if}
+            {#if mergedAbove > 0}
+              <span class="above">{m.herd_in_epics_above({ count: mergedAbove })}</span>
+            {/if}
+            {#if onclearmerged && mergedCount > 0}
               <button
                 type="button"
                 class="clear-merged micro"
@@ -509,8 +584,6 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
-              {epics}
-              {onepic}
             />
           {/each}
         {/if}
@@ -767,6 +840,21 @@
   .clear-merged:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  /* Child rows of an epic group sit lightly inset under their headline so the
+     group reads as one unit. A hairline rail on the leading edge reinforces the
+     nesting without a heavy indent. Token-based; no raw px color. */
+  .epic-children {
+    padding-left: 10px;
+    margin-left: 4px;
+    border-left: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
+  }
+
+  /* "N in epics above" — a quiet annotation beside a section count when that
+     stage's rows live in epic groups above the lifecycle list. */
+  .above {
+    color: var(--color-faint);
   }
 
   .units {

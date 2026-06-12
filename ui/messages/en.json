@@ -1099,5 +1099,6 @@
   "epic_group_expand_aria": "Expand epic #{number}",
   "epic_group_cue_ci_failed": "{count} failing CI",
   "epic_group_cue_ready": "{count} ready to merge",
-  "epic_group_cue_blocked": "{count} need you"
+  "epic_group_cue_blocked": "{count} need you",
+  "herd_in_epics_above": "{count} in epics above"
 }

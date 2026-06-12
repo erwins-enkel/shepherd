@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import Herd from "./Herd.svelte";
 import { reviews, planGates } from "$lib/reviews.svelte";
-import type { Session, GitState } from "$lib/types";
+import type { Session, GitState, Epic, EpicChild } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -300,5 +300,141 @@ describe("Herd status filter (TopBar tallies)", () => {
       onstatusfilter: () => {},
     });
     await expect.element(page.getByText("No Blocked sessions for shepherd.")).toBeInTheDocument();
+  });
+});
+
+describe("Herd epic grouping", () => {
+  const epicChild = (number: number): EpicChild => ({
+    number,
+    title: `child ${number}`,
+    url: "",
+    order: number,
+    body: "",
+    blockedBy: [],
+    state: "running",
+    sessionId: null,
+    prNumber: null,
+    issueClosed: false,
+    claimed: false,
+  });
+
+  const epic = (children: EpicChild[]): Epic => ({
+    repoPath: "/repo/a",
+    parentIssueNumber: 100,
+    parentTitle: "Big epic",
+    source: "native",
+    children,
+    warnings: [],
+    run: { repoPath: "/repo/a", parentIssueNumber: 100, mode: "auto", status: "running" },
+  });
+
+  const epics = { "/repo/a#100": epic([epicChild(11), epicChild(12)]) };
+  const activeEpicKeys = new Set(["/repo/a#100"]);
+
+  it("renders an epic group header with its children, and non-epic sessions stay in lifecycle sections", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "g1", name: "grouped one", issueNumber: 11 }),
+        session({ id: "g2", name: "grouped two", issueNumber: 12 }),
+        session({ id: "n1", name: "plain non-epic", issueNumber: 999 }),
+      ],
+      git: {},
+      epics,
+      activeEpicKeys,
+    });
+    // group header present
+    await expect.element(page.getByText("Big epic")).toBeInTheDocument();
+    // children render under the group rail
+    const rail = document.querySelector(".epic-children")!;
+    expect(rail.textContent).toContain("grouped one");
+    expect(rail.textContent).toContain("grouped two");
+    // the non-epic session renders, but NOT inside the group rail
+    await expect.element(page.getByText("plain non-epic")).toBeInTheDocument();
+    expect(rail.textContent).not.toContain("plain non-epic");
+  });
+
+  it("collapse hides children but keeps the header + cue chips; toggle fires with the group key", async () => {
+    const oncollapsetoggle = vi.fn();
+    render(Herd, {
+      ...base,
+      // an open+failed-CI child gives the group a cue chip
+      sessions: [session({ id: "g1", name: "grouped one", issueNumber: 11 })],
+      git: {
+        g1: {
+          kind: "github",
+          state: "open",
+          checks: "failure",
+          deployConfigured: false,
+        } as GitState,
+      },
+      epics,
+      activeEpicKeys,
+      collapsedKeys: new Set(["/repo/a#100"]),
+      oncollapsetoggle,
+    });
+    // header still rendered
+    await expect.element(page.getByText("Big epic")).toBeInTheDocument();
+    // cue chip (ci-failed) survives collapse
+    expect(document.querySelector(".cue-ci")).not.toBeNull();
+    // children hidden
+    expect(document.querySelector(".epic-children")).toBeNull();
+    await expect.element(page.getByText("grouped one")).not.toBeInTheDocument();
+    // toggling the header calls back with the group key
+    const toggle = document.querySelector(".epic-toggle") as HTMLButtonElement;
+    toggle.click();
+    expect(oncollapsetoggle).toHaveBeenCalledWith("/repo/a#100");
+  });
+
+  it("keeps the merge-train action when the only ready PR session is an epic child", async () => {
+    render(Herd, {
+      ...base,
+      // ready-to-merge + open PR, but it's an epic child → grouped, not in rest
+      sessions: [session({ id: "g1", name: "grouped ready", issueNumber: 11, readyToMerge: true })],
+      git: { g1: openPr },
+      epics,
+      activeEpicKeys,
+      onmergetrain: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: "Merge train" })).toBeInTheDocument();
+    // the ready head renders for the action, annotated with the grouped count
+    await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
+  });
+
+  it("keeps clear-merged when the only merged row is an epic child", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "g1", name: "grouped merged", issueNumber: 11 })],
+      git: {
+        g1: {
+          kind: "github",
+          state: "merged",
+          checks: "success",
+          deployConfigured: false,
+        } as GitState,
+      },
+      epics,
+      activeEpicKeys,
+      onclearmerged: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: "Clear all" })).toBeInTheDocument();
+    await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
+  });
+
+  it("shows a split count when ready rows are both local and grouped", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "g1", name: "grouped ready", issueNumber: 11, readyToMerge: true }),
+        session({ id: "n1", name: "loose ready", issueNumber: 999, readyToMerge: true }),
+      ],
+      git: { g1: openPr, n1: openPr },
+      epics,
+      activeEpicKeys,
+      onmergetrain: () => {},
+    });
+    // local count fragment + the grouped annotation both present
+    await expect.element(page.getByText("Ready to merge (1)")).toBeInTheDocument();
+    await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
   });
 });

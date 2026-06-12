@@ -2115,7 +2115,7 @@
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
   <div class="vp-body" data-swipe-page role="tabpanel" id={vpBodyId} aria-labelledby={tabId(tab)}>
-    <div class="scan" aria-hidden="true"></div>
+    <div class="scan" class:running={tab === "term"} aria-hidden="true"></div>
     <div
       class="term-mount"
       class:dragging
@@ -2393,24 +2393,37 @@
   /* running: a faint amber wash that slowly breathes in intensity. Lower
      chroma than the saturated blocked/done tint so it reads as ambient
      "still busy", never as an alert. Only applies when no saturated tint is
-     present. Status is carried by the background tint alone — no side stripe. */
+     present. Status is carried by the background tint alone — no side stripe.
+     The pulse is compositor-only: base background stays static; a ::after
+     overlay carries the delta (5% extra amber) and animates via opacity only,
+     avoiding per-frame background repaints. */
   .vp-head.working {
+    position: relative;
     background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
+  }
+  .vp-head.working::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--color-amber) 5%, transparent);
+    pointer-events: none;
     animation: vp-working-pulse 2.4s ease-in-out infinite;
   }
   @keyframes vp-working-pulse {
     0%,
     100% {
-      background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
+      opacity: 0;
     }
     50% {
-      background: color-mix(in srgb, var(--color-amber) 9%, var(--color-head));
+      opacity: 1;
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .vp-head.working {
-      animation: none;
       background: color-mix(in srgb, var(--color-amber) 7%, var(--color-head));
+    }
+    .vp-head.working::after {
+      display: none;
     }
   }
 
@@ -2984,7 +2997,9 @@
   }
 
   /* faint amber scan line: full-height layer with a 70px amber band at its top,
-     swept top→bottom via translateY (compositor-only) instead of animating top */
+     swept top→bottom via translateY (compositor-only) instead of animating top.
+     Animation + will-change only when the terminal tab is active — no wasted
+     compositor layer or GPU work on idle dashboard tabs. */
   .scan {
     position: absolute;
     left: 0;
@@ -3002,6 +3017,8 @@
     background-position: 0 0;
     pointer-events: none;
     z-index: 1;
+  }
+  .scan.running {
     will-change: transform;
     animation: scan 8s linear infinite;
   }

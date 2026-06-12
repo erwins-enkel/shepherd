@@ -146,100 +146,70 @@
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
 </script>
 
-<div class="panel bracket" class:flow>
-  <div class="phead">
-    <span class="micro">{m.herd_title()}</span>
-    <div class="right filters">
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "all"}
-        title={m.herd_all_title()}
-        aria-pressed={statusFilter == null && filter === "all"}
-        onclick={() => {
-          filter = "all";
-          onstatusfilter?.(null);
-        }}>{m.herd_all_hint()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "ready"}
-        title={m.herd_ready_title()}
-        aria-pressed={statusFilter == null && filter === "ready"}
-        onclick={() => {
-          filter = "ready";
-          onstatusfilter?.(null);
-        }}>{m.herd_ready_filter()}</button
-      >
-      {#if statusFilter != null}
-        <!-- aria-label carries status + clear action; the visible "✕" glyph would
-             otherwise be read aloud without conveying what the chip does -->
+<div class="herd-root" class:collapsible>
+  <div class="panel bracket" class:flow>
+    <div class="phead">
+      <span class="micro">{m.herd_title()}</span>
+      <div class="right filters">
         <button
           type="button"
-          class="micro fbtn active statchip"
-          title={m.topbar_tally_clear_title()}
-          aria-label={m.herd_status_chip_aria({ status: statusLabel })}
-          aria-pressed="true"
-          onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
+          class="micro fbtn"
+          class:active={statusFilter == null && filter === "all"}
+          title={m.herd_all_title()}
+          aria-pressed={statusFilter == null && filter === "all"}
+          onclick={() => {
+            filter = "all";
+            onstatusfilter?.(null);
+          }}>{m.herd_all_hint()}</button
         >
-      {/if}
+        <button
+          type="button"
+          class="micro fbtn"
+          class:active={statusFilter == null && filter === "ready"}
+          title={m.herd_ready_title()}
+          aria-pressed={statusFilter == null && filter === "ready"}
+          onclick={() => {
+            filter = "ready";
+            onstatusfilter?.(null);
+          }}>{m.herd_ready_filter()}</button
+        >
+        {#if statusFilter != null}
+          <!-- aria-label carries status + clear action; the visible "✕" glyph would
+             otherwise be read aloud without conveying what the chip does -->
+          <button
+            type="button"
+            class="micro fbtn active statchip"
+            title={m.topbar_tally_clear_title()}
+            aria-label={m.herd_status_chip_aria({ status: statusLabel })}
+            aria-pressed="true"
+            onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
+          >
+        {/if}
+      </div>
     </div>
-    {#if collapsible}
-      <button
-        id="herd-collapse-btn"
-        type="button"
-        class="collapse-btn"
-        title={m.herd_collapse()}
-        aria-label={m.herd_collapse()}
-        onclick={() => oncollapse?.()}>‹</button
-      >
-    {/if}
-  </div>
-  <div class="units" class:flow>
-    {#if sessions.length === 0}
-      <!-- the status filter empties the list at PAGE level (herdSessions), so an
+    <div class="units" class:flow>
+      {#if sessions.length === 0}
+        <!-- the status filter empties the list at PAGE level (herdSessions), so an
            empty status result lands HERE — it must outrank the repo note and the
            first-run EmptyHerd nudge, and name the active status so vanished
            done/parked sessions read as intentional -->
-      {#if statusFilter != null && filteredRepo}
-        <div class="empty micro static">
-          {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}
-        </div>
-      {:else if statusFilter != null}
-        <div class="empty micro static">{m.herd_status_filter_empty({ status: statusLabel })}</div>
-      {:else if filteredRepo}
-        <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
+        {#if statusFilter != null && filteredRepo}
+          <div class="empty micro static">
+            {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}
+          </div>
+        {:else if statusFilter != null}
+          <div class="empty micro static">
+            {m.herd_status_filter_empty({ status: statusLabel })}
+          </div>
+        {:else if filteredRepo}
+          <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
+        {:else}
+          <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
+        {/if}
+      {:else if shown.length === 0}
+        <div class="empty micro static">{m.herd_ready_empty()}</div>
       {:else}
-        <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
-      {/if}
-    {:else if shown.length === 0}
-      <div class="empty micro static">{m.herd_ready_empty()}</div>
-    {:else}
-      {#each partition.active as session (session.id)}
-        <UnitRow
-          {session}
-          selected={session.id === selectedId}
-          {nowMs}
-          {onselect}
-          git={git[session.id]}
-          activity={activity[session.id]}
-          previewPort={preview[session.id] ?? null}
-          previewServeFailed={previewServe[session.id] === "failed"}
-          {onpreview}
-          {ondecommission}
-          {onrelaunch}
-          {onrelaunchElsewhere}
-          {repoFilter}
-          {onrepofilter}
-          {workingBlocked}
-        />
-      {/each}
-      {#if partition.ciRunning.length > 0}
-        <div class="ci-head micro">
-          {m.herd_ci_running_group({ count: partition.ciRunning.length })}
-        </div>
-        {#each partition.ciRunning as session (session.id)}
+        {#each partition.active as session (session.id)}
           <UnitRow
             {session}
             selected={session.id === selectedId}
@@ -258,245 +228,296 @@
             {workingBlocked}
           />
         {/each}
+        {#if partition.ciRunning.length > 0}
+          <div class="ci-head micro">
+            {m.herd_ci_running_group({ count: partition.ciRunning.length })}
+          </div>
+          {#each partition.ciRunning as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.ciFailed.length > 0}
+          <div class="ci-failed-head micro">
+            {m.herd_ci_failed_group({ count: partition.ciFailed.length })}
+          </div>
+          {#each partition.ciFailed as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.reviewerRunning.length > 0}
+          <div class="reviewing-head micro">
+            {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
+          </div>
+          {#each partition.reviewerRunning as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.waitingOnReviewer.length > 0}
+          <div class="waiting-head micro">
+            {reviewerWho
+              ? m.herd_waiting_reviewer_group({
+                  who: reviewerWho,
+                  count: partition.waitingOnReviewer.length,
+                })
+              : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length })}
+          </div>
+          {#each partition.waitingOnReviewer as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.waitingOnMerger.length > 0}
+          <div class="waiting-head micro">
+            {mergerWho
+              ? m.herd_waiting_merger_group({
+                  who: mergerWho,
+                  count: partition.waitingOnMerger.length,
+                })
+              : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length })}
+          </div>
+          {#each partition.waitingOnMerger as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.draftAwaitingSignoff.length > 0}
+          <div class="draft-head micro">
+            {m.herd_draft_awaiting_signoff_group({ count: partition.draftAwaitingSignoff.length })}
+          </div>
+          {#each partition.draftAwaitingSignoff as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.awaitingMerge.length > 0}
+          <div class="awaiting-head micro">
+            {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
+          </div>
+          {#each partition.awaitingMerge as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.merging.length > 0}
+          <div class="merging-head micro">
+            {m.herd_merging_group({ count: partition.merging.length })}
+          </div>
+          {#each partition.merging as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.ready.length > 0}
+          <div class="ready-head micro">
+            {m.herd_ready_group({ count: partition.ready.length })}
+            {#if onmergetrain && readyPrCount > 0}
+              <button
+                type="button"
+                class="merge-train micro"
+                title={m.herd_merge_train_title()}
+                onclick={onmergetrain}>{m.herd_merge_train_action()}</button
+              >
+            {/if}
+          </div>
+          {#each partition.ready as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
+        {#if partition.merged.length > 0}
+          <div class="merged-head micro">
+            {m.herd_merged_group({ count: partition.merged.length })}
+            {#if onclearmerged}
+              <button
+                type="button"
+                class="clear-merged micro"
+                title={m.herd_clear_merged_title()}
+                onclick={onclearmerged}>{m.herd_clear_merged_action()}</button
+              >
+            {/if}
+          </div>
+          {#each partition.merged as session (session.id)}
+            <UnitRow
+              {session}
+              selected={session.id === selectedId}
+              {nowMs}
+              {onselect}
+              git={git[session.id]}
+              activity={activity[session.id]}
+              previewPort={preview[session.id] ?? null}
+              previewServeFailed={previewServe[session.id] === "failed"}
+              {onpreview}
+              {ondecommission}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {repoFilter}
+              {onrepofilter}
+              {workingBlocked}
+            />
+          {/each}
+        {/if}
       {/if}
-      {#if partition.ciFailed.length > 0}
-        <div class="ci-failed-head micro">
-          {m.herd_ci_failed_group({ count: partition.ciFailed.length })}
-        </div>
-        {#each partition.ciFailed as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.reviewerRunning.length > 0}
-        <div class="reviewing-head micro">
-          {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
-        </div>
-        {#each partition.reviewerRunning as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnReviewer.length > 0}
-        <div class="waiting-head micro">
-          {reviewerWho
-            ? m.herd_waiting_reviewer_group({
-                who: reviewerWho,
-                count: partition.waitingOnReviewer.length,
-              })
-            : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length })}
-        </div>
-        {#each partition.waitingOnReviewer as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnMerger.length > 0}
-        <div class="waiting-head micro">
-          {mergerWho
-            ? m.herd_waiting_merger_group({
-                who: mergerWho,
-                count: partition.waitingOnMerger.length,
-              })
-            : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length })}
-        </div>
-        {#each partition.waitingOnMerger as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.draftAwaitingSignoff.length > 0}
-        <div class="draft-head micro">
-          {m.herd_draft_awaiting_signoff_group({ count: partition.draftAwaitingSignoff.length })}
-        </div>
-        {#each partition.draftAwaitingSignoff as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.awaitingMerge.length > 0}
-        <div class="awaiting-head micro">
-          {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
-        </div>
-        {#each partition.awaitingMerge as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.merging.length > 0}
-        <div class="merging-head micro">
-          {m.herd_merging_group({ count: partition.merging.length })}
-        </div>
-        {#each partition.merging as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.ready.length > 0}
-        <div class="ready-head micro">
-          {m.herd_ready_group({ count: partition.ready.length })}
-          {#if onmergetrain && readyPrCount > 0}
-            <button
-              type="button"
-              class="merge-train micro"
-              title={m.herd_merge_train_title()}
-              onclick={onmergetrain}>{m.herd_merge_train_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.ready as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-      {#if partition.merged.length > 0}
-        <div class="merged-head micro">
-          {m.herd_merged_group({ count: partition.merged.length })}
-          {#if onclearmerged}
-            <button
-              type="button"
-              class="clear-merged micro"
-              title={m.herd_clear_merged_title()}
-              onclick={onclearmerged}>{m.herd_clear_merged_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.merged as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-          />
-        {/each}
-      {/if}
-    {/if}
+    </div>
   </div>
+  {#if collapsible}
+    <button
+      id="herd-collapse-btn"
+      type="button"
+      class="collapse-edge"
+      title={m.herd_collapse()}
+      aria-label={m.herd_collapse()}
+      onclick={() => oncollapse?.()}>‹</button
+    >
+  {/if}
 </div>
 
 <style>
+  /* display: contents keeps the non-collapsible (desktop/mobile) layout
+     byte-for-byte identical — the .panel stays the laid-out grid/flow child.
+     Only when collapsible (touch && !mobile) does it become a flex row holding
+     the panel + the right-edge collapse tab. */
+  .herd-root {
+    display: contents;
+  }
+  .herd-root.collapsible {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+  }
+  .herd-root.collapsible > .panel {
+    flex: 1;
+    min-width: 0;
+  }
+
   .panel {
     position: relative;
     border: 1px solid var(--color-line);
@@ -579,29 +600,31 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
-  /* collapse trigger — far-right of .phead, visually quiet chrome (no accent
-     hue); mirrors .fbtn style but sized to the ~44px touch guideline, matching
-     the reopen tab (both are activated on the same touch devices) */
-  .collapse-btn {
-    border: 0;
-    background: none;
-    font-family: inherit;
+  /* collapse trigger — a slim full-height tab on the panel's right edge, the
+     mirror image of the reopen tab (+page.svelte .reopen-tab); both are the same
+     44px width and appear on the same touch devices. Replaces the old in-header
+     chevron, which wrapped to its own row when the filter group's auto-margin
+     starved it of space. */
+  .collapse-edge {
+    flex: 0 0 44px;
+    box-sizing: border-box;
+    align-self: stretch;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-left: 0;
+    color: var(--color-faint);
     font-size: var(--fs-lg);
     cursor: pointer;
-    padding: 4px 8px;
-    min-width: 44px;
-    min-height: 44px;
-    color: var(--color-faint);
-    transition: color 0.12s ease;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: 4px;
+    padding: 0;
+    transition: color 0.12s ease;
   }
-  .collapse-btn:hover {
+  .collapse-edge:hover {
     color: var(--color-ink);
   }
-  .collapse-btn:focus-visible {
+  .collapse-edge:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }

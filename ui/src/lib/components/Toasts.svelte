@@ -38,6 +38,9 @@
           >
             ✕
           </button>
+          {#if t.durationMs !== undefined}
+            <span class="countdown" class:paused={t.held} aria-hidden="true"></span>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -115,6 +118,23 @@
     background: var(--color-amber);
     transform-origin: left;
     animation: toast-deplete var(--ms, 5000ms) linear forwards;
+  }
+  /* Neutral depleting countdown bar for timed INFO toasts, along the bottom edge.
+     Distinct from the amber undo bar — amber stays reserved for the commit
+     deadline. Freezes (paused) while hover/focus pauses the auto-dismiss timer,
+     so it never drains to empty while the toast lingers under the pointer. */
+  .countdown {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    background: var(--color-muted);
+    transform-origin: left;
+    animation: toast-deplete var(--ms, 4000ms) linear forwards;
+  }
+  .countdown.paused {
+    animation-play-state: paused;
   }
   .x {
     margin-left: auto;
@@ -203,6 +223,14 @@
       background: var(--color-amber);
       transform-origin: left;
       animation: toast-deplete var(--ms, 5000ms) linear forwards;
+    }
+    /* Info countdown moves to the TOP edge on mobile (same rationale as the undo
+       drain bar: the bottom edge carries the home-bar safe area). Stays neutral
+       muted — distinct from the amber undo strip. */
+    .countdown {
+      top: 0;
+      bottom: auto;
+      height: 3px;
     }
   }
 </style>

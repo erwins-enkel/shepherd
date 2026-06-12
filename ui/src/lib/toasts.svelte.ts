@@ -16,8 +16,13 @@ interface Toast {
   text: string;
   /** UNDO button label (undo toasts only). */
   undoLabel?: string;
-  /** Window length, fed to the depleting-bar animation (undo toasts only). */
+  /** Window length, fed to the depleting-bar animation. Set for any timed toast
+   *  (undo, and info with a finite duration) — drives the depleting countdown
+   *  bar. Unset (undefined) for persistent info toasts, which draw no bar. */
   durationMs?: number;
+  /** True while hover/focus has paused an info toast's auto-dismiss; drives the
+   *  bar's animation-play-state so it freezes instead of draining. (Info only.) */
+  held?: boolean;
   /** Dedupe key; on undo toasts it also lets the UI find the deferred target. */
   key?: string;
   /** Optional inline action on an info toast (e.g. Retry); runs via act(). */
@@ -81,6 +86,9 @@ class ToastStore {
    *  pass `duration: null` for a persistent toast that stays until retried or
    *  closed. `alert: true` announces it assertively (role="alert"). */
   info(text: string, opts: InfoOpts = {}): number {
+    // Finite duration drives the depleting countdown bar (--ms); persistent
+    // (`null`) toasts leave it undefined so no bar is drawn.
+    const durationMs = opts.duration === null ? undefined : (opts.duration ?? 4000);
     // Keyed dedupe: a repeated info with the same key refreshes the existing
     // toast (text / action / announcement / timer) instead of stacking another,
     // so e.g. repeated steer failures to one agent collapse to a single toast.
@@ -90,7 +98,9 @@ class ToastStore {
       if (opts.action) this.#actions.set(prev, opts.action.run);
       else this.#actions.delete(prev);
       this.items = this.items.map((t) =>
-        t.id === prev ? { ...t, text, actionLabel: opts.action?.label, alert: opts.alert } : t,
+        t.id === prev
+          ? { ...t, text, actionLabel: opts.action?.label, alert: opts.alert, durationMs }
+          : t,
       );
       this.#armInfo(prev, opts.duration);
       return prev;
@@ -98,7 +108,15 @@ class ToastStore {
     const id = ++this.#seq;
     this.items = [
       ...this.items,
-      { id, tone: "info", text, actionLabel: opts.action?.label, alert: opts.alert, key: opts.key },
+      {
+        id,
+        tone: "info",
+        text,
+        actionLabel: opts.action?.label,
+        alert: opts.alert,
+        key: opts.key,
+        durationMs,
+      },
     ];
     if (opts.action) this.#actions.set(id, opts.action.run);
     if (opts.key !== undefined) this.#keyed.set(this.#kk("info", opts.key), id);
@@ -133,6 +151,8 @@ class ToastStore {
     const count = (this.#holds.get(id) ?? 0) + 1;
     this.#holds.set(id, count);
     if (count !== 1) return; // already paused by another holder
+    // First holder: freeze the countdown bar (harmless on persistent toasts).
+    this.items = this.items.map((t) => (t.id === id ? { ...t, held: true } : t));
     const armed = this.#armed.get(id);
     if (!armed) return; // persistent: nothing to pause
     this.#clearTimer(id);
@@ -149,6 +169,8 @@ class ToastStore {
       return;
     }
     this.#holds.delete(id);
+    // Last holder left: resume the countdown bar.
+    this.items = this.items.map((t) => (t.id === id ? { ...t, held: false } : t));
     const armed = this.#armed.get(id);
     if (!armed) return; // persistent — stays until closed
     armed.at = Date.now();

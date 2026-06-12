@@ -113,6 +113,41 @@ test("hold() no-ops on undo toasts: the commit deadline stands", async () => {
   expect(toasts.items.some((t) => t.id === id)).toBe(false);
 });
 
+test("a finite-duration info toast carries durationMs (drives the bar)", () => {
+  const id = toasts.info("saved", { duration: 4000 });
+  expect(toasts.items.find((t) => t.id === id)?.durationMs).toBe(4000);
+});
+
+test("a default-duration info toast carries durationMs", () => {
+  const id = toasts.info("saved");
+  expect(toasts.items.find((t) => t.id === id)?.durationMs).toBe(4000);
+});
+
+test("a persistent info toast has no durationMs (no bar)", () => {
+  const id = toasts.info("failed", { duration: null });
+  expect(toasts.items.find((t) => t.id === id)?.durationMs).toBeUndefined();
+});
+
+test("hold()/release() toggle the item's held flag; ref-counted", () => {
+  const id = toasts.info("saved", { duration: 4000 });
+  const get = () => toasts.items.find((t) => t.id === id);
+  expect(get()?.held).toBeFalsy();
+
+  toasts.hold(id);
+  expect(get()?.held).toBe(true);
+  toasts.release(id);
+  expect(get()?.held).toBe(false);
+
+  // ref-counting: two holds, one release stays held; second release clears it
+  toasts.hold(id);
+  toasts.hold(id);
+  expect(get()?.held).toBe(true);
+  toasts.release(id);
+  expect(get()?.held).toBe(true);
+  toasts.release(id);
+  expect(get()?.held).toBe(false);
+});
+
 test("keyed refresh while held doesn't re-arm under the pointer", async () => {
   const id = toasts.info("failed", { key: "k1", duration: 4000 });
   toasts.hold(id);

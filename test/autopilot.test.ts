@@ -1,8 +1,16 @@
 import { test, expect, mock } from "bun:test";
-import { AutopilotService, PROCEED_STEER, OPEN_PR_STEER, openPrSteer } from "../src/autopilot";
+import {
+  AutopilotService,
+  PROCEED_STEER,
+  OPEN_PR_STEER,
+  openPrSteer,
+  CI_FIX_STEER,
+  CI_CAP_MESSAGE,
+} from "../src/autopilot";
 import { DRAFT_PR_NOTE } from "../src/service";
 import type { AutopilotVerdict, Session } from "../src/types";
 import type { BlockReason } from "../src/blocked";
+import type { GitState } from "../src/forge/types";
 
 function sess(over: Partial<Session> = {}): Session {
   return {
@@ -59,13 +67,17 @@ function harness(opts: {
   resumeOk?: boolean;
   steerOk?: boolean;
   fullAuto?: boolean;
+  /** Cached PR snapshot returned by the prGit dep (the tick / reEngageCi source). */
+  prGit?: GitState | null;
 }) {
   let cur = opts.session;
   const events: any[] = [];
   const setAutoMergeStateCalls: any[] = [];
+  let classifyCalls = 0;
   const svc = new AutopilotService({
     store: {
       get: () => cur,
+      list: () => [cur],
       getRepoConfig: () =>
         ({
           criticEnabled: true,
@@ -106,7 +118,10 @@ function harness(opts: {
         };
       },
     } as any,
-    classify: async () => opts.verdict ?? { kind: "unknown", summary: "" },
+    classify: async () => {
+      classifyCalls++;
+      return opts.verdict ?? { kind: "unknown", summary: "" };
+    },
     steer: (_id, text) => {
       events.push({ steer: text });
       return opts.steerOk ?? true;
@@ -118,6 +133,7 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
     hasPr: () => opts.openPr ?? false,
+    prGit: () => opts.prGit ?? null,
     fullAuto: () => opts.fullAuto ?? false,
     refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
@@ -125,7 +141,13 @@ function harness(opts: {
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
   });
-  return { svc, events, state: () => cur, mergeStateCalls: setAutoMergeStateCalls };
+  return {
+    svc,
+    events,
+    state: () => cur,
+    mergeStateCalls: setAutoMergeStateCalls,
+    classifyCount: () => classifyCalls,
+  };
 }
 
 test("gate verdict → proceed steer + step++", async () => {
@@ -462,6 +484,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     paneAlive: () => true,
     readTail: () => [],
     hasPr: () => false,
+    prGit: () => null,
     fullAuto: () => false,
     onPause: () => {},
     stepCap: 10,
@@ -479,9 +502,6 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
 // on green CI (review.ts) and pre-PR autopilot has stood down (hasPr). A PR sitting on
 // red CI is steered by nobody. onGit closes that gap: open + checks "failure" → drive
 // the task agent to fix the failing checks (dedup per head, step-capped).
-import { CI_FIX_STEER } from "../src/autopilot";
-import type { GitState } from "../src/forge/types";
-
 function git(over: Partial<GitState> = {}): GitState {
   return {
     kind: "github",
@@ -494,25 +514,30 @@ function git(over: Partial<GitState> = {}): GitState {
   };
 }
 
-test("open PR + failing CI → CI-fix steer + step++", () => {
+test("open PR + failing CI → CI-fix steer + step++", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git());
+  await Promise.resolve(); // driveSteer bumps one microtask after the sync onGit returns
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
-test("same failing head is nudged only once", () => {
+test("same failing head is nudged only once", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await Promise.resolve();
   h.svc.onGit("s1", git({ headSha: "sha1" })); // next poll, same red head
+  await Promise.resolve();
   expect(h.events.filter((e) => "steer" in e).length).toBe(1);
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
-test("a new failing head (agent pushed a fix that still fails) re-steers", () => {
+test("a new failing head (agent pushed a fix that still fails) re-steers", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await Promise.resolve();
   h.svc.onGit("s1", git({ headSha: "sha2" }));
+  await Promise.resolve();
   expect(h.events.filter((e) => "steer" in e).length).toBe(2);
   expect(h.state().autopilotStepCount).toBe(2);
 });
@@ -551,14 +576,19 @@ test("CI-fix recovery resumes a dead pane before steering", async () => {
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });
 
-test("step cap stops CI-fix thrash and pauses to the operator", () => {
+test("step cap stops CI-fix thrash and pauses to the operator", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   // The session starts at step 0; each distinct red head burns one step (the red CI skips the
   // onPrOpen handoff, so there's no budget reset). With stepCap 10, the 11th distinct failing
-  // head surfaces (pauses) instead of steering.
-  for (let i = 0; i <= 10; i++) h.svc.onGit("s1", git({ headSha: "sha" + i }));
+  // head surfaces (pauses) instead of steering. Flush after each poll so the (async) bump from
+  // poll N is visible to the cap check at poll N+1 — the production polls are seconds apart.
+  for (let i = 0; i <= 10; i++) {
+    h.svc.onGit("s1", git({ headSha: "sha" + i }));
+    await Promise.resolve();
+  }
   expect(h.events.filter((e) => "steer" in e).length).toBe(10);
   expect(h.state().autopilotPaused).toBe(true);
+  expect(h.events).toContainEqual({ pause: "s1", q: CI_CAP_MESSAGE });
 });
 
 test("a green PR-open hands off to the critic (clears a stale pause + resets budget)", () => {
@@ -580,10 +610,11 @@ test("a deliberate pause survives a PR-open handoff (in-memory openSeen lost on 
   expect(h.state().autopilotStepCount).toBe(7);
 });
 
-test("handoff reset fires once per PR-open, not every poll (preserves CI-fix budget)", () => {
+test("handoff reset fires once per PR-open, not every poll (preserves CI-fix budget)", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ checks: "success", headSha: "sha1" })); // open transition → reset
   h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // red → step 1
+  await Promise.resolve(); // let the (async) bump land before the next same-head poll
   h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // same red head, no reset, no re-steer
   expect(h.state().autopilotStepCount).toBe(1);
 });
@@ -612,4 +643,160 @@ test("eligible() returns null while planPhase === 'planning' (autopilot suppress
   await h.svc.onDone("s1");
   expect(classified).toBe(false); // never classified
   expect(h.events.some((e) => "steer" in e)).toBe(false); // never steered
+});
+
+// ───────────────── tick() idle re-engagement (the silent-hang fix) ─────────────────
+// onGit/considerCi fires only on a red-CI STATE CHANGE; the PR poller emits no `session:git`
+// for an UNCHANGED red head, so an idle full-auto agent sitting on the same red PR is reached
+// by NOBODY there. The recurring tick() owns that case — it reads the cached PR (prGit) directly,
+// re-engages each idle poll, and ultimately caps + hands back.
+
+/** A stuck-red full-auto idle session: autopilot on, full-auto, cached open+red PR. */
+function stuckRed(over: Partial<Session> = {}) {
+  return harness({
+    session: sess({ status: "done", ...over }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(), // open + failure
+  });
+}
+
+test("real-trigger regression: repeated tick() re-engages an idle red PR, then caps + notifies", () => {
+  const h = stuckRed();
+  // Each tick re-engages (step++ + CI-fix steer) — NO onGit needed (the gitStateChanged gate
+  // never re-emits for the unchanged red head). Drive ticks until the step budget (cap 10) trips.
+  for (let i = 0; i < 10; i++) h.svc.tick();
+  expect(h.events.filter((e) => "steer" in e && e.steer === CI_FIX_STEER).length).toBe(10);
+  expect(h.state().autopilotStepCount).toBe(10);
+  expect(h.state().autopilotPaused).toBe(false);
+  // The 11th tick is at the cap → pause + push (onPause), no further steer.
+  h.svc.tick();
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.events).toContainEqual({ pause: "s1", q: CI_CAP_MESSAGE });
+  expect(h.events.filter((e) => "steer" in e).length).toBe(10); // no steer on the cap tick
+});
+
+test("idle gate: tick() does not steer a running session", () => {
+  const h = stuckRed({ status: "running" });
+  h.svc.tick();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("idle gate: tick() does not steer a blocked session", () => {
+  const h = stuckRed({ status: "blocked" });
+  h.svc.tick();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("onDone guard: stuck-red full-auto re-engages and does NOT classify", async () => {
+  const h = stuckRed();
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0); // never reached the LLM classifier
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("guaranteed hand-back on a dead pane: failed resume still bumps toward the cap", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    paneAlive: false,
+    resumeOk: false, // resume fails → steer never lands
+  });
+  // The bump happens BEFORE the (failing) steer, so each tick counts toward the cap regardless.
+  for (let i = 0; i < 10; i++) h.svc.tick();
+  await Promise.resolve(); // flush the fire-and-forget sendSteer microtasks
+  expect(h.state().autopilotStepCount).toBe(10);
+  expect(h.events.some((e) => "steer" in e)).toBe(false); // resume failed → nothing steered
+  h.svc.tick(); // at cap → pause
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.events).toContainEqual({ pause: "s1", q: CI_CAP_MESSAGE });
+});
+
+test("negative: tick() ignores a session with no PR (prGit null)", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: null,
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a green PR", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git({ checks: "success" }),
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a pending PR", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git({ checks: "pending" }),
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a closed PR even when red", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git({ state: "closed" }),
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a paused session", () => {
+  const h = stuckRed({ autopilotPaused: true });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a complete session", () => {
+  const h = stuckRed({ autopilotComplete: true });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores an autopilot-disabled session", () => {
+  const h = harness({
+    session: sess({ status: "done", autopilotEnabled: false }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores a non-full-auto session (post-PR CI loop is full-auto only)", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: false,
+    prGit: git(),
+  });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
+});
+
+test("negative: tick() ignores an archived session", () => {
+  const h = stuckRed({ status: "archived" });
+  h.svc.tick();
+  expect(h.events.length).toBe(0);
 });

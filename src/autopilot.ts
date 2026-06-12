@@ -39,7 +39,10 @@ export const CI_FIX_STEER = [
 const STEERABLE_SHAPES = new Set(["awaiting-input", "yes-no"]);
 
 export interface AutopilotDeps {
-  store: Pick<SessionStore, "get" | "getRepoConfig" | "setAutopilotState" | "setAutoMergeState">;
+  store: Pick<
+    SessionStore,
+    "get" | "list" | "getRepoConfig" | "setAutopilotState" | "setAutoMergeState"
+  >;
   /** Classify why an agent stopped (src/autopilot-llm.classifyStop, pre-bound to herdr+model). */
   classify: (tail: string[], taskPrompt: string, label: string) => Promise<AutopilotVerdict>;
   /** Steer text into the session's live PTY (SessionService.reply). false = didn't land. */
@@ -54,6 +57,11 @@ export interface AutopilotDeps {
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
+  /** The cached PR snapshot for a session (the PR poller's last poll), or null when there is
+   *  none. The recurring tick reads this directly — NOT off a `session:git` emit — so it can
+   *  re-engage an idle agent stuck on an UNCHANGED open+red head, the case the event-driven
+   *  `onGit`/`considerCi` path structurally cannot reach (the poller only emits on a state change). */
+  prGit: (id: string) => GitState | null;
   /** Whether this session is in full-auto (autopilot ∧ auto-merge). When true, autopilot does
    *  NOT stand down at PR-open — it keeps unblocking procedural gates so a rebase can finish. */
   fullAuto: (id: string) => boolean;
@@ -71,8 +79,12 @@ export interface AutopilotDeps {
 }
 
 const DEFAULT_STEP_CAP = 10;
-/** Shown when the runaway guard trips rather than a classifier question. */
+/** Shown when the pre-PR runaway guard trips rather than a classifier question. */
 const CAP_MESSAGE = "Autopilot reached its step limit without opening a PR — over to you.";
+/** Hand-back when the post-PR CI-fix loop exhausts its step budget. Distinct from CAP_MESSAGE:
+ *  on the CI path a PR is already open, so "without opening a PR" would be wrong. */
+export const CI_CAP_MESSAGE =
+  "Autopilot couldn't get CI green after repeated attempts — over to you.";
 /** Generic hand-back text when a question/unknown verdict carries no summary of its own. */
 const SURFACE_MESSAGE = "Autopilot paused for your input.";
 /** Non-alarming hand-back text when a `complete` verdict carries no summary of its own. */
@@ -85,8 +97,10 @@ export class AutopilotService {
   // Post-PR CI-red recovery state (onGit). `openSeen` fires the critic handoff (pause-clear +
   // budget reset) exactly once per PR-open, so the 120s git poll doesn't keep zeroing the
   // step budget the CI-fix loop is spending. `ciNudged` maps a session to the head SHA we last
-  // steered for a red CI, so a still-failing head isn't re-nudged every poll — only a fresh
-  // push (new head) that still fails earns another steer.
+  // steered for a red CI: onGit/considerCi handles only red-CI STATE CHANGES (none→red, and a
+  // new-but-still-red head after a push), so a still-failing UNCHANGED head isn't re-nudged on
+  // every poll. Sustained idle re-engagement on that unchanged red head — which onGit cannot
+  // deliver (the poller emits no `session:git` without a state change) — is owned by tick().
   private openSeen = new Set<string>();
   private ciNudged = new Map<string, string>();
   private stepCap: number;
@@ -141,15 +155,21 @@ export class AutopilotService {
     this.deps.store.setAutopilotState(s.id, { stepCount: s.autopilotStepCount + 1 });
   }
 
-  /** Steer `text` into the session, resuming an exited pane first. Bumps the step on a
-   *  landed steer. Returns nothing — best-effort; a dead/unreachable pane just doesn't count. */
-  private async driveSteer(s: Session, text: string): Promise<void> {
+  /** Send `text` into the session, resuming an exited pane first. Returns whether the steer
+   *  landed; does NOT bump the step (the caller decides whether the attempt counts). */
+  private async sendSteer(s: Session, text: string): Promise<boolean> {
     if (!this.deps.paneAlive(s.id)) {
       // Exited pane: resume so there's something to steer. resume() resolves falsy when it
       // can't (archived / no pinned session id) — then there's nothing to do.
-      if (!(await this.deps.resume(s.id))) return;
+      if (!(await this.deps.resume(s.id))) return false;
     }
-    if (this.deps.steer(s.id, text)) this.bump(s);
+    return this.deps.steer(s.id, text);
+  }
+
+  /** Steer `text` into the session and bump the step on a landed steer. Best-effort —
+   *  a dead/unreachable pane just doesn't count. */
+  private async driveSteer(s: Session, text: string): Promise<void> {
+    if (await this.sendSteer(s, text)) this.bump(s);
   }
 
   private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
@@ -205,6 +225,11 @@ export class AutopilotService {
     // (multi-second) classify spawn, so the post-classify eligible()/hasPr re-check in
     // consider() sees the fresh PR and stands down instead of redundantly steering "open a PR".
     this.deps.refreshPr?.(id);
+    // Stuck-red full-auto: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
+    // classifier could otherwise mark this idle red session complete/finished (silencing it AND
+    // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
+    // waiting for the next tick. reEngageCi returns true when it owned the session (steered/paused).
+    if (this.reEngageCi(id)) return;
     let tail: string[] = [];
     try {
       tail = this.deps.readTail(id);
@@ -279,17 +304,20 @@ export class AutopilotService {
     if (git.checks === "failure") this.considerCi(s, git);
   }
 
-  /** Open PR + red CI → steer the task agent to fix it. Synchronous (no classify needed: a red
-   *  rollup is already an actionable verdict). The caller (onGit) has already checked
-   *  existence / archive / enablement; here we gate on pause + per-head dedup and bound it by
-   *  the same step cap as the gate loop. */
+  /** Open PR + red CI → steer the task agent to fix it. The responsive FIRST-RESPONSE to a
+   *  red-CI STATE CHANGE only (none→red, or a new-but-still-red head after a push): it's reachable
+   *  solely via onGit, which the poller fires only on a state change, so it cannot re-fire on an
+   *  unchanged red head — sustained idle re-engagement on that is owned by tick(). Synchronous (no
+   *  classify needed: a red rollup is already an actionable verdict). The caller (onGit) has already
+   *  checked existence / archive / enablement; here we gate on pause + per-head dedup and bound it
+   *  by the same step cap as the gate loop. */
   private considerCi(s: Session, git: GitState): void {
     if (s.autopilotPaused) return; // already handed back; waits for operator
     if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
     if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
     if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
     if (s.autopilotStepCount >= this.stepCap) {
-      this.pause(s, CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
+      this.pause(s, CI_CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
       return;
     }
     this.ciNudged.set(s.id, git.headSha);
@@ -299,5 +327,54 @@ export class AutopilotService {
     void this.driveSteer(s, CI_FIX_STEER).catch((err) =>
       console.warn("[autopilot] ci-fix steer:", err),
     );
+  }
+
+  /** Re-engage an idle full-auto session stuck on an open+red PR, or hand it back at the cap.
+   *  This is the event-INDEPENDENT recovery: it reads the cached PR snapshot directly (prGit),
+   *  so it works even when no `session:git` re-emits (unchanged red head). Returns true when it
+   *  OWNED the session (re-engaged or paused), so onDone can short-circuit before classifying.
+   *  Returns false for any ineligible session (no PR / green / pending / paused / complete /
+   *  autopilot-off / non-full-auto), leaving it untouched. */
+  private reEngageCi(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived") return false;
+    if (!this.enabled(s)) return false;
+    if (s.autopilotPaused) return false; // already handed back; waits for operator
+    if (s.autopilotComplete) return false; // terminal
+    if (!this.deps.fullAuto(id)) return false; // only full-auto owns the post-PR CI loop
+    const git = this.deps.prGit(id);
+    if (!git || git.state !== "open" || git.checks !== "failure") return false;
+    // Cap check BEFORE any bump/steer: at the budget, hand back instead of thrashing CI.
+    if (s.autopilotStepCount >= this.stepCap) {
+      this.pause(s, CI_CAP_MESSAGE);
+      return true;
+    }
+    // Count the attempt toward the cap regardless of whether the steer lands, so a
+    // dead/unresumable pane still marches to the cap → guaranteed clean hand-back.
+    // The only "agent is working" guard is the caller's status filter (tick's running/blocked
+    // skip). A steer takes a moment to flip the agent to "running", so a tick (or an onDone
+    // racing a just-fired considerCi steer) inside that gap can re-bump the same idle head: the
+    // step budget can burn slightly faster than one attempt per idle episode. That's harmless
+    // (the steer coalesces at the PTY) and bounded by the cap — it only ever hastens the clean
+    // hand-back, never a silent hang.
+    this.bump(s);
+    void this.sendSteer(s, CI_FIX_STEER).catch((err) =>
+      console.warn("[autopilot] ci re-engage steer:", err),
+    );
+    return true;
+  }
+
+  /** Recurring re-engagement sweep (driven by a ~30s setInterval in index.ts). Iterates all
+   *  sessions and re-engages the idle ones stuck on a red PR. A timer fires regardless of events,
+   *  so it is the one trigger that reliably re-fires while an agent idles on an UNCHANGED red head
+   *  — the case onGit/considerCi provably cannot reach. Only the idle filter lives here (status
+   *  done/idle, i.e. NOT running/blocked — mirrors the active grouping at poller.ts:314); all
+   *  eligibility/red/full-auto checks live inside reEngageCi. */
+  async tick(): Promise<void> {
+    for (const s of this.deps.store.list()) {
+      if (s.status === "archived") continue;
+      if (s.status === "running" || s.status === "blocked") continue; // working — don't interrupt
+      this.reEngageCi(s.id);
+    }
   }
 }

@@ -504,6 +504,7 @@ const autopilot = new AutopilotService({
     const st = prPoller.snapshot()[id]?.state;
     return st !== undefined && st !== "none";
   },
+  prGit: (id) => prPoller.snapshot()[id] ?? null,
   fullAuto: (id) => {
     const s = store.get(id);
     return !!s && isFullAuto(s, store.getRepoConfig(s.repoPath));
@@ -642,6 +643,13 @@ events.subscribe((event, data) => {
 setInterval(() => {
   if (maintenance.active) return;
   void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
+}, 30_000);
+// Re-engage idle full-auto sessions stuck on an open+red PR. A timer is the one trigger that
+// re-fires on an UNCHANGED red head (the PR poller emits no `session:git` without a state change),
+// so this owns the sustained re-engagement that onGit/considerCi structurally cannot deliver.
+setInterval(() => {
+  if (maintenance.active) return;
+  void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
 }, 30_000);
 
 const draftReconcile = new DraftReconcileService({

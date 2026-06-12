@@ -434,6 +434,7 @@
         id="nt-prompt"
         bind:this={promptInput}
         bind:value={prompt}
+        data-1p-ignore
         rows="3"
         placeholder={m.newtask_prompt_placeholder()}
         oninput={onPromptInput}

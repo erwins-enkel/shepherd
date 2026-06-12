@@ -181,6 +181,7 @@
       autocomplete="off"
       autocapitalize="off"
       spellcheck={false}
+      data-1p-ignore
     ></textarea>
 
     <!-- GitHub checkbox -->

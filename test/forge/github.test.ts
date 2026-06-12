@@ -833,6 +833,35 @@ test("GithubForge.ensureIssueLink: null body (gh serializes body-less PR as lite
   expect(editCall[bodyIdx + 1]).toBe("Closes #3");
 });
 
+test("GithubForge.prStatus: mergeStateStatus mapped from uppercase GitHub enum values", async () => {
+  const mkSt = async (raw: string) => {
+    const prJson = JSON.stringify([
+      { number: 1, url: "u", title: "t", state: "OPEN", mergeStateStatus: raw },
+    ]);
+    return new GithubForge("o/r", {}, fakeRunner({ "pr list": prJson }).run).prStatus("feature");
+  };
+  expect((await mkSt("DIRTY")).mergeStateStatus).toBe("dirty");
+  expect((await mkSt("BLOCKED")).mergeStateStatus).toBe("blocked");
+  expect((await mkSt("UNSTABLE")).mergeStateStatus).toBe("unstable");
+  expect((await mkSt("CLEAN")).mergeStateStatus).toBe("clean");
+});
+
+test("GithubForge.prStatus: mergeStateStatus undefined when field absent", async () => {
+  const prJson = JSON.stringify([{ number: 1, url: "u", title: "t", state: "OPEN" }]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const st = await new GithubForge("o/r", {}, run).prStatus("feature");
+  expect(st.mergeStateStatus).toBeUndefined();
+});
+
+test("GithubForge.prStatus: mergeStateStatus undefined for unrecognised/future value", async () => {
+  const prJson = JSON.stringify([
+    { number: 1, url: "u", title: "t", state: "OPEN", mergeStateStatus: "SOME_FUTURE_VALUE" },
+  ]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const st = await new GithubForge("o/r", {}, run).prStatus("feature");
+  expect(st.mergeStateStatus).toBeUndefined();
+});
+
 test("GithubForge: a rejecting runner propagates as a rejected promise (fail-closed)", async () => {
   const run = async (): Promise<string> => {
     throw new Error("gh: network error");

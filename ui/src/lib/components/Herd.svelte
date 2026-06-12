@@ -146,7 +146,7 @@
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
 </script>
 
-<div class="herd-root" class:collapsible class:flow>
+<div class="herd-root" class:collapsible>
   <div class="panel bracket" class:flow>
     <div class="phead">
       <span class="micro">{m.herd_title()}</span>

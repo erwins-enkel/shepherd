@@ -15,6 +15,18 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { reviews } = await import("$lib/reviews.svelte");
+const { epicSummaries } = await import("$lib/epic-summaries.svelte");
+
+import { SvelteMap } from "svelte/reactivity";
+import type { EpicSummary } from "$lib/types";
+
+// Seed the global epicSummaries cache for `repoPath` directly (bypassing the throttled
+// fetch) so a row whose issue matches renders the badge.
+function seedEpic(repoPath: string, summary: EpicSummary) {
+  const map = new SvelteMap<number, EpicSummary>();
+  map.set(summary.parentIssueNumber, summary);
+  epicSummaries.byRepo = { ...epicSummaries.byRepo, [repoPath]: map };
+}
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -72,6 +84,7 @@ const baseVerdict: ReviewVerdict = {
 beforeEach(() => {
   reviews.reviewing = {};
   reviews.map = {};
+  epicSummaries.byRepo = {};
 });
 
 describe("UnitRow merging badge", () => {
@@ -320,5 +333,68 @@ describe("UnitRow badge mutual-exclusion (reviewing vs autopilot/status)", () =>
     await expect.element(page.getByText(m.session_autopilot_paused_label())).toBeInTheDocument();
     await expect.element(page.getByText(m.criticbadge_commented())).toBeInTheDocument();
     await expect.element(page.getByText(m.status_done())).not.toBeInTheDocument();
+  });
+});
+
+describe("UnitRow epic badge", () => {
+  const summary: EpicSummary = {
+    parentIssueNumber: 327,
+    parentTitle: "Make epics discoverable",
+    total: 4,
+    merged: 1,
+    status: "running",
+  };
+
+  it("renders the EPIC m/n badge when the seeding issue has a matching summary", async () => {
+    seedEpic("/repo/a", summary);
+    render(UnitRow, {
+      session: session({ id: "e1", repoPath: "/repo/a", issueNumber: 327 }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText(m.epic_badge({ merged: 1, total: 4 }))).toBeInTheDocument();
+  });
+
+  it("omits the badge when the session has no issueNumber", async () => {
+    seedEpic("/repo/a", summary);
+    const { container } = render(UnitRow, {
+      session: session({ id: "e2", repoPath: "/repo/a", issueNumber: null }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    expect(container.querySelector(".epic-badge")).toBeNull();
+  });
+
+  it("omits the badge when no summary matches the seeding issue", async () => {
+    seedEpic("/repo/a", summary);
+    const { container } = render(UnitRow, {
+      // issue 999 has no entry in the seeded repo → not an epic → no badge
+      session: session({ id: "e3", repoPath: "/repo/a", issueNumber: 999 }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    expect(container.querySelector(".epic-badge")).toBeNull();
+  });
+
+  it("clicking the badge calls onepic and does not select the row", async () => {
+    seedEpic("/repo/a", summary);
+    let opened: [string, number] | null = null;
+    let selects = 0;
+    const { container } = render(UnitRow, {
+      session: session({ id: "e4", repoPath: "/repo/a", issueNumber: 327 }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      onepic: (repoPath: string, issueNumber: number) => (opened = [repoPath, issueNumber]),
+    });
+    const badge = container.querySelector<HTMLButtonElement>(".epic-badge");
+    expect(badge).not.toBeNull();
+    badge!.click();
+    expect(opened).toEqual(["/repo/a", 327]);
+    // EpicBadge stops propagation, so the row's own select never fires
+    expect(selects).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, GitState, SessionActivity } from "$lib/types";
+  import type { Session, GitState, SessionActivity, Epic } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
@@ -18,6 +18,8 @@
     preview = {},
     previewServe = {},
     onpreview = undefined,
+    epics = {},
+    onepic = undefined,
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
@@ -49,6 +51,11 @@
     previewServe?: Record<string, "ok" | "failed">;
     // a row's Preview badge was clicked → select the session + open its Viewport preview pane
     onpreview?: (id: string) => void;
+    // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — threaded
+    // into each row so an epic-seeded session can badge with WS-live counts
+    epics?: Record<string, Epic>;
+    // a row's Epic badge was clicked → open the backlog
+    onepic?: (repoPath: string, issueNumber: number) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
@@ -226,6 +233,8 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            {epics}
+            {onepic}
           />
         {/each}
         {#if partition.ciRunning.length > 0}
@@ -249,6 +258,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -273,6 +284,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -297,6 +310,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -323,6 +338,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -349,6 +366,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -370,6 +389,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -394,6 +415,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -418,6 +441,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -450,6 +475,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}
@@ -482,6 +509,8 @@
               {repoFilter}
               {onrepofilter}
               {workingBlocked}
+              {epics}
+              {onepic}
             />
           {/each}
         {/if}

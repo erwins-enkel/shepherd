@@ -243,6 +243,8 @@ export type SandboxProfile = "trusted" | "standard" | "autonomous";
 
 export interface RepoConfig {
   criticEnabled: boolean;
+  /** Standalone repo-level PR critic: review EVERY open CI-green PR, not just session PRs (default off). */
+  criticAllPrs: boolean;
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
   autopilotEnabled: boolean;

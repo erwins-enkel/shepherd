@@ -14,6 +14,7 @@ import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api
 /** Build a minimal RepoConfig with all required fields; override as needed. */
 const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   criticEnabled: true,
+  criticAllPrs: false,
   autoAddressEnabled: false,
   learningsEnabled: true,
   autopilotEnabled: false,
@@ -57,6 +58,7 @@ beforeEach(() => {
   repoConfig.buildQueue = {};
   repoConfig.planGate = {};
   repoConfig.draftMode = {};
+  repoConfig.allPrs = {};
   repoConfig.signoffAuthority = {};
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
@@ -176,6 +178,25 @@ test("repoConfig.ensure fetches and caches", async () => {
   // second call should NOT fetch again
   await repoConfig.ensure("/repo");
   expect(getRepoConfig).toHaveBeenCalledTimes(1);
+});
+
+test("repoConfig.isAllPrsEnabled defaults to false for unknown repo", () => {
+  expect(repoConfig.isAllPrsEnabled("/unknown")).toBe(false);
+});
+
+test("repoConfig.toggleAllPrs flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ criticAllPrs: true }));
+  repoConfig.allPrs = { "/repo": false };
+  await repoConfig.toggleAllPrs("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { criticAllPrs: true });
+  expect(repoConfig.isAllPrsEnabled("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAllPrs reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.allPrs = { "/repo": true };
+  await repoConfig.toggleAllPrs("/repo");
+  expect(repoConfig.isAllPrsEnabled("/repo")).toBe(true); // reverted to prev
 });
 
 test("repoConfig.isAutoAddressEnabled defaults to false for unknown repo", () => {

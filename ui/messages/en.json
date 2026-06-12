@@ -1102,5 +1102,8 @@
   "epic_group_cue_blocked": "{count} need you",
   "herd_in_epics_above": "{count} in epics above",
   "feat_epic_grouping_title": "Epics group your sessions",
-  "feat_epic_grouping_body": "Sessions spawned from an epic's sub-issues now gather under a collapsible EPIC headline at the top of the list, showing live progress, attention cues, and a shortcut to the epic in the backlog."
+  "feat_epic_grouping_body": "Sessions spawned from an epic's sub-issues now gather under a collapsible EPIC headline at the top of the list, showing live progress, attention cues, and a shortcut to the epic in the backlog.",
+  "automation_allprs_name": "Review all PRs",
+  "automation_allprs_desc": "Critic reviews every open CI-green PR, not just agent ones",
+  "automation_allprs_detail": "Normally the Critic only reviews pull requests opened by Shepherd's own agents. Turn this on and the Critic instead sweeps the whole repo on a timer, reviewing every open, CI-green pull request — including ones humans or other tools opened, and fork contributions. Each gets the same read-only diff review, posted as a comment (never a blocking change request, so it won't gate third-party PRs). This is independent of the per-session Critic switch and reviews more PRs, so it costs more tokens. Each PR is reviewed once per pushed head; a pure rebase isn't re-reviewed."
 }

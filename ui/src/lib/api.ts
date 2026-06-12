@@ -817,6 +817,7 @@ export async function putRepoConfig(
     Pick<
       RepoConfig,
       | "criticEnabled"
+      | "criticAllPrs"
       | "autoAddressEnabled"
       | "learningsEnabled"
       | "autopilotEnabled"

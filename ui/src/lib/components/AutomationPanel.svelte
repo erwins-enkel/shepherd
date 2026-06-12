@@ -258,6 +258,26 @@
       <span class="knob"></span>
     </button>
   </div>
+  <div class="auto-row">
+    <div class="auto-meta">
+      <div class="auto-name">
+        ⌗ {m.automation_allprs_name()}
+        {@render info("critic-all-prs", m.automation_allprs_name())}
+      </div>
+      <div class="auto-desc">{m.automation_allprs_desc()}</div>
+      {@render detail("critic-all-prs", m.automation_allprs_detail())}
+    </div>
+    <button
+      class={["sw", { on: flags.criticAllPrs }]}
+      type="button"
+      role="switch"
+      aria-checked={flags.criticAllPrs}
+      aria-label={m.automation_allprs_name()}
+      onclick={() => repoConfig.toggleAllPrs(repoPath)}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
   <div class={["auto-row", { disabled: !flags.critic }]}>
     <div class="auto-meta">
       <div class="auto-name">

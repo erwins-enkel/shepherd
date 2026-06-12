@@ -11,14 +11,12 @@
 // See scripts/json-union-merge.mjs and .gitattributes.
 
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const driver = join(scriptDir, "json-union-merge.mjs");
-
+// Git runs merge drivers from the worktree root, so a repo-relative path resolves
+// correctly in every worktree — and unlike an absolute path it doesn't go stale
+// when a worktree is relocated or pruned (Shepherd spins worktrees up and down).
 // %O = ancestor, %A = ours/output, %B = theirs, %P = pathname (for messages).
-const command = `node ${JSON.stringify(driver)} %O %A %B %P`;
+const command = "node scripts/json-union-merge.mjs %O %A %B %P";
 
 function gitConfig(key, value) {
   execFileSync("git", ["config", key, value], { stdio: "ignore" });

@@ -349,6 +349,28 @@ test("getIssue throwing never blocks the review (no issue block, still spawns)",
   expect(h.started.length).toBe(1);
   expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
 });
+test("forget() during the getIssue await aborts the spawn and reaps the worktree", async () => {
+  // Suspend begin() inside the getIssue fetch, fire forget() (session archived) while it's
+  // parked, then let the fetch resolve. begin() must re-check `starting`, NOT spawn, and reap
+  // the detached worktree it already allocated.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const h = harness({
+    resolveForge: () =>
+      fakeForge(async () => {
+        await gate;
+        return { body: "ISSUE_BODY_XYZ" };
+      }),
+  });
+  const considering = h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  await Promise.resolve(); // let begin() advance into the parked getIssue await
+  h.svc.forget("s1"); // archive mid-fetch → clears the `starting` tombstone
+  release();
+  await considering;
+  expect(h.started.length).toBe(0); // never spawned the reviewer
+  expect(h.removed).toEqual(["/wt-detached"]); // the detached worktree was reaped
+  expect(h.svc.reviewingIds()).toEqual([]);
+});
 
 test("records the plan-gate reviewer spawn on begin()", async () => {
   const h = harness();

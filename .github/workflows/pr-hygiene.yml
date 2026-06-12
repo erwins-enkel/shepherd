@@ -10,9 +10,11 @@ on:
 jobs:
   branch-hygiene:
     name: branch hygiene
-    # Skip release-please's own bot PRs: opened by github-actions[bot], they sit
-    # behind GitHub's "Approve and run" gate and never run, so they'd only accrue
-    # as awaiting-approval noise. Branch hygiene is moot on a generated release PR.
+    # Branch-hygiene is moot on release-please's generated PR — it's a clean,
+    # auto-maintained branch off main — and that PR DOES trigger this workflow
+    # (see release-please.yml), so guard the job off for it. head_ref is empty on
+    # push, so non-release PRs are unaffected. This does NOT touch GitHub's separate
+    # bot-PR "awaiting approval" gate, which is a repo Actions setting.
     if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).

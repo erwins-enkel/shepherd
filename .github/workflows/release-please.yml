@@ -23,9 +23,16 @@ jobs:
     steps:
       # Maintains a release PR that accrues a CHANGELOG from conventional
       # commits; merging it tags the version and cuts a GitHub release.
-      # Uses the default GITHUB_TOKEN — note that release PRs it opens will
-      # not trigger the `verify` CI workflow. Swap in a PAT via
-      # `token: ${{ secrets.RELEASE_PLEASE_TOKEN }}` if you need CI on them.
+      # Uses the default GITHUB_TOKEN. The release PR it opens DOES trigger the
+      # CI + PR-hygiene workflows (observed: event=pull_request, actor=
+      # github-actions[bot]); both short-circuit on `release-please--*` head
+      # branches via their job `if:` guards, so verify/hygiene don't burn minutes
+      # on a generated release PR. Separately, GitHub may park those bot-authored
+      # runs behind the repo's "require approval for workflows" Actions setting
+      # ("awaiting maintainer approval") — that gate is a repo/org setting, not
+      # controllable here. Swap in a PAT via `token: secrets.RELEASE_PLEASE_TOKEN`
+      # (a maintainer's token isn't approval-gated) if you want those runs to
+      # execute without manual approval.
       - uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json

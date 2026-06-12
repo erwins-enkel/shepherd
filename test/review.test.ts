@@ -1611,3 +1611,43 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
   expect(started).toHaveLength(0); // skipped via the patchId OR-branch
   expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
 });
+
+// ── originating-issue body as UNTRUSTED critic context ───────────────────────────
+
+test("critic prompt embeds the originating issue body (UNTRUSTED) when issueNumber is set", async () => {
+  const { deps: d, started } = makeDeps({
+    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+  });
+  await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("ISSUE_BODY_XYZ");
+  expect(prompt).toContain("ORIGINATING ISSUE");
+  expect(prompt).toContain("UNTRUSTED");
+});
+
+test("no issue block when issueNumber is null", async () => {
+  const { deps: d, started } = makeDeps({
+    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+  });
+  await new ReviewService(d as any).consider(session({ issueNumber: null }), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("ORIGINATING ISSUE");
+  expect(prompt).not.toContain("ISSUE_BODY_XYZ");
+});
+
+test("degrades cleanly when getIssue is absent / returns null / throws (no block, still spawns)", async () => {
+  for (const getIssue of [
+    undefined,
+    async () => null,
+    async () => {
+      throw new Error("gh boom");
+    },
+  ]) {
+    const { deps: d, started } = makeDeps({
+      resolveForge: () => ({ getIssue }) as any,
+    });
+    await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
+    expect(started).toHaveLength(1); // no throw → critic still spawns
+    expect(started[0]!.argv.at(-1)!).not.toContain("ORIGINATING ISSUE");
+  }
+});

@@ -291,6 +291,65 @@ test("request-changes sub-cap but the steer can't land → stall signal, round h
   expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates instead of going silent
   expect(h.store.gate.round).toBe(0); // round did not advance (nothing delivered)
 });
+const lastPrompt = (h: ReturnType<typeof harness>): string => {
+  const argv = h.started[0].argv;
+  return argv[argv.length - 1];
+};
+const fakeForge = (getIssue?: any) => ({ getIssue });
+
+test("begin() injects the originating issue body into the reviewer prompt (UNTRUSTED)", async () => {
+  const h = harness({
+    resolveForge: () => fakeForge(async () => ({ body: "ISSUE_BODY_XYZ" })),
+  });
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1);
+  expect(lastPrompt(h)).toContain("ISSUE_BODY_XYZ");
+  expect(lastPrompt(h)).toContain("ORIGINATING ISSUE");
+});
+test("no issue block when issueNumber is null", async () => {
+  const h = harness({
+    resolveForge: () => fakeForge(async () => ({ body: "ISSUE_BODY_XYZ" })),
+  });
+  await h.svc.consider({ ...planningSession(), issueNumber: null } as any);
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+  expect(lastPrompt(h)).not.toContain("ISSUE_BODY_XYZ");
+});
+test("degrades cleanly when resolveForge is absent", async () => {
+  const h = harness(); // no resolveForge dep
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1); // no throw
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+});
+test("degrades cleanly when resolveForge returns null", async () => {
+  const h = harness({ resolveForge: () => null });
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1);
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+});
+test("degrades cleanly when getIssue is absent on the forge", async () => {
+  const h = harness({ resolveForge: () => fakeForge(undefined) });
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1);
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+});
+test("degrades cleanly when getIssue returns null", async () => {
+  const h = harness({ resolveForge: () => fakeForge(async () => null) });
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1);
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+});
+test("getIssue throwing never blocks the review (no issue block, still spawns)", async () => {
+  const h = harness({
+    resolveForge: () =>
+      fakeForge(async () => {
+        throw new Error("gh boom");
+      }),
+  });
+  await h.svc.consider({ ...planningSession(), issueNumber: 42 } as any);
+  expect(h.started.length).toBe(1);
+  expect(lastPrompt(h)).not.toContain("ORIGINATING ISSUE");
+});
+
 test("records the plan-gate reviewer spawn on begin()", async () => {
   const h = harness();
   await h.svc.consider(planningSession() as any);

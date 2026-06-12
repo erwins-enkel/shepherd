@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -3148,6 +3155,41 @@ test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAG
     }
     // originals on disk untouched (all 12 still present)
     expect(readdirSync(uploads)).toHaveLength(12);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("stageRelaunchImages reclaims abandoned staged uploads past the TTL before copying", () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-sweeproot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-sweepwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "orig.png"), "PNGDATA");
+
+  const stagingDir = join(root, ".shepherd-uploads-staging");
+  mkdirSync(stagingDir, { recursive: true });
+  // An abandoned carry from a prior cancelled open, aged well past the 24h TTL.
+  const stale = join(stagingDir, "stale.png");
+  writeFileSync(stale, "OLD");
+  utimesSync(stale, 1000, 1000); // mtime ~1970 → past TTL
+  // A fresh, in-flight upload (recent mtime) that must survive the sweep.
+  const fresh = join(stagingDir, "fresh.png");
+  writeFileSync(fresh, "NEW");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    const staged = service.stageRelaunchImages(orig.id);
+
+    expect(existsSync(stale)).toBe(false); // aged orphan reclaimed
+    expect(existsSync(fresh)).toBe(true); // recent upload untouched
+    expect(staged).toHaveLength(1); // the carried original still staged
+    expect(existsSync(staged[0]!.path)).toBe(true);
   } finally {
     config.repoRoot = prevRoot;
   }

@@ -10,7 +10,14 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
-import { moveStagedIntoWorktree, stagingDir, uploadFilename, worktreeUploadsDir } from "./uploads";
+import {
+  moveStagedIntoWorktree,
+  stagingDir,
+  sweepStaging,
+  STAGING_TTL_MS,
+  uploadFilename,
+  worktreeUploadsDir,
+} from "./uploads";
 import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
@@ -955,11 +962,16 @@ export class SessionService {
    * basename for each, capped at MAX_IMAGES so the UI never seeds more chips than a spawn
    * accepts. The copies are recoverable on disk; relaunch() then takes the (possibly
    * operator-edited) list back verbatim, so there is no server-side re-merge.
+   *
+   * Each open copies fresh into staging, so a cancelled open or a removed chip orphans
+   * its copies. Before staging, we reclaim staged uploads past the TTL (the same sweep the
+   * server runs at startup, over the shared staging dir) so repeated opens don't accumulate.
    */
   stageRelaunchImages(originalId: string): { path: string; name: string }[] {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
       throw new Error(`cannot stage relaunch images for ${originalId}: missing or archived`);
+    sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
     const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
     return paths.map((p) => ({ path: p, name: basename(p) }));
   }

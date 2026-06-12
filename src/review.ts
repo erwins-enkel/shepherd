@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -18,6 +19,15 @@ import {
   reapRun,
   type RawVerdict,
 } from "./critic-core";
+import {
+  detectBackend as realDetectBackend,
+  wrapArgv,
+  safeRealpath,
+  collectPassthroughEnv,
+  type SandboxBackend,
+  type MembraneInputs,
+} from "./sandbox";
+import { config } from "./config";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
@@ -105,7 +115,7 @@ export interface ReviewServiceDeps {
     | "completeReviewerSpawn"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
-  worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
+  worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
   /** Fired when a critic run starts (true) and when it ends (false) for a session. */
@@ -151,6 +161,16 @@ export interface ReviewServiceDeps {
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable sandbox backend probe seam (tests inject `() => null` so no real bwrap is
+   *  spawned). Presence-checked (not `??`) because the seam legitimately returns null. */
+  detectBackend?: () => SandboxBackend;
+  /** Injectable membrane env seam (tests inject a stub so no host paths are touched). */
+  membraneEnv?: () => {
+    claudeDir: string;
+    home: string;
+    nodeBinReal: string;
+    extraEnv?: Record<string, string>;
+  };
 }
 
 export class ReviewService {
@@ -178,6 +198,33 @@ export class ReviewService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
+
+  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-
+   *  checked (not `??`) because the seam legitimately returns null (no backend). */
+  private detectBackend(): SandboxBackend {
+    if (this.deps.detectBackend) return this.deps.detectBackend();
+    return realDetectBackend({
+      home: homedir(),
+      claudeDir: config.claudeDir,
+      nodeBinReal: safeRealpath(config.nodeBin),
+    });
+  }
+
+  /** Membrane env: injected seam (tests) or real host values. */
+  private membraneEnv(): {
+    claudeDir: string;
+    home: string;
+    nodeBinReal: string;
+    extraEnv?: Record<string, string>;
+  } {
+    if (this.deps.membraneEnv) return this.deps.membraneEnv();
+    return {
+      claudeDir: config.claudeDir,
+      home: homedir(),
+      nodeBinReal: safeRealpath(config.nodeBin),
+      extraEnv: collectPassthroughEnv(),
+    };
+  }
 
   constructor(private deps: ReviewServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -295,12 +342,25 @@ export class ReviewService {
       authorNotes,
       issueBody,
     );
+    const backend = this.detectBackend();
+    const env = this.membraneEnv();
+    const membrane: MembraneInputs = {
+      worktreePath: wt.worktreePath,
+      gitCommonDir: this.deps.worktree.gitCommonDir(wt.worktreePath),
+      isolated: true,
+      repoPath: session.repoPath,
+      claudeDir: env.claudeDir,
+      home: env.home,
+      nodeBinReal: env.nodeBinReal,
+      extraEnv: env.extraEnv,
+    };
+    const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
         `review ${session.desig}`,
         wt.worktreePath,
-        argv,
+        wrapped,
       ).terminalId;
     } catch (err) {
       console.warn(`[review] spawn failed for ${session.id}:`, err);

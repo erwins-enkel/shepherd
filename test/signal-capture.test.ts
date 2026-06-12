@@ -67,7 +67,9 @@ test("critic changes_requested records a 'critic' signal", async () => {
     worktree: {
       createDetached: async () => ({ worktreePath: "/rev-wt" }),
       remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
     } as any,
+    detectBackend: () => null,
     resolveForge: () => fakeForge,
     onChange: () => {},
     now: () => 1,

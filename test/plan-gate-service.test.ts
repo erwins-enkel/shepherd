@@ -35,7 +35,10 @@ function harness(over: any = {}) {
     worktree: {
       createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
       remove: (p: string) => removed.push(p),
+      gitCommonDir: () => "/fake-git-common",
     },
+    // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
+    detectBackend: () => null,
     reply: () => true,
     release() {},
     onChange() {},
@@ -412,4 +415,41 @@ test("timeout with no verdict → error gate, reaped, not released", async () =>
   await h.svc.tick();
   expect(h.store.gate.decision).toBe("error");
   expect(h.removed).toContain("/wt-detached");
+});
+
+// ── FS membrane wrapping ─────────────────────────────────────────────────────────
+
+test("plan-gate reviewer spawn is wrapped in bwrap when backend is present", async () => {
+  const h = harness({
+    detectBackend: () => "bwrap",
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  const argv = h.started[0]!.argv;
+  expect(argv[0]).toBe("bwrap");
+  // membrane uses isolated:true → worktree + gitCommonDir binds, not whole repo
+  expect(argv).toContain("/wt-detached");
+  expect(argv).toContain("/fake-git-common");
+  // inner argv follows the "--" separator
+  const sep = argv.indexOf("--");
+  expect(sep).toBeGreaterThan(0);
+  expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows
+  // plan text reaches the trailing positional inside the wrapper
+  expect(argv.at(-1)).toContain("PLAN TEXT");
+});
+
+test("plan-gate reviewer spawn degrades to unwrapped when backend is null", async () => {
+  const h = harness({ detectBackend: () => null });
+  await h.svc.consider(planningSession() as any);
+  const argv = h.started[0]!.argv;
+  expect(argv[0]).not.toBe("bwrap"); // passthrough — identical to pre-sandbox behavior
 });

@@ -148,7 +148,10 @@ function makeDeps(
     worktree: {
       createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
       remove: (p: string) => removed.push(p),
+      gitCommonDir: () => "/fake-git-common",
     },
+    // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
+    detectBackend: () => null,
     resolveForge: () =>
       fakeForge(
         rec,
@@ -1789,4 +1792,47 @@ test("degrades cleanly when resolveForge returns null (no block, still spawns)",
   await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
   expect(started).toHaveLength(1); // no throw → critic still spawns
   expect(started[0]!.argv.at(-1)!).not.toContain("ORIGINATING ISSUE");
+});
+
+// ── FS membrane wrapping ─────────────────────────────────────────────────────────
+
+test("critic spawn is wrapped in bwrap when backend is present", async () => {
+  const { deps: d, started } = makeDeps({
+    detectBackend: () => "bwrap",
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const argv = started[0]!.argv;
+  expect(argv[0]).toBe("bwrap");
+  // membrane uses isolated:true → worktree + gitCommonDir binds, not whole repo
+  expect(argv).toContain("/review-wt");
+  expect(argv).toContain("/fake-git-common");
+  // inner argv follows the "--" separator
+  const sep = argv.indexOf("--");
+  expect(sep).toBeGreaterThan(0);
+  expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows, not another bwrap
+  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+});
+
+test("critic spawn degrades to unwrapped when backend is null", async () => {
+  const { deps: d, started } = makeDeps({
+    detectBackend: () => null,
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const argv = started[0]!.argv;
+  expect(argv[0]).not.toBe("bwrap"); // passthrough — identical to pre-sandbox behavior
 });

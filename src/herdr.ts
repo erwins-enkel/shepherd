@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
+import { compileCacheDir } from "./tmp-sweep";
 import type { HerdrState, SessionStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -245,6 +246,12 @@ export class HerdrDriver {
     // finds nothing). The tab already exists, so on ANY failure we must close it —
     // otherwise it lingers forever as an empty husk with no claude in it.
     try {
+      // Wrap argv (always `["claude", …]`) in a coreutils `env` shim that pins the V8
+      // compile cache to a disk-backed dir. `env` execvp's straight into claude (no extra
+      // process layer), so herdr's PTY/agent detection is unaffected — but NODE_COMPILE_CACHE
+      // now lands on disk instead of `$TMPDIR/node-compile-cache` on the tmpfs, where it
+      // accreted unbounded and exhausted inodes (#560).
+      const wrapped = ["env", `NODE_COMPILE_CACHE=${compileCacheDir()}`, ...argv];
       this.runner([
         "agent",
         "start",
@@ -255,7 +262,7 @@ export class HerdrDriver {
         cwd,
         "--no-focus",
         "--",
-        ...argv,
+        ...wrapped,
       ]);
 
       if (rootPaneId) {

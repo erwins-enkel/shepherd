@@ -1,6 +1,7 @@
 import type { HerdrDriver } from "./herdr";
 import { parseUsageFrame, type UsageProbe } from "./usage-limits";
 import { config } from "./config";
+import { compileCacheDir } from "./tmp-sweep";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
@@ -77,7 +78,10 @@ export class HerdrUsageProbe implements UsageProbe {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe", // must be piped + drained; "ignore" can stall the helper's stdout under Bun
-      env: { ...process.env, HERDR_BIN: config.herdrBin },
+      // Pin the V8 compile cache to disk, off the tmpfs — same rationale as the herdr spawn
+      // shim: these direct `node` helpers otherwise write `node-compile-cache` into TMPDIR and
+      // accrete inodes there until the tmpfs runs dry (#560).
+      env: { ...process.env, HERDR_BIN: config.herdrBin, NODE_COMPILE_CACHE: compileCacheDir() },
     });
 
     let buf = "";

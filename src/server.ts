@@ -14,6 +14,7 @@ import {
 } from "./config";
 import {
   validateCreate,
+  validateRelaunchOverrides,
   validateCloneUrl,
   validateNewProject,
   isAuthorized,
@@ -45,7 +46,14 @@ import type { UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { StarPromptStatus } from "./star-prompt";
-import type { Session, LearningStatus, SignalKind, SessionPreviewState, IssueRef } from "./types";
+import type {
+  Session,
+  LearningStatus,
+  SignalKind,
+  SessionPreviewState,
+  IssueRef,
+  RelaunchOverrides,
+} from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod } from "./forge/types";
@@ -1318,17 +1326,38 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
     if (!original) return json({ error: "not found" }, 404);
     if (original.status === "archived") return json({ error: "already archived" }, 409);
 
-    // Re-resolve the linked issue; `false` = gone/unreachable → hard-abort (502) without
-    // spawning or tearing anything down, so the original stays intact for a retry.
-    const issueRef = await reResolveRelaunchIssue(original, deps);
-    if (issueRef === false)
-      return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
+    // Optional override body: a bare POST / empty body yields null (req.json() THROWS on
+    // an empty body — the .catch is load-bearing) → the unchanged quick-relaunch path
+    // (validateRelaunchOverrides(null) yields {}, so no validation runs). When a body IS
+    // present, every supplied field is run through the SAME validators create uses (confined
+    // repoPath, BRANCH_RE baseBranch, MODELS model, staging-dir images, unknown-key reject)
+    // BEFORE service.relaunch → create — closing the create/relaunch asymmetry so an override
+    // can't reach worktree.create / the --model flag unguarded. Absent fields inherit the
+    // original's already-validated values and are NOT re-checked. 400 mirrors create's body.
+    const rawBody = (await req.json().catch(() => null)) as unknown;
+    const validated = validateRelaunchOverrides(rawBody, config.repoRoot);
+    if (!validated.ok) return json({ error: validated.error }, 400);
+    const overrides: RelaunchOverrides | null = rawBody === null ? null : validated.value;
+    const targetRepo = overrides?.repoPath ?? original.repoPath;
+
+    // Re-resolve the linked issue ONLY for a same-repo relaunch; `false` = gone/unreachable
+    // → hard-abort (502) without spawning or tearing anything down, so the original stays
+    // intact for a retry. A cross-repo relaunch DROPS the issue (it belongs to the old
+    // repo's tracker) → issueRef undefined, so the original's claim is later released back
+    // to its backlog on archive (intentional, user-confirmed).
+    let issueRef: IssueRef | undefined;
+    if (targetRepo === original.repoPath) {
+      const resolved = await reResolveRelaunchIssue(original, deps);
+      if (resolved === false)
+        return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
+      issueRef = resolved;
+    }
 
     // Spawn the replacement. On failure the original is left fully intact (nothing torn
     // down yet — the service tears down its own partial new session).
     let fresh: Session;
     try {
-      fresh = await deps.service.relaunch(id, issueRef);
+      fresh = await deps.service.relaunch(id, issueRef, overrides ?? undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "relaunch failed";
       return json({ error: msg }, 502);

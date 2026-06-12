@@ -1,10 +1,46 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { makeApp, type AppDeps } from "../src/server";
+import { config } from "../src/config";
 import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, Issue } from "../src/forge/types";
 import type { Session } from "../src/types";
+
+// Override-validation (validateRelaunchOverrides) confines a supplied `repoPath` to
+// config.repoRoot and requires it to exist — so the override tests need a real repoRoot
+// with a real sibling repo dir to relaunch INTO. Patch the module-level config.repoRoot
+// to a temp tree for the whole file (restored after), and create `repo/` + `other-repo/`
+// under it. Tests reference these via REPO / OTHER_REPO instead of bare "/repo" literals.
+let tmpRoot: string;
+let REPO: string;
+let OTHER_REPO: string;
+let STAGED_IMAGE: string; // realpath of a real staged upload, for the images-override test
+let originalRepoRoot: string;
+
+beforeAll(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "shepherd-relaunch-test-"));
+  REPO = join(tmpRoot, "repo");
+  OTHER_REPO = join(tmpRoot, "other-repo");
+  mkdirSync(REPO);
+  mkdirSync(OTHER_REPO);
+  // A real staged upload so validateImages (confined to repoRoot's staging dir) passes.
+  const staging = join(tmpRoot, ".shepherd-uploads-staging");
+  mkdirSync(staging);
+  const img = join(staging, "new.png");
+  writeFileSync(img, "x");
+  STAGED_IMAGE = realpathSync(img); // validateImages returns the realpath-resolved path
+  originalRepoRoot = config.repoRoot;
+  config.repoRoot = tmpRoot;
+});
+
+afterAll(() => {
+  config.repoRoot = originalRepoRoot;
+  rmSync(tmpRoot, { recursive: true, force: true });
+});
 
 const ISSUE: Issue = {
   number: 42,
@@ -28,7 +64,9 @@ function harness(opts: {
   archiveCleared?: string[]; // ids archiveMany reports cleared (default: the requested id)
 }) {
   const emitted: Spy[] = [];
-  const calls = { relaunch: [] as Array<{ id: string; issueRef: unknown }> };
+  const calls = {
+    relaunch: [] as Array<{ id: string; issueRef: unknown; overrides: unknown }>,
+  };
   let retainClaimSeenArchived = false;
 
   const originalSession =
@@ -36,24 +74,39 @@ function harness(opts: {
       ? undefined
       : ({
           id: "orig",
-          repoPath: "/repo",
+          repoPath: REPO,
           status: "running",
           issueNumber: null,
           ...opts.original,
         } as unknown as Session);
 
   const fresh =
-    opts.fresh ?? ({ id: "new", desig: "TASK-02", repoPath: "/repo" } as unknown as Session);
+    opts.fresh ?? ({ id: "new", desig: "TASK-02", repoPath: REPO } as unknown as Session);
 
   const store = {
     get: (id: string) => (id === "orig" ? originalSession : undefined),
   } as unknown as SessionStore;
 
   const service = {
-    relaunch: async (id: string, issueRef: unknown) => {
-      calls.relaunch.push({ id, issueRef });
+    relaunch: async (id: string, issueRef: unknown, overrides: unknown) => {
+      calls.relaunch.push({ id, issueRef, overrides });
       if (opts.relaunchThrows) throw opts.relaunchThrows;
-      return fresh;
+      // Mirror the real service just enough for route-level assertions: the returned
+      // session reflects repo/base overrides and drops the issue when issueRef is absent.
+      const o = (overrides ?? {}) as Record<string, unknown>;
+      const ir = issueRef as { number?: number } | undefined;
+      return {
+        ...fresh,
+        repoPath: (o.repoPath as string) ?? fresh.repoPath,
+        baseBranch: (o.baseBranch as string) ?? (fresh as Session).baseBranch,
+        prompt: (o.prompt as string) ?? (fresh as Session).prompt,
+        model: "model" in o ? (o.model as string | null) : (fresh as Session).model,
+        planGateEnabled:
+          "planGateEnabled" in o
+            ? (o.planGateEnabled as boolean | null)
+            : (fresh as Session).planGateEnabled,
+        issueNumber: ir?.number ?? null,
+      } as Session;
     },
     archiveMany: (ids: string[]) => ({
       cleared: opts.archiveCleared ?? ids,
@@ -100,8 +153,13 @@ function harness(opts: {
   };
 }
 
-function relaunchReq(id = "orig"): Request {
-  return new Request(`http://localhost/api/sessions/${id}/relaunch`, { method: "POST" });
+function relaunchReq(id = "orig", body?: unknown): Request {
+  return new Request(`http://localhost/api/sessions/${id}/relaunch`, {
+    method: "POST",
+    ...(body !== undefined
+      ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
 }
 
 function fakeForge(over: Partial<GitForge> = {}): GitForge {
@@ -136,7 +194,7 @@ test("happy path: emits session:new then session:archived, returns {session, arc
   expect(h.emitted[0]?.data).toMatchObject({ id: "new" });
   expect(h.emitted[1]?.data).toEqual({ id: "orig" });
   expect(h.calls.relaunch).toHaveLength(1);
-  expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined });
+  expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined, overrides: undefined });
   expect(h.droppedFromCache).toEqual(["orig"]);
 });
 
@@ -225,7 +283,7 @@ test("issue-linked original on a forge lacking getIssue → relaunches WITHOUT i
   const res = await h.app.fetch(relaunchReq());
   expect(res.status).toBe(201);
   expect(h.calls.relaunch).toHaveLength(1);
-  expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined });
+  expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined, overrides: undefined });
   expect(h.emitted.map((e) => e.event)).toEqual(["session:new", "session:archived"]);
   // Issue was dropped → claim must NOT be retained, so onArchived releases the orphaned
   // ACTIVE_LABEL and the issue is re-queued rather than stuck claimed.
@@ -304,4 +362,181 @@ test("concurrent second relaunch of the same id → 409, no double-spawn", async
   const thirdRes = await app.fetch(relaunchReq());
   expect(thirdRes.status).toBe(201);
   expect(relaunchCalls).toBe(2);
+});
+
+// ── Overrides (relaunch-into-a-different-repo + per-field carry-forward) ──────────────
+
+test("quick relaunch (no body) lands in the ORIGINAL repo and keeps the issue", async () => {
+  // Regression guard: a bare POST → no overrides, same-repo, issue re-resolved + retained.
+  const h = harness({
+    original: { issueNumber: 42, repoPath: REPO },
+    resolveForge: () => fakeForge(),
+  });
+  const res = await h.app.fetch(relaunchReq());
+  expect(res.status).toBe(201);
+  const body = await res.json();
+  expect(body.session.repoPath).toBe(REPO);
+  expect(body.session.issueNumber).toBe(42);
+  expect(h.calls.relaunch[0]?.overrides).toBeUndefined();
+  expect(h.calls.relaunch[0]?.issueRef).toMatchObject({ number: 42 });
+  expect(h.drainCalls).toEqual(["orig"]); // claim retained (issue kept)
+});
+
+test("relaunch with { repoPath } → new repo, issue DROPPED, baseBranch override honored", async () => {
+  // Cross-repo: even though the original is issue-linked, the issue is NOT re-resolved
+  // (it belongs to the old repo's tracker) → issueNumber null on the replacement.
+  const forgeCalls: number[] = [];
+  const h = harness({
+    original: { issueNumber: 42, repoPath: REPO },
+    resolveForge: () =>
+      fakeForge({
+        getIssue: async (n: number) => {
+          forgeCalls.push(n);
+          return ISSUE;
+        },
+      }),
+  });
+  const res = await h.app.fetch(
+    relaunchReq("orig", { repoPath: OTHER_REPO, baseBranch: "develop" }),
+  );
+  expect(res.status).toBe(201);
+  const body = await res.json();
+  expect(body.session.repoPath).toBe(OTHER_REPO);
+  expect(body.session.baseBranch).toBe("develop");
+  expect(body.session.issueNumber).toBe(null); // issue dropped
+  expect(h.calls.relaunch[0]?.issueRef).toBeUndefined(); // not re-resolved
+  expect(h.calls.relaunch[0]?.overrides).toMatchObject({
+    repoPath: OTHER_REPO,
+    baseBranch: "develop",
+  });
+  expect(forgeCalls).toHaveLength(0); // reResolveRelaunchIssue skipped for cross-repo
+});
+
+test("cross-repo relaunch does NOT retain the claim → released on archive", async () => {
+  // No surviving issueRef → handler skips retainClaim → drain.onArchived releases the
+  // original's ACTIVE_LABEL back to its backlog. Observed via the drain.retainClaim spy.
+  const h = harness({
+    original: { issueNumber: 42, repoPath: REPO },
+    resolveForge: () => fakeForge(),
+  });
+  const res = await h.app.fetch(relaunchReq("orig", { repoPath: OTHER_REPO }));
+  expect(res.status).toBe(201);
+  expect(h.drainCalls).toHaveLength(0); // retainClaim NOT called
+  expect(h.emitted.map((e) => e.event)).toEqual(["session:new", "session:archived"]);
+});
+
+test("same-repo relaunch with { prompt, model, planGateEnabled, baseBranch } applies each + keeps issue", async () => {
+  const h = harness({
+    original: { issueNumber: 42, repoPath: REPO },
+    resolveForge: () => fakeForge(),
+  });
+  const res = await h.app.fetch(
+    relaunchReq("orig", {
+      prompt: "do the new thing",
+      model: "opus",
+      planGateEnabled: true,
+      baseBranch: "release",
+    }),
+  );
+  expect(res.status).toBe(201);
+  const body = await res.json();
+  expect(body.session.prompt).toBe("do the new thing");
+  expect(body.session.model).toBe("opus");
+  expect(body.session.planGateEnabled).toBe(true);
+  expect(body.session.baseBranch).toBe("release");
+  expect(body.session.issueNumber).toBe(42); // same-repo → issue re-resolved + kept
+  expect(h.calls.relaunch[0]?.issueRef).toMatchObject({ number: 42 });
+  expect(h.calls.relaunch[0]?.overrides).toMatchObject({
+    prompt: "do the new thing",
+    model: "opus",
+    planGateEnabled: true,
+    baseBranch: "release",
+  });
+  expect(h.drainCalls).toEqual(["orig"]); // retainClaim called
+});
+
+test("images override is threaded through to service.relaunch (appended to originals)", async () => {
+  // The append-to-copied-originals merge lives in the service; at the route boundary we
+  // assert the supplied images ride through verbatim for the service to append.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { images: [STAGED_IMAGE] }));
+  expect(res.status).toBe(201);
+  // validateImages resolves each entry to its realpath; that resolved path rides through.
+  expect(h.calls.relaunch[0]?.overrides).toMatchObject({ images: [STAGED_IMAGE] });
+});
+
+// ── Override validation (closes the create/relaunch asymmetry — fail-closed) ──────────
+// Every supplied override field is run through the SAME validators create uses, BEFORE
+// service.relaunch → create. A bad field → 400 (matching create's body), nothing spawned.
+
+test("out-of-root / traversal repoPath override → 400, nothing spawned", async () => {
+  // "/etc" is outside config.repoRoot (tmpRoot) → validateRepoPath's containment check
+  // rejects it before it can reach worktree.create. Same guard create applies.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { repoPath: "/etc" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/repoRoot/);
+  expect(h.calls.relaunch).toHaveLength(0); // not spawned
+  expect(h.emitted).toHaveLength(0);
+});
+
+test("non-existent repoPath override (inside root) → 400, nothing spawned", async () => {
+  // Inside repoRoot but the dir doesn't exist → validateRepoPath's statSync rejects it.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { repoPath: join(tmpRoot, "ghost") }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/does not exist/);
+  expect(h.calls.relaunch).toHaveLength(0);
+});
+
+test("invalid model override → 400, nothing spawned (not passed to --model)", async () => {
+  // An arbitrary model string must never reach the --model spawn flag; the MODELS
+  // allowlist (validateModel) rejects it the same way create does.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { model: "gpt-4-turbo" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/unknown model/);
+  expect(h.calls.relaunch).toHaveLength(0);
+});
+
+test("invalid baseBranch override → 400, nothing spawned", async () => {
+  // BRANCH_RE rejects spaces / unsafe chars — same guard create applies.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { baseBranch: "bad branch!!" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/baseBranch/);
+  expect(h.calls.relaunch).toHaveLength(0);
+});
+
+test("unknown key in override body → 400, nothing spawned", async () => {
+  // Mirrors create's unknown-key rejection so no unvetted field slips through.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { repoPath: REPO, evil: "yes" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/unknown key/);
+  expect(h.calls.relaunch).toHaveLength(0);
+});
+
+test("model: null override is legal (means default) → 201, threaded through", async () => {
+  // An explicit null is the "use claude's default model" signal — NOT an invalid value.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { model: null }));
+  expect(res.status).toBe(201);
+  expect(h.calls.relaunch[0]?.overrides).toMatchObject({ model: null });
+});
+
+test("a fully VALID override body still succeeds (regression)", async () => {
+  // repoPath inside root + existing, allowlisted model, BRANCH_RE baseBranch → passes all
+  // validators and reaches service.relaunch unchanged.
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(
+    relaunchReq("orig", { repoPath: OTHER_REPO, model: "opus", baseBranch: "develop" }),
+  );
+  expect(res.status).toBe(201);
+  expect(h.calls.relaunch).toHaveLength(1);
+  expect(h.calls.relaunch[0]?.overrides).toMatchObject({
+    repoPath: OTHER_REPO,
+    model: "opus",
+    baseBranch: "develop",
+  });
 });

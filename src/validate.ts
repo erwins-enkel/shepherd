@@ -6,6 +6,7 @@ import {
   MODELS,
   type CreateSessionInput,
   type IssueRef,
+  type RelaunchOverrides,
   type Steer,
   type BuildStepInput,
   type BuildStepStatus,
@@ -359,6 +360,77 @@ function validatePlanGateEnabled(value: unknown): Field<boolean | null | undefin
   if (value === undefined) return field(undefined);
   if (value === null || typeof value === "boolean") return field(value);
   return err("planGateEnabled must be a boolean, null, or absent");
+}
+
+type RelaunchResult = { ok: true; value: RelaunchOverrides } | { ok: false; error: string };
+
+const RELAUNCH_ALLOWED_KEYS = new Set([
+  "repoPath",
+  "baseBranch",
+  "prompt",
+  "model",
+  "planGateEnabled",
+  "images",
+]);
+
+/**
+ * Validate a POST /api/sessions/:id/relaunch override body — the SAME fields create
+ * validates, but every one is OPTIONAL (an absent field inherits the original session's
+ * already-validated value, so it is NOT re-checked). Closes the create/relaunch asymmetry:
+ * a present `repoPath`/`baseBranch`/`model`/`images` is run through the identical validator
+ * `validateCreate` uses, and unknown keys are rejected — so an override can never reach
+ * `worktree.create` / the `--model` spawn flag unguarded. Pure (only `validateRepoPath` /
+ * `validateImages` touch the fs); never throws. Mirrors `validateCreate`'s `{ ok, error }`
+ * contract so the route can return the same 400 body. `null` → no overrides (quick relaunch).
+ */
+export function validateRelaunchOverrides(body: unknown, repoRoot: string): RelaunchResult {
+  if (body === null) return { ok: true, value: {} };
+  if (typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+
+  const obj = body as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!RELAUNCH_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
+  }
+
+  const out: RelaunchOverrides = {};
+  const root = resolve(expandHome(repoRoot));
+
+  if (obj.prompt !== undefined) {
+    const prompt = validatePrompt(obj.prompt);
+    if (!prompt.ok) return prompt;
+    out.prompt = prompt.value;
+  }
+  if (obj.baseBranch !== undefined) {
+    const baseBranch = validateBaseBranch(obj.baseBranch);
+    if (!baseBranch.ok) return baseBranch;
+    out.baseBranch = baseBranch.value;
+  }
+  // model: an explicit `null` is legal ("default", no --model flag); only an absent key
+  // inherits the original's model, so validate whenever the key is present (incl. null).
+  if (obj.model !== undefined) {
+    const model = validateModel(obj.model);
+    if (!model.ok) return model;
+    out.model = model.value;
+  }
+  if (obj.planGateEnabled !== undefined) {
+    const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
+    if (!planGateEnabled.ok) return planGateEnabled;
+    out.planGateEnabled = planGateEnabled.value;
+  }
+  if (obj.repoPath !== undefined) {
+    const repoPath = validateRepoPath(obj.repoPath, root);
+    if (!repoPath.ok) return repoPath;
+    out.repoPath = repoPath.value;
+  }
+  if (obj.images !== undefined) {
+    const images = validateImages(obj.images, root);
+    if (!images.ok) return images;
+    out.images = images.value;
+  }
+
+  return { ok: true, value: out };
 }
 
 /**

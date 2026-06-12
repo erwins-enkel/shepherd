@@ -409,6 +409,7 @@ const planGate = new PlanGateService({
   store,
   herdr,
   worktree,
+  resolveForge,
   reply: (id, text) => service.reply(id, text),
   release: (id) => service.releasePlanGate(id),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),

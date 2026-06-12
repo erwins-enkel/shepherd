@@ -13,11 +13,25 @@ test("prompt without prior findings omits the re-review block", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT");
   expect(p).not.toContain("RE-REVIEW");
 });
+test("prompt embeds the originating issue body as UNTRUSTED context when given", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT", [], "ISSUE_BODY_XYZ");
+  expect(p).toContain("ISSUE_BODY_XYZ");
+  expect(p).toContain("ORIGINATING ISSUE");
+  expect(p).toContain("UNTRUSTED"); // framed as data the reviewer judges against, not obeys
+});
+test("prompt omits the issue block when no issue body is given (or null)", () => {
+  for (const p of [
+    planReviewPrompt("do X", "PLAN TEXT"),
+    planReviewPrompt("do X", "PLAN TEXT", [], null),
+  ]) {
+    expect(p).not.toContain("ORIGINATING ISSUE");
+  }
+});
 test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAllHooks, slash disabled", () => {
   const { argv: a } = reviewerArgv(null, "PROMPT");
   expect(a).not.toContain("--bare");
   expect(a).toContain("--disable-slash-commands");
-  expect(a.join(" ")).toContain('{"disableAllHooks":true}');
+  expect(a.join(" ")).toContain('{"disableAllHooks":true,"enableAllProjectMcpServers":true}');
   const dontAsk = a.indexOf("dontAsk");
   expect(dontAsk).toBeGreaterThan(-1);
   expect(a[dontAsk - 1]).toBe("--permission-mode");

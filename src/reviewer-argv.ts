@@ -6,8 +6,10 @@ import { randomUUID } from "node:crypto";
  *  or escape its disposable worktree. `dontAsk` auto-denies anything off the allowlist (an
  *  unattended PTY would otherwise hang on a permission prompt); the allowlist is read-only
  *  inspection + read-only git + writing files in its own disposable worktree. The sandbox is also
- *  MCP-isolated via --safe-mode (no MCP servers load, so no "trust this server?" prompt can hang
- *  the unattended pane — dontAsk does not suppress that gate). */
+ *  MCP-isolated: --safe-mode disables MCP *loading* (file + plugin sources) plus other
+ *  customizations, and `enableAllProjectMcpServers` (in --settings) pre-approves the repo's project
+ *  .mcp.json so Claude's interactive "N new MCP servers found" approval gate never renders to hang
+ *  the unattended pane — that gate is SEPARATE from loading, and dontAsk does not suppress it. */
 export function readonlyReviewerArgv(
   model: string | null,
   prompt: string,
@@ -30,22 +32,40 @@ export function readonlyReviewerArgv(
     // NOT --bare: it refuses OAuth/keychain auth (strictly ANTHROPIC_API_KEY),
     // and shepherd runs on subscription OAuth with no API key — --bare would
     // break the reviewer's auth. --settings keeps OAuth while disabling hooks.
+    // enableAllProjectMcpServers pre-approves the repo's project .mcp.json so the
+    // interactive "new MCP servers found" gate never renders (see the MCP block
+    // below for why it's necessary AND why it is COUPLED to --safe-mode).
     "--settings",
-    '{"disableAllHooks":true}',
+    '{"disableAllHooks":true,"enableAllProjectMcpServers":true}',
     "--disable-slash-commands",
-    // MCP isolation. A fresh `claude` startup loads MCP servers from THREE
-    // sources: file (.mcp.json / global ~/.claude.json), plugin-bundled, and
-    // claude.ai account connectors. A not-yet-trusted server triggers a "trust
-    // this MCP server?" prompt — a SEPARATE gate that dontAsk does NOT suppress;
-    // each review's fresh disposable-worktree path makes servers look "newly
-    // discovered", so the pane hangs invisibly to the Shepherd UI. --safe-mode
-    // disables ALL customizations incl. MCP servers (all three sources) while
-    // keeping Auth/tools/permissions normal — the OAuth-safe alternative to
-    // --bare (--strict-mcp-config would only cover the file class, insufficient).
-    // Must sit BEFORE --allowedTools: it's a boolean flag and --allowedTools is
-    // variadic, swallowing every following token until the next flag.
-    // Side effect (acceptable): safe-mode also stops auto-loading the repo
-    // CLAUDE.md — fine, the review/plan prompts are self-contained.
+    // MCP isolation — TWO distinct gates, handled separately.
+    // (1) LOADING: a fresh `claude` startup loads MCP servers from three sources —
+    // file (.mcp.json / global ~/.claude.json), plugin-bundled, and claude.ai
+    // account connectors. --safe-mode disables MCP *loading* from the file + plugin
+    // sources (and other customizations — skills/hooks/CLAUDE.md) while keeping
+    // Auth/tools/permissions normal — the OAuth-safe alternative to --bare. (It is
+    // NOT relied on for claude.ai connector coverage; connectors don't raise the
+    // gate below.) Must sit BEFORE --allowedTools: it's a boolean flag and
+    // --allowedTools is variadic, swallowing every following token until the next flag.
+    // (2) APPROVAL: an unrecognized project .mcp.json triggers Claude's interactive
+    // "N new MCP servers found in this project — Select any to enable" gate. This is
+    // SEPARATE from loading; --safe-mode does NOT suppress it, dontAsk does NOT
+    // suppress it, and it's only auto-skipped in non-interactive (-p) mode (the
+    // reviewer is an interactive herdr-pane agent, so NOT skipped). Each review's
+    // fresh disposable-worktree path makes the servers look "newly discovered" every
+    // time, so the unattended PTY hangs invisibly to the Shepherd UI. Fix:
+    // enableAllProjectMcpServers (in --settings above) pre-approves them → nothing is
+    // "new" → the gate never renders.
+    // COUPLING — DO NOT drop --safe-mode while enableAllProjectMcpServers is true:
+    // "enable all" would then auto-LOAD every project MCP server (e.g. a repo's http
+    // Notion/Svelte/Sentry) into this UNTRUSTED-input sandbox. Safety rests on two
+    // independent axes: --safe-mode (servers don't load — verified) and dontAsk (any
+    // MCP tool call is denied off the allowlist). test/reviewer-argv.test.ts asserts
+    // both flags travel together.
+    // VERSION: the gate-clearing is verified on Claude CLI 2.1.175 and depends on
+    // Claude's project-MCP-approval semantics, which no unit test can assert. Re-run
+    // the manual repro (temp repo with a committed .mcp.json → reviewer launches with
+    // no gate and runs to completion) on every Claude CLI upgrade.
     "--safe-mode",
     "--allowedTools",
     "Read",

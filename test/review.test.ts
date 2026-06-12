@@ -314,7 +314,12 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   // thrash). NOT --bare (it would break subscription-OAuth auth).
   expect(argv).not.toContain("--bare");
   expect(argv).toContain("--disable-slash-commands");
-  expect(argv[argv.indexOf("--settings") + 1]).toBe('{"disableAllHooks":true}');
+  const settingsRaw = argv[argv.indexOf("--settings") + 1];
+  expect(settingsRaw).toBeDefined();
+  expect(JSON.parse(settingsRaw!)).toEqual({
+    disableAllHooks: true,
+    enableAllProjectMcpServers: true,
+  });
   expect(argv).toContain("--safe-mode");
 });
 
@@ -1224,6 +1229,37 @@ test("forget() during the re-review await aborts the spawn (no critic for an arc
   expect(svc.reviewingIds()).toEqual([]); // nothing left in flight
 });
 
+test("forget() during the getIssue await aborts the spawn and reaps the worktree", async () => {
+  // Suspend begin() inside the issue-body getIssue fetch (first-review path → author-notes
+  // doesn't suspend, so getIssue is the ONLY await between the `starting` claim and the spawn).
+  // Fire forget() (session archived) while it's parked, then let the fetch resolve. begin()
+  // must re-check `starting`, NOT spawn, and reap the detached worktree it already allocated.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const {
+    deps: d,
+    started,
+    removed,
+  } = makeDeps({
+    resolveForge: () =>
+      ({
+        getIssue: async () => {
+          await gate;
+          return { body: "ISSUE_BODY_XYZ" };
+        },
+      }) as any,
+  });
+  const svc = new ReviewService(d as any);
+  const p = svc.consider(session({ issueNumber: 99 }), OPEN_GREEN); // suspends mid getIssue
+  await Promise.resolve(); // let begin() advance into the parked getIssue await
+  svc.forget("s1"); // archive mid-fetch → clears the `starting` tombstone
+  release();
+  await p;
+  expect(started).toHaveLength(0); // never spawned the critic for a gone session
+  expect(removed).toEqual(["/review-wt"]); // the detached worktree was reaped
+  expect(svc.reviewingIds()).toEqual([]); // nothing left in flight
+});
+
 // ── follow-up polish (#247) ─────────────────────────────────────────────────────
 
 test("verdict surfaces the configured cap so the UI need not mirror it", async () => {
@@ -1610,4 +1646,51 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
   await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
   expect(started).toHaveLength(0); // skipped via the patchId OR-branch
   expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
+});
+
+// ── originating-issue body as UNTRUSTED critic context ───────────────────────────
+
+test("critic prompt embeds the originating issue body (UNTRUSTED) when issueNumber is set", async () => {
+  const { deps: d, started } = makeDeps({
+    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+  });
+  await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("ISSUE_BODY_XYZ");
+  expect(prompt).toContain("ORIGINATING ISSUE");
+  expect(prompt).toContain("UNTRUSTED");
+});
+
+test("no issue block when issueNumber is null", async () => {
+  const { deps: d, started } = makeDeps({
+    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+  });
+  await new ReviewService(d as any).consider(session({ issueNumber: null }), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("ORIGINATING ISSUE");
+  expect(prompt).not.toContain("ISSUE_BODY_XYZ");
+});
+
+test("degrades cleanly when getIssue is absent / returns null / throws (no block, still spawns)", async () => {
+  for (const getIssue of [
+    undefined,
+    async () => null,
+    async () => {
+      throw new Error("gh boom");
+    },
+  ]) {
+    const { deps: d, started } = makeDeps({
+      resolveForge: () => ({ getIssue }) as any,
+    });
+    await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
+    expect(started).toHaveLength(1); // no throw → critic still spawns
+    expect(started[0]!.argv.at(-1)!).not.toContain("ORIGINATING ISSUE");
+  }
+});
+
+test("degrades cleanly when resolveForge returns null (no block, still spawns)", async () => {
+  const { deps: d, started } = makeDeps({ resolveForge: () => null });
+  await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
+  expect(started).toHaveLength(1); // no throw → critic still spawns
+  expect(started[0]!.argv.at(-1)!).not.toContain("ORIGINATING ISSUE");
 });

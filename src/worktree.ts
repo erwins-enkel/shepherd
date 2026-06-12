@@ -275,17 +275,31 @@ export class WorktreeMgr {
    *  a slug all concurrent plan reviews in a repo would collide on one path: a second begin()
    *  would blow away the first's live worktree, and both inflight records would then read the
    *  same `.shepherd-plan-review.json` — delivering one session's plan findings to another.
-   *  Passing the session id as `slug` gives each its own path. */
+   *  Passing the session id as `slug` gives each its own path.
+   *
+   *  `pullRef` is the OPTIONAL fork escape hatch for the standalone PR critic. A fork PR's head
+   *  sha is NOT on the base repo's `origin` (it lives on the contributor's fork), so the `branch`
+   *  fetch below can't land it and `worktree add --detach <sha>` would fail with a missing object.
+   *  When provided (e.g. `refs/pull/<n>/head`, which GitHub exposes on the base repo's origin) it
+   *  is ALSO fetched — same `--`-guarded grammar as the branch fetch — so the head sha reaches the
+   *  local store before the checkout. Same-repo callers (ReviewService, the plan reviewer) omit it
+   *  and behavior is unchanged. */
   async createDetached(
     repoPath: string,
     branch: string,
     sha: string,
     slug?: string,
+    pullRef?: string,
   ): Promise<WorktreeResult> {
     if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) throw new Error("invalid sha");
     // same refname grammar as create(); rejecting a leading "-" also blocks argv
     // flag-smuggling into the `git fetch` below (the `--` is belt-and-suspenders)
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
+    // A pull ref like `refs/pull/<n>/head` has the same safe refname shape; the leading-"-"
+    // rejection + the `--` guard on its fetch block flag-smuggling identically to `branch`.
+    if (pullRef !== undefined && !/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(pullRef)) {
+      throw new Error("invalid pullRef");
+    }
     // flat filesystem-safe token only — no `/` (subdirs) and no `.` (so no `..` traversal);
     // a session UUID satisfies this.
     if (slug !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(slug)) throw new Error("invalid slug");
@@ -300,6 +314,18 @@ export class WorktreeMgr {
       );
     } catch {
       /* offline / no origin — the sha may already be local; let worktree add decide */
+    }
+    if (pullRef !== undefined) {
+      try {
+        // Fork head: the `branch` fetch above can't reach it (the branch lives on the fork, not
+        // base origin), so fetch the PR's pull ref too. Best-effort like the branch fetch — a
+        // failure just leaves `worktree add` to surface a missing-object error the caller catches.
+        await timedAsync("git fetch", () =>
+          execFileAsync("git", ["fetch", "origin", "--", pullRef], { cwd: repoPath }),
+        );
+      } catch {
+        /* offline / no origin / ref gone — let worktree add decide */
+      }
     }
     // A prior critic run interrupted by a restart can leave this path behind;
     // reclaim it (git worktree remove + fs cleanup) so a re-spawned review for

@@ -295,6 +295,71 @@ test("createDetached: reclaims a stale worktree path left by an interrupted run"
   mgr.remove(second.worktreePath);
 });
 
+test("createDetached: rejects a pullRef that could smuggle a git flag", async () => {
+  const mgr = new WorktreeMgr();
+  const sha = "0".repeat(40);
+  await expect(
+    mgr.createDetached(repo, "main", sha, undefined, "--upload-pack=evil"),
+  ).rejects.toThrow("invalid pullRef");
+  await expect(mgr.createDetached(repo, "main", sha, undefined, "-x")).rejects.toThrow(
+    "invalid pullRef",
+  );
+});
+
+test("createDetached: a fork head only reachable via pullRef is fetched and checked out", async () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  // A bare "origin" that holds main PLUS a fork PR head stored ONLY under refs/pull/1/head —
+  // it is NOT on any branch, so a plain `git fetch origin -- <branch>` can never land it. This
+  // is exactly the GitHub fork case: the head sha lives off-branch on the base repo's origin.
+  const origin = mkdtempSync(join(tmpdir(), "shepherd-origin-"));
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main"], { cwd: origin });
+
+  // A seed clone to author the fork head + push the special ref into origin.
+  const seed = mkdtempSync(join(tmpdir(), "shepherd-seed-"));
+  execFileSync("git", ["clone", "-q", origin, seed]);
+  writeFileSync(join(seed, "base.txt"), "base");
+  execFileSync("git", ["add", "-A"], { cwd: seed });
+  execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: seed, env });
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed });
+  // fork head: a commit pushed to refs/pull/1/head, then the local branch deleted so it
+  // lives off-branch on origin (mirrors how GitHub exposes a fork PR head on the base repo).
+  writeFileSync(join(seed, "fork.txt"), "fork");
+  execFileSync("git", ["add", "-A"], { cwd: seed });
+  execFileSync("git", ["commit", "-q", "-m", "fork change"], { cwd: seed, env });
+  const forkSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: seed }).toString().trim();
+  execFileSync("git", ["push", "-q", "origin", `HEAD:refs/pull/1/head`], { cwd: seed });
+
+  // The base repo: a fresh clone of origin. It has main but NOT the fork sha (off-branch).
+  // `--no-local` forces a real pack negotiation (the default local clone copies the WHOLE
+  // object store, which would smuggle the off-branch fork object in and defeat the test).
+  const base = mkdtempSync(join(tmpdir(), "shepherd-base-"));
+  execFileSync("git", ["clone", "-q", "--no-local", origin, base]);
+  expect(() =>
+    execFileSync("git", ["cat-file", "-e", `${forkSha}^{commit}`], { cwd: base, stdio: "pipe" }),
+  ).toThrow(); // proves the sha is genuinely absent before the pullRef fetch
+
+  const mgr = new WorktreeMgr();
+  // WITHOUT a pullRef the head can't be fetched and the checkout fails — the fork case the param fixes.
+  await expect(mgr.createDetached(base, "main", forkSha)).rejects.toThrow();
+  // WITH the pullRef it's fetched into the store and the detached checkout lands at the fork head.
+  const wt = await mgr.createDetached(base, "main", forkSha, undefined, "refs/pull/1/head");
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: wt.worktreePath })
+    .toString()
+    .trim();
+  expect(head).toBe(forkSha);
+
+  mgr.remove(wt.worktreePath);
+  rmSync(origin, { recursive: true, force: true });
+  rmSync(seed, { recursive: true, force: true });
+  rmSync(base, { recursive: true, force: true });
+});
+
 test("behindBase: false when up-to-date, true when base advanced", async () => {
   const dir = mkdtempSync(join(tmpdir(), "wt-"));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, stdio: "pipe" });

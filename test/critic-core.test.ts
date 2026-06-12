@@ -6,7 +6,43 @@ import {
   normalizeDecision,
   normalizeFindings,
   buildVerdictCore,
+  reviewPrompt,
+  prReviewPrompt,
 } from "../src/critic-core";
+
+// ── prReviewPrompt (session-less) ───────────────────────────────────────────
+
+test("prReviewPrompt frames bugs/security/quality with the PR intent as context, shares scope+output", () => {
+  const p = prReviewPrompt("base123", "Add a feature", "does the thing");
+  // diff base + intent threaded in
+  expect(p).toContain("git diff base123...HEAD");
+  expect(p).toContain("Add a feature");
+  expect(p).toContain("does the thing");
+  // session-less framing — NOT "satisfies that task"
+  expect(p).toContain("bugs, security issues, and clear quality problems");
+  expect(p).not.toContain("The task this PR is meant to accomplish");
+  // shares the verdict-output contract + scope tail with reviewPrompt
+  expect(p).toContain(".shepherd-review.json");
+  expect(p).toContain("Never approve");
+  expect(p).toContain("SCOPE — your review is limited to");
+});
+
+test("prReviewPrompt tolerates an empty body", () => {
+  const p = prReviewPrompt("base123", "Title only", "   ");
+  expect(p).toContain("(no description provided)");
+});
+
+test("reviewPrompt and prReviewPrompt share the identical scope+output tail", () => {
+  // The shared tail starts at the SCOPE header; both prompts must carry it verbatim so the
+  // server-side scope backstop + verdict parser behave identically for either critic.
+  const a = reviewPrompt("b", "task").slice(reviewPrompt("b", "task").indexOf("SCOPE — "));
+  const b = prReviewPrompt("b", "t", "body").slice(
+    prReviewPrompt("b", "t", "body").indexOf("SCOPE — "),
+  );
+  // tails differ only on the single judge clause line; the output contract below it is identical.
+  const outputContract = (s: string) => s.slice(s.indexOf("When done, write your verdict"));
+  expect(outputContract(a)).toBe(outputContract(b));
+});
 
 // ── scopeBackstop (pure) ────────────────────────────────────────────────────
 

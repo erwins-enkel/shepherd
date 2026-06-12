@@ -57,7 +57,54 @@ export function reviewPrompt(
       "",
     );
   }
+  // The judging clause is the ONE line that differs between the session critic ("satisfies that
+  // task") and the standalone PR critic ("bugs/security/quality, intent as context") — everything
+  // after it (the verdict-output contract) is identical, so it's factored into the shared tail.
   lines.push(
+    ...scopeAndOutputTail(
+      diffBase,
+      "Judge ONLY whether the implementation satisfies that task and is free of bugs, security issues, and clear quality problems. Tests and lint are handled by CI — do not run them.",
+    ),
+  );
+  return lines.join("\n");
+}
+
+/** Session-LESS variant of {@link reviewPrompt} for the standalone repo-level PR critic. A
+ *  third-party PR has no Shepherd task, so the job is NOT "does it satisfy a task" — it's: review
+ *  the diff for bugs, security issues, and clear quality problems, using the PR's stated intent
+ *  (title + body) only as CONTEXT for what the change is trying to do. Shares the EXACT scope rules
+ *  and verdict-output contract with reviewPrompt (via scopeAndOutputTail) so the two never diverge.
+ *  NOT UI chrome — never i18n'd. */
+export function prReviewPrompt(diffBase: string, prTitle: string, prBody: string): string {
+  const lines = [
+    "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
+    `The PR branch is checked out here at its head commit. Review the changes with: git diff ${diffBase}...HEAD`,
+    "",
+    // No task to satisfy — the PR's own title/body is the author's stated intent, given ONLY as
+    // context for understanding the change. A missing/empty body is fine (title alone suffices).
+    "The PR's stated intent (title, then body) — treat as CONTEXT for what the change is meant to do, NOT as a spec to verify against:",
+    `Title: ${prTitle}`,
+    prBody.trim() ? prBody : "(no description provided)",
+    "",
+  ];
+  lines.push(
+    ...scopeAndOutputTail(
+      diffBase,
+      "Judge the diff ONLY for bugs, security issues, and clear quality problems. Use the stated intent above to understand what the change is for — do NOT raise a finding merely because the diff seems incomplete versus that intent. Tests and lint are handled by CI — do not run them.",
+    ),
+  );
+  return lines.join("\n");
+}
+
+/** The SCOPE rules + verdict-output contract shared verbatim by {@link reviewPrompt} and
+ *  {@link prReviewPrompt}, so the two prompts can never drift on the parts the server-side scope
+ *  backstop and verdict parser depend on. `judgeClause` is the single prompt-specific line that
+ *  precedes the output contract (task-satisfaction vs. bug/quality review). Returns the tail lines
+ *  the caller appends to its own preamble. Keeping reviewPrompt's output byte-identical: the lines
+ *  below are moved verbatim out of its old `lines.push(...)`, with only the judge clause lifted to
+ *  a parameter. */
+function scopeAndOutputTail(diffBase: string, judgeClause: string): string[] {
+  return [
     // SCOPE: the critic can Read/grep the whole tree, which historically led it to flag
     // pre-existing issues in files this PR never touched — wasting auto-address rounds. Restrict
     // every finding to the PR's own diff. This OVERRIDES the prior-findings / author-note
@@ -86,7 +133,7 @@ export function reviewPrompt(
     "",
     "ATTRIBUTION when a verified problem points outside the diff: if a change in the diff REQUIRES a corresponding change in a file this PR did not touch (e.g. the diff adds an `en` message key but the untouched `de.json` lacks it, or changes a signature an out-of-diff caller still uses), the finding's CAUSE is in the diff — attribute it to the in-diff file that caused it (e.g. \"ui/messages/en.json: adds key `foo_bar` but the matching de.json entry is missing — i18n parity will fail\") OR raise it without a path prefix. Do NOT prefix such a finding with the untouched file's path: the scope rule drops out-of-diff paths, and a real, in-diff-caused defect would vanish. (Genuinely pre-existing problems in untouched files still go ONLY in the `Out of scope (pre-existing, not in this PR):` body section, never in findings.)",
     "",
-    "Judge ONLY whether the implementation satisfies that task and is free of bugs, security issues, and clear quality problems. Tests and lint are handled by CI — do not run them.",
+    judgeClause,
     "",
     // LATENT-DEFECT LENS: surface dormant-but-real defects (the class Seer catches and we miss).
     // Routing splits on present-day reachability — a defect reachable TODAY is a normal blockable
@@ -102,11 +149,10 @@ export function reviewPrompt(
     '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "body": "<full markdown review>", "findings": ["<discrete actionable item>", ...]}',
     'The "findings" array lists every discrete change the author must make — one entry per point, blocking or not. A non-blocking nit STILL goes in "findings" (under a "comment" decision). Use [] ONLY when there is genuinely nothing to address; "request-changes" requires at least one finding.',
     'Use "request-changes" ONLY for blocking problems (does not satisfy the task, logic bug, security hole). Otherwise use "comment". Never approve. Write the file as your final action, then stop.',
-  );
-  return lines.join("\n");
+  ];
 }
 
-export const VERDICT_FILE = ".shepherd-review.json";
+const VERDICT_FILE = ".shepherd-review.json";
 
 export interface RawVerdict {
   decision?: unknown;

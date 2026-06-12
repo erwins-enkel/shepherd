@@ -94,7 +94,7 @@ test("patch-id is invariant across a clean rebase onto an advanced local base", 
   writeAdd(repo, "feat.txt", "alpha\nbeta\ngamma\n");
   commit(repo, "feature change");
 
-  const id1 = await defaultComputePatchId(repo, "main");
+  const { patchId: id1 } = await defaultComputePatchId(repo, "main");
   expect(id1).toBeTruthy();
   expect(typeof id1).toBe("string");
 
@@ -105,7 +105,7 @@ test("patch-id is invariant across a clean rebase onto an advanced local base", 
   git(["checkout", "-q", "feature"], repo);
   git(["rebase", "-q", "main"], repo);
 
-  const id2 = await defaultComputePatchId(repo, "main");
+  const { patchId: id2 } = await defaultComputePatchId(repo, "main");
   expect(id2).toBe(id1);
 });
 
@@ -113,13 +113,13 @@ test("patch-id changes when the branch's own content changes", async () => {
   git(["checkout", "-q", "-b", "feature"], repo);
   writeAdd(repo, "feat.txt", "alpha\nbeta\ngamma\n");
   commit(repo, "feature change");
-  const before = await defaultComputePatchId(repo, "main");
+  const { patchId: before } = await defaultComputePatchId(repo, "main");
   expect(before).toBeTruthy();
 
   // change a tracked line on feature (new commit)
   writeAdd(repo, "feat.txt", "alpha\nBETA-CHANGED\ngamma\n");
   commit(repo, "edit feature");
-  const after = await defaultComputePatchId(repo, "main");
+  const { patchId: after } = await defaultComputePatchId(repo, "main");
   expect(after).toBeTruthy();
   expect(after).not.toBe(before);
 });
@@ -127,12 +127,13 @@ test("patch-id changes when the branch's own content changes", async () => {
 test("patch-id is null when the branch has no diff against base", async () => {
   // a branch that sits exactly at main's tip → no diff → null
   git(["checkout", "-q", "-b", "feature"], repo);
-  const id = await defaultComputePatchId(repo, "main");
+  const { patchId: id, files } = await defaultComputePatchId(repo, "main");
   expect(id).toBeNull();
+  expect(files).toEqual([]); // no diff → empty changed-file set
 
   // and main vs main is likewise empty
   git(["checkout", "-q", "main"], repo);
-  expect(await defaultComputePatchId(repo, "main")).toBeNull();
+  expect((await defaultComputePatchId(repo, "main")).patchId).toBeNull();
 });
 
 test("offline (no origin remote) still returns a valid id via the local base fallback", async () => {
@@ -143,10 +144,14 @@ test("offline (no origin remote) still returns a valid id via the local base fal
   writeAdd(repo, "feat.txt", "alpha\n");
   commit(repo, "feature change");
 
-  const id = await defaultComputePatchId(repo, "main");
+  const { patchId: id, baseSha, files } = await defaultComputePatchId(repo, "main");
   expect(id).toBeTruthy();
   expect(typeof id).toBe("string");
   expect((id as string).length).toBeGreaterThan(0);
+  // happy path: baseSha is a concrete 40-hex SHA (the local `main` tip, fetch fell back) and
+  // files is exactly the branch's changed file.
+  expect(baseSha).toMatch(/^[0-9a-f]{40}$/);
+  expect(files).toEqual(["feat.txt"]);
 });
 
 test("real origin: FETCH_HEAD path keeps the id stable when origin/main advances past the fork point (merge-train)", async () => {
@@ -166,7 +171,7 @@ test("real origin: FETCH_HEAD path keeps the id stable when origin/main advances
   git(["push", "-q", "origin", "feature"], repo);
 
   // BEFORE: fingerprint with feature sitting at its original fork point.
-  const before = await defaultComputePatchId(repo, "main");
+  const { patchId: before } = await defaultComputePatchId(repo, "main");
   expect(before).toBeTruthy();
 
   // Advance origin/main with UNRELATED commits AFTER the branch point, WITHOUT moving the
@@ -195,8 +200,17 @@ test("real origin: FETCH_HEAD path keeps the id stable when origin/main advances
 
   // AFTER: the function fetches origin/main fresh and diffs FETCH_HEAD...HEAD, so the
   // merge-base is the TRUE current fork point → fingerprint stable across the clean rebase.
-  const after = await defaultComputePatchId(repo, "main");
+  // Also assert it captured a concrete fresh base SHA (origin/main's tip) + the changed-file
+  // set — the prompt + the buildVerdict backstop both key off these.
+  const {
+    patchId: after,
+    baseSha: afterBase,
+    files: afterFiles,
+  } = await defaultComputePatchId(repo, "main");
   expect(after).toBe(before);
+  expect(afterBase).toMatch(/^[0-9a-f]{40}$/); // resolved FETCH_HEAD → immutable SHA
+  expect(afterBase).toBe(originMain); // == the fresh origin/main we fetched, not stale local main
+  expect(afterFiles).toEqual(["feat.txt"]); // only the branch's own change, no folded-in main files
 
   // Contrast: a STALE-LOCAL-main diff (what the pre-fix code did) folds the two unrelated
   // origin commits into the diff, so its patch-id DIFFERS from the function's fetched-base

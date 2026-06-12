@@ -1643,6 +1643,41 @@
         onkeydown={onRenameKey}
         onblur={commitRename}
       />
+      <!-- explicit cancel/confirm — handled on pointerdown (with preventDefault)
+           so they act BEFORE the input's blur-commits-automatically fires; a
+           plain onclick would always lose to the blur and ✕ could never cancel.
+           tabindex=-1: tabbing out of the input already commits and unmounts
+           these, so a tab stop here would be dead — Enter/Esc are the keyboard
+           path. The onclick handlers are NOT dead code: assistive-tech
+           activation (VoiceOver/TalkBack, voice control) dispatches a synthetic
+           click without real pointer events, so onclick is that path. Both
+           actions are idempotent, so a real pointer firing pointerdown + click
+           is harmless (cancel unmounts the buttons; commit re-entry is guarded
+           by renaming/renameSaving). -->
+      <button
+        class="rename-btn cancel"
+        type="button"
+        tabindex="-1"
+        disabled={renameSaving}
+        aria-label={m.viewport_rename_cancel_aria()}
+        onpointerdown={(e) => {
+          e.preventDefault();
+          cancelRename();
+        }}
+        onclick={cancelRename}>✕</button
+      >
+      <button
+        class="rename-btn ok"
+        type="button"
+        tabindex="-1"
+        disabled={renameSaving}
+        aria-label={m.viewport_rename_confirm_aria()}
+        onpointerdown={(e) => {
+          e.preventDefault();
+          void commitRename();
+        }}
+        onclick={() => void commitRename()}>✓</button
+      >
       {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
     </span>
   {/snippet}
@@ -1654,6 +1689,7 @@
     class="vp-head"
     class:mobile={compact}
     class:phone={mobile}
+    class:renaming
     class:working={working && !tintColor}
     style:background={tintWash ?? undefined}
   >
@@ -1729,7 +1765,7 @@
           }}>{repoIcon}</span
         >
       {/if}
-      <span class="desig-wrap ctx">
+      <span class="desig-wrap ctx" class:editing={renaming}>
         {#if renaming}
           {@render renameField()}
         {:else}
@@ -1756,7 +1792,7 @@
     {:else}
       <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
-      <span class="desig-wrap">
+      <span class="desig-wrap" class:editing={renaming}>
         {#if renaming}
           {@render renameField()}
         {:else}
@@ -1782,8 +1818,12 @@
       {/if}
     {/if}
     {#if !compact}
-      <span class="sep">·</span>
-      <span class="branch">{session.branch ?? session.worktreePath}</span>
+      {#if !renaming}
+        <!-- hidden while the rename editor is open — the editor claims the full
+             row width, so the branch label would only fight it for space -->
+        <span class="sep">·</span>
+        <span class="branch">{session.branch ?? session.worktreePath}</span>
+      {/if}
       <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
            takes the title's slot in place when active -->
       {@render renameNoteEl()}
@@ -2994,38 +3034,98 @@
 
   /* rename: inline editor that takes the title's own slot in place (double-tap/
      dblclick the title to open it); the post-rename note sits in the trailing
-     cluster on compact/phone, after the branch on desktop */
+     cluster on compact/phone, after the branch on desktop.
+     While open, the editor claims the full row width (.desig-wrap.editing turns
+     the title slot into the row's grower; the desktop branch label hides) so the
+     name is editable at length instead of inside a 14ch peephole. */
+  .desig-wrap.editing {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .rename-edit {
-    display: inline-flex;
+    position: relative;
+    display: flex;
     align-items: center;
     gap: 6px;
-    flex-shrink: 0;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .rename-input {
-    background: var(--color-bg);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
     color: var(--color-ink-bright);
     font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    padding: 2px 6px;
-    width: 14ch;
-    max-width: 40vw;
+    font-size: var(--fs-base);
+    padding: 5px 10px;
   }
   .rename-input:focus {
     outline: none;
-    border-color: var(--color-line-bright);
+    border-color: var(--color-amber);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-amber) 22%, transparent);
   }
   .rename-input.err {
     border-color: var(--color-red);
   }
+  /* ✕ cancel / ✓ confirm flanking the input's right edge */
+  .rename-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .rename-btn.ok {
+    color: var(--color-amber);
+  }
+  .rename-btn.ok:hover {
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  }
+  .rename-btn.cancel {
+    color: var(--color-muted);
+  }
+  .rename-btn.cancel:hover {
+    color: var(--color-red);
+    border-color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 10%, transparent);
+  }
+  .rename-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  /* error floats below the input (header is overflow:visible) so it never
+     squeezes the now-full-width field */
   .rename-err {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
     color: var(--color-red);
     font-size: var(--fs-micro);
+    background: var(--color-inset);
+    border: 1px solid var(--color-red);
+    border-radius: 4px;
+    padding: 3px 7px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 18ch;
+    max-width: min(60vw, 36ch);
   }
   .rename-note {
     color: var(--color-faint);
@@ -3330,6 +3430,13 @@
     margin-left: auto;
     flex-shrink: 0;
   }
+  /* while the rename editor is open the trailing cluster yields the row: the
+     editor claims (nearly) the full width, and the decom ✕ can't sit beside
+     the rename-cancel ✕ inviting a mistap. Blur still saves, so no control in
+     the hidden cluster is needed mid-edit. */
+  .vp-head.mobile.renaming .vp-actions {
+    display: none;
+  }
   /* let the task name claim the free space instead of splitting it with the
      spacer; its flex-grow still pushes the status badge + decom to the right */
   .vp-head.mobile .spacer {
@@ -3399,6 +3506,17 @@
     min-height: 44px;
     padding: 8px 12px;
     font-size: var(--fs-base);
+  }
+  /* rename ✕/✓ likewise finger-sized; the input matches their height so the
+     editor reads as one bar */
+  .vp-head.mobile .rename-btn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: var(--fs-lg);
+  }
+  .vp-head.mobile .rename-input {
+    min-height: 44px;
+    padding: 5px 12px;
   }
   /* phone: the back control is a bare chevron — size it up to read as an icon */
   .vp-head.phone .back {

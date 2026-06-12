@@ -563,6 +563,8 @@
   "viewport_rename_aria": "Task umbenennen",
   "viewport_title_enter_renames": "Enter zum Umbenennen",
   "viewport_rename_placeholder": "Neuer Name",
+  "viewport_rename_confirm_aria": "Namen speichern",
+  "viewport_rename_cancel_aria": "Umbenennen abbrechen",
   "viewport_rename_failed": "Umbenennen fehlgeschlagen",
   "viewport_rename_name_taken": "Name bereits vergeben",
   "viewport_rename_branch_kept": "Name geändert; Branch beibehalten (offener PR)",

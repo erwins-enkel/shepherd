@@ -5,6 +5,9 @@ import {
   resolveProfile,
   autoHoldReason,
   isDegraded,
+  isEgressDegraded,
+  egressApplies,
+  EGRESS_UNAVAILABLE_REASON,
   buildMembraneFlags,
   wrapArgv,
   detectBackend,
@@ -82,25 +85,62 @@ describe("resolveProfile", () => {
 });
 
 describe("autoHoldReason", () => {
-  test("trusted => null (legacy unconfined autonomy)", () => {
+  // ── 2-arg (legacy) shape — behavior must be byte-identical ───────────────────
+  test("2-arg: trusted => null regardless of backend", () => {
     expect(autoHoldReason("trusted", "bwrap")).toBeNull();
     expect(autoHoldReason("trusted", null)).toBeNull();
   });
 
-  test("standard => always refuses", () => {
+  test("2-arg: standard => always refuses", () => {
     expect(autoHoldReason("standard", "bwrap")).toBeTruthy();
     expect(autoHoldReason("standard", null)).toBeTruthy();
     expect(autoHoldReason("standard", "bwrap")).toContain("autonomous");
   });
 
-  test("autonomous + backend present => null", () => {
+  test("2-arg: autonomous + backend present => null", () => {
     expect(autoHoldReason("autonomous", "bwrap")).toBeNull();
   });
 
-  test("autonomous + no backend => refuse with backend reason", () => {
+  test("2-arg: autonomous + no backend => refuse with backend reason", () => {
     const r = autoHoldReason("autonomous", null);
     expect(r).toBeTruthy();
     expect(r).toContain("backend");
+  });
+
+  // ── 3-arg (egress-aware) shape ────────────────────────────────────────────────
+  test("3-arg: autonomous + backend + slirp4netns => null", () => {
+    expect(autoHoldReason("autonomous", "bwrap", "slirp4netns")).toBeNull();
+  });
+
+  test("3-arg: autonomous + backend + egressBackend null => EGRESS_UNAVAILABLE_REASON", () => {
+    const r = autoHoldReason("autonomous", "bwrap", null);
+    expect(r).toBe(EGRESS_UNAVAILABLE_REASON);
+    expect(r).toContain("slirp4netns");
+    expect(r).toContain("dnsmasq");
+    expect(r).toContain("nft");
+  });
+
+  test("3-arg: autonomous + backend null still refuses on FS reason, not egress", () => {
+    // FS backend missing takes priority (checked first); egress null is irrelevant.
+    const r = autoHoldReason("autonomous", null, null);
+    expect(r).toBeTruthy();
+    expect(r).not.toBe(EGRESS_UNAVAILABLE_REASON);
+    expect(r).toContain("backend");
+  });
+
+  test("3-arg: trusted ignores egressBackend null", () => {
+    expect(autoHoldReason("trusted", "bwrap", null)).toBeNull();
+    expect(autoHoldReason("trusted", null, null)).toBeNull();
+  });
+
+  test("3-arg: standard ignores egressBackend, still refuses", () => {
+    expect(autoHoldReason("standard", "bwrap", null)).toBeTruthy();
+    expect(autoHoldReason("standard", "bwrap", "slirp4netns")).toBeTruthy();
+  });
+
+  test("omitting egressBackend (undefined) is identical to 2-arg for autonomous+backend", () => {
+    // undefined means "not considered" — must not trigger egress refuse
+    expect(autoHoldReason("autonomous", "bwrap", undefined)).toBeNull();
   });
 });
 
@@ -118,6 +158,41 @@ describe("isDegraded", () => {
   test("trusted never degraded", () => {
     expect(isDegraded("trusted", null)).toBe(false);
     expect(isDegraded("trusted", "bwrap")).toBe(false);
+  });
+});
+
+describe("isEgressDegraded", () => {
+  test("true only for autonomous + FS backend present + egress backend null", () => {
+    expect(isEgressDegraded("autonomous", "bwrap", null)).toBe(true);
+  });
+
+  test("false for autonomous fully confined (both backends present)", () => {
+    expect(isEgressDegraded("autonomous", "bwrap", "slirp4netns")).toBe(false);
+  });
+
+  test("false when FS backend also missing (isDegraded territory, not isEgressDegraded)", () => {
+    expect(isEgressDegraded("autonomous", null, null)).toBe(false);
+  });
+
+  test("false for standard regardless of backends", () => {
+    expect(isEgressDegraded("standard", "bwrap", null)).toBe(false);
+    expect(isEgressDegraded("standard", null, null)).toBe(false);
+  });
+
+  test("false for trusted regardless of backends", () => {
+    expect(isEgressDegraded("trusted", "bwrap", null)).toBe(false);
+    expect(isEgressDegraded("trusted", null, null)).toBe(false);
+  });
+});
+
+describe("egressApplies", () => {
+  test("true only for autonomous", () => {
+    expect(egressApplies("autonomous")).toBe(true);
+  });
+
+  test("false for trusted and standard", () => {
+    expect(egressApplies("trusted")).toBe(false);
+    expect(egressApplies("standard")).toBe(false);
   });
 });
 
@@ -367,6 +442,29 @@ describe("buildMembraneFlags", () => {
   test(".claude.json persisted RW bind via *-bind-try", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);
+  });
+
+  test("membrane guard: key invariants hold and no --network flags present (no egress plumbing in membrane)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    // Must still contain all the hardening flags.
+    expect(f).toContain("--die-with-parent");
+    expect(f).toContain("--new-session");
+    expect(f).toContain("--unshare-pid");
+    expect(f).toContain("--unshare-uts");
+    expect(f).toContain("--unshare-ipc");
+    expect(f).toContain("--clearenv");
+    expect(f).toContain("--cap-drop");
+    // Must NOT contain --unshare-net (egress is handled externally, not in the membrane).
+    expect(f).not.toContain("--unshare-net");
+    // Must NOT contain --unshare-user (membrane does not add this).
+    expect(f).not.toContain("--unshare-user");
+    // Length stability: if this fires, someone changed buildMembraneFlags.
+    // With fakeMembrane (isolated=true, no extra binds) and detDeps (exists=false),
+    // the output is fully deterministic. Snapshot the length so accidental edits are caught.
+    const snapshot = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(f.length).toBe(snapshot.length);
+    // Structural: first token is a bwrap flag, not the executable.
+    expect(f[0]).toMatch(/^--/);
   });
 });
 

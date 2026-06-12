@@ -19,6 +19,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
+import type { EgressBackend } from "./egress";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
 export function safeRealpath(p: string): string {
@@ -372,14 +373,27 @@ export function wrapArgv(
 
 // ── auto-gate ─────────────────────────────────────────────────────────────────
 
+/** Refuse reason emitted when slirp4netns/dnsmasq/nft stack is absent for an autonomous spawn. */
+export const EGRESS_UNAVAILABLE_REASON =
+  "Autonomous spawn refused: network-egress backend unavailable (slirp4netns/dnsmasq/nft).";
+
 /**
  * Returns a hold reason when an auto=true spawn must be refused, else null.
  *   trusted   -> null  (legacy: caller shows an "unconfined autonomy" banner)
  *   standard  -> ALWAYS refuse
- *   autonomous + backend present -> null
- *   autonomous + backend null    -> refuse (no backend)
+ *   autonomous + backend null    -> refuse (no FS backend)
+ *   autonomous + egressBackend null (explicitly passed) -> refuse (no egress backend)
+ *   autonomous + backend present + egressBackend present-or-omitted -> null
+ *
+ * `egressBackend` is OPTIONAL for backward compatibility: existing callers that
+ * pass only two args get identical behavior to before (undefined = "not considered").
+ * Only an explicit `null` triggers the egress refuse path.
  */
-export function autoHoldReason(profile: SandboxProfile, backend: SandboxBackend): string | null {
+export function autoHoldReason(
+  profile: SandboxProfile,
+  backend: SandboxBackend,
+  egressBackend?: EgressBackend,
+): string | null {
   if (profile === "trusted") return null;
   if (profile === "standard") {
     return "Autonomous spawn requires the autonomous profile (standard is interactive-only).";
@@ -387,6 +401,9 @@ export function autoHoldReason(profile: SandboxProfile, backend: SandboxBackend)
   // autonomous
   if (backend === null) {
     return "Autonomous spawn refused: no sandbox backend available.";
+  }
+  if (egressBackend === null) {
+    return EGRESS_UNAVAILABLE_REASON;
   }
   return null;
 }
@@ -407,4 +424,29 @@ export class SandboxAutoRefused extends Error {
  */
 export function isDegraded(profile: SandboxProfile, backend: SandboxBackend): boolean {
   return profile !== "trusted" && backend === null;
+}
+
+/**
+ * Whether an egress-degraded banner is warranted for an INTERACTIVE autonomous
+ * session: the FS sandbox is in place (backend present) but the network-egress
+ * containment is absent (egressBackend null).
+ *
+ * Distinct from `isDegraded` (FS-backend-missing). Only meaningful for the
+ * `autonomous` profile; standard/trusted return false regardless.
+ */
+export function isEgressDegraded(
+  profile: SandboxProfile,
+  backend: SandboxBackend,
+  egressBackend: EgressBackend,
+): boolean {
+  return profile === "autonomous" && backend !== null && egressBackend === null;
+}
+
+/**
+ * Whether the egress firewall applies to this profile at all.
+ * Only `autonomous` sessions are egress-confined; trusted and standard are not.
+ * Use this to decide whether to detect and wire the egress backend.
+ */
+export function egressApplies(profile: SandboxProfile): boolean {
+  return profile === "autonomous";
 }

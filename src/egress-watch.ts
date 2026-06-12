@@ -13,7 +13,7 @@ import { hostMatchesAllowlist } from "./egress";
 export const EGRESS_DROP_CAP = 20;
 
 /** Default polling interval in ms. */
-export const EGRESS_WATCH_INTERVAL_MS = 2_000;
+const EGRESS_WATCH_INTERVAL_MS = 2_000;
 
 // ── regex ──────────────────────────────────────────────────────────────────────
 // dnsmasq query line format (one example):
@@ -53,6 +53,17 @@ interface SessionState {
   reported: Set<string>;
   /** Drop the watcher after the cap is reached. */
   capped: boolean;
+}
+
+// ── helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse one dnsmasq log line and return the queried hostname (lowercased),
+ * or null if the line is not a query line.
+ */
+function extractQueriedHost(line: string): string | null {
+  const m = QUERY_RE.exec(line);
+  return m ? m[1]!.toLowerCase() : null;
 }
 
 // ── EgressWatcher ──────────────────────────────────────────────────────────────
@@ -129,6 +140,34 @@ export class EgressWatcher {
     return this.#tick(sessionId, opts);
   }
 
+  /**
+   * Report one dropped host: add signal + emit UI event.
+   * Returns true if the cap was reached after this report.
+   */
+  #reportDroppedHost(
+    host: string,
+    sessionId: string,
+    state: SessionState,
+    opts: { repoPath: string; allowlist: string[] },
+  ): boolean {
+    if (state.reported.has(host)) return false;
+    state.reported.add(host);
+
+    try {
+      this.deps.addSignal({
+        repoPath: opts.repoPath,
+        sessionId,
+        kind: "egress_drop",
+        payload: host,
+      });
+      this.deps.emit?.("session:egress-drop", { id: sessionId, host });
+    } catch {
+      // Never let a signal-store error propagate.
+    }
+
+    return state.reported.size >= EGRESS_DROP_CAP;
+  }
+
   async #tick(
     sessionId: string,
     opts: { repoPath: string; dnsLogPath: string; allowlist: string[] },
@@ -154,37 +193,16 @@ export class EgressWatcher {
 
     if (!tail) return;
 
-    const lines = tail.split("\n");
-    for (const line of lines) {
+    for (const line of tail.split("\n")) {
       if (state.capped) break;
 
-      const m = QUERY_RE.exec(line);
-      if (!m) continue;
-
-      const host = m[1]!.toLowerCase();
+      const host = extractQueriedHost(line);
+      if (!host) continue;
 
       // Skip allowlisted hosts — they're expected.
       if (hostMatchesAllowlist(host, opts.allowlist)) continue;
 
-      // Deduplicate: only report each host once per session.
-      if (state.reported.has(host)) continue;
-
-      state.reported.add(host);
-
-      try {
-        this.deps.addSignal({
-          repoPath: opts.repoPath,
-          sessionId,
-          kind: "egress_drop",
-          payload: host,
-        });
-        this.deps.emit?.("session:egress-drop", { id: sessionId, host });
-      } catch {
-        // Never let a signal-store error propagate.
-      }
-
-      // Cap: stop reporting after EGRESS_DROP_CAP distinct hosts.
-      if (state.reported.size >= EGRESS_DROP_CAP) {
+      if (this.#reportDroppedHost(host, sessionId, state, opts)) {
         state.capped = true;
         break;
       }

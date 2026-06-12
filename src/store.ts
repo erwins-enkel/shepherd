@@ -157,6 +157,88 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
+// ── repo_config row type + helpers ────────────────────────────────────────────
+
+type RepoCfgRow = {
+  criticEnabled: number;
+  criticAllPrs: number;
+  autoAddressEnabled: number;
+  learningsEnabled: number;
+  autopilotEnabled: number;
+  planGateEnabled: number;
+  autoDrainEnabled: number;
+  autoMergeEnabled: number;
+  buildQueueEnabled: number;
+  draftMode: number;
+  signoffAuthority: string;
+  maxAuto: number;
+  autoLabel: string;
+  usageCeilingPct: number;
+  sandboxProfile: string;
+  defaultModel: string;
+  egressExtraHosts: string | null;
+};
+
+/** Tolerantly parse the persisted egressExtraHosts JSON back to string[] (never throws). */
+function parseEgressExtraHostsJson(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map a nullable repo_config row to a fully-defaulted RepoConfig.
+ * absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in).
+ * drain fields default OFF / cap-1 / default-label / ceiling-80. Early-return for the absent
+ * row keeps the present-row mapping branch-free (low complexity).
+ */
+function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
+  if (!r) {
+    return {
+      criticEnabled: true,
+      criticAllPrs: false,
+      autoAddressEnabled: false,
+      learningsEnabled: true,
+      autopilotEnabled: false,
+      planGateEnabled: false,
+      autoDrainEnabled: false,
+      autoMergeEnabled: false,
+      buildQueueEnabled: false,
+      draftMode: false,
+      signoffAuthority: "human",
+      maxAuto: 1,
+      autoLabel: "shepherd:auto",
+      usageCeilingPct: 80,
+      sandboxProfile: "trusted",
+      defaultModel: "inherit",
+      egressExtraHosts: [],
+    };
+  }
+  return {
+    criticEnabled: !!r.criticEnabled,
+    criticAllPrs: !!r.criticAllPrs,
+    autoAddressEnabled: !!r.autoAddressEnabled,
+    learningsEnabled: !!r.learningsEnabled,
+    autopilotEnabled: !!r.autopilotEnabled,
+    planGateEnabled: !!r.planGateEnabled,
+    autoDrainEnabled: !!r.autoDrainEnabled,
+    autoMergeEnabled: !!r.autoMergeEnabled,
+    buildQueueEnabled: !!r.buildQueueEnabled,
+    draftMode: !!r.draftMode,
+    signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
+    maxAuto: r.maxAuto,
+    autoLabel: r.autoLabel,
+    usageCeilingPct: r.usageCeilingPct,
+    sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+    defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
+    egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
+  };
+}
+
 export class SessionStore implements CapStore, CreditStore {
   private db: Database;
   constructor(path: string) {
@@ -309,7 +391,7 @@ export class SessionStore implements CapStore, CreditStore {
     }
   }
 
-  // ── settings (key/value) ──────────────────────────────────────────────────
+  // ── settings (key/value) ─────────────────────────────────────────────────
   getSetting(key: string): string | null {
     const r = this.db.query(`SELECT value FROM settings WHERE key = ?`).get(key) as {
       value: string;
@@ -334,76 +416,8 @@ export class SessionStore implements CapStore, CreditStore {
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts
          FROM repo_config WHERE repoPath = ?`,
       )
-      .get(repoPath) as {
-      criticEnabled: number;
-      criticAllPrs: number;
-      autoAddressEnabled: number;
-      learningsEnabled: number;
-      autopilotEnabled: number;
-      planGateEnabled: number;
-      autoDrainEnabled: number;
-      autoMergeEnabled: number;
-      buildQueueEnabled: number;
-      draftMode: number;
-      signoffAuthority: string;
-      maxAuto: number;
-      autoLabel: string;
-      usageCeilingPct: number;
-      sandboxProfile: string;
-      defaultModel: string;
-      egressExtraHosts: string | null;
-    } | null;
-    // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
-    // drain fields default OFF / cap-1 / default-label / ceiling-80
-    if (!r) {
-      return {
-        criticEnabled: true,
-        criticAllPrs: false,
-        autoAddressEnabled: false,
-        learningsEnabled: true,
-        autopilotEnabled: false,
-        planGateEnabled: false,
-        autoDrainEnabled: false,
-        autoMergeEnabled: false,
-        buildQueueEnabled: false,
-        draftMode: false,
-        signoffAuthority: "human",
-        maxAuto: 1,
-        autoLabel: "shepherd:auto",
-        usageCeilingPct: 80,
-        sandboxProfile: "trusted",
-        defaultModel: "inherit",
-        egressExtraHosts: [],
-      };
-    }
-    let egressExtraHosts: string[] = [];
-    if (r.egressExtraHosts) {
-      try {
-        const parsed = JSON.parse(r.egressExtraHosts);
-        if (Array.isArray(parsed)) egressExtraHosts = parsed as string[];
-      } catch {
-        // invalid JSON → default []
-      }
-    }
-    return {
-      criticEnabled: !!r.criticEnabled,
-      criticAllPrs: !!r.criticAllPrs,
-      autoAddressEnabled: !!r.autoAddressEnabled,
-      learningsEnabled: !!r.learningsEnabled,
-      autopilotEnabled: !!r.autopilotEnabled,
-      planGateEnabled: !!r.planGateEnabled,
-      autoDrainEnabled: !!r.autoDrainEnabled,
-      autoMergeEnabled: !!r.autoMergeEnabled,
-      buildQueueEnabled: !!r.buildQueueEnabled,
-      draftMode: !!r.draftMode,
-      signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
-      maxAuto: r.maxAuto,
-      autoLabel: r.autoLabel,
-      usageCeilingPct: r.usageCeilingPct,
-      sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
-      defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
-      egressExtraHosts,
-    };
+      .get(repoPath) as RepoCfgRow | null;
+    return repoConfigFromRow(r);
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {

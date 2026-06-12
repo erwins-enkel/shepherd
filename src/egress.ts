@@ -100,6 +100,47 @@ export function resetEgressBackendCache(): void {
   _egressBackendCache = undefined;
 }
 
+/** Returns false if any required tool fails --version; caches null and returns false. */
+function checkRequiredTools(run: (cmd: string, args: string[]) => { status: number }): boolean {
+  for (const tool of EGRESS_REQUIRED_TOOLS) {
+    if (run(tool, ["--version"]).status !== 0) return false;
+  }
+  return true;
+}
+
+/** Build the probe MembraneInputs from deps + probeDir. */
+function buildProbeMembrane(probeDir: string, deps: EgressBackendProbeDeps): MembraneInputs {
+  const home = deps.home ?? process.env.HOME ?? "/root";
+  const claudeDir = deps.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? `${home}/.claude`;
+  const nodeBinReal = deps.nodeBinReal ?? safeRealpath(resolveNodeBin());
+  return {
+    worktreePath: probeDir,
+    gitCommonDir: probeDir,
+    isolated: false,
+    repoPath: probeDir,
+    claudeDir,
+    home,
+    nodeBinReal,
+  };
+}
+
+/** Write probe config files to tmpDir and return the inner bwrap argv. */
+function buildProbeInnerArgv(tmpDir: string, deps: EgressBackendProbeDeps): string[] {
+  const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
+  const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir });
+  writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset);
+  writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
+  writeFile(join(tmpDir, "resolv.conf"), cfg.resolvConf);
+  writeFile(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf);
+
+  const probeMembrane = buildProbeMembrane(tmpDir, deps);
+  const membraneFlags = buildMembraneFlags(probeMembrane, deps);
+  const overrideFlags = egressMembraneOverrideFlags(tmpDir, deps);
+  // Inner argv: bwrap <membrane flags> <egress override flags> -- /bin/sh -c "exit 0"
+  // This exercises userns-in-userns + egress override binds; exit 0 proves the stack.
+  return ["bwrap", ...membraneFlags, ...overrideFlags, "--", "/bin/sh", "-c", "exit 0"];
+}
+
 /**
  * Detect the egress-firewall backend with a real per-host SELF-TEST (cached per process).
  *
@@ -128,56 +169,23 @@ export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBa
   let tmpDir: string | undefined;
   try {
     // 1. Cheap presence gate: all required tools must be runnable.
-    for (const tool of EGRESS_REQUIRED_TOOLS) {
-      if (run(tool, ["--version"]).status !== 0) {
-        _egressBackendCache = null;
-        return _egressBackendCache;
-      }
+    if (!checkRequiredTools(run)) {
+      _egressBackendCache = null;
+      return _egressBackendCache;
     }
 
     // 2. Resolve the egress-runner.sh absolute path.
     const runnerPath = deps.runnerPath ?? egressRunnerPath();
-
     if (!exists(runnerPath)) {
       _egressBackendCache = null;
       return _egressBackendCache;
     }
 
     // 3. Full-nesting self-test.
-    const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
     const mkdtemp = deps.mkdtemp ?? ((prefix: string) => mkdtempSync(prefix));
-
     tmpDir = mkdtemp(join(tmpdir(), "shepherd-egress-probe-"));
 
-    // Build config artefacts for the probe.
-    const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir });
-    writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset);
-    writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
-    writeFile(join(tmpDir, "resolv.conf"), cfg.resolvConf);
-    writeFile(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf);
-
-    // Build the probe membrane (mirrors sandbox.ts detectBackend).
-    const home = deps.home ?? process.env.HOME ?? "/root";
-    const claudeDir = deps.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? `${home}/.claude`;
-    const nodeBinReal = deps.nodeBinReal ?? safeRealpath(resolveNodeBin());
-    const probeDir = tmpDir;
-
-    const probeMembrane: MembraneInputs = {
-      worktreePath: probeDir,
-      gitCommonDir: probeDir,
-      isolated: false,
-      repoPath: probeDir,
-      claudeDir,
-      home,
-      nodeBinReal,
-    };
-
-    // Inner argv: bwrap <membrane flags> <egress override flags> -- /bin/sh -c "exit 0"
-    // This exercises userns-in-userns + egress override binds; exit 0 proves the stack.
-    const membraneFlags = buildMembraneFlags(probeMembrane, deps);
-    const overrideFlags = egressMembraneOverrideFlags(tmpDir, deps);
-    const inner = ["bwrap", ...membraneFlags, ...overrideFlags, "--", "/bin/sh", "-c", "exit 0"];
-
+    const inner = buildProbeInnerArgv(tmpDir, deps);
     const probe = run(runnerPath, ["--tmp", tmpDir, "--", ...inner]);
     _egressBackendCache = probe.status === 0 ? "slirp4netns" : null;
     return _egressBackendCache;
@@ -247,6 +255,34 @@ function normalizeHost(raw: string): string | null {
 
 // ── allowlist builder ─────────────────────────────────────────────────────────
 
+/** Collect all raw hosts for one forge entry (map key + github set + baseUrl hostname). */
+function collectForgeEntryHosts(host: string, cfg: ForgeMap[string]): string[] {
+  const hosts: string[] = [host];
+  if (cfg.type === "github") hosts.push(...GITHUB_EGRESS_HOSTS);
+  if (cfg.baseUrl) {
+    try {
+      hosts.push(new URL(cfg.baseUrl).hostname);
+    } catch {
+      // Malformed URL — skip silently.
+    }
+  }
+  return hosts;
+}
+
+/** Normalize, deduplicate, and sort a raw host list. */
+function normalizeDedupeSort(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of raw) {
+    const norm = normalizeHost(h);
+    if (norm === null || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(norm);
+  }
+  out.sort();
+  return out;
+}
+
 /**
  * Build the deduped, sorted egress allowlist of domains for an agent spawn.
  *
@@ -261,51 +297,20 @@ function normalizeHost(raw: string): string | null {
  */
 export function buildEgressAllowlist(opts: { forges: ForgeMap; extraHosts?: string[] }): string[] {
   const { forges, extraHosts = [] } = opts;
-  const raw: string[] = [];
+  const raw: string[] = [...ANTHROPIC_EGRESS_HOSTS];
 
-  // 1. Anthropic base — always.
-  raw.push(...ANTHROPIC_EGRESS_HOSTS);
-
-  // 2. Forge hosts.
   const entries = Object.entries(forges);
   if (entries.length === 0) {
     // Default forge: Shepherd uses github.com via the `gh` CLI.
     raw.push(...GITHUB_EGRESS_HOSTS);
   } else {
     for (const [host, cfg] of entries) {
-      // The map key is a host (e.g. "github.com", "git.example.com").
-      raw.push(host);
-
-      // GitHub type → add the well-known API/CDN set.
-      if (cfg.type === "github") {
-        raw.push(...GITHUB_EGRESS_HOSTS);
-      }
-
-      // baseUrl → extract its hostname.
-      if (cfg.baseUrl) {
-        try {
-          raw.push(new URL(cfg.baseUrl).hostname);
-        } catch {
-          // Malformed URL — skip silently.
-        }
-      }
+      raw.push(...collectForgeEntryHosts(host, cfg));
     }
   }
 
-  // 3. Operator-supplied extras.
   raw.push(...extraHosts);
-
-  // 4. Normalize, deduplicate, sort.
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const h of raw) {
-    const norm = normalizeHost(h);
-    if (norm === null || seen.has(norm)) continue;
-    seen.add(norm);
-    out.push(norm);
-  }
-  out.sort();
-  return out;
+  return normalizeDedupeSort(raw);
 }
 
 // ── exact / suffix host matching ──────────────────────────────────────────────

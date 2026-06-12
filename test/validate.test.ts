@@ -771,8 +771,16 @@ test("egressExtraHosts: hostname without dot → error", () => {
   if (!r.ok) expect(r.error).toMatch(/valid hostname/);
 });
 
-test("egressExtraHosts: hostname with invalid chars → error", () => {
-  const r = validateEgressExtraHosts(["UPPER.example.com"]);
+test("egressExtraHosts: uppercase is normalized to lowercase (not rejected)", () => {
+  // Mirrors the allowlist builder, which also lowercases — what validates is exactly
+  // what makes the allowlist, stored in normalized form.
+  const r = validateEgressExtraHosts(["UPPER.Example.COM", "  Pad.Host.org  "]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual(["upper.example.com", "pad.host.org"]);
+});
+
+test("egressExtraHosts: invalid chars (underscore) → error", () => {
+  const r = validateEgressExtraHosts(["foo_bar.example.com"]);
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.error).toMatch(/valid hostname/);
 });
@@ -781,4 +789,12 @@ test("egressExtraHosts: hostname with spaces → error", () => {
   const r = validateEgressExtraHosts(["bad host.example.com"]);
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: aligned with allowlist normalizer — rejects what egress.ts drops", () => {
+  // These previously passed the looser validator then were SILENTLY dropped at spawn.
+  // Now validation matches normalizeHost exactly, so they're rejected up front.
+  for (const bad of ["foo..com", "-foo.com", "foo-.com", ".foo.com", "foo.com."]) {
+    expect(validateEgressExtraHosts([bad]).ok).toBe(false);
+  }
 });

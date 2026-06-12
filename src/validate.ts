@@ -14,6 +14,7 @@ import {
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -443,26 +444,29 @@ function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | u
   return err(`sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, null, or absent`);
 }
 
-// hostname shape: lowercase alphanum, hyphens, dots; must contain a dot (no bare labels).
-const HOST_RE = /^[a-z0-9.-]+$/;
-const isPlausibleHost = (h: string): boolean => HOST_RE.test(h) && h.includes(".");
-
 /**
  * egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall.
- * Absent → default []. Must be an array of plausible hostname strings.
+ * Absent → default []. Each entry is validated AND normalized with the SAME gate the
+ * allowlist builder uses (`normalizeHost` from egress.ts), so a host that validates is
+ * exactly a host that will make the allowlist — and the stored value is the normalized
+ * form, eliminating the "persisted but silently dropped at spawn" skew.
  */
 export function validateEgressExtraHosts(value: unknown): Field<string[]> {
   if (value === undefined || value === null) return field([]);
   if (!Array.isArray(value)) return err("egressExtraHosts must be an array of hostname strings");
+  const normalized: string[] = [];
   for (let i = 0; i < value.length; i++) {
     const h = value[i];
     if (typeof h !== "string") return err(`egressExtraHosts[${i}]: must be a string`);
-    if (!isPlausibleHost(h))
+    const n = normalizeHost(h);
+    if (n === null)
       return err(
-        `egressExtraHosts[${i}]: "${h}" is not a valid hostname (lowercase alphanum/hyphens/dots, must contain a dot)`,
+        `egressExtraHosts[${i}]: "${h}" is not a valid hostname (≥2 dot-separated labels, ` +
+          `lowercase alphanum/hyphen, no leading/trailing hyphen or empty label)`,
       );
+    normalized.push(n);
   }
-  return field(value as string[]);
+  return field(normalized);
 }
 
 /**

@@ -2,12 +2,37 @@
  * Per-session DNS-drop watcher: tails the dnsmasq dns.log written by egress-runner.sh
  * and surfaces blocked-host attempts as operator-visible signals + UI events.
  *
- * Single Bun event-loop safe: all file I/O is async (readFile); NO sync fs calls.
- * Pattern mirrors src/activity-signal.ts (async poll + byte-offset cursor).
+ * Single Bun event-loop safe: all file I/O is async; NO sync fs calls. Each poll
+ * reads ONLY the bytes appended since the last tick (positional read from the
+ * cursor), so a long all-allowlisted session does not re-read a growing log every
+ * tick — cost is O(appended), not O(filesize). Mirrors src/activity-signal.ts.
  */
 
-import { readFile as nodeReadFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { hostMatchesAllowlist } from "./egress";
+
+/**
+ * Read the appended tail of `path` from byte `fromByte` to EOF, returning the new
+ * bytes + the file's current size. Reads only [fromByte, size) — never the whole
+ * file. On truncation/rotation (size < fromByte) it re-reads from 0. (Log is ASCII,
+ * so a utf8 multibyte char can't straddle the read boundary in practice.)
+ */
+async function defaultReadTail(
+  path: string,
+  fromByte: number,
+): Promise<{ data: string; size: number }> {
+  const fh = await open(path, "r");
+  try {
+    const { size } = await fh.stat();
+    const start = fromByte <= size ? fromByte : 0; // truncation/rotation → reread from 0
+    if (size <= start) return { data: "", size };
+    const buf = Buffer.allocUnsafe(size - start);
+    await fh.read(buf, 0, size - start, start);
+    return { data: buf.toString("utf8"), size };
+  } finally {
+    await fh.close();
+  }
+}
 
 /** Maximum distinct blocked hosts reported per session before the watcher silences itself. */
 export const EGRESS_DROP_CAP = 20;
@@ -24,8 +49,9 @@ const QUERY_RE = /\bquery\[[^\]]+\]\s+(\S+)\s+from\b/;
 // ── injectable deps ────────────────────────────────────────────────────────────
 
 export interface EgressWatcherDeps {
-  /** Async file reader; default is node:fs/promises readFile (utf8). */
-  readFile?: (path: string) => Promise<string>;
+  /** Positional tail reader: returns bytes appended since `fromByte` + the current
+   *  file size. Default reads only the appended slice (not the whole file). */
+  readTail?: (path: string, fromByte: number) => Promise<{ data: string; size: number }>;
   /** Store addSignal sink. */
   addSignal: (input: {
     repoPath: string;
@@ -72,7 +98,7 @@ export class EgressWatcher {
   private readonly deps: Required<
     Pick<
       EgressWatcherDeps,
-      "readFile" | "addSignal" | "intervalMs" | "setInterval" | "clearInterval"
+      "readTail" | "addSignal" | "intervalMs" | "setInterval" | "clearInterval"
     >
   > & { emit?: (event: string, data: unknown) => void };
 
@@ -80,7 +106,7 @@ export class EgressWatcher {
 
   constructor(deps: EgressWatcherDeps) {
     this.deps = {
-      readFile: deps.readFile ?? ((p) => nodeReadFile(p, "utf8")),
+      readTail: deps.readTail ?? defaultReadTail,
       addSignal: deps.addSignal,
       emit: deps.emit,
       intervalMs: deps.intervalMs ?? EGRESS_WATCH_INTERVAL_MS,
@@ -175,21 +201,17 @@ export class EgressWatcher {
     const state = this.sessions.get(sessionId);
     if (!state || state.capped) return;
 
-    let content: string;
+    // Read ONLY the bytes appended since the last tick (positional read from the
+    // cursor) — never the whole growing log. ENOENT (dnsmasq hasn't written yet) and
+    // any other read error are swallowed (best-effort observability).
+    let res: { data: string; size: number };
     try {
-      content = await this.deps.readFile(opts.dnsLogPath);
-    } catch (err: unknown) {
-      // ENOENT is expected while dnsmasq hasn't written its first line yet — ignore.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        // Any other read error is also silently swallowed per spec.
-      }
+      res = await this.deps.readTail(opts.dnsLogPath, state.cursor);
+    } catch {
       return;
     }
-
-    // Only process newly appended bytes (cursor is a char offset here; for utf8
-    // log lines — ASCII-safe — byte offset equals char offset in Node's readFile).
-    const tail = content.slice(state.cursor);
-    state.cursor = content.length;
+    state.cursor = res.size;
+    const tail = res.data;
 
     if (!tail) return;
 

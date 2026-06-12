@@ -246,7 +246,16 @@ const DEFAULT_MIN_CACHE_TTL = 600;
  */
 const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
-function normalizeHost(raw: string): string | null {
+/**
+ * Trim + lowercase a host and accept it ONLY if it is a syntactically valid
+ * hostname (RFC-1123-ish: ≥2 dot-separated labels, no leading/trailing hyphen,
+ * no empty labels). Returns the normalized host, or null to reject.
+ *
+ * This is the SINGLE gate for what may enter the egress allowlist. `validate.ts`
+ * reuses it so a host that passes repo-config validation is exactly a host that
+ * will make the allowlist — no "persisted but silently dropped at spawn" skew.
+ */
+export function normalizeHost(raw: string): string | null {
   const h = raw.trim().toLowerCase();
   if (!h) return null;
   if (!HOSTNAME_RE.test(h)) return null;

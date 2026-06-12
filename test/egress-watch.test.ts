@@ -28,7 +28,10 @@ function makeWatcher(content: string | (() => string), opts?: { intervalMs?: num
   let nextId = 1;
 
   const watcher = new EgressWatcher({
-    readFile: async () => (typeof content === "function" ? content() : content),
+    readTail: async (_path, fromByte) => {
+      const c = typeof content === "function" ? content() : content;
+      return { data: c.slice(fromByte), size: c.length };
+    },
     addSignal: (s) => signals.push(s),
     emit: (event, data) => emits.push({ event, data }),
     intervalMs: opts?.intervalMs ?? 2000,
@@ -112,15 +115,15 @@ test("cursor: host in first read not reprocessed on second tick (only tail)", as
   const firstLine = dnsLine("first.example.com");
   const secondLine = dnsLine("second.example.com");
 
-  const readFile = async () => {
+  const readTail = async (_path: string, fromByte: number) => {
     callCount++;
-    if (callCount === 1) return firstLine;
-    return firstLine + "\n" + secondLine;
+    const c = callCount === 1 ? firstLine : firstLine + "\n" + secondLine;
+    return { data: c.slice(fromByte), size: c.length };
   };
 
   const signals: FakeSignal[] = [];
   const watcher = new EgressWatcher({
-    readFile,
+    readTail,
     addSignal: (s) => signals.push(s),
     setInterval: (() => 1) as unknown as typeof setInterval,
     clearInterval: () => {},
@@ -132,15 +135,40 @@ test("cursor: host in first read not reprocessed on second tick (only tail)", as
   await watcher.tick(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
   expect(signals.map((s) => s.payload)).toEqual(["first.example.com"]);
 
-  // Second tick: readFile returns both lines; cursor skips the first, only secondLine is new.
+  // Second tick: file now has both lines; cursor skips the first, only secondLine is new.
   await watcher.tick(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
   expect(signals.map((s) => s.payload)).toEqual(["first.example.com", "second.example.com"]);
+});
+
+test("positional read: second tick reads from the cursor, not byte 0 (no O(n^2) re-read)", async () => {
+  const firstLine = dnsLine("a.example.com");
+  let content = firstLine;
+  const fromBytes: number[] = [];
+  const signals: FakeSignal[] = [];
+  const watcher = new EgressWatcher({
+    readTail: async (_path: string, fromByte: number) => {
+      fromBytes.push(fromByte);
+      return { data: content.slice(fromByte), size: content.length };
+    },
+    addSignal: (s) => signals.push(s),
+    setInterval: (() => 1) as unknown as typeof setInterval,
+    clearInterval: () => {},
+  });
+  const o = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+  watcher.start(SESSION, o);
+  await watcher.tick(SESSION, o); // reads from 0
+  content = firstLine + "\n" + dnsLine("b.example.com");
+  await watcher.tick(SESSION, o); // must read from the end of the first read, not 0
+
+  expect(fromBytes[0]).toBe(0);
+  expect(fromBytes[1]).toBe(firstLine.length); // cursor advanced to prior size
+  expect(signals.map((s) => s.payload)).toEqual(["a.example.com", "b.example.com"]);
 });
 
 test("ENOENT → no throw, no signal", async () => {
   const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
   const watcher = new EgressWatcher({
-    readFile: async () => {
+    readTail: async () => {
       throw err;
     },
     addSignal: () => {},
@@ -194,7 +222,10 @@ test("cap: further ticks after cap emit no more signals", async () => {
   // Even though the file grew, the watcher is capped and should emit nothing.
   const afterLog = log + "\n" + dnsLine("extra.evil.com");
   const watcher2 = new EgressWatcher({
-    readFile: async () => afterLog,
+    readTail: async (_path: string, fromByte: number) => ({
+      data: afterLog.slice(fromByte),
+      size: afterLog.length,
+    }),
     addSignal: (s) => signals.push(s),
     setInterval: (() => 1) as unknown as typeof setInterval,
     clearInterval: () => {},

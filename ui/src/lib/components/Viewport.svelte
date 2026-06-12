@@ -1743,7 +1743,16 @@
     {/if}
     <div class="spacer"></div>
     <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
-      <div class="tab-scroll" role="tablist" aria-label={m.viewport_tablist_aria()}>
+      <!-- The preview tab is pinned OUTSIDE this scroll strip (it must stay visible
+           while the other tabs scroll), so the tablist owns it via aria-owns rather
+           than DOM containment. Only the preview id is listed: the term/todo/activity/
+           diff tabs are already DOM children and must not be referenced by aria-owns. -->
+      <div
+        class="tab-scroll"
+        role="tablist"
+        aria-label={m.viewport_tablist_aria()}
+        aria-owns={hasPreview ? tabId("preview") : undefined}
+      >
         <button
           class="tab-btn"
           class:active={tab === "term"}

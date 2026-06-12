@@ -5,6 +5,7 @@ import { dirname, join, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
 import { ensureShepherdExclude } from "./shepherd-exclude";
+import { removeWorktreeScratch } from "./tmp-sweep";
 
 const execFileAsync = promisify(execFile);
 
@@ -240,6 +241,9 @@ export class WorktreeMgr {
         this.pruneMergedBranch(mainRepo, opts.branch, opts.baseBranch);
       }
     }
+    // best-effort reclamation of the nested claude scratch dir for this worktree;
+    // never blocks or fails archival (fire-and-forget, removeWorktreeScratch never throws).
+    void removeWorktreeScratch(worktreePath).catch(() => {});
   }
 
   /** Detached worktree at a specific commit, fetching it from origin first so a

@@ -207,6 +207,21 @@ tailscale serve --bg 7330        # → https://<host>.<tailnet>.ts.net proxies t
 Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the Tailscale name).
 Access control is **tailnet membership** — there is no app-level password.
 
+### Host tuning — tmpfs inodes
+
+Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs (it points
+`NODE_COMPILE_CACHE` at a disk dir) and runs an inode-guard sweep on **startup + daily** that
+drops the compile cache and stale per-session scratch once `/tmp` inode use crosses a threshold —
+so a long-lived host doesn't ENOSPC on inodes (with bytes to spare).
+
+The in-app guard bounds Shepherd's _own_ churn; as a host-level belt, raise `/tmp`'s `nr_inodes` in
+`/etc/fstab` on long-uptime hosts (e.g. `tmpfs /tmp tmpfs nr_inodes=4194304 0 0`) so a higher inode
+ceiling protects against any tmpfs consumer.
+
+Override env vars: `SHEPHERD_NODE_COMPILE_CACHE` (compile-cache dir), `SHEPHERD_TMP_INODE_PCT`
+(sweep threshold %, default `80`), `SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default
+`24`), `SHEPHERD_TMP_SWEEP_DIR` (override the swept tmp root).
+
 ### Live preview
 
 When an agent's dev server is listening in its worktree, a **Preview** badge appears on its herd

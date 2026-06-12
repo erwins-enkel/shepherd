@@ -58,6 +58,7 @@ import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
+import { sweepClaudeTmp, compileCacheDir } from "./tmp-sweep";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
@@ -187,6 +188,29 @@ const accountIndex = new AccountUsageIndex();
 const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr));
 
 reconcile(store, herdr);
+
+// Ensure the disk-backed compile-cache dir exists so spawns can point NODE_COMPILE_CACHE
+// at it (keeps the V8 compile cache off the /tmp tmpfs).
+try {
+  mkdirSync(compileCacheDir(), { recursive: true });
+} catch (err) {
+  console.warn("[tmp-sweep] could not create compile-cache dir:", err);
+}
+
+// Inode-guard sweep: drops the compile cache + stale scratch once /tmp inode pressure
+// crosses the threshold. Fire-and-forget — sweepClaudeTmp never rejects; runDailySweep is
+// synchronous, so the daily caller must not await it either.
+const fireTmpSweep = (phase: "boot" | "daily") =>
+  void sweepClaudeTmp()
+    .then((r) => {
+      if (r.swept)
+        console.warn(
+          `[tmp-sweep] ${phase}: ${r.reason}, removed ${r.removed} entr${r.removed === 1 ? "y" : "ies"}`,
+        );
+    })
+    .catch((err) => console.warn(`[tmp-sweep] ${phase} sweep failed:`, err));
+
+fireTmpSweep("boot");
 
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The
 // teardown paths close these at the source; this sweep is the safety net for husks
@@ -679,6 +703,7 @@ const runDailySweep = () => {
   // session housekeeping, so they survive an archived task's removal for later usage reports.
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
+  fireTmpSweep("daily");
 };
 setTimeout(runDailySweep, 10_000); // once shortly after boot
 setInterval(runDailySweep, 24 * 60 * 60 * 1000);

@@ -16,10 +16,9 @@ function mkTmp(): string {
   dirs.push(d);
   return d;
 }
-function setEnv(key: string, val: string | undefined) {
+function setEnv(key: string, val: string) {
   if (!(key in savedEnv)) savedEnv[key] = process.env[key];
-  if (val === undefined) delete process.env[key];
-  else process.env[key] = val;
+  process.env[key] = val;
 }
 
 afterEach(() => {

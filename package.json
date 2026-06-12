@@ -1,6 +1,6 @@
 {
   "name": "shepherd",
-  "version": "1.26.0",
+  "version": "1.27.0",
   "module": "src/index.ts",
   "type": "module",
   "private": true,

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.27.0](https://github.com/erwins-enkel/shepherd/compare/v1.26.0...v1.27.0) (2026-06-12)
+
+
+### Features
+
+* **relaunch:** relaunch a task into a different repo ([#563](https://github.com/erwins-enkel/shepherd/issues/563)) ([28c13ea](https://github.com/erwins-enkel/shepherd/commit/28c13ea3ab1fd5fd206a0329e6451717389c2912))
+* **steerbar:** Edit-steers pencil fills the slot when ABC is hidden ([#568](https://github.com/erwins-enkel/shepherd/issues/568)) ([54b80ef](https://github.com/erwins-enkel/shepherd/commit/54b80efd7e2a4d7f09933d58ee50074f0c01ec60))
+* **viewport:** rename session by double-tapping the header title ([#569](https://github.com/erwins-enkel/shepherd/issues/569)) ([d5eb333](https://github.com/erwins-enkel/shepherd/commit/d5eb33383064f0114731428657a8c5e7bf7a0cf9))
+
+
+### Bug Fixes
+
+* **backlog:** subdue release/Dependabot PR badges, brighten code PR count ([#559](https://github.com/erwins-enkel/shepherd/issues/559)) ([cf1ef0f](https://github.com/erwins-enkel/shepherd/commit/cf1ef0f5fb590ad71d125352e3a9949d44b7b309))
+* **gitrail:** explain why Merge is disabled + stop over-blocking on non-required checks ([#562](https://github.com/erwins-enkel/shepherd/issues/562)) ([3b39893](https://github.com/erwins-enkel/shepherd/commit/3b39893535d9af9136d0e705f906ee80294ec221))
+* **herd:** drop badge rail to its own row in narrow sidebar ([#566](https://github.com/erwins-enkel/shepherd/issues/566)) ([fe14b3d](https://github.com/erwins-enkel/shepherd/commit/fe14b3dec918bcb0096e8b7a193edc8f1a4ab261))
+* **hud:** address impeccable audit findings (a11y, perf, responsive, copy) ([#570](https://github.com/erwins-enkel/shepherd/issues/570)) ([43eedde](https://github.com/erwins-enkel/shepherd/commit/43eedde7ac2f959cc0e211eddf16c8448c5daeb8))
+* **hud:** tighten HUD against its own design system (3 critique fixes) ([#567](https://github.com/erwins-enkel/shepherd/issues/567)) ([fdd399d](https://github.com/erwins-enkel/shepherd/commit/fdd399d8dc329f2f187c1ee1ef008b4e15c69b7c))
+* **tmp:** bound /tmp tmpfs inode use from spawned agents ([#560](https://github.com/erwins-enkel/shepherd/issues/560)) ([#564](https://github.com/erwins-enkel/shepherd/issues/564)) ([11b54ea](https://github.com/erwins-enkel/shepherd/commit/11b54ea60e147cc7d6b464f0cad7947ec0b1a772))
+* **whatsnew:** newest release first + mobile layout rework ([#558](https://github.com/erwins-enkel/shepherd/issues/558)) ([86cb083](https://github.com/erwins-enkel/shepherd/commit/86cb08361d28996435a8afe362ea55054437cbb0))
+
+
+### Code Refactoring
+
+* **ui:** set automation pill apart + drop redundant autopilot ON pip ([#565](https://github.com/erwins-enkel/shepherd/issues/565)) ([458ca0b](https://github.com/erwins-enkel/shepherd/commit/458ca0b5337fb22894a0ffa2f6a7f43741fc6328))
+
 ## [1.26.0](https://github.com/erwins-enkel/shepherd/compare/v1.25.0...v1.26.0) (2026-06-11)
 
 

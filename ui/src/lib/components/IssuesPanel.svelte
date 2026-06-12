@@ -229,9 +229,12 @@
                 <button
                   class="quick-btn"
                   class:has-emoji={!!a.emoji}
+                  disabled={isEpicParent}
                   onclick={() => onquick(issue, a)}
-                  aria-label={m.issuespanel_action_aria({ label: a.label })}
-                  title={a.text}
+                  aria-label={isEpicParent
+                    ? m.issuespanel_task_button_epic_disabled()
+                    : m.issuespanel_action_aria({ label: a.label })}
+                  title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : a.text}
                   >{#if a.emoji}<span class="act-emoji" aria-hidden="true">{a.emoji}</span
                     >{/if}<span class="act-label">{a.label}</span></button
                 >
@@ -458,8 +461,16 @@
       color 0.12s;
   }
 
-  .quick-btn:hover {
+  .quick-btn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+  }
+
+  /* Epic-parent rows disable quick-launch steers for the same reason +Task is
+     disabled: an epic is launched via the epic panel's Start, not by spawning a
+     manual session linked to the parent tracking issue (footgun). */
+  .quick-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .task-btn {

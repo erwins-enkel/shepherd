@@ -241,7 +241,7 @@
   "issuespanel_no_host": "kein Git-Host für dieses Repo konfiguriert",
   "issuespanel_open_on_github": "auf GitHub öffnen",
   "issuespanel_task_button": "Aufgabe",
-  "issuespanel_task_button_epic_disabled": "Epics werden über „Start\" gestartet — öffne das Epic, statt eine Aufgabe.",
+  "issuespanel_task_button_epic_disabled": "Epics werden über „Start“ gestartet — öffne das Epic, statt eine Aufgabe.",
   "issuespanel_active_label_title": "Von einem aktiven Shepherd-Agenten beansprucht; an diesem Issue wird bereits gearbeitet",
   "issuespanel_filter_placeholder": "Issues durchsuchen…",
   "issuespanel_no_match": "keine Issues passen zur Suche",

@@ -38,6 +38,10 @@ const ALLOWED_KEYS = new Set([
   "planGateEnabled",
 ]);
 
+/** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
+ *  carried-over originals + supplied overrides) so a spawn's prompt stays sane. */
+export const MAX_IMAGES = 10;
+
 // The issue body rides out-of-band into the agent prompt — generous cap, separate
 // from the 8000-char human-prompt guard. Title/URL bounded to sane sizes.
 const ISSUE_TITLE_MAX = 500;
@@ -135,7 +139,7 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   const images: string[] = [];
   if (value == null) return field(images);
   if (!Array.isArray(value)) return err("images must be an array");
-  if (value.length > 10) return err("images must be ≤ 10 entries");
+  if (value.length > MAX_IMAGES) return err(`images must be ≤ ${MAX_IMAGES} entries`);
   // an empty list needs no confinement — don't require a staging dir to exist
   // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
   if (value.length === 0) return field(images);

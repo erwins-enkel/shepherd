@@ -15,6 +15,7 @@ import { slugifyManual } from "./namer";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import { MAX_IMAGES } from "./validate";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
  *  rejected/held-back PR (never merged, train never archived) can't stay
@@ -745,9 +746,19 @@ export class SessionService {
     // recoverable on a spawn failure.
     const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
 
+    // Supplied images append to the carried-over originals. Each list is independently
+    // ≤ MAX_IMAGES (validated at the original's creation / on the override body), but the
+    // concatenation can exceed it — cap the merged list to the per-spawn limit, originals
+    // first, and log any drop rather than silently overflowing the spawn prompt.
+    const mergedImages = [...copiedOriginalImages, ...(overrides?.images ?? [])];
+    const images = mergedImages.slice(0, MAX_IMAGES);
+    if (mergedImages.length > images.length)
+      console.warn(
+        `[relaunch] ${originalId}: ${mergedImages.length} images exceed cap ${MAX_IMAGES}; dropped ${mergedImages.length - images.length}`,
+      );
+
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
-    // Supplied images are appended to the carried-over originals.
     const input: CreateSessionInput = {
       repoPath: overrides?.repoPath ?? s.repoPath,
       baseBranch: overrides?.baseBranch ?? s.baseBranch,
@@ -755,7 +766,7 @@ export class SessionService {
       model: overrides?.model !== undefined ? overrides.model : s.model,
       planGateEnabled:
         overrides?.planGateEnabled !== undefined ? overrides.planGateEnabled : s.planGateEnabled,
-      images: [...copiedOriginalImages, ...(overrides?.images ?? [])],
+      images,
       issueRef,
       auto: false,
     };

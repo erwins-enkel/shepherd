@@ -3105,6 +3105,37 @@ test("relaunch images override appends to the carried-over originals", async () 
   }
 });
 
+test("relaunch caps the merged image list at MAX_IMAGES, carried-over originals first", async () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-caproot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-capwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  // 8 carried-over originals + 5 supplied overrides = 13 → must cap to 10.
+  for (let i = 0; i < 8; i++) writeFileSync(join(uploads, `orig${i}.png`), "PNGDATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service, calls } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    await service.relaunch(orig.id, undefined, {
+      images: ["/stage/a.jpg", "/stage/b.jpg", "/stage/c.jpg", "/stage/d.jpg", "/stage/e.jpg"],
+    });
+
+    const argv = calls.started[0]!.argv;
+    const promptArg = argv[argv.length - 1]!;
+    const moved = promptArg.split("Attached images:\n")[1]!.trim().split("\n");
+    expect(moved).toHaveLength(10); // capped from 13
+    // Originals come first and all 8 fit, so only 2 of the 5 supplied survive the cap.
+    const survivingSupplied = moved.filter((p) => /\/[a-e]\.jpg$/.test(p));
+    expect(survivingSupplied).toHaveLength(2);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
 test("resume of a non-auto session stays untrimmed even with trim on", async () => {
   const prev = config.trimAutoContext;
   try {

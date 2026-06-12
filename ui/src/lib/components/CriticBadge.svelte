@@ -94,14 +94,16 @@
       opacity: 1;
     }
   }
-  /* auto-address streak label that takes over the whole pill. Compound selectors
-     (.critic-badge.streak-*, specificity 0,2,0) so the status colour beats the reviewing
-     amber (.critic-reviewing, 0,1,0) by specificity rather than source order — robust
-     against stylesheet reordering; the amber border + rev-dot still signal running. */
+  /* auto-address streak label that takes over the whole pill. streak-round now matches the
+     reviewing amber (cohesive amber pill, like the plain REVIEWING badge); the amber border +
+     rev-dot still signal running. Compound selectors (.critic-badge.streak-*, specificity 0,2,0)
+     so the recessive states (streak-final faint) still beat the reviewing amber
+     (.critic-reviewing, 0,1,0) by specificity rather than source order — robust against
+     stylesheet reordering. */
   .critic-badge.streak-round {
-    color: var(--color-blue);
+    color: var(--color-amber);
   }
-  /* final allowed round in flight: recessive vs. the blue in-progress and orange stalled */
+  /* final allowed round in flight: recessive (faint) vs. the amber in-progress/stalled streak states */
   .critic-badge.streak-final {
     color: var(--color-faint);
   }

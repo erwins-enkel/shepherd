@@ -209,17 +209,6 @@
   .seg.rv-reviewing {
     background: var(--status-running);
   }
-  @media (prefers-reduced-motion: no-preference) {
-    .seg.ci-pending,
-    .seg.rv-reviewing {
-      animation: seg-pulse 1.8s ease-in-out infinite;
-    }
-  }
-  @keyframes seg-pulse {
-    50% {
-      opacity: 0.45;
-    }
-  }
   /* Failure/changes also carry a non-color cue (a ring + extra height) so red
      differs from green by shape/weight, not hue alone (WCAG 1.4.1). No animation. */
   .seg.ci-failure,
@@ -266,7 +255,7 @@
   .lg-state {
     flex: none;
   }
-  /* legend swatch reuses .seg state classes; pulse animation inherited. */
+  /* legend swatch reuses .seg state classes (tint + done/active/pending); only its width differs. */
   .seg.sw {
     width: 12px;
   }

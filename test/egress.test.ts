@@ -8,10 +8,19 @@ import {
   egressMembraneOverrideFlags,
   detectEgressBackend,
   resetEgressBackendCache,
+  egressRunnerPath,
+  egressTmpDir,
+  writeEgressConfigFiles,
+  wrapEgress,
+  removeEgressTmp,
+  sweepEgressTmp,
   type EgressConfig,
   type EgressBackendProbeDeps,
 } from "../src/egress";
 import type { ForgeMap } from "../src/forge/types";
+import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -785,5 +794,102 @@ describe("detectEgressBackend", () => {
     };
     detectEgressBackend(deps);
     expect(cleaned).toBe(true);
+  });
+});
+
+// ── spawn orchestration prep ───────────────────────────────────────────────────
+
+describe("egressRunnerPath", () => {
+  test("resolves to an absolute scripts/egress-runner.sh that exists", () => {
+    const p = egressRunnerPath();
+    expect(p.startsWith("/")).toBe(true);
+    expect(p.endsWith("/scripts/egress-runner.sh")).toBe(true);
+    expect(existsSync(p)).toBe(true);
+  });
+});
+
+describe("egressTmpDir", () => {
+  test("deterministic per-session path under the OS temp dir", () => {
+    const d = egressTmpDir("sess-123");
+    expect(d).toBe(join(tmpdir(), "shepherd-egress", "sess-123"));
+    expect(egressTmpDir("sess-123")).toBe(d); // stable
+  });
+});
+
+describe("wrapEgress", () => {
+  test("prefixes runner --tmp <dir> -- before the bwrap argv", () => {
+    const out = wrapEgress(
+      ["bwrap", "--ro-bind", "/usr", "/usr", "--", "claude"],
+      "/tmp/x",
+      "/run.sh",
+    );
+    expect(out).toEqual([
+      "/run.sh",
+      "--tmp",
+      "/tmp/x",
+      "--",
+      "bwrap",
+      "--ro-bind",
+      "/usr",
+      "/usr",
+      "--",
+      "claude",
+    ]);
+  });
+
+  test("defaults runnerPath to egressRunnerPath()", () => {
+    const out = wrapEgress(["bwrap"], "/tmp/x");
+    expect(out[0]).toBe(egressRunnerPath());
+  });
+});
+
+describe("writeEgressConfigFiles", () => {
+  test("creates the dir and writes all four artefacts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "egress-write-test-"));
+    const target = join(dir, "nested", "sess");
+    try {
+      const cfg = buildEgressConfig(["api.anthropic.com"], { tmpDir: target });
+      writeEgressConfigFiles(target, cfg);
+      expect(readFileSync(join(target, "egress.nft"), "utf8")).toBe(cfg.nftRuleset);
+      expect(readFileSync(join(target, "dnsmasq.argv"), "utf8")).toBe(cfg.dnsmasqArgv.join("\n"));
+      expect(readFileSync(join(target, "resolv.conf"), "utf8")).toBe(cfg.resolvConf);
+      expect(readFileSync(join(target, "nsswitch.conf"), "utf8")).toBe(cfg.nsswitchConf);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("removeEgressTmp / sweepEgressTmp", () => {
+  test("removeEgressTmp deletes one session dir; missing is a no-op", () => {
+    const id = `rm-test-${process.pid}-${Date.now()}`;
+    const dir = egressTmpDir(id);
+    mkdirSync(dir, { recursive: true });
+    expect(existsSync(dir)).toBe(true);
+    removeEgressTmp(id);
+    expect(existsSync(dir)).toBe(false);
+    expect(() => removeEgressTmp(id)).not.toThrow(); // idempotent
+  });
+
+  test("sweepEgressTmp removes orphans, preserves live ids", () => {
+    const live = `sweep-live-${process.pid}-${Date.now()}`;
+    const dead = `sweep-dead-${process.pid}-${Date.now()}`;
+    const liveDir = egressTmpDir(live);
+    const deadDir = egressTmpDir(dead);
+    mkdirSync(liveDir, { recursive: true });
+    mkdirSync(deadDir, { recursive: true });
+    try {
+      sweepEgressTmp([live]);
+      expect(existsSync(liveDir)).toBe(true); // live id preserved
+      expect(existsSync(deadDir)).toBe(false); // orphan swept
+    } finally {
+      rmSync(liveDir, { recursive: true, force: true });
+      rmSync(deadDir, { recursive: true, force: true });
+    }
+  });
+
+  test("sweepEgressTmp is a no-op when the root dir is absent", () => {
+    // Best-effort: even if the root doesn't exist, no throw.
+    expect(() => sweepEgressTmp(["whatever"])).not.toThrow();
   });
 });

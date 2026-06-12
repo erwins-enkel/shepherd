@@ -12,7 +12,15 @@
  * wiring). It never spawns processes itself.
  */
 
-import { existsSync, lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveNodeBin } from "./node-bin";
@@ -75,6 +83,16 @@ export interface EgressBackendProbeDeps extends BackendProbeDeps {
 /** Required tools for the egress firewall stack. */
 const EGRESS_REQUIRED_TOOLS = ["setpriv", "unshare", "slirp4netns", "nft", "dnsmasq"] as const;
 
+/**
+ * Absolute path to `scripts/egress-runner.sh`, resolved relative to this file
+ * (src/) up to the repo root. The single source of truth both `detectEgressBackend`
+ * (self-test) and `wrapEgress` (production spawn) resolve through.
+ */
+export function egressRunnerPath(): string {
+  // import.meta.dir is the directory of this file (src/); go up one level to repo root.
+  return join(resolve(import.meta.dir, ".."), "scripts", "egress-runner.sh");
+}
+
 let _egressBackendCache: EgressBackend | undefined;
 
 /** Clear the per-process egress backend cache (tests). */
@@ -118,14 +136,7 @@ export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBa
     }
 
     // 2. Resolve the egress-runner.sh absolute path.
-    let runnerPath: string;
-    if (deps.runnerPath !== undefined) {
-      runnerPath = deps.runnerPath;
-    } else {
-      // import.meta.dir is the directory of this file (src/); go up one level to repo root.
-      const repoRoot = resolve(import.meta.dir, "..");
-      runnerPath = join(repoRoot, "scripts", "egress-runner.sh");
-    }
+    const runnerPath = deps.runnerPath ?? egressRunnerPath();
 
     if (!exists(runnerPath)) {
       _egressBackendCache = null;
@@ -473,4 +484,84 @@ export function egressMembraneOverrideFlags(
     `${tmpDir}/resolv.conf`,
     resolvTarget,
   ];
+}
+
+// ── spawn orchestration prep (impure — kept out of the pure config core) ────────
+
+/**
+ * Deterministic per-session temp dir holding the generated egress config files +
+ * the dns.log the drop-watcher tails. Lives under the OS temp dir; one dir per
+ * session id so the startup sweep can reconcile orphans against the live set.
+ */
+export function egressTmpDir(sessionId: string): string {
+  return join(tmpdir(), "shepherd-egress", sessionId);
+}
+
+/** Root dir holding every per-session egress temp dir (for the orphan sweep). */
+function egressTmpRoot(): string {
+  return join(tmpdir(), "shepherd-egress");
+}
+
+/**
+ * Materialize the egress config artefacts into `tmpDir` (created recursively).
+ * Writes egress.nft, dnsmasq.argv (one arg per line), resolv.conf, nsswitch.conf —
+ * exactly the files egress-runner.sh + the membrane override binds consume.
+ */
+export function writeEgressConfigFiles(tmpDir: string, cfg: EgressConfig): void {
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(join(tmpDir, "egress.nft"), cfg.nftRuleset, "utf8");
+  writeFileSync(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
+  writeFileSync(join(tmpDir, "resolv.conf"), cfg.resolvConf, "utf8");
+  writeFileSync(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf, "utf8");
+}
+
+/**
+ * Wrap an already-built bwrap argv in the egress-runner invocation:
+ *   `<runner> --tmp <tmpDir> -- <bwrapArgv...>`
+ * The runner loads <tmpDir>/egress.nft + <tmpDir>/dnsmasq.argv and execs the bwrap
+ * argv inside the firewalled netns. `runnerPath` is injectable for tests.
+ */
+export function wrapEgress(
+  bwrapArgv: string[],
+  tmpDir: string,
+  runnerPath = egressRunnerPath(),
+): string[] {
+  return [runnerPath, "--tmp", tmpDir, "--", ...bwrapArgv];
+}
+
+/**
+ * Best-effort removal of one session's egress temp dir (config + dns.log). Called
+ * at session teardown/archive. Never throws — a missing dir or a races-with-runner
+ * removal is a no-op.
+ */
+export function removeEgressTmp(sessionId: string): void {
+  try {
+    rmSync(egressTmpDir(sessionId), { recursive: true, force: true });
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Startup reconcile sweep: remove any `shepherd-egress/<id>` dir whose id is NOT in
+ * `liveSessionIds` (the non-archived session set). Bounds unbounded growth from
+ * sessions whose teardown removal was missed (crash, restart). Best-effort —
+ * never throws; a single unremovable entry is skipped.
+ */
+export function sweepEgressTmp(liveSessionIds: Iterable<string>): void {
+  const live = new Set(liveSessionIds);
+  let entries: string[];
+  try {
+    entries = readdirSync(egressTmpRoot());
+  } catch {
+    return; // root absent → nothing to sweep
+  }
+  for (const id of entries) {
+    if (live.has(id)) continue;
+    try {
+      rmSync(join(egressTmpRoot(), id), { recursive: true, force: true });
+    } catch {
+      // best-effort — skip this entry
+    }
+  }
 }

@@ -23,7 +23,14 @@ import { config } from "./config";
  *  trip GitHub secondary rate limits. */
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
 import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
-import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
+import {
+  resolveProfile,
+  autoHoldReason,
+  egressApplies,
+  detectBackend,
+  type SandboxBackend,
+} from "./sandbox";
+import { detectEgressBackend, type EgressBackend } from "./egress";
 import { epicBaseDirective } from "./autopilot";
 
 /** Cached epic structure for one pump cycle. */
@@ -91,6 +98,14 @@ export interface DrainDeps {
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
+  /** Sandbox backend probe seam (tests inject so no real bwrap spawns); defaults to the
+   *  cached real self-test in sandbox.ts. Mirrors SessionService's seam. */
+  detectBackend?: () => SandboxBackend;
+  /** Egress backend probe seam (tests inject so no real netns/dnsmasq spawns); defaults to
+   *  the cached real self-test in egress.ts. Probed only for an autonomous-profile repo
+   *  with an FS backend, so a drain-spawned autonomous session is refused-loud when egress
+   *  is unavailable. */
+  detectEgressBackend?: () => EgressBackend;
 }
 
 /**
@@ -132,6 +147,18 @@ export class DrainService {
   /** Operator approves the next epic-attended spawn for the given repo. */
   approveEpicNext(repoPath: string): void {
     this.approvedNext.add(repoPath);
+  }
+
+  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-check
+   *  (not `?? real()`) since the seam legitimately returns null. */
+  private detectBackend(): SandboxBackend {
+    return this.deps.detectBackend ? this.deps.detectBackend() : detectBackend();
+  }
+
+  /** Egress backend probe: injected seam (tests) or the real cached self-test. Presence-check
+   *  (not `?? real()`) since the seam legitimately returns null. */
+  private detectEgressBackend(): EgressBackend {
+    return this.deps.detectEgressBackend ? this.deps.detectEgressBackend() : detectEgressBackend();
   }
 
   /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). */
@@ -582,7 +609,13 @@ export class DrainService {
     const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
     // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
     // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
-    const hold = autoHoldReason(profile, profile === "trusted" ? null : detectBackend());
+    const backend = profile === "trusted" ? null : this.detectBackend();
+    // Probe egress only for an autonomous repo with an FS backend, so a drain-spawned
+    // autonomous session is also refused-loud (EGRESS_UNAVAILABLE_REASON) when egress is
+    // unavailable. Undefined elsewhere → autoHoldReason's 2-arg semantics (egress not considered).
+    const egressBackend =
+      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
+    const hold = autoHoldReason(profile, backend, egressBackend);
     if (hold) {
       console.warn(`[drain] issue #${number} held — ${hold}`);
       return;

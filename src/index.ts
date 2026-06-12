@@ -199,6 +199,15 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
 
 reconcile(store, herdr);
 
+// Reconcile orphaned per-session egress temp dirs (config + dns.log) from sessions
+// whose teardown removal was missed across a crash/restart. Live sessions' dirs are
+// preserved. Best-effort — never throws.
+try {
+  service.sweepEgressTmp();
+} catch (err) {
+  console.warn("[egress] startup temp-dir sweep failed:", err);
+}
+
 // Ensure the disk-backed compile-cache dir exists so spawns can point NODE_COMPILE_CACHE
 // at it (keeps the V8 compile cache off the /tmp tmpfs).
 try {

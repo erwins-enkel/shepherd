@@ -1,10 +1,18 @@
-import { test, expect } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { DrainService, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
-import type { GitForge, GitState, Issue, MergeMethod, PrStatus } from "../src/forge/types";
+import type {
+  GitForge,
+  GitState,
+  Issue,
+  MergeMethod,
+  PrStatus,
+  SubIssueRef,
+} from "../src/forge/types";
 import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
+import type { Epic } from "../src/epic-core";
 
 const REPO = "/repo";
 
@@ -44,6 +52,9 @@ function fakeForge(
     getIssue?: (n: number) => Promise<Issue | null>;
     omitCloseIssue?: boolean;
     omitGetIssue?: boolean;
+    // Epic support
+    listSubIssues?: (parentNumber: number) => Promise<SubIssueRef[]>;
+    listBlockedBy?: (issueNumber: number) => Promise<number[]>;
   } = {},
 ): GitForge {
   return {
@@ -95,6 +106,8 @@ function fakeForge(
           if (opts.getIssue) return opts.getIssue(number);
           return issues.find((i) => i.number === number) ?? null;
         },
+    listSubIssues: opts.listSubIssues,
+    listBlockedBy: opts.listBlockedBy,
   };
 }
 
@@ -104,6 +117,7 @@ interface Harness {
   forgeRec: ForgeRec;
   creates: CreateSessionInput[];
   statuses: DrainStatus[];
+  epics: Epic[];
   archived: string[];
   dropped: string[];
   prCache: Record<string, GitState>;
@@ -127,6 +141,9 @@ function makeHarness(
     omitCloseIssue?: boolean;
     omitGetIssue?: boolean;
     createImpl?: () => Promise<void>;
+    // Epic support
+    listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
+    listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -164,12 +181,15 @@ function makeHarness(
     getIssue: opts.getIssueImpl,
     omitCloseIssue: opts.omitCloseIssue,
     omitGetIssue: opts.omitGetIssue,
+    listSubIssues: opts.listSubIssuesImpl,
+    listBlockedBy: opts.listBlockedByImpl,
   });
 
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
   const creates: CreateSessionInput[] = [];
   const statuses: Harness["statuses"] = [];
+  const epics: Epic[] = [];
   const archived: string[] = [];
   const dropped: string[] = [];
 
@@ -212,6 +232,7 @@ function makeHarness(
     forgeRec,
     creates,
     statuses,
+    epics,
     archived,
     dropped,
     prCache,
@@ -239,6 +260,7 @@ function makeHarness(
       opts.onArchived?.(harness, id);
     },
     dropPrCache: (id) => dropped.push(id),
+    emitEpic: (epic) => epics.push(epic),
   });
   harness.drain = drain;
   return harness;
@@ -1080,4 +1102,219 @@ test("archiving a non-auto session WITHOUT an issue never touches labels", async
   h.store.archive(s.id);
   await h.drain.onArchived(s.id);
   expect(h.forgeRec.removed).toHaveLength(0);
+});
+
+// ── drain epic mode ──────────────────────────────────────────────────────────────
+
+describe("drain epic mode", () => {
+  const PARENT = 327;
+  const CHILD = 320;
+
+  function epicHarness(
+    epicStatus: "running" | "paused" = "running",
+    epicMode: "auto" | "attended" = "auto",
+  ) {
+    const subIssues: SubIssueRef[] = [
+      {
+        number: CHILD,
+        title: "EFI",
+        url: "u320",
+        body: "Notion spec 320",
+        closed: false,
+        labels: [],
+      },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "Epic parent",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+    };
+    const h = makeHarness({
+      // listIssues returns [] — epic native mode must NOT rely on it
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: epicMode,
+      status: epicStatus,
+    });
+    return h;
+  }
+
+  test("running auto epic spawns the dependency-free root once, carries body, and does NOT depend on listIssues", async () => {
+    const h = epicHarness("running", "auto");
+    await h.drain.pump(REPO);
+    // listIssues should NOT have been called (native sub-issues used instead)
+    expect(h.forgeRec.listIssuesCalls).toBe(0);
+    // Exactly one session created
+    expect(h.creates).toHaveLength(1);
+    const created = h.creates[0]!;
+    expect(created.auto).toBe(true);
+    expect(created.issueRef?.number).toBe(CHILD);
+    expect(created.issueRef?.body).toBe("Notion spec 320");
+  });
+
+  test("paused epic spawns nothing", async () => {
+    const h = epicHarness("paused", "auto");
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("attended epic holds until approveEpicNext", async () => {
+    const h = epicHarness("running", "attended");
+    // First pump: attended mode → no spawn yet
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    // Approve next spawn
+    h.drain.approveEpicNext(REPO);
+    // Second pump: now approved → should spawn
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.issueRef?.number).toBe(CHILD);
+  });
+
+  test("running epic sets DrainStatus.epicParent; non-epic repo has epicParent null", async () => {
+    const h = epicHarness("running", "auto");
+    await h.drain.pump(REPO);
+    const last = h.statuses.at(-1)!;
+    expect(last.epicParent).toBe(PARENT);
+
+    // Non-epic repo: make a fresh harness without any epic set
+    const h2 = makeHarness({ issues: [] });
+    await h2.drain.pump(REPO);
+    const last2 = h2.statuses.at(-1)!;
+    expect(last2.epicParent).toBeNull();
+  });
+
+  test("emitEpic fires once per change, not once per pump iteration", async () => {
+    const h = epicHarness("running", "auto");
+    await h.drain.pump(REPO);
+    // The pump loops up to 100 times but emitEpic must not fire once per iteration.
+    // A single pump that reaches a steady hold should call emitEpic ≤ 2 times.
+    expect(h.epics.length).toBeGreaterThan(0);
+    expect(h.epics.length).toBeLessThanOrEqual(2);
+  });
+
+  test("idle epic_run row does NOT suppress label-drain: autoDrainEnabled+idle row → label candidates used, enabled true", async () => {
+    const h = makeHarness({
+      autoDrainEnabled: true,
+      issues: [issue(1)],
+    });
+    // Seed an idle epic_run row — must not override label-drain
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "idle",
+    });
+    await h.drain.pump(REPO);
+    // Label-drain must have run: listIssues was called and session was created for #1
+    expect(h.forgeRec.listIssuesCalls).toBeGreaterThan(0);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.issueRef?.number).toBe(1);
+    const last = h.statuses.at(-1)!;
+    expect(last.enabled).toBe(true);
+    expect(last.epicParent).toBeNull();
+  });
+
+  test("running epic with all-merged children auto-transitions to idle after pump", async () => {
+    const subIssues: SubIssueRef[] = [
+      {
+        number: CHILD,
+        title: "EFI",
+        url: "u320",
+        body: "Notion spec 320",
+        closed: true, // already merged
+        labels: [],
+      },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "Epic parent",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+    };
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    await h.drain.pump(REPO);
+    // All children merged → auto-complete: status must be idle now
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    // A final epic:update reflecting the completed state must have been emitted
+    expect(h.epics.length).toBeGreaterThan(0);
+    expect(h.epics.at(-1)!.run.status).toBe("idle");
+  });
+
+  test("auto-complete with autoDrain OFF emits drain:status with epicParent=null (banner clears without reload)", async () => {
+    // Bug: when the epic auto-completes and autoDrainEnabled is false, the pump
+    // guard prevents any further pump, so the stale epicParent from the pre-transition
+    // state was never corrected in the emitted drain:status.
+    const subIssues: SubIssueRef[] = [
+      {
+        number: CHILD,
+        title: "EFI",
+        url: "u320",
+        body: "Notion spec 320",
+        closed: true, // already merged → triggers auto-complete
+        labels: [],
+      },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "Epic parent",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+    };
+    const h = makeHarness({
+      autoDrainEnabled: false, // label-drain OFF — no follow-up pump will fire
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    await h.drain.pump(REPO);
+    // Stored run must be idle (existing behavior)
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    // The LAST emitted drain:status must carry epicParent=null (corrected emit)
+    const lastStatus = h.statuses.at(-1)!;
+    expect(lastStatus.epicParent).toBeNull();
+  });
+
+  test("snapshot() and queue() do NOT emit epic:update; pump() does", async () => {
+    const h = epicHarness("running", "auto");
+    const epicsBefore = h.epics.length;
+    // snapshot and queue are read-only: must not emit
+    await h.drain.snapshot();
+    await h.drain.queue(REPO);
+    expect(h.epics.length).toBe(epicsBefore);
+    // pump does emit
+    await h.drain.pump(REPO);
+    expect(h.epics.length).toBeGreaterThan(epicsBefore);
+  });
 });

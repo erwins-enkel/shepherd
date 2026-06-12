@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { listIssues } from "$lib/api";
+  import { listIssues, getEpics, getEpic } from "$lib/api";
   import { steers } from "$lib/steers.svelte";
   import { fitLabels } from "$lib/fit-labels";
-  import type { Issue, Steer } from "$lib/types";
+  import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { filterIssues } from "./issues-panel";
+  import EpicPanel from "./EpicPanel.svelte";
+  import { SvelteSet, SvelteMap } from "svelte/reactivity";
 
   // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
   // issue it has claimed (auto session or human-linked task). Highlighted so a
@@ -19,6 +21,7 @@
     onquick = undefined,
     bodyPreview = false,
     age = false,
+    epics = undefined,
   }: {
     repoPath: string;
     onnewtask: (issue: Issue) => void;
@@ -27,6 +30,9 @@
     onquick?: (issue: Issue, action: Steer) => void;
     bodyPreview?: boolean;
     age?: boolean;
+    /** Live epic record from the store, keyed `${repoPath}#${parentIssueNumber}`.
+     *  When present, WS-pushed updates refresh open panels without a re-fetch. */
+    epics?: Record<string, Epic>;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -38,10 +44,20 @@
   let filter = $state("");
   let visibleIssues = $derived(filterIssues(issues, filter));
 
+  // Epic summaries for this repo: number → EpicSummary.
+  let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
+  // Set of expanded epic issue numbers (SvelteSet for fine-grained reactivity).
+  const expanded = new SvelteSet<number>();
+  // One-shot fetch cache: issue number → fetched Epic (avoids re-fetching on re-render).
+  const fetched = new SvelteMap<number, Epic>();
+
   $effect(() => {
     const rp = repoPath;
     loading = true;
     filter = "";
+    expanded.clear();
+    epicByNumber = new Map();
+    fetched.clear();
     listIssues(rp)
       .then((r) => {
         if (rp !== repoPath) return;
@@ -52,7 +68,34 @@
       .catch(() => {
         loading = false;
       });
+    getEpics(rp)
+      .then((summaries) => {
+        if (rp !== repoPath) return;
+        epicByNumber = new Map(summaries.map((s) => [s.parentIssueNumber, s]));
+      })
+      .catch(() => {
+        /* leave empty — epics are an enhancement, not blocking */
+      });
   });
+
+  /** Return the live store value for an epic if available, else the cached fetch result. */
+  function epicFor(n: number): Epic | undefined {
+    return epics?.[`${repoPath}#${n}`] ?? fetched.get(n);
+  }
+
+  function toggleEpic(number: number) {
+    if (expanded.has(number)) {
+      expanded.delete(number);
+    } else {
+      expanded.add(number);
+      // Trigger a one-shot fetch if the live store doesn't have this epic yet.
+      if (!epics?.[`${repoPath}#${number}`] && !fetched.has(number)) {
+        getEpic(repoPath, number)
+          .then((e) => fetched.set(number, e))
+          .catch(() => {});
+      }
+    }
+  }
 </script>
 
 <div class="issues-panel">
@@ -79,6 +122,8 @@
         <div class="muted">{m.issuespanel_no_match()}</div>
       {/if}
       {#each visibleIssues as issue (issue.number)}
+        {@const epicSummary = epicByNumber.get(issue.number)}
+        {@const isExpanded = expanded.has(issue.number)}
         <div class="issue-row">
           <div class="issue-top">
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
@@ -97,6 +142,19 @@
               title={m.issuespanel_open_on_github()}>{issue.title}</a
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
+            {#if epicSummary}
+              <button
+                class="epic-badge"
+                class:expanded={isExpanded}
+                type="button"
+                aria-expanded={isExpanded}
+                aria-label={isExpanded
+                  ? m.epic_badge_collapse_aria({ parent: issue.number })
+                  : m.epic_badge_expand_aria({ parent: issue.number })}
+                onclick={() => toggleEpic(issue.number)}
+                >{m.epic_badge({ merged: epicSummary.merged, total: epicSummary.total })}</button
+              >
+            {/if}
           </div>
           {#if bodyPreview && issue.body}
             <div class="body-preview">{issue.body}</div>
@@ -141,6 +199,14 @@
               ></button
             >
           </div>
+          {#if epicSummary && isExpanded}
+            {@const e = epicFor(issue.number)}
+            {#if e}
+              <EpicPanel {repoPath} parent={issue.number} epic={e} />
+            {:else}
+              <div class="muted">{m.common_loading()}</div>
+            {/if}
+          {/if}
         </div>
       {/each}
     {/if}
@@ -369,6 +435,31 @@
     font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 4px 0;
+  }
+
+  /* Epic badge: compact EPIC merged/total pill that toggles the inline EpicPanel.
+     Uses the status-running token (amber) — an epic is active/in-progress work.
+     .expanded state darkens the fill to signal the panel is open. */
+  .epic-badge {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--status-running);
+    background: color-mix(in oklab, var(--status-running) 12%, transparent);
+    border: 1px solid var(--status-running);
+    border-radius: 2px;
+    padding: 1px 5px;
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+  }
+
+  .epic-badge.expanded,
+  .epic-badge:hover {
+    background: color-mix(in oklab, var(--status-running) 22%, transparent);
   }
 
   @media (max-width: 768px) {

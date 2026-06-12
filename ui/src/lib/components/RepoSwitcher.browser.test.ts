@@ -25,6 +25,7 @@ function drain(partial: Partial<DrainStatus> & { repoPath: string }): DrainStatu
     queued: 0,
     inFlight: 0,
     max: 4,
+    epicParent: null,
     ...partial,
   };
 }

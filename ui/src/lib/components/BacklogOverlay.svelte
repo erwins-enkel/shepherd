@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { BacklogPayload, Issue, PullRequest, Steer } from "$lib/types";
+  import type { BacklogPayload, Epic, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
   import BacklogView from "./BacklogView.svelte";
@@ -13,6 +13,7 @@
     onadopt,
     onlaunchtrain,
     onclose,
+    epics = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -22,6 +23,8 @@
     onadopt: (repoPath: string, prompt: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onclose: () => void;
+    /** Live epic record from the store, threaded to BacklogView → IssuesPanel. */
+    epics?: Record<string, Epic>;
   } = $props();
 </script>
 
@@ -46,7 +49,16 @@
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
     <div class="body">
-      <BacklogView {payload} {mobile} {onissue} {onquick} {onpr} {onadopt} {onlaunchtrain} />
+      <BacklogView
+        {payload}
+        {mobile}
+        {onissue}
+        {onquick}
+        {onpr}
+        {onadopt}
+        {onlaunchtrain}
+        {epics}
+      />
     </div>
   </div>
 </div>

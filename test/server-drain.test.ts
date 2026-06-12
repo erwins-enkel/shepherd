@@ -17,7 +17,12 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function harness(drain?: Omit<NonNullable<AppDeps["drain"]>, "retainClaim">): {
+function harness(
+  drain?: Omit<
+    NonNullable<AppDeps["drain"]>,
+    "retainClaim" | "buildEpic" | "approveEpicNext" | "tick"
+  >,
+): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
 } {
@@ -27,9 +32,17 @@ function harness(drain?: Omit<NonNullable<AppDeps["drain"]>, "retainClaim">): {
     service: {} as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
-    // these drain tests don't exercise relaunch; stub retainClaim so the route's
-    // drain interface (which gained retainClaim) is satisfied.
-    drain: drain ? { ...drain, retainClaim: () => {} } : undefined,
+    // these drain tests don't exercise relaunch; stub retainClaim + epic methods
+    // so the route's drain interface is satisfied.
+    drain: drain
+      ? {
+          ...drain,
+          retainClaim: () => {},
+          buildEpic: async () => null,
+          approveEpicNext: () => {},
+          tick: async () => {},
+        }
+      : undefined,
   };
   return { app: makeApp(deps), store };
 }
@@ -198,6 +211,7 @@ test("GET /api/drain returns array from drain.snapshot()", async () => {
     queued: 2,
     inFlight: 1,
     max: 3,
+    epicParent: null,
   };
   const { app } = harness({ snapshot: async () => [status], queue: async () => [] });
   const res = await app.fetch(new Request("http://x/api/drain"));

@@ -4,6 +4,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import type {
+    DrainStatus,
     GitState,
     Leftover,
     Session,
@@ -86,6 +87,7 @@
     previewHost = null,
     workingBlocked = {},
     consumeAutoFocusTerm = () => true,
+    drain = null,
   }: {
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
@@ -146,6 +148,9 @@
      *  it to true, return it. The always-true default merely keeps the prop optional
      *  (tests / future callers). */
     consumeAutoFocusTerm?: () => boolean;
+    /** Live drain status for this session's repo; passed through to GitRail →
+     *  AutomationPanel so the epic-mode precedence indicator can render. */
+    drain?: DrainStatus | null;
   } = $props();
 
   // Display-side status for every header/status render below (see display-status.ts).
@@ -2101,6 +2106,7 @@
         planPhase={session.planPhase}
         isolated={session.isolated}
         baseBranch={session.baseBranch}
+        {drain}
         mobile
       />
       <span class="strip-controls">

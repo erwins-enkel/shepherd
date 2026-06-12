@@ -582,6 +582,7 @@ const drain = new DrainService({
   emitStatus: (status) => events.emit("drain:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),
   dropPrCache: (id) => prPoller.drop(id),
+  emitEpic: (epic) => events.emit("epic:update", epic),
 });
 
 // Drive the drain off the poller events the rest of the system already emits.
@@ -856,6 +857,9 @@ const server = serve(
       snapshot: () => drain.snapshot(),
       queue: (repoPath) => drain.queue(repoPath),
       retainClaim: (id) => drain.retainClaim(id),
+      buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
+      approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
+      tick: () => drain.tick(),
     },
     autoMerge: { snapshot: () => autoMerge.snapshot() },
   },

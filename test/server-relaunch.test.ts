@@ -140,6 +140,9 @@ function harness(opts: {
         // record whether session:archived was already emitted at retain time
         retainClaimSeenArchived = emitted.some((e) => e.event === "session:archived");
       },
+      buildEpic: async () => null,
+      approveEpicNext: () => {},
+      tick: async () => {},
     },
   };
 
@@ -341,7 +344,14 @@ test("concurrent second relaunch of the same id → 409, no double-spawn", async
       emit: (event: string, data: unknown) => emitted.push({ event, data }),
     } as unknown as EventHub,
     usageLimits: { limits: () => ({}) } as never,
-    drain: { snapshot: async () => [], queue: async () => [], retainClaim: () => {} },
+    drain: {
+      snapshot: async () => [],
+      queue: async () => [],
+      retainClaim: () => {},
+      buildEpic: async () => null,
+      approveEpicNext: () => {},
+      tick: async () => {},
+    },
     prCache: { drop: () => {} } as unknown as AppDeps["prCache"],
   };
   const app = makeApp(deps);

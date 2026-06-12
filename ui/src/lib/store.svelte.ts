@@ -13,6 +13,7 @@ import type {
   DrainStatus,
   AutoMergeStatus,
   BuildQueue,
+  Epic,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -77,6 +78,9 @@ export class HerdStore {
   /** Live build queue keyed by sessionId; bootstrapped via GET /api/sessions/:id/queue,
    *  updated in real-time by the `queue:update` WS event. */
   buildQueues = $state<Record<string, BuildQueue>>({});
+  /** Live epic state keyed by `${repoPath}#${parentIssueNumber}`;
+   *  updated in real-time by the `epic:update` WS event. */
+  epics = $state<Record<string, Epic>>({});
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -118,6 +122,10 @@ export class HerdStore {
   /** Seed (or replace) the build queue for a session — called after a bootstrap GET. */
   setBuildQueue(q: BuildQueue) {
     this.buildQueues = { ...this.buildQueues, [q.sessionId]: q };
+  }
+  /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push. */
+  setEpic(e: Epic) {
+    this.epics = { ...this.epics, [`${e.repoPath}#${e.parentIssueNumber}`]: e };
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -352,6 +360,9 @@ export class HerdStore {
         break;
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
+        break;
+      case "epic:update":
+        this.setEpic(ev.data);
         break;
       case "halt:done":
         // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the

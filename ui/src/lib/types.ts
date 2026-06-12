@@ -286,6 +286,48 @@ export interface DrainStatus {
   queued: number;
   inFlight: number;
   max: number;
+  epicParent: number | null;
+}
+
+// ── epics ──────────────────────────────────────────────────────────────────
+export type EpicSource = "native" | "markdown";
+export type EpicMode = "auto" | "attended";
+export type EpicRunStatus = "idle" | "running" | "paused";
+export type EpicChildState = "merged" | "in-review" | "running" | "ready" | "blocked";
+export interface EpicChild {
+  number: number;
+  title: string;
+  url: string;
+  order: number;
+  body: string;
+  blockedBy: number[];
+  state: EpicChildState;
+  sessionId: string | null;
+  prNumber: number | null;
+  issueClosed: boolean;
+  claimed: boolean;
+}
+export interface EpicRun {
+  repoPath: string;
+  parentIssueNumber: number;
+  mode: EpicMode;
+  status: EpicRunStatus;
+}
+export interface Epic {
+  repoPath: string;
+  parentIssueNumber: number;
+  parentTitle: string;
+  source: EpicSource;
+  children: EpicChild[];
+  warnings: string[];
+  run: EpicRun;
+}
+export interface EpicSummary {
+  parentIssueNumber: number;
+  parentTitle: string;
+  total: number;
+  merged: number;
+  status: EpicRunStatus;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.
@@ -557,7 +599,8 @@ export type WsEvent =
   | { event: "queue:update"; data: BuildQueue }
   | { event: "halt:done"; data: { halted: number } }
   | { event: "mergetrain:landed"; data: { repoPath: string } }
-  | { event: "draftreconcile:status"; data: DraftReconcileStatus };
+  | { event: "draftreconcile:status"; data: DraftReconcileStatus }
+  | { event: "epic:update"; data: Epic };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {

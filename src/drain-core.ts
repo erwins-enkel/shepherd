@@ -33,6 +33,7 @@ export interface HoldReason {
     | "changes_requested" // an auto-agent's critic is blocking (trouble pause)
     | "error" // an auto-agent's critic verdict is an error (don't advance on uncertainty)
     | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
+    | "awaiting_approval" // epicAttended: next spawn held until operator approves
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -87,6 +88,10 @@ export interface DrainRepoState {
   mappedIssueNumbers: Set<number>;
   /** Labeled, ordered backlog issues (see selectCandidates). */
   candidates: Issue[];
+  /** Epic mode: when true, hold each spawn until the operator approves it. */
+  epicAttended: boolean;
+  /** Epic mode: operator approved the next spawn (consumed on spawn). */
+  epicApprovedNext: boolean;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -207,6 +212,12 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 5. Next un-mapped candidate.
   const next = state.candidates.find((c) => !state.mappedIssueNumbers.has(c.number));
   if (!next) return { kind: "hold", reason: { code: "empty" } };
+
+  // Epic attended mode: hold the next spawn until the operator approves it.
+  if (next && state.epicAttended && !state.epicApprovedNext) {
+    return { kind: "hold", reason: { code: "awaiting_approval", detail: String(next.number) } };
+  }
+
   return { kind: "spawn", issue: next };
 }
 

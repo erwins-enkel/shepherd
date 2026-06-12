@@ -17,6 +17,7 @@ import type {
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
+import type { EpicRun } from "./epic-core";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -255,6 +256,9 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS issue_log (
       sessionId TEXT NOT NULL, key TEXT NOT NULL, createdAt INTEGER NOT NULL,
       PRIMARY KEY (sessionId, key))`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
+      repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -427,6 +431,23 @@ export class SessionStore implements CapStore {
       [prefs.agent ? 1 : 0, prefs.reviews ? 1 : 0, prefs.ci ? 1 : 0, endpoint],
     );
     return changes > 0;
+  }
+
+  // ── epic run (one active epic per repo) ──────────────────────────────────
+  getEpicRun(repoPath: string): EpicRun | null {
+    return (
+      (this.db
+        .query(`SELECT repoPath, parentIssueNumber, mode, status FROM epic_run WHERE repoPath = ?`)
+        .get(repoPath) as EpicRun | null) ?? null
+    );
+  }
+
+  setEpicRun(r: EpicRun): void {
+    this.db.run(
+      `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, updatedAt) VALUES (?,?,?,?,?)
+      ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, updatedAt=excluded.updatedAt`,
+      [r.repoPath, r.parentIssueNumber, r.mode, r.status, Date.now()],
+    );
   }
 
   private nextDesignationSeq(): number {

@@ -676,6 +676,24 @@ export function validateBuildStepStatus(body: unknown): BuildStepStatus | null {
   return o.status as BuildStepStatus;
 }
 
+/** Validate a PATCH body for PUT /api/epic. Returns null on any violation. */
+export function validateEpicRunPatch(
+  v: unknown,
+): { mode?: "auto" | "attended"; status?: "idle" | "running" | "paused" } | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const out: { mode?: "auto" | "attended"; status?: "idle" | "running" | "paused" } = {};
+  if ("mode" in o) {
+    if (o.mode !== "auto" && o.mode !== "attended") return null;
+    out.mode = o.mode;
+  }
+  if ("status" in o) {
+    if (o.status !== "idle" && o.status !== "running" && o.status !== "paused") return null;
+    out.status = o.status;
+  }
+  return out;
+}
+
 /** Validate a POST /api/broadcast payload. Returns null on any violation. */
 export function validateBroadcast(body: unknown): { text: string; ids: string[] } | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;

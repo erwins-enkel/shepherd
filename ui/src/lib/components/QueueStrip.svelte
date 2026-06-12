@@ -99,4 +99,19 @@
     text-overflow: ellipsis;
     max-width: min(320px, 50vw);
   }
+
+  /* on phones the capped, ellipsis-clipped pause reason hides the actionable
+     detail; let it wrap to full width instead of truncating */
+  @media (max-width: 768px) {
+    .qs-row.paused {
+      /* top-align the repo label with the now-multi-line wrapped reason */
+      align-items: flex-start;
+    }
+    .qs-pause {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      max-width: none;
+    }
+  }
 </style>

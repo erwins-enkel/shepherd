@@ -1,5 +1,8 @@
 import { wsUrl } from "./store.svelte";
 
+// Shared decoder — stateless single-shot calls are safe with one instance.
+const utf8Decoder = new TextDecoder();
+
 // ── browser-side echo RTT profiling ──────────────────────────────────────────
 // Enabled by setting localStorage key "shepherd:profile" = "1".
 // Logs `[profile] echo-rtt <N>ms` to console.warn when RTT > 150ms.
@@ -101,7 +104,7 @@ export function connectPty(
           console.warn(`[profile] echo-rtt ${rtt}ms`);
         }
       }
-      onData(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data));
+      onData(typeof e.data === "string" ? e.data : utf8Decoder.decode(e.data));
     };
     ws.onopen = () => {
       openedAt = Date.now();

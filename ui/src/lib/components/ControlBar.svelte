@@ -155,6 +155,10 @@
     background: var(--color-line-bright);
     border-color: var(--color-ink);
   }
+  .key:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   /* Esc — the odd-one-out cancel key, marked with a calm distinct accent so it
      reads as "special" without screaming for attention */

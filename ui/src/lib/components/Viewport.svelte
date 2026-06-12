@@ -258,6 +258,10 @@
   // the fold, so they can't carry a stable controlled-region id). Per-session id so
   // it stays unique if ever more than one viewport mounts.
   const foldRegionId = $derived(`vp-fold-region-${session.id}`);
+  // a11y: tablist wiring — per-session ids so the tab buttons' aria-controls and the
+  // panel's aria-labelledby resolve uniquely if more than one viewport ever mounts.
+  const vpBodyId = $derived(`vp-panel-${session.id}`);
+  const tabId = $derived((t: typeof tab) => `vp-tab-${t}-${session.id}`);
 
   function toggleFold() {
     headerCollapsed = !headerCollapsed;
@@ -1739,22 +1743,55 @@
     {/if}
     <div class="spacer"></div>
     <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
-      <div class="tab-scroll">
-        <button class="tab-btn" class:active={tab === "term"} onclick={() => (tab = "term")}
-          >{m.viewport_terminal_tab()}</button
+      <!-- The preview tab is pinned OUTSIDE this scroll strip (it must stay visible
+           while the other tabs scroll), so the tablist owns it via aria-owns rather
+           than DOM containment. Only the preview id is listed: the term/todo/activity/
+           diff tabs are already DOM children and must not be referenced by aria-owns. -->
+      <div
+        class="tab-scroll"
+        role="tablist"
+        aria-label={m.viewport_tablist_aria()}
+        aria-owns={hasPreview ? tabId("preview") : undefined}
+      >
+        <button
+          class="tab-btn"
+          class:active={tab === "term"}
+          role="tab"
+          id={tabId("term")}
+          aria-selected={tab === "term"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "term")}>{m.viewport_terminal_tab()}</button
         >
         {#if todoExists}
           <!-- only when the repo has a TODO.md (server-resolved); skips the empty
                "add your first item" tab so the strip stays meaningful. -->
-          <button class="tab-btn" class:active={tab === "todo"} onclick={() => (tab = "todo")}
-            >{m.viewport_todo_tab()}</button
+          <button
+            class="tab-btn"
+            class:active={tab === "todo"}
+            role="tab"
+            id={tabId("todo")}
+            aria-selected={tab === "todo"}
+            aria-controls={vpBodyId}
+            onclick={() => (tab = "todo")}>{m.viewport_todo_tab()}</button
           >
         {/if}
-        <button class="tab-btn" class:active={tab === "activity"} onclick={() => (tab = "activity")}
-          >{m.viewport_activity_tab()}</button
+        <button
+          class="tab-btn"
+          class:active={tab === "activity"}
+          role="tab"
+          id={tabId("activity")}
+          aria-selected={tab === "activity"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
         >
-        <button class="tab-btn" class:active={tab === "diff"} onclick={() => (tab = "diff")}
-          >{m.viewport_diff_tab()}</button
+        <button
+          class="tab-btn"
+          class:active={tab === "diff"}
+          role="tab"
+          id={tabId("diff")}
+          aria-selected={tab === "diff"}
+          aria-controls={vpBodyId}
+          onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
         >
       </div>
       {#if hasPreview}
@@ -1763,6 +1800,10 @@
         <button
           class="tab-btn preview-tab"
           class:active={tab === "preview"}
+          role="tab"
+          id={tabId("preview")}
+          aria-selected={tab === "preview"}
+          aria-controls={vpBodyId}
           onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
         >
       {:else if session && !session.archivedAt}
@@ -2082,8 +2123,8 @@
   {/if}
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
-  <div class="vp-body" data-swipe-page>
-    <div class="scan" aria-hidden="true"></div>
+  <div class="vp-body" data-swipe-page role="tabpanel" id={vpBodyId} aria-labelledby={tabId(tab)}>
+    <div class="scan" class:running={tab === "term"} aria-hidden="true"></div>
     <div
       class="term-mount"
       class:dragging
@@ -2361,24 +2402,37 @@
   /* running: a faint amber wash that slowly breathes in intensity. Lower
      chroma than the saturated blocked/done tint so it reads as ambient
      "still busy", never as an alert. Only applies when no saturated tint is
-     present. Status is carried by the background tint alone — no side stripe. */
+     present. Status is carried by the background tint alone — no side stripe.
+     The pulse is compositor-only: base background stays static; a ::after
+     overlay carries the delta (5% extra amber) and animates via opacity only,
+     avoiding per-frame background repaints. */
   .vp-head.working {
+    position: relative;
     background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
+  }
+  .vp-head.working::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--color-amber) 5%, transparent);
+    pointer-events: none;
     animation: vp-working-pulse 2.4s ease-in-out infinite;
   }
   @keyframes vp-working-pulse {
     0%,
     100% {
-      background: color-mix(in srgb, var(--color-amber) 4%, var(--color-head));
+      opacity: 0;
     }
     50% {
-      background: color-mix(in srgb, var(--color-amber) 9%, var(--color-head));
+      opacity: 1;
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .vp-head.working {
-      animation: none;
       background: color-mix(in srgb, var(--color-amber) 7%, var(--color-head));
+    }
+    .vp-head.working::after {
+      display: none;
     }
   }
 
@@ -2952,7 +3006,9 @@
   }
 
   /* faint amber scan line: full-height layer with a 70px amber band at its top,
-     swept top→bottom via translateY (compositor-only) instead of animating top */
+     swept top→bottom via translateY (compositor-only) instead of animating top.
+     Animation + will-change only when the terminal tab is active — no wasted
+     compositor layer or GPU work on idle dashboard tabs. */
   .scan {
     position: absolute;
     left: 0;
@@ -2970,6 +3026,8 @@
     background-position: 0 0;
     pointer-events: none;
     z-index: 1;
+  }
+  .scan.running {
     will-change: transform;
     animation: scan 8s linear infinite;
   }
@@ -3141,6 +3199,8 @@
   .next-yu.compact {
     justify-content: center;
     gap: 4px;
+    /* not the 44px floor: this chip's content (icon + count + arrow) + padding
+       already renders wider than 44px; the floor only guards against collapse. */
     min-width: 40px;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
@@ -3168,8 +3228,8 @@
     font: inherit;
     font-size: var(--fs-lg);
     line-height: 1;
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 44px;
+    min-height: 44px;
     cursor: pointer;
   }
   .queue-nav button:active {
@@ -3209,11 +3269,11 @@
     padding-left: 8px;
     border-left: 1px solid var(--color-line);
   }
-  /* the strip's GitRail always renders its ≥40px touch variant — match it so the
+  /* the strip's GitRail always renders its ≥44px touch variant — match it so the
      cluster doesn't sit half-height beside the rail buttons */
   .strip-controls .ap-toggle,
   .strip-controls .decom {
-    min-height: 40px;
+    min-height: 44px;
     padding: 6px 9px;
   }
 
@@ -3294,12 +3354,12 @@
   .tab-group.mobile .preview-tab {
     flex-shrink: 0;
   }
-  /* finger-sized header controls on touch layouts (≥40px) */
+  /* finger-sized header controls on touch layouts (≥44px) */
   .vp-head.mobile .back,
   .vp-head.mobile .next-yu,
   .vp-head.mobile .vp-fold,
   .vp-head.mobile .decom {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 12px;
     font-size: var(--fs-base);
   }
@@ -3310,7 +3370,7 @@
     padding: 6px 12px;
   }
   /* the fold toggle is likewise a bare chevron — at --fs-base it reads as a
-     dot, so it gets the same icon-size bump (hit area stays ≥40px above) */
+     dot, so it gets the same icon-size bump (hit area stays ≥44px above) */
   .vp-head.mobile .vp-fold {
     font-size: var(--fs-xl);
     line-height: 1;

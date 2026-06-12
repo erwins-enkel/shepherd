@@ -234,6 +234,10 @@
     background: var(--color-line-bright);
     border-color: var(--color-ink);
   }
+  .chip:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   .chip.bc {
     color: var(--color-amber);
     border-color: var(--color-amber);
@@ -357,5 +361,9 @@
   .coach-dismiss:active {
     background: var(--color-line-bright);
     border-color: var(--color-ink);
+  }
+  .coach-dismiss:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 </style>

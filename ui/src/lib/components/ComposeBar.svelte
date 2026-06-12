@@ -464,6 +464,10 @@
     color: var(--color-ink);
     background: var(--color-inset);
   }
+  .close:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   /* anchors the slash-command menu (positioned absolute) to the field */
   .field-wrap {
@@ -538,6 +542,10 @@
     background: var(--color-line-bright);
     border-color: var(--color-ink);
   }
+  .steer-chip:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
 
   .actions {
     display: flex;
@@ -570,6 +578,10 @@
   .btn:active {
     background: var(--color-line-bright);
     border-color: var(--color-ink);
+  }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .btn.mic {
     font-size: var(--fs-lg);

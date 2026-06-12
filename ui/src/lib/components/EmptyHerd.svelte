@@ -112,6 +112,13 @@
   .spawn:hover {
     box-shadow: inset 0 0 24px -10px var(--color-amber);
   }
+  /* keep the resting amber glow under the focus ring */
+  .spawn:focus-visible {
+    outline: none;
+    box-shadow:
+      inset 0 0 0 1px var(--color-amber),
+      inset 0 0 18px -10px var(--color-amber);
+  }
   .spawn span {
     font-size: var(--fs-base);
   }
@@ -159,5 +166,11 @@
   }
   .nudge-link:hover {
     color: var(--color-ink-bright);
+  }
+  /* bare text link — an inset ring reads wrong on a zero-padding underline, so
+     use the brightened-hairline outline */
+  .nudge-link:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
   }
 </style>

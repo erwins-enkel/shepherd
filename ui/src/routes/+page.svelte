@@ -476,6 +476,18 @@
   let mobileScreen = $state<"list" | "detail">("list");
   let showBacklog = $state(false);
 
+  // EPIC badge → open the backlog targeted at that session's repo + epic issue
+  // (Issues tab, row expanded + scrolled). Cleared on every backlog close so a
+  // normal reopen never re-applies a stale target.
+  let epicTarget = $state<{ repoPath: string; issueNumber: number } | null>(null);
+  function openEpicInBacklog(repoPath: string, issueNumber: number) {
+    epicTarget = { repoPath, issueNumber };
+    showBacklog = true;
+  }
+  $effect(() => {
+    if (!showBacklog) epicTarget = null;
+  });
+
   // Whether the *next* terminal remount should grab the keyboard. Deliberately a
   // plain (non-reactive) let, NOT $state: nothing renders it and the consumer
   // (Viewport's mount rAF) reads it imperatively, so reactivity buys nothing —
@@ -1201,7 +1213,7 @@
             previewServe={store.previewServe}
             onpreview={openPreview}
             epics={store.epics}
-            onepic={() => (showBacklog = true)}
+            onepic={openEpicInBacklog}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -1323,7 +1335,7 @@
             previewServe={store.previewServe}
             onpreview={openPreview}
             epics={store.epics}
-            onepic={() => (showBacklog = true)}
+            onepic={openEpicInBacklog}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -1626,6 +1638,7 @@
     {onlaunchtrain}
     onclose={() => (showBacklog = false)}
     epics={store.epics}
+    target={epicTarget}
   />
 {/if}
 

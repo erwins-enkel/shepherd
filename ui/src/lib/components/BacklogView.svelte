@@ -19,6 +19,7 @@
     onlaunchtrain,
     flow = false,
     epics = undefined,
+    target = null,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -37,6 +38,9 @@
     flow?: boolean;
     /** Live epic record from the store, threaded down to IssuesPanel. */
     epics?: Record<string, Epic>;
+    /** When set (EPIC badge click), select that repo, switch to the Issues tab,
+     *  and expand+scroll the epic's row. Applied once per distinct value. */
+    target?: { repoPath: string; issueNumber: number } | null;
   } = $props();
 
   type Tab = "issues" | "prs" | "actions" | "readiness";
@@ -100,6 +104,25 @@
     if (!mobile && selectedPath !== null && !visibleProjects.some((p) => p.path === selectedPath)) {
       selectedPath = null;
     }
+  });
+
+  // Apply an externally-supplied target (EPIC badge click) once per distinct
+  // value: select its repo + switch to the Issues tab. This is an EXPLICIT user
+  // action, so seeding selectedPath on mobile is desired (it opens the detail
+  // overlay) — unlike the pinned-repo seed above which deliberately skips mobile.
+  // appliedTargetKey is read untracked so the effect depends only on `target`,
+  // never self-retriggering and never clobbering a later manual repo switch.
+  let appliedTargetKey = $state<string | null>(null);
+  $effect(() => {
+    if (!target) {
+      appliedTargetKey = null; // reset so reopening the SAME epic re-applies
+      return;
+    }
+    const key = `${target.repoPath}#${target.issueNumber}`;
+    if (key === untrack(() => appliedTargetKey)) return; // already applied
+    appliedTargetKey = key;
+    selectedPath = target.repoPath;
+    activeTab = "issues";
   });
 
   // On mobile, a set selectedPath means the detail overlay is open.
@@ -211,6 +234,7 @@
               bodyPreview
               age
               {epics}
+              expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
             />
           {:else if activeTab === "prs"}
             <PrsPanel
@@ -307,6 +331,7 @@
                 bodyPreview
                 age
                 {epics}
+                expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
               />
             {:else if activeTab === "prs"}
               <PrsPanel

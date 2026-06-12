@@ -772,6 +772,8 @@
   "session_autopilot_toggle_aria": "Autopilot für diese Session umschalten",
   "session_autopilot_on_label": "Autopilot an",
   "session_autopilot_off_label": "Autopilot aus",
+  "session_autopilot_on_short": "AP an",
+  "session_autopilot_off_short": "AP aus",
   "session_autopilot_paused_label": "Braucht dich",
   "session_autopilot_paused_title": "Autopilot hat dies für eine Entscheidung zurückgegeben: {question}",
   "session_autopilot_complete_label": "Fertig",

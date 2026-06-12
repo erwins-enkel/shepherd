@@ -633,6 +633,7 @@ test("scopeFindings drops path-attributed out-of-diff findings, keeps in-diff + 
       "src/a.ts:42: with a line suffix",
       "Nit: a prose prefix, not a path",
       "Animation at 1.5s: too slow", // spaced prose ending in a dotted word → not a path
+      "v2.0: regression", // version-like dotted token (digit-led ext) → not a path
       "no prefix at all",
     ],
     files,
@@ -643,6 +644,7 @@ test("scopeFindings drops path-attributed out-of-diff findings, keeps in-diff + 
     "src/a.ts:42: with a line suffix",
     "Nit: a prose prefix, not a path",
     "Animation at 1.5s: too slow",
+    "v2.0: regression",
     "no prefix at all",
   ]);
 });

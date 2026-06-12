@@ -9,11 +9,13 @@
     onpick,
     onpickissue,
     allowIssues = true,
+    epicParents = new Set(),
   }: {
     repoPath: string;
     onpick: (prompt: string) => void;
     onpickissue: (issue: Issue) => void;
     allowIssues?: boolean;
+    epicParents?: Set<number>;
   } = $props();
 
   let tab = $state<"todo" | "issues" | "commands">("todo");
@@ -202,27 +204,40 @@
       {:else}
         {#each issues as i (i.number)}
           {@const ordered = orderedLabels(i.labels)}
-          <button class="row" type="button" onclick={() => onpickissue(i)}>
-            <span class="issue-num">#{i.number}</span>
-            <span class="row-text">{i.title}</span>
-            {#if ordered.length > 0}
+          {#if epicParents.has(i.number)}
+            <!-- Epic-parent tracking issue: not pickable as a manual task (it would
+                 collide with the Epic Runner). Shown disabled with an EPIC tag + hint;
+                 epics launch via the epic panel's Start control. -->
+            <div class="row row-epic" aria-disabled="true" title={m.promptsources_epic_hint()}>
+              <span class="issue-num">#{i.number}</span>
+              <span class="row-text">{i.title}</span>
               <span class="chips">
-                {#each ordered.slice(0, 3) as lbl (lbl)}
-                  <span
-                    class="chip"
-                    class:active={lbl === ACTIVE_LABEL}
-                    title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
-                    >{lbl}</span
-                  >
-                {/each}
-                {#if ordered.length > 3}
-                  <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
-                    {m.promptsources_more_labels({ count: ordered.length - 3 })}
-                  </span>
-                {/if}
+                <span class="chip chip-epic">{m.promptsources_epic_tag()}</span>
               </span>
-            {/if}
-          </button>
+            </div>
+          {:else}
+            <button class="row" type="button" onclick={() => onpickissue(i)}>
+              <span class="issue-num">#{i.number}</span>
+              <span class="row-text">{i.title}</span>
+              {#if ordered.length > 0}
+                <span class="chips">
+                  {#each ordered.slice(0, 3) as lbl (lbl)}
+                    <span
+                      class="chip"
+                      class:active={lbl === ACTIVE_LABEL}
+                      title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
+                      >{lbl}</span
+                    >
+                  {/each}
+                  {#if ordered.length > 3}
+                    <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
+                      {m.promptsources_more_labels({ count: ordered.length - 3 })}
+                    </span>
+                  {/if}
+                </span>
+              {/if}
+            </button>
+          {/if}
         {/each}
       {/if}
     {/if}
@@ -338,6 +353,12 @@
     color: var(--color-ink-bright);
   }
 
+  /* Epic-parent rows are listed but not selectable — muted, no hover affordance. */
+  .row-epic {
+    color: var(--color-faint);
+    cursor: default;
+  }
+
   .row-marker {
     color: var(--color-faint);
     flex-shrink: 0;
@@ -403,8 +424,10 @@
   }
 
   /* shepherd:active — claimed work. Same semantic running/in-progress token as
-     IssuesPanel so a taken issue stands out with the running-session hue. */
-  .chip.active {
+     IssuesPanel so a taken issue stands out with the running-session hue.
+     The EPIC tag (.chip-epic) shares this hue, matching the backlog epic badge. */
+  .chip.active,
+  .chip-epic {
     color: var(--status-running);
     border-color: var(--status-running);
     background: color-mix(in srgb, var(--status-running) 14%, transparent);

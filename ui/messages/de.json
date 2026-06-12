@@ -278,6 +278,8 @@
   "promptsources_more_labels": "+{count}",
   "promptsources_no_commands": "keine installierten Befehle",
   "promptsources_commands_filter": "Befehle filtern…",
+  "promptsources_epic_tag": "EPIC",
+  "promptsources_epic_hint": "Über „Start“ starten, nicht als Aufgabe.",
   "slash_menu_label": "Slash-Befehle",
   "slash_menu_empty": "keine passenden Befehle",
   "reposelect_placeholder": "Repo auswählen…",

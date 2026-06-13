@@ -1051,7 +1051,7 @@
   "session_sandbox_unconfined_label": "Ungeschützt",
   "session_sandbox_unconfined_title": "Unbeaufsichtigter Agent läuft ohne Einschränkung — keine Sandbox angewendet.",
   "feat_sandbox_title": "Sandbox-Profile pro Repository",
-  "feat_sandbox_body": "Jedes Repository kann jetzt im Automatisierungs-Panel ein Sandbox-Profil wählen: Vertraut (keine Sandbox, bisheriges Verhalten), Standard oder Autonom. Standard und Autonom sperren den Agenten in sein Worktree ein. Autonom ist für Auto-/Drain-Sitzungen erforderlich — beachte: nur dateisystemseitig eingeschränkt, noch nicht netzwerk-egress-abgeschottet. Sessions zeigen ihren angewendeten Sandbox-Status als Badge.",
+  "feat_sandbox_body": "Jedes Repository kann jetzt im Automatisierungs-Panel ein Sandbox-Profil wählen: Vertraut (keine Sandbox, bisheriges Verhalten), Standard oder Autonom. Standard und Autonom sperren den Agenten in sein Worktree ein. Autonom ist für Auto-/Drain-Sitzungen erforderlich und schottet zusätzlich den Netzwerk-Egress auf eine Allowlist ab (Anthropic + den Forge-Host) und blockiert allen anderen ausgehenden Verkehr. Sessions zeigen ihren angewendeten Sandbox-Status als Badge.",
   "newtask_sandbox_label": "Sandbox",
   "newtask_sandbox_default": "Repo-Standard",
   "newtask_sandbox_hint": "Sandbox-Override pro Aufgabe. Bei 'Repo-Standard' wird das konfigurierte Profil dieses Repos übernommen. standard/autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws und andere $HOME-Dotfiles. Autonom fügt zudem die Egress-Allowlist hinzu (Anthropic + den Forge-Host) und blockiert anderen ausgehenden Verkehr; Standard lässt das Netzwerk offen (rein interaktiv). Die gh-/claude-Auth-Tokens bleiben lesbar.",

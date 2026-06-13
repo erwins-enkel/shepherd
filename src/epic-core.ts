@@ -21,6 +21,10 @@ export interface EpicChild {
   sessionId: string | null;
   prNumber: number | null;
   issueClosed: boolean;
+  /** The child's PR was squash-merged into the epic integration branch (recorded
+   *  by the drain at merge time; the issue stays open until the final epic→default
+   *  PR lands). Satisfies dependencies the same as issueClosed. */
+  integrationMerged: boolean;
   claimed: boolean;
 }
 /** Persisted `epic_run` store row (stands alone; repoPath/parentIssueNumber are intentionally self-contained, not a duplication bug). */
@@ -40,31 +44,35 @@ export interface Epic {
   run: EpicRun;
 }
 
-/** Child lifecycle state from its issue/session/PR facts. `closed` = closed member #s.
- *  Considers `claimed` for display: a claimed, session-less, open child reads as in-review
- *  (spawned and retired/in-flight, PR awaiting human merge). Spawn-eligibility gating still
- *  lives in `selectEpicCandidates` (which already excludes claimed). */
-export function deriveChildState(c: EpicChild, closed: Set<number>): EpicChildState {
-  if (c.issueClosed) return "merged";
+/** Child lifecycle state from its issue/session/PR facts. `done` = the set of member
+ *  #s that are done-in-epic (integration-merged OR issue-closed). A claimed, session-less,
+ *  open, not-yet-integrated child reads as in-review (spawned and retired/in-flight, PR
+ *  awaiting merge). Spawn-eligibility gating still lives in `selectEpicCandidates`. */
+export function deriveChildState(c: EpicChild, done: Set<number>): EpicChildState {
+  if (c.integrationMerged || c.issueClosed) return "merged";
   if (c.sessionId && c.prNumber != null) return "in-review";
   if (c.sessionId) return "running";
   // claimed but no live local session + issue still open = spawned & retired/in-flight
   // (PR awaiting human merge); session was archived after the retire path.
   if (c.claimed) return "in-review";
-  return c.blockedBy.every((b) => closed.has(b)) ? "ready" : "blocked";
+  return c.blockedBy.every((b) => done.has(b)) ? "ready" : "blocked";
 }
 
-/** Dependency-gated spawn candidates (open, unclaimed, unspawned, all blockers closed),
- *  in epic order, shaped as drain's `Issue[]`. Pure: derives the closed set from `children`. */
+/** Dependency-gated spawn candidates (open, unclaimed, unspawned, not-integrated, all
+ *  blockers done-in-epic), in epic order, shaped as drain's `Issue[]`. Pure: derives the
+ *  done set (integration-merged OR issue-closed) from `children`. */
 export function selectEpicCandidates(children: EpicChild[]): Issue[] {
-  const closed = new Set(children.filter((c) => c.issueClosed).map((c) => c.number));
+  const done = new Set(
+    children.filter((c) => c.integrationMerged || c.issueClosed).map((c) => c.number),
+  );
   return children
     .filter(
       (c) =>
+        !c.integrationMerged &&
         !c.issueClosed &&
         !c.claimed &&
         c.sessionId == null &&
-        c.blockedBy.every((b) => closed.has(b)),
+        c.blockedBy.every((b) => done.has(b)),
     )
     .sort((a, b) => a.order - b.order || a.number - b.number)
     .map((c) => ({

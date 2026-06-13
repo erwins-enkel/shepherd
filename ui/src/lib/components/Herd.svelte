@@ -230,6 +230,17 @@
           onstatusfilter?.(null);
         }}>{m.herd_ready_filter()}</button
       >
+      <button
+        type="button"
+        class="micro fbtn"
+        class:active={statusFilter == null && filter === "research"}
+        title={m.herd_research_title()}
+        aria-pressed={statusFilter == null && filter === "research"}
+        onclick={() => {
+          filter = "research";
+          onstatusfilter?.(null);
+        }}>{m.herd_research_filter()}</button
+      >
       {#if statusFilter != null}
         <!-- aria-label carries status + clear action; the visible "✕" glyph would
            otherwise be read aloud without conveying what the chip does -->

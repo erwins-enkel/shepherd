@@ -1207,5 +1207,7 @@
   "research_badge_label": "Recherche",
   "research_badge_title": "Rechercheaufgabe: Web-Recherche mit Sub-Agenten → ein Bericht-PR oder ein GitHub-Issue",
   "feat_research_title": "Rechercheaufgaben",
-  "feat_research_body": "Starte eine Rechercheaufgabe über Neue Aufgabe: Ein betreuter Agent führt Web-Recherche mit Sub-Agenten durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR."
+  "feat_research_body": "Starte eine Rechercheaufgabe im Dialog „Neue Aufgabe“: Ein betreuter Agent führt Web-Recherche mit Sub-Agenten durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR.",
+  "herd_research_filter": "⬡ Recherche",
+  "herd_research_title": "Nur Rechercheaufgaben anzeigen"
 }

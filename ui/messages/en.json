@@ -1207,5 +1207,7 @@
   "research_badge_label": "Research",
   "research_badge_title": "Research task: web research with sub-agents → a report PR or a GitHub issue",
   "feat_research_title": "Research tasks",
-  "feat_research_body": "Start a Research task from New Task: an attended agent does web research with sub-agents and delivers a report PR or opens a GitHub issue. Research never opens a code PR."
+  "feat_research_body": "Start a Research task from New Task: an attended agent does web research with sub-agents and delivers a report PR or opens a GitHub issue. Research never opens a code PR.",
+  "herd_research_filter": "⬡ Research",
+  "herd_research_title": "Show only research tasks"
 }

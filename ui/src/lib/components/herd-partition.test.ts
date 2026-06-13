@@ -320,6 +320,34 @@ test("draft + failed CI lands in ciFailed, not draftAwaitingSignoff", () => {
   expect(draftAwaitingSignoff).toHaveLength(0);
 });
 
+test('"research" filter returns only sessions with research === true', () => {
+  const r1 = { ...session("r1"), research: true };
+  const r2 = { ...session("r2"), research: true };
+  const n1 = session("n1"); // research: false by default
+  const shown = shownSessions([r1, n1, r2], "research", () => false);
+  expect(shown.map((s) => s.id)).toEqual(["r1", "r2"]);
+});
+
+test('"research" filter excludes all sessions when none are research', () => {
+  const shown = shownSessions([session("a"), session("b")], "research", () => false);
+  expect(shown).toHaveLength(0);
+});
+
+test('"all" filter is unaffected by research flag (regression)', () => {
+  const r1 = { ...session("r1"), research: true };
+  const n1 = session("n1");
+  const shown = shownSessions([r1, n1], "all", () => false);
+  expect(shown).toHaveLength(2);
+});
+
+test('"ready" filter is unaffected by research flag (regression)', () => {
+  const r1 = { ...session("r1", false, "idle"), research: true };
+  const n1 = { ...session("n1", false, "idle"), research: false };
+  const running = session("run"); // running → dropped by ready
+  const shown = shownSessions([r1, n1, running], "ready", () => false);
+  expect(shown.map((s) => s.id)).toEqual(["r1", "n1"]);
+});
+
 test('"ready" filter drops a working-while-blocked session like a running one', () => {
   const list = [
     session("run"), // running → dropped

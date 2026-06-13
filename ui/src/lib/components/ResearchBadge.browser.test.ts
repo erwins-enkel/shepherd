@@ -57,7 +57,7 @@ describe("ResearchBadge", () => {
     render(ResearchBadge, { session: session({ id: "r1", research: true }) });
     const badge = document.querySelector(".research-badge");
     expect(badge, "research-badge rendered").not.toBeNull();
-    await expect.element(page.getByText(/Recherche|Research/i)).toBeInTheDocument();
+    await expect.element(page.getByText(/Research/i)).toBeInTheDocument();
   });
 
   it("renders nothing when session.research is false", async () => {

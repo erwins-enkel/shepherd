@@ -15,6 +15,7 @@ import {
 import { assembleEpic } from "./epic-model";
 import { epicIntegrationBranch as epicBranchName, isEpicIntegrationBranch } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
+import { buildRollup, type CompletedEpic } from "./completed-epic";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
 
@@ -80,6 +81,8 @@ export interface DrainDeps {
     | "setEpicRun"
     | "listEpicIntegrated"
     | "recordEpicIntegrated"
+    | "listEpicIntegratedDetails"
+    | "recordEpicCompleted"
   >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
@@ -95,6 +98,8 @@ export interface DrainDeps {
   dropPrCache: (id: string) => void;
   /** → events.emit("epic:update", epic). Optional — absent in tests that don't need it. */
   emitEpic?: (epic: Epic) => void;
+  /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
+  emitEpicCompleted?: (epic: CompletedEpic) => void;
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
@@ -386,6 +391,38 @@ export class DrainService {
       epic.children.length > 0 &&
       epic.children.every((c) => c.state === "merged")
     ) {
+      // CONTRACT(#635): record before status flip — persist the durable completed-epic
+      // rollup (+ emit) BEFORE flipping to idle, and gate the flip on the record succeeding.
+      // A failed record leaves the epic running so the next pump re-observes all-merged and
+      // retries the idempotent upsert, rather than silently losing the rollup.
+      try {
+        const rollup = buildRollup(
+          epic.children,
+          this.deps.store.listEpicIntegratedDetails(repoPath, epicRun.parentIssueNumber),
+        );
+        const completed: CompletedEpic = {
+          repoPath,
+          parentIssueNumber: epicRun.parentIssueNumber,
+          parentTitle: epic.parentTitle,
+          completedAt: this.now(),
+          children: rollup,
+        };
+        this.deps.store.recordEpicCompleted({
+          repoPath: completed.repoPath,
+          parentIssueNumber: completed.parentIssueNumber,
+          parentTitle: completed.parentTitle,
+          completedAt: completed.completedAt,
+          childrenJson: JSON.stringify(rollup),
+        });
+        this.deps.emitEpicCompleted?.(completed);
+      } catch (err) {
+        console.warn(
+          `[drain] epic-completed record failed for ${repoPath}#${epicRun.parentIssueNumber}:`,
+          err,
+        );
+        this.emitEpicIfChanged(repoPath, epic);
+        return false; // CONTRACT(#635): stay running, retry next pump
+      }
       const completedRun = { ...epicRun, status: "idle" as const };
       this.deps.store.setEpicRun(completedRun);
       // Emit a final epic:update reflecting the completed/idle state before
@@ -503,7 +540,10 @@ export class DrainService {
         );
         return; // leave the session live; next tick retries. Do NOT record or archive.
       }
-      this.deps.store.recordEpicIntegrated(repoPath, epicRun!.parentIssueNumber, s.issueNumber);
+      this.deps.store.recordEpicIntegrated(repoPath, epicRun!.parentIssueNumber, s.issueNumber, {
+        number: decision.prNumber,
+        url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
+      });
       try {
         this.deps.service.archive(decision.sessionId);
       } catch (err) {

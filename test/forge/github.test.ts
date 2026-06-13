@@ -144,6 +144,53 @@ test("GithubForge.listPullRequests: classifies dependabot + release PRs by kind"
   expect(prs.map((p) => p.kind)).toEqual(["dependabot", "release", "regular"]);
 });
 
+test("GithubForge.listPullRequests: nonDefaultBase set only for non-default-targeting PRs", async () => {
+  const prsJson = JSON.stringify([
+    {
+      number: 1,
+      title: "feat: targets default",
+      url: "u1",
+      author: { login: "alice" },
+      createdAt: "2024-02-02T00:00:00Z",
+      baseRefName: "main",
+    },
+    {
+      number: 2,
+      title: "feat: stacked on epic",
+      url: "u2",
+      author: { login: "bob" },
+      createdAt: "2024-02-02T00:00:00Z",
+      baseRefName: "epic/foo",
+    },
+  ]);
+  const { run } = fakeRunner({
+    "pr list": prsJson,
+    "repo view": JSON.stringify({ defaultBranchRef: { name: "main" } }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs.map((p) => p.nonDefaultBase)).toEqual([undefined, "epic/foo"]);
+});
+
+test("GithubForge.listPullRequests: nonDefaultBase undefined when default branch is unresolvable", async () => {
+  // No "repo view" mock → defaultBranch() rejects → def === null → no chip even
+  // for a non-default-targeting PR (fail-quiet, never a bogus chip).
+  const prsJson = JSON.stringify([
+    {
+      number: 2,
+      title: "feat: stacked on epic",
+      url: "u2",
+      author: { login: "bob" },
+      createdAt: "2024-02-02T00:00:00Z",
+      baseRefName: "epic/foo",
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prsJson, "repo view": "{}" });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs[0]!.nonDefaultBase).toBeUndefined();
+});
+
 test("GithubForge.listPullRequests: empty output → []", async () => {
   const { run } = fakeRunner({ "pr list": "" });
   const forge = new GithubForge("o/r", {}, run);

@@ -167,6 +167,12 @@ export interface PullRequest {
     author: string;
     submittedAt: number;
   };
+  /** The PR's base (target) branch, populated ONLY when it is NOT the repo's
+   *  default branch (e.g. an epic/stacked branch); `undefined` for the common
+   *  default-targeting PR. This is intentionally NOT the raw base ref — do not
+   *  rely on it to read a PR's actual target; it exists solely to surface
+   *  non-default (stacked) PRs in the backlog PRs tab. */
+  nonDefaultBase?: string;
 }
 
 /** Result of fast-forwarding a repo's local default-branch checkout after a merge

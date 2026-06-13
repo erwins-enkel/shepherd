@@ -736,6 +736,7 @@
   "prspanel_open_link": "open PR",
   "prspanel_draft": "Draft",
   "prspanel_conflicts": "conflicts",
+  "prspanel_targets": "Targets {branch}",
   "prspanel_review_button": "+ Review",
   "prspanel_review_button_title": "Open a review task seeded with this PR",
   "prspanel_merge_button": "Merge",
@@ -1091,5 +1092,7 @@
   "readiness_g_dependency_automation_title": "Dependency automation (Dependabot/Renovate)",
   "readiness_g_dependency_automation_removes": "Without it, dependency bumps pile up as manual busywork instead of automated PRs you just review and merge.",
   "feat_dependency_automation_title": "Readiness checks dependency automation",
-  "feat_dependency_automation_body": "The Backlog → Readiness tab now scores whether a repo keeps dependencies current with Dependabot or Renovate, and prescribes it when missing."
+  "feat_dependency_automation_body": "The Backlog → Readiness tab now scores whether a repo keeps dependencies current with Dependabot or Renovate, and prescribes it when missing.",
+  "feat_pr_target_branch_title": "PR rows show a non-default target branch",
+  "feat_pr_target_branch_body": "In the Backlog → PRs tab, a PR that targets a non-default (epic/stacked) branch now shows a small chip with its target, so stacked PRs no longer look identical to ones targeting the default branch."
 }

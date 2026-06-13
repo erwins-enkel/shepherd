@@ -185,6 +185,15 @@
       {#if blocked}
         <span class="conflict">{m.prspanel_conflicts()}</span>
       {/if}
+      {#if pr.nonDefaultBase}
+        <span
+          class="target-branch"
+          title={m.prspanel_targets({ branch: pr.nonDefaultBase })}
+          aria-label={m.prspanel_targets({ branch: pr.nonDefaultBase })}
+        >
+          <span class="arrow" aria-hidden="true">→</span>{pr.nonDefaultBase}
+        </span>
+      {/if}
       {#if pr.author}<span class="author">@{pr.author}</span>{/if}
       {#if age}
         <span class="age-chip">{relativeAge(pr.createdAt, clock.current)}</span>
@@ -477,6 +486,26 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-red);
+  }
+
+  /* Non-default target branch — a hairline neutral chip (mirrors .kind-tag),
+     shown ONLY when the PR targets something other than the repo default (a
+     stacked/epic branch). Neutral hue: never a status green/amber. A long
+     branch name truncates rather than stretching the row. */
+  .target-branch {
+    flex-shrink: 0;
+    max-width: 12em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-micro);
+    padding: 1px 5px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+  }
+  .target-branch .arrow {
+    margin-right: 2px;
   }
 
   .author {

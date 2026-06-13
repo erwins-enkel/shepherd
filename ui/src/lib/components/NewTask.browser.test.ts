@@ -46,6 +46,7 @@ function repoConfig(planGateEnabled: boolean): RepoConfig {
     maxAuto: 1,
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
+    defaultModel: "inherit",
   };
 }
 

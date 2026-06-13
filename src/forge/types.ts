@@ -123,6 +123,10 @@ export interface PrStatus {
   headSha?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
+  /** GitHub logins with a pending review request on the PR (teams/bots without a
+   *  login are dropped). Drives merger auto-inference when the repo has no
+   *  `.shepherd/roles.json`. Optional: a cached payload predating the field ⇒ treat as `[]`. */
+  requestedReviewers?: string[];
   /** true = PR is a draft / not ready-for-review. Optional; absent ⇒ treat as false downstream. */
   isDraft?: boolean;
   /** GitHub's merge-eligibility signal; undefined on forges that don't supply it (Gitea). */
@@ -142,6 +146,10 @@ export interface GitState extends PrStatus {
   handoff?: "reviewer" | "merger";
   /** The login to display for {@link handoff} (e.g. "scoop"); absent for self. */
   handoffWho?: string;
+  /** true when `handoff` was auto-inferred from PR reviewers (no
+   *  `.shepherd/roles.json`); suppresses the outward issue-log comment, which
+   *  stays opt-in to explicitly-configured roles. */
+  handoffInferred?: boolean;
 }
 
 /** One job within a workflow run, mapped to the four-light CI vocab. */

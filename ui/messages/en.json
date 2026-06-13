@@ -982,7 +982,6 @@
   "timetip_last_activity": "Last sign of life {ago} ago 👀",
   "timetip_pr_open_since": "PR #{number} has been simmering for {ago} 🍲",
   "timetip_approved_ago": "Approved by {who} {ago} ago ✅",
-  "timetip_your_turn": "Your move! 🫵",
   "timetip_waiting_review_fresh": "Review time, {who}, on it for {ago} ⏳",
   "timetip_waiting_review_dozing": "Is {who} napping? {ago} without a review 😴",
   "timetip_waiting_review_burning": "{who}! This review is on fire: {ago} 🔥",
@@ -1231,5 +1230,6 @@
   "settings_colorblind_on": "Markers on",
   "settings_colorblind_off": "Markers off",
   "feat_colorblind_markers_title": "Colourblind status markers",
-  "feat_colorblind_markers_body": "If green and red are hard to tell apart, switch on Colourblind status markers in Settings → Device. A ✓ (waiting) or ! (blocked) then sits next to the session emoji on phones, so those states no longer rely on the header tint alone. Off by default."
+  "feat_colorblind_markers_body": "If green and red are hard to tell apart, switch on Colourblind status markers in Settings → Device. A ✓ (waiting) or ! (blocked) then sits next to the session emoji on phones, so those states no longer rely on the header tint alone. Off by default.",
+  "timetip_ready_to_merge": "Green light — ready to merge 🟢"
 }

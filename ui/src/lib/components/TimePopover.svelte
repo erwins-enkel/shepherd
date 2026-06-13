@@ -71,8 +71,21 @@
   const waitSince = $derived(
     git?.handoff === "merger" ? (approvedReview?.submittedAt ?? git.createdAt) : git?.createdAt,
   );
+  // The "who's up next" lines (waiting-on-reviewer/merger and the neutral
+  // ready-to-merge fallback) only apply once the PR is actually handed off. Mirror
+  // herd-partition.ts's `greenIdle` gate exactly: open + green + non-draft AND the
+  // session no longer in the agent's court (raw "running" OR "blocked" both keep it
+  // in the herd's `active` group). So an ACTIVE/blocked session never claims a
+  // reviewer/merger/operator is up — matching the card badge and the herd grouping.
+  const handedOff = $derived(
+    git?.state === "open" &&
+      git.checks === "success" &&
+      !git.isDraft &&
+      session.status !== "running" &&
+      session.status !== "blocked",
+  );
   const waiting = $derived(
-    git?.handoff && git.handoffWho && waitSince
+    handedOff && git?.handoff && git.handoffWho && waitSince
       ? {
           role: git.handoff,
           who: git.handoffWho,
@@ -81,10 +94,9 @@
         }
       : null,
   );
-  // No handoff on an open+green PR = the operator's own turn.
-  const yourTurn = $derived(
-    !git?.handoff && git?.state === "open" && git.checks === "success" && !git.isDraft,
-  );
+  // Handed off but with no foreign reviewer/merger named: neutrally flag it as ready
+  // to merge (we can't pin the merge on the operator).
+  const awaitingMerge = $derived(handedOff && !git?.handoff);
 
   const REVIEW_MSG = {
     fresh: m.timetip_waiting_review_fresh,
@@ -137,8 +149,8 @@
           ago: waiting.ago,
         })}
       </div>
-    {:else if yourTurn}
-      <div class="tp-line tp-wait">{m.timetip_your_turn()}</div>
+    {:else if awaitingMerge}
+      <div class="tp-line tp-wait">{m.timetip_ready_to_merge()}</div>
     {/if}
   {/if}
 </div>

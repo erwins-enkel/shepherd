@@ -116,6 +116,7 @@ interface GhPr {
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
   reviews?: GhReview[];
+  reviewRequests?: { login?: string }[];
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -444,7 +445,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests",
       "--limit",
       "1",
     ]);
@@ -465,6 +466,9 @@ export class GithubForge implements GitForge {
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,
       latestReview: latestHumanReview(pr.reviews),
+      requestedReviewers: (pr.reviewRequests ?? [])
+        .map((r) => r.login)
+        .filter((l): l is string => !!l),
       deployConfigured,
     };
   }

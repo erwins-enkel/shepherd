@@ -8,6 +8,12 @@ import type { Session } from "./types";
  * and one when the PR merges — so the issue's timeline records who the work was
  * parked on and when it landed.
  *
+ * A handoff may now also be auto-inferred from the PR's requested reviewers when a
+ * repo has no `.shepherd/roles.json` (GitState.handoffInferred = true). The outward
+ * issue comment is intentionally gated to explicitly-configured (non-inferred)
+ * handoffs — auto-inference drives the in-app herd grouping, but does not write to
+ * the public issue timeline unless the operator opted in via roles config.
+ *
  * Deliberately STATELESS over the current GitState (no prev-state comparison):
  * dedup lives in the persisted `issue_log` stamps, so each transition comments
  * exactly once per PR across restarts, CI flaps, and the one-time backfill burst
@@ -33,8 +39,10 @@ export function issueLogEntries(
   if (git.number == null) return [];
   const out: IssueLogEntry[] = [];
   // handoff is only annotated on an open+green PR (annotateHandoff), but re-check
-  // the full condition so a stale/hand-rolled GitState can't comment early.
-  if (git.state === "open" && git.checks === "success" && git.handoff) {
+  // the full condition so a stale/hand-rolled GitState can't comment early. An
+  // auto-inferred handoff (no roles.json) is excluded — the outward comment is
+  // opt-in to explicitly-configured roles (see module doc).
+  if (git.state === "open" && git.checks === "success" && git.handoff && !git.handoffInferred) {
     const key = `waiting:${git.number}`;
     if (!alreadyLogged(key)) out.push({ key, body: waitingBody(git, git.number) });
   }
@@ -45,6 +53,9 @@ export function issueLogEntries(
   return out;
 }
 
+/** The "waiting" comment wording. Only reached for a non-inferred (explicitly
+ *  configured) handoff — an auto-inferred merger is filtered out by the caller, so
+ *  this never authors a public comment off a guessed reviewer. */
 function waitingBody(git: GitState, prNumber: number): string {
   if (git.handoff === "reviewer" && git.handoffWho)
     return `⏸️ Waiting on review of PR #${prNumber} by @${git.handoffWho}.`;

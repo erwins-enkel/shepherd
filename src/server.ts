@@ -189,6 +189,10 @@ export interface AppDeps {
   planGate?: {
     consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
   };
+  /** Snapshot of session recaps keyed by session id; absent in tests that skip it. */
+  recapCache?: { snapshot(): Record<string, import("./types").Recap> };
+  /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
+  recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
@@ -330,6 +334,15 @@ function handlePlanGates({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "plan-gates") {
     if (!parts[2]) return json(deps.planGateCache?.snapshot() ?? {});
     if (parts[2] === "inflight") return json(deps.planGateCache?.reviewing?.() ?? []);
+  }
+  return null;
+}
+
+// GET /api/recaps — bootstrap snapshot of session recaps keyed by session id.
+// Mirrors handleReviews / handlePlanGates; absent dep returns {}.
+function handleRecaps({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
+    if (!parts[2]) return json(deps.recapCache?.snapshot() ?? {});
   }
   return null;
 }
@@ -1169,6 +1182,19 @@ async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Respo
   return json({ ok: true, status }, 202);
 }
 
+// POST /api/sessions/:id/recap/regenerate — force-regenerate the session recap on demand.
+// 404 unknown id; 202 with {status} = "started" | "empty" | "error" so the UI can explain the outcome.
+// NOTE: unlike the auto-fire sweep (which skips drain sessions), on-demand regenerate is
+// intentionally allowed for ANY session — an operator may want a summary of a drain run.
+async function handleSessionRecapRegenerate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "recap" && parts[4] === "regenerate"))
+    return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const status = (await deps.recap?.regenerate(s)) ?? "error";
+  return json({ ok: true, status }, 202);
+}
+
 // Validate the rename body, returning the typed name or the error Response to send.
 async function parseRenameName(req: Request): Promise<string | Response> {
   const ctErr = requireJsonContentType(req);
@@ -1583,6 +1609,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReply,
     handleSessionGo,
     handleSessionReviewPlan,
+    handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,
     handleSessionRename,
@@ -3060,6 +3087,7 @@ const ROUTE_HANDLERS = [
   handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,
+  handleRecaps,
   handleDrain,
   handleAutoMerge,
   handleEpicsList,

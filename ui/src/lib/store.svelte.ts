@@ -20,6 +20,7 @@ import type {
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates } from "./reviews.svelte";
+import { recaps } from "./recaps.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -264,6 +265,7 @@ export class HerdStore {
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
+        recaps.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
         break;
       case "session:git":
@@ -296,16 +298,19 @@ export class HerdStore {
       default:
         // Review/plan-gate and app-global (non-per-session-row) events are handled
         // out of line to keep this dispatch switch under the complexity gate.
-        if (!this.applyReviewEvent(ev)) this.applyGlobalEvent(ev);
+        if (!this.applySessionCardEvent(ev)) this.applyGlobalEvent(ev);
         break;
     }
   }
 
-  /** Handle the review + plan-gate WS events, all of which delegate to the
-   *  `reviews`/`planGates` sub-stores. Split out of apply() so its dispatch
+  /** Handle the review + plan-gate + recap WS events, all of which delegate to the
+   *  `reviews`/`planGates`/`recaps` sub-stores. Split out of apply() so its dispatch
    *  switch stays under the complexity gate. Returns true if `ev` was handled. */
-  private applyReviewEvent(ev: WsEvent): boolean {
+  private applySessionCardEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:recap":
+        recaps.apply(ev.data);
+        return true;
       case "session:review":
         reviews.apply(ev.data);
         return true;

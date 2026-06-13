@@ -1187,5 +1187,18 @@
   "mergetrain_confirm_desc_ready": "{count} bereite PR(s) in {repo} abarbeiten?",
   "mergetrain_confirm_desc_picked": "{count} ausgewählte PRs in {repo} abarbeiten?",
   "mergetrain_confirm_action": "Merge-Train starten",
-  "mergetrain_confirm_other_repos": "{count} bereite PR(s) in anderen Repos sind nicht enthalten."
+  "mergetrain_confirm_other_repos": "{count} bereite PR(s) in anderen Repos sind nicht enthalten.",
+  "recap_generating": "Zusammenfassung wird erstellt…",
+  "recap_failed": "Zusammenfassung konnte nicht erstellt werden.",
+  "recap_retry": "Erneut versuchen",
+  "recap_regenerate": "Neu erstellen",
+  "recap_verdict_ready": "Bereit",
+  "recap_verdict_parked": "Zurückgestellt",
+  "recap_verdict_needs_attention": "Handlungsbedarf",
+  "recap_open_items": "Offene Punkte",
+  "recap_expand": "▸",
+  "recap_collapse": "▾",
+  "recap_regenerate_failed": "Neu erstellen fehlgeschlagen. Bitte erneut versuchen.",
+  "feat_session_recap_title": "Sitzungszusammenfassung",
+  "feat_session_recap_body": "Shepherd erstellt nach jeder Sitzung eine kompakte Zusammenfassung — mit Ergebnis, Überschrift und offenen Punkten — damit du auf einen Blick siehst, was passiert ist."
 }

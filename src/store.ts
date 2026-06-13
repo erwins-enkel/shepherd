@@ -4,6 +4,7 @@ import type {
   Session,
   ReviewVerdict,
   PlanGate,
+  Recap,
   Signal,
   SignalKind,
   Learning,
@@ -310,6 +311,20 @@ export class SessionStore implements CapStore, CreditStore {
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
+      sessionId TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      headSha TEXT NOT NULL DEFAULT '',
+      verdict TEXT,
+      headline TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      openItems TEXT NOT NULL DEFAULT '[]',
+      spawnSessionId TEXT NOT NULL DEFAULT '',
+      cwd TEXT NOT NULL DEFAULT '',
+      model TEXT,
+      spawnedAt INTEGER NOT NULL,
+      generatedAt INTEGER,
+      updatedAt INTEGER NOT NULL)`);
     // Exact reviewer-cost attribution. Keyed by the *reviewer's* forced --session-id (which
     // locates its transcript), NOT the task — and deliberately carries NO foreign key to
     // `sessions`. `reviews`/`plan_gates` are keyed by the task sessionId and get deleted on
@@ -1009,6 +1024,102 @@ export class SessionStore implements CapStore, CreditStore {
     return out;
   }
 
+  // ── session recaps ────────────────────────────────────────────────────────────
+  private hydrateRecap(r: any): Recap {
+    let openItems: string[] = [];
+    try {
+      const parsed = JSON.parse(r.openItems);
+      if (Array.isArray(parsed))
+        openItems = parsed.filter((x): x is string => typeof x === "string");
+    } catch {
+      openItems = [];
+    }
+    return {
+      sessionId: r.sessionId,
+      state: r.state,
+      headSha: r.headSha ?? "",
+      verdict: r.verdict ?? null,
+      headline: r.headline ?? "",
+      body: r.body ?? "",
+      openItems,
+      spawnSessionId: r.spawnSessionId ?? "",
+      cwd: r.cwd ?? "",
+      model: r.model ?? null,
+      spawnedAt: r.spawnedAt,
+      generatedAt: r.generatedAt ?? null,
+      updatedAt: r.updatedAt,
+    } as Recap;
+  }
+
+  getRecap(sessionId: string): Recap | null {
+    const r = this.db
+      .query(
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+                spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
+              FROM recaps WHERE sessionId = ?`,
+      )
+      .get(sessionId) as any;
+    return r ? this.hydrateRecap(r) : null;
+  }
+
+  putRecap(recap: Recap): void {
+    this.db.run(
+      `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems,
+         spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
+         verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
+         openItems=excluded.openItems, spawnSessionId=excluded.spawnSessionId,
+         cwd=excluded.cwd, model=excluded.model, spawnedAt=excluded.spawnedAt,
+         generatedAt=excluded.generatedAt, updatedAt=excluded.updatedAt`,
+      [
+        recap.sessionId,
+        recap.state,
+        recap.headSha ?? "",
+        recap.verdict ?? null,
+        recap.headline ?? "",
+        recap.body ?? "",
+        JSON.stringify(recap.openItems ?? []),
+        recap.spawnSessionId ?? "",
+        recap.cwd ?? "",
+        recap.model ?? null,
+        recap.spawnedAt,
+        recap.generatedAt ?? null,
+        recap.updatedAt,
+      ],
+    );
+  }
+
+  /** All recaps except `empty` ones — the UI never shows an empty recap. */
+  snapshotRecaps(): Record<string, Recap> {
+    const rows = this.db
+      .query(
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+                spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
+              FROM recaps WHERE state != 'empty'`,
+      )
+      .all() as any[];
+    const out: Record<string, Recap> = {};
+    for (const r of rows) out[r.sessionId] = this.hydrateRecap(r);
+    return out;
+  }
+
+  /** Rows currently in-flight — used by the service's finalize loop (restart-safe). */
+  generatingRecaps(): Recap[] {
+    const rows = this.db
+      .query(
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+                spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
+              FROM recaps WHERE state = 'generating'`,
+      )
+      .all() as any[];
+    return rows.map((r) => this.hydrateRecap(r));
+  }
+
+  dropRecap(sessionId: string): void {
+    this.db.run(`DELETE FROM recaps WHERE sessionId = ?`, [sessionId]);
+  }
+
   setPlanPhase(id: string, phase: Session["planPhase"]): void {
     this.db.run(`UPDATE sessions SET planPhase = ?, updatedAt = ? WHERE id = ?`, [
       phase,
@@ -1024,7 +1135,7 @@ export class SessionStore implements CapStore, CreditStore {
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate";
+    kind: "review" | "plan_gate" | "recap";
     worktreePath: string;
     model: string | null;
     spawnedAt: number;

@@ -53,6 +53,7 @@
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
+  import { recaps } from "$lib/recaps.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
@@ -389,6 +390,7 @@
     // ids, so a `reviewing=false` missed across a disconnect/restart is corrected.
     reviews.load();
     planGates.load();
+    recaps.load();
   }
 
   // Fetch backlog when the overview is empty, or when the operator opens the

@@ -280,6 +280,7 @@ function defaultRepoConfig() {
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted" as const,
+    defaultModel: "inherit",
   };
 }
 

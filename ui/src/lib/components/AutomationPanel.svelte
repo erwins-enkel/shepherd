@@ -5,6 +5,7 @@
   import { clampCap, clampCeiling, sanitizeLabel } from "./git-rail-drain";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { MODELS } from "$lib/types";
   import type { Session, RepoRoles, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
@@ -527,6 +528,30 @@
       <p>{m.automation_sandbox_profile_hint()}</p>
       <p>{m.automation_sandbox_profile_caveats()}</p>
     </div>
+  </div>
+
+  <!-- Default model: a repo-wide override of the global default (Settings → Session).
+       "Inherit" defers to the global setting; an explicit choice wins for both the
+       New-Task picker preselect and autonomous drain/autopilot spawns in this repo. -->
+  <div class="drain-fields">
+    <label class="drain-field">
+      <span class="drain-label">{m.automation_default_model_label()}</span>
+      <select
+        class="num model-select"
+        aria-label={m.automation_default_model_label()}
+        value={repoConfig.defaultModelFor(repoPath)}
+        onchange={(e) =>
+          repoConfig.setDefaultModel(repoPath, (e.currentTarget as HTMLSelectElement).value)}
+      >
+        <option value="inherit">{m.automation_default_model_inherit()}</option>
+        <option value="auto">{m.settings_default_model_auto()}</option>
+        <option value="default">{m.newtask_model_default()}</option>
+        {#each MODELS as mdl (mdl)}
+          <option value={mdl}>{mdl}</option>
+        {/each}
+      </select>
+    </label>
+    <div class="signoff-note">{m.automation_default_model_hint()}</div>
   </div>
   {#if flags.autoDrain}
     <div class="drain-fields">

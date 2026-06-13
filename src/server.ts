@@ -81,7 +81,7 @@ import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
-import { normalizeDefaultModelSetting } from "./default-model";
+import { normalizeDefaultModelSetting, normalizeRepoDefaultModelSetting } from "./default-model";
 import {
   type SandboxProfile,
   SANDBOX_PROFILES,
@@ -389,6 +389,14 @@ function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
   return v;
 }
 
+// defaultModel: a per-repo override SETTING ("inherit" | "auto" | "default" | <model alias>)
+function parseRepoDefaultModel(v: unknown): string | { error: string } {
+  const r = normalizeRepoDefaultModelSetting(v);
+  if (r === null)
+    return { error: "defaultModel must be one of: inherit, auto, default, or a model alias" };
+  return r;
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -416,6 +424,7 @@ type RepoCfgBody = {
   draftMode?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
+  defaultModel?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -429,50 +438,38 @@ function hasBadBoolField(body: RepoCfgBody): boolean {
   });
 }
 
-// Validate a repo-config PUT body → a partial patch, or the 400 Response to send.
-// All fields optional but each present one must pass its type check; at least one present.
+type RepoCfgScalars = {
+  maxAuto?: number;
+  autoLabel?: string;
+  usageCeilingPct?: number;
+  signoffAuthority?: "human" | "critic" | "either";
+  sandboxProfile?: SandboxProfile;
+  defaultModel?: string;
+};
+
+// Each non-boolean field paired with its validator. A validator returns the
+// validated value, or a { error } object that becomes a 400 Response.
+const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => unknown][] = [
+  ["maxAuto", parseMaxAuto],
+  ["autoLabel", parseAutoLabel],
+  ["usageCeilingPct", parseUsageCeiling],
+  ["signoffAuthority", parseSignoffAuthority],
+  ["sandboxProfile", parseSandboxProfile],
+  ["defaultModel", parseRepoDefaultModel],
+];
+
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
- *  send. Pulled out of parseRepoConfigPatch so each adds no branch to that function. */
-function parseRepoCfgScalars(body: RepoCfgBody):
-  | {
-      maxAuto?: number;
-      autoLabel?: string;
-      usageCeilingPct?: number;
-      signoffAuthority?: "human" | "critic" | "either";
-      sandboxProfile?: SandboxProfile;
-    }
-  | Response {
-  let maxAuto: number | undefined;
-  if (body.maxAuto !== undefined) {
-    const r = parseMaxAuto(body.maxAuto);
-    if (typeof r !== "number") return json(r, 400);
-    maxAuto = r;
+ *  send. Each present field must pass its validator; absent fields are skipped. */
+function parseRepoCfgScalars(body: RepoCfgBody): RepoCfgScalars | Response {
+  const out: Record<string, unknown> = {};
+  for (const [field, parse] of REPO_CFG_SCALAR_PARSERS) {
+    const raw = body[field];
+    if (raw === undefined) continue;
+    const r = parse(raw);
+    if (r !== null && typeof r === "object" && "error" in r) return json(r, 400);
+    out[field] = r;
   }
-  let autoLabel: string | undefined;
-  if (body.autoLabel !== undefined) {
-    const r = parseAutoLabel(body.autoLabel);
-    if (typeof r !== "string") return json(r, 400);
-    autoLabel = r;
-  }
-  let usageCeilingPct: number | undefined;
-  if (body.usageCeilingPct !== undefined) {
-    const r = parseUsageCeiling(body.usageCeilingPct);
-    if (typeof r !== "number") return json(r, 400);
-    usageCeilingPct = r;
-  }
-  let signoffAuthority: "human" | "critic" | "either" | undefined;
-  if (body.signoffAuthority !== undefined) {
-    const r = parseSignoffAuthority(body.signoffAuthority);
-    if (typeof r !== "string") return json(r, 400);
-    signoffAuthority = r;
-  }
-  let sandboxProfile: SandboxProfile | undefined;
-  if (body.sandboxProfile !== undefined) {
-    const r = parseSandboxProfile(body.sandboxProfile);
-    if (typeof r !== "string") return json(r, 400);
-    sandboxProfile = r;
-  }
-  return { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile };
+  return out as RepoCfgScalars;
 }
 
 async function parseRepoConfigPatch(req: Request): Promise<
@@ -489,6 +486,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       draftMode?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
+      defaultModel?: string;
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -507,14 +505,16 @@ async function parseRepoConfigPatch(req: Request): Promise<
   }
   const scalars = parseRepoCfgScalars(body);
   if (scalars instanceof Response) return scalars;
-  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile } = scalars;
+  const { maxAuto, autoLabel, usageCeilingPct, signoffAuthority, sandboxProfile, defaultModel } =
+    scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     maxAuto !== undefined ||
     autoLabel !== undefined ||
     usageCeilingPct !== undefined ||
     signoffAuthority !== undefined ||
-    sandboxProfile !== undefined;
+    sandboxProfile !== undefined ||
+    defaultModel !== undefined;
   if (!present) {
     return json(
       {
@@ -537,34 +537,26 @@ async function parseRepoConfigPatch(req: Request): Promise<
     draftMode: body.draftMode as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
+    defaultModel,
     maxAuto,
     autoLabel,
     usageCeilingPct,
   };
 }
 
-/** Merge a validated patch onto the current repo config, returning the new full config. */
+/** Merge a validated patch onto the current repo config, returning the new full config.
+ *  Patch fields are only ever undefined (absent) or a valid value, so every defined
+ *  field overrides and absent fields keep the current value. */
 function mergeRepoConfig(
   cur: RepoConfig,
   patch: Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
 ): RepoConfig {
-  return {
-    criticEnabled: patch.criticEnabled ?? cur.criticEnabled,
-    criticAllPrs: patch.criticAllPrs ?? cur.criticAllPrs,
-    autoAddressEnabled: patch.autoAddressEnabled ?? cur.autoAddressEnabled,
-    learningsEnabled: patch.learningsEnabled ?? cur.learningsEnabled,
-    autopilotEnabled: patch.autopilotEnabled ?? cur.autopilotEnabled,
-    planGateEnabled: patch.planGateEnabled ?? cur.planGateEnabled,
-    autoDrainEnabled: patch.autoDrainEnabled ?? cur.autoDrainEnabled,
-    autoMergeEnabled: patch.autoMergeEnabled ?? cur.autoMergeEnabled,
-    buildQueueEnabled: patch.buildQueueEnabled ?? cur.buildQueueEnabled,
-    draftMode: patch.draftMode ?? cur.draftMode,
-    signoffAuthority: patch.signoffAuthority ?? cur.signoffAuthority,
-    maxAuto: patch.maxAuto ?? cur.maxAuto,
-    autoLabel: patch.autoLabel ?? cur.autoLabel,
-    usageCeilingPct: patch.usageCeilingPct ?? cur.usageCeilingPct,
-    sandboxProfile: patch.sandboxProfile ?? cur.sandboxProfile,
-  };
+  const out: RepoConfig = { ...cur };
+  const writable = out as unknown as Record<string, unknown>;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== undefined) writable[k] = v;
+  }
+  return out;
 }
 
 async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {

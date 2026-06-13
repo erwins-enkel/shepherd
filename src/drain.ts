@@ -22,7 +22,7 @@ import { config } from "./config";
  *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
  *  trip GitHub secondary rate limits. */
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
-import { drainSpawnModel } from "./default-model";
+import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
 import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
 import { epicBaseDirective } from "./autopilot";
 
@@ -619,14 +619,15 @@ export class DrainService {
     this.approvedNext.delete(repoPath);
     try {
       const { base, prompt } = await this.resolveSpawnBase(forge, decision);
-      // Auto-spawns honor an explicit operator default-model; when unset ("auto")
-      // they fall back to no --model flag (Claude's own default). The Fable promo
-      // is a client-only UI concern and is NEVER applied to autonomous spawns.
+      // Auto-spawns honor an explicit operator default-model — the repo override
+      // wins over the global default; when both are unset ("inherit"/"auto") they
+      // fall back to no --model flag (Claude's own default). The Fable promo is a
+      // client-only UI concern and is NEVER applied to autonomous spawns.
       await this.deps.service.create({
         repoPath,
         baseBranch: base,
         prompt,
-        model: drainSpawnModel(config.defaultModel),
+        model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },

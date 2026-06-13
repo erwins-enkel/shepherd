@@ -292,6 +292,49 @@ export class RecapService {
     }
   }
 
+  // ── considerForArchive ─────────────────────────────────────────────────────────
+
+  /**
+   * Archive-hook entry point. Unlike sweep()/considerSession, this fires for EVERY
+   * finishing session — including `auto`/drain — with NO debounce and NO auto-skip,
+   * so every session gets a durable recap row for the Done lens (the live-sweep's
+   * skip of `auto` sessions would otherwise starve drained sessions of a recap).
+   *
+   * Head-keyed dedup: if a recap already exists for the current HEAD we return "skip"
+   * (the common case — the live sweep usually already generated one), so we never
+   * double-spawn. Otherwise we generate synchronously.
+   *
+   * Does NOT throw: a git/worktree-unavailable rev-parse failure self-heals to "error"
+   * rather than throwing out of the archive hook.
+   */
+  async considerForArchive(session: Session): Promise<"started" | "empty" | "error" | "skip"> {
+    let head: string;
+    try {
+      head = await this._headSha(session.worktreePath);
+    } catch {
+      return "error"; // git/worktree unavailable — don't throw out of the hook
+    }
+
+    if (!needsRecap(this.deps.store.getRecap(session.id), head)) return "skip";
+
+    return await this.generate(session, head);
+  }
+
+  // ── onArchived ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Slim archive cleanup: frees ONLY the per-session debounce entry. Without this the
+   * `debounce` Map would leak entries for archived sessions (they never re-enter the
+   * sweep's active-session list to be cleared).
+   *
+   * Deliberately does NOT reapGenerating — an in-flight spawn must be allowed to finish
+   * (it's worktree-independent once launched, and tick() finalizes it post-archive) —
+   * and does NOT dropRecap — the row must persist for the Done lens.
+   */
+  onArchived(sessionId: string): void {
+    this.debounce.delete(sessionId);
+  }
+
   // ── generate ─────────────────────────────────────────────────────────────────
 
   /**
@@ -339,6 +382,7 @@ export class RecapService {
           headline: "",
           body: "",
           openItems: [],
+          changedFiles: [],
           spawnSessionId: "",
           cwd: "",
           model: this.model,
@@ -400,6 +444,7 @@ export class RecapService {
         headline: "",
         body: "",
         openItems: [],
+        changedFiles,
         spawnSessionId,
         cwd,
         model: this.model,

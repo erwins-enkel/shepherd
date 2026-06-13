@@ -1316,7 +1316,7 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
-    padding: 8px 12px;
+    padding: 2px 8px;
     cursor: pointer;
   }
   .gbtn:hover:not(:disabled) {

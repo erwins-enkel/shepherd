@@ -71,18 +71,6 @@ jobs:
           (cd ui && bun run check:i18n)
           (cd extension && bun run check:i18n)
 
-      # TEMPORARY (issue #591 diagnostic — REMOVE before merge): confirm the runner
-      # image lacks the egress real-machinery tools, so egress-runner.test.ts's CAPABLE
-      # gate is already false in CI and the suite skips here regardless of the new CI gate.
-      - name: Egress tooling diagnostic (TEMP — remove)
-        run: |
-          echo "RUNNER_ENVIRONMENT=${RUNNER_ENVIRONMENT:-<unset>}"
-          echo "CI=${CI:-<unset>}"
-          echo "DOCKER_HOST=${DOCKER_HOST:-<unset>}"
-          for t in setpriv unshare slirp4netns nft dnsmasq; do
-            if command -v "$t" >/dev/null 2>&1; then echo "tool $t: PRESENT ($(command -v "$t"))"; else echo "tool $t: ABSENT"; fi
-          done
-
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.

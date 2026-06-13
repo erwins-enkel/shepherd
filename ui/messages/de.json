@@ -1133,5 +1133,11 @@
   "session_sandbox_egress_degraded_title": "Autonome Dateisystem-Sandbox aktiv, aber das Netzwerk-Egress-Backend ist nicht verfügbar, daher ist ausgehender Verkehr uneingeschränkt — Tokens sind exfiltrierbar. Diese Sitzung nicht überschätzen.",
   "toast_egress_drop": "Egress zu {host} blockiert",
   "feat_egress_title": "Netzwerk-Egress-Allowlist",
-  "feat_egress_body": "Autonome Agenten sind jetzt auf eine Allowlist von Hosts beschränkt (Anthropic + den Forge-Host, plus operator-Extras); alle anderen ausgehenden Verbindungen werden blockiert. Blockierte Versuche erscheinen als Inline-Warnungen. Wenn das Backend nicht verfügbar ist, erscheint ein sichtbares Warn-Badge, damit klar ist, dass die Sitzung mit uneingeschränktem Netzwerk läuft."
+  "feat_egress_body": "Autonome Agenten sind jetzt auf eine Allowlist von Hosts beschränkt (Anthropic + den Forge-Host, plus operator-Extras); alle anderen ausgehenden Verbindungen werden blockiert. Blockierte Versuche erscheinen als Inline-Warnungen. Wenn das Backend nicht verfügbar ist, erscheint ein sichtbares Warn-Badge, damit klar ist, dass die Sitzung mit uneingeschränktem Netzwerk läuft.",
+  "settings_contrast_title": "Hoher Kontrast",
+  "settings_contrast_hint": "Hebt jedes Text- und Rahmenpaar auf WCAG AAA — für bessere Lesbarkeit bei Sonnenlicht und im Freien. Wirkt zusätzlich zum hellen oder dunklen Design oben.",
+  "settings_contrast_on": "Hoher Kontrast an",
+  "settings_contrast_off": "Hoher Kontrast aus",
+  "feat_mobile_contrast_title": "Hoher Kontrast auf dem Handy",
+  "feat_mobile_contrast_body": "Einstellungen → Gerät führt jetzt den Schalter für hohen Kontrast direkt neben dem Hell/Dunkel-Umschalter — so hebst du die Lesbarkeit auf dem Handy auf WCAG AAA. Gemacht fürs Steuern von Sessions draußen bei hellem Sonnenlicht."
 }

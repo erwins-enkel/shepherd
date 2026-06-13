@@ -111,6 +111,103 @@ function isProxyTarget(line: string, localPort: number): boolean {
   return m !== null && Number(m[1]) === localPort;
 }
 
+const LOOPBACK_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/;
+
+/** Plain (non-array) object guard — arrays are typeof "object" but malformed here. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/** Public port from a "host:PORT" web-map key; 443 when absent/non-numeric. */
+function publicPortFromKey(key: string): number {
+  const i = key.lastIndexOf(":");
+  if (i === -1) return 443;
+  const p = Number(key.slice(i + 1));
+  return Number.isFinite(p) ? p : 443;
+}
+
+/** Candidate web maps: top-level Web + each Services[svc].Web (arrays rejected, fail-closed). */
+function collectWebMaps(root: Record<string, unknown>): Array<Record<string, unknown>> {
+  const webMaps: Array<Record<string, unknown>> = [];
+  if (isPlainObject(root["Web"])) webMaps.push(root["Web"]);
+  const services = root["Services"];
+  if (isPlainObject(services)) {
+    for (const svc of Object.values(services)) {
+      if (isPlainObject(svc) && isPlainObject(svc["Web"])) {
+        webMaps.push(svc["Web"]);
+      }
+    }
+  }
+  return webMaps;
+}
+
+/** True when a handler's Proxy targets loopback:localPort. */
+function handlerTargetsPort(handler: unknown, localPort: number): boolean {
+  if (!isPlainObject(handler)) return false;
+  const proxy = handler["Proxy"];
+  if (typeof proxy !== "string") return false;
+  const m = LOOPBACK_RE.exec(proxy);
+  return m !== null && Number(m[1]) === localPort;
+}
+
+/** Public port if any handler in this web map targets localPort, else null. */
+function servedPortInWebMap(webMap: Record<string, unknown>, localPort: number): number | null {
+  for (const [key, entry] of Object.entries(webMap)) {
+    if (!isPlainObject(entry)) continue;
+    const handlers = entry["Handlers"];
+    if (!isPlainObject(handlers)) continue;
+    for (const handler of Object.values(handlers)) {
+      if (handlerTargetsPort(handler, localPort)) return publicPortFromKey(key);
+    }
+  }
+  return null;
+}
+
+/**
+ * JSON-based parser for `tailscale serve status --json` output. Given the raw
+ * JSON string and the HUD's local listen port, returns the public-facing HTTPS
+ * port that Tailscale fronts that local port on, or null when no match is found.
+ *
+ * Detection covers two serve topologies:
+ * - **Direct serve**: a mapping in the top-level `Web` object.
+ * - **Tailscale Service**: a mapping nested under `Services[svc].Web`.
+ *
+ * For each web-map entry whose key is `"host:PORT"`, every handler whose
+ * `.Proxy` URL targets a loopback address (`localhost` OR `127.0.0.1`) on
+ * `localPort` is considered a match; the public port is the integer after the
+ * LAST `:` in the entry's key (defaulting to 443 when no explicit port is
+ * present). First match wins.
+ *
+ * Parsing is fully defensive — any malformed, empty, or non-JSON input returns
+ * null without throwing.
+ *
+ * **Accepted trade-offs:**
+ * - On a Tailscale too old to support `--json`, the `serve status --json` call
+ *   typically exits non-zero; that rejection surfaces via the probe's *error*
+ *   fallback (`diagnostics_hint_tailscale_missing`), not as a Warning. Only a
+ *   zero-exit-but-unparseable payload reaches this parser and returns null →
+ *   Warning. Either way a served HUD is mis-reported there — accepted, since
+ *   Shepherd already requires a Service-capable Tailscale version.
+ * - Loopback coverage is `localhost` + `127.0.0.1` only; `[::1]` is
+ *   intentionally not matched (Tailscale always emits one of the two above).
+ * - A pending/unapproved Service still shows its mapping in the JSON and so
+ *   reads OK. The check is advisory, not a hard gate.
+ */
+export function findServedPort(serveStatusJson: string, localPort: number): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serveStatusJson);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(parsed)) return null;
+  for (const webMap of collectWebMaps(parsed)) {
+    const served = servedPortInWebMap(webMap, localPort);
+    if (served !== null) return served;
+  }
+  return null;
+}
+
 export interface PreviewPortRangeParams {
   previewPortBase: number;
   previewPortCount: number;

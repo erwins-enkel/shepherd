@@ -1150,7 +1150,7 @@
   "diagnostics_hint_herdr_outdated": "Deine herdr-Version liegt unter dem unterstützten Minimum — aktualisiere herdr.",
   "diagnostics_hint_herdr_missing": "herdr-Binary nicht im PATH gefunden — installiere es, um Agent-Sessions zu starten.",
   "diagnostics_hint_tailscale_ok": "Tailscale ist verbunden.",
-  "diagnostics_hint_tailscale_not_serving": "Tailscale läuft, aber serve ist für den Vorschau-Port nicht eingerichtet — für Remote-Zugriff empfiehlt sich die Konfiguration.",
+  "diagnostics_hint_tailscale_not_serving": "Tailscale läuft, stellt Shepherd aber nicht bereit — richte tailscale serve oder einen Tailscale-Service für den Remote-Zugriff ein.",
   "diagnostics_hint_tailscale_missing": "Tailscale nicht installiert oder nicht angemeldet — installiere es und führe tailscale up aus.",
   "diagnostics_hint_git_ok": "git ist verfügbar.",
   "diagnostics_hint_git_missing": "git nicht im PATH gefunden — installiere es, bevor du Aufgaben startest.",

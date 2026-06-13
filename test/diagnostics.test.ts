@@ -29,9 +29,15 @@ function healthyDeps(): DiagnosticsDeps {
     runVersion: versionRunner({ ...HEALTHY_VERSIONS }),
     runGhAuth: async () => {},
     resolveHost: async () => "node.example.ts.net",
-    // served-status text that maps config.port (default 7330) → a public port.
+    // served-status JSON (tailscale serve status --json) that maps config.port (default 7330) → port 443.
     runServeStatus: async () =>
-      "https://node.example.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:7330\n",
+      JSON.stringify({
+        Web: {
+          "node.example.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } },
+          },
+        },
+      }),
   };
 }
 
@@ -215,7 +221,15 @@ describe("DiagnosticsService probes", () => {
   it("tailscale: warning when logged in but not serving the port", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      runServeStatus: async () => "https://node.example.ts.net (tailnet only)\n",
+      // Valid JSON but no Proxy entry targeting port 7330
+      runServeStatus: async () =>
+        JSON.stringify({
+          Web: {
+            "node.example.ts.net:5191": {
+              Handlers: { "/": { Proxy: "http://127.0.0.1:5190" } },
+            },
+          },
+        }),
     });
     const c = byId((await svc.check(0)).checks, "tailscale");
     expect(c.state).toBe("warning");
@@ -225,10 +239,40 @@ describe("DiagnosticsService probes", () => {
     const secret = "SECRET-SERVE-LINE-127.0.0.1";
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      runServeStatus: async () => `${secret}\n`,
+      // Embed the secret inside a JSON value (a Proxy URL path) to verify it never leaks out
+      runServeStatus: async () =>
+        JSON.stringify({
+          Web: {
+            "node.example.ts.net:5191": {
+              Handlers: { "/": { Proxy: `http://127.0.0.1:5190/${secret}` } },
+            },
+          },
+        }),
     });
     const c = byId((await svc.check(0)).checks, "tailscale");
     expect(JSON.stringify(c)).not.toContain("SECRET-SERVE-LINE");
+    assertPure(c);
+  });
+  it("tailscale: ok when HUD is fronted by a Tailscale Service (Services → svc:shepherd → localhost:7330)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runServeStatus: async () =>
+        JSON.stringify({
+          Services: {
+            "svc:shepherd": {
+              TCP: { "443": { HTTPS: true } },
+              Web: {
+                "shepherd.chicken-beardie.ts.net:443": {
+                  Handlers: { "/": { Proxy: "http://localhost:7330" } },
+                },
+              },
+            },
+          },
+        }),
+    });
+    const c = byId((await svc.check(0)).checks, "tailscale");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_ok");
     assertPure(c);
   });
 });

@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { parseServedPort, validatePreviewPortRange } from "../src/config";
+import { test, describe, expect } from "bun:test";
+import { parseServedPort, findServedPort, validatePreviewPortRange } from "../src/config";
 import { originAllowed } from "../src/validate";
 
 // ── parseServedPort ───────────────────────────────────────────────────────────
@@ -64,6 +64,108 @@ https://myhost.ts.net:7777 (tailnet only)
 |-- / proxy 127.0.0.1:5555
 `;
   expect(parseServedPort(text, 5555)).toBe(7777);
+});
+
+// ── findServedPort ────────────────────────────────────────────────────────────
+
+// Full captured shape from tailscale serve status --json (1.96.4)
+const SERVE_STATUS_JSON_FULL = JSON.stringify({
+  TCP: { "5191": { HTTPS: true } },
+  Web: {
+    "backontop.chicken-beardie.ts.net:5191": {
+      Handlers: { "/": { Proxy: "http://127.0.0.1:5190" } },
+    },
+  },
+  Services: {
+    "svc:shepherd": {
+      TCP: { "443": { HTTPS: true } },
+      Web: {
+        "shepherd.chicken-beardie.ts.net:443": {
+          Handlers: { "/": { Proxy: "http://localhost:7330" } },
+        },
+      },
+    },
+  },
+});
+
+describe("findServedPort", () => {
+  test("Service-fronted HUD (Services svc:shepherd → localhost:7330) returns 443", () => {
+    expect(findServedPort(SERVE_STATUS_JSON_FULL, 7330)).toBe(443);
+  });
+
+  test("direct-serve mapping (top-level Web :5191 → 127.0.0.1:5190) returns 5191", () => {
+    expect(findServedPort(SERVE_STATUS_JSON_FULL, 5190)).toBe(5191);
+  });
+
+  test("negative: web map present but no Proxy targeting the given localPort returns null", () => {
+    expect(findServedPort(SERVE_STATUS_JSON_FULL, 9999)).toBeNull();
+  });
+
+  test("negative: malformed JSON returns null", () => {
+    expect(findServedPort("not json", 7330)).toBeNull();
+  });
+
+  test("negative: empty string returns null", () => {
+    expect(findServedPort("", 7330)).toBeNull();
+  });
+
+  test("negative: empty object JSON returns null", () => {
+    expect(findServedPort("{}", 7330)).toBeNull();
+  });
+
+  test("key without explicit :PORT defaults public port to 443", () => {
+    const json = JSON.stringify({
+      Web: {
+        "shepherd.example.ts.net": {
+          Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } },
+        },
+      },
+    });
+    expect(findServedPort(json, 7330)).toBe(443);
+  });
+
+  test("negative: array-valued top-level Web does not produce a false match", () => {
+    // Arrays satisfy typeof === "object"; must be rejected so a malformed payload
+    // doesn't masquerade as "served" (fail-closed contract).
+    expect(
+      findServedPort(
+        JSON.stringify({ Web: [{ Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } } }] }),
+        7330,
+      ),
+    ).toBeNull();
+  });
+
+  test("negative: array-valued Services does not produce a false match", () => {
+    expect(
+      findServedPort(
+        JSON.stringify({
+          Services: [
+            { Web: { "host:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } } } } },
+          ],
+        }),
+        7330,
+      ),
+    ).toBeNull();
+  });
+
+  test("multiple services: returns first match", () => {
+    const json = JSON.stringify({
+      Services: {
+        "svc:a": {
+          Web: {
+            "a.ts.net:8000": { Handlers: { "/": { Proxy: "http://localhost:3000" } } },
+          },
+        },
+        "svc:b": {
+          Web: {
+            "b.ts.net:9000": { Handlers: { "/": { Proxy: "http://localhost:4000" } } },
+          },
+        },
+      },
+    });
+    expect(findServedPort(json, 3000)).toBe(8000);
+    expect(findServedPort(json, 4000)).toBe(9000);
+  });
 });
 
 // ── validatePreviewPortRange ──────────────────────────────────────────────────

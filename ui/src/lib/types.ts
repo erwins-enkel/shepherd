@@ -224,6 +224,26 @@ export interface PlanGate {
   updatedAt: number;
 }
 
+// ── session recap ────────────────────────────────────────────────────────────
+// mirrors server Recap / RecapState / RecapVerdict
+export type RecapState = "generating" | "ready" | "failed" | "empty";
+export type RecapVerdict = "ready" | "parked" | "needs_attention";
+export interface Recap {
+  sessionId: string;
+  state: RecapState;
+  headSha: string;
+  verdict: RecapVerdict | null;
+  headline: string;
+  body: string;
+  openItems: string[];
+  spawnSessionId: string;
+  cwd: string;
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null;
+  updatedAt: number;
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;
@@ -639,6 +659,7 @@ export type WsEvent =
       data: { ok: boolean; from: string | null; to: string | null; error?: string };
     }
   | { event: "project-icons:update"; data: ProjectIcons }
+  | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "session:critic-activity"; data: { id: string; summary: string } }

@@ -54,6 +54,7 @@
   import RedrawMenu from "$lib/components/RedrawMenu.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
+  import SessionRecap from "$lib/components/SessionRecap.svelte";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { buildPreviewUrl } from "$lib/previewUrl";
@@ -2464,6 +2465,8 @@
       }}
     />
   {/if}
+
+  <SessionRecap {session} />
 
   <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware
        keyboard). Any coarse-pointer device (phone OR unfolded foldable) has no

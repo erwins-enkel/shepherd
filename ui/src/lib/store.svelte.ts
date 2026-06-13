@@ -20,6 +20,7 @@ import type {
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates } from "./reviews.svelte";
+import { recaps } from "./recaps.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -306,6 +307,9 @@ export class HerdStore {
    *  switch stays under the complexity gate. Returns true if `ev` was handled. */
   private applyReviewEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:recap":
+        recaps.apply(ev.data);
+        return true;
       case "session:review":
         reviews.apply(ev.data);
         return true;

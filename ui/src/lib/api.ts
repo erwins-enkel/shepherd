@@ -44,6 +44,7 @@ import type {
   Epic,
   EpicRun,
   EpicSummary,
+  Recap,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -775,6 +776,21 @@ export async function getPlanGates(): Promise<Record<string, PlanGate>> {
 /** Session ids with a plan review currently in flight (bootstrap for the reviewing indicator). */
 export async function getPlanGatesInflight(): Promise<string[]> {
   return getJson("/api/plan-gates/inflight", "plan-gates inflight");
+}
+
+/** Snapshot of every session's recap, keyed by session id (bootstrap; excludes empty rows). */
+export async function getRecaps(): Promise<Record<string, Recap>> {
+  return getJson("/api/recaps", "recaps");
+}
+
+/** Trigger a recap regeneration for a session. Returns `{status}` from the server. */
+export async function regenerateRecap(id: string): Promise<{ status: string }> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/recap/regenerate`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "regenerate recap");
+  return r.json();
 }
 
 /** Release an approved plan gate so the agent executes. Returns false on 409 (not approved). */

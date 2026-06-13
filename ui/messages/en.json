@@ -1187,5 +1187,18 @@
   "mergetrain_confirm_desc_ready": "Work through {count} ready PR(s) in {repo}?",
   "mergetrain_confirm_desc_picked": "Work through {count} selected PRs in {repo}?",
   "mergetrain_confirm_action": "Start merge train",
-  "mergetrain_confirm_other_repos": "{count} ready PR(s) in other repos are not included."
+  "mergetrain_confirm_other_repos": "{count} ready PR(s) in other repos are not included.",
+  "recap_generating": "Generating recap…",
+  "recap_failed": "Recap generation failed.",
+  "recap_retry": "Retry",
+  "recap_regenerate": "Regenerate",
+  "recap_verdict_ready": "Ready",
+  "recap_verdict_parked": "Parked",
+  "recap_verdict_needs_attention": "Needs attention",
+  "recap_open_items": "Open items",
+  "recap_expand": "▸",
+  "recap_collapse": "▾",
+  "recap_regenerate_failed": "Regenerate failed. Please try again.",
+  "feat_session_recap_title": "Session recap",
+  "feat_session_recap_body": "Shepherd now generates a concise recap after each session — verdict, headline, and open items — so you can see what happened at a glance."
 }

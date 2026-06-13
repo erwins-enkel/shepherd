@@ -457,7 +457,11 @@
     ondrop={onDrop}
   >
     <div class="chead">
-      <span class="micro">{heading}</span>
+      <span class="micro heading">{heading}</span>
+      <!-- Phone-only: the REPO label rides up into the head row so it shares the
+           44px line with the ✕ instead of leaving an empty band above it. Hidden
+           on desktop, where the stacked label in .repo-field shows instead. -->
+      <label class="micro chead-repo" for="nt-repo">{m.newtask_repo_label()}</label>
       <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
         >✕</button
       >
@@ -743,6 +747,10 @@
     cursor: pointer;
     font: inherit;
   }
+  /* Phone-only label; the desktop head carries the "New Task" title instead. */
+  .chead-repo {
+    display: none;
+  }
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
@@ -922,16 +930,25 @@
     .run {
       min-height: 44px;
     }
-    /* Compact head on phones: the "New Task" title is redundant once the
-       sheet is open and the prompt label is obvious from the placeholder.
-       Drop both, leaving a single 44px row that holds only the close ✕ in the
-       top-right corner — in flow so it stays aligned with the inset fields
-       below rather than floating, detached, over the prompt. */
+    /* Compact head on phones: the "New Task" title is redundant once the sheet
+       is open (the placeholder makes the intent obvious), so drop it — but don't
+       leave the 44px head row empty with the ✕ stranded over a band of dead
+       space. Promote the REPO label into the row so REPO (left, a touch larger)
+       and the close ✕ (right) share one line, with the repo dropdown directly
+       below. The prompt label is likewise redundant against its placeholder. */
     .chead {
       margin-bottom: 6px;
       min-height: 44px;
     }
-    .chead .micro {
+    .chead .heading {
+      display: none;
+    }
+    .chead-repo {
+      display: block;
+      margin-top: 0;
+      font-size: var(--fs-base);
+    }
+    .repo-field > .micro {
       display: none;
     }
     .x {

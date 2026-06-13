@@ -2,6 +2,7 @@ import { test, expect, mock } from "bun:test";
 import {
   AutopilotService,
   PROCEED_STEER,
+  RESEARCH_PROCEED_STEER,
   openPrSteer,
   epicBaseDirective,
   CI_FIX_STEER,
@@ -835,4 +836,83 @@ test("negative: tick() ignores an archived session", () => {
   const h = stuckRed({ status: "archived" });
   h.svc.tick();
   expect(h.events.length).toBe(0);
+});
+
+// ───────────────────────── research guard ─────────────────────────
+// A research session (research: true) in an autopilot-enabled repo is reached by dispatch()
+// via the normal onBlock/onDone paths. The guard bars both PR-language steer paths while
+// leaving the complete path and non-research behavior untouched.
+
+test("research + finished verdict (no PR) → markComplete, no open-PR steer", async () => {
+  const h = harness({
+    session: sess({ research: true, status: "done" }),
+    verdict: { kind: "finished", summary: "Research done." },
+  });
+  await h.svc.onDone("s1");
+  // No steer event at all — not even a non-PR steer
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  // markComplete fired
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Research done." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("research + gate verdict → RESEARCH_PROCEED_STEER sent, not PROCEED_STEER", async () => {
+  const h = harness({
+    session: sess({ research: true }),
+    verdict: { kind: "gate", summary: "asking to proceed" },
+  });
+  await h.svc.onBlock("s1", block());
+  const steerEv = h.events.find((e) => "steer" in e);
+  expect(steerEv).toBeDefined();
+  expect(steerEv.steer).toBe(RESEARCH_PROCEED_STEER);
+  expect(steerEv.steer).not.toContain("pull request");
+  expect(steerEv.steer).not.toBe(PROCEED_STEER);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("research + complete verdict → markComplete (clean-done preserved)", async () => {
+  const h = harness({
+    session: sess({ research: true, status: "done" }),
+    verdict: { kind: "complete", summary: "Research report filed." },
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Research report filed." });
+  expect(h.state().autopilotComplete).toBe(true);
+});
+
+test("research + finished + PR already open → early-return (no steer, no markComplete)", async () => {
+  const h = harness({
+    session: sess({ research: true, status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    openPr: true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events.some((e) => "complete" in e)).toBe(false);
+  expect(h.state().autopilotComplete).toBe(false);
+});
+
+// Negative controls: guard must not bleed into normal sessions
+test("non-research + finished verdict → still gets open-PR steer", async () => {
+  const h = harness({
+    session: sess({ research: false }),
+    verdict: { kind: "finished", summary: "done" },
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+  expect(h.events.some((e) => "complete" in e)).toBe(false);
+});
+
+test("non-research + gate verdict → still gets PROCEED_STEER, not RESEARCH_PROCEED_STEER", async () => {
+  const h = harness({
+    session: sess({ research: false }),
+    verdict: { kind: "gate", summary: "asking to proceed" },
+  });
+  await h.svc.onBlock("s1", block());
+  const steerEv = h.events.find((e) => "steer" in e);
+  expect(steerEv).toBeDefined();
+  expect(steerEv.steer).toBe(PROCEED_STEER);
+  expect(steerEv.steer).not.toBe(RESEARCH_PROCEED_STEER);
 });

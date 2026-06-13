@@ -87,10 +87,15 @@
   }
 
   function onTextBlur(s: Steer, e: FocusEvent) {
-    (e.currentTarget as HTMLTextAreaElement).style.height = ""; // collapse to one line
+    const ta = e.currentTarget as HTMLTextAreaElement;
+    ta.style.height = ""; // collapse to one line
     if (slashFor === s.id) slashFor = null;
-    // Leaving the field exits edit mode and restores the full list. The slash menu
-    // picks via mousedown+preventDefault, so choosing a command never blurs here.
+    // Focus moving to another control inside this same row (label, emoji, scope
+    // toggles, the emoji popover) keeps edit mode — those stay usable in-place, so
+    // only leaving the row collapses it and (on mobile) restores the full list. The
+    // slash menu picks via mousedown+preventDefault, so it never blurs here at all.
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && ta.closest(".srow")?.contains(next)) return;
     if (editingId === s.id) editingId = null;
   }
 

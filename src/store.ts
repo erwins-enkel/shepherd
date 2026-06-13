@@ -136,6 +136,7 @@ type NewSession = Omit<
   | "sandboxDegraded"
   | "egressApplied"
   | "egressDegraded"
+  | "research"
 > & {
   id?: string;
   model?: string | null;
@@ -148,6 +149,7 @@ type NewSession = Omit<
   sandboxDegraded?: boolean;
   egressApplied?: boolean;
   egressDegraded?: boolean;
+  research?: boolean;
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
@@ -156,6 +158,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
+  research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
 // ── repo_config row type + helpers ────────────────────────────────────────────
@@ -598,6 +601,7 @@ export class SessionStore implements CapStore, CreditStore {
       sandboxDegraded: input.sandboxDegraded ?? false,
       egressApplied: input.egressApplied ?? false,
       egressDegraded: input.egressDegraded ?? false,
+      research: input.research ?? false,
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -614,7 +618,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -648,6 +652,7 @@ export class SessionStore implements CapStore, CreditStore {
           s.sandboxDegraded ? 1 : 0,
           s.egressApplied ? 1 : 0,
           s.egressDegraded ? 1 : 0,
+          s.research ? 1 : 0,
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -1325,6 +1330,8 @@ export class SessionStore implements CapStore, CreditStore {
     add("egressDegraded", `egressDegraded INTEGER NOT NULL DEFAULT 0`);
     add("mergingSince", `mergingSince INTEGER`);
     add("mergingTrainId", `mergingTrainId TEXT`);
+    // research task kind: default 0 (false) for pre-existing rows.
+    add("research", `research INTEGER NOT NULL DEFAULT 0`);
   }
 
   // migrate repo_config that predates these opt-in columns. auto-address defaults
@@ -1717,6 +1724,7 @@ export class SessionStore implements CapStore, CreditStore {
       sandboxDegraded: !!r.sandboxDegraded,
       egressApplied: !!r.egressApplied,
       egressDegraded: !!r.egressDegraded,
+      research: !!r.research,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
     } as Session;

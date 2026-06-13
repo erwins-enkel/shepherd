@@ -38,6 +38,7 @@ const SESSION: Session = {
   sandboxDegraded: false,
   egressApplied: false,
   egressDegraded: false,
+  research: false,
   status: "running",
   lastState: "working",
   createdAt: 0,

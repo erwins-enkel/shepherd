@@ -107,6 +107,57 @@ test("sandboxProfile: invalid value rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/sandboxProfile/);
 });
 
+test("research: true accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: true },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(true);
+});
+
+test("research: false accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: false },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(false);
+});
+
+test("research: absent → false", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(false);
+});
+
+test("research: non-boolean string rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: "yes" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
+test("research: numeric 1 rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: 1 },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
+test("research: null rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: null },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
 test("unknown key is rejected", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", evil: "x" },

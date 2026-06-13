@@ -42,6 +42,8 @@ export interface Session {
   planGateEnabled: boolean | null;
   /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */
   planPhase: "planning" | "executing" | null;
+  /** True for a research-kind task: web research → report PR or GitHub issue; never code-PR-steered. */
+  research: boolean;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -96,6 +98,8 @@ export interface CreateSessionInput {
   planGateEnabled?: boolean | null;
   /** Per-spawn sandbox profile override; absent → inherit repo default. */
   sandboxProfile?: SandboxProfile | null;
+  /** Research task kind; absent → false. */
+  research?: boolean;
 }
 
 /**
@@ -113,6 +117,8 @@ export interface RelaunchOverrides {
   model?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
+  /** Research task kind override; absent → keep original. */
+  research?: boolean;
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag.

@@ -236,6 +236,25 @@ describe("provisionApiKeyConfigDir — self-healing", () => {
     expect(existsSync(join(dest, "CLAUDE.md"))).toBe(false);
   });
 
+  test("wrong-target symlink in dest is replaced with correct target on re-provision", () => {
+    const root = makeTmp();
+    const src = buildFakeSource(root);
+    const dest = join(root, "dest");
+    mkdirSync(dest, { recursive: true });
+
+    // Pre-create a symlink for settings.json pointing at a WRONG absolute path.
+    const wrongTarget = join(root, "wrong", "settings.json");
+    symlinkSync(wrongTarget, join(dest, "settings.json"));
+
+    provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest });
+
+    // The symlink must now resolve to the correct source file.
+    const stat = lstatSync(join(dest, "settings.json"));
+    expect(stat.isSymbolicLink()).toBe(true);
+    const resolved = realpathSync(join(dest, "settings.json"));
+    expect(resolved).toBe(realpathSync(join(src, "settings.json")));
+  });
+
   test("pre-existing real .credentials.json in dest is removed", () => {
     const root = makeTmp();
     const src = buildFakeSource(root);

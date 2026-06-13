@@ -25,7 +25,15 @@
  */
 
 import { join } from "node:path";
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 
 /** The OAuth token file — its absence is what makes a config dir "not logged in." */
 export const CREDENTIAL_FILE = ".credentials.json";
@@ -69,15 +77,11 @@ export function provisionApiKeyConfigDir(opts: {
   const sourceEntries = new Set(readdirSync(sourceClaudeDir));
 
   // ── 1. Clean up destDir ───────────────────────────────────────────────────
-  // Remove entries that are either stale (no longer in source) or were left as
-  // real files/dirs by a previous bad provisioning run. Always skip
-  // CREDENTIAL_FILE — we'll enforce its absence separately.
-  let destEntries: string[];
-  try {
-    destEntries = readdirSync(destDir);
-  } catch {
-    destEntries = [];
-  }
+  // Remove entries that are either stale (no longer in source), were left as
+  // real files/dirs by a previous bad provisioning run, or are symlinks
+  // pointing at the wrong absolute path. Always skip CREDENTIAL_FILE — we'll
+  // enforce its absence separately.
+  const destEntries = readdirSync(destDir);
 
   for (const entry of destEntries) {
     if (entry === CREDENTIAL_FILE) {
@@ -96,18 +100,17 @@ export function provisionApiKeyConfigDir(opts: {
       try {
         const stat = lstatSync(destEntryPath);
         if (stat.isSymbolicLink()) {
-          // We'll re-create below if needed; for now just check if it points right.
-          isCorrectSymlink = true;
+          // Correct only if the symlink target matches the intended source path.
+          isCorrectSymlink = readlinkSync(destEntryPath) === sourcePath;
         }
       } catch {
-        // lstat failed — treat as not a correct symlink; fall through to remove.
+        // lstat/readlink failed — treat as not a correct symlink; fall through to remove.
       }
     }
 
     if (isStale || !isCorrectSymlink) {
       _tryRemove(destEntryPath);
     }
-    void sourcePath; // suppress unused warning
   }
 
   // ── 2. Create symlinks for all source entries except CREDENTIAL_FILE ──────
@@ -120,10 +123,10 @@ export function provisionApiKeyConfigDir(opts: {
     // If a correct symlink already exists, skip it.
     try {
       const stat = lstatSync(destEntryPath);
-      if (stat.isSymbolicLink()) {
-        continue; // already linked — leave it
+      if (stat.isSymbolicLink() && readlinkSync(destEntryPath) === sourcePath) {
+        continue; // already linked to the right target — leave it
       }
-      // It's a real file/dir (shouldn't happen after step 1, but be defensive).
+      // Wrong target or a real file/dir (shouldn't happen after step 1, but be defensive).
       _tryRemove(destEntryPath);
     } catch {
       // Entry doesn't exist — fall through to create.
@@ -156,12 +159,7 @@ export function ensureApiKeyConfigDir(home: string, sourceClaudeDir: string): st
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function _removeCredentialIfPresent(dir: string): void {
-  const credPath = join(dir, CREDENTIAL_FILE);
-  try {
-    rmSync(credPath, { force: true });
-  } catch {
-    // best-effort
-  }
+  rmSync(join(dir, CREDENTIAL_FILE), { force: true });
 }
 
 function _tryRemove(p: string): void {

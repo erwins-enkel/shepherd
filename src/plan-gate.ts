@@ -110,8 +110,9 @@ export interface PlanGateServiceDeps {
     | "get"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "listReviewerSpawns"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   /** Resolve the forge for a repo so begin() can fetch the originating issue's body as UNTRUSTED
    *  reviewer context. Optional + optional-chained: absence ⇒ no issue context (never blocks). */
@@ -134,6 +135,10 @@ export interface PlanGateServiceDeps {
   timeoutMs?: number; // give up waiting on the verdict file
   /** default: read `.shepherd-plan.md` from the live worktree. */
   readPlan?: (worktreePath: string) => string | null;
+  /** default: `existsSync` — whether a reviewer's disposable worktree is still on disk.
+   *  adoptOrphans() uses it to tell a true restart-orphan (worktree survives) from an
+   *  already-finalized review (finalize reaps the worktree). */
+  worktreeExists?: (worktreePath: string) => boolean;
   /** default: read PLAN_VERDICT_FILE from the reviewer's disposable worktree. */
   readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
@@ -183,6 +188,7 @@ export class PlanGateService {
   }
   private readPlan: (worktreePath: string) => string | null;
   private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
+  private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
   private readUsage: (
     worktreePath: string,
@@ -224,6 +230,7 @@ export class PlanGateService {
     this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
+    this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultBaseSha;
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
@@ -353,6 +360,48 @@ export class PlanGateService {
     });
     this.deps.onReviewing?.(session.id, true);
     return "started";
+  }
+
+  /** Re-adopt plan reviews that were in flight when the server last stopped. The `inflight`
+   *  map is in-memory only, so a restart mid-review used to orphan the reviewer forever: its
+   *  verdict was never read, the gate never advanced, and the planning agent sat idle waiting
+   *  for a re-review that would never come. This rebuilds those entries from the persisted
+   *  `reviewer_spawns` rows so the normal `tick()` finalizes them — reading the verdict the
+   *  reviewer already wrote, or timing the run out. Call once at boot, before the tick loop.
+   *
+   *  An orphan is a `plan_gate` spawn that never completed AND whose disposable worktree still
+   *  exists — finalize() reaps that worktree, so a surviving one means finalize never ran. */
+  async adoptOrphans(): Promise<void> {
+    for (const sp of this.deps.store.listReviewerSpawns()) {
+      if (sp.kind !== "plan_gate" || sp.completedAt != null) continue;
+      const id = sp.taskSessionId;
+      if (this.inflight.has(id) || this.starting.has(id)) continue;
+      const s = this.deps.store.get(id);
+      if (!s || s.planPhase !== "planning") continue; // session gone or already past the gate
+      // Reaped worktree ⇒ the review finalized (finalize removes it); nothing to re-adopt.
+      if (!this.worktreeExists(sp.worktreePath)) continue;
+      const prior = this.deps.store.getPlanGate(id);
+      const plan = (this.readPlan(s.worktreePath) ?? "").trim();
+      this.inflight.set(id, {
+        sessionId: id,
+        repoPath: s.repoPath,
+        worktreePath: sp.worktreePath,
+        terminalId: this.resolveTerminal(sp.worktreePath),
+        reviewerSessionId: sp.reviewerSessionId,
+        planHash: await PlanGateService.hashPlan(plan),
+        plan,
+        priorRound: prior?.round ?? 0,
+        startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
+      });
+      this.deps.onReviewing?.(id, true);
+    }
+  }
+
+  /** Best-effort: find the reviewer's live terminal id by its disposable-worktree cwd, so a
+   *  re-adopted orphan can still be reaped. "" when no live pane matches (reviewer already gone);
+   *  herdr.stop("") is a safe no-op. */
+  private resolveTerminal(worktreePath: string): string {
+    return this.deps.herdr.list().find((a) => a.cwd === worktreePath)?.terminalId ?? "";
   }
 
   /** Finalize any in-flight plan review whose verdict file is ready or that timed out. */

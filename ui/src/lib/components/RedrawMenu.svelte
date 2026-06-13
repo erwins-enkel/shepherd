@@ -36,14 +36,14 @@
   // clamp approach as CardMenu); measured by the effect below once mounted.
   let pos = $state<{ left: number; top: number } | null>(null);
   // Until the measuring effect runs, fall back to a concrete estimate from the
-  // anchor rect (230 = the menu's CSS min-width) so the menu is visible — and
+  // anchor rect (320 = the menu's CSS width) so the menu is visible — and
   // focusable — from its very first paint. Never visibility:hidden: a hidden
   // element refuses focus, which would break the first-item-focused contract.
   const shown = $derived(
     pos ??
       (() => {
         const a = anchor.getBoundingClientRect();
-        return { left: Math.max(8, a.right - 230), top: a.bottom + 4 };
+        return { left: Math.max(8, a.right - 320), top: a.bottom + 4 };
       })(),
   );
   $effect(() => {
@@ -157,8 +157,12 @@
   .redraw-menu {
     position: fixed;
     z-index: 60;
-    min-width: 230px;
-    max-width: min(320px, calc(100vw - 16px));
+    /* A FIXED width (not max-width + shrink-to-fit): a position:fixed element with
+       width:auto sizes against the space from `left` to the viewport's right edge,
+       so its wrapping width would depend on `left` — and the measuring effect would
+       right-align against a stale width, leaving the menu off the anchor / spilling
+       past the edge. A concrete width decouples geometry from position. */
+    width: min(320px, calc(100vw - 16px));
     padding: 4px;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);

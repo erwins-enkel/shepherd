@@ -34,6 +34,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     store,
     namer: async () => "repo-flatten",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (repo: string, base: string, name: string) => {
         calls.wt = { repo, base, name };
         return {
@@ -105,7 +106,7 @@ test("setReadyToMerge persists the flag and emits session:ready", () => {
   const service = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [] } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
@@ -299,6 +300,7 @@ test("createSession: uses herd-qualified name on collision with a different-repo
     // namer is deterministic, so a resubmitted prompt collides with a live agent's name
     namer: async () => "koennen-wir-schon",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_repo: string, _base: string, name: string) => {
         calls.wtName = name;
         return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
@@ -337,6 +339,7 @@ test("createSession: falls back to numeric suffix when base AND herd-qualified n
     store,
     namer: async () => "koennen-wir-schon",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_repo: string, _base: string, name: string) => {
         calls.wtName = name;
         return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
@@ -374,6 +377,7 @@ test("createSession: falls back to numeric-only suffix when repoPath has no usab
     store,
     namer: async () => "koennen-wir-schon",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_repo: string, _base: string, name: string) => {
         calls.wtName = name;
         return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
@@ -411,6 +415,7 @@ test("createSession: keeps the base name when no agent holds it", async () => {
     store,
     namer: async () => "fresh-name",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_r: string, _b: string, name: string) => ({
         worktreePath: `/wt/${name}`,
         branch: `shepherd/${name}`,
@@ -441,6 +446,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     store,
     namer: async () => "repo-flatten",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
@@ -484,6 +490,7 @@ test("createSession: moves images into worktree and appends paths to the prompt"
     store,
     namer: async () => "repo-x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
       remove: () => {},
     } as any,
@@ -529,6 +536,7 @@ test("createSession: no images leaves the prompt argv unchanged", async () => {
     store,
     namer: async () => "repo-x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
@@ -565,6 +573,7 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
     store,
     namer: async () => "repo-x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
@@ -613,6 +622,7 @@ test("createSession: persists auto=true and issueNumber from issueRef.number", a
     store,
     namer: async () => "repo-x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
@@ -646,6 +656,7 @@ test("createSession: defaults auto=false and issueNumber=null when not provided"
     store,
     namer: async () => "repo-x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
@@ -676,6 +687,7 @@ test("createSession: rolls back the worktree when the agent fails to start", asy
     store,
     namer: async () => "boom",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_r: string, _b: string, name: string) => ({
         worktreePath: `/wt/${name}`,
         branch: `shepherd/${name}`,
@@ -714,6 +726,7 @@ test("createSession: skips worktree rollback when the cwd fallback isn't isolate
     store,
     namer: async () => "boom",
     worktree: {
+      ensureBaseRef: async () => {},
       // non-git repoPath → herdr runs in-place, no worktree to clean up
       create: () => ({ worktreePath: "/repo", branch: null, isolated: false }),
       remove: () => {
@@ -746,7 +759,11 @@ test("archive stops the herdr agent, removes the worktree, and archives the row"
   const service = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}), remove: (p: string) => calls.removed.push(p) } as any,
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      remove: (p: string) => calls.removed.push(p),
+    } as any,
     herdr: { start: () => ({}), list: () => [], stop: (t: string) => calls.stopped.push(t) } as any,
   });
   const s = store.create({
@@ -790,6 +807,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
     store,
     namer: async () => "x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -831,6 +849,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     store,
     namer: async () => "x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -874,6 +893,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     store,
     namer: async () => "x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -915,6 +935,7 @@ test("archive with no reap keys never calls the reaper", () => {
     store,
     namer: async () => "x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -957,7 +978,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
         calls.start = { name, cwd, argv };
@@ -992,7 +1013,7 @@ test("resume omits --model when the session had none", async () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: (_n: string, _c: string, argv: string[]) => {
         calls.argv = argv;
@@ -1021,7 +1042,7 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", async 
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => {
         started++;
@@ -1046,7 +1067,7 @@ test("resume force=true stops the live husk agent and respawns claude", async ()
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => {
         started++;
@@ -1071,7 +1092,7 @@ test("resume returns null for unknown, archived, or pre-feature sessions", async
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
   });
   expect(await svc.resume("ghost")).toBeNull(); // unknown id
@@ -1101,7 +1122,7 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [{ terminalId: "term_z" }], // pane is live
@@ -1145,7 +1166,7 @@ test("reply returns false for a live-in-store session whose pane is dead (no thr
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [{ terminalId: "term_other" }], // session's pane is NOT listed → dead
@@ -1179,7 +1200,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [{ terminalId: "term_a" }, { terminalId: "term_b" }], // both panes live
@@ -1222,7 +1243,7 @@ test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouche
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: () => ({}) as any,
@@ -1270,7 +1291,7 @@ test("haltAll keeps interrupting after one pane's send throws; counts only the l
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: () => ({}) as any,
@@ -1310,7 +1331,7 @@ test("haltAll throws (no emit) when herdr can't be reached — never a silent no
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: () => ({}) as any,
@@ -1345,6 +1366,7 @@ function svcDeps(over: any = {}) {
       branch: `shepherd/${name}`,
       isolated: true,
     }),
+    ensureBaseRef: async () => {},
     remove: () => {},
     renameBranch: (_r: string, _o: string, n: string) => renamedBranches.push(n),
     commitsAhead: () => 0,
@@ -1514,7 +1536,11 @@ test("archiveMany clears each session, reaping all its leftovers", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: (p: string) => calls.removed.push(p) } as any,
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: (p: string) => calls.removed.push(p),
+    } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => [],
@@ -1556,6 +1582,7 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
     store,
     namer: async () => "repo-task",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({
         worktreePath: "/wt/repo-task",
         branch: isolated ? "shepherd/repo-task" : null,
@@ -1803,7 +1830,7 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => {
         startCalls++;
@@ -1839,6 +1866,7 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
     store,
     namer: async () => "x",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({}) as any,
       // session b's worktree teardown blows up mid-loop
       remove: (p: string) => {
@@ -1880,6 +1908,7 @@ function mergeSvc() {
     store,
     namer: async () => "n",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt", branch: "b", isolated: true }),
       remove: () => {},
     } as any,
@@ -2015,6 +2044,7 @@ test("isolated guard: a sole non-isolated merged member never emits", async () =
     store,
     namer: async () => "n",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({ worktreePath: "/wt", branch: null, isolated: false }),
       remove: () => {},
     } as any,
@@ -2259,6 +2289,7 @@ function buildQueueDeps(
     store,
     namer: async () => "repo-task",
     worktree: {
+      ensureBaseRef: async () => {},
       create: () => ({
         worktreePath: "/wt/repo-task",
         branch: "shepherd/repo-task",
@@ -2480,7 +2511,7 @@ function makePreviewSvc(opts: { terminalId: string; liveIds: string[] }) {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: {
       start: () => ({}) as any,
       list: () => opts.liveIds.map((id) => ({ terminalId: id })),
@@ -2576,7 +2607,7 @@ function makeStopPreviewSvc(opts: {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
     reaper: reaper as any,
     preview: preview as any,
@@ -2661,7 +2692,7 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
   const svc = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, remove: () => {} } as any,
+    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
     reaper: {
       detect: () => [],
@@ -2854,7 +2885,11 @@ test("resume of an auto session re-applies the trim: flag + plugin-off overlay",
     const svc = new SessionService({
       store,
       namer: async () => "x",
-      worktree: { create: () => ({}) as any, remove: () => {} } as any,
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+      } as any,
       herdr: {
         start: (_n: string, _c: string, argv: string[]) => {
           calls.argv = argv;
@@ -2898,6 +2933,7 @@ function relaunchHarness(store: SessionStore) {
     store,
     namer: async () => "relaunched",
     worktree: {
+      ensureBaseRef: async () => {},
       create: (_repo: string, _base: string, name: string) => {
         const wp = `/wt/${name}-${++n}`;
         return { worktreePath: wp, branch: `shepherd/${name}`, isolated: true };
@@ -3207,7 +3243,11 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
     const svc = new SessionService({
       store,
       namer: async () => "x",
-      worktree: { create: () => ({}) as any, remove: () => {} } as any,
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+      } as any,
       herdr: {
         start: (_n: string, _c: string, argv: string[]) => {
           calls.argv = argv;

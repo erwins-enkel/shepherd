@@ -54,6 +54,7 @@ export interface ServiceDeps {
   worktree: Pick<
     WorktreeMgr,
     | "create"
+    | "ensureBaseRef"
     | "remove"
     | "renameBranch"
     | "branchExists"
@@ -764,6 +765,11 @@ export class SessionService {
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug);
+    // Resolve the base locally first: an epic integration branch exists only on origin, so
+    // worktree.create (which resolves baseBranch from LOCAL refs) would otherwise fail and
+    // silently drop the child into the non-isolated main checkout. The default-branch path
+    // already exists locally and early-returns, so regular spawns are unaffected.
+    await this.deps.worktree.ensureBaseRef(input.repoPath, input.baseBranch);
     const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan

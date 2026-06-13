@@ -13,6 +13,7 @@ function child(over: Partial<EpicChild> = {}): EpicChild {
     sessionId: null,
     prNumber: null,
     issueClosed: false,
+    integrationMerged: false,
     claimed: false,
     ...over,
   };
@@ -66,5 +67,31 @@ describe("selectEpicCandidates", () => {
       labels: [],
       createdAt: 0,
     });
+  });
+});
+
+describe("integrationMerged", () => {
+  test("integration-merged child reads 'merged' even with the issue still open", () => {
+    const c = child({ number: 320, issueClosed: false, integrationMerged: true });
+    expect(deriveChildState(c, new Set())).toBe("merged");
+  });
+
+  test("a dependent unblocks once its blocker is integration-merged (issue still open)", () => {
+    const blocker = child({ number: 320, integrationMerged: true });
+    const dep = child({ number: 322, blockedBy: [320] });
+    expect(selectEpicCandidates([blocker, dep]).map((c) => c.number)).toEqual([322]);
+  });
+
+  test("a dependent stays blocked while its blocker is neither integrated nor closed", () => {
+    const blocker = child({ number: 320 });
+    const dep = child({ number: 322, blockedBy: [320] });
+    expect(deriveChildState(dep, new Set())).toBe("blocked");
+    expect(selectEpicCandidates([blocker, dep]).map((c) => c.number)).toEqual([320]);
+  });
+
+  test("legacy issue-closed path still satisfies a dependency", () => {
+    const blocker = child({ number: 320, issueClosed: true });
+    const dep = child({ number: 322, blockedBy: [320] });
+    expect(selectEpicCandidates([blocker, dep]).map((c) => c.number)).toEqual([322]);
   });
 });

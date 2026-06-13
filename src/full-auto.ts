@@ -1,6 +1,7 @@
 import type { Session } from "./types";
 import type { RepoConfig } from "./store";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { isEpicIntegrationBranch } from "./epic-branch";
 
 /**
  * A session is "full-auto" — the merge train carries its PR all the way to a merge — when
@@ -14,9 +15,12 @@ import { effectiveAutopilot } from "./effective-autopilot";
  * autoMergeEnabled override — draft PRs must go through sign-off before they can be landed.
  */
 export function isFullAuto(
-  s: Pick<Session, "autopilotEnabled" | "autoMergeEnabled">,
+  s: Pick<Session, "autopilotEnabled" | "autoMergeEnabled" | "baseBranch">,
   cfg: Pick<RepoConfig, "autopilotEnabled" | "autoMergeEnabled" | "draftMode">,
 ): boolean {
+  // Epic children are squash-merged into their integration branch by the drain's retire path,
+  // never carried by the merge train — exclude them regardless of repo auto-merge config.
+  if (isEpicIntegrationBranch(s.baseBranch)) return false;
   const autopilot = effectiveAutopilot(s, cfg.autopilotEnabled);
   const merge = cfg.draftMode ? false : (s.autoMergeEnabled ?? cfg.autoMergeEnabled);
   return autopilot && merge;

@@ -38,6 +38,7 @@ function worktreeStub() {
     }),
     remove: () => {},
     gitCommonDir: () => "/wt/s/.git",
+    ensureBaseRef: async () => {},
   } as any;
 }
 

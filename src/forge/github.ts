@@ -483,6 +483,27 @@ export class GithubForge implements GitForge {
     return name;
   }
 
+  async ensureBranch(branch: string, fromRef: string): Promise<void> {
+    try {
+      await this.run(["api", `repos/${this.slug}/git/ref/heads/${branch}`]);
+      return; // exists → never reset its tip
+    } catch {
+      // not found → create below
+    }
+    const baseRef = await this.run(["api", `repos/${this.slug}/git/ref/heads/${fromRef}`]);
+    const sha = (JSON.parse(baseRef) as { object: { sha: string } }).object.sha;
+    await this.run([
+      "api",
+      "--method",
+      "POST",
+      `repos/${this.slug}/git/refs`,
+      "-f",
+      `ref=refs/heads/${branch}`,
+      "-f",
+      `sha=${sha}`,
+    ]);
+  }
+
   private cachedUser: string | null | undefined;
   /** The authenticated gh login (`gh api user`), cached for the forge's lifetime —
    *  it never changes mid-session, so one call serves every handoff computation. */

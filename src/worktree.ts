@@ -113,6 +113,33 @@ export class WorktreeMgr {
     }
   }
 
+  /** Ensure `baseBranch` resolves locally AND is current before a worktree bases on it.
+   *  Skips the fetch only for the main clone's checked-out branch (git refuses to fetch into
+   *  it; the default branch is normally HEAD, so regular spawns keep basing on the local tip
+   *  as before — no new network hit). For any other base (e.g. an epic integration branch that
+   *  advances on the remote as siblings merge), `git fetch origin <b>:<b>` creates-or-FFs the
+   *  local branch so the worktree bases on the latest tip. Best-effort + async (never sync on
+   *  the server loop): a failure warns and the subsequent worktree.create surfaces a real error
+   *  if the base is genuinely unresolvable. */
+  async ensureBaseRef(repoPath: string, baseBranch: string): Promise<void> {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return;
+    try {
+      const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: repoPath,
+      });
+      if (stdout.trim() === baseBranch) return; // checked-out branch — can't/needn't fetch
+    } catch {
+      // detached HEAD or error — fall through and attempt the fetch
+    }
+    try {
+      await execFileAsync("git", ["fetch", "origin", `${baseBranch}:${baseBranch}`], {
+        cwd: repoPath,
+      });
+    } catch (err) {
+      console.warn(`[worktree] ensureBaseRef fetch ${baseBranch} failed:`, err);
+    }
+  }
+
   /** Whether the branch checked out at `worktreePath` is BEHIND `baseBranch` — i.e.
    *  base has commits not yet in HEAD, so a strict merge train must rebase first.
    *  Best-effort fetches `origin/<base>` and prefers it; falls back to the local

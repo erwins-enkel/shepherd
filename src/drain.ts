@@ -13,6 +13,7 @@ import {
   type DrainRepoState,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
+import { epicIntegrationBranch as epicBranchName, isEpicIntegrationBranch } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
@@ -23,6 +24,7 @@ import { config } from "./config";
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
 import { drainSpawnModel } from "./default-model";
 import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
+import { epicBaseDirective } from "./autopilot";
 
 /** Cached epic structure for one pump cycle. */
 interface EpicStructure {
@@ -62,7 +64,15 @@ export interface QueuedItem {
 export interface DrainDeps {
   store: Pick<
     SessionStore,
-    "get" | "list" | "getRepoConfig" | "getReview" | "archive" | "getEpicRun" | "setEpicRun"
+    | "get"
+    | "list"
+    | "getRepoConfig"
+    | "getReview"
+    | "archive"
+    | "getEpicRun"
+    | "setEpicRun"
+    | "listEpicIntegrated"
+    | "recordEpicIntegrated"
   >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
@@ -172,9 +182,11 @@ export class DrainService {
         issueNumber: x.issueNumber,
         prNumber: prSnap[x.id]?.number ?? null,
       }));
+    const integrated = this.deps.store.listEpicIntegrated(repoPath, run.parentIssueNumber);
     return assembleEpic({
       repoPath,
       run,
+      integrated,
       parent: {
         number: run.parentIssueNumber,
         title: struct.parent?.title ?? `#${run.parentIssueNumber}`,
@@ -244,6 +256,7 @@ export class DrainService {
     let candidates: Issue[] = [];
     let epicAttended = false;
     let epicParent: number | null = null;
+    let epicIntegrationBranch: string | null = null;
     let builtEpic: Epic | null = null;
     if (epicActive) {
       // Epic is running/paused: source candidates from its dependency-gated children
@@ -251,6 +264,7 @@ export class DrainService {
       builtEpic = await this.buildEpic(repoPath, epicRun!);
       if (builtEpic) {
         epicParent = epicRun!.parentIssueNumber;
+        epicIntegrationBranch = epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle);
         if (epicRun!.status === "running") candidates = selectEpicCandidates(builtEpic.children);
         epicAttended = epicRun!.mode === "attended";
       }
@@ -279,6 +293,7 @@ export class DrainService {
         epicAttended,
         epicApprovedNext: this.approvedNext.has(repoPath),
         epicParent,
+        epicIntegrationBranch,
       },
       epic: builtEpic,
     };
@@ -437,6 +452,51 @@ export class DrainService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
     const s = this.deps.store.get(decision.sessionId);
+    // Epic child: squash-merge the PR INTO its integration branch (not the default branch) and
+    // record it so dependents unblock without a GitHub issue auto-close (the child issue stays
+    // open until the final epic→default PR lands). Detected by the integration-branch base +
+    // an active epic for the repo.
+    const epicRun = this.deps.store.getEpicRun(repoPath);
+    const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
+    if (epicActive && s?.issueNumber != null && isEpicIntegrationBranch(s.baseBranch)) {
+      try {
+        // deleteBranch removes the child's MERGED head (task) branch on origin — standard
+        // post-merge hygiene. It is the PR's head, never the integration branch (the base),
+        // so the accumulating integration branch is untouched.
+        await forge.merge(decision.prNumber, { method: "squash", deleteBranch: true });
+      } catch (err) {
+        console.warn(
+          `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
+          err,
+        );
+        return; // leave the session live; next tick retries. Do NOT record or archive.
+      }
+      this.deps.store.recordEpicIntegrated(repoPath, epicRun!.parentIssueNumber, s.issueNumber);
+      try {
+        this.deps.service.archive(decision.sessionId);
+      } catch (err) {
+        // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This
+        // is recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below,
+        // so the session stays live AND polled (pr-poller skips only archived rows). The poller
+        // re-observes the merged PR and settles it via reapMerged → settleMergedSession (archive
+        // + teardown) — the same path any out-of-band merge takes. That recovery closes the child
+        // issue instead of keeping it open, but the integration is already recorded above, so
+        // dependents unblock either way. The session can NOT be re-selected by the retire gate
+        // (readyToRetire requires state==="open"; the PR is merged), hence the poller is the
+        // recovery, not a retry of this path.
+        console.warn(
+          `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
+          err,
+        );
+        return;
+      }
+      // Keep the claim: the child issue stays open until the epic lands; releasing would let it
+      // re-spawn. Mirrors the non-epic retire path below.
+      this.retainClaimOnArchive.add(decision.sessionId);
+      this.deps.dropPrCache(decision.sessionId);
+      this.deps.emitArchived(decision.sessionId);
+      return;
+    }
     // Best-effort issue link: a failure must NOT block teardown.
     if (s?.issueNumber != null) {
       try {
@@ -467,6 +527,39 @@ export class DrainService {
     this.retainClaimOnArchive.add(decision.sessionId);
     this.deps.dropPrCache(decision.sessionId);
     this.deps.emitArchived(decision.sessionId);
+  }
+
+  /**
+   * Resolve the base branch + agent prompt for a spawn. Epic children base on (and ensure on
+   * the host) the integration branch — so each builds on its predecessors' merged work — and
+   * get a directive to target it as their PR base; a forge that can't create the branch, or a
+   * non-epic spawn, falls back to the default branch with the bare task title.
+   */
+  private async resolveSpawnBase(
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<{ base: string; prompt: string }> {
+    const { number, title } = decision.issue;
+    const def = await forge.defaultBranch();
+    let base = def;
+    if (decision.integrationBranch && forge.ensureBranch) {
+      try {
+        await forge.ensureBranch(decision.integrationBranch, def);
+        base = decision.integrationBranch;
+      } catch (err) {
+        console.warn(
+          `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
+          err,
+        );
+      }
+    } else if (decision.integrationBranch) {
+      console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
+    }
+    // Epic child actually based on the integration branch → tell the agent to target it as the
+    // PR base (the agent opens its own PR and would otherwise default to the main branch).
+    const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
+    const prompt = usingEpicBase ? `${title}\n\n${epicBaseDirective(base)}` : title;
+    return { base, prompt };
   }
 
   private async doSpawn(
@@ -525,14 +618,14 @@ export class DrainService {
     // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
     this.approvedNext.delete(repoPath);
     try {
-      const base = await forge.defaultBranch();
+      const { base, prompt } = await this.resolveSpawnBase(forge, decision);
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
       // they fall back to no --model flag (Claude's own default). The Fable promo
       // is a client-only UI concern and is NEVER applied to autonomous spawns.
       await this.deps.service.create({
         repoPath,
         baseBranch: base,
-        prompt: title,
+        prompt,
         model: drainSpawnModel(config.defaultModel),
         images: [],
         auto: true,

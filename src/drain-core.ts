@@ -40,7 +40,7 @@ export interface HoldReason {
 }
 
 export type DrainDecision =
-  | { kind: "spawn"; issue: Issue }
+  | { kind: "spawn"; issue: Issue; integrationBranch?: string }
   | { kind: "retire"; sessionId: string; prNumber: number }
   | { kind: "hold"; reason: HoldReason };
 
@@ -92,6 +92,9 @@ export interface DrainRepoState {
   epicAttended: boolean;
   /** Epic mode: operator approved the next spawn (consumed on spawn). */
   epicApprovedNext: boolean;
+  /** Epic mode: the active epic's integration branch — epic-child spawns base on it.
+   *  null/undefined for label-drain (spawns base on the default branch). */
+  epicIntegrationBranch?: string | null;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -218,7 +221,11 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     return { kind: "hold", reason: { code: "awaiting_approval", detail: String(next.number) } };
   }
 
-  return { kind: "spawn", issue: next };
+  return {
+    kind: "spawn",
+    issue: next,
+    integrationBranch: state.epicIntegrationBranch ?? undefined,
+  };
 }
 
 /**

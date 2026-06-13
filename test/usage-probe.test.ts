@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { HerdrUsageProbe, PROBE_NAME } from "../src/usage-probe";
 import type { HerdrAgent } from "../src/herdr";
+import { config } from "../src/config";
 
 function agent(over: Partial<HerdrAgent>): HerdrAgent {
   return {
@@ -22,6 +23,27 @@ function agent(over: Partial<HerdrAgent>): HerdrAgent {
 // PROBE_NAME) up front (and on every exit), self-healing past leaks regardless of how the prior
 // run died — while leaving every real session strictly alone, INCLUDING one a user happened to
 // name "usage-probe" (a producible prompt slug that the old bare-string match would have killed).
+test("scrape returns null without calling herdr.start in api-key mode", async () => {
+  const prior = config.authMode;
+  try {
+    config.authMode = "api-key";
+    let startCalled = false;
+    const herdr = {
+      list: () => [] as HerdrAgent[],
+      start: () => {
+        startCalled = true;
+        throw new Error("herdr.start must not be called in api-key mode");
+      },
+      stop: () => {},
+    };
+    const result = await new HerdrUsageProbe(herdr, "/repo").scrape();
+    expect(result).toBeNull();
+    expect(startCalled).toBe(false);
+  } finally {
+    config.authMode = prior;
+  }
+});
+
 test("scrape reaps leftover probe tabs and never touches real sessions", async () => {
   const stopped: string[] = [];
   const agents = [

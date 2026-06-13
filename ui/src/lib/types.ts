@@ -535,6 +535,8 @@ export interface UsageLimits {
   credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
+  /** true in api-key auth mode: usage tracking is subscription-only, meters carry no data. */
+  subscriptionOnly: boolean;
 }
 
 export interface UpdateCommit {

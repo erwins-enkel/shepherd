@@ -77,6 +77,7 @@ const fullLimits: UsageLimits = {
   credits: null,
   stale: false,
   calibratedAt: 1_700_000_000_000,
+  subscriptionOnly: false,
 };
 
 const SCENARIOS: Scenario[] = [
@@ -758,6 +759,7 @@ describe("TopBar — CR extra-credit gauge", () => {
       week: { pct: 64, resetAt: 1_700_600_000_000 },
       stale: false,
       calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
       credits: {
         pct: 0,
         spent: 0.29,

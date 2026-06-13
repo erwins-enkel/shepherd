@@ -27,6 +27,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 interface ForgeRec {

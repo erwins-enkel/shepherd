@@ -2,6 +2,7 @@ import type { HerdrDriver } from "./herdr";
 import { parseUsageFrame, type UsageProbe } from "./usage-limits";
 import { config } from "./config";
 import { compileCacheDir } from "./tmp-sweep";
+import { isApiKeyMode } from "./spawn-auth";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
@@ -51,6 +52,8 @@ export class HerdrUsageProbe implements UsageProbe {
   }
 
   async scrape(): Promise<string | null> {
+    // subscription-only; never spawn under api-key auth — see usage-limits calibrate short-circuit
+    if (isApiKeyMode()) return null;
     // Reap leftovers from any prior run that didn't clean up after itself, so probe tabs can't
     // accumulate in herdr over time.
     this.sweep();

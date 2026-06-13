@@ -1,4 +1,5 @@
 import type { AccountUsageIndex } from "./usage";
+import { isApiKeyMode } from "./spawn-auth";
 
 export type WindowKey = "session5h" | "week";
 
@@ -228,6 +229,9 @@ export interface UsageLimits {
   credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
+  /** true in api-key auth mode: usage tracking is subscription-only, so the meters carry no
+   *  data and the UI shows an explicit subscription-only state (not a fake zero meter). */
+  subscriptionOnly: boolean;
 }
 
 // Credits is scrape-fresh-only (no local signal to recompute from), so it goes stale fast —
@@ -282,6 +286,9 @@ export class UsageLimitsService {
 
   /** Scrape `/usage` and recalibrate the per-window caps from local JSONL. */
   async calibrate(now: number): Promise<boolean> {
+    // Subscription-only: never spawn the probe under api-key auth — the /usage panel doesn't
+    // exist for API-key accounts and spawning a bare claude risks a hang on the auth prompt.
+    if (isApiKeyMode()) return false;
     const raw = await this.probe.scrape();
     if (!raw) return false;
     const parsed = parseUsageFrame(raw, now);
@@ -379,6 +386,6 @@ export class UsageLimitsService {
         stale: now - snap.scrapedAt > CREDIT_STALE_MS,
       };
     }
-    return { session5h, week, credits, stale, calibratedAt };
+    return { session5h, week, credits, stale, calibratedAt, subscriptionOnly: isApiKeyMode() };
   }
 }

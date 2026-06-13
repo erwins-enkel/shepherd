@@ -6,7 +6,15 @@ function w(pct: number, resetAt = 0): LimitWindow {
   return { pct, resetAt };
 }
 function limits(over: Partial<UsageLimits>): UsageLimits {
-  return { session5h: null, week: null, credits: null, stale: false, calibratedAt: null, ...over };
+  return {
+    session5h: null,
+    week: null,
+    credits: null,
+    stale: false,
+    calibratedAt: null,
+    subscriptionOnly: false,
+    ...over,
+  };
 }
 function credit(over: Partial<CreditWindow>): CreditWindow {
   return {

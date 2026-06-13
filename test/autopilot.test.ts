@@ -916,3 +916,68 @@ test("non-research + gate verdict → still gets PROCEED_STEER, not RESEARCH_PRO
   expect(steerEv.steer).toBe(PROCEED_STEER);
   expect(steerEv.steer).not.toBe(RESEARCH_PROCEED_STEER);
 });
+
+// ───────────── merge-train stand-down (don't double-steer the train's rebase) ─────────────
+// While a session is merge-train-marked (mergingSince !== null) the train owns it and steers its
+// own rebase. Autopilot's CI-fix loop (considerCi + reEngageCi) must stand down so two controllers
+// don't steer one agent at once. The gate/classify path stays alive (a procedural prompt must not
+// stall the rebase). The mark is the canonical "in a train" signal (pr-poller.ts:223), kept fresh
+// by the 60s sweepStaleMerging.
+
+test("merge-train: onGit/considerCi suppressed while marked (no CI steer, no bump)", async () => {
+  const h = harness({
+    session: sess({ status: "running", mergingSince: Date.now(), mergingTrainId: "train-1" }),
+    repoEnabled: true,
+  });
+  h.svc.onGit("s1", git()); // open + red
+  await Promise.resolve();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("merge-train: tick/reEngageCi suppressed while marked (no steer)", () => {
+  const h = stuckRed({ mergingSince: Date.now(), mergingTrainId: "train-1" });
+  h.svc.tick();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("merge-train: onDone short-circuits BEFORE classify (no steer, no terminal state)", async () => {
+  // The critical regression guard: a marked, idle, open+red FULL-AUTO session whose onDone fires
+  // must claim ownership (reEngageCi returns true) so onDone returns BEFORE consider()/classify().
+  // If reEngageCi returned false, the LLM classifier could mark this session complete/paused — a
+  // terminal state that would survive the mark clearing and wedge the CI-fix loop shut forever.
+  const h = stuckRed({ mergingSince: Date.now(), mergingTrainId: "train-1" });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0); // (c) classify never invoked → reEngageCi returned true
+  expect(h.events.some((e) => "steer" in e)).toBe(false); // (a) no CI-fix steer
+  expect(h.state().autopilotComplete).toBe(false); // (b) not wedged terminal
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0); // no bump
+});
+
+test("merge-train: CI-fix resumes once the mark clears (guard is the only suppressor)", async () => {
+  // Same session as the suppressed case but with mergingSince null → the CI-fix steer fires again,
+  // proving the mark was the only thing holding the loop down and nothing wedged it terminal.
+  const h = harness({
+    session: sess({ status: "running", mergingSince: null }),
+    repoEnabled: true,
+  });
+  h.svc.onGit("s1", git());
+  await Promise.resolve();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("merge-train: gate/classify path is NOT suppressed by the mark (CI-fix-only scope)", async () => {
+  // A marked session that hits a procedural gate still gets its PROCEED_STEER — the stand-down is
+  // scoped to the CI-fix loop, not the gate-unblock path the train's rebase depends on.
+  const h = harness({
+    session: sess({ mergingSince: Date.now(), mergingTrainId: "train-1" }),
+    repoEnabled: true,
+    verdict: { kind: "gate", summary: "asking to start" },
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.events).toContainEqual({ steer: PROCEED_STEER });
+  expect(h.state().autopilotStepCount).toBe(1);
+});

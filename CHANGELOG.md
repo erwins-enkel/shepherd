@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.28.0](https://github.com/erwins-enkel/shepherd/compare/v1.27.0...v1.28.0) (2026-06-13)
+
+
+### Features
+
+* **backlog:** show PR target branch when it isn't the repo default ([#610](https://github.com/erwins-enkel/shepherd/issues/610)) ([c76ecf2](https://github.com/erwins-enkel/shepherd/commit/c76ecf28fa52f8c87a9bcda86a1428c5b63e802c))
+* **critic:** extended thinking budget for the PR critics ([#604](https://github.com/erwins-enkel/shepherd/issues/604)) ([#624](https://github.com/erwins-enkel/shepherd/issues/624)) ([11f0d57](https://github.com/erwins-enkel/shepherd/commit/11f0d57c1418ce7e236c37f8df3997950600df26))
+* **critic:** informational-only latent-defect lens ([#599](https://github.com/erwins-enkel/shepherd/issues/599)) ([ce195af](https://github.com/erwins-enkel/shepherd/commit/ce195af46bbf598fefff8d4b4439e8fb92311012))
+* **critic:** standalone repo-level PR critic for Seer-style every-PR coverage ([#596](https://github.com/erwins-enkel/shepherd/issues/596)) ([#612](https://github.com/erwins-enkel/shepherd/issues/612)) ([7d7a9fd](https://github.com/erwins-enkel/shepherd/commit/7d7a9fde86023636044dbaead557327e731d49d8))
+* **diagnostics:** environment readiness diagnostics + health indicator + onboarding ([#626](https://github.com/erwins-enkel/shepherd/issues/626)) ([7cea58a](https://github.com/erwins-enkel/shepherd/commit/7cea58ab94f57e947770e3c5c7d82a1931c238fd))
+* **epic:** land epics in one piece — integration branch + done-on-merge gate (Stage A) ([#618](https://github.com/erwins-enkel/shepherd/issues/618)) ([c9d1790](https://github.com/erwins-enkel/shepherd/commit/c9d17905d669a14549a1cb886f224380702e6842))
+* **epic:** ordered, DAG-aware GitHub-issue queues (Epic Runner) ([#571](https://github.com/erwins-enkel/shepherd/issues/571)) ([7956a4b](https://github.com/erwins-enkel/shepherd/commit/7956a4bdf6f888b9067c6168934893dd6089bfca))
+* **model:** per-repo default-model override ([#620](https://github.com/erwins-enkel/shepherd/issues/620)) ([bad91e9](https://github.com/erwins-enkel/shepherd/commit/bad91e9eac52dfa37d9dd731cabc85b344a24f21))
+* **readiness:** bun-aware Dependabot config + dependency-automation guardrail ([#602](https://github.com/erwins-enkel/shepherd/issues/602)) ([b67f899](https://github.com/erwins-enkel/shepherd/commit/b67f8994ffb570694615241da4311f0a752ea366))
+* **sandbox:** network egress allowlist for autonomous agents ([#551](https://github.com/erwins-enkel/shepherd/issues/551)) ([#601](https://github.com/erwins-enkel/shepherd/issues/601)) ([c80b596](https://github.com/erwins-enkel/shepherd/commit/c80b5962aba5350a5f7916130fa4f5ff2d564d0b))
+* **settings:** surface high-contrast toggle on mobile for sunlight readability ([#625](https://github.com/erwins-enkel/shepherd/issues/625)) ([f0352a7](https://github.com/erwins-enkel/shepherd/commit/f0352a7be2f6a0414703a93a567aa3e7d1cca56a))
+* surface native GitHub sub-issues in the backlog issues selector ([#584](https://github.com/erwins-enkel/shepherd/issues/584)) ([fe1dd16](https://github.com/erwins-enkel/shepherd/commit/fe1dd165ec6c3fb121ad4fee59c9ea118346c712))
+* **ui:** expand steer prompt field on focus + slash-command picker ([#619](https://github.com/erwins-enkel/shepherd/issues/619)) ([dd13e16](https://github.com/erwins-enkel/shepherd/commit/dd13e1614719d3cc78b3bb6b934b15bcf8559d36))
+* **ui:** group epic sub-issue sessions under an EPIC headline ([#613](https://github.com/erwins-enkel/shepherd/issues/613)) ([f969806](https://github.com/erwins-enkel/shepherd/commit/f969806b9dd0dbcad6c7c906ab4db01970fc58f7))
+* **ui:** make epic-seeded sessions discoverable with an EPIC progress badge ([#585](https://github.com/erwins-enkel/shepherd/issues/585)) ([7f54b36](https://github.com/erwins-enkel/shepherd/commit/7f54b36b4c39b9d5f76c3eb5a87c6b84b7dad868))
+* **usage:** surface paid extra-credit overage (gauge, alert, drain guard, push) ([#622](https://github.com/erwins-enkel/shepherd/issues/622)) ([c08dc21](https://github.com/erwins-enkel/shepherd/commit/c08dc217c7db56068bcc3534cc457c3ca6a38707))
+
+
+### Bug Fixes
+
+* **autopilot:** re-engage idle full-auto sessions stuck on red CI ([#611](https://github.com/erwins-enkel/shepherd/issues/611)) ([a59c3bb](https://github.com/erwins-enkel/shepherd/commit/a59c3bb2f39378eea468b47e6e20ffc466fcd987))
+* **backlog:** keep repo name readable with compact numbers-only counts ([#605](https://github.com/erwins-enkel/shepherd/issues/605)) ([d231359](https://github.com/erwins-enkel/shepherd/commit/d2313595c94e16f69a566a3b49d4ae1cc543a21c))
+* **backlog:** pin icon replaces PINNED text pill so repo name fits ([#590](https://github.com/erwins-enkel/shepherd/issues/590)) ([f23b8ec](https://github.com/erwins-enkel/shepherd/commit/f23b8ec90d6ba2ac00ebf2583b1770864705ffab))
+* **backlog:** two-row repo filter bar so "Filter repos…" stops truncating ([#572](https://github.com/erwins-enkel/shepherd/issues/572)) ([ba2f4f6](https://github.com/erwins-enkel/shepherd/commit/ba2f4f66840eed6448be2933925593c85d5bbc08))
+* **ci-runner:** self-heal watchdog restarts dead rootless-docker egress ([#589](https://github.com/erwins-enkel/shepherd/issues/589)) ([eb5f2a8](https://github.com/erwins-enkel/shepherd/commit/eb5f2a83c817447ef407e7d0e2ed910e64193519))
+* **ci:** correct release-please CI framing; skip verify/hygiene on its PR ([#587](https://github.com/erwins-enkel/shepherd/issues/587)) ([472de11](https://github.com/erwins-enkel/shepherd/commit/472de11f98a4d54dfaa1d132701a2e3b21bc99b0))
+* **criticbadge:** compact streak label replaces wide composite suffix ([#577](https://github.com/erwins-enkel/shepherd/issues/577)) ([473f370](https://github.com/erwins-enkel/shepherd/commit/473f37076ad581a4e618e31fd1c48a23ebc61876))
+* **critic:** verify against code, cite file:line, not plausibility ([#597](https://github.com/erwins-enkel/shepherd/issues/597)) ([#603](https://github.com/erwins-enkel/shepherd/issues/603)) ([11e0ab3](https://github.com/erwins-enkel/shepherd/commit/11e0ab3d655d95a260d6da7fbfac55350d74c882))
+* **epic:** guard all manual-spawn paths against epic-parent issues ([#609](https://github.com/erwins-enkel/shepherd/issues/609)) ([b1795df](https://github.com/erwins-enkel/shepherd/commit/b1795dfed5b3685b6b4feb6a91303755156fbfc6))
+* **herd:** move collapse control to a slim right-edge tab so it stops wrapping ([#579](https://github.com/erwins-enkel/shepherd/issues/579)) ([5adbb84](https://github.com/erwins-enkel/shepherd/commit/5adbb847d73d694c9c02443ce46e070521f59809))
+* **herd:** order ready-to-merge before merging in the rail ([#598](https://github.com/erwins-enkel/shepherd/issues/598)) ([e6920bb](https://github.com/erwins-enkel/shepherd/commit/e6920bb50a542f8f0024dd0b1789a131eb969812))
+* **herd:** pin card clock top-right + free the badge rail in the desktop sidebar ([#582](https://github.com/erwins-enkel/shepherd/issues/582)) ([ee6d946](https://github.com/erwins-enkel/shepherd/commit/ee6d946e1c99e9a5de85e7bb120e1426d10c040b))
+* **newtask:** two-row run-settings layout so plan-gate explainer reads on one line ([#593](https://github.com/erwins-enkel/shepherd/issues/593)) ([7fd3187](https://github.com/erwins-enkel/shepherd/commit/7fd3187f3bdd56bc988ed46a89b5f197e706e2aa))
+* **plan-gate:** re-adopt in-flight plan reviews orphaned by a restart ([#630](https://github.com/erwins-enkel/shepherd/issues/630)) ([ff78480](https://github.com/erwins-enkel/shepherd/commit/ff78480061ea0bc0afbba9c8886f4dc902a11bfa))
+* **relaunch:** show carried image in relaunch-elsewhere composer (no double, no loss) ([#583](https://github.com/erwins-enkel/shepherd/issues/583)) ([3152b1e](https://github.com/erwins-enkel/shepherd/commit/3152b1e32d94865a22049a7ec1a65d0b8760e936))
+* **review:** center the verdict popover as a modal sheet on touch + add modal focus semantics ([#586](https://github.com/erwins-enkel/shepherd/issues/586)) ([f665376](https://github.com/erwins-enkel/shepherd/commit/f66537673298a881936902da47fbe62e4ec86887))
+* **review:** scope the PR critic to the PR's own diff against a fresh base ([#573](https://github.com/erwins-enkel/shepherd/issues/573)) ([6a17799](https://github.com/erwins-enkel/shepherd/commit/6a1779951838c1bc4c2c20aac11771efe26fe446))
+* **review:** stop spawned reviewers hanging on the .mcp.json MCP-approval gate (+ issue context) ([#600](https://github.com/erwins-enkel/shepherd/issues/600)) ([cf8545f](https://github.com/erwins-enkel/shepherd/commit/cf8545f8335cb84358fcfb71228fa7c3513d5bb7))
+* **toasts:** visual auto-dismiss countdown for timed info toasts ([#578](https://github.com/erwins-enkel/shepherd/issues/578)) ([6168829](https://github.com/erwins-enkel/shepherd/commit/6168829d1019812791c1224332b7ff0456d1d0be))
+* **ui:** epic header overflow on the unfolded-foldable sidebar ([#629](https://github.com/erwins-enkel/shepherd/issues/629)) ([9da3132](https://github.com/erwins-enkel/shepherd/commit/9da3132ca66aa24e4e5f8585ffa5f89cbdbd8b09))
+* **ui:** inherit repo plan-gate when composer box untouched ([#616](https://github.com/erwins-enkel/shepherd/issues/616)) ([e530f6c](https://github.com/erwins-enkel/shepherd/commit/e530f6cdd5b62092aeaf56d60ab3f0515c90e604))
+* **ui:** one pulse for in-progress + cohesive amber streak badge ([#594](https://github.com/erwins-enkel/shepherd/issues/594)) ([c014a43](https://github.com/erwins-enkel/shepherd/commit/c014a43d047c609ee215b4651866b9ffd5d6331e))
+* **ui:** portal plan-gate popover to body so it escapes the swipe row's transform ([#628](https://github.com/erwins-enkel/shepherd/issues/628)) ([9a36e68](https://github.com/erwins-enkel/shepherd/commit/9a36e68fe53842c18f092071d5484d0a30d09133))
+* **ui:** right-align the redraw menu under its trigger ([#617](https://github.com/erwins-enkel/shepherd/issues/617)) ([cc2a9fe](https://github.com/erwins-enkel/shepherd/commit/cc2a9fef2239ab9dbd091bc7803c1daf4c2e926a))
+* **ui:** suppress 1Password autofill icon on free-text textareas ([#580](https://github.com/erwins-enkel/shepherd/issues/580)) ([69ac75c](https://github.com/erwins-enkel/shepherd/commit/69ac75c2d29968799a7135c8894169b3cee04394))
+* **viewport:** full-width rename editor with explicit cancel/confirm buttons ([#588](https://github.com/erwins-enkel/shepherd/issues/588)) ([27779c3](https://github.com/erwins-enkel/shepherd/commit/27779c3e22cd03771483db283f181e11c9b27310))
+* **viewport:** rename input takes the title's slot in place; drop pencil button ([#581](https://github.com/erwins-enkel/shepherd/issues/581)) ([6cf5a3f](https://github.com/erwins-enkel/shepherd/commit/6cf5a3f388bb1ab1779ff0b444228f05f522ce22))
+* **viewport:** shorten mobile autopilot pill to AP ON ([#575](https://github.com/erwins-enkel/shepherd/issues/575)) ([b69b097](https://github.com/erwins-enkel/shepherd/commit/b69b09738edf2bdbde3319409d268d403983a2d1))
+* **viewport:** shrink compact strip decommission to icon-only ✕ ([#615](https://github.com/erwins-enkel/shepherd/issues/615)) ([71f494e](https://github.com/erwins-enkel/shepherd/commit/71f494e99bd8316cffe29afbb548ec3df724165e))
+* **viewport:** smooth mobile terminal scrolling + surface jump-to-bottom ([#621](https://github.com/erwins-enkel/shepherd/issues/621)) ([4d50669](https://github.com/erwins-enkel/shepherd/commit/4d50669b788c842a87d1cf363e5fd56d1c338533))
+
+
+### Code Refactoring
+
+* **automation:** move lengthy sandbox explanation behind a tap-to-open ⓘ ([#614](https://github.com/erwins-enkel/shepherd/issues/614)) ([53e232d](https://github.com/erwins-enkel/shepherd/commit/53e232d9260bc11e4e4aa2ed1065cc24dc9711bb))
+* **pr-badge:** drop NO PR pill; none state renders nothing ([#592](https://github.com/erwins-enkel/shepherd/issues/592)) ([d2b05eb](https://github.com/erwins-enkel/shepherd/commit/d2b05ebbb7c5d33bcb5a0859eda3a53e7f97fdd0))
+
 ## [1.27.0](https://github.com/erwins-enkel/shepherd/compare/v1.26.0...v1.27.0) (2026-06-12)
 
 

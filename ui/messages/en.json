@@ -1133,5 +1133,11 @@
   "session_sandbox_egress_degraded_title": "Autonomous filesystem sandbox active, but the network-egress backend is unavailable, so outbound is unrestricted — tokens are exfiltratable. Don't over-trust this run.",
   "toast_egress_drop": "Blocked egress to {host}",
   "feat_egress_title": "Network egress allowlist",
-  "feat_egress_body": "Autonomous agents are now confined to an allowlist of hosts (Anthropic + the forge, plus operator extras); all other outbound connections are blocked. Blocked attempts surface as inline alerts. When the backend is unavailable, a visible warning badge appears so you know the session is running with unrestricted network."
+  "feat_egress_body": "Autonomous agents are now confined to an allowlist of hosts (Anthropic + the forge, plus operator extras); all other outbound connections are blocked. Blocked attempts surface as inline alerts. When the backend is unavailable, a visible warning badge appears so you know the session is running with unrestricted network.",
+  "settings_contrast_title": "High contrast",
+  "settings_contrast_hint": "Boosts every text and border pair to WCAG AAA — for readability in bright sunlight and outdoors. Applies on top of the dark or light theme above.",
+  "settings_contrast_on": "High contrast on",
+  "settings_contrast_off": "High contrast off",
+  "feat_mobile_contrast_title": "High contrast on mobile",
+  "feat_mobile_contrast_body": "Settings → Device now carries the high-contrast toggle alongside the light/dark switch, so you can crank readability to WCAG AAA right on your phone — built for steering sessions outdoors in bright sunlight."
 }

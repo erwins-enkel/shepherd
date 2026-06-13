@@ -629,6 +629,22 @@
           {/each}
         </div>
       </div>
+      <div class="contrast-row">
+        <span class="micro">{m.settings_contrast_title()}</span>
+        <p class="hint">{m.settings_contrast_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={theme.contrast}
+          onclick={() => theme.toggleContrast()}
+        >
+          <span class="track" class:on={theme.contrast}><span class="knob"></span></span>
+          <span class="state"
+            >{theme.contrast ? m.settings_contrast_on() : m.settings_contrast_off()}</span
+          >
+        </button>
+      </div>
       <div class="push">
         <span class="micro">{m.settings_push_title()}</span>
         {#if !push.supported}
@@ -1129,9 +1145,17 @@
     color: var(--color-ink-bright);
   }
   /* Desktop hosts the theme switcher in the ActionBar; only surface it here on
-     mobile, where the ActionBar hides it and the top bar no longer carries it. */
-  .theme-row {
+     mobile, where the ActionBar hides it and the top bar no longer carries it.
+     The high-contrast toggle (also ActionBar-only on desktop) rides along — it's
+     the readability lift for using the app outdoors / in bright sunlight. */
+  .theme-row,
+  .contrast-row {
     display: none;
+  }
+  .contrast-row .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
   }
   .theme-seg {
     display: flex;
@@ -1203,7 +1227,8 @@
       align-items: stretch;
       justify-content: stretch;
     }
-    .theme-row {
+    .theme-row,
+    .contrast-row {
       display: flex;
       flex-direction: column;
       gap: 6px;

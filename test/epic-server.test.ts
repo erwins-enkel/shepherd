@@ -809,6 +809,48 @@ describe("GET /api/epics/completed", () => {
     ]);
   });
 
+  test("response carries landing-PR fields; landingAttempts excluded", async () => {
+    const { app, store } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 42,
+      parentTitle: "Epic Done",
+      completedAt: 5000,
+      childrenJson: "[]",
+    });
+    store.setEpicLandingPr(repoDir, 42, {
+      state: "open",
+      prNumber: 42,
+      prUrl: "https://example/pr/42",
+      attempts: 0,
+    });
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    const row = body[0];
+    expect(row.landingPrNumber).toBe(42);
+    expect(row.landingPrUrl).toBe("https://example/pr/42");
+    expect(row.landingState).toBe("open");
+    expect("landingAttempts" in row).toBe(false);
+  });
+
+  test("plain record → default landing fields (pending/null/null)", async () => {
+    const { app, store } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 7,
+      parentTitle: "Fresh",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].landingState).toBe("pending");
+    expect(body[0].landingPrNumber).toBe(null);
+    expect(body[0].landingPrUrl).toBe(null);
+  });
+
   test("?repo= filters to one repo", async () => {
     const other = join(tmpRoot, "other");
     mkdirSync(other);
@@ -927,6 +969,9 @@ describe("GET /api/epics/completed", () => {
     expect(body[0].parentIssueNumber).toBe(88);
     expect(body[0].children).toHaveLength(2);
     expect(body[0].children.every((c: any) => c.integrated)).toBe(true);
+    // backfill seeds the retry-able pending state the drain tick will resolve
+    expect(body[0].landingState).toBe("pending");
+    expect(body[0].landingPrNumber).toBe(null);
     // persisted
     expect(store.listEpicCompleted(repoDir)).toHaveLength(1);
   });

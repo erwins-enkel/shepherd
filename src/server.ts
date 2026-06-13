@@ -3159,7 +3159,8 @@ async function backfillIdleEpic(
       parentTitle: epic.parentTitle,
       completedAt,
       children: rollup,
-      // Stage B landing-PR fields wired by a later task; defaults until then.
+      // A backfilled completion (e.g. across a restart) is recorded as pending — its final
+      // state here; the autonomous drain tick (ensureLandingPrsForRepo) opens the landing PR.
       landingPrNumber: null,
       landingPrUrl: null,
       landingState: "pending",

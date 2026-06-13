@@ -430,7 +430,8 @@ export class DrainService {
           parentTitle: epic.parentTitle,
           completedAt: this.now(),
           children: rollup,
-          // Stage B landing-PR fields wired by a later task; defaults until then.
+          // Recorded as pending — its final state here; ensureLandingPr (driven by the
+          // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
           landingPrNumber: null,
           landingPrUrl: null,
           landingState: "pending",

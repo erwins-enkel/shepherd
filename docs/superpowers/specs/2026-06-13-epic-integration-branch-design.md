@@ -98,6 +98,25 @@ the existing `worktree.behindBase` + AutoMergeService rebase-recovery handles
 rebasing it onto the integration branch before its own merge. No new rebase
 logic — point the existing logic at the integration branch for epic children.
 
+**Local-branch resolution (implementation reality).** `forge.ensureBranch`
+creates the integration branch on the **remote** (`gh api`), but `worktree.create`
+bases a worktree on a **local** ref. So `service.create` first calls
+`worktree.ensureBaseRef(repoPath, baseBranch)`: for the checked-out branch
+(normally the default — regular spawns) it no-ops; for any other base (the
+integration branch) it `git fetch origin <b>:<b>` to **create-or-fast-forward**
+the local branch to the latest remote tip. The FF-every-spawn is essential —
+the integration branch advances on the remote as siblings merge, and a later
+child must base on the *current* tip, not a stale local copy.
+
+**Child PR base (implementation reality).** The spawned agent opens its own PR
+with `gh pr create`, which defaults to the repo default branch. So Shepherd makes
+the child target the integration branch two ways: (1) `doSpawn` injects an
+`epicBaseDirective(branch)` into the epic-child spawn prompt instructing
+`gh pr create --base <branch>`; (2) `openPrSteer(draftMode, baseBranch)` emits the
+explicit `--base` as the autopilot open-PR fallback. (Advisory by design — there
+is no post-hoc enforcement that the opened PR's base equals the integration
+branch; a non-compliant agent could still target the default branch.)
+
 ## The done-signal change (the actual unblock)
 
 Stop gating on issue-closed; gate on **PR merged into the integration branch**.
@@ -130,10 +149,18 @@ When a child session is green + approved (existing critic / review / signoff
 gates — **unchanged**), the drain **retire path** for an epic child **squash-merges
 its PR into the integration branch** instead of leaving it open:
 
-- `drain.ts` `doRetire` branches: epic child of an active epic → merge into the
-  integration branch (reuse AutoMergeService merge mechanics: behindBase gate,
-  rebase recovery, squash) then archive. Non-epic retire is **unchanged** (PR
-  left open for a human; `ensureIssueLink` still applied).
+- `drain.ts` `doRetire` branches: epic child of an active epic → squash-merge
+  into the integration branch (`forge.merge(pr, {method:"squash"})`, which merges
+  a PR into its own base) then `recordEpicIntegrated` + archive. Non-epic retire
+  is **unchanged** (PR left open for a human; `ensureIssueLink` still applied).
+- **Merge-train exclusion (implementation reality).** The shared `isFullAuto`
+  signal gates BOTH the drain (leaves full-auto sessions for the train) and
+  AutoMergeService (only lands full-auto sessions). If an epic child were
+  full-auto, the train would merge it **without** `recordEpicIntegrated`,
+  stranding the epic gate. So `isFullAuto` returns false for any session whose
+  base is an epic integration branch (`isEpicIntegrationBranch(baseBranch)`) —
+  keeping epic children off the train and routing them through the drain's
+  squash-merge path above.
 - One PR per sub-issue (no batching). After merge → archive → the next pump sees
   `integrationMerged` and unblocks dependents.
 - Merge failure (conflict, not-green) must not abort the pump — warn and defer,

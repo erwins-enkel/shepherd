@@ -224,7 +224,7 @@ export class HerdrDriver {
     }
   }
 
-  start(name: string, cwd: string, argv: string[]): HerdrAgent {
+  start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     this.ensureWorkspace(cwd);
     // Give each agent its OWN tab so its pane spans the full herdr window width.
@@ -250,8 +250,15 @@ export class HerdrDriver {
       // compile cache to a disk-backed dir. `env` execvp's straight into claude (no extra
       // process layer), so herdr's PTY/agent detection is unaffected — but NODE_COMPILE_CACHE
       // now lands on disk instead of `$TMPDIR/node-compile-cache` on the tmpfs, where it
-      // accreted unbounded and exhausted inodes (#560).
-      const wrapped = ["env", `NODE_COMPILE_CACHE=${compileCacheDir()}`, ...argv];
+      // accreted unbounded and exhausted inodes (#560). Caller-supplied `env` vars (e.g.
+      // CLAUDE_CONFIG_DIR for api-key auth mode) are injected as additional KEY=VALUE tokens
+      // after NODE_COMPILE_CACHE, in sorted-key order for stability.
+      const envTokens = env
+        ? Object.entries(env)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => `${k}=${v}`)
+        : [];
+      const wrapped = ["env", `NODE_COMPILE_CACHE=${compileCacheDir()}`, ...envTokens, ...argv];
       this.runner([
         "agent",
         "start",

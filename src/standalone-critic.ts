@@ -24,6 +24,7 @@ import type { WorktreeMgr } from "./worktree";
 import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import { isEpicIntegrationBranch } from "./epic-branch";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   prReviewPrompt,
@@ -68,6 +69,7 @@ export interface StandalonePrCriticDeps {
     | "bumpPrReviewHead"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "listEpicCompleted"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
@@ -147,12 +149,28 @@ export class StandalonePrCriticService {
   }
 
   /**
-   * The 60s enumeration. For each `criticAllPrs` repo (round-robin), list its open PRs, filter to
-   * the session-less ones worth reviewing, and spawn a critic for as many as the global
-   * concurrency cap allows — deferring (and logging) the rest to the next sweep.
+   * The 60s enumeration. For each swept repo (round-robin), list its open PRs, filter to the
+   * session-less ones worth reviewing, and spawn a critic for as many as the global concurrency
+   * cap allows — deferring (and logging) the rest to the next sweep.
+   *
+   * The swept set is the UNION of (a) repos with `criticAllPrs` ON and (b) repos with a pending
+   * epic LANDING PR (Stage B, #635). An epic completion opens an aggregate PR off the epic
+   * integration branch; the operator wants the critic to review THAT PR even when the repo never
+   * opted into all-PR review — so (b) is added unconditionally. We must union at the SWEEP level,
+   * not just in eligible(): if no repo has criticAllPrs, an eligible()-only widening would never
+   * run because sweep() early-returns here before ever calling sweepRepo. eligible() then carves
+   * the (b)-only repos down to JUST the landing PR (head == the integration branch).
    */
   async sweep(): Promise<void> {
-    const enabled = this.deps.repos().filter((r) => this.deps.store.getRepoConfig(r).criticAllPrs);
+    const flagged = this.deps.repos().filter((r) => this.deps.store.getRepoConfig(r).criticAllPrs);
+    // A pending landing PR is a non-dismissed epic_completed row with landingPrNumber set
+    // (landingState === "open"); listEpicCompleted() already filters out dismissed rows. No-arg =
+    // every repo. The set is small (one row per in-flight epic) so scanning it each sweep is cheap.
+    const epicRepos = this.deps.store
+      .listEpicCompleted()
+      .filter((r) => r.landingPrNumber != null)
+      .map((r) => r.repoPath);
+    const enabled = [...new Set([...flagged, ...epicRepos])];
     if (enabled.length === 0) return;
     // Round-robin: rotate the start index each sweep so a repo that keeps saturating the cap can't
     // perpetually starve later repos. Advance regardless of how far we got this sweep.
@@ -187,7 +205,12 @@ export class StandalonePrCriticService {
     // critic at all: with it OFF, the standalone critic is the sole reviewer and must cover
     // session-managed PRs too (the coverage-hole the criticAllPrs flag closes).
     const managed = this.deps.managedBranches(repoPath);
-    const criticEnabled = this.deps.store.getRepoConfig(repoPath).criticEnabled;
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const criticEnabled = cfg.criticEnabled;
+    // criticAllPrs threaded into eligible() (alongside criticEnabled) so it can tell the two ways a
+    // repo lands in the swept set apart: flag ON → review every eligible PR (old behavior); flag OFF
+    // → this repo is here ONLY for its epic landing PR, so eligible() restricts to that one PR.
+    const criticAllPrs = cfg.criticAllPrs;
 
     let prs: PullRequest[];
     try {
@@ -197,7 +220,9 @@ export class StandalonePrCriticService {
       return;
     }
 
-    const candidates = prs.filter((pr) => this.eligible(repoPath, pr, managed, criticEnabled));
+    const candidates = prs.filter((pr) =>
+      this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs),
+    );
     let deferred = 0;
     for (const pr of candidates) {
       if (!this.underCap()) {
@@ -222,6 +247,7 @@ export class StandalonePrCriticService {
     pr: PullRequest,
     managed: Set<string>,
     criticEnabled: boolean,
+    criticAllPrs: boolean,
   ): boolean {
     if (pr.isDraft) return false;
     // Best-effort TOCTOU gate: the rollup can change between enumeration and spawn, but a green
@@ -232,6 +258,11 @@ export class StandalonePrCriticService {
       this.log(`[pr-critic] ${repoPath}#${pr.number} missing headSha/headRefName — skipping`);
       return false;
     }
+    // Stage B (#635): a repo without criticAllPrs is swept ONLY because it has an epic landing PR.
+    // Review ONLY that PR (head == the epic integration branch) — a child PR's head is its own task
+    // branch (base=integration), so isEpicIntegrationBranch(head) is false and it stays excluded.
+    // With criticAllPrs ON this carve-out is inert (every regular PR is in scope as before).
+    if (!criticAllPrs && !isEpicIntegrationBranch(pr.headRefName)) return false;
     // The session critic already owns this branch — only defer to it when it's actually running
     // (criticEnabled). With the session critic off, we are the sole reviewer and must cover it.
     if (criticEnabled && managed.has(pr.headRefName)) return false;

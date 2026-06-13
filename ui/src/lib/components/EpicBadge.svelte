@@ -63,6 +63,7 @@
   .epic-badge {
     display: inline-flex;
     flex-direction: column;
+    flex: none;
     gap: 2px;
     font: inherit;
     font-size: var(--fs-micro);

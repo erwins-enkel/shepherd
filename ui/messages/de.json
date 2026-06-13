@@ -1247,5 +1247,15 @@
   "integrated_epics_landing_failed": "Landing-PR konnte nicht geöffnet werden — erneuter Versuch",
   "feat_epic_landing_pr_title": "Epics landen über einen finalen PR",
   "feat_epic_landing_pr_body": "Wenn alle Kind-Issues eines Epics integriert sind, öffnet Shepherd einen finalen PR, der das gesamte Epic landet und das Eltern-Issue schließt — als Link im Band 'Integrierte Epics'.",
-  "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt"
+  "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt",
+  "recap_changed_files": "Geänderte Dateien",
+  "recap_unavailable": "Für diese Sitzung ist keine Zusammenfassung verfügbar.",
+  "recap_issue": "Issue #{n}",
+  "herd_done_filter": "✓ Fertig",
+  "herd_done_title": "Abgeschlossene (archivierte) Sitzungen und ihre Zusammenfassungen anzeigen",
+  "herd_done_empty": "Noch keine abgeschlossenen Sitzungen.",
+  "done_lens_title": "Fertig",
+  "done_recap_finished": "Vor {ago} abgeschlossen",
+  "done_recap_panel_aria": "Zusammenfassung für {desig}",
+  "done_back_to_list": "‹ Zurück zu Fertig"
 }

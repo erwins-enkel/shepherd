@@ -57,6 +57,7 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
+  import { doneSessions } from "$lib/done.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
@@ -79,6 +80,7 @@
     sessionsForPrNumbers,
   } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
+  import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import CloneRepo from "$lib/components/CloneRepo.svelte";
@@ -667,11 +669,40 @@
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
 
+  // Done lens: separate selection state. selectedId resolves against store.sessions
+  // (the live list), which has EVICTED archived sessions — so reusing it for a done
+  // (archived) id would break. doneSelectedId tracks the picked done row instead.
+  let doneSelectedId = $state<string | null>(null);
+  // The currently-selected done session (resolved against the lazy doneSessions list).
+  const doneSelected = $derived(doneSessions.sessions.find((s) => s.id === doneSelectedId) ?? null);
+  // Entering the Done lens lazy-loads the archived session list + repopulates the
+  // shared recaps store (archived recaps persist server-side; live events dropped the
+  // session's recap, /api/recaps returns it). Both are best-effort / self-handling.
+  // Re-selects the first done row whenever the current pick isn't in the (re)loaded list.
+  $effect(() => {
+    if (herdFilter !== "done") return;
+    void doneSessions.load();
+    void recaps.load();
+  });
+  $effect(() => {
+    if (herdFilter !== "done") return;
+    const list = doneSessions.sessions;
+    if (list.length === 0) {
+      doneSelectedId = null;
+    } else if (!list.some((s) => s.id === doneSelectedId)) {
+      doneSelectedId = list[0].id;
+    }
+  });
+
   // The herd rail's visible session order (same shown set + partition + group
   // order Herd.svelte renders) — the j/k/1-9 navigation space. Computed on demand
   // at keypress time, not $derived: re-partitioning on every nowMs tick would be
   // wasted work for a value only keystrokes read.
   function railIds(): string[] {
+    // The Done lens is its own navigation space (archived rows, not live `sessions`),
+    // so j/k/1-9 walk the done list and select via doneSelectedId — never the hidden
+    // live partition.
+    if (herdFilter === "done") return doneSessions.sessions.map((s) => s.id);
     return railOrder(
       herdSessions,
       store.git,
@@ -693,7 +724,13 @@
   // focusTerm = whether the remounted terminal should grab the keyboard.
   function keyNavSelect(id: string | null, focusTerm = true) {
     if (!id) return;
-    selectUnit(id, focusTerm);
+    // Done lens: pick the archived row (its own selection state, no terminal to focus).
+    if (herdFilter === "done") {
+      doneSelectedId = id;
+      if (mobile.current) mobileScreen = "detail";
+    } else {
+      selectUnit(id, focusTerm);
+    }
     document
       .querySelector(`[data-unit-id="${CSS.escape(id)}"]`)
       ?.scrollIntoView({ block: "nearest" });
@@ -708,17 +745,23 @@
   // focusTerm follows the keystroke's origin: plain keys pass false so focus
   // stays out of the terminal and the next plain key still chains; Alt combos
   // pass true only when fired from inside the terminal (focus follows origin).
+  // The keynav cursor: the Done lens cycles from doneSelectedId, every other mode from
+  // the live selectedId (the two selection spaces never mix).
+  function navCursor(): string | null {
+    return herdFilter === "done" ? doneSelectedId : selectedId;
+  }
+
   function handleHerdKeyNav(key: string, e: KeyboardEvent, focusTerm: boolean): boolean {
     switch (key) {
       case "j":
       case "arrowdown":
         e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, 1), focusTerm);
+        keyNavSelect(cycleId(railIds(), navCursor(), 1), focusTerm);
         return true;
       case "k":
       case "arrowup":
         e.preventDefault();
-        keyNavSelect(cycleId(railIds(), selectedId, -1), focusTerm);
+        keyNavSelect(cycleId(railIds(), navCursor(), -1), focusTerm);
         return true;
       case "g": {
         e.preventDefault();
@@ -1406,8 +1449,14 @@
             workingBlocked={store.workingBlocked}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            doneList={doneSessions.sessions}
+            {doneSelectedId}
+            ondoneselect={(id) => {
+              doneSelectedId = id;
+              mobileScreen = "detail";
+            }}
           />
-          {#if store.sessions.length === 0}
+          {#if store.sessions.length === 0 && herdFilter !== "done"}
             <BacklogView
               payload={backlog}
               mobile={true}
@@ -1426,6 +1475,18 @@
           onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
           mobile={mobile.current}
         />
+      {:else if herdFilter === "done"}
+        <!-- Done lens detail (mobile): read-only recap; back returns to the done list -->
+        <div class="col">
+          <button type="button" class="done-back" onclick={() => (mobileScreen = "list")}
+            >{m.done_back_to_list()}</button
+          >
+          {#if doneSelected}
+            <DoneRecapPanel session={doneSelected} />
+          {:else}
+            <div class="empty">{m.herd_done_empty()}</div>
+          {/if}
+        </div>
       {:else if selected}
         <div class="col">
           <Viewport
@@ -1534,9 +1595,19 @@
             oncollapse={toggleSidebar}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            doneList={doneSessions.sessions}
+            {doneSelectedId}
+            ondoneselect={(id) => (doneSelectedId = id)}
           />
         {/if}
-        {#if store.sessions.length === 0}
+        {#if herdFilter === "done"}
+          <!-- Done lens: read-only recap for the picked archived session -->
+          {#if doneSelected}
+            <DoneRecapPanel session={doneSelected} />
+          {:else}
+            <div class="empty">{m.herd_done_empty()}</div>
+          {/if}
+        {:else if store.sessions.length === 0}
           <BacklogView
             payload={backlog}
             mobile={false}
@@ -1960,6 +2031,21 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* Done-lens mobile back affordance: a quiet text trigger above the recap panel. */
+  .done-back {
+    align-self: flex-start;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 4px 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    transition: color 0.12s ease;
+  }
+  .done-back:hover {
+    color: var(--color-ink);
   }
   /* Primary landmark wrapping the herd/viewport content. Transparent to the
      flex layout: it fills the shell column and lets its own child (.col /

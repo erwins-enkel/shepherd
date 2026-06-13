@@ -325,6 +325,53 @@ describe("Herd status filter (TopBar tallies)", () => {
   });
 });
 
+describe("Herd Done filter", () => {
+  it("clicking DONE clears any status filter (one filter at a time)", async () => {
+    const onstatusfilter = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "live", name: "live one" })],
+      git: {},
+      onstatusfilter,
+    });
+    await page.getByRole("button", { name: "✓ Done" }).click();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+  });
+
+  it("done mode lists the doneList rows (not the live sessions) and fires ondoneselect", async () => {
+    const ondoneselect = vi.fn();
+    render(Herd, {
+      ...base,
+      // live session must NOT appear under the done lens
+      sessions: [session({ id: "live", name: "live one" })],
+      git: {},
+      filter: "done" as const,
+      doneList: [
+        session({ id: "d1", desig: "TASK-77", name: "archived one", repoPath: "/repo/shepherd" }),
+      ],
+      ondoneselect,
+    });
+    await expect.element(page.getByText("TASK-77")).toBeInTheDocument();
+    // repo basename rendered
+    await expect.element(page.getByText("shepherd")).toBeInTheDocument();
+    // live session hidden in done mode
+    expect(page.getByText("live one").elements().length, "live row hidden under done").toBe(0);
+    await page.getByText("TASK-77").click();
+    expect(ondoneselect).toHaveBeenCalledWith("d1");
+  });
+
+  it("empty done list shows the done empty-state note", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      filter: "done" as const,
+      doneList: [],
+    });
+    await expect.element(page.getByText("No finished sessions yet.")).toBeInTheDocument();
+  });
+});
+
 describe("Herd epic grouping", () => {
   const epicChild = (number: number): EpicChild => ({
     number,

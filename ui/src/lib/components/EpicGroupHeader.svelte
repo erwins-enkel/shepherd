@@ -100,6 +100,7 @@
     gap: 6px;
     flex: 1;
     min-width: 0;
+    overflow: hidden;
     border: 0;
     background: none;
     font: inherit;
@@ -129,7 +130,8 @@
   }
   /* repo basename — quiet identity marker ahead of the epic title */
   .repo {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     color: var(--color-muted);
     max-width: 16ch;
     overflow: hidden;
@@ -138,12 +140,15 @@
   }
 
   .title {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     color: var(--color-ink-bright);
   }
+  /* No overflow rule here — clipped by the parent .epic-toggle's overflow: hidden
+     at extreme widths. */
   .num {
     flex: none;
     color: var(--color-blue);

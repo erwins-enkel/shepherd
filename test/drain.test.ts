@@ -149,6 +149,7 @@ function makeHarness(
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -661,6 +662,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -677,6 +679,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

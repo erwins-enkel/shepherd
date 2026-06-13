@@ -14,6 +14,7 @@ import type {
   OpenPrInput,
   PostReviewInput,
   PrComment,
+  PrReviewMeta,
   PrStatus,
   PullRequest,
   RedeployInput,
@@ -241,7 +242,7 @@ export class GithubForge implements GitForge {
         "--state",
         "open",
         "--json",
-        "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,baseRefName,labels",
+        "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,headRefOid,baseRefName,labels",
         // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
         "--limit",
         "200",
@@ -254,6 +255,7 @@ export class GithubForge implements GitForge {
         createdAt?: string;
         isDraft?: boolean;
         headRefName?: string;
+        headRefOid?: string;
         baseRefName?: string;
         labels?: Array<{ name?: string }>;
       }
@@ -275,6 +277,8 @@ export class GithubForge implements GitForge {
         jobs: jobsFromRollup(p.statusCheckRollup ?? []),
         latestReview: latestHumanReview(p.reviews),
         nonDefaultBase: def && p.baseRefName && p.baseRefName !== def ? p.baseRefName : undefined,
+        headSha: p.headRefOid,
+        headRefName: p.headRefName,
       };
     });
   }
@@ -749,6 +753,44 @@ export class GithubForge implements GitForge {
       body: c.body ?? "",
       createdAt: c.createdAt ? Date.parse(c.createdAt) : 0,
     }));
+  }
+
+  async prReviewMeta(prNumber: number): Promise<PrReviewMeta | null> {
+    try {
+      const out = await this.run([
+        "pr",
+        "view",
+        String(prNumber),
+        "--repo",
+        this.slug,
+        "--json",
+        "body,baseRefName,isCrossRepository,state",
+      ]);
+      const parsed = JSON.parse(out || "null") as {
+        body?: string | null;
+        baseRefName?: string | null;
+        isCrossRepository?: boolean | null;
+        state?: string | null;
+      } | null;
+      if (!parsed) return null;
+      const rawState = (parsed.state ?? "").toUpperCase();
+      const state: PrReviewMeta["state"] =
+        rawState === "OPEN"
+          ? "open"
+          : rawState === "MERGED"
+            ? "merged"
+            : rawState === "CLOSED"
+              ? "closed"
+              : "none";
+      return {
+        body: parsed.body ?? "",
+        baseRefName: parsed.baseRefName ?? "",
+        isCrossRepository: parsed.isCrossRepository ?? false,
+        state,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private readonly apiVersion = ["-H", "X-GitHub-Api-Version: 2026-03-10"];

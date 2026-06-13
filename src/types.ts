@@ -219,6 +219,21 @@ export interface ReviewVerdict {
   updatedAt: number;
 }
 
+// ── standalone repo-level PR review dedup record ────────────────────────────
+/** Dedup state for a standalone (session-less) per-repo PR review. Keyed by (repoPath, prNumber). */
+export interface PrReview {
+  repoPath: string;
+  prNumber: number;
+  headSha: string;
+  /** git patch-id of `git diff base...HEAD`; '' until the first real verdict. */
+  patchId: string;
+  /** Outcome of the last review pass; '' until the first real verdict. */
+  decision: ReviewDecision | "";
+  /** patch-ids reviewed during the current streak (churn/revert dedup set); cleared on a clean verdict. */
+  reviewedPatchIds: string[];
+  updatedAt: number;
+}
+
 // ── reviewer spawn cost-attribution record ──────────────────────────────────
 /** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
  *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and

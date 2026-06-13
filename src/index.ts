@@ -46,6 +46,7 @@ import {
 } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
+import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
@@ -399,6 +400,28 @@ const reviewService = new ReviewService({
   cap: () => config.prReviewCyclesCap,
 });
 
+// Standalone repo-level PR critic (#596): the session-LESS twin of reviewService.
+// Where reviewService reacts to a managed session's PR, this enumerates EVERY open,
+// CI-green PR in a `criticAllPrs` repo (human PRs, other agents', forks) on a timer and
+// posts comment-only reviews. Shares reviewService's primitives + model source (no
+// `model` → the critic's own default); concurrency/timeout stay at service defaults.
+const standaloneCritic = new StandalonePrCriticService({
+  store,
+  herdr,
+  worktree,
+  resolveForge,
+  repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
+  // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.
+  managedBranches: (repoPath) =>
+    new Set(
+      store
+        .list({ activeOnly: true })
+        .filter((s) => s.repoPath === repoPath && s.branch)
+        .map((s) => s.branch!),
+    ),
+});
+
 // Pre-execution plan gate (#348): the planning-phase twin of the PR critic. An
 // adversarial reviewer reads the agent's `.shepherd-plan.md` BEFORE it writes code;
 // request-changes steers findings back into the planning PTY (same auto-address loop
@@ -467,7 +490,16 @@ setInterval(() => {
   if (maintenance.active) return;
   void reviewService.tick();
   void planGate.tick();
+  void standaloneCritic.tick();
 }, 15_000);
+// The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
+// finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
+// heavier than reading verdict files, so it polls coarsely while verdicts still finalize
+// promptly on the shared 15s tick.
+setInterval(() => {
+  if (maintenance.active) return;
+  void standaloneCritic.sweep();
+}, 60_000);
 // archived sessions: reap any in-flight critic + drop the verdict, and reap any
 // in-flight plan reviewer + drop its gate (forget() does both).
 events.subscribe((event, data) => {
@@ -880,6 +912,7 @@ console.log(`shepherd core on http://localhost:${server.port}`);
 process.on("exit", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
+  standaloneCritic.stopAll();
 });
 // Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we
 // must exit explicitly — otherwise `systemctl stop/restart shepherd` hangs until the
@@ -888,5 +921,6 @@ process.on("exit", () => {
 process.on("SIGTERM", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
+  standaloneCritic.stopAll();
   process.exit(0);
 });

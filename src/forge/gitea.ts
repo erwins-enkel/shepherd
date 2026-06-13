@@ -217,6 +217,8 @@ export class GiteaForge implements GitForge {
         checks,
         jobs,
         nonDefaultBase: def && pr.base?.ref && pr.base.ref !== def ? pr.base.ref : undefined,
+        headSha: pr.head?.sha,
+        headRefName: pr.head?.ref,
       } satisfies PullRequest;
     });
   }

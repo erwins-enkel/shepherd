@@ -154,6 +154,7 @@ export const planGates = new PlanGateStore();
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
+  allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
@@ -171,6 +172,7 @@ class RepoConfigStore {
   /** Spread a fetched RepoConfig into every per-field $state map for `repoPath`. */
   private ingest(repoPath: string, c: RepoConfig) {
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
+    this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
     this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
     this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
     this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
@@ -202,6 +204,7 @@ class RepoConfigStore {
       Pick<
         RepoConfig,
         | "criticEnabled"
+        | "criticAllPrs"
         | "autoAddressEnabled"
         | "learningsEnabled"
         | "autopilotEnabled"
@@ -232,6 +235,15 @@ class RepoConfigStore {
     this.enabled = { ...this.enabled, [repoPath]: next }; // optimistic
     await this.apply(repoPath, { criticEnabled: next }, () => {
       this.enabled = { ...this.enabled, [repoPath]: prev };
+    });
+  }
+
+  async toggleAllPrs(repoPath: string) {
+    const prev = this.allPrs[repoPath];
+    const next = !this.isAllPrsEnabled(repoPath);
+    this.allPrs = { ...this.allPrs, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { criticAllPrs: next }, () => {
+      this.allPrs = { ...this.allPrs, [repoPath]: prev };
     });
   }
 
@@ -367,6 +379,10 @@ class RepoConfigStore {
     return this.enabled[repoPath] ?? true;
   }
 
+  isAllPrsEnabled(repoPath: string): boolean {
+    return this.allPrs[repoPath] ?? false;
+  }
+
   isAutoAddressEnabled(repoPath: string): boolean {
     return this.autoAddress[repoPath] ?? false;
   }
@@ -412,6 +428,7 @@ class RepoConfigStore {
   flags(repoPath: string): AutomationFlags {
     return {
       critic: this.isEnabled(repoPath),
+      criticAllPrs: this.isAllPrsEnabled(repoPath),
       autoAddress: this.isAutoAddressEnabled(repoPath),
       learnings: this.learningsOn(repoPath),
       autopilot: this.isAutopilotEnabled(repoPath),

@@ -91,6 +91,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -137,6 +138,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
   expect(put.status).toBe(200);
   expect(await put.json()).toEqual({
     criticEnabled: false,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -156,6 +158,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
   expect(get.status).toBe(200);
   expect(await get.json()).toEqual({
     criticEnabled: false,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -185,6 +188,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
   expect(put.status).toBe(200);
   expect(await put.json()).toEqual({
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: true,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -214,6 +218,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
   expect(put.status).toBe(200);
   expect(await put.json()).toEqual({
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,

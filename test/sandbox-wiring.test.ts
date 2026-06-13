@@ -265,6 +265,7 @@ const NO_USAGE: UsageLimits = {
 function defaultRepoConfig() {
   return {
     criticEnabled: false,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,

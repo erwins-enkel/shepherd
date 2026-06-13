@@ -1102,5 +1102,10 @@
   "epic_group_cue_blocked": "{count} brauchen dich",
   "herd_in_epics_above": "{count} weiter oben in Epics",
   "feat_epic_grouping_title": "Epics gruppieren deine Sessions",
-  "feat_epic_grouping_body": "Sessions, die aus den Unter-Issues eines Epics gestartet wurden, sammeln sich jetzt unter einer einklappbaren EPIC-Überschrift oben in der Liste — mit Live-Fortschritt, Hinweisen auf offene Punkte und einer Verknüpfung zum Epic im Backlog."
+  "feat_epic_grouping_body": "Sessions, die aus den Unter-Issues eines Epics gestartet wurden, sammeln sich jetzt unter einer einklappbaren EPIC-Überschrift oben in der Liste — mit Live-Fortschritt, Hinweisen auf offene Punkte und einer Verknüpfung zum Epic im Backlog.",
+  "automation_allprs_name": "Alle PRs prüfen",
+  "automation_allprs_desc": "Kritiker prüft jeden offenen CI-grünen PR, nicht nur die der Agenten",
+  "automation_allprs_detail": "Normalerweise prüft der Kritiker nur Pull Requests, die Shepherds eigene Agenten öffnen. Ist dies an, durchsucht der Kritiker stattdessen periodisch das gesamte Repo und prüft jeden offenen, CI-grünen Pull Request — auch solche von Menschen oder anderen Werkzeugen sowie Beiträge aus Forks. Jeder erhält denselben nur-lesenden Diff-Review, gepostet als Kommentar (nie eine blockierende Änderungsanforderung, damit Fremd-PRs nicht ausgebremst werden). Dies ist unabhängig vom Kritiker-Schalter pro Session und prüft mehr PRs, kostet also mehr Tokens. Jeder PR wird einmal pro gepushtem Head geprüft; ein reiner Rebase wird nicht erneut geprüft.",
+  "feat_critic_all_prs_title": "Critic prüft jeden Pull Request",
+  "feat_critic_all_prs_body": "Aktiviere „Alle PRs prüfen“ im Automatisierungs-Panel eines Repos, damit der Critic jeden CI-grünen Pull Request bewertet – nicht nur solche, die einer Shepherd-Sitzung zugeordnet sind. Pro Repo opt-in; beachte den höheren Token-Verbrauch bei vielen offenen PRs."
 }

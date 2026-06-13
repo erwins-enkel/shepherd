@@ -8,6 +8,7 @@ import {
 
 const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   critic: false,
+  criticAllPrs: false,
   autoAddress: false,
   learnings: false,
   autopilot: false,
@@ -26,6 +27,7 @@ describe("automationCount", () => {
 
   it("counts each independent automation", () => {
     expect(automationCount(flags({ critic: true }))).toBe(1);
+    expect(automationCount(flags({ criticAllPrs: true }))).toBe(1);
     expect(automationCount(flags({ learnings: true, autopilot: true }))).toBe(2);
     expect(
       automationCount(flags({ critic: true, learnings: true, autopilot: true, autoDrain: true })),
@@ -39,11 +41,12 @@ describe("automationCount", () => {
     expect(automationCount(flags({ critic: true, autoAddress: true }))).toBe(2);
   });
 
-  it("never exceeds 9", () => {
+  it("never exceeds 10", () => {
     expect(
       automationCount(
         flags({
           critic: true,
+          criticAllPrs: true,
           autoAddress: true,
           planGate: true,
           learnings: true,
@@ -54,7 +57,7 @@ describe("automationCount", () => {
           draftMode: true,
         }),
       ),
-    ).toBe(9);
+    ).toBe(10);
   });
 
   it("counts draftMode independently", () => {
@@ -63,10 +66,10 @@ describe("automationCount", () => {
 });
 
 describe("AUTOMATION_GROUPS", () => {
-  it("lists all nine automation keys exactly once", () => {
+  it("lists all ten automation keys exactly once", () => {
     const keys = AUTOMATION_GROUPS.flatMap((g) => g.items);
-    expect(keys).toHaveLength(9);
-    expect(new Set(keys).size).toBe(9);
+    expect(keys).toHaveLength(10);
+    expect(new Set(keys).size).toBe(10);
     expect(keys.sort()).toEqual(
       [
         "autoAddress",
@@ -75,6 +78,7 @@ describe("AUTOMATION_GROUPS", () => {
         "autopilot",
         "buildQueue",
         "critic",
+        "criticAllPrs",
         "draftMode",
         "learnings",
         "planGate",
@@ -84,7 +88,12 @@ describe("AUTOMATION_GROUPS", () => {
 
   it("groups review / behavior / queue in order", () => {
     expect(AUTOMATION_GROUPS.map((g) => g.id)).toEqual(["review", "behavior", "queue"]);
-    expect(AUTOMATION_GROUPS[0].items).toEqual(["critic", "autoAddress", "planGate"]);
+    expect(AUTOMATION_GROUPS[0].items).toEqual([
+      "critic",
+      "criticAllPrs",
+      "autoAddress",
+      "planGate",
+    ]);
     expect(AUTOMATION_GROUPS[1].items).toEqual(["learnings", "autopilot"]);
     expect(AUTOMATION_GROUPS[2].items).toEqual([
       "autoDrain",
@@ -97,7 +106,7 @@ describe("AUTOMATION_GROUPS", () => {
 
 describe("AUTOMATION_TOTAL", () => {
   it("is the item count across all groups (the pill denominator)", () => {
-    expect(AUTOMATION_TOTAL).toBe(9);
+    expect(AUTOMATION_TOTAL).toBe(10);
     expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

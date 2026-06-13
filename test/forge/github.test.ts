@@ -1029,3 +1029,119 @@ test("GithubForge.canPush: absent/unknown permission → throws (probe failure)"
   const { run } = fakeRunner({ "repo view": JSON.stringify({}) });
   expect(new GithubForge("o/r", {}, run).canPush!()).rejects.toThrow();
 });
+
+test("GithubForge.listPullRequests: maps headSha (from headRefOid) and headRefName", async () => {
+  const prsJson = JSON.stringify([
+    {
+      number: 9,
+      title: "feat: stuff",
+      url: "https://github.com/o/r/pull/9",
+      author: { login: "alice" },
+      createdAt: "2024-03-01T00:00:00Z",
+      isDraft: false,
+      mergeable: "MERGEABLE",
+      statusCheckRollup: [],
+      reviews: [],
+      headRefName: "feat/stuff",
+      headRefOid: "deadbeef1234",
+    },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prsJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs[0]!.headSha).toBe("deadbeef1234");
+  expect(prs[0]!.headRefName).toBe("feat/stuff");
+  // headRefOid must be in the --json field list
+  const prListCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
+  expect(prListCall.join(" ")).toContain("headRefOid");
+});
+
+test("GithubForge.listPullRequests: headSha/headRefName undefined when absent in payload", async () => {
+  const prsJson = JSON.stringify([
+    { number: 1, title: "t", url: "u", author: { login: "a" }, createdAt: "2024-01-01T00:00:00Z" },
+  ]);
+  const { run } = fakeRunner({ "pr list": prsJson });
+  const prs = await new GithubForge("o/r", {}, run).listPullRequests();
+  expect(prs[0]!.headSha).toBeUndefined();
+  expect(prs[0]!.headRefName).toBeUndefined();
+});
+
+test("GithubForge.prReviewMeta: parses body/baseRefName/isCrossRepository/state (OPEN→open)", async () => {
+  const viewJson = JSON.stringify({
+    body: "PR description",
+    baseRefName: "main",
+    isCrossRepository: false,
+    state: "OPEN",
+  });
+  const { run, calls } = fakeRunner({ "pr view": viewJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const meta = await forge.prReviewMeta!(7);
+  expect(meta).toEqual({
+    body: "PR description",
+    baseRefName: "main",
+    isCrossRepository: false,
+    state: "open",
+  });
+  // number-keyed: args must contain ["pr", "view", "7"]
+  expect(calls[0]!.slice(0, 3)).toEqual(["pr", "view", "7"]);
+  expect(calls[0]!).toContain("--repo");
+  expect(calls[0]!).toContain("o/r");
+  const jsonArg = calls[0]!.join(" ");
+  expect(jsonArg).toContain("body");
+  expect(jsonArg).toContain("baseRefName");
+  expect(jsonArg).toContain("isCrossRepository");
+  expect(jsonArg).toContain("state");
+});
+
+test("GithubForge.prReviewMeta: MERGED → merged", async () => {
+  const viewJson = JSON.stringify({
+    body: "",
+    baseRefName: "main",
+    isCrossRepository: true,
+    state: "MERGED",
+  });
+  const { run } = fakeRunner({ "pr view": viewJson });
+  const meta = await new GithubForge("o/r", {}, run).prReviewMeta!(7);
+  expect(meta!.state).toBe("merged");
+  expect(meta!.isCrossRepository).toBe(true);
+});
+
+test("GithubForge.prReviewMeta: CLOSED → closed", async () => {
+  const viewJson = JSON.stringify({
+    body: "",
+    baseRefName: "dev",
+    isCrossRepository: false,
+    state: "CLOSED",
+  });
+  const { run } = fakeRunner({ "pr view": viewJson });
+  const meta = await new GithubForge("o/r", {}, run).prReviewMeta!(7);
+  expect(meta!.state).toBe("closed");
+});
+
+test("GithubForge.prReviewMeta: unexpected state → none", async () => {
+  const viewJson = JSON.stringify({
+    body: "",
+    baseRefName: "main",
+    isCrossRepository: false,
+    state: "UNKNOWN_FUTURE",
+  });
+  const { run } = fakeRunner({ "pr view": viewJson });
+  const meta = await new GithubForge("o/r", {}, run).prReviewMeta!(7);
+  expect(meta!.state).toBe("none");
+});
+
+test("GithubForge.prReviewMeta: runner throws → returns null (best-effort)", async () => {
+  const run = async (): Promise<string> => {
+    throw new Error("not found");
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const meta = await forge.prReviewMeta!(99);
+  expect(meta).toBeNull();
+});
+
+test("GithubForge.prReviewMeta: missing fields default to empty/false", async () => {
+  const viewJson = JSON.stringify({ state: "OPEN" });
+  const { run } = fakeRunner({ "pr view": viewJson });
+  const meta = await new GithubForge("o/r", {}, run).prReviewMeta!(7);
+  expect(meta).toEqual({ body: "", baseRefName: "", isCrossRepository: false, state: "open" });
+});

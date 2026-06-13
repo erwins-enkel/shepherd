@@ -2,9 +2,11 @@
  *  No Svelte / no i18n / no store imports so they unit-test in isolation
  *  (mirrors git-rail-drain.ts and pr-badge.ts). */
 
-/** Every automation key. `autoAddress` depends on `critic`. */
+/** Every automation key. `autoAddress` depends on `critic`. `criticAllPrs` is the
+ *  session-LESS repo-wide critic (independent of `critic`). */
 export type AutomationKey =
   | "critic"
+  | "criticAllPrs"
   | "autoAddress"
   | "planGate"
   | "learnings"
@@ -17,6 +19,7 @@ export type AutomationKey =
 /** On/off state for each automation, as read from repoConfig in the component. */
 export interface AutomationFlags {
   critic: boolean;
+  criticAllPrs: boolean;
   autoAddress: boolean;
   planGate: boolean;
   learnings: boolean;
@@ -35,7 +38,7 @@ export interface AutomationGroup {
 
 /** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
-  { id: "review", items: ["critic", "autoAddress", "planGate"] },
+  { id: "review", items: ["critic", "criticAllPrs", "autoAddress", "planGate"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
   { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue", "draftMode"] },
 ];
@@ -49,6 +52,7 @@ export const AUTOMATION_TOTAL = AUTOMATION_GROUPS.flatMap((g) => g.items).length
 export function automationCount(flags: AutomationFlags): number {
   return [
     flags.critic,
+    flags.criticAllPrs,
     flags.autoAddress && flags.critic,
     flags.planGate,
     flags.learnings,

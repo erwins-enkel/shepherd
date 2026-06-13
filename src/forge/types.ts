@@ -101,6 +101,10 @@ export interface PullRequest {
    *  rely on it to read a PR's actual target; it exists solely to surface
    *  non-default (stacked) PRs in the backlog PRs tab. */
   nonDefaultBase?: string;
+  /** Head commit SHA (`headRefOid`); drives the standalone critic's per-head dedup. */
+  headSha?: string;
+  /** Head branch name; used to skip PRs already managed by a live session. */
+  headRefName?: string;
 }
 
 export interface PrStatus {
@@ -183,6 +187,17 @@ export interface RedeployInput {
   ref: string;
 }
 
+/** Number-keyed PR metadata for the standalone critic. Fetched once at spawn time
+ *  (body/base/fork) and re-fetched at finalize (state). Number-keyed so a recurring
+ *  or fork head branch name can't resolve a different PR. */
+export interface PrReviewMeta {
+  body: string;
+  baseRefName: string;
+  isCrossRepository: boolean;
+  /** Live PR state, number-keyed (unlike branch-keyed prStatus). */
+  state: "open" | "merged" | "closed" | "none";
+}
+
 /** A critic review verdict the forge can post. Shepherd never approves a PR. */
 export type ReviewEvent = "REQUEST_CHANGES" | "COMMENT";
 
@@ -260,6 +275,12 @@ export interface GitForge {
    *  responses to earlier review rounds. Optional: only hosts with a comments API
    *  implement it (GitHub); others omit it and no author notes are surfaced. */
   listPrComments?(prNumber: number): Promise<PrComment[]>;
+  /** Number-keyed PR metadata for the standalone critic: body + base branch + fork flag +
+   *  live state, via `gh pr view <number>`. Number-keyed so a recurring/fork head branch
+   *  name can't resolve a different PR (unlike branch-keyed prStatus). Optional: only hosts
+   *  with a PR-view API (GitHub) implement it; others omit it and the standalone critic skips
+   *  that PR. Returns null when the PR is gone/unreadable. */
+  prReviewMeta?(prNumber: number): Promise<PrReviewMeta | null>;
   /** Close an issue by number (best-effort; used by the drain to retire a backlog
    *  issue once its auto PR merges). Optional: hosts without an issues-close API omit it. */
   closeIssue?(issueNumber: number): Promise<void>;

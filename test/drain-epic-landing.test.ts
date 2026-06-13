@@ -18,6 +18,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 function sub(number: number, closed: boolean): SubIssueRef {

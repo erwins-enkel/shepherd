@@ -4,6 +4,7 @@ import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import {
   config,
+  DONE_LENS_WINDOW_MS,
   SESSION_RETENTION_DAYS,
   SESSION_RETENTION_KEEP,
   clampCap,
@@ -1032,6 +1033,10 @@ function sessionRead(id: string, deps: AppDeps): Response {
 async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2]) return json(deps.store.list({ activeOnly: true }));
+  // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
+  // Must precede the bare sessionRead fall-through so "done" isn't read as a session id.
+  if (parts[2] === "done" && !parts[3])
+    return json(deps.store.listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);

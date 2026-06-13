@@ -65,6 +65,41 @@ test("GET /api/recaps returns {} when recapCache is absent", async () => {
   expect(await res.json()).toEqual({});
 });
 
+// ── GET /api/sessions/done ─────────────────────────────────────────────────────
+
+test("GET /api/sessions/done returns recently-archived sessions, excludes live ones", async () => {
+  const { app, store } = harness();
+  const mk = (agent: string) =>
+    store.create({
+      name: agent,
+      prompt: "go",
+      repoPath: repoDir,
+      baseBranch: "main",
+      branch: `shepherd/${agent}`,
+      worktreePath: join(repoDir, agent),
+      isolated: true,
+      herdrSession: `sess-${agent}`,
+      herdrAgentId: `term_${agent}`,
+      claudeSessionId: `claude-${agent}`,
+      model: null,
+    });
+  const live = mk("live");
+  const doneA = mk("done-a");
+  store.archive(doneA.id);
+  await Bun.sleep(2); // distinct archivedAt so newest-first ordering is deterministic
+  const doneB = mk("done-b");
+  store.archive(doneB.id);
+
+  const res = await app.fetch(new Request("http://x/api/sessions/done"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Session[];
+  const ids = body.map((s) => s.id);
+  // both freshly-archived sessions are within the 48h window, newest-first
+  expect(ids).toEqual([doneB.id, doneA.id]);
+  // the never-archived (live) session is excluded
+  expect(ids).not.toContain(live.id);
+});
+
 // ── POST /api/sessions/:id/recap/regenerate ───────────────────────────────────
 
 test("POST /api/sessions/:id/recap/regenerate → 202, calls regenerate, relays status:started", async () => {

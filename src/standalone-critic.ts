@@ -33,6 +33,7 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
 
@@ -326,6 +327,9 @@ export class StandalonePrCriticService {
       const { argv, sessionId: criticSessionId } = readonlyReviewerArgv(
         this.deps.model ?? null,
         prReviewPrompt(diffBase, pr.title, meta.body),
+        // Same extended thinking budget as the session critic (#604): the standalone PR critic
+        // runs the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
+        CRITIC_THINKING_TOKENS,
       );
 
       let terminalId: string;

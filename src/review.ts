@@ -17,6 +17,7 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
 import {
@@ -31,7 +32,7 @@ import { config } from "./config";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
-export { reviewPrompt, defaultComputePatchId, scopeFindings };
+export { reviewPrompt, defaultComputePatchId, scopeFindings, CRITIC_THINKING_TOKENS };
 
 /** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd. */
 function steerText(findings: string[], prNumber: number): string {
@@ -482,6 +483,8 @@ export class ReviewService {
     return readonlyReviewerArgv(
       this.deps.model ?? null,
       reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
+      // Extended thinking budget (#604) — reasoning headroom for the #597 cross-file VERIFY pass.
+      CRITIC_THINKING_TOKENS,
     );
   }
 

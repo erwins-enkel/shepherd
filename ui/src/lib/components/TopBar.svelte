@@ -13,8 +13,23 @@
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
 
   type TallyStatus = "running" | "idle" | "blocked";
+
+  // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
+  // ActionBar carries these, but on phone it hides them, leaving Settings → Device the
+  // only home. Mirrors the ActionBar's compact recipe: two explicit choices (dark/light;
+  // "system" stays the implicit default), keyed on the resolved value.
+  const QUICK_THEMES: {
+    pref: Exclude<ThemePref, "system">;
+    icon: "moon" | "sun";
+    label: () => string;
+  }[] = [
+    { pref: "dark", icon: "moon", label: m.theme_dark },
+    { pref: "light", icon: "sun", label: m.theme_light },
+  ];
 
   let {
     sessions,
@@ -300,9 +315,13 @@
     if (menuOpen) closeMenu();
     else menuOpen = true;
   }
-  // Gear click: idle herd → open Settings directly; something haltable → open the menu.
+  // On mobile the gear ALWAYS opens the menu — it now also hosts the quick theme /
+  // contrast controls, which must be reachable with an idle herd. On desktop those
+  // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
+  // opens Settings directly; only a haltable herd turns it into a menu button.
+  const gearOpensMenu = $derived(mobile || haltable > 0);
   function clickGear() {
-    if (haltable === 0) {
+    if (!gearOpensMenu) {
       onsettings?.();
       return;
     }
@@ -351,6 +370,12 @@
   // still disarm, so a later run never surfaces a pre-armed row.
   $effect(() => {
     if (haltable !== 0) return;
+    // On mobile the menu also hosts the quick theme/contrast controls, so it stays
+    // valid with an idle herd — keep it open and just drop any armed e-stop state.
+    if (mobile) {
+      disarmHalt();
+      return;
+    }
     if (menuOpen) closeMenu(true);
     else disarmHalt();
   });
@@ -799,10 +824,10 @@
         class="gear tip"
         type="button"
         onclick={clickGear}
-        data-tip={haltable > 0 ? m.topbar_menu_aria() : m.settings_title()}
-        aria-haspopup={haltable > 0 ? "menu" : undefined}
-        aria-expanded={haltable > 0 ? menuOpen : undefined}
-        aria-label={haltable > 0 ? m.topbar_menu_aria() : m.topbar_settings_aria()}
+        data-tip={gearOpensMenu ? m.topbar_menu_aria() : m.settings_title()}
+        aria-haspopup={gearOpensMenu ? "menu" : undefined}
+        aria-expanded={gearOpensMenu ? menuOpen : undefined}
+        aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
         >⚙{#if haltable > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
           ></span>{/if}{#if herdrUpdateAvailable && mobile}<span
             class="gear-dot"
@@ -813,12 +838,41 @@
       {#if menuOpen}
         <div
           class="gear-menu"
+          class:mobile
           role="menu"
           tabindex="-1"
           aria-label={m.topbar_menu_label()}
           bind:this={menuEl}
           onkeydown={onMenuKey}
         >
+          {#if mobile}
+            <!-- Quick appearance controls, surfaced directly (not buried in Settings):
+                 dark/light theme + the high-contrast readability lift. Mirrors the
+                 desktop ActionBar recipe, sized up for touch. -->
+            <div class="quick">
+              <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+                {#each QUICK_THEMES as t (t.pref)}
+                  <button
+                    type="button"
+                    class="t-opt"
+                    class:on={theme.resolved === t.pref}
+                    aria-pressed={theme.resolved === t.pref}
+                    aria-label={m.actionbar_theme_option({ label: t.label() })}
+                    onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+                  >
+                {/each}
+              </div>
+              <button
+                type="button"
+                class="contrast-toggle"
+                class:on={theme.contrast}
+                aria-pressed={theme.contrast}
+                aria-label={m.actionbar_contrast_toggle()}
+                onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+              >
+            </div>
+            <div class="menu-sep" role="separator"></div>
+          {/if}
           {#if haltable > 0}
             <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
                  Full intent stays in the aria-label. -->
@@ -852,6 +906,13 @@
     </div>
   </div>
 </div>
+
+<!-- Blur backdrop behind the opened mobile menu, so the panel reads as the focus and the
+     herd recedes. Decorative only — the window-level outside-click handler closes the menu.
+     Rendered outside .gear-wrap so that outside-click detection still fires on it. -->
+{#if menuOpen && mobile}
+  <div class="menu-scrim scrim" aria-hidden="true"></div>
+{/if}
 
 <style>
   .hud {
@@ -973,6 +1034,96 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 3px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  /* Mobile: the menu is a real control panel (quick theme/contrast + halt + Settings),
+     so it sits flush against the screen's right edge and reads larger and more evenly
+     spaced. The -8px pulls its right edge out past the bar's 16px content gutter to an
+     8px screen margin; min-width + roomier padding give it deliberate presence. */
+  .gear-menu.mobile {
+    right: -8px;
+    min-width: 240px;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 4px;
+  }
+  .gear-menu.mobile .menu-item {
+    padding: 12px;
+    font-size: var(--fs-lg);
+    gap: 12px;
+  }
+  /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
+     desktop ActionBar but sized up for touch (44px tap targets). */
+  .quick {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 2px;
+  }
+  .theme-seg {
+    display: flex;
+    flex: 1;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .t-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: var(--fs-xl);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .t-opt:first-child {
+    border-left: 0;
+  }
+  .t-opt:hover {
+    color: var(--color-ink-bright);
+  }
+  /* seg group clips overflow, so an inset ring would be cropped — outline instead */
+  .t-opt:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
+  }
+  .t-opt.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+  }
+  .contrast-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-muted);
+    font-size: var(--fs-xl);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .contrast-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .contrast-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .contrast-toggle.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    border-color: var(--color-amber);
+  }
+  /* Sits below the menu (z 30) but above app content, so the herd blurs while the
+     panel stays crisp. Uses the canonical .scrim primitive (dim + blur) from app.css. */
+  .menu-scrim {
+    z-index: 25;
   }
   .menu-item {
     display: flex;

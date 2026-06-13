@@ -1231,5 +1231,7 @@
   "settings_colorblind_off": "Marker aus",
   "feat_colorblind_markers_title": "Farbenblind-Status-Marker",
   "feat_colorblind_markers_body": "Falls Grün und Rot schwer zu unterscheiden sind, aktiviere die Farbenblind-Status-Marker unter Einstellungen → Gerät. Dann steht am Handy ein ✓ (wartet) oder ! (blockiert) neben dem Session-Emoji, sodass diese Zustände nicht mehr allein an der Header-Färbung hängen. Standardmäßig aus.",
-  "timetip_ready_to_merge": "Grünes Licht — bereit zum Mergen 🟢"
+  "timetip_ready_to_merge": "Grünes Licht — bereit zum Mergen 🟢",
+  "feat_quick_theme_title": "Thema & Kontrast direkt im Menü",
+  "feat_quick_theme_body": "Am Handy öffnest du mit dem Zahnrad (oben rechts) das Menü und schaltest Dark-/Light-Thema sowie hohen Kontrast direkt dort um — kein Umweg mehr über Einstellungen → Gerät. Das Menü sitzt jetzt bündig am Rand und legt einen unscharfen Hintergrund darunter, damit es klar im Fokus steht."
 }

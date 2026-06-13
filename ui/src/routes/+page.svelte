@@ -904,6 +904,7 @@
     projectIcons.load();
     reviews.load();
     planGates.load();
+    recaps.load();
     learnings.load();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().

@@ -365,6 +365,28 @@ export interface EpicSummary {
   source: EpicSource;
 }
 
+/** One child issue in a completed epic record.
+ *  Carried inside CompletedEpic; mirrors the server-side CompletedEpicChild shape. */
+export interface CompletedEpicChild {
+  number: number;
+  title: string;
+  url: string;
+  prNumber: number | null;
+  prUrl: string | null;
+  mergedAt: number | null;
+  integrated: boolean;
+}
+
+/** A durable record of a fully-integrated epic; surfaced in the completed-epics band.
+ *  GET /api/epics/completed payload item; pushed live via the `epic:completed` WS event. */
+export interface CompletedEpic {
+  repoPath: string;
+  parentIssueNumber: number;
+  parentTitle: string;
+  completedAt: number;
+  children: CompletedEpicChild[];
+}
+
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.
  *  GET /api/drain/queue?repo= payload (in drain order). */
 export interface QueuedItem {
@@ -681,6 +703,8 @@ export type WsEvent =
   | { event: "mergetrain:landed"; data: { repoPath: string } }
   | { event: "draftreconcile:status"; data: DraftReconcileStatus }
   | { event: "epic:update"; data: Epic }
+  | { event: "epic:completed"; data: CompletedEpic }
+  | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */

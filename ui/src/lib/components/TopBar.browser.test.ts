@@ -700,6 +700,54 @@ describe("TopBar — idle gear opens Settings directly", () => {
       .element(page.getByRole("menuitem", { name: m.settings_title() }))
       .not.toBeInTheDocument();
   });
+
+  it("mobile: an idle gear opens the menu with the quick theme/contrast controls", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onsettings = vi.fn();
+    const list = [{ id: "d1", status: "done" }] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: list,
+      onsettings,
+    });
+    // mobile → the gear is always a menu button, even with an idle herd
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    expect(onsettings).not.toHaveBeenCalled();
+    // the quick controls and the Settings row are all present in the open menu
+    await expect
+      .element(
+        page.getByRole("button", { name: m.actionbar_theme_option({ label: m.theme_light() }) }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .toBeInTheDocument();
+  });
+
+  it("desktop: the gear menu omits the quick theme/contrast controls", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+    });
+    // running desktop → menu opens, but the quick controls stay ActionBar-only
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
+      .not.toBeInTheDocument();
+  });
 });
 
 describe("TopBar — CR extra-credit gauge", () => {

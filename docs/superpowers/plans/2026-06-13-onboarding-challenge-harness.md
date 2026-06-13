@@ -1110,9 +1110,9 @@ git commit -m "feat(onboarding-harness): agent apply path + coaching resolution"
 
 ```ts
 import { execFileSync } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { closeSync, mkdirSync, mkdtempSync, openSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { IncusDriver } from "./incus";
 import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
@@ -1169,11 +1169,16 @@ async function runScenario(
   }
 }
 
-const LOCK_PATH = join(tmpdir(), "shep-onb.lock");
+// FIXED absolute path under the host-global Shepherd state dir (~/.shepherd) — NOT
+// $TMPDIR. A systemd-user timer service and an interactive shell can see different
+// $TMPDIR (PrivateTmp, per-session dirs), which would defeat the lock; $HOME is
+// stable and identical for both (same user), so the lock is genuinely host-wide.
+const LOCK_PATH = join(homedir(), ".shepherd", "onboarding-harness.lock");
 
 /** Acquire a host-wide exclusive lock so concurrent runs never share the Incus
  *  host. `wx` fails if the lock already exists. Returns a release fn. */
 function acquireHostLock(): () => void {
+  mkdirSync(dirname(LOCK_PATH), { recursive: true });
   let fd: number;
   try {
     fd = openSync(LOCK_PATH, "wx");
@@ -1250,7 +1255,7 @@ In `package.json` `scripts`:
 
 - [ ] **Step 3: Write the README (auth + prereqs + usage)**
 
-`ci/onboarding-harness/README.md` — document: requires the self-hosted Incus host; create the `shep-onb` Incus profile with resource caps + (for tailscale/systemd scenarios) `security.nesting=true` and a TUN device; mount `~/.claude` credentials for the agent path; run with `bun run onboarding:test [--scenario <id>]`; report lands at `onboarding-gap-report.md`. **Run isolation:** each run takes a host-wide lock (`$TMPDIR/shep-onb.lock`) and uses a per-run instance prefix `shep-onb-<runId>-`, swept (own-prefix only) on teardown — so a second run cannot launch while one holds the lock, and crashed-run leftovers are cleared with `bun run onboarding:test --reap-orphans` (the only command that touches other runs' instances).
+`ci/onboarding-harness/README.md` — document: requires the self-hosted Incus host; create the `shep-onb` Incus profile with resource caps + (for tailscale/systemd scenarios) `security.nesting=true` and a TUN device; mount `~/.claude` credentials for the agent path; run with `bun run onboarding:test [--scenario <id>]`; report lands at `onboarding-gap-report.md`. **Run isolation:** each run takes a host-wide lock at the fixed absolute path `~/.shepherd/onboarding-harness.lock` (NOT `$TMPDIR` — a systemd-user service and an interactive run can see different `$TMPDIR`, so the lock must live under the stable host-global `~/.shepherd` dir to actually serialize them) and uses a per-run instance prefix `shep-onb-<runId>-`, swept (own-prefix only) on teardown — so a second run cannot launch while one holds the lock, and crashed-run leftovers are cleared with `bun run onboarding:test --reap-orphans` (the only command that touches other runs' instances).
 
 - [ ] **Step 4: Verify type-check, lint, and the unit suite**
 
@@ -1594,6 +1599,10 @@ git commit -m "feat(onboarding-harness): release gate + nightly timer"
 - (5) Per-run prefix + host lock + own-prefix sweep + `--reap-orphans` → Tasks 2/9. ✓
 - (6) Release gate bypasses (exit 0, logged) when Incus host unavailable → Task 12. ✓
 - (7) Probe auth: baseline boots with `SHEPHERD_TOKEN` unset so plain `curl` passes `checkAuth` → Task 7. ✓
+
+**Plan-review points (round 2):**
+- (1, re-raised) The gate reviews a frozen *main* worktree (`ef27e9bf`, #637) lacking this feature branch's commits, and `.shepherd-plan.md` is `.gitignore`d (read live). Committing to the branch can't make `docs/` visible to the gate, so the full plan + spec are now embedded **inline** in `.shepherd-plan.md` (executable detail, not a pointer). The `docs/` copies remain committed on the branch for the eventual PR. ✓
+- (2) Host lock moved off `$TMPDIR` to the fixed absolute `~/.shepherd/onboarding-harness.lock` so a systemd-user timer and an interactive run (which can see different `$TMPDIR` under PrivateTmp) share one lock and truly serialize → Task 9 `acquireHostLock`. ✓
 
 **Placeholder scan:** No TBD/TODO left as work; two explicit *implementer-confirm* notes (per-scenario fixtures in Task 6; install-URL verification in Task 10) are deliberate real-world verifications, each with concrete instructions, not deferred design.
 

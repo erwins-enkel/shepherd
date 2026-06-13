@@ -182,9 +182,12 @@ function servedPortInWebMap(webMap: Record<string, unknown>, localPort: number):
  * null without throwing.
  *
  * **Accepted trade-offs:**
- * - On a Tailscale too old to support `--json`, the runner yields nothing
- *   parseable, so a served HUD reads Warning. This is accepted — Shepherd
- *   already requires a Service-capable Tailscale version.
+ * - On a Tailscale too old to support `--json`, the `serve status --json` call
+ *   typically exits non-zero; that rejection surfaces via the probe's *error*
+ *   fallback (`diagnostics_hint_tailscale_missing`), not as a Warning. Only a
+ *   zero-exit-but-unparseable payload reaches this parser and returns null →
+ *   Warning. Either way a served HUD is mis-reported there — accepted, since
+ *   Shepherd already requires a Service-capable Tailscale version.
  * - Loopback coverage is `localhost` + `127.0.0.1` only; `[::1]` is
  *   intentionally not matched (Tailscale always emits one of the two above).
  * - A pending/unapproved Service still shows its mapping in the JSON and so

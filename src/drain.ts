@@ -514,6 +514,39 @@ export class DrainService {
     this.deps.emitArchived(decision.sessionId);
   }
 
+  /**
+   * Resolve the base branch + agent prompt for a spawn. Epic children base on (and ensure on
+   * the host) the integration branch — so each builds on its predecessors' merged work — and
+   * get a directive to target it as their PR base; a forge that can't create the branch, or a
+   * non-epic spawn, falls back to the default branch with the bare task title.
+   */
+  private async resolveSpawnBase(
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<{ base: string; prompt: string }> {
+    const { number, title } = decision.issue;
+    const def = await forge.defaultBranch();
+    let base = def;
+    if (decision.integrationBranch && forge.ensureBranch) {
+      try {
+        await forge.ensureBranch(decision.integrationBranch, def);
+        base = decision.integrationBranch;
+      } catch (err) {
+        console.warn(
+          `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
+          err,
+        );
+      }
+    } else if (decision.integrationBranch) {
+      console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
+    }
+    // Epic child actually based on the integration branch → tell the agent to target it as the
+    // PR base (the agent opens its own PR and would otherwise default to the main branch).
+    const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
+    const prompt = usingEpicBase ? `${title}\n\n${epicBaseDirective(base)}` : title;
+    return { base, prompt };
+  }
+
   private async doSpawn(
     repoPath: string,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
@@ -570,29 +603,7 @@ export class DrainService {
     // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
     this.approvedNext.delete(repoPath);
     try {
-      // Epic children base on the epic integration branch so each builds on its
-      // predecessors' merged work; regular tasks base on the default branch. Only use the
-      // integration branch when the forge can create it on the host (otherwise it would never
-      // exist for the worktree to fetch); fall back to the default branch otherwise.
-      const def = await forge.defaultBranch();
-      let base = def;
-      if (decision.integrationBranch && forge.ensureBranch) {
-        try {
-          await forge.ensureBranch(decision.integrationBranch, def);
-          base = decision.integrationBranch;
-        } catch (err) {
-          console.warn(
-            `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
-            err,
-          );
-        }
-      } else if (decision.integrationBranch) {
-        console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
-      }
-      // Epic child actually based on the integration branch → tell the agent to target it as
-      // the PR base (the agent opens its own PR and would otherwise default to the main branch).
-      const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
-      const prompt = usingEpicBase ? `${title}\n\n${epicBaseDirective(base)}` : title;
+      const { base, prompt } = await this.resolveSpawnBase(forge, decision);
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
       // they fall back to no --model flag (Claude's own default). The Fable promo
       // is a client-only UI concern and is NEVER applied to autonomous spawns.

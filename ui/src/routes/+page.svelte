@@ -34,6 +34,7 @@
     getDrain,
     getAutoMerge,
     getEpic,
+    getDiagnostics,
     halt as apiHalt,
   } from "$lib/api";
   import type {
@@ -134,7 +135,7 @@
   }
   let showNew = $state(false);
   let showSettings = $state(false);
-  let settingsTab = $state<"workspace" | "session" | "device">("workspace");
+  let settingsTab = $state<"workspace" | "session" | "device" | "diagnose">("workspace");
   let showClone = $state(false);
   let showNewProject = $state(false);
   let showBroadcast = $state(false);
@@ -806,6 +807,9 @@
     getHerdrUpdate()
       .then((u) => (store.herdrUpdate = u))
       .catch(() => {});
+    getDiagnostics()
+      .then((d) => (store.diagnostics = d))
+      .catch(() => {});
     getStarPrompt()
       .then((s) => (store.starPrompt = s))
       .catch(() => {});
@@ -1238,6 +1242,11 @@
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
+        diagnosticsOverall={store.diagnosticsOverall}
+        ondiagnose={() => {
+          settingsTab = "diagnose";
+          showSettings = true;
+        }}
       />
       <RepoSwitcher
         chips={repoChips}
@@ -1615,6 +1624,7 @@
 {#if showSettings}
   <Settings
     initialTab={settingsTab}
+    initialDiagnostics={store.diagnostics?.checks ?? null}
     onclose={() => {
       showSettings = false;
       loadSettings();

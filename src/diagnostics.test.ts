@@ -197,15 +197,15 @@ describe("DiagnosticsService probes", () => {
     const svc = new DiagnosticsService({ ...healthyDeps(), resolveHost: async () => null });
     const c = byId((await svc.check(0)).checks, "tailscale");
     expect(c.state).toBe("error");
-    expect(c.hintKey).toBe("diagnostics_hint_tailscale_not_serving");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_missing");
   });
-  it("tailscale: error when not serving the port", async () => {
+  it("tailscale: warning when logged in but not serving the port", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
       runServeStatus: async () => "https://node.example.ts.net (tailnet only)\n",
     });
     const c = byId((await svc.check(0)).checks, "tailscale");
-    expect(c.state).toBe("error");
+    expect(c.state).toBe("warning");
     expect(c.hintKey).toBe("diagnostics_hint_tailscale_not_serving");
   });
   it("tailscale: never forwards raw serve-status text", async () => {

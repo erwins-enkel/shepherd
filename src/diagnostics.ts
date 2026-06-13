@@ -175,16 +175,18 @@ export class DiagnosticsService {
     return { id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" };
   };
 
-  /** tailscale: logged-in (resolveNodeHost non-null) AND serving the HUD's local
-   *  port (parseServedPort finds a mapping for config.port). Missing binary /
-   *  not-logged-in / not-serving ⇒ error. Never forwards raw status output. */
+  /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
+   *  logged-in but not serving the HUD's local port (parseServedPort finds no
+   *  mapping for config.port) ⇒ warning (advisory — Shepherd runs fine without
+   *  serve, it only gates the preview/remote nicety); both serving ⇒ ok. Never
+   *  forwards raw status output. */
   private tailscaleProbe = async (): Promise<DiagnosticCheck> => {
     const host = await this.resolveHost();
     if (!host) {
       return {
         id: "tailscale",
         state: "error",
-        hintKey: "diagnostics_hint_tailscale_not_serving",
+        hintKey: "diagnostics_hint_tailscale_missing",
       };
     }
     const status = await this.runServeStatus();
@@ -192,7 +194,7 @@ export class DiagnosticsService {
     if (served === null) {
       return {
         id: "tailscale",
-        state: "error",
+        state: "warning",
         hintKey: "diagnostics_hint_tailscale_not_serving",
       };
     }
@@ -211,7 +213,7 @@ export class DiagnosticsService {
         onTimeout: {
           id: "tailscale",
           state: "error",
-          hintKey: "diagnostics_hint_tailscale_not_serving",
+          hintKey: "diagnostics_hint_tailscale_missing",
         },
       },
       {

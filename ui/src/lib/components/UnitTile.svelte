@@ -27,6 +27,7 @@
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
   import PlanGateBadge from "./PlanGateBadge.svelte";
+  import ResearchBadge from "./ResearchBadge.svelte";
   import AutoPip from "./AutoPip.svelte";
 
   let {
@@ -292,6 +293,7 @@
     {#if dStatus === "running"}
       <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
     {/if}
+    <ResearchBadge {session} />
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
     <PlanGateBadge {session} />

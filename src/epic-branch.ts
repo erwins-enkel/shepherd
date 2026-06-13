@@ -11,3 +11,11 @@ export function epicIntegrationBranch(parentNumber: number, parentTitle: string)
     .replace(/-+$/g, "");
   return slug ? `epic/${parentNumber}-${slug}` : `epic/${parentNumber}`;
 }
+
+/** True when `branch` is an epic integration branch (`epic/<#>` or `epic/<#>-<slug>`) as
+ *  produced by {@link epicIntegrationBranch}. The session-local marker that a drain auto
+ *  session is an epic child — used to keep it off the merge train and route its retire to a
+ *  squash-merge into the integration branch. */
+export function isEpicIntegrationBranch(branch: string): boolean {
+  return /^epic\/\d+(-[a-z0-9-]+)?$/.test(branch);
+}

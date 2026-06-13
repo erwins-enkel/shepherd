@@ -13,7 +13,7 @@ import {
   type DrainRepoState,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
-import { epicIntegrationBranch as epicBranchName } from "./epic-branch";
+import { epicIntegrationBranch as epicBranchName, isEpicIntegrationBranch } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
@@ -72,6 +72,7 @@ export interface DrainDeps {
     | "getEpicRun"
     | "setEpicRun"
     | "listEpicIntegrated"
+    | "recordEpicIntegrated"
   >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
@@ -451,6 +452,36 @@ export class DrainService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
     const s = this.deps.store.get(decision.sessionId);
+    // Epic child: squash-merge the PR INTO its integration branch (not the default branch) and
+    // record it so dependents unblock without a GitHub issue auto-close (the child issue stays
+    // open until the final epic→default PR lands). Detected by the integration-branch base +
+    // an active epic for the repo.
+    const epicRun = this.deps.store.getEpicRun(repoPath);
+    const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
+    if (epicActive && s?.issueNumber != null && isEpicIntegrationBranch(s.baseBranch)) {
+      try {
+        await forge.merge(decision.prNumber, { method: "squash", deleteBranch: false });
+      } catch (err) {
+        console.warn(
+          `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
+          err,
+        );
+        return; // leave the session live; next tick retries. Do NOT record or archive.
+      }
+      this.deps.store.recordEpicIntegrated(repoPath, epicRun!.parentIssueNumber, s.issueNumber);
+      try {
+        this.deps.service.archive(decision.sessionId);
+      } catch (err) {
+        console.warn(`[drain] archive (epic child) failed for ${decision.sessionId}:`, err);
+        return;
+      }
+      // Keep the claim: the child issue stays open until the epic lands; releasing would let it
+      // re-spawn. Mirrors the non-epic retire path below.
+      this.retainClaimOnArchive.add(decision.sessionId);
+      this.deps.dropPrCache(decision.sessionId);
+      this.deps.emitArchived(decision.sessionId);
+      return;
+    }
     // Best-effort issue link: a failure must NOT block teardown.
     if (s?.issueNumber != null) {
       try {

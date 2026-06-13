@@ -16,6 +16,7 @@ const recap = (id: string): Recap => ({
   headline: "All done",
   body: "Everything went smoothly.",
   openItems: [],
+  changedFiles: [],
   spawnSessionId: id,
   cwd: "/repo",
   model: null,

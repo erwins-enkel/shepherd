@@ -236,6 +236,7 @@ export interface Recap {
   headline: string;
   body: string;
   openItems: string[];
+  changedFiles: string[];
   spawnSessionId: string;
   cwd: string;
   model: string | null;

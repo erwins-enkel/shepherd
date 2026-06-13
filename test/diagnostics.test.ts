@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { DiagnosticsService, type DiagnosticsDeps } from "./diagnostics";
-import { DIAGNOSTICS_TTL_MS } from "./config";
-import type { DiagnosticCheck } from "./types";
+import { DiagnosticsService, type DiagnosticsDeps } from "../src/diagnostics";
+import { DIAGNOSTICS_TTL_MS } from "../src/config";
+import type { DiagnosticCheck } from "../src/types";
 
 // ── injected-runner helpers ────────────────────────────────────────────────────
 // A runner that returns canned `--version` output per binary; throw to simulate a

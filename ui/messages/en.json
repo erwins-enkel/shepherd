@@ -1222,5 +1222,8 @@
   "integrated_epics_dismiss": "Dismiss",
   "integrated_epics_awaiting_landing": "parent #{number} still open · awaiting landing",
   "integrated_epics_expand_aria": "Expand integrated epic #{number}",
-  "integrated_epics_collapse_aria": "Collapse integrated epic #{number}"
+  "integrated_epics_collapse_aria": "Collapse integrated epic #{number}",
+  "integrated_epics_dismiss_failed": "Couldn't dismiss the epic — try again",
+  "feat_integrated_epics_title": "Completed epics stay visible",
+  "feat_integrated_epics_body": "When an epic's sub-issues all land, it no longer vanishes — a new 'Integrated epics' band at the bottom of the Herd keeps it, with each child's PR and a one-click dismiss once you've followed up."
 }

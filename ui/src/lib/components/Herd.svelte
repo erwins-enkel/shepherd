@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, Epic } from "$lib/types";
+  import type { Session, GitState, SessionActivity, Epic, CompletedEpic } from "$lib/types";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import EpicGroupHeader from "./EpicGroupHeader.svelte";
+  import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -43,6 +44,8 @@
     workingBlocked = {},
     collapsible = false,
     oncollapse = undefined,
+    completedEpics = [],
+    ondismissepic = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -113,6 +116,11 @@
     // called when the collapse arrow is clicked; parent drives the actual
     // collapse so the button is purely a signal
     oncollapse?: () => void;
+    // fully-integrated epics for this repo scope — rendered as the bottom
+    // "integrated epics" band (self-hides when empty)
+    completedEpics?: CompletedEpic[];
+    // dismiss a completed epic from the band; page owns the optimistic remove + reconcile
+    ondismissepic?: (repoPath: string, parent: number) => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -610,6 +618,7 @@
         {/each}
       {/if}
     {/if}
+    <IntegratedEpicsBand epics={completedEpics} ondismiss={ondismissepic ?? (() => {})} {nowMs} />
   </div>
 </div>
 

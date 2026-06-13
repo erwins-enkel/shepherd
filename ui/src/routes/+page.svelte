@@ -33,6 +33,8 @@
     clearMerged,
     getDrain,
     getAutoMerge,
+    getCompletedEpics,
+    dismissCompletedEpic,
     getEpic,
     getDiagnostics,
     halt as apiHalt,
@@ -195,6 +197,12 @@
   });
   // basename of the active filter for the herd's empty-state copy; null when unfiltered
   const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
+  // completed epics scoped to the active repo filter (mirrors herdSessions' repo scope)
+  const completedEpicsShown = $derived(
+    repoFilter
+      ? store.completedEpics.filter((e) => e.repoPath === repoFilter)
+      : store.completedEpics,
+  );
 
   // ── Epic grouping (page-owned, shared by the Herd render AND the keynav rail) ──
   // The live ACTIVE epics: one per repo whose drain carries an `epicParent`. Keyed
@@ -888,6 +896,9 @@
     getAutoMerge()
       .then((l) => store.setAutoMerge(l))
       .catch(() => {});
+    getCompletedEpics()
+      .then((l) => store.seedCompletedEpics(l))
+      .catch(() => {});
     steers.load();
     projectIcons.load();
     reviews.load();
@@ -1199,6 +1210,27 @@
     }
   }
 
+  // Dismiss a completed epic from the integrated-epics band. Optimistic remove, then
+  // reconcile by restoring the prior list (fail-closed) on API error. A successful
+  // dismiss also fires an `epic:completed-cleared` WS event that removes it again —
+  // idempotent, harmless.
+  async function onDismissEpic(repoPath: string, parent: number) {
+    const prev = store.completedEpics;
+    store.completedEpics = prev.filter(
+      (e) => !(e.repoPath === repoPath && e.parentIssueNumber === parent),
+    );
+    try {
+      await dismissCompletedEpic(repoPath, parent);
+    } catch {
+      store.completedEpics = prev; // reconcile
+      toasts.info(m.integrated_epics_dismiss_failed(), {
+        alert: true,
+        duration: null,
+        key: `epic-dismiss-fail:${repoPath}#${parent}`,
+      });
+    }
+  }
+
   // Confirmed: clear the dialog state (before the await, so it can't double-submit),
   // then run the bulk archive.
   function confirmClearMerged() {
@@ -1365,6 +1397,8 @@
             flow={true}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
+            completedEpics={completedEpicsShown}
+            ondismissepic={onDismissEpic}
           />
           {#if store.sessions.length === 0}
             <BacklogView
@@ -1491,6 +1525,8 @@
             workingBlocked={store.workingBlocked}
             collapsible={canCollapse}
             oncollapse={toggleSidebar}
+            completedEpics={completedEpicsShown}
+            ondismissepic={onDismissEpic}
           />
         {/if}
         {#if store.sessions.length === 0}

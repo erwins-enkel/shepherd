@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { IncusDriver } from "./incus";
+import { remediationsFor } from "./remediations";
 import type { DiagnosticsSnapshot } from "../../src/types";
 
 export interface CoachingLine {
@@ -61,4 +62,18 @@ export async function applyAgent(
 /** Minimal single-quote shell escape for embedding the prompt safely. */
 export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Run each harness-catalog remediation (keyed by Shepherd's emitted hintKeys)
+ *  verbatim inside the instance. Returns false if any command exits non-zero. */
+export async function applyVerbatim(
+  driver: IncusDriver,
+  name: string,
+  snapshot: DiagnosticsSnapshot,
+): Promise<boolean> {
+  for (const cmd of remediationsFor(snapshot)) {
+    const r = await driver.exec(name, ["sh", "-c", cmd]);
+    if (r.code !== 0) return false;
+  }
+  return true;
 }

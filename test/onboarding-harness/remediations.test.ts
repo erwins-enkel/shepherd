@@ -17,6 +17,6 @@ describe("remediations catalog", () => {
       generatedAt: 1,
       overall: "error",
     };
-    expect(remediationsFor(snap)).toEqual([REMEDIATIONS.diagnostics_hint_bun_missing]);
+    expect(remediationsFor(snap)).toEqual([REMEDIATIONS["diagnostics_hint_bun_missing"]!]);
   });
 });

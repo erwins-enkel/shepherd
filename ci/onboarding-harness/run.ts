@@ -6,9 +6,10 @@ import { IncusDriver } from "./incus";
 import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
 import { bootShepherd, probeDiagnostics } from "./probe";
-import { applyAgent } from "./apply";
+import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport } from "./report";
+import { remediationsFor } from "./remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 
 /** `git archive` the current HEAD into a tarball the seed engine pushes. */
@@ -32,26 +33,28 @@ async function runScenario(
     const before = await probeDiagnostics(driver, scenario.id);
     detection = assertDetection(before, scenario.id, scenario.expect);
 
-    // Phase 1 has no verbatim path yet. A scenario that disabled the agent
-    // (claude-missing — the agent IS claude in-instance) is detection-only and
-    // is NOT counted as an advice gap. Everything else uses the agent proxy-user.
-    if (scenario.agentIncompatible) {
-      console.log(`[${scenario.id}] agent-incompatible — detection-only in Phase 1`);
-      return {
-        ...base,
-        detection,
-        appliedVia: "skipped",
-        reachedGreen: false,
-        detectionOnly: true,
-      };
+    const verbatim = remediationsFor(before);
+    let appliedVia: ScenarioResult["appliedVia"];
+    let detectionOnly = false;
+    if (verbatim.length > 0) {
+      await applyVerbatim(driver, scenario.id, before);
+      appliedVia = "verbatim";
+    } else if (scenario.agentIncompatible) {
+      console.log(`[${scenario.id}] agent-incompatible — detection-only`);
+      appliedVia = "skipped";
+      detectionOnly = true;
+    } else {
+      await applyAgent(driver, scenario.id, before);
+      appliedVia = "agent";
     }
-    if (scenario.coaching === "structured") {
-      console.log(`[${scenario.id}] structured coaching not yet available — using agent path`);
-    }
-    await applyAgent(driver, scenario.id, before);
-
-    const after = await probeDiagnostics(driver, scenario.id);
-    return { ...base, detection, appliedVia: "agent", reachedGreen: after.overall === "ok" };
+    const after = detectionOnly ? before : await probeDiagnostics(driver, scenario.id);
+    return {
+      ...base,
+      detection,
+      appliedVia,
+      reachedGreen: !detectionOnly && after.overall === "ok",
+      detectionOnly: detectionOnly || undefined,
+    };
   } catch (err) {
     return {
       ...base,

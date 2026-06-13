@@ -10,8 +10,16 @@
     putDefaultModel,
     putExtraCreditsDrainCeiling,
     listDirs,
+    getDiagnostics,
   } from "$lib/api";
-  import { MODELS, PREMIUM_MODELS, type DirListing, type HerdrUpdateStatus } from "$lib/types";
+  import {
+    MODELS,
+    PREMIUM_MODELS,
+    type DirListing,
+    type HerdrUpdateStatus,
+    type DiagnosticCheck,
+  } from "$lib/types";
+  import DiagnoseRows from "$lib/components/DiagnoseRows.svelte";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -51,6 +59,7 @@
     { id: "workspace", label: m.settings_tab_workspace },
     { id: "session", label: m.settings_tab_session },
     { id: "device", label: m.settings_tab_device },
+    { id: "diagnose", label: m.settings_tab_diagnose },
   ] as const;
   type TabId = (typeof TABS)[number]["id"];
   let tabEls: HTMLButtonElement[] = [];
@@ -76,6 +85,7 @@
     onherdrupdate,
     onwhatsnew,
     initialTab = "workspace",
+    initialDiagnostics = null,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -84,6 +94,8 @@
     onherdrupdate?: () => void;
     onwhatsnew?: () => void;
     initialTab?: TabId;
+    /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
+    initialDiagnostics?: DiagnosticCheck[] | null;
   } = $props();
 
   // initialTab seeds the starting tab; the user then freely switches it, so we
@@ -138,6 +150,26 @@
   let extraCreditsCeiling = $state(0); // account-wide extra-credit spend ceiling (0 = pause on any)
   let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
   let extraCreditsBusy = $state(false);
+
+  // Diagnose tab — local checks + re-run state.
+  // untrack: initialDiagnostics is intentionally only read once as the seed value.
+  let diagChecks = $state<DiagnosticCheck[]>(untrack(() => initialDiagnostics ?? []));
+  let diagBusy = $state(false);
+  let diagError = $state<string | null>(null);
+
+  async function rerunDiagnostics() {
+    if (diagBusy) return;
+    diagBusy = true;
+    diagError = null;
+    try {
+      const snap = await getDiagnostics(true);
+      diagChecks = snap.checks;
+    } catch {
+      diagError = "Failed to re-run diagnostics.";
+    } finally {
+      diagBusy = false;
+    }
+  }
 
   async function savePrReviewCycles() {
     if (prRcyBusy) return;
@@ -330,6 +362,15 @@
       await browse(s.repoRoot);
     } catch {
       await browse();
+    }
+    // Seed diagnose tab: if no pre-seeded checks from the store, fetch once on mount.
+    if (diagChecks.length === 0) {
+      try {
+        const snap = await getDiagnostics();
+        diagChecks = snap.checks;
+      } catch {
+        // diagnostics unavailable — panel shows empty state gracefully
+      }
     }
   });
 
@@ -703,6 +744,27 @@
           </dd>
         </dl>
       </div>
+    </div>
+
+    <div
+      class="panel"
+      role="tabpanel"
+      id="settings-panel-diagnose"
+      aria-labelledby="settings-tab-diagnose"
+      tabindex="0"
+      hidden={tab !== "diagnose"}
+    >
+      <div class="rc">
+        <span class="micro">{m.diagnostics_title()}</span>
+        <p class="hint">{m.diagnostics_subtitle()}</p>
+      </div>
+      <DiagnoseRows checks={diagChecks} />
+      {#if diagError}
+        <p class="hint err">{diagError}</p>
+      {/if}
+      <button type="button" class="run" disabled={diagBusy} onclick={rerunDiagnostics}>
+        {diagBusy ? m.common_loading() : m.diagnostics_rerun()}
+      </button>
     </div>
   </div>
 </div>

@@ -161,11 +161,19 @@ export class DiagnosticsService {
       : { id: "git", state: "error", hintKey: "diagnostics_hint_git_missing" };
   };
 
-  /** gh: presence + `gh auth status` exit code (NEVER its stdout). Non-zero exit
-   *  (or a missing binary / timeout) ⇒ not-authenticated error. */
+  /** gh: presence + `gh auth status` exit code (NEVER its stdout). ENOENT ⇒
+   *  binary missing; non-zero exit ⇒ not authenticated. Timeout propagates to the
+   *  `probes()` catch which resolves to `diagnostics_hint_gh_not_authenticated`. */
   private ghProbe = async (): Promise<DiagnosticCheck> => {
-    await this.runGhAuth();
-    return { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" };
+    try {
+      await this.runGhAuth();
+      return { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" };
+    } catch (err) {
+      if (err && typeof err === "object" && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_missing" };
+      }
+      return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_not_authenticated" };
+    }
   };
 
   /** claude is PRESENCE-ONLY (brief No-Go: no login/auth probe, no ~/.claude

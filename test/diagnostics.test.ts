@@ -169,7 +169,20 @@ describe("DiagnosticsService probes", () => {
     expect(c.state).toBe("ok");
     expect(c.hintKey).toBe("diagnostics_hint_gh_ok");
   });
-  it("gh: error when not authenticated (non-zero exit)", async () => {
+  it("gh: error + gh_missing when binary is absent (ENOENT)", async () => {
+    const enoent = Object.assign(new Error("gh not found"), { code: "ENOENT" });
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw enoent;
+      },
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_missing");
+    assertPure(c);
+  });
+  it("gh: error + gh_not_authenticated when auth fails (non-zero exit)", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
       runGhAuth: async () => {

@@ -153,7 +153,7 @@
 
   // Diagnose tab — local checks + re-run state.
   // untrack: initialDiagnostics is intentionally only read once as the seed value.
-  let diagChecks = $state<DiagnosticCheck[]>(untrack(() => initialDiagnostics ?? []));
+  let diagChecks = $state<DiagnosticCheck[] | null>(untrack(() => initialDiagnostics ?? null));
   let diagBusy = $state(false);
   let diagError = $state<string | null>(null);
 
@@ -165,7 +165,7 @@
       const snap = await getDiagnostics(true);
       diagChecks = snap.checks;
     } catch {
-      diagError = "Failed to re-run diagnostics.";
+      diagError = m.diagnostics_rerun_error();
     } finally {
       diagBusy = false;
     }
@@ -364,7 +364,7 @@
       await browse();
     }
     // Seed diagnose tab: if no pre-seeded checks from the store, fetch once on mount.
-    if (diagChecks.length === 0) {
+    if (diagChecks === null) {
       try {
         const snap = await getDiagnostics();
         diagChecks = snap.checks;

@@ -1574,7 +1574,7 @@
 
 {#if showOnboarding}
   <Onboarding
-    checks={store.diagnostics?.checks ?? []}
+    checks={store.diagnostics?.checks ?? null}
     ondismiss={() => {
       featureDiscovery.markSeen("onboarding");
       showOnboarding = false;

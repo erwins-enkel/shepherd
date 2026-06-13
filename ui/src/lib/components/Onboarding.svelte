@@ -8,7 +8,7 @@
     checks,
     ondismiss,
   }: {
-    checks: DiagnosticCheck[];
+    checks: DiagnosticCheck[] | null;
     ondismiss: () => void;
   } = $props();
 </script>

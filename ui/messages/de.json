@@ -1178,5 +1178,7 @@
   "onboarding_intro": "Wir haben deine Umgebung geprüft — das braucht Shepherd zum Arbeiten.",
   "onboarding_dismiss": "Los geht's",
   "feat_diagnostics_title": "Umgebungs-Diagnose",
-  "feat_diagnostics_body": "Shepherd prüft jetzt seine Voraussetzungen — herdr, Tailscale, git, gh, claude, bun und node — und warnt dich unter Einstellungen → Diagnose, wenn etwas fehlt oder besser konfiguriert werden könnte."
+  "feat_diagnostics_body": "Shepherd prüft jetzt seine Voraussetzungen — herdr, Tailscale, git, gh, claude, bun und node — und warnt dich unter Einstellungen → Diagnose, wenn etwas fehlt oder besser konfiguriert werden könnte.",
+  "diagnostics_hint_gh_missing": "GitHub CLI (gh) nicht im PATH gefunden — installiere es und führe anschließend gh auth login aus.",
+  "diagnostics_rerun_error": "Checks konnten nicht neu geprüft werden."
 }

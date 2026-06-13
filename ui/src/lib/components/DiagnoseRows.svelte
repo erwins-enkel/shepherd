@@ -2,7 +2,7 @@
   import type { DiagnosticCheck } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
-  let { checks }: { checks: DiagnosticCheck[] } = $props();
+  let { checks }: { checks: DiagnosticCheck[] | null } = $props();
 
   // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access.
   const msg = m as unknown as Record<string, () => string>;
@@ -28,7 +28,9 @@
   };
 </script>
 
-{#if checks.length === 0}
+{#if checks === null}
+  <div class="all-ok micro">{m.common_loading()}</div>
+{:else if checks.length === 0}
   <div class="all-ok micro">{m.diagnostics_all_ok()}</div>
 {:else}
   {@const allOk = checks.every((c) => c.state === "ok")}

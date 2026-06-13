@@ -514,8 +514,19 @@
         <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
       </select>
     </label>
-    <div class="signoff-note">{m.automation_sandbox_profile_hint()}</div>
-    <div class="signoff-note">{m.automation_sandbox_profile_caveats()}</div>
+    <div class="signoff-note sandbox-summary">
+      {m.automation_sandbox_profile_summary()}
+      {@render info("sandbox", m.automation_sandbox_profile_label())}
+    </div>
+    <div
+      id="auto-detail-sandbox"
+      class="auto-detail sandbox-detail"
+      role="note"
+      hidden={openDetail !== "sandbox"}
+    >
+      <p>{m.automation_sandbox_profile_hint()}</p>
+      <p>{m.automation_sandbox_profile_caveats()}</p>
+    </div>
   </div>
   {#if flags.autoDrain}
     <div class="drain-fields">
@@ -866,6 +877,27 @@
     text-align: left;
     cursor: pointer;
     appearance: auto;
+  }
+  /* Sandbox summary line: flex so the circular ⓘ vertically centers against the
+     text (mirrors .auto-name), instead of sitting baseline-misaligned. */
+  .sandbox-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Sandbox ⓘ detail: recess to --color-inset so it steps against the
+     --color-panel .drain-fields ground (panel-over-panel would show no fill
+     step — only the border). margin-top:0 cancels the .auto-detail 6px that
+     would otherwise stack on .drain-fields' 6px gap. */
+  .sandbox-detail {
+    margin-top: 0;
+    background: var(--color-inset);
+  }
+  .sandbox-detail p {
+    margin: 0;
+  }
+  .sandbox-detail p + p {
+    margin-top: 6px;
   }
   /* Epic-mode precedence banner: unmistakable amber notice inside the Work queue
      section that label-drain is suspended while an epic runs. Sits above the

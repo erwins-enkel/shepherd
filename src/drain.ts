@@ -460,7 +460,10 @@ export class DrainService {
     const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
     if (epicActive && s?.issueNumber != null && isEpicIntegrationBranch(s.baseBranch)) {
       try {
-        await forge.merge(decision.prNumber, { method: "squash", deleteBranch: false });
+        // deleteBranch removes the child's MERGED head (task) branch on origin — standard
+        // post-merge hygiene. It is the PR's head, never the integration branch (the base),
+        // so the accumulating integration branch is untouched.
+        await forge.merge(decision.prNumber, { method: "squash", deleteBranch: true });
       } catch (err) {
         console.warn(
           `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
@@ -472,7 +475,19 @@ export class DrainService {
       try {
         this.deps.service.archive(decision.sessionId);
       } catch (err) {
-        console.warn(`[drain] archive (epic child) failed for ${decision.sessionId}:`, err);
+        // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This
+        // is recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below,
+        // so the session stays live AND polled (pr-poller skips only archived rows). The poller
+        // re-observes the merged PR and settles it via reapMerged → settleMergedSession (archive
+        // + teardown) — the same path any out-of-band merge takes. That recovery closes the child
+        // issue instead of keeping it open, but the integration is already recorded above, so
+        // dependents unblock either way. The session can NOT be re-selected by the retire gate
+        // (readyToRetire requires state==="open"; the PR is merged), hence the poller is the
+        // recovery, not a retry of this path.
+        console.warn(
+          `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
+          err,
+        );
         return;
       }
       // Keep the claim: the child issue stays open until the epic lands; releasing would let it

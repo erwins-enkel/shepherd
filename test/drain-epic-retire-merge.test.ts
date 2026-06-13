@@ -209,7 +209,7 @@ describe("epic child retire → squash-merge into integration branch", () => {
 
     await h.drain.pump(REPO);
 
-    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: false }]);
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
     expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
     expect(h.store.get(s.id)?.status).toBe("archived");
     expect(h.archived).toEqual([s.id]);

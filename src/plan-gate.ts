@@ -279,39 +279,46 @@ export class PlanGateService {
     // default catches internally and falls back to the base ref / name, so this won't throw.
     const sha = this.baseSha(session.repoPath, session.baseBranch);
 
+    // Pre-inject the originating issue's body as UNTRUSTED reviewer context (the agent has no
+    // gh/network — the sandbox stays airtight). Best-effort: a missing issue / forge / getIssue
+    // must never block or throw the review, so any failure degrades to no issue context.
+    const issueBody = await this.fetchIssueBody(session);
+    const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? [], issueBody);
+    // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
+    // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
+    const { argv, sessionId: reviewerSessionId } = reviewerArgv(this.deps.model ?? null, prompt);
+
     // Disposable detached worktree at the base: read-only codebase inspection that can't race
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.
-    // Key the path on session.id: every session detaches at the SAME base sha, so without this
-    // discriminator concurrent plan reviews would share one worktree path and read each other's
-    // verdict file (cross-session findings). See createDetached's `slug` doc.
+    // Key the path on the per-RUN reviewer session id (a fresh randomUUID per spawn): every
+    // session detaches at the SAME base sha, so even two reviews of the SAME session at that sha
+    // would otherwise share one worktree path and clobber each other's `.shepherd-plan-review.json`
+    // verdict (#631). The unique slug gives every run its own `…-review-<reviewerUuid>-<sha8>`
+    // path — no cross-run (nor cross-session) verdict clobber. See createDetached's `slug` doc.
     let wt;
     try {
       wt = await this.deps.worktree.createDetached(
         session.repoPath,
         session.baseBranch,
         sha,
-        session.id,
+        reviewerSessionId,
       );
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return "error";
     }
 
-    // Pre-inject the originating issue's body as UNTRUSTED reviewer context (the agent has no
-    // gh/network — the sandbox stays airtight). Best-effort: a missing issue / forge / getIssue
-    // must never block or throw the review, so any failure degrades to no issue context.
-    const issueBody = await this.fetchIssueBody(session);
-    // forget() (session archived) may have fired during the getIssue await above; it clears our
-    // `starting` claim as a tombstone. Abort (reaping the worktree we allocated) before spawning
-    // so we don't run an orphaned reviewer for — and leak a worktree on — a gone session.
-    // Mirrors ReviewService.begin's post-fetch re-check.
+    // forget() (session archived) may have fired during either await above (getIssue OR the slow
+    // createDetached: git fetch + worktree add); it clears our `starting` claim as a tombstone.
+    // This SINGLE re-check covers BOTH awaits — it MUST stay AFTER createDetached so a forget()
+    // mid-fetch still aborts. Abort (reaping the worktree we allocated) before spawning so we don't
+    // run an orphaned reviewer for — and leak a worktree on — a gone session. Mirrors
+    // ReviewService.begin's post-fetch re-check.
     if (!this.starting.has(session.id)) {
       this.deps.worktree.remove(wt.worktreePath);
       return "skipped";
     }
 
-    const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? [], issueBody);
-    const { argv, sessionId: reviewerSessionId } = reviewerArgv(this.deps.model ?? null, prompt);
     const backend = this.detectBackend();
     const env = this.membraneEnv();
     const membrane: MembraneInputs = {
@@ -372,7 +379,15 @@ export class PlanGateService {
    *  An orphan is a `plan_gate` spawn that never completed AND whose disposable worktree still
    *  exists — finalize() reaps that worktree, so a surviving one means finalize never ran. */
   async adoptOrphans(): Promise<void> {
-    for (const sp of this.deps.store.listReviewerSpawns()) {
+    // Iterate NEWEST-FIRST by sorting `spawnedAt` descending HERE (independent of the store
+    // query's ORDER BY). With per-run unique worktree paths (#631), two same-session orphans can
+    // coexist; the `inflight.has(id)` short-circuit adopts the FIRST eligible per session, so the
+    // newest-first sort makes that the NEWEST — whose verdict is the most recent. The older
+    // duplicate is left for gcStaleReviewWorktrees() to reap; adopting the older instead would
+    // strand the newer unread verdict (re-#631).
+    for (const sp of [...this.deps.store.listReviewerSpawns()].sort(
+      (a, b) => b.spawnedAt - a.spawnedAt,
+    )) {
       if (sp.kind !== "plan_gate" || sp.completedAt != null) continue;
       const id = sp.taskSessionId;
       if (this.inflight.has(id) || this.starting.has(id)) continue;
@@ -394,6 +409,31 @@ export class PlanGateService {
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });
       this.deps.onReviewing?.(id, true);
+    }
+  }
+
+  /** Reap stale plan-review worktrees left on disk by a prior run — e.g. the older of two
+   *  same-session orphans that adoptOrphans() left behind when it adopted the newer (#631). A
+   *  persisted, not-yet-finalized `plan_gate` spawn whose disposable worktree still exists but is
+   *  NOT in the live inflight set has no owner: nothing will ever read its verdict or remove it.
+   *
+   *  Two safety conditions make this sound:
+   *   (a) it MUST run once at boot AFTER adoptOrphans() has repopulated `inflight`, so every
+   *       genuinely-live orphan is already adopted (its worktree is in the inflight set below) and
+   *       only the truly ownerless duplicates remain to reap;
+   *   (b) the load-bearing invariant that begin() calls recordReviewerSpawn AFTER inflight.set —
+   *       so any persisted not-yet-finalized plan_gate row implies its run is already in `inflight`
+   *       (or it finalized, and finalize already removed the worktree). A future reorder putting
+   *       recordReviewerSpawn BEFORE inflight.set would let this GC reap a live spawning run, so
+   *       that ordering must not be changed. */
+  gcStaleReviewWorktrees(): void {
+    const live = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+    for (const sp of this.deps.store.listReviewerSpawns()) {
+      if (sp.kind !== "plan_gate" || sp.completedAt != null) continue; // finalize already reaped its worktree
+      if (live.has(sp.worktreePath)) continue;
+      if (!this.worktreeExists(sp.worktreePath)) continue;
+      this.deps.worktree.remove(sp.worktreePath);
+      console.warn(`[plan-gate] gc reaped stale review worktree ${sp.worktreePath}`);
     }
   }
 

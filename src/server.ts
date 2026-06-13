@@ -1184,6 +1184,8 @@ async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Respo
 
 // POST /api/sessions/:id/recap/regenerate — force-regenerate the session recap on demand.
 // 404 unknown id; 202 with {status} = "started" | "empty" | "error" so the UI can explain the outcome.
+// NOTE: unlike the auto-fire sweep (which skips drain sessions), on-demand regenerate is
+// intentionally allowed for ANY session — an operator may want a summary of a drain run.
 async function handleSessionRecapRegenerate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "recap" && parts[4] === "regenerate"))
     return null;

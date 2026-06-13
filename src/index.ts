@@ -35,6 +35,7 @@ import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
+import { DiagnosticsService } from "./diagnostics";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -839,6 +840,16 @@ const checkHerdrUpdate = async () =>
 setTimeout(checkHerdrUpdate, 4_000);
 setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 
+// environment-readiness diagnostics (issue #623): fan 7 dependency probes behind
+// a TTL cache and push the snapshot to clients. Like the herdr-update check, a
+// delayed boot kick + a 6h background re-check keep the UI's health pip live with
+// no client polling — the request path otherwise reads the TTL snapshot.
+const diagnostics = new DiagnosticsService();
+const checkDiagnostics = async () =>
+  events.emit("diagnostics:status", await diagnostics.check(Date.now()));
+setTimeout(checkDiagnostics, 4_000);
+setInterval(checkDiagnostics, 6 * 60 * 60 * 1000);
+
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
@@ -896,6 +907,7 @@ const server = serve(
     refreshUsage,
     updates,
     herdrUpdates,
+    diagnostics,
     starPrompt,
     herdr,
     resolveForge,

@@ -49,7 +49,7 @@
       model: string | null;
       images: string[];
       issueRef?: IssueRef;
-      planGateEnabled: boolean;
+      planGateEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
     }) => Promise<void> | void;
     onclose?: () => void;
@@ -198,6 +198,12 @@
     if (repoPath) repoConfig.ensure(repoPath);
   });
   const planGateDefault = $derived(repoPath ? repoConfig.isPlanGateEnabled(repoPath) : false);
+  // While the repo's config fetch is still in flight (and the user hasn't toggled),
+  // the checkbox would read "off" even for a gate-ON repo. Disable + hint until it
+  // settles; a failed fetch still settles, so the box never wedges disabled.
+  const planGateLoading = $derived(
+    !!repoPath && !planGateTouched && !repoConfig.isConfigSettled(repoPath),
+  );
   $effect(() => {
     // mirror the repo default until the user makes a manual choice
     if (!planGateTouched) planGate = planGateDefault;
@@ -383,7 +389,7 @@
               body: issueRef.body,
             }
           : undefined,
-        planGateEnabled: planGate,
+        planGateEnabled: planGateTouched ? planGate : null,
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
       });
     } catch (err) {
@@ -570,10 +576,17 @@
          reads on one line; Model + Sandbox share a 50/50 row beneath. -->
     <div class="opts-row">
       <label class="plan-gate" use:coachTarget={"plan-gate"}>
-        <input type="checkbox" bind:checked={planGate} onchange={() => (planGateTouched = true)} />
+        <input
+          type="checkbox"
+          bind:checked={planGate}
+          onchange={() => (planGateTouched = true)}
+          disabled={planGateLoading}
+        />
         <span class="pg-text">
           <span class="pg-label">{m.newtask_plan_gate_label()}</span>
-          <span class="pg-hint">{m.newtask_plan_gate_hint()}</span>
+          <span class="pg-hint">
+            {planGateLoading ? m.common_loading() : m.newtask_plan_gate_hint()}
+          </span>
         </span>
       </label>
 
@@ -761,6 +774,10 @@
     margin-top: 2px;
     flex: 0 0 auto;
     accent-color: var(--color-amber);
+  }
+  .plan-gate:has(input:disabled) {
+    cursor: progress;
+    opacity: 0.6;
   }
   .pg-text {
     display: flex;

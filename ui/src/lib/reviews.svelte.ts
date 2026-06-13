@@ -168,6 +168,10 @@ class RepoConfigStore {
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
+  // repoPaths whose ensure() fetch has resolved (success OR failure). Distinct from
+  // "has a value": a failed fetch leaves the per-field maps unset yet must count as
+  // settled so the UI stops showing a loading state and falls back to defaults.
+  settled = $state<Record<string, boolean>>({});
 
   /** Spread a fetched RepoConfig into every per-field $state map for `repoPath`. */
   private ingest(repoPath: string, c: RepoConfig) {
@@ -188,13 +192,34 @@ class RepoConfigStore {
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
   }
 
+  /** Idempotently mark a repo's config as settled; no-op (no reactive write) if it
+   *  already is, so calling it from an effect can't self-trigger an update loop. */
+  private markSettled(repoPath: string) {
+    if (this.settled[repoPath]) return;
+    this.settled = { ...this.settled, [repoPath]: true };
+  }
+
   async ensure(repoPath: string) {
-    if (repoPath in this.enabled) return;
+    if (repoPath in this.enabled) {
+      this.markSettled(repoPath); // already-loaded ⇒ settled
+      return;
+    }
     try {
       this.ingest(repoPath, await getRepoConfig(repoPath));
     } catch {
       /* leave unset; UI shows defaults optimistically */
+    } finally {
+      // mark settled on every exit (success AND failure) so a failed fetch never
+      // wedges the UI in a loading state — it falls back to defaults instead.
+      this.markSettled(repoPath);
     }
+  }
+
+  /** Whether ensure() for this repo has resolved (success or failure). False until the
+   *  fetch lands; the new-task composer reads this to avoid showing the plan-gate box
+   *  as "off" while its repo default is still loading. */
+  isConfigSettled(repoPath: string): boolean {
+    return this.settled[repoPath] ?? false;
   }
 
   /** Optimistically apply a patch, then reconcile from the server (or revert on error). */

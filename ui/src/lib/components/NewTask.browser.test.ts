@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Issue } from "$lib/types";
+import type { Issue, RepoConfig } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getTodo } from "$lib/api";
+import { listIssues, getEpics, getTodo, listBranches, getRepoConfig } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -14,6 +14,8 @@ vi.mock("$lib/api", async (importOriginal) => {
     listIssues: vi.fn(),
     getEpics: vi.fn(),
     getTodo: vi.fn(),
+    listBranches: vi.fn(),
+    getRepoConfig: vi.fn(),
   };
 });
 
@@ -22,16 +24,44 @@ const { default: NewTask } = await import("./NewTask.svelte");
 const mockListIssues = vi.mocked(listIssues);
 const mockGetEpics = vi.mocked(getEpics);
 const mockGetTodo = vi.mocked(getTodo);
+const mockListBranches = vi.mocked(listBranches);
+const mockGetRepoConfig = vi.mocked(getRepoConfig);
+
+// A full RepoConfig with the plan gate flag overridable; the composer only reads
+// planGateEnabled but the store ingests the whole shape.
+function repoConfig(planGateEnabled: boolean): RepoConfig {
+  return {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    planGateEnabled,
+    draftMode: false,
+    signoffAuthority: "human",
+    sandboxProfile: "trusted",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+  };
+}
 
 beforeEach(() => {
   mockListIssues.mockReset();
   mockGetEpics.mockReset();
   mockGetTodo.mockReset();
+  mockListBranches.mockReset();
+  mockGetRepoConfig.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
   mockListIssues.mockResolvedValue({ slug: null, issues: [] });
   mockGetEpics.mockResolvedValue([]);
+  mockListBranches.mockResolvedValue({ current: "main", branches: ["main"] });
+  mockGetRepoConfig.mockResolvedValue(repoConfig(false));
 });
 
 afterEach(() => {
@@ -152,5 +182,108 @@ describe("NewTask issue picker epic-parent rows", () => {
     expect((plainRow as HTMLButtonElement).disabled).toBe(false);
     plainRow.click();
     await expect.poll(() => promptField.value).toContain("#31");
+  });
+});
+
+describe("NewTask plan-gate inheritance", () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  const planGateBox = () => document.querySelector<HTMLInputElement>(".plan-gate input")!;
+  const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
+
+  async function fillAndSubmit() {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => submitBtn().disabled).toBe(false);
+    submitBtn().click();
+  }
+
+  it("submits planGateEnabled:null when the box is untouched on a gate-ON repo", async () => {
+    // unique repoPath per test: repoConfig store is a module singleton that caches by path
+    const repoPath = "/repo/gate-on-untouched";
+    mockGetRepoConfig.mockResolvedValue(repoConfig(true));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    // box mirrors the gate-ON default once config settles
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
+  });
+
+  it("submits the explicit boolean once the user toggles the box", async () => {
+    // gate-OFF repo, user ticks it ON → explicit true
+    const repoPath = "/repo/toggle-on";
+    mockGetRepoConfig.mockResolvedValue(repoConfig(false));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    planGateBox().click(); // toggles + pins planGateTouched
+    expect(planGateBox().checked).toBe(true);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: true });
+  });
+
+  it("submits explicit false when the user unticks a gate-ON repo", async () => {
+    const repoPath = "/repo/toggle-off";
+    mockGetRepoConfig.mockResolvedValue(repoConfig(true));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    planGateBox().click(); // untick → explicit false
+    expect(planGateBox().checked).toBe(false);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: false });
+  });
+
+  it("disables the box until config settles, then re-enables", async () => {
+    const repoPath = "/repo/settle-success";
+    const d = deferred<RepoConfig>();
+    mockGetRepoConfig.mockReturnValue(d.promise);
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repoPath } });
+
+    // in flight: disabled + loading hint
+    await expect.poll(() => planGateBox().disabled).toBe(true);
+    await expect.element(page.getByText(m.common_loading())).toBeInTheDocument();
+
+    d.resolve(repoConfig(true));
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    expect(planGateBox().checked).toBe(true);
+  });
+
+  it("never wedges disabled when the config fetch fails", async () => {
+    const repoPath = "/repo/settle-failure";
+    const d = deferred<RepoConfig>();
+    mockGetRepoConfig.mockReturnValue(d.promise);
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => planGateBox().disabled).toBe(true);
+
+    d.reject(new Error("boom"));
+    // failure still settles → box re-enables (unchecked) and inherits via null
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    expect(planGateBox().checked).toBe(false);
+
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
   });
 });

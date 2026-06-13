@@ -539,23 +539,23 @@ export class DrainService {
     this.approvedNext.delete(repoPath);
     try {
       // Epic children base on the epic integration branch so each builds on its
-      // predecessors' merged work; regular tasks base on the default branch. Ensure the
-      // branch exists (idempotent, off the latest default) before the worktree bases on it.
-      let base: string;
-      if (decision.integrationBranch) {
-        const def = await forge.defaultBranch();
+      // predecessors' merged work; regular tasks base on the default branch. Only use the
+      // integration branch when the forge can create it on the host (otherwise it would never
+      // exist for the worktree to fetch); fall back to the default branch otherwise.
+      const def = await forge.defaultBranch();
+      let base = def;
+      if (decision.integrationBranch && forge.ensureBranch) {
         try {
-          await forge.ensureBranch?.(decision.integrationBranch, def);
+          await forge.ensureBranch(decision.integrationBranch, def);
           base = decision.integrationBranch;
         } catch (err) {
           console.warn(
             `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
             err,
           );
-          base = def; // best-effort fallback: still spawn (per-PR) rather than stall the epic
         }
-      } else {
-        base = await forge.defaultBranch();
+      } else if (decision.integrationBranch) {
+        console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
       }
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
       // they fall back to no --model flag (Claude's own default). The Fable promo

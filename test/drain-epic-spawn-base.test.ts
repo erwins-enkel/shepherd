@@ -39,6 +39,8 @@ function fakeForge(
     listSubIssues?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedBy?: (issueNumber: number) => Promise<number[]>;
     ensureBranch?: (branch: string, fromRef: string) => Promise<void>;
+    /** Omit the ensureBranch method entirely (e.g. a gitea forge that can't create refs). */
+    noEnsureBranch?: boolean;
   } = {},
 ): GitForge {
   return {
@@ -70,10 +72,12 @@ function fakeForge(
     },
     listSubIssues: opts.listSubIssues,
     listBlockedBy: opts.listBlockedBy,
-    ensureBranch: async (branch: string, fromRef: string) => {
-      rec.ensured.push({ branch, fromRef });
-      if (opts.ensureBranch) await opts.ensureBranch(branch, fromRef);
-    },
+    ensureBranch: opts.noEnsureBranch
+      ? undefined
+      : async (branch: string, fromRef: string) => {
+          rec.ensured.push({ branch, fromRef });
+          if (opts.ensureBranch) await opts.ensureBranch(branch, fromRef);
+        },
   };
 }
 
@@ -93,6 +97,7 @@ function makeHarness(
     getIssueImpl?: (n: number) => Promise<Issue | null>;
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
+    noEnsureBranch?: boolean;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -119,6 +124,7 @@ function makeHarness(
     getIssue: opts.getIssueImpl,
     listSubIssues: opts.listSubIssuesImpl,
     listBlockedBy: opts.listBlockedByImpl,
+    noEnsureBranch: opts.noEnsureBranch,
   });
 
   const prCache: Record<string, GitState> = {};
@@ -210,6 +216,40 @@ describe("epic-child spawns base on the integration branch", () => {
     const created = h.creates[0]!;
     expect(created.baseBranch).toBe(EPIC_BRANCH);
     expect(created.issueRef?.number).toBe(CHILD);
+  });
+
+  test("running epic on a forge WITHOUT ensureBranch: falls back to main, never the epic branch", async () => {
+    const subIssues: SubIssueRef[] = [
+      { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "EFI cluster",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+    };
+    const h = makeHarness({
+      noEnsureBranch: true,
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.baseBranch).toBe("main"); // fallback, NOT the epic branch
+    expect(h.creates[0]!.issueRef?.number).toBe(CHILD);
+    expect(h.forgeRec.ensured).toHaveLength(0);
   });
 
   test("regular label-drain spawn: bases on main, never ensures a branch", async () => {

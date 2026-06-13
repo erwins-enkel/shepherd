@@ -113,6 +113,31 @@ export class WorktreeMgr {
     }
   }
 
+  /** Ensure `baseBranch` resolves LOCALLY before a worktree bases on it. The common case —
+   *  the default branch — already exists locally and returns immediately. An epic integration
+   *  branch exists only on origin, so fetch it into a local branch of the same name
+   *  (`git fetch origin <b>:<b>`, fast-forward). Best-effort + async (network — never sync on
+   *  the server loop): a failure leaves local state as-is and the subsequent worktree.create
+   *  surfaces a real error if the base is genuinely unresolvable. */
+  async ensureBaseRef(repoPath: string, baseBranch: string): Promise<void> {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return;
+    try {
+      await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${baseBranch}`], {
+        cwd: repoPath,
+      });
+      return; // already a local branch (default branch path) — nothing to do
+    } catch {
+      // not a local branch — try to materialize it from origin below
+    }
+    try {
+      await execFileAsync("git", ["fetch", "origin", `${baseBranch}:${baseBranch}`], {
+        cwd: repoPath,
+      });
+    } catch (err) {
+      console.warn(`[worktree] ensureBaseRef fetch ${baseBranch} failed:`, err);
+    }
+  }
+
   /** Whether the branch checked out at `worktreePath` is BEHIND `baseBranch` — i.e.
    *  base has commits not yet in HEAD, so a strict merge train must rebase first.
    *  Best-effort fetches `origin/<base>` and prefers it; falls back to the local

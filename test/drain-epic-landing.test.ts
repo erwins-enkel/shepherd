@@ -1,0 +1,513 @@
+import { test, expect, describe } from "bun:test";
+import { DrainService } from "../src/drain";
+import { SessionStore } from "../src/store";
+import { EmptyDiffError } from "../src/forge/types";
+import type { GitForge, Issue, OpenPrInput, PrStatus, SubIssueRef } from "../src/forge/types";
+import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
+import type { CompletedEpic } from "../src/completed-epic";
+import { epicIntegrationBranch } from "../src/epic-branch";
+
+const REPO = "/repo";
+const PARENT = 327;
+const PARENT_TITLE = "EFI cluster";
+const INTEGRATION_BRANCH = epicIntegrationBranch(PARENT, PARENT_TITLE); // epic/327-efi-cluster
+
+const NO_USAGE: UsageLimitsType = {
+  session5h: null,
+  week: null,
+  credits: null,
+  stale: false,
+  calibratedAt: null,
+};
+
+function sub(number: number, closed: boolean): SubIssueRef {
+  return {
+    number,
+    title: `child ${number}`,
+    url: `https://x/${number}`,
+    body: "",
+    closed,
+    labels: [],
+  };
+}
+
+/** Records the forge calls a test cares about, with per-test overrides for prStatus/openPr. */
+interface ForgeSpy {
+  forge: GitForge;
+  openPrCalls: OpenPrInput[];
+  prStatusCalls: string[];
+}
+
+function fakeForge(opts: {
+  subIssues: SubIssueRef[];
+  prStatus?: (head: string) => Promise<PrStatus>;
+  openPr?: (o: OpenPrInput) => Promise<PrStatus>;
+}): ForgeSpy {
+  const openPrCalls: OpenPrInput[] = [];
+  const prStatusCalls: string[] = [];
+  const forge: GitForge = {
+    kind: "github",
+    slug: "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    listIssues: async () => [],
+    listPullRequests: async () => [],
+    prStatus: async (head: string) => {
+      prStatusCalls.push(head);
+      return (
+        (await opts.prStatus?.(head)) ??
+        ({ state: "none", checks: "none", deployConfigured: false } as PrStatus)
+      );
+    },
+    openPr: async (o: OpenPrInput) => {
+      openPrCalls.push(o);
+      return (
+        (await opts.openPr?.(o)) ??
+        ({ state: "open", checks: "none", deployConfigured: false } as PrStatus)
+      );
+    },
+    defaultBranch: async () => "main",
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async () => ({}),
+    closeIssue: async () => {},
+    ensureIssueLink: async () => {},
+    addIssueLabel: async () => {},
+    removeIssueLabel: async () => {},
+    getIssue: async (n: number): Promise<Issue | null> =>
+      n === PARENT
+        ? {
+            number: PARENT,
+            title: PARENT_TITLE,
+            body: "epic body",
+            url: `https://x/${PARENT}`,
+            labels: [],
+            createdAt: 0,
+          }
+        : null,
+    listSubIssues: async () => opts.subIssues,
+    listBlockedBy: async () => [],
+  };
+  return { forge, openPrCalls, prStatusCalls };
+}
+
+interface Harness {
+  store: SessionStore;
+  drain: DrainService;
+  completedEmits: CompletedEpic[];
+  spy: ForgeSpy;
+}
+
+function makeHarness(opts: {
+  subIssues: SubIssueRef[];
+  prStatus?: (head: string) => Promise<PrStatus>;
+  openPr?: (o: OpenPrInput) => Promise<PrStatus>;
+  /** Skip recording the running epic_run row (e.g. testing tick() in isolation). */
+  noEpicRun?: boolean;
+  autoDrainEnabled?: boolean;
+}): Harness {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig(REPO, {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: false,
+    planGateEnabled: false,
+    autoDrainEnabled: opts.autoDrainEnabled ?? true,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 2,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "trusted",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+  });
+  if (!opts.noEpicRun) {
+    store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+  }
+
+  const spy = fakeForge(opts);
+  const completedEmits: CompletedEpic[] = [];
+
+  const service = {
+    create: async () => {
+      throw new Error("not used in these tests");
+    },
+    archive: () => 1,
+  };
+
+  const drain = new DrainService({
+    store,
+    service: service as never,
+    resolveForge: () => spy.forge,
+    prCache: { snapshot: () => ({}) },
+    usage: { limits: (): UsageLimitsType => NO_USAGE },
+    repos: () => [REPO],
+    emitStatus: () => {},
+    emitArchived: () => {},
+    dropPrCache: () => {},
+    emitEpic: () => {},
+    emitEpicCompleted: (e) => completedEmits.push(e),
+  });
+
+  return { store, drain, completedEmits, spy };
+}
+
+/** Seed a recorded, integration-merged epic_completed row WITHOUT driving the completion
+ *  edge — for exercising ensureLandingPr directly via tick()/ensureLandingPrsForRepo. */
+function seedCompleted(h: Harness, children: number[] = [320]): void {
+  for (const c of children) {
+    h.store.recordEpicIntegrated(REPO, PARENT, c, {
+      number: 9000 + c,
+      url: `https://github.com/o/r/pull/${9000 + c}`,
+    });
+  }
+  const rollup = children.map((c) => ({
+    number: c,
+    title: `child ${c}`,
+    url: `https://x/${c}`,
+    prNumber: 9000 + c,
+    prUrl: `https://github.com/o/r/pull/${9000 + c}`,
+    mergedAt: 1,
+    integrated: true,
+  }));
+  h.store.recordEpicCompleted({
+    repoPath: REPO,
+    parentIssueNumber: PARENT,
+    parentTitle: PARENT_TITLE,
+    completedAt: 1,
+    childrenJson: JSON.stringify(rollup),
+  });
+}
+
+describe("ensureLandingPr — open + track the epic→default landing PR (#635)", () => {
+  test("opens once: pending row + prStatus none → openPr exactly once, row open with returned facts", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: async () => ({
+        state: "open",
+        number: 555,
+        url: "https://github.com/o/r/pull/555",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(1);
+    expect(h.spy.openPrCalls[0]!.head).toBe(INTEGRATION_BRANCH);
+    expect(h.spy.openPrCalls[0]!.base).toBe("main");
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(555);
+    expect(row.landingPrUrl).toBe("https://github.com/o/r/pull/555");
+
+    const emit = h.completedEmits.at(-1)!;
+    expect(emit.landingState).toBe("open");
+    expect(emit.landingPrNumber).toBe(555);
+    expect(emit.landingPrUrl).toBe("https://github.com/o/r/pull/555");
+  });
+
+  test("idempotent reuse: prStatus open (#99) → openPr NOT called, row open #99", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      prStatus: async () => ({
+        state: "open",
+        number: 99,
+        url: "https://github.com/o/r/pull/99",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(99);
+  });
+
+  test("merged PR also reused (no second PR), row open", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      prStatus: async () => ({
+        state: "merged",
+        number: 77,
+        url: "https://github.com/o/r/pull/77",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(77);
+  });
+
+  test("closed PR not re-opened → row none", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      prStatus: async () => ({ state: "closed", checks: "none", deployConfigured: false }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingState).toBe("none");
+  });
+
+  test("no integrated children → row none, openPr NOT called", async () => {
+    const h = makeHarness({ subIssues: [], noEpicRun: true });
+    // record a completed row with NO epic_integrated rows
+    h.store.recordEpicCompleted({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      parentTitle: PARENT_TITLE,
+      completedAt: 1,
+      childrenJson: JSON.stringify([]),
+    });
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    expect(h.spy.prStatusCalls).toHaveLength(0); // short-circuited before the forge
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingState).toBe("none");
+  });
+
+  test("EmptyDiffError → row none, no error state", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: async () => {
+        throw new EmptyDiffError(INTEGRATION_BRANCH, "main");
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(1);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingState).toBe("none");
+  });
+
+  test("generic error → error + attempts++; retries to success; parks at the cap", async () => {
+    // console.warn "[drain] ensureLandingPr openPr failed…" is expected on each failure.
+    let calls = 0;
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: async () => {
+        calls++;
+        throw new Error("network");
+      },
+    });
+    seedCompleted(h);
+
+    // 1st failure → error, attempts 1
+    await h.drain.tick();
+    let row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingAttempts).toBe(1);
+    expect(calls).toBe(1);
+
+    // Make the next attempt succeed → open
+    h.spy.forge.openPr = async (o) => {
+      h.spy.openPrCalls.push(o);
+      return {
+        state: "open",
+        number: 600,
+        url: "u",
+        checks: "none",
+        deployConfigured: false,
+      } as PrStatus;
+    };
+    await h.drain.tick();
+    row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(600);
+  });
+
+  test("parks at MAX_LANDING_ATTEMPTS: no further forge call once capped", async () => {
+    // console.warn expected on each of the 5 failures.
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: async () => {
+        throw new Error("network");
+      },
+    });
+    seedCompleted(h);
+
+    // Drive 5 failing ticks → attempts climbs to 5, row parked.
+    for (let i = 0; i < 5; i++) await h.drain.tick();
+    let row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingAttempts).toBe(5);
+    const openCallsAtCap = h.spy.openPrCalls.length;
+    const prStatusAtCap = h.spy.prStatusCalls.length;
+    expect(openCallsAtCap).toBe(5);
+
+    // 6th tick: row is at the cap → retry set excludes it → ZERO new forge calls.
+    await h.drain.tick();
+    expect(h.spy.openPrCalls.length).toBe(openCallsAtCap);
+    expect(h.spy.prStatusCalls.length).toBe(prStatusAtCap);
+    row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingAttempts).toBe(5); // unchanged
+  });
+
+  test("terminal short-circuit: a row already open → no forge calls", async () => {
+    const h = makeHarness({ subIssues: [], noEpicRun: true });
+    seedCompleted(h);
+    h.store.setEpicLandingPr(REPO, PARENT, {
+      state: "open",
+      prNumber: 42,
+      prUrl: "u",
+      attempts: 0,
+    });
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    expect(h.spy.prStatusCalls).toHaveLength(0);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingPrNumber).toBe(42);
+  });
+
+  test("completion not wedged: openPr throws at the edge → run still idle, row error", async () => {
+    // console.warn expected (landing failure). Drives the real completion edge via pump().
+    const h = makeHarness({
+      subIssues: [sub(320, false), sub(321, true)],
+      openPr: async () => {
+        throw new Error("network");
+      },
+    });
+    // 320 integration-merged (so listEpicIntegratedDetails is non-empty → openPr is attempted).
+    h.store.recordEpicIntegrated(REPO, PARENT, 320, {
+      number: 9001,
+      url: "https://github.com/o/r/pull/9001",
+    });
+
+    await h.drain.pump(REPO);
+
+    // The idle flip happened DESPITE the landing failure (decoupled — drain not frozen).
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingAttempts).toBe(1);
+    expect(h.spy.openPrCalls).toHaveLength(1);
+  });
+
+  test("completion edge opens the landing PR when openPr succeeds", async () => {
+    const h = makeHarness({
+      subIssues: [sub(320, false), sub(321, true)],
+      openPr: async () => ({
+        state: "open",
+        number: 700,
+        url: "https://github.com/o/r/pull/700",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    h.store.recordEpicIntegrated(REPO, PARENT, 320, {
+      number: 9001,
+      url: "https://github.com/o/r/pull/9001",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(700);
+    // openPr targeted the integration branch → default.
+    expect(h.spy.openPrCalls[0]!.head).toBe(INTEGRATION_BRANCH);
+    expect(h.spy.openPrCalls[0]!.base).toBe("main");
+    // Body closes the parent + the integrated child.
+    expect(h.spy.openPrCalls[0]!.body).toContain(`Closes #${PARENT}`);
+    expect(h.spy.openPrCalls[0]!.body).toContain("Closes #320");
+  });
+
+  test("prStatus itself throws → row error, attempts 1, openPr NOT called (throw caught, not escaped)", async () => {
+    // console.warn expected (landing failure).
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      prStatus: async () => {
+        throw new Error("forge down");
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0); // never reached openPr — the throw was caught
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingAttempts).toBe(1);
+  });
+
+  test("in-flight guard: two concurrent ensureLandingPr → openPr called exactly once", async () => {
+    // A deferred we resolve manually to hold openPr open across both invocations.
+    let releaseOpenPr: (s: PrStatus) => void;
+    const openPrGate = new Promise<PrStatus>((resolve) => {
+      releaseOpenPr = resolve;
+    });
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: () => openPrGate, // blocks until released
+    });
+    seedCompleted(h);
+
+    // Invoke twice concurrently — the second must no-op (first is mid-flight).
+    const ensure = (
+      h.drain as unknown as {
+        ensureLandingPr: (r: string, p: number, t: string) => Promise<void>;
+      }
+    ).ensureLandingPr.bind(h.drain);
+    const first = ensure(REPO, PARENT, PARENT_TITLE);
+    const second = ensure(REPO, PARENT, PARENT_TITLE);
+    await second; // returns immediately (guard no-op) while first is still gated
+    // Let `first` advance through prStatus → defaultBranch up to the gated openPr.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    expect(h.spy.openPrCalls).toHaveLength(1); // exactly one openPr, no double-open
+    expect(h.spy.prStatusCalls).toHaveLength(1); // and no double prStatus
+
+    releaseOpenPr!({
+      state: "open",
+      number: 808,
+      url: "https://github.com/o/r/pull/808",
+      checks: "none",
+      deployConfigured: false,
+    });
+    await first;
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(808);
+    expect(h.spy.openPrCalls).toHaveLength(1); // still exactly one
+  });
+});

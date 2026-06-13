@@ -42,6 +42,7 @@
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
   import PlanGateBadge from "./PlanGateBadge.svelte";
+  import ResearchBadge from "./ResearchBadge.svelte";
   import { onDestroy } from "svelte";
   import {
     REVEAL_PX,
@@ -451,6 +452,7 @@
           }}>{m.unitrow_preview_badge()}</span
         >
       {/if}
+      <ResearchBadge {session} />
       {#if !stepperTerminal}<PrBadge {git} />{/if}
       <CriticBadge sessionId={session.id} />
       <PlanGateBadge {session} />

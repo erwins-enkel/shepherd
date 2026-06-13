@@ -51,6 +51,7 @@
       issueRef?: IssueRef;
       planGateEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
+      research: boolean;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -104,6 +105,8 @@
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   let planGate = $state(false);
   let planGateTouched = $state(false);
+  // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
+  let research = $state(false);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
   let sandboxProfile = $state<"default" | SandboxProfile>("default");
   let submitting = $state(false);
@@ -405,6 +408,7 @@
           : undefined,
         planGateEnabled: planGateTouched ? planGate : null,
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
+        research,
       });
     } catch (err) {
       if (isPreviewBlocked(err)) {
@@ -593,7 +597,10 @@
         <input
           type="checkbox"
           bind:checked={planGate}
-          onchange={() => (planGateTouched = true)}
+          onchange={() => {
+            planGateTouched = true;
+            if (planGate) research = false;
+          }}
           disabled={planGateLoading}
         />
         <span class="pg-text">
@@ -601,6 +608,25 @@
           <span class="pg-hint">
             {planGateLoading ? m.common_loading() : m.newtask_plan_gate_hint()}
           </span>
+        </span>
+      </label>
+
+      <label class="plan-gate">
+        <input
+          type="checkbox"
+          bind:checked={research}
+          onchange={() => {
+            if (research) {
+              planGate = false;
+              // pin touched so a later repo switch doesn't re-seed/re-enable plan-gate while research is active
+              planGateTouched = true;
+              if (sandboxProfile === "autonomous") sandboxProfile = "default";
+            }
+          }}
+        />
+        <span class="pg-text">
+          <span class="pg-label">{m.newtask_research_label()}</span>
+          <span class="pg-hint">{m.newtask_research_hint()}</span>
         </span>
       </label>
 
@@ -621,8 +647,11 @@
             <option value="default">{m.newtask_sandbox_default()}</option>
             <option value="trusted">{m.sandbox_profile_trusted()}</option>
             <option value="standard">{m.sandbox_profile_standard()}</option>
-            <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
+            <option value="autonomous" disabled={research}>{m.sandbox_profile_autonomous()}</option>
           </select>
+          {#if research}
+            <span class="pg-hint">{m.newtask_research_sandbox_note()}</span>
+          {/if}
         </div>
       </div>
     </div>

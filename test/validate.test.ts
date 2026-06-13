@@ -12,6 +12,7 @@ import {
   expandHome,
   parseTermDims,
   validateEgressExtraHosts,
+  validateRelaunchOverrides,
 } from "../src/validate";
 import { stagingDir } from "../src/uploads";
 
@@ -105,6 +106,57 @@ test("sandboxProfile: invalid value rejected", () => {
   );
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.error).toMatch(/sandboxProfile/);
+});
+
+test("research: true accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: true },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(true);
+});
+
+test("research: false accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: false },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(false);
+});
+
+test("research: absent → false", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(false);
+});
+
+test("research: non-boolean string rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: "yes" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
+test("research: numeric 1 rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: 1 },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
+test("research: null rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", research: null },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
 });
 
 test("unknown key is rejected", () => {
@@ -797,4 +849,30 @@ test("egressExtraHosts: aligned with allowlist normalizer — rejects what egres
   for (const bad of ["foo..com", "-foo.com", "foo-.com", ".foo.com", "foo.com."]) {
     expect(validateEgressExtraHosts([bad]).ok).toBe(false);
   }
+});
+
+// ── validateRelaunchOverrides: research field ─────────────────────────────────
+
+test("validateRelaunchOverrides: research:true is accepted and forwarded", () => {
+  const r = validateRelaunchOverrides({ research: true }, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(true);
+});
+
+test("validateRelaunchOverrides: research:false is accepted and forwarded", () => {
+  const r = validateRelaunchOverrides({ research: false }, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.research).toBe(false);
+});
+
+test("validateRelaunchOverrides: non-boolean research is rejected", () => {
+  const r = validateRelaunchOverrides({ research: "yes" }, homedir());
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/research/);
+});
+
+test("validateRelaunchOverrides: absent research is not written onto output", () => {
+  const r = validateRelaunchOverrides({}, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect("research" in r.value).toBe(false);
 });

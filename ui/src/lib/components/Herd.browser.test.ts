@@ -38,6 +38,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     sandboxDegraded: false,
     egressApplied: false,
     egressDegraded: false,
+    research: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,
@@ -238,6 +239,25 @@ describe("Herd Ready filter", () => {
     });
     await page.getByRole("button", { name: "▤ Ready" }).click();
     await expect.element(page.getByText("plain idle")).toBeInTheDocument();
+  });
+});
+
+describe("Herd Research filter", () => {
+  it("clicking Research chip shows only research sessions and hides non-research ones", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "rs", name: "research one", research: true }),
+        session({ id: "nr", name: "plain one", research: false }),
+      ],
+      git: {},
+    });
+    // both visible under All (default)
+    await expect.element(page.getByText("research one")).toBeInTheDocument();
+    await expect.element(page.getByText("plain one")).toBeInTheDocument();
+    await page.getByRole("button", { name: "⬡ Research" }).click();
+    await expect.element(page.getByText("research one")).toBeInTheDocument();
+    await expect.element(page.getByText("plain one")).not.toBeInTheDocument();
   });
 });
 

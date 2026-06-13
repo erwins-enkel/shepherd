@@ -38,6 +38,7 @@ function session(over: Partial<Session> = {}): Session {
     sandboxDegraded: false,
     egressApplied: false,
     egressDegraded: false,
+    research: false,
     status: "running",
     lastState: "idle",
     createdAt: 0,

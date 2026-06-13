@@ -230,6 +230,17 @@
           onstatusfilter?.(null);
         }}>{m.herd_ready_filter()}</button
       >
+      <button
+        type="button"
+        class="micro fbtn"
+        class:active={statusFilter == null && filter === "research"}
+        title={m.herd_research_title()}
+        aria-pressed={statusFilter == null && filter === "research"}
+        onclick={() => {
+          filter = "research";
+          onstatusfilter?.(null);
+        }}>{m.herd_research_filter()}</button
+      >
       {#if statusFilter != null}
         <!-- aria-label carries status + clear action; the visible "✕" glyph would
            otherwise be read aloud without conveying what the chip does -->
@@ -274,7 +285,11 @@
         <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
       {/if}
     {:else if shown.length === 0}
-      <div class="empty micro static">{m.herd_ready_empty()}</div>
+      {#if filter === "research"}
+        <div class="empty micro static">{m.herd_research_empty()}</div>
+      {:else}
+        <div class="empty micro static">{m.herd_ready_empty()}</div>
+      {/if}
     {:else}
       {#each grouped.groups as g (g.key)}
         <EpicGroupHeader

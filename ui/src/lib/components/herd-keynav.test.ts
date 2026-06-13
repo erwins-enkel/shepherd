@@ -48,6 +48,7 @@ function session(
     sandboxDegraded: false,
     egressApplied: false,
     egressDegraded: false,
+    research: false,
     issueNumber,
     lastState: "working",
     createdAt: 0,

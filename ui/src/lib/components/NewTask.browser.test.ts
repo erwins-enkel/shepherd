@@ -288,3 +288,109 @@ describe("NewTask plan-gate inheritance", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
   });
 });
+
+describe("NewTask research toggle", () => {
+  const researchBox = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+      el.closest("label")?.textContent?.includes(m.newtask_research_label()),
+    )!;
+  const planGateBox = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+      el.closest("label")?.textContent?.includes(m.newtask_plan_gate_label()),
+    )!;
+  const autonomousOption = () =>
+    document.querySelector<HTMLOptionElement>('#nt-sandbox option[value="autonomous"]')!;
+  const sandboxSelect = () => document.querySelector<HTMLSelectElement>("#nt-sandbox")!;
+  const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
+
+  async function fillAndSubmit() {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => submitBtn().disabled).toBe(false);
+    submitBtn().click();
+  }
+
+  it("renders the Research checkbox", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => researchBox()).toBeTruthy();
+    expect(researchBox().checked).toBe(false);
+  });
+
+  it("toggling Research on unchecks plan-gate", async () => {
+    const repoPath = "/repo/research-clears-plangate";
+    mockGetRepoConfig.mockResolvedValue(repoConfig(true));
+    render(NewTask, { props: base({ initialRepoPath: repoPath }) });
+
+    // wait for plan-gate to reflect repo default
+    await expect.poll(() => planGateBox().checked).toBe(true);
+
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => planGateBox().checked).toBe(false);
+  });
+
+  it("toggling plan-gate on unchecks Research", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => researchBox()).toBeTruthy();
+
+    // tick Research on first
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+
+    // then tick plan-gate → Research should clear
+    planGateBox().click();
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => researchBox().checked).toBe(false);
+  });
+
+  it("disables the autonomous sandbox option when Research is on", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => researchBox()).toBeTruthy();
+
+    expect(autonomousOption().disabled).toBe(false);
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => autonomousOption().disabled).toBe(true);
+  });
+
+  it("resets autonomous sandbox to default when Research is toggled on", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => sandboxSelect()).toBeTruthy();
+
+    // pick autonomous first
+    sandboxSelect().value = "autonomous";
+    sandboxSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => sandboxSelect().value).toBe("autonomous");
+
+    // toggle research on → sandbox should reset
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => sandboxSelect().value).toBe("default");
+  });
+
+  it("submits research:true when Research is checked", async () => {
+    const captured = vi.fn();
+    render(NewTask, {
+      props: base({ onsubmit: captured, initialRepoPath: "/repo/research-submit" }),
+    });
+    await expect.poll(() => researchBox()).toBeTruthy();
+
+    researchBox().click();
+    await fillAndSubmit();
+
+    await expect.poll(() => captured.mock.calls.length).toBe(1);
+    expect(captured.mock.calls[0]![0]).toMatchObject({ research: true });
+  });
+
+  it("submits research:false by default", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/research-default" } });
+    await expect.poll(() => submitBtn()).toBeTruthy();
+
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ research: false });
+  });
+});

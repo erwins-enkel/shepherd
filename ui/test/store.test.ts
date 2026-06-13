@@ -34,6 +34,7 @@ const s = (id: string, status: any = "running"): Session => ({
   sandboxDegraded: false,
   egressApplied: false,
   egressDegraded: false,
+  research: false,
   issueNumber: null,
   lastState: "working",
   createdAt: 0,

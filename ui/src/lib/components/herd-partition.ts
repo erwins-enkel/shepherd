@@ -51,23 +51,27 @@ type Stage =
   | "awaitingMerge"
   | "active";
 
-/** The herd rail's list filter: everything, or only sessions awaiting the operator. */
-export type HerdFilter = "all" | "ready";
+/** The herd rail's list filter: everything, only sessions awaiting the operator, or only research tasks. */
+export type HerdFilter = "all" | "ready" | "research";
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
- *  awaiting the operator (not running, not under review). Single source of truth shared
- *  by Herd.svelte's list and herd-keynav's rail order, so keyboard navigation can never
- *  land on a row the rail isn't showing. Goes through `displayStatus` (a working-while-
- *  blocked session is actually mid-turn, so it is NOT awaiting the operator). */
+ *  awaiting the operator (not running, not under review); "research" keeps only sessions
+ *  with `s.research` set. Single source of truth shared by Herd.svelte's list and
+ *  herd-keynav's rail order, so keyboard navigation can never land on a row the rail
+ *  isn't showing. Goes through `displayStatus` (a working-while-blocked session is
+ *  actually mid-turn, so it is NOT awaiting the operator). */
 export function shownSessions(
   sessions: Session[],
   filter: HerdFilter,
   inReview: (id: string) => boolean,
   workingBlocked: Record<string, boolean> = {},
 ): Session[] {
-  return filter === "ready"
-    ? sessions.filter((s) => displayStatus(s, workingBlocked) !== "running" && !inReview(s.id))
-    : sessions;
+  if (filter === "ready")
+    return sessions.filter(
+      (s) => displayStatus(s, workingBlocked) !== "running" && !inReview(s.id),
+    );
+  if (filter === "research") return sessions.filter((s) => s.research);
+  return sessions;
 }
 
 /** Terminal / in-flight stages that win before the green-idle handoff decision, or null

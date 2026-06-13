@@ -441,6 +441,8 @@ export interface Session {
   sandboxApplied: SandboxProfile | null;
   /** True when the requested sandbox couldn't be applied — the agent ran unconfined. */
   sandboxDegraded: boolean;
+  /** Research task kind: web research → report PR or issue; never code-PR-steered. */
+  research: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
   egressApplied: boolean;
   /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
@@ -700,6 +702,7 @@ export interface CreateInput {
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
+  research?: boolean; // research task kind; absent → false
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

@@ -17,6 +17,15 @@ export const PROCEED_STEER = [
   "requirements decision that only the user can make.",
 ].join("\n");
 
+/** Proceed steer for a RESEARCH session in autopilot — like PROCEED_STEER but with NO
+ *  pull-request framing; research delivers a report PR or a GitHub issue, never a code PR. */
+export const RESEARCH_PROCEED_STEER = [
+  "You're in autopilot on a research task. Don't stop to ask whether to proceed —",
+  "make a reasonable decision yourself and keep going. Finish by delivering your research",
+  "report PR or a GitHub issue. Only stop to ask if you hit a genuine product or",
+  "requirements decision that only the user can make.",
+].join("\n");
+
 /** Agent-facing directive injected into an epic child's spawn prompt: its PR must target the
  *  epic integration branch, not the default branch. Shepherd owns this text (never i18n'd). */
 export function epicBaseDirective(baseBranch: string): string {
@@ -188,10 +197,15 @@ export class AutopilotService {
   private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
     switch (v.kind) {
       case "gate":
-        await this.driveSteer(s, PROCEED_STEER);
+        await this.driveSteer(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
         return;
       case "finished":
         if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
+        if (s.research) {
+          // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
+          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
+          return;
+        }
         await this.driveSteer(
           s,
           openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),

@@ -1031,6 +1031,7 @@
     issueRef?: IssueRef;
     planGateEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
+    research: boolean;
   }) {
     // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);

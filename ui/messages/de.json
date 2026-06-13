@@ -1200,5 +1200,15 @@
   "recap_collapse": "▾",
   "recap_regenerate_failed": "Neu erstellen fehlgeschlagen. Bitte erneut versuchen.",
   "feat_session_recap_title": "Sitzungszusammenfassung",
-  "feat_session_recap_body": "Shepherd erstellt nach jeder Sitzung eine kompakte Zusammenfassung — mit Ergebnis, Überschrift und offenen Punkten — damit du auf einen Blick siehst, was passiert ist."
+  "feat_session_recap_body": "Shepherd erstellt nach jeder Sitzung eine kompakte Zusammenfassung — mit Ergebnis, Überschrift und offenen Punkten — damit du auf einen Blick siehst, was passiert ist.",
+  "newtask_research_label": "Recherche-Aufgabe",
+  "newtask_research_hint": "Webrecherche mit Unter-Agenten → ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen.",
+  "newtask_research_sandbox_note": "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang.",
+  "research_badge_label": "Recherche",
+  "research_badge_title": "Rechercheaufgabe: Web-Recherche mit Sub-Agenten → ein Bericht-PR oder ein GitHub-Issue",
+  "feat_research_title": "Rechercheaufgaben",
+  "feat_research_body": "Starte eine Rechercheaufgabe im Dialog „Neue Aufgabe“: Ein betreuter Agent führt Web-Recherche mit Sub-Agenten durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR.",
+  "herd_research_filter": "⬡ Recherche",
+  "herd_research_title": "Nur Rechercheaufgaben anzeigen",
+  "herd_research_empty": "Keine Rechercheaufgaben."
 }

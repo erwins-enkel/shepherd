@@ -1200,5 +1200,15 @@
   "recap_collapse": "▾",
   "recap_regenerate_failed": "Regenerate failed. Please try again.",
   "feat_session_recap_title": "Session recap",
-  "feat_session_recap_body": "Shepherd now generates a concise recap after each session — verdict, headline, and open items — so you can see what happened at a glance."
+  "feat_session_recap_body": "Shepherd now generates a concise recap after each session — verdict, headline, and open items — so you can see what happened at a glance.",
+  "newtask_research_label": "Research task",
+  "newtask_research_hint": "Web research with sub-agents → a report PR or a GitHub issue. No code changes.",
+  "newtask_research_sandbox_note": "Research can't use the autonomous profile — web search needs open network access.",
+  "research_badge_label": "Research",
+  "research_badge_title": "Research task: web research with sub-agents → a report PR or a GitHub issue",
+  "feat_research_title": "Research tasks",
+  "feat_research_body": "Start a Research task from New Task: an attended agent does web research with sub-agents and delivers a report PR or opens a GitHub issue. Research never opens a code PR.",
+  "herd_research_filter": "⬡ Research",
+  "herd_research_title": "Show only research tasks",
+  "herd_research_empty": "No research tasks."
 }

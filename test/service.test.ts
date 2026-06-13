@@ -3279,3 +3279,211 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
     config.trimAutoContext = prev;
   }
 });
+
+// ── research task kind ─────────────────────────────────────────────────────────
+
+test("composeSystemPrompt: research is the highest-priority directive (suppresses plan-gate, autopilot, build-queue)", () => {
+  const sp = composeSystemPrompt(null, true, {
+    research: true,
+    planGate: "interactive",
+    buildQueue: "QUEUE",
+  });
+  expect(sp).toContain("<research-directive>");
+  expect(sp).not.toContain("<autopilot-directive>");
+  expect(sp).not.toContain("<plan-gate-directive>");
+  expect(sp).not.toContain("<build-queue>");
+});
+
+test("composeSystemPrompt: a non-research call with the same opts still carries plan-gate + build-queue", () => {
+  const sp = composeSystemPrompt(null, true, {
+    research: false,
+    planGate: "interactive",
+    buildQueue: "QUEUE",
+  });
+  expect(sp).not.toContain("<research-directive>");
+  expect(sp).toContain("<plan-gate-directive>");
+  expect(sp).toContain("<build-queue>");
+});
+
+test("create research: plan gate forced off even when repo planGateEnabled is true", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(buildQueueDeps(store, captured, { planGateEnabled: true }) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    images: [],
+    research: true,
+  });
+  expect(s.planPhase).toBeNull();
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).not.toContain("<plan-gate-directive>");
+  expect(sp).toContain("<research-directive>");
+  expect(s.research).toBe(true);
+});
+
+test("create research: persists research flag; non-research stays false", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  const r = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "x",
+    model: null,
+    images: [],
+    research: true,
+  });
+  expect(store.get(r.id)?.research).toBe(true);
+  const n = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "y",
+    model: null,
+    images: [],
+  });
+  expect(store.get(n.id)?.research).toBe(false);
+});
+
+test("create research: build queue NOT pre-approved even with buildQueueEnabled + autopilot on", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    images: [],
+    research: true,
+  });
+  expect(store.getBuildQueue(s.id).approved).toBe(false);
+});
+
+test("create non-research: build queue IS pre-approved with buildQueueEnabled + autopilot on", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(store.getBuildQueue(s.id).approved).toBe(true);
+});
+
+/** A service whose worktree/herdr stubs satisfy the sandbox path (gitCommonDir present),
+ *  with injectable backend probes so an autonomous profile resolves deterministically. */
+function sandboxResearchDeps(store: SessionStore, captured: { argv?: string[] }) {
+  return {
+    store,
+    namer: async () => "s",
+    worktree: {
+      ensureBaseRef: async () => {},
+      create: () => ({ worktreePath: "/wt/s", branch: "shepherd/s", isolated: true }),
+      remove: () => {},
+      gitCommonDir: () => "/wt/s/.git",
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        captured.argv = argv;
+        return { terminalId: "t1" };
+      },
+      list: () => [],
+    } as any,
+    detectBackend: () => "bwrap" as const,
+    detectEgressBackend: () => "slirp4netns" as const,
+  };
+}
+
+test("create research under autonomous: downgrades to standard (sandboxApplied=standard)", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+    autopilotEnabled: false,
+    planGateEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "autonomous",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+  });
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    images: [],
+    research: true,
+  });
+  expect(s.sandboxApplied).toBe("standard");
+  expect(store.get(s.id)?.sandboxApplied).toBe("standard");
+  // standard wraps in bwrap, NOT the egress-runner
+  expect(captured.argv?.[0]).toBe("bwrap");
+  expect(captured.argv?.[1]).not.toBe("--tmp");
+});
+
+test("create NON-research under autonomous: stays autonomous (no downgrade)", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+    autopilotEnabled: false,
+    planGateEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "autonomous",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+  });
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(s.sandboxApplied).toBe("autonomous");
+});
+
+test("relaunch keeps research:true; explicit override flips it to false", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store, { research: true });
+  expect(orig.research).toBe(true);
+
+  const fresh = await service.relaunch(orig.id);
+  expect(fresh.research).toBe(true);
+
+  const flipped = await service.relaunch(orig.id, undefined, { research: false });
+  expect(flipped.research).toBe(false);
+});

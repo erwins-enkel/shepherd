@@ -39,6 +39,7 @@ const ALLOWED_KEYS = new Set([
   "issueRef",
   "planGateEnabled",
   "sandboxProfile",
+  "research",
 ]);
 
 /** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
@@ -351,6 +352,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const sandboxProfile = validateSandboxProfile(obj.sandboxProfile);
   if (!sandboxProfile.ok) return sandboxProfile;
 
+  const research = validateResearch(obj.research);
+  if (!research.ok) return research;
+
   return {
     ok: true,
     value: {
@@ -362,6 +366,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       issueRef: issueRef.value,
       planGateEnabled: planGateEnabled.value,
       sandboxProfile: sandboxProfile.value,
+      research: research.value,
     },
   };
 }
@@ -373,6 +378,13 @@ function validatePlanGateEnabled(value: unknown): Field<boolean | null | undefin
   return err("planGateEnabled must be a boolean, null, or absent");
 }
 
+/** research — optional plain boolean; absent/undefined → false; null or non-boolean rejected. */
+function validateResearch(value: unknown): Field<boolean> {
+  if (value === undefined) return field(false);
+  if (typeof value === "boolean") return field(value);
+  return err("research must be a boolean or absent");
+}
+
 type RelaunchResult = { ok: true; value: RelaunchOverrides } | { ok: false; error: string };
 
 const RELAUNCH_ALLOWED_KEYS = new Set([
@@ -381,6 +393,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "prompt",
   "model",
   "planGateEnabled",
+  "research",
   "images",
 ]);
 
@@ -415,6 +428,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
     { key: "model", apply: () => validateModel(obj.model) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
+    { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
   ];

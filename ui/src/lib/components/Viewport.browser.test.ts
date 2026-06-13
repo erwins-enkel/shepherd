@@ -57,6 +57,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     sandboxDegraded: false,
     egressApplied: false,
     egressDegraded: false,
+    research: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,

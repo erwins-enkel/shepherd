@@ -102,10 +102,17 @@ logic — point the existing logic at the integration branch for epic children.
 
 Stop gating on issue-closed; gate on **PR merged into the integration branch**.
 
-- `EpicChild` gains `integrationMerged: boolean` — true when the child's PR is
-  `merged && baseRefName === <integrationBranch>`. Populated in `epic-model.ts`
-  from the child's PR state (the model already resolves each child's
-  `sessionId` / `prNumber`; extend it to read the PR's merged flag + base ref).
+- `EpicChild` gains `integrationMerged: boolean`. **Source: a persisted set,
+  recorded at merge time** — not a per-child PR query. Rationale: once Shepherd
+  squash-merges a child PR into the integration branch, the child *issue stays
+  open* and the session is archived, so there is no live PR/issue state to read
+  the "done" fact back from. Shepherd owns the merge, so it records the child
+  number into a persisted `epic_integrated` set (`store.ts`) at the moment of
+  merge. `buildEpic` loads that set and passes it into `assembleEpic`, which sets
+  `child.integrationMerged = integrated.has(child.number)`. (A human manually
+  merging a child PR into the integration branch is out of the normal flow and
+  won't be recorded — acceptable for this change; a forge-query reconciliation is
+  a possible later refinement.)
 - A child is **done-in-epic** ⇔ `integrationMerged || issueClosed`. The
   `|| issueClosed` arm preserves the legacy/default path (and the post-landing
   state, where issues finally close).
@@ -182,7 +189,8 @@ land on default (children sit merged on the integration branch).
 | Area | File | Change |
 | --- | --- | --- |
 | Done-signal | `src/epic-core.ts` | `deriveChildState` / `selectEpicCandidates` gate on done-in-epic (`integrationMerged \|\| issueClosed`); rename `closed`→`done` set |
-| Child PR facts | `src/epic-model.ts` | populate `EpicChild.integrationMerged` from PR `merged` + `baseRefName` |
+| Child PR facts | `src/epic-model.ts` | populate `EpicChild.integrationMerged` from the persisted `integrated` set threaded through `AssembleInput` |
+| Merge record | `src/store.ts` | `epic_integrated` table: record/list child numbers squash-merged into the integration branch |
 | Child type | `src/epic-core.ts` | `EpicChild.integrationMerged: boolean`; `EpicRunStatus` += `landing` (Stage B) |
 | Spawn base | `src/drain.ts` | epic child → base on integration branch; thread integration branch into the spawn decision |
 | Child merge | `src/drain.ts` | `doRetire` epic child → squash-merge into integration branch (reuse AutoMergeService mechanics) |

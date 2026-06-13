@@ -928,7 +928,7 @@
       prompt: string;
       model: string | null;
       images: string[];
-      planGateEnabled: boolean;
+      planGateEnabled: boolean | null;
     },
   ) {
     let result: { session: Session; archived: boolean };
@@ -968,7 +968,7 @@
     model: string | null;
     images: string[];
     issueRef?: IssueRef;
-    planGateEnabled: boolean;
+    planGateEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
   }) {
     // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.

@@ -1254,7 +1254,6 @@
   "herd_done_filter": "✓ Fertig",
   "herd_done_title": "Abgeschlossene (archivierte) Sitzungen und ihre Zusammenfassungen anzeigen",
   "herd_done_empty": "Noch keine abgeschlossenen Sitzungen.",
-  "done_lens_title": "Fertig",
   "done_recap_finished": "Vor {ago} abgeschlossen",
   "done_recap_panel_aria": "Zusammenfassung für {desig}",
   "done_back_to_list": "‹ Zurück zu Fertig",

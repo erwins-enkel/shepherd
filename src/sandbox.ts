@@ -157,6 +157,14 @@ export interface MembraneInputs {
    *  caller builds this via `collectPassthroughEnv`. HOME/PATH/TERM are always set
    *  separately and must NOT be included here. */
   extraEnv?: Record<string, string>;
+  /** api-key mode: bind this helper script RO so claude can exec it. RESIDUAL:
+   *  cat-able by an in-sandbox agent (host hygiene only, same class as audit R3/R4)
+   *  — NOT in-membrane secrecy. */
+  apiKeyHelperPath?: string | null;
+  /** api-key mode: overlay <claudeDir>/.credentials.json with /dev/null AFTER the
+   *  whole-dir RO bind so no subscription login is presented; skip the rw
+   *  credentials bind. */
+  maskCredentials?: boolean;
 }
 
 /**
@@ -240,6 +248,16 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const claudeDir = inputs.claudeDir;
   const term = inputs.term ?? "xterm-256color";
 
+  // Credential handling sits right after the whole-dir RO bind so a /dev/null
+  // overlay (api-key mode) is last-wins. Subscription/default: the original rw
+  // `--bind-try` (OAuth token refresh writes back) — byte-for-byte unchanged.
+  const credentialFlags: string[] = inputs.maskCredentials
+    ? // api-key mode: overlay the OAuth token with /dev/null so no subscription
+      // login is presented; the whole-dir RO bind above already exposes the rest.
+      ["--ro-bind", "/dev/null", `${claudeDir}/.credentials.json`]
+    : // RW: OAuth token refresh writes back.
+      ["--bind-try", `${claudeDir}/.credentials.json`, `${claudeDir}/.credentials.json`];
+
   const f: string[] = [
     // ── base read-only root ──────────────────────────────────────────────
     "--ro-bind",
@@ -293,10 +311,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "--bind-try",
     `${claudeDir}/shell-snapshots`,
     `${claudeDir}/shell-snapshots`,
-    // RW: OAuth token refresh writes back.
-    "--bind-try",
-    `${claudeDir}/.credentials.json`,
-    `${claudeDir}/.credentials.json`,
+    // OAuth credential: rw bind (subscription) or /dev/null overlay (api-key mask).
+    ...credentialFlags,
     // RW persisted: trust/onboarding state (else non-interactive auto hangs on onboarding).
     "--bind-try",
     `${home}/.claude.json`,
@@ -316,6 +332,14 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── commit identity + gh token ───────────────────────────────────────────
   f.push("--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`);
   f.push("--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`);
+
+  // ── api-key helper (api-key mode only) ────────────────────────────────────
+  // Bind the apiKeyHelper script RO at the SAME path so the `apiKeyHelper` entry
+  // in --settings resolves inside the sandbox. Omitted (guarded) in subscription
+  // mode so flags stay byte-identical.
+  if (typeof inputs.apiKeyHelperPath === "string" && inputs.apiKeyHelperPath.length > 0) {
+    f.push("--ro-bind-try", inputs.apiKeyHelperPath, inputs.apiKeyHelperPath);
+  }
 
   // ── worktree / git store ─────────────────────────────────────────────────
   if (inputs.isolated) {

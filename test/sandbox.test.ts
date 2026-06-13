@@ -256,6 +256,14 @@ function hasTriple(flags: string[], flag: string, a: string, b: string): boolean
   return false;
 }
 
+/** Index of the `flag a b` triple's first token, or -1. */
+function findTripleIndex(flags: string[], flag: string, a: string, b: string): number {
+  for (let i = 0; i + 2 < flags.length; i++) {
+    if (flags[i] === flag && flags[i + 1] === a && flags[i + 2] === b) return i;
+  }
+  return -1;
+}
+
 describe("buildMembraneFlags", () => {
   test("has hardened process isolation flags", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
@@ -442,6 +450,68 @@ describe("buildMembraneFlags", () => {
   test(".claude.json persisted RW bind via *-bind-try", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);
+  });
+
+  test("subscription (no api-key fields): rw .credentials.json bind, no helper, no /dev/null overlay", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    // rw credential bind present (today's behavior)
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(true);
+    // no /dev/null overlay of the credential
+    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(
+      false,
+    );
+  });
+
+  test("no api-key fields => BYTE-IDENTICAL to a bare fakeMembrane (deep equal)", () => {
+    // Explicit nulls/false must produce the exact same flags as omitting them.
+    const bare = buildMembraneFlags(fakeMembrane(), detDeps);
+    const explicit = buildMembraneFlags(
+      fakeMembrane({ apiKeyHelperPath: null, maskCredentials: false }),
+      detDeps,
+    );
+    expect(explicit).toEqual(bare);
+  });
+
+  test("maskCredentials + apiKeyHelperPath: /dev/null overlay AFTER whole-dir bind, helper RO, no rw credential bind", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ maskCredentials: true, apiKeyHelperPath: "/h/x.sh" }),
+      detDeps,
+    );
+    // /dev/null overlay of the credential present
+    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(true);
+    // the rw bind of the credential is GONE
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(false);
+    // overlay must come AFTER the whole-dir RO bind so it wins (last-wins).
+    const wholeDir = findTripleIndex(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude");
+    const overlay = findTripleIndex(
+      f,
+      "--ro-bind",
+      "/dev/null",
+      "/home/me/.claude/.credentials.json",
+    );
+    expect(wholeDir).toBeGreaterThanOrEqual(0);
+    expect(overlay).toBeGreaterThan(wholeDir);
+    // helper bound RO at the same path inside the sandbox
+    expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
+  });
+
+  test("apiKeyHelperPath empty/whitespace-guard: empty string => no helper bind", () => {
+    const f = buildMembraneFlags(fakeMembrane({ apiKeyHelperPath: "" }), detDeps);
+    expect(f.some((x) => x === "")).toBe(false);
   });
 
   test("membrane guard: key invariants hold and no --network flags present (no egress plumbing in membrane)", () => {

@@ -89,6 +89,47 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+test("prepareSpawn fail-closed: api-key mode with no helper path refuses create() (never silent subscription fallback)", async () => {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  const store = new SessionStore(":memory:");
+  let started = false;
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => {
+        started = true;
+        return { terminalId: "term_z" } as any;
+      },
+      list: () => [],
+    } as any,
+  });
+  try {
+    config.authMode = "api-key";
+    config.authApiKeyHelperPath = null;
+    await expect(
+      service.create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "go",
+        model: null,
+        images: [],
+      }),
+    ).rejects.toThrow(/API-key auth mode is enabled but no Anthropic API key is configured/);
+    // fail-closed: the spawn never started, so it can't have run on subscription billing.
+    expect(started).toBe(false);
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+});
+
 test("setReadyToMerge persists the flag and emits session:ready", () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -289,6 +330,36 @@ test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai conn
     });
   } finally {
     config.remoteControlAtStartup = prev;
+  }
+});
+
+test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); api-key + helper path => adds apiKeyHelper last", () => {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  try {
+    // subscription (default) — identical to today's overlay, no apiKeyHelper key.
+    config.authMode = "subscription";
+    config.authApiKeyHelperPath = null;
+    const subJson = spawnSettingsOverlay();
+    expect(JSON.parse(subJson)).not.toHaveProperty("apiKeyHelper");
+    // a stray helper path in subscription mode must still be ignored (byte-identical).
+    config.authApiKeyHelperPath = "/h/x.sh";
+    expect(spawnSettingsOverlay()).toBe(subJson);
+
+    // api-key + non-empty helper path — overlay gains apiKeyHelper.
+    config.authMode = "api-key";
+    config.authApiKeyHelperPath = "/h/x.sh";
+    const parsed = JSON.parse(spawnSettingsOverlay());
+    expect(parsed.apiKeyHelper).toBe("/h/x.sh");
+    // everything else is unchanged from subscription.
+    expect(parsed.remoteControlAtStartup).toBe(config.remoteControlAtStartup);
+    expect(parsed.env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "false" });
+    // apiKeyHelper trails (stable key order — folded in last).
+    const keys = Object.keys(parsed);
+    expect(keys[keys.length - 1]).toBe("apiKeyHelper");
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
   }
 });
 

@@ -42,7 +42,7 @@ Code lives in **`ci/onboarding-harness/`** (Bun + TS), a sibling of the existing
 3. **Seed engine** — launches a fresh instance, installs the bootable-Shepherd baseline, then runs the scenario's `seed` steps to produce the messy state.
 4. **Probe + assert (detection)** — boots Shepherd in the instance, polls `GET /api/diagnostics?refresh=1`, and asserts the snapshot matches `expect`. This is the first source of gap findings (defect missed or mis-classified).
 5. **Apply engine** — two paths, chosen per scenario `coaching` kind:
-   - **Verbatim:** runs the check's **structured remediation** (Phase 2 `diagnostics.ts` field) exactly as emitted. Deterministic, LLM-free.
+   - **Verbatim:** runs the command from the **harness-side remediation catalog** (Phase 2 `ci/onboarding-harness/remediations.ts`, keyed by the `hintKey` Shepherd emits) exactly as written. Deterministic, LLM-free. No change to the shipped diagnostics payload (revised per plan review — keeps the `DiagnosticCheck` exact-keys purity contract intact).
    - **Agent:** spawns a fresh Claude Code agent given **only** what a real user sees (the diagnostics snapshot + prose coaching) and lets it drive the env to green — a proxy-user UX test. Non-deterministic; LLM cost.
 6. **Re-probe + report** — re-runs diagnostics; the scenario passes only when all checks are green. Emits a **markdown gap report**: per scenario — detected? advice present? advice actually fixed it? — plus an agent-transcript reference for prose cases.
 
@@ -59,7 +59,7 @@ Code lives in **`ci/onboarding-harness/`** (Bun + TS), a sibling of the existing
 Units 1–4 + 5(**agent path**) + 6, run **manually**. Tests *current* Shepherd with **no product change** (all coaching is prose today), and produces the "where onboarding fails today" report. Covers ≥1 scenario per relevant check×state plus distro spread.
 
 ### Phase 2 — deterministic regression tier
-- Add a **structured-remediation field** to `src/diagnostics.ts` for checks that reduce to a single command (the only product-code change in this effort). The human prose hint stays; the structured field is additive.
+- Add a **harness-side remediation catalog** (`ci/onboarding-harness/remediations.ts`) mapping each command-fixable `hintKey` to a verbatim shell command. **No `src/` product change** (revised per plan review): the shipped `DiagnosticCheck` payload is untouched, so the exact-keys purity contract holds and there is no hidden, undiscoverable field. A user-facing "click-to-fix" feature, if ever wanted, is a separate spec.
 - Build the **verbatim apply path** against it → a fast, deterministic, LLM-free regression subset.
 - Wire **nightly** (existing scheduler) + **pre-release gate** (required-green before the OSS tag) on the Incus host.
 
@@ -100,6 +100,9 @@ Additional divergence axes to fold in opportunistically (confirmed in scope as f
 
 ## Out of scope
 
+**Brokenness scope (user-signed-off):** "various states of brokenness" is intentionally scoped to exactly what `diagnostics.ts` can detect today — the 7 checks × their states. The gap report is honestly bounded to detectable states; the harness is built so these can be added later as Shepherd's detection grows. Explicitly **deferred** (not v1):
+
+- Corrupted / locked git repos, port-already-in-use, partial/half-installed herdr state, no network / DNS failure, full disk, broken git worktrees.
 - Building a new/LLM onboarding coach (we test and report on the existing detect+advise layer).
 - Target-repo readiness coaching (`readiness.ts`) and "first agent launches" finish lines.
 - Per-PR execution; macOS/Windows hosts; ARM via emulation.

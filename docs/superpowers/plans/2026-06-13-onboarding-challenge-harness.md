@@ -4,7 +4,7 @@
 
 **Goal:** Build a throw-away-environment harness that boots deliberately-messy Incus instances, runs Shepherd inside them in degraded mode, captures its diagnostics, applies the coaching, re-probes, and emits a gap report — manually in Phase 1, then green-gating releases in Phase 2.
 
-**Architecture:** A standalone Bun/TS harness in `ci/onboarding-harness/`, separate from the shipped server. Six small units — an injectable `incus` CLI driver, a declarative scenario catalog, a seed engine, a diagnostics probe, an apply engine (agent path in P1, verbatim path added in P2), and a gap-report builder — wired by an orchestrator with guaranteed teardown. Phase 2 adds an additive structured-remediation field to `src/diagnostics.ts` and ops wiring (nightly + release gate).
+**Architecture:** A standalone Bun/TS harness in `ci/onboarding-harness/`, separate from the shipped server. Six small units — an injectable `incus` CLI driver, a declarative scenario catalog, a seed engine, a diagnostics probe, an apply engine (agent path in P1, verbatim path added in P2), and a gap-report builder — wired by an orchestrator with guaranteed teardown. Phase 2 adds a harness-side structured-remediation catalog (no `src/` change) and ops wiring (nightly + release gate).
 
 **Tech Stack:** Bun, TypeScript, `bun:test`, the `incus` CLI (system containers + VMs), Shepherd's existing `GET /api/diagnostics` HTTP API, the `claude` CLI (agent apply path).
 
@@ -23,11 +23,12 @@
 | `ci/onboarding-harness/probe.ts` | `bootShepherd` + `probeDiagnostics` — start Shepherd, poll `GET /api/diagnostics?refresh=1`. |
 | `ci/onboarding-harness/apply.ts` | `applyCoaching` — agent path (P1) and verbatim path (P2), dispatched by scenario `coaching`. |
 | `ci/onboarding-harness/run.ts` | Orchestrator + CLI entry; per-scenario seed→probe→assert→apply→re-probe with `finally` teardown + orphan sweep; writes the report. |
-| `scripts/onboarding-gate.sh` | Phase 2: runs the deterministic (verbatim) subset, exits non-zero on red — the release gate. |
+| `ci/onboarding-harness/remediations.ts` | Phase 2: **harness-side** `REMEDIATIONS` map (hintKey → verbatim shell command). Keeps fixes out of the shipped diagnostics payload. |
+| `scripts/onboarding-gate.sh` | Phase 2: runs the deterministic (verbatim) subset, exits non-zero on red, **bypasses (exit 0) when the Incus host is unavailable** — the release gate. |
 | `ci/onboarding-harness/shepherd-onboarding.{service,timer}` | Phase 2: systemd units for the nightly run on the Incus host. |
-| `src/diagnostics.ts` (modify) | Phase 2: additive `REMEDIATIONS` map + `remediation?` field decoration on non-ok checks. |
-| `src/types.ts` (modify) | Phase 2: add optional `remediation?: Remediation` to `DiagnosticCheck` + the `Remediation` type. |
-| `test/onboarding-harness/*.test.ts` | Unit tests for the pure/injectable units (driver argv, catalog validity, assert, report, resolution). |
+| `test/onboarding-harness/*.test.ts` | Unit tests for the pure/injectable units (driver argv, catalog validity, assert, report, resolution, remediation map). |
+
+**No `src/` product change.** Per plan review, structured remediations live **harness-side** (`remediations.ts`), not as a `remediation?` field on the shipped `DiagnosticCheck` payload — this preserves the exact-keys payload-purity contract (`test/diagnostics.test.ts:52`) and avoids a hidden, undiscoverable shipped field. A user-facing "click-to-fix" feature, if ever wanted, gets its own spec.
 
 **Test strategy:** Logic with no real-Incus dependency (driver argv-building, catalog validity, `assertDetection`, `buildGapReport`, hintKey→text resolution, P2 remediation decoration) is unit-tested via `bun:test` with injected runners — mirroring `src/diagnostics.ts`'s injectable-deps pattern. The end-to-end seed→boot→apply→re-probe loop requires a real Incus host and is validated by a documented manual run (Task 9), not unit tests.
 
@@ -62,6 +63,10 @@ export interface Scenario {
   expect: ExpectedCheck[];
   /** Which apply path to use. In Phase 1 "structured" falls back to the agent path. */
   coaching: "structured" | "prose";
+  /** The agent apply path runs `claude` INSIDE the instance; a scenario that
+   *  removes claude (claude-missing) cannot use it. Such scenarios are
+   *  detection-only in Phase 1 and switch to the verbatim path in Phase 2. */
+  agentIncompatible?: boolean;
 }
 
 export interface ExpectedCheck {
@@ -85,6 +90,9 @@ export interface ScenarioResult {
   detection: DetectionResult;
   appliedVia: "agent" | "verbatim" | "skipped";
   reachedGreen: boolean;
+  /** True when no apply was attempted BY DESIGN (e.g. claude-missing in Phase 1):
+   *  the report classifies it DETECTION-ONLY, not an advice gap. */
+  detectionOnly?: boolean;
   error?: string;
 }
 
@@ -129,6 +137,8 @@ git commit -m "feat(onboarding-harness): shared types + lint glob"
 **Files:**
 - Create: `ci/onboarding-harness/incus.ts`
 - Test: `test/onboarding-harness/incus.test.ts`
+
+> **Run isolation (point 5):** the driver's `prefix` is the **per-run** prefix the orchestrator passes (`shep-onb-<runId>-`, Task 9), NOT a shared constant. Because `sweep()` only force-deletes instances matching its own prefix, two overlapping runs can never destroy each other's live instances. The unit test below uses a fixed `shep-onb-` prefix only for assertion simplicity. A separate `--reap-orphans` maintenance flag (Task 9) is the only thing that touches other prefixes, and it is never invoked automatically.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -401,11 +411,18 @@ export const SCENARIOS: Scenario[] = [
     coaching: "structured",
   },
   {
+    // claudeProbe is PRESENCE-ONLY (a successful `claude --version` ⇒ ok; there is
+    // NO auth/login probe, so there is deliberately no "claude-unauthed" scenario —
+    // an unauthed-but-installed claude reports ok by design, which the gap report
+    // notes as a known non-detection, not a discovered gap). Removing claude also
+    // disables the agent apply path (the agent IS claude running in-instance), so
+    // this scenario is detection-only in Phase 1 and verbatim-reinstalled in Phase 2.
     id: "claude-missing",
     image: "images:fedora/40",
     seed: ["rm -f /usr/local/bin/claude ~/.local/bin/claude"],
     expect: [{ id: "claude", state: "error" }],
     coaching: "structured",
+    agentIncompatible: true,
   },
   {
     id: "git-missing",
@@ -600,6 +617,29 @@ describe("buildGapReport", () => {
     ]);
     expect(md).toContain("ADVICE GAP");
   });
+
+  it("classifies a by-design no-apply scenario as DETECTION-ONLY and excludes it from the denominator", () => {
+    const md = buildGapReport([
+      {
+        scenarioId: "claude-missing",
+        image: "images:fedora/40",
+        detection: { scenarioId: "claude-missing", detected: true, misses: [] },
+        appliedVia: "skipped",
+        reachedGreen: false,
+        detectionOnly: true,
+      },
+      {
+        scenarioId: "gh-unauthed",
+        image: "i",
+        detection: { scenarioId: "gh-unauthed", detected: true, misses: [] },
+        appliedVia: "agent",
+        reachedGreen: true,
+      },
+    ]);
+    expect(md).toContain("DETECTION-ONLY");
+    expect(md).toContain("1 / 1 scenarios reached green"); // claude-missing excluded
+    expect(md).not.toContain("## Gaps"); // DETECTION-ONLY is not a gap
+  });
 });
 ```
 
@@ -616,29 +656,38 @@ Expected: FAIL — module not found.
 import type { ScenarioResult } from "./types";
 
 /** Pure: render the per-scenario outcomes as a markdown gap report. Classifies
- *  each scenario as PASS, DETECTION GAP (defect missed/misclassified), or
- *  ADVICE GAP (detected but coaching didn't reach green). */
+ *  each scenario as PASS, DETECTION GAP (defect missed/misclassified), ADVICE GAP
+ *  (detected but coaching didn't reach green), or DETECTION-ONLY (detected with no
+ *  apply attempted by design — e.g. claude-missing in Phase 1; NOT a gap). The
+ *  green tally counts only apply-able scenarios so detection-only ones don't drag
+ *  the denominator. */
+function classify(r: ScenarioResult): "PASS" | "DETECTION GAP" | "ADVICE GAP" | "DETECTION-ONLY" {
+  if (r.detectionOnly) return r.detection.detected ? "DETECTION-ONLY" : "DETECTION GAP";
+  if (r.reachedGreen) return "PASS";
+  return r.detection.detected ? "ADVICE GAP" : "DETECTION GAP";
+}
+
 export function buildGapReport(results: ScenarioResult[]): string {
-  const green = results.filter((r) => r.reachedGreen).length;
+  const applicable = results.filter((r) => !r.detectionOnly);
+  const green = applicable.filter((r) => r.reachedGreen).length;
+  const detectionOnly = results.length - applicable.length;
   const lines: string[] = [
     "# Onboarding Gap Report",
     "",
-    `**${green} / ${results.length} scenarios reached green.**`,
+    `**${green} / ${applicable.length} scenarios reached green.**` +
+      (detectionOnly ? ` (${detectionOnly} detection-only, by design — excluded.)` : ""),
     "",
     "| Scenario | Image | Detected | Applied | Green | Classification |",
     "| --- | --- | --- | --- | --- | --- |",
   ];
   const gaps: string[] = [];
   for (const r of results) {
-    const klass = r.reachedGreen
-      ? "PASS"
-      : !r.detection.detected
-        ? "DETECTION GAP"
-        : "ADVICE GAP";
+    const klass = classify(r);
     lines.push(
       `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`,
     );
-    if (klass !== "PASS") {
+    // Only genuine gaps go in the gaps section; PASS and DETECTION-ONLY do not.
+    if (klass === "DETECTION GAP" || klass === "ADVICE GAP") {
       const misses = r.detection.misses.map((m) => `${m.id} want=${m.want} got=${m.got}`).join("; ");
       gaps.push(
         `- **${r.scenarioId}** (${klass})${misses ? ` — ${misses}` : ""}${r.error ? ` — ${r.error}` : ""}`,
@@ -857,12 +906,19 @@ const PORT = 7330; // config.port default
 
 /** Start Shepherd detached inside the instance and poll until its HTTP API
  *  answers (or time out). Degraded boots are expected — we only need the server
- *  process up far enough to serve `/api/diagnostics`. */
+ *  process up far enough to serve `/api/diagnostics`.
+ *
+ *  AUTH (point 7): `GET /api/diagnostics` passes through `checkAuth`, which only
+ *  authorizes when `config.token` (`SHEPHERD_TOKEN`) is null. We boot with the
+ *  var explicitly UNSET (`env -u SHEPHERD_TOKEN`) so the plain `curl` probe below
+ *  is authorized — the harness controls the env, so this is safe and the simplest
+ *  correct option. (If a future scenario needs a token, the probe must add
+ *  `-H "Authorization: Bearer $SHEPHERD_TOKEN"` instead.) */
 export async function bootShepherd(driver: IncusDriver, name: string): Promise<void> {
   await driver.exec(name, [
     "sh",
     "-c",
-    `cd ${SHEPHERD_DIR} && nohup ~/.bun/bin/bun run start >/var/log/shepherd.log 2>&1 &`,
+    `cd ${SHEPHERD_DIR} && env -u SHEPHERD_TOKEN nohup ~/.bun/bin/bun run start >/var/log/shepherd.log 2>&1 &`,
   ]);
   const poll = await driver.exec(name, [
     "sh",
@@ -1054,7 +1110,7 @@ git commit -m "feat(onboarding-harness): agent apply path + coaching resolution"
 
 ```ts
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IncusDriver } from "./incus";
@@ -1086,7 +1142,13 @@ async function runScenario(
     const before = await probeDiagnostics(driver, scenario.id);
     const detection = assertDetection(before, scenario.id, scenario.expect);
 
-    // Phase 1: agent path for all scenarios (structured falls back, logged).
+    // Phase 1 has no verbatim path yet. A scenario that disabled the agent
+    // (claude-missing — the agent IS claude in-instance) is detection-only and
+    // is NOT counted as an advice gap. Everything else uses the agent proxy-user.
+    if (scenario.agentIncompatible) {
+      console.log(`[${scenario.id}] agent-incompatible — detection-only in Phase 1`);
+      return { ...base, detection, appliedVia: "skipped", reachedGreen: false, detectionOnly: true };
+    }
     if (scenario.coaching === "structured") {
       console.log(`[${scenario.id}] structured coaching not yet available — using agent path`);
     }
@@ -1107,7 +1169,36 @@ async function runScenario(
   }
 }
 
+const LOCK_PATH = join(tmpdir(), "shep-onb.lock");
+
+/** Acquire a host-wide exclusive lock so concurrent runs never share the Incus
+ *  host. `wx` fails if the lock already exists. Returns a release fn. */
+function acquireHostLock(): () => void {
+  let fd: number;
+  try {
+    fd = openSync(LOCK_PATH, "wx");
+  } catch {
+    console.error(`another onboarding-harness run holds ${LOCK_PATH}; aborting`);
+    process.exit(3);
+  }
+  return () => {
+    closeSync(fd);
+    try {
+      unlinkSync(LOCK_PATH);
+    } catch {
+      /* already gone */
+    }
+  };
+}
+
 async function main() {
+  // Maintenance: reap ALL harness instances across runs (manual recovery only).
+  if (process.argv.includes("--reap-orphans")) {
+    await new IncusDriver(undefined, "shep-onb-").sweep();
+    console.log("reaped all shep-onb-* instances");
+    return;
+  }
+
   const only = process.argv.includes("--scenario")
     ? process.argv[process.argv.indexOf("--scenario") + 1]
     : null;
@@ -1117,8 +1208,11 @@ async function main() {
     process.exit(2);
   }
 
-  const driver = new IncusDriver();
-  await driver.sweep(); // reap any leaked instances from a prior crashed run
+  const release = acquireHostLock();
+  // Per-run prefix isolates this run's instances; `sweep()` then only ever
+  // touches our own, so overlapping runs can't destroy each other (point 5).
+  const runId = `${Date.now().toString(36)}-${process.pid}`;
+  const driver = new IncusDriver(undefined, `shep-onb-${runId}-`);
   const tarball = buildTarball();
 
   const results: ScenarioResult[] = [];
@@ -1128,7 +1222,8 @@ async function main() {
       results.push(await runScenario(driver, s, tarball));
     }
   } finally {
-    await driver.sweep(); // belt-and-suspenders teardown
+    await driver.sweep(); // teardown — own-prefix instances only
+    release();
   }
 
   const report = buildGapReport(results);
@@ -1136,8 +1231,10 @@ async function main() {
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
 
-  // Non-zero exit if any scenario failed to reach green (used by the P2 gate).
-  process.exit(results.every((r) => r.reachedGreen) ? 0 : 1);
+  // Non-zero exit if any APPLY-ABLE scenario failed to reach green (detection-only
+  // scenarios are excluded). Consumed by the Phase 2 gate.
+  const applicable = results.filter((r) => !r.detectionOnly);
+  process.exit(applicable.every((r) => r.reachedGreen) ? 0 : 1);
 }
 
 void main();
@@ -1153,7 +1250,7 @@ In `package.json` `scripts`:
 
 - [ ] **Step 3: Write the README (auth + prereqs + usage)**
 
-`ci/onboarding-harness/README.md` — document: requires the self-hosted Incus host; create the `shep-onb` Incus profile with resource caps + (for tailscale/systemd scenarios) `security.nesting=true` and a TUN device; mount `~/.claude` credentials for the agent path; run with `bun run onboarding:test [--scenario <id>]`; report lands at `onboarding-gap-report.md`; instances are name-prefixed `shep-onb-` and swept on start and teardown.
+`ci/onboarding-harness/README.md` — document: requires the self-hosted Incus host; create the `shep-onb` Incus profile with resource caps + (for tailscale/systemd scenarios) `security.nesting=true` and a TUN device; mount `~/.claude` credentials for the agent path; run with `bun run onboarding:test [--scenario <id>]`; report lands at `onboarding-gap-report.md`. **Run isolation:** each run takes a host-wide lock (`$TMPDIR/shep-onb.lock`) and uses a per-run instance prefix `shep-onb-<runId>-`, swept (own-prefix only) on teardown — so a second run cannot launch while one holds the lock, and crashed-run leftovers are cleared with `bun run onboarding:test --reap-orphans` (the only command that touches other runs' instances).
 
 - [ ] **Step 4: Verify type-check, lint, and the unit suite**
 
@@ -1177,123 +1274,88 @@ git commit -m "feat(onboarding-harness): orchestrator, CLI, and run docs"
 
 ## Phase 2 — deterministic regression tier + ops wiring
 
-### Task 10: Structured remediation in diagnostics (additive product change)
+### Task 10: Harness-side remediation catalog (no `src/` change)
 
 **Files:**
-- Modify: `src/types.ts` (add `Remediation` + `remediation?` on `DiagnosticCheck`)
-- Modify: `src/diagnostics.ts` (add `REMEDIATIONS` map + decorate non-ok checks)
-- Modify: `test/diagnostics.test.ts` (purity test allows the optional field; add a remediation test)
+- Create: `ci/onboarding-harness/remediations.ts`
+- Test: `test/onboarding-harness/remediations.test.ts`
 
-> **i18n note:** `remediation.run` is a verbatim shell command (data, like a CLI invocation), not authored UI chrome — exempt from the message catalog, same class as PR titles / `TASK-07` designations. No new EN/DE keys.
-> **Feature-catalog note:** this is server-only plumbing surfacing no new UI — mark the commit/PR `[no-feature-entry]`.
+Per plan review (point 3), structured remediations live **in the harness**, keyed by the `hintKey` Shepherd emits — NOT as a field on the shipped `DiagnosticCheck` payload. This keeps the exact-keys payload-purity contract (`test/diagnostics.test.ts:52`) intact and avoids a hidden shipped field. `src/diagnostics.ts` and `src/types.ts` are **not touched**. The verbatim path therefore guards *detection + scenario-reachability deterministically*; advice-text correctness remains the agent path's job (Task 8).
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `test/diagnostics.test.ts`:
+`test/onboarding-harness/remediations.test.ts`:
 
 ```ts
-it("attaches a structured remediation to a known non-ok check", async () => {
-  const svc = new DiagnosticsService({
-    runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
-    runGhAuth: async () => {},
-    resolveHost: async () => "node.example.ts.net",
-    runServeStatus: async () =>
-      JSON.stringify({ Web: { "node.example.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } } } } }),
+import { describe, expect, it } from "bun:test";
+import { REMEDIATIONS, remediationsFor } from "../../ci/onboarding-harness/remediations";
+import type { DiagnosticsSnapshot } from "../../src/types";
+
+describe("remediations catalog", () => {
+  it("maps known fixable hintKeys to a single shell command", () => {
+    expect(REMEDIATIONS.diagnostics_hint_bun_missing).toContain("bun.sh/install");
   });
-  const snap = await svc.check(1000);
-  const bun = snap.checks.find((c) => c.id === "bun")!;
-  expect(bun.state).toBe("error");
-  expect(bun.remediation?.run).toContain("bun.sh/install");
+
+  it("collects verbatim commands for non-ok checks that have one (skips prose-only and ok)", () => {
+    const snap: DiagnosticsSnapshot = {
+      checks: [
+        { id: "bun", state: "error", hintKey: "diagnostics_hint_bun_missing" },
+        { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_not_authenticated" }, // prose-only → skipped
+        { id: "git", state: "ok", hintKey: "diagnostics_hint_git_ok" }, // ok → skipped
+      ],
+      generatedAt: 1,
+      overall: "error",
+    };
+    expect(remediationsFor(snap)).toEqual([REMEDIATIONS.diagnostics_hint_bun_missing]);
+  });
 });
-
-it("does not attach a remediation to ok checks", async () => {
-  const svc = new DiagnosticsService(healthyDeps());
-  const snap = await svc.check(1000);
-  expect(snap.checks.every((c) => c.state !== "ok" || c.remediation === undefined)).toBe(true);
-});
-```
-
-Also update the payload-shape helper (around `test/diagnostics.test.ts:52`) to permit the optional key:
-
-```ts
-const keys = Object.keys(check).sort();
-expect(keys).toEqual(check.remediation ? ["hintKey", "id", "remediation", "state"] : ["hintKey", "id", "state"]);
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test ./test/diagnostics.test.ts`
-Expected: FAIL — `remediation` is not a property of `DiagnosticCheck`.
+Run: `bun test ./test/onboarding-harness/remediations.test.ts`
+Expected: FAIL — module not found.
 
-- [ ] **Step 3: Extend the types**
+- [ ] **Step 3: Write the catalog**
 
-In `src/types.ts`, add above `DiagnosticCheck`:
-
-```ts
-/** A runnable, verbatim remediation for a non-ok check — a single shell command
- *  the onboarding harness (and a future one-click-fix UI) can execute as-is.
- *  Verbatim data (a command), not authored UI text — exempt from i18n. */
-export interface Remediation {
-  run: string;
-}
-```
-
-And add the optional field to `DiagnosticCheck`:
+`ci/onboarding-harness/remediations.ts`:
 
 ```ts
-export interface DiagnosticCheck {
-  id: string;
-  state: DiagnosticState;
-  hintKey: string;
-  /** Present only on non-ok checks that reduce to a single runnable command. */
-  remediation?: Remediation;
-}
-```
+import type { DiagnosticsSnapshot } from "../../src/types";
 
-- [ ] **Step 4: Add the remediation map + decoration in `src/diagnostics.ts`**
-
-Add the map near the top (after imports):
-
-```ts
-import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState, Remediation } from "./types";
-
-/** hintKey → verbatim shell remediation. Only keys that reduce cleanly to one
- *  command appear here; prose-only coaching (e.g. interactive `gh auth login`,
- *  tailscale serve setup) is intentionally absent and stays on the agent path. */
-const REMEDIATIONS: Record<string, Remediation> = {
-  diagnostics_hint_bun_missing: { run: "curl -fsSL https://bun.sh/install | bash" },
-  diagnostics_hint_node_missing: { run: "curl -fsSL https://fnm.vercel.app/install | bash && fnm install --lts" },
-  diagnostics_hint_herdr_missing: { run: "curl -fsSL https://herdr.dev/install.sh | bash" },
-  diagnostics_hint_claude_missing: { run: "curl -fsSL https://claude.ai/install.sh | bash" },
+/** hintKey → verbatim shell remediation, keyed by the advice identifier Shepherd
+ *  emits. Lives in the HARNESS (not the diagnostics payload) so the shipped
+ *  DiagnosticCheck contract is unchanged. Only keys whose canonical fix is a
+ *  single non-interactive command appear; prose-only coaching (interactive
+ *  `gh auth login`, tailscale serve setup) is intentionally absent and stays on
+ *  the agent path. */
+export const REMEDIATIONS: Record<string, string> = {
+  diagnostics_hint_bun_missing: "curl -fsSL https://bun.sh/install | bash",
+  diagnostics_hint_node_missing: "curl -fsSL https://fnm.vercel.app/install | bash && fnm install --lts",
+  diagnostics_hint_herdr_missing: "curl -fsSL https://herdr.dev/install.sh | bash",
+  diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
 };
+
+/** Verbatim commands for every non-ok check whose emitted hintKey has a known fix. */
+export function remediationsFor(snapshot: DiagnosticsSnapshot): string[] {
+  return snapshot.checks
+    .filter((c) => c.state !== "ok" && REMEDIATIONS[c.hintKey])
+    .map((c) => REMEDIATIONS[c.hintKey]!);
+}
 ```
 
 > **Implementer:** confirm each install URL against the project's actual install docs before committing — use the exact command Shepherd's onboarding docs prescribe. Drop any key whose canonical fix is not a single non-interactive command.
 
-In the `check(now)` method, decorate the assembled checks before building the snapshot (find where `const snapshot: DiagnosticsSnapshot = {` is built, ~line 260, and map the checks first):
+- [ ] **Step 4: Run test to verify it passes**
 
-```ts
-const decorated = checks.map((c): DiagnosticCheck => {
-  const r = c.state !== "ok" ? REMEDIATIONS[c.hintKey] : undefined;
-  return r ? { ...c, remediation: r } : c;
-});
-const snapshot: DiagnosticsSnapshot = {
-  checks: decorated,
-  generatedAt: now,
-  overall: worstOf(decorated),
-};
-```
+Run: `bun test ./test/onboarding-harness/remediations.test.ts`
+Expected: PASS (2 tests).
 
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `bun test ./test/diagnostics.test.ts`
-Expected: PASS (existing tests + 2 new).
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/types.ts src/diagnostics.ts test/diagnostics.test.ts
-git commit -m "feat(diagnostics): structured remediation for command-fixable checks [no-feature-entry]"
+git add ci/onboarding-harness/remediations.ts test/onboarding-harness/remediations.test.ts
+git commit -m "feat(onboarding-harness): harness-side remediation catalog"
 ```
 
 ---
@@ -1301,29 +1363,34 @@ git commit -m "feat(diagnostics): structured remediation for command-fixable che
 ### Task 11: Verbatim apply path
 
 **Files:**
-- Modify: `ci/onboarding-harness/apply.ts` (add `applyVerbatim`)
-- Modify: `ci/onboarding-harness/run.ts` (dispatch `structured` → verbatim)
-- Test: `test/onboarding-harness/apply.test.ts` (add verbatim cases)
+- Modify: `ci/onboarding-harness/apply.ts` (add `applyVerbatim`, sourced from `remediations.ts`)
+- Modify: `ci/onboarding-harness/run.ts` (verbatim-first dispatch; replaces the Phase-1 block)
+- Test: `test/onboarding-harness/apply.test.ts` (add the verbatim case)
 
 - [ ] **Step 1: Write the failing test**
 
 Add to `test/onboarding-harness/apply.test.ts`:
 
 ```ts
-import { collectRemediations } from "../../ci/onboarding-harness/apply";
+import { applyVerbatim } from "../../ci/onboarding-harness/apply";
+import { IncusDriver } from "../../ci/onboarding-harness/incus";
 
-describe("collectRemediations", () => {
-  it("returns the verbatim run command for each non-ok check that has one", () => {
-    const s = {
-      checks: [
-        { id: "bun", state: "error", hintKey: "k", remediation: { run: "curl x | bash" } },
-        { id: "gh", state: "error", hintKey: "k2" }, // prose-only, no remediation
-        { id: "git", state: "ok", hintKey: "k3", remediation: { run: "noop" } },
-      ],
+describe("applyVerbatim", () => {
+  it("runs each harness-catalog remediation for non-ok checks inside the instance", async () => {
+    const calls: string[][] = [];
+    const run = async (args: string[]) => {
+      calls.push(args);
+      return { stdout: "", stderr: "", code: 0 };
+    };
+    const d = new IncusDriver(run, "shep-onb-");
+    const snap = {
+      checks: [{ id: "bun", state: "error" as const, hintKey: "diagnostics_hint_bun_missing" }],
       generatedAt: 1,
       overall: "error" as const,
     };
-    expect(collectRemediations(s)).toEqual(["curl x | bash"]);
+    const ok = await applyVerbatim(d, "bun-missing", snap);
+    expect(ok).toBe(true);
+    expect(calls[0].join(" ")).toContain("bun.sh/install");
   });
 });
 ```
@@ -1331,28 +1398,27 @@ describe("collectRemediations", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun test ./test/onboarding-harness/apply.test.ts`
-Expected: FAIL — `collectRemediations` is not exported.
+Expected: FAIL — `applyVerbatim` is not exported.
 
-- [ ] **Step 3: Implement `collectRemediations` + `applyVerbatim`**
+- [ ] **Step 3: Implement `applyVerbatim` (sourcing the harness catalog)**
+
+Add the import at the top of `ci/onboarding-harness/apply.ts`:
+
+```ts
+import { remediationsFor } from "./remediations";
+```
 
 Append to `ci/onboarding-harness/apply.ts`:
 
 ```ts
-/** Pure: the verbatim shell commands for every non-ok check that ships one. */
-export function collectRemediations(snapshot: DiagnosticsSnapshot): string[] {
-  return snapshot.checks
-    .filter((c) => c.state !== "ok" && c.remediation)
-    .map((c) => c.remediation!.run);
-}
-
-/** Run each structured remediation verbatim inside the instance. Returns false
- *  if any command exits non-zero. */
+/** Run each harness-catalog remediation (keyed by Shepherd's emitted hintKeys)
+ *  verbatim inside the instance. Returns false if any command exits non-zero. */
 export async function applyVerbatim(
   driver: IncusDriver,
   name: string,
   snapshot: DiagnosticsSnapshot,
 ): Promise<boolean> {
-  for (const cmd of collectRemediations(snapshot)) {
+  for (const cmd of remediationsFor(snapshot)) {
     const r = await driver.exec(name, ["sh", "-c", cmd]);
     if (r.code !== 0) return false;
   }
@@ -1360,24 +1426,41 @@ export async function applyVerbatim(
 }
 ```
 
-- [ ] **Step 4: Dispatch in `run.ts`**
+- [ ] **Step 4: Verbatim-first dispatch in `run.ts`**
 
-In `runScenario`, replace the Phase-1 agent-only block with path dispatch:
+Add the imports to `run.ts`:
 
 ```ts
+import { applyVerbatim } from "./apply";
+import { remediationsFor } from "./remediations";
+```
+
+In `runScenario`, **replace** the Phase-1 `agentIncompatible`/agent block (the one added in Task 9) with verbatim-first dispatch. Verbatim takes precedence, so `claude-missing` (which now has a catalog remediation) is reinstalled and reaches green instead of staying detection-only:
+
+```ts
+const verbatim = remediationsFor(before);
 let appliedVia: ScenarioResult["appliedVia"];
-if (scenario.coaching === "structured" && collectRemediations(before).length > 0) {
+let detectionOnly = false;
+if (verbatim.length > 0) {
   await applyVerbatim(driver, scenario.id, before);
   appliedVia = "verbatim";
+} else if (scenario.agentIncompatible) {
+  // No structured fix AND the agent can't run here (no claude) → detection-only.
+  appliedVia = "skipped";
+  detectionOnly = true;
 } else {
   await applyAgent(driver, scenario.id, before);
   appliedVia = "agent";
 }
-const after = await probeDiagnostics(driver, scenario.id);
-return { ...base, detection, appliedVia, reachedGreen: after.overall === "ok" };
+const after = detectionOnly ? before : await probeDiagnostics(driver, scenario.id);
+return {
+  ...base,
+  detection,
+  appliedVia,
+  reachedGreen: !detectionOnly && after.overall === "ok",
+  detectionOnly: detectionOnly || undefined,
+};
 ```
-
-Update the imports in `run.ts` to include `applyVerbatim` and `collectRemediations`.
 
 - [ ] **Step 5: Run tests + type-check**
 
@@ -1410,9 +1493,20 @@ The gate runs the **deterministic verbatim subset** (the `structured` scenarios)
 ```bash
 #!/usr/bin/env bash
 # Release gate: run the deterministic (structured) onboarding scenarios and fail
-# the release if any does not reach a healthy state. Requires the Incus host.
+# the release if any does not reach a healthy state.
+#
+# SAFE DEGRADE (point 6): this gate depends on a single self-hosted Incus host.
+# If that host is unavailable, we must NOT hard-block an otherwise-good release on
+# unrelated infra — we log a loud, explicit bypass and exit 0. A red SCENARIO
+# (Incus present, a scenario failed) still fails the gate; only an absent/broken
+# Incus host bypasses.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if ! command -v incus >/dev/null 2>&1 || ! incus list >/dev/null 2>&1; then
+  echo "::onboarding-gate:: BYPASSED — Incus host unavailable; not blocking the release on infra." >&2
+  exit 0
+fi
 
 STRUCTURED_IDS=$(bun -e '
   import("./ci/onboarding-harness/scenarios.ts").then(({ SCENARIOS }) =>
@@ -1485,16 +1579,25 @@ git commit -m "feat(onboarding-harness): release gate + nightly timer"
 - Probe via `GET /api/diagnostics?refresh=1` → Task 7. ✓
 - Detection assertion (gap source #1) → Task 4. ✓
 - Apply: agent path (P1) → Task 8; verbatim path (P2) → Task 11. ✓
-- Gap report → Task 5; wired in orchestrator → Task 9. ✓
+- Gap report (incl. DETECTION-ONLY class, green over applicable) → Task 5; wired in orchestrator → Task 9. ✓
 - Detect→apply→re-probe-green success signal → Task 9 `runScenario`. ✓
-- Structured remediation product change in `diagnostics.ts` → Task 10. ✓
+- Structured remediations **harness-side** (no `src/` change; payload-purity contract intact) → Task 10. ✓
 - Manual + nightly + pre-release gate on Incus host → Task 9 (manual) + Task 12 (nightly/gate). ✓
-- Guaranteed teardown + orphan sweep → Task 2 `sweep` + Task 9 `finally`. ✓
+- Guaranteed teardown + run isolation → Task 2 note + Task 9 host-lock + per-run prefix + `finally` sweep + `--reap-orphans`. ✓
 - Bootstrap-paradox boundary (baseline always has bun; cold-bun-absent deferred) → encoded in Task 6 baseline + scenario catalog scope; cold-bun-absent NOT in Phase 1 catalog (matches spec). ✓
+
+**Plan-review points (this revision):**
+- (1) Spec + detailed plan committed (`0589f426`, `04c21a98`) and tracked. ✓
+- (2) Brokenness scope = the 7 diagnostics checks for v1 — user-signed-off; other failure modes (corrupted/locked git, port-in-use, partial herdr, no network/DNS, full disk, broken worktrees, target-repo readiness) explicitly deferred. ✓
+- (3) Remediations harness-side, not a shipped `DiagnosticCheck` field → Task 10. ✓
+- (4) `claude` presence-only: no `claude-unauthed` scenario; `claude-missing` is detection-only in P1 (agent needs claude), verbatim-reinstalled in P2 → Tasks 3/5/9/11. ✓
+- (5) Per-run prefix + host lock + own-prefix sweep + `--reap-orphans` → Tasks 2/9. ✓
+- (6) Release gate bypasses (exit 0, logged) when Incus host unavailable → Task 12. ✓
+- (7) Probe auth: baseline boots with `SHEPHERD_TOKEN` unset so plain `curl` passes `checkAuth` → Task 7. ✓
 
 **Placeholder scan:** No TBD/TODO left as work; two explicit *implementer-confirm* notes (per-scenario fixtures in Task 6; install-URL verification in Task 10) are deliberate real-world verifications, each with concrete instructions, not deferred design.
 
-**Type consistency:** `IncusRunner`/`IncusExec`, `Scenario`/`ExpectedCheck`, `DetectionResult`, `ScenarioResult` defined in Task 1 and used unchanged throughout. `assertDetection(snapshot, scenarioId, expected)` signature matches its call in Task 9. `applyAgent`/`applyVerbatim`/`collectRemediations`/`resolveCoaching`/`buildAgentPrompt` names consistent across Tasks 8/11. `Remediation.run` field consistent across Tasks 10/11.
+**Type consistency:** `IncusRunner`/`IncusExec`, `Scenario`/`ExpectedCheck` (incl. `agentIncompatible?`), `DetectionResult`, `ScenarioResult` (incl. `detectionOnly?`) defined in Task 1 and used unchanged throughout. `assertDetection(snapshot, scenarioId, expected)` signature matches its call in Task 9. `applyAgent`/`applyVerbatim`/`resolveCoaching`/`buildAgentPrompt` (apply.ts) and `REMEDIATIONS`/`remediationsFor` (remediations.ts) names consistent across Tasks 8/10/11. No `src/` types touched.
 
 ## Unresolved questions
 

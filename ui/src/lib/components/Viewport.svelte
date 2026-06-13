@@ -1361,6 +1361,7 @@
     let flingRAF = 0;
     const FLING_MIN_V = 0.04; // px/ms — below this the coast has effectively stopped
     const FLING_DECAY = 0.95; // velocity retained per 16ms frame
+    const FLING_STALE_MS = 60; // a release this long after the last move = held still, no coast
     const stopFling = () => {
       if (flingRAF) cancelAnimationFrame(flingRAF);
       flingRAF = 0;
@@ -1404,8 +1405,10 @@
     };
     const onTouchEnd = () => {
       lastY = null;
-      // coast on release if the finger was still moving with intent
-      if (Math.abs(flingV) < FLING_MIN_V) return;
+      // coast on release only if the finger was still moving with intent: a
+      // pause before lifting stops touchmove from firing, leaving stale velocity
+      // behind, so a long gap since the last move means "held still" → no coast.
+      if (Math.abs(flingV) < FLING_MIN_V || performance.now() - lastMoveT > FLING_STALE_MS) return;
       let prev = performance.now();
       const step = (t: number) => {
         const dt = t - prev;
@@ -3304,6 +3307,9 @@
     background: var(--color-hover);
     color: var(--color-amber);
     transform: translateY(-1px);
+    /* end the entry/glow pulse so this box-shadow isn't suppressed by the
+       still-running animation (the pulse is a one-shot attention cue anyway). */
+    animation: none;
     box-shadow:
       0 3px 12px rgba(0, 0, 0, 0.45),
       0 0 16px color-mix(in srgb, var(--color-amber) 45%, transparent);

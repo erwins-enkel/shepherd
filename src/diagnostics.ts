@@ -184,7 +184,7 @@ export class DiagnosticsService {
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
    *  logged-in but not serving the HUD's local port (parseServedPort finds no
    *  mapping for config.port) ⇒ warning (advisory — Shepherd runs fine without
-   *  serve, it only gates the preview/remote nicety); both serving ⇒ ok. Never
+   *  serve, it only gates the remote-access nicety); both serving ⇒ ok. Never
    *  forwards raw status output. */
   private tailscaleProbe = async (): Promise<DiagnosticCheck> => {
     const host = await this.resolveHost();

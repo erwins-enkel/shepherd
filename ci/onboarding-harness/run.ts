@@ -9,7 +9,7 @@ import { bootShepherd, probeDiagnostics } from "./probe";
 import { applyAgent } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport } from "./report";
-import type { Scenario, ScenarioResult } from "./types";
+import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 
 /** `git archive` the current HEAD into a tarball the seed engine pushes. */
 function buildTarball(): string {
@@ -25,11 +25,12 @@ async function runScenario(
   tarball: string,
 ): Promise<ScenarioResult> {
   const base = { scenarioId: scenario.id, image: scenario.image };
+  let detection: DetectionResult | undefined;
   try {
     await seedInstance(driver, scenario, tarball);
     await bootShepherd(driver, scenario.id);
     const before = await probeDiagnostics(driver, scenario.id);
-    const detection = assertDetection(before, scenario.id, scenario.expect);
+    detection = assertDetection(before, scenario.id, scenario.expect);
 
     // Phase 1 has no verbatim path yet. A scenario that disabled the agent
     // (claude-missing — the agent IS claude in-instance) is detection-only and
@@ -54,7 +55,7 @@ async function runScenario(
   } catch (err) {
     return {
       ...base,
-      detection: { scenarioId: scenario.id, detected: false, misses: [] },
+      detection: detection ?? { scenarioId: scenario.id, detected: false, misses: [] },
       appliedVia: "skipped",
       reachedGreen: false,
       error: err instanceof Error ? err.message : String(err),
@@ -113,10 +114,9 @@ async function main() {
   // touches our own, so overlapping runs can't destroy each other (point 5).
   const runId = `${Date.now().toString(36)}-${process.pid}`;
   const driver = new IncusDriver(undefined, `shep-onb-${runId}-`);
-  const tarball = buildTarball();
-
   const results: ScenarioResult[] = [];
   try {
+    const tarball = buildTarball();
     for (const s of scenarios) {
       console.log(`\n=== ${s.id} (${s.image}) ===`);
       results.push(await runScenario(driver, s, tarball));

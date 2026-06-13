@@ -13,6 +13,7 @@ import {
   type DrainRepoState,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
+import { epicIntegrationBranch as epicBranchName } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
@@ -62,7 +63,14 @@ export interface QueuedItem {
 export interface DrainDeps {
   store: Pick<
     SessionStore,
-    "get" | "list" | "getRepoConfig" | "getReview" | "archive" | "getEpicRun" | "setEpicRun"
+    | "get"
+    | "list"
+    | "getRepoConfig"
+    | "getReview"
+    | "archive"
+    | "getEpicRun"
+    | "setEpicRun"
+    | "listEpicIntegrated"
   >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
@@ -172,9 +180,11 @@ export class DrainService {
         issueNumber: x.issueNumber,
         prNumber: prSnap[x.id]?.number ?? null,
       }));
+    const integrated = this.deps.store.listEpicIntegrated(repoPath, run.parentIssueNumber);
     return assembleEpic({
       repoPath,
       run,
+      integrated,
       parent: {
         number: run.parentIssueNumber,
         title: struct.parent?.title ?? `#${run.parentIssueNumber}`,
@@ -244,6 +254,7 @@ export class DrainService {
     let candidates: Issue[] = [];
     let epicAttended = false;
     let epicParent: number | null = null;
+    let epicIntegrationBranch: string | null = null;
     let builtEpic: Epic | null = null;
     if (epicActive) {
       // Epic is running/paused: source candidates from its dependency-gated children
@@ -251,6 +262,7 @@ export class DrainService {
       builtEpic = await this.buildEpic(repoPath, epicRun!);
       if (builtEpic) {
         epicParent = epicRun!.parentIssueNumber;
+        epicIntegrationBranch = epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle);
         if (epicRun!.status === "running") candidates = selectEpicCandidates(builtEpic.children);
         epicAttended = epicRun!.mode === "attended";
       }
@@ -279,6 +291,7 @@ export class DrainService {
         epicAttended,
         epicApprovedNext: this.approvedNext.has(repoPath),
         epicParent,
+        epicIntegrationBranch,
       },
       epic: builtEpic,
     };
@@ -525,7 +538,25 @@ export class DrainService {
     // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
     this.approvedNext.delete(repoPath);
     try {
-      const base = await forge.defaultBranch();
+      // Epic children base on the epic integration branch so each builds on its
+      // predecessors' merged work; regular tasks base on the default branch. Ensure the
+      // branch exists (idempotent, off the latest default) before the worktree bases on it.
+      let base: string;
+      if (decision.integrationBranch) {
+        const def = await forge.defaultBranch();
+        try {
+          await forge.ensureBranch?.(decision.integrationBranch, def);
+          base = decision.integrationBranch;
+        } catch (err) {
+          console.warn(
+            `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
+            err,
+          );
+          base = def; // best-effort fallback: still spawn (per-PR) rather than stall the epic
+        }
+      } else {
+        base = await forge.defaultBranch();
+      }
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
       // they fall back to no --model flag (Claude's own default). The Fable promo
       // is a client-only UI concern and is NEVER applied to autonomous spawns.

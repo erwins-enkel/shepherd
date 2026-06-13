@@ -43,6 +43,7 @@ test("GET /api/recaps returns snapshot when recapCache is present", async () => 
     headline: "Did the thing",
     body: "",
     openItems: [],
+    changedFiles: [],
     spawnSessionId: "spawn-abc",
     cwd: "/tmp/recap-test",
     model: null,

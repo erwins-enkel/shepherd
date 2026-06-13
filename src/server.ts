@@ -1076,7 +1076,7 @@ async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Res
     ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
     : [...merged];
   const target = requested.filter((id) => merged.has(id)); // merged-only, no matter what was sent
-  const { cleared, leftovers } = deps.service.archiveMany(target);
+  const { cleared, leftovers } = await deps.service.archiveMany(target);
   for (const id of cleared) {
     deps.prCache?.drop(id);
     deps.events.emit("session:archived", { id });
@@ -1092,7 +1092,7 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
     : undefined;
-  deps.service.archive(parts[2], reap);
+  await deps.service.archive(parts[2], reap);
   deps.prCache?.drop(parts[2]);
   deps.events.emit("session:archived", { id: parts[2] });
   return json({ ok: true });
@@ -1444,12 +1444,12 @@ async function resolveRelaunchIssueRef(
 // After a successful spawn: emit session:new (service.relaunch/create do not), re-stamp the
 // new session's drain claim exactly like handleSessionCreate, then tear down the original.
 // Returns whether the original was actually archived (teardown can fail, leaving it active).
-function finalizeRelaunch(
+async function finalizeRelaunch(
   original: Session,
   fresh: Session,
   issueRef: IssueRef | undefined,
   deps: Ctx["deps"],
-): { archived: boolean } {
+): Promise<{ archived: boolean }> {
   const id = original.id;
   deps.events.emit("session:new", fresh);
   if (issueRef) {
@@ -1460,7 +1460,7 @@ function finalizeRelaunch(
 
   // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
   // isolates teardown failures (unlike a bare archive(id)).
-  const { cleared } = deps.service.archiveMany([id]);
+  const { cleared } = await deps.service.archiveMany([id]);
   const archived = cleared.includes(id);
   if (archived) {
     // Retain the original's claim ONLY when the replacement actually carries the issue
@@ -1520,7 +1520,7 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
       return json({ error: msg }, 502);
     }
 
-    const { archived } = finalizeRelaunch(original, fresh, issueRef, deps);
+    const { archived } = await finalizeRelaunch(original, fresh, issueRef, deps);
     return json({ session: fresh, archived }, 201);
   } finally {
     inFlightRelaunch.delete(id);

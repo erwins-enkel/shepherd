@@ -185,6 +185,16 @@ const egressWatcher = new EgressWatcher({
   emit: (event, data) => events.emit(event, data),
 });
 
+// Session recap (#XXX): generates a plain-language summary of each settled-idle session
+// so the operator can skim what happened without reading the transcript. Mirrors planGate's
+// deps/onChange wiring; model defaults to "sonnet" inside the service. Constructed BEFORE
+// SessionService so its pre-teardown hook (beforeArchive) can be wired into the service.
+const recapService = new RecapService({
+  store,
+  herdr,
+  onChange: (id, recap) => events.emit("session:recap", { id, recap }),
+});
+
 const service = new SessionService({
   store,
   worktree,
@@ -201,6 +211,10 @@ const service = new SessionService({
   // prPoller is defined below; this closure is only invoked at runtime, after init.
   refreshPr: (id) => prPoller.pollSession(id),
   egressWatcher,
+  // Best-effort pre-teardown recap: generate a durable recap while the worktree still
+  // exists (the generator reads it to build its prompt). Bounded + swallowed inside
+  // archive() so it can never block teardown / the merge train.
+  beforeArchive: (s) => recapService.considerForArchive(s).then(() => {}),
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -477,14 +491,6 @@ void planGate
   .then(() => planGate.gcStaleReviewWorktrees())
   .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
 
-// Session recap (#XXX): generates a plain-language summary of each settled-idle session
-// so the operator can skim what happened without reading the transcript. Mirrors planGate's
-// deps/onChange wiring; model defaults to "sonnet" inside the service.
-const recapService = new RecapService({
-  store,
-  herdr,
-  onChange: (id, recap) => events.emit("session:recap", { id, recap }),
-});
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);
@@ -555,7 +561,7 @@ events.subscribe((event, data) => {
     const id = (data as { id: string }).id;
     reviewService.forget(id);
     planGate.forget(id);
-    recapService.forget(id);
+    recapService.onArchived(id);
   }
 });
 

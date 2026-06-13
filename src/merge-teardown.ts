@@ -4,7 +4,7 @@ import type { Session } from "./types";
 export interface MergeTeardownDeps {
   resolveForge: (repoPath: string) => GitForge | null;
   /** service.archive */
-  archive: (id: string) => number;
+  archive: (id: string) => Promise<number>;
   /** prPoller.drop */
   dropPrCache: (id: string) => void;
   /** events.emit("session:archived", {id}) */
@@ -40,7 +40,7 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
     // any instance re-spawning already-merged work.
     if (!closed) deps.retainClaim(s.id);
   }
-  deps.archive(s.id);
+  await deps.archive(s.id);
   deps.dropPrCache(s.id);
   deps.emitArchived(s.id);
 }

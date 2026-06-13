@@ -753,7 +753,7 @@ test("createSession: skips worktree rollback when the cwd fallback isn't isolate
   expect(removeCalls).toBe(0);
 });
 
-test("archive stops the herdr agent, removes the worktree, and archives the row", () => {
+test("archive stops the herdr agent, removes the worktree, and archives the row", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = { stopped: [], removed: [] };
   const service = new SessionService({
@@ -777,9 +777,90 @@ test("archive stops the herdr agent, removes the worktree, and archives the row"
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  service.archive(s.id);
+  await service.archive(s.id);
   expect(calls.stopped).toEqual(["term_z"]); // agent stopped (no leak)
   expect(calls.removed).toEqual(["/wt"]); // worktree removed
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+function archivableSession(store: SessionStore) {
+  return store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+}
+
+test("archive awaits beforeArchive BEFORE removing the worktree (recap reads it first)", async () => {
+  const store = new SessionStore(":memory:");
+  const order: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      remove: () => order.push("remove"),
+    } as any,
+    herdr: { start: () => ({}), list: () => [], stop: () => {} } as any,
+    // resolves only after a tick — if archive didn't await it, remove would race ahead.
+    beforeArchive: async () => {
+      await new Promise<void>((r) => setTimeout(r, 5));
+      order.push("hook");
+    },
+  });
+  const s = archivableSession(store);
+  await service.archive(s.id);
+  expect(order).toEqual(["hook", "remove"]); // hook ran AND completed before worktree teardown
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("archive: a rejecting beforeArchive never blocks teardown (worktree still removed)", async () => {
+  const store = new SessionStore(":memory:");
+  const removed: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      remove: (p: string) => removed.push(p),
+    } as any,
+    herdr: { start: () => ({}), list: () => [], stop: () => {} } as any,
+    beforeArchive: async () => {
+      throw new Error("recap spawn failed");
+    },
+  });
+  const s = archivableSession(store);
+  await service.archive(s.id); // must resolve, not reject
+  expect(removed).toEqual(["/wt"]);
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("archive: a HANGING beforeArchive is bounded by the timeout (teardown proceeds)", async () => {
+  const store = new SessionStore(":memory:");
+  const removed: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      remove: (p: string) => removed.push(p),
+    } as any,
+    herdr: { start: () => ({}), list: () => [], stop: () => {} } as any,
+    beforeArchive: () => new Promise<void>(() => {}), // never resolves
+    beforeArchiveTimeoutMs: 5, // tiny backstop so the test doesn't sleep 15s
+  });
+  const s = archivableSession(store);
+  await service.archive(s.id); // resolves once the timeout wins the race
+  expect(removed).toEqual(["/wt"]);
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
@@ -801,7 +882,7 @@ function resumable(store: SessionStore, over: Partial<Parameters<SessionStore["c
   return s;
 }
 
-test("archive without a reaper just closes the session (no leftover handling)", () => {
+test("archive without a reaper just closes the session (no leftover handling)", async () => {
   const store = new SessionStore(":memory:");
   const svc = new SessionService({
     store,
@@ -829,7 +910,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  svc.archive(s.id, ["process:1"]); // keys ignored without a reaper
+  await svc.archive(s.id, ["process:1"]); // keys ignored without a reaper
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
@@ -876,7 +957,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
   expect(svc.leftovers("ghost")).toEqual([]);
 });
 
-test("archive reaps only the selected leftovers, re-detected (no trusting raw client keys)", () => {
+test("archive reaps only the selected leftovers, re-detected (no trusting raw client keys)", async () => {
   const store = new SessionStore(":memory:");
   const reaped: string[][] = [];
   const detected = [
@@ -921,13 +1002,13 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     herdrAgentId: "term_z",
   });
   // ask to reap the tailscale proxy + a forged key that isn't in the detected set
-  svc.archive(s.id, ["system:tailscale serve:5174", "process:99999"]);
+  await svc.archive(s.id, ["system:tailscale serve:5174", "process:99999"]);
   // only the genuinely-detected, selected leftover is reaped — the forged key is dropped
   expect(reaped).toEqual([["system:tailscale serve:5174"]]);
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
-test("archive with no reap keys never calls the reaper", () => {
+test("archive with no reap keys never calls the reaper", async () => {
   const store = new SessionStore(":memory:");
   let reapCalls = 0;
   let detectCalls = 0;
@@ -967,7 +1048,7 @@ test("archive with no reap keys never calls the reaper", () => {
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  svc.archive(s.id);
+  await svc.archive(s.id);
   expect(detectCalls).toBe(0);
   expect(reapCalls).toBe(0);
 });
@@ -1527,7 +1608,7 @@ test("refine skipped entirely when refineName dep is absent", async () => {
   expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
 });
 
-test("archiveMany clears each session, reaping all its leftovers", () => {
+test("archiveMany clears each session, reaping all its leftovers", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = { stopped: [], removed: [], reaped: [] };
   const detect = (sess: any): any[] => [
@@ -1567,7 +1648,7 @@ test("archiveMany clears each session, reaping all its leftovers", () => {
   const a = mk("a", "term_a");
   const b = mk("b", "term_b");
 
-  const res = svc.archiveMany([a.id, b.id, "missing-id"]);
+  const res = await svc.archiveMany([a.id, b.id, "missing-id"]);
 
   expect(res.cleared).toEqual([a.id, b.id]); // missing id skipped
   expect(res.leftovers).toBe(2); // one leftover each, both counted
@@ -1863,7 +1944,7 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
   expect(out?.herdrAgentId).toBe("term_fresh"); // adopted the new id
 });
 
-test("archiveMany isolates a failing session: others still clear, the failed id is excluded", () => {
+test("archiveMany isolates a failing session: others still clear, the failed id is excluded", async () => {
   const store = new SessionStore(":memory:");
   const detect = (): any[] => [];
   const svc = new SessionService({
@@ -1896,7 +1977,7 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
   const b = mk("b");
   const c = mk("c");
 
-  const res = svc.archiveMany([a.id, b.id, c.id]);
+  const res = await svc.archiveMany([a.id, b.id, c.id]);
 
   expect(res.cleared).toEqual([a.id, c.id]); // b's failure didn't abort the loop, and b is excluded
   expect(store.get(a.id)?.status).toBe("archived");

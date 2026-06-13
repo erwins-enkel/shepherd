@@ -337,7 +337,7 @@ test("drain pre-check: standard profile holds → service.create NOT called", as
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: () => 1,
+    archive: async () => 1,
   };
   const forge = makeForge([issue(1)]);
   const drain = new DrainService({
@@ -440,7 +440,7 @@ test("drain + autonomous repo + egress NULL → held, service.create NOT called"
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: () => 1,
+    archive: async () => 1,
   };
   const forge = makeForge([issue(1)]);
   const drain = new DrainService({
@@ -523,7 +523,7 @@ test("egressWatcher.stop called on archive (before removeEgressTmp)", async () =
 
   const s = await service.create(baseInput({ auto: true }));
   try {
-    service.archive(s.id);
+    await service.archive(s.id);
     expect(watcher.stops).toContain(s.id);
   } finally {
     // egressTmpDir already removed by archive; ignore if already gone.

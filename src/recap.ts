@@ -6,7 +6,6 @@
  *   generate()   — shared spawn path (auto + on-demand)
  *   regenerate() — on-demand force (bypasses scope/debounce/dedupe)
  *   snapshot()   — snapshot for client bootstrap
- *   forget()     — reap + drop on archive
  *
  * Spawn pattern mirrors src/namer-llm.ts: tmpdir cwd, Write-only, dontAsk,
  * disableAllHooks, disable-slash-commands. No worktree, no membrane.
@@ -541,14 +540,5 @@ export class RecapService {
 
   snapshot(): Record<string, Recap> {
     return this.deps.store.snapshotRecaps();
-  }
-
-  // ── forget ───────────────────────────────────────────────────────────────────
-
-  /** On session archive: reap any in-flight generating row, then drop the recap row. */
-  forget(sessionId: string): void {
-    this.reapGenerating(sessionId);
-    this.debounce.delete(sessionId);
-    this.deps.store.dropRecap(sessionId);
   }
 }

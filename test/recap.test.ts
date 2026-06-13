@@ -829,39 +829,6 @@ test("onArchived: clears debounce so a later re-stamp is clean", async () => {
   expect(herdr.started.length).toBe(1);
 });
 
-// ── forget tests ──────────────────────────────────────────────────────────────
-
-test("forget: reaps generating row + drops recap from store", async () => {
-  const rec = makeRecap({
-    state: "generating",
-    cwd: "/tmp/recap-forget",
-    spawnSessionId: "sp3",
-  });
-  const store = makeStore([], [rec]);
-  const herdr = makeHerdr([{ cwd: "/tmp/recap-forget", terminalId: "t-forget" }]);
-  const cleaned: string[] = [];
-
-  const svc = buildSvc({
-    store,
-    herdr,
-    nowFn: () => 200_000,
-    cleanup: (d) => cleaned.push(d),
-  });
-
-  svc.forget("s1");
-  expect(store.getRecap("s1")).toBeNull();
-  expect(herdr.stopped).toContain("t-forget");
-  expect(cleaned).toContain("/tmp/recap-forget");
-});
-
-test("forget: no existing recap → no crash", async () => {
-  const store = makeStore([]);
-  const herdr = makeHerdr();
-  const svc = buildSvc({ store, herdr, nowFn: () => 200_000 });
-  svc.forget("s1"); // should not throw
-  expect(store.getRecap("s1")).toBeNull();
-});
-
 // ── git/diff failure self-heals to "error" (must NOT throw out of bare-void sweep) ──
 
 test("generate: computeDiff rejection → 'error', no throw, no row", async () => {

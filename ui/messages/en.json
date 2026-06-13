@@ -1225,5 +1225,11 @@
   "integrated_epics_collapse_aria": "Collapse integrated epic #{number}",
   "integrated_epics_dismiss_failed": "Couldn't dismiss the epic — try again",
   "feat_integrated_epics_title": "Completed epics stay visible",
-  "feat_integrated_epics_body": "When an epic's sub-issues all land, it no longer vanishes — a new 'Integrated epics' band at the bottom of the Herd keeps it, with each child's PR and a one-click dismiss once you've followed up."
+  "feat_integrated_epics_body": "When an epic's sub-issues all land, it no longer vanishes — a new 'Integrated epics' band at the bottom of the Herd keeps it, with each child's PR and a one-click dismiss once you've followed up.",
+  "settings_colorblind_title": "Colourblind status markers",
+  "settings_colorblind_hint": "Shows a shape next to the session emoji on phones (✓ waiting, ! blocked) so those states don't rely on the green/red header tint alone. Off by default — turn it on if green and red are hard to tell apart.",
+  "settings_colorblind_on": "Markers on",
+  "settings_colorblind_off": "Markers off",
+  "feat_colorblind_markers_title": "Colourblind status markers",
+  "feat_colorblind_markers_body": "If green and red are hard to tell apart, switch on Colourblind status markers in Settings → Device. A ✓ (waiting) or ! (blocked) then sits next to the session emoji on phones, so those states no longer rely on the header tint alone. Off by default."
 }

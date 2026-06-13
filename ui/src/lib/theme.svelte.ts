@@ -9,6 +9,7 @@ export type Resolved = "dark" | "light";
 
 const STORAGE_KEY = "shepherd:theme";
 const CONTRAST_KEY = "shepherd:contrast";
+const COLORBLIND_KEY = "shepherd:colorblind";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function readPref(): ThemePref {
@@ -30,6 +31,15 @@ function readContrast(): boolean {
   }
 }
 
+function readColorblind(): boolean {
+  try {
+    return localStorage.getItem(COLORBLIND_KEY) === "on";
+  } catch {
+    /* localStorage unavailable (SSR / privacy mode) */
+    return false;
+  }
+}
+
 function systemPrefersDark(): boolean {
   return typeof matchMedia !== "undefined" ? matchMedia(DARK_QUERY).matches : true;
 }
@@ -42,6 +52,12 @@ class ThemeController {
   // not a theme: it composes on top of whichever dark/light theme is resolved,
   // strengthening the low-contrast greys/hairlines via [data-contrast="high"].
   contrast = $state<boolean>(readContrast());
+
+  // Colourblind status markers: opt-in shape glyph (✓ done / ! blocked) that
+  // partners the saturated header tint on phone so the two states don't rest on
+  // hue alone (WCAG 1.4.1). Off by default — the redundant glyph is noise for
+  // normal-sighted users, but a rotgrün-confused operator can switch it on.
+  colorblind = $state<boolean>(readColorblind());
 
   resolved = $derived<Resolved>(
     this.pref === "system" ? (this.systemDark ? "dark" : "light") : this.pref,
@@ -76,6 +92,20 @@ class ThemeController {
 
   toggleContrast() {
     this.setContrast(!this.contrast);
+  }
+
+  /** Persist the colourblind status-marker preference (consumed in-component). */
+  setColorblind(on: boolean) {
+    this.colorblind = on;
+    try {
+      localStorage.setItem(COLORBLIND_KEY, on ? "on" : "off");
+    } catch {
+      /* ignore — preference just won't survive reload */
+    }
+  }
+
+  toggleColorblind() {
+    this.setColorblind(!this.colorblind);
   }
 
   #apply() {

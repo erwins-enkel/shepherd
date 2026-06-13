@@ -305,8 +305,12 @@
   const tintWash = $derived(tintColor ? `var(--wash-${dStatus})` : null);
   // Non-hue partner to the tint: a leading shape mark so blocked (!) vs done (✓)
   // never rests on colour alone (WCAG 1.4.1) — mirrors the StatusPip glyphs. Same
-  // blocked/done-on-phone gate as the tint.
-  const statusGlyph = $derived(!tintColor ? null : dStatus === "blocked" ? "!" : "✓");
+  // blocked/done-on-phone gate as the tint, but opt-in (theme.colorblind): for
+  // normal-sighted users the glyph just duplicates the tint and steals header
+  // width, so it's hidden unless the colourblind marker preference is on.
+  const statusGlyph = $derived(
+    !tintColor || !theme.colorblind ? null : dStatus === "blocked" ? "!" : "✓",
+  );
   // Desktop counterpart (.status-mark): one glyph per status, shape-coded so no
   // state pair rests on hue alone — done (✓) and idle/archived (●) both resolve
   // to slate. Word stays in title/aria.

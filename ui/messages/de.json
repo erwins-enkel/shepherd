@@ -1225,5 +1225,11 @@
   "integrated_epics_collapse_aria": "Integriertes Epic #{number} einklappen",
   "integrated_epics_dismiss_failed": "Epic konnte nicht entfernt werden — bitte erneut versuchen",
   "feat_integrated_epics_title": "Abgeschlossene Epics bleiben sichtbar",
-  "feat_integrated_epics_body": "Wenn alle Sub-Issues eines Epics gelandet sind, verschwindet es nicht länger — ein neues Band 'Integrierte Epics' am unteren Rand der Herd behält es, samt PR jedes Kind-Issues und einem Ein-Klick-Verwerfen, sobald du nachgefasst hast."
+  "feat_integrated_epics_body": "Wenn alle Sub-Issues eines Epics gelandet sind, verschwindet es nicht länger — ein neues Band 'Integrierte Epics' am unteren Rand der Herd behält es, samt PR jedes Kind-Issues und einem Ein-Klick-Verwerfen, sobald du nachgefasst hast.",
+  "settings_colorblind_title": "Farbenblind-Status-Marker",
+  "settings_colorblind_hint": "Zeigt am Handy ein Symbol neben dem Session-Emoji (✓ wartet, ! blockiert), damit diese Zustände nicht allein an der grün/roten Header-Färbung hängen. Standardmäßig aus — einschalten, falls Grün und Rot schwer zu unterscheiden sind.",
+  "settings_colorblind_on": "Marker an",
+  "settings_colorblind_off": "Marker aus",
+  "feat_colorblind_markers_title": "Farbenblind-Status-Marker",
+  "feat_colorblind_markers_body": "Falls Grün und Rot schwer zu unterscheiden sind, aktiviere die Farbenblind-Status-Marker unter Einstellungen → Gerät. Dann steht am Handy ein ✓ (wartet) oder ! (blockiert) neben dem Session-Emoji, sodass diese Zustände nicht mehr allein an der Header-Färbung hängen. Standardmäßig aus."
 }

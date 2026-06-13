@@ -13,6 +13,7 @@
   import { formatAgo } from "$lib/format";
   import type { RecapVerdict } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     sessions,
@@ -287,6 +288,7 @@
         class:active={statusFilter == null && filter === "done"}
         title={m.herd_done_title()}
         aria-pressed={statusFilter == null && filter === "done"}
+        use:coachTarget={"done-lens"}
         onclick={() => {
           filter = "done";
           onstatusfilter?.(null);

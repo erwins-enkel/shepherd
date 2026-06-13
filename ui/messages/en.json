@@ -1257,5 +1257,7 @@
   "done_lens_title": "Done",
   "done_recap_finished": "Finished {ago} ago",
   "done_recap_panel_aria": "Recap for {desig}",
-  "done_back_to_list": "‹ Back to done"
+  "done_back_to_list": "‹ Back to done",
+  "feat_done_lens_title": "Done lens",
+  "feat_done_lens_body": "Filter the Herd to your finished and merged sessions, then open any one to review its read-only recap of what happened."
 }

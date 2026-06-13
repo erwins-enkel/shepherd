@@ -1257,5 +1257,7 @@
   "done_lens_title": "Fertig",
   "done_recap_finished": "Vor {ago} abgeschlossen",
   "done_recap_panel_aria": "Zusammenfassung für {desig}",
-  "done_back_to_list": "‹ Zurück zu Fertig"
+  "done_back_to_list": "‹ Zurück zu Fertig",
+  "feat_done_lens_title": "Fertig-Ansicht",
+  "feat_done_lens_body": "Filtere die Herde auf deine abgeschlossenen und gemergten Sitzungen und öffne eine davon, um die schreibgeschützte Zusammenfassung des Verlaufs anzusehen."
 }

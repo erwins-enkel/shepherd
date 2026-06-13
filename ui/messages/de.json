@@ -982,7 +982,6 @@
   "timetip_last_activity": "Letztes Lebenszeichen vor {ago} 👀",
   "timetip_pr_open_since": "PR #{number} schmort seit {ago} im Ofen 🍲",
   "timetip_approved_ago": "Approved von {who} vor {ago} ✅",
-  "timetip_your_turn": "Du bist dran! 🫵",
   "timetip_waiting_review_fresh": "{who} ist mit dem Review dran, seit {ago} ⏳",
   "timetip_waiting_review_dozing": "Schläft {who}? Seit {ago} kein Review 😴",
   "timetip_waiting_review_burning": "{who}! Dieses Review brennt an: {ago} 🔥",
@@ -1231,5 +1230,6 @@
   "settings_colorblind_on": "Marker an",
   "settings_colorblind_off": "Marker aus",
   "feat_colorblind_markers_title": "Farbenblind-Status-Marker",
-  "feat_colorblind_markers_body": "Falls Grün und Rot schwer zu unterscheiden sind, aktiviere die Farbenblind-Status-Marker unter Einstellungen → Gerät. Dann steht am Handy ein ✓ (wartet) oder ! (blockiert) neben dem Session-Emoji, sodass diese Zustände nicht mehr allein an der Header-Färbung hängen. Standardmäßig aus."
+  "feat_colorblind_markers_body": "Falls Grün und Rot schwer zu unterscheiden sind, aktiviere die Farbenblind-Status-Marker unter Einstellungen → Gerät. Dann steht am Handy ein ✓ (wartet) oder ! (blockiert) neben dem Session-Emoji, sodass diese Zustände nicht mehr allein an der Header-Färbung hängen. Standardmäßig aus.",
+  "timetip_ready_to_merge": "Grünes Licht — bereit zum Mergen 🟢"
 }

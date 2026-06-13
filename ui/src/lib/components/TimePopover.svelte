@@ -8,6 +8,7 @@
     git,
     activity,
     nowMs,
+    working,
     anchorRect,
     onclose,
   }: {
@@ -15,6 +16,10 @@
     git?: GitState;
     activity?: SessionActivity;
     nowMs: number;
+    /** The session is actively working (displayStatus === "running"). While true
+     *  the operator-facing "ready to merge" line is suppressed — it would
+     *  contradict the ACTIVE badge. */
+    working: boolean;
     /** The wall-clock element's getBoundingClientRect() at show time — the popover is
      *  position:fixed (the cards clip: .tile / .swipe-wrap are overflow:hidden). */
     anchorRect: DOMRect;
@@ -81,9 +86,11 @@
         }
       : null,
   );
-  // No handoff on an open+green PR = the operator's own turn.
-  const yourTurn = $derived(
-    !git?.handoff && git?.state === "open" && git.checks === "success" && !git.isDraft,
+  // No handoff signal on an open+green PR: neutrally flag it as ready to merge
+  // (we can't pin the merge on the operator). Suppressed while the agent is
+  // actively working — that would contradict the ACTIVE badge.
+  const awaitingMerge = $derived(
+    !working && !git?.handoff && git?.state === "open" && git.checks === "success" && !git.isDraft,
   );
 
   const REVIEW_MSG = {
@@ -137,8 +144,8 @@
           ago: waiting.ago,
         })}
       </div>
-    {:else if yourTurn}
-      <div class="tp-line tp-wait">{m.timetip_your_turn()}</div>
+    {:else if awaitingMerge}
+      <div class="tp-line tp-wait">{m.timetip_ready_to_merge()}</div>
     {/if}
   {/if}
 </div>

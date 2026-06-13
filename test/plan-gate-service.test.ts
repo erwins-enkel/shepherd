@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
 import { PlanGateService } from "../src/plan-gate";
+import { config } from "../src/config";
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 function harness(over: any = {}) {
   const started: any[] = [];
@@ -27,8 +45,8 @@ function harness(over: any = {}) {
   const deps: any = {
     store,
     herdr: {
-      start: (l: string, cwd: string, argv: string[]) => {
-        started.push({ l, cwd, argv });
+      start: (l: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        started.push({ l, cwd, argv, env });
         return { terminalId: "t1" };
       },
       stop() {},
@@ -84,6 +102,36 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
 });
+test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
+  await withAuth("subscription", "/ignored.sh", async () => {
+    const h = harness();
+    await h.svc.consider(planningSession() as any);
+    const argv = h.started[0].argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]).apiKeyHelper).toBeUndefined();
+    expect(h.started[0].env).toBeUndefined();
+  });
+});
+
+test("plan-gate: api-key mode (passthrough host) — apiKeyHelper + CLAUDE_CONFIG_DIR env", async () => {
+  await withAuth("api-key", "/helper.sh", async () => {
+    const h = harness();
+    await h.svc.consider(planningSession() as any);
+    const argv = h.started[0].argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]).apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(h.started[0].env)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
+});
+
+test("plan-gate: api-key without a configured key fails closed → 'error', no spawn, reaped", async () => {
+  await withAuth("api-key", null, async () => {
+    const h = harness();
+    const status = await h.svc.consider(planningSession() as any);
+    expect(status).toBe("error");
+    expect(h.started.length).toBe(0);
+    expect(h.removed).toEqual(["/wt-detached"]);
+  });
+});
+
 test("consider no-ops when plan missing/empty", async () => {
   const h = harness({ readPlan: () => null });
   const status = await h.svc.consider(planningSession() as any);

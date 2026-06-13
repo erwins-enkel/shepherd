@@ -19,8 +19,13 @@ import {
   worktreeUploadsDir,
 } from "./uploads";
 import { slugifyManual } from "./namer";
-import { spawnAuthSettings } from "./auth-mode";
-import { ensureApiKeyConfigDir } from "./auth-config-dir";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeySettingsFragment,
+  apiKeyMembraneFields,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
@@ -194,8 +199,8 @@ export function spawnSettingsOverlay(opts: { disablePlugins?: string[] } = {}): 
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
   }
   // api-key mode folds in `apiKeyHelper` LAST so key order is stable; subscription
-  // returns {} so the JSON is byte-for-byte identical to before (see spawnAuthSettings).
-  Object.assign(settings, spawnAuthSettings(config.authMode, config.authApiKeyHelperPath));
+  // returns {} so the JSON is byte-for-byte identical to before (see spawn-auth).
+  Object.assign(settings, apiKeySettingsFragment());
   return JSON.stringify(settings);
 }
 
@@ -752,12 +757,11 @@ export class SessionService {
     },
   ): SpawnOutcome {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
-    const apiKeyMode = config.authMode === "api-key";
     // Fail closed: api-key mode with no helper path configured must NOT silently
     // fall back to subscription (OAuth) billing. Refuse before the auto-gate so it
     // applies to BOTH interactive create (prepareSpawnOrThrow → throws) and
     // resume/drain (returns ok:false → null/caught).
-    if (apiKeyMode && !config.authApiKeyHelperPath) {
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
       return {
         ok: false,
         holdReason:
@@ -808,8 +812,7 @@ export class SessionService {
           extraEnv: collectPassthroughEnv(),
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
-          apiKeyHelperPath: apiKeyMode ? config.authApiKeyHelperPath : null,
-          maskCredentials: apiKeyMode,
+          ...apiKeyMembraneFields(),
         }
       : ({} as MembraneInputs);
 
@@ -849,10 +852,7 @@ export class SessionService {
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there.
-    const spawnEnv =
-      apiKeyMode && !willWrap
-        ? { CLAUDE_CONFIG_DIR: ensureApiKeyConfigDir(homedir(), config.claudeDir) }
-        : undefined;
+    const spawnEnv = apiKeyPassthroughEnv(willWrap);
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {

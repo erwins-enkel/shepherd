@@ -1,12 +1,30 @@
 import { test, expect } from "bun:test";
 import { llmName, namingPrompt, NAME_FILE } from "../src/namer-llm";
+import { config } from "../src/config";
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 function makeDeps(over: Partial<import("../src/namer-llm").LlmNamerDeps> = {}) {
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[]) => {
-        calls.started = { name, cwd, argv };
+      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        calls.started = { name, cwd, argv, env };
         return { terminalId: "term_n", cwd } as any;
       },
       stop: () => {
@@ -49,6 +67,42 @@ test("llmName: returns sanitized slug, spawns haiku, stops + cleans up", async (
   );
   expect(calls.stopped).toBe(true);
   expect(calls.cleaned).toBe(true);
+});
+
+test("llmName: subscription mode — --settings unchanged + no env 4th arg", async () => {
+  const { calls } = await withAuth("subscription", "/ignored.sh", async () => {
+    const d = makeDeps({ readName: () => "ok-slug" });
+    await llmName("x", d.deps, "l");
+    return d;
+  });
+  const argv = calls.started.argv;
+  const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
+  expect(settings).toEqual({ disableAllHooks: true });
+  expect(calls.started.env).toBeUndefined();
+});
+
+test("llmName: api-key mode — --settings gains apiKeyHelper + CLAUDE_CONFIG_DIR env", async () => {
+  const { calls } = await withAuth("api-key", "/helper.sh", async () => {
+    const d = makeDeps({ readName: () => "ok-slug" });
+    await llmName("x", d.deps, "l");
+    return d;
+  });
+  const argv = calls.started.argv;
+  const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
+  expect(settings.disableAllHooks).toBe(true);
+  expect(settings.apiKeyHelper).toBe("/helper.sh");
+  expect(calls.started.env).toBeDefined();
+  expect(Object.keys(calls.started.env)).toEqual(["CLAUDE_CONFIG_DIR"]);
+});
+
+test("llmName: api-key mode without a configured key fails closed (returns null, no spawn)", async () => {
+  const { result, calls } = await withAuth("api-key", null, async () => {
+    const d = makeDeps({ readName: () => "ok-slug" });
+    const r = await llmName("x", d.deps, "l");
+    return { result: r, calls: d.calls };
+  });
+  expect(result).toBeNull();
+  expect(calls.started).toBeNull();
 });
 
 test("llmName: takes only the first non-empty line", async () => {

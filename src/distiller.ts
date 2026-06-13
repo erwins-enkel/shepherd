@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { Signal, SignalKind } from "./types";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeySettingsFragment,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
@@ -120,6 +126,14 @@ export class DistillerService {
 
   private begin(repoPath: string, signals: Signal[]): void {
     const { dir } = this.deps.scratch.create();
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[distill] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      this.deps.scratch.remove(dir);
+      return;
+    }
     // Include dismissed rules in the "do NOT repeat" list: finalize() drops any
     // re-proposal of a known rule anyway, so omitting dismissed ones just wastes
     // a proposal slot + tokens re-suggesting something the operator already rejected.
@@ -138,12 +152,15 @@ export class DistillerService {
     // (src/review.ts:begin). NOT --dangerously-skip-permissions: it reads
     // untrusted agent/repo text. dontAsk MUST be last (after the variadic
     // --allowedTools) so the trailing prompt isn't swallowed. Bare Write only.
+    // Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
+    // apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR.
     const argv = [
       "claude",
       "--session-id",
       randomUUID(),
       "--settings",
-      '{"disableAllHooks":true}',
+      // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
+      JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
       "--disable-slash-commands",
       "--allowedTools",
       "Read",
@@ -156,7 +173,12 @@ export class DistillerService {
     argv.push(distillPrompt());
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(DISTILL_LABEL, dir, argv).terminalId;
+      terminalId = this.deps.herdr.start(
+        DISTILL_LABEL,
+        dir,
+        argv,
+        apiKeyPassthroughEnv(false),
+      ).terminalId;
     } catch (err) {
       console.warn(`[distill] spawn failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);

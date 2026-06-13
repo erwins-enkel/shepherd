@@ -6,6 +6,12 @@ import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeyMembraneFields,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import {
@@ -354,7 +360,17 @@ export class ReviewService {
       home: env.home,
       nodeBinReal: env.nodeBinReal,
       extraEnv: env.extraEnv,
+      // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
+      ...apiKeyMembraneFields(),
     };
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      this.deps.worktree.remove(wt.worktreePath);
+      return;
+    }
     const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     let terminalId: string;
     try {
@@ -362,6 +378,9 @@ export class ReviewService {
         `review ${session.desig}`,
         wt.worktreePath,
         wrapped,
+        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a
+        // credential-less mirror; with a backend the membrane masks creds in place.
+        apiKeyPassthroughEnv(backend !== null),
       ).terminalId;
     } catch (err) {
       console.warn(`[review] spawn failed for ${session.id}:`, err);

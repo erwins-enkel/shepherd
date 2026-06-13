@@ -9,6 +9,12 @@ import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import type { GitForge } from "./forge/types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeyMembraneFields,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
 import {
@@ -330,7 +336,17 @@ export class PlanGateService {
       home: env.home,
       nodeBinReal: env.nodeBinReal,
       extraEnv: env.extraEnv,
+      // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
+      ...apiKeyMembraneFields(),
     };
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[plan-gate] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      this.deps.worktree.remove(wt.worktreePath);
+      return "error";
+    }
     const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     let terminalId: string;
     try {
@@ -338,6 +354,9 @@ export class PlanGateService {
         `plan-review ${session.desig}`,
         wt.worktreePath,
         wrapped,
+        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a
+        // credential-less mirror; with a backend the membrane masks creds in place.
+        apiKeyPassthroughEnv(backend !== null),
       ).terminalId;
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);

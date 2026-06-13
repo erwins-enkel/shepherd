@@ -4,6 +4,12 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { HerdrDriver } from "./herdr";
 import { slugifyManual } from "./namer";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeySettingsFragment,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 
 /** The file the namer agent writes its slug to, in its temp cwd. */
 export const NAME_FILE = ".shepherd-name";
@@ -62,7 +68,9 @@ function defaultCleanup(cwd: string): void {
  *  - CLEAN context: user's global hooks (e.g. the SessionStart superpowers preamble)
  *    would inject a "you MUST invoke a skill" message that dontAsk can't satisfy,
  *    making the agent thrash. `--disable-slash-commands` removes skills entirely.
- *    NOT `--bare`: it refuses subscription OAuth (demands ANTHROPIC_API_KEY).
+ *    NOT `--bare`: it refuses subscription OAuth (demands ANTHROPIC_API_KEY). In
+ *    api-key auth mode the key arrives via `apiKeyHelper` in --settings (folded in
+ *    below) and the spawn points at a credential-less CLAUDE_CONFIG_DIR — still NOT --bare.
  *  - Bare `Write` — NOT Write(<path>): path-scoped Write rules are silently denied
  *    under `dontAsk`, which would block the slug write. Bare Write is not cwd-scoped,
  *    so an absolute-path write is technically permitted — an accepted trade-off (same
@@ -79,7 +87,8 @@ function namerArgv(model: string | null, taskText: string): string[] {
     "--session-id",
     randomUUID(),
     "--settings",
-    '{"disableAllHooks":true}',
+    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
+    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
     "--disable-slash-commands",
     "--allowedTools",
     "Write",
@@ -150,12 +159,21 @@ export async function llmName(
     pollMs = 1_000,
   } = deps;
 
+  // Fail closed: api-key mode without a configured key must NOT bill the subscription —
+  // skip the LLM namer and keep the heuristic name.
+  if (isApiKeyMode() && !isApiKeyConfigured()) return null;
+
   let cwd: string | null = null;
   let terminalId: string | null = null;
   try {
     cwd = makeTmpDir();
     try {
-      terminalId = deps.herdr.start(label, cwd, namerArgv(model, taskText)).terminalId;
+      terminalId = deps.herdr.start(
+        label,
+        cwd,
+        namerArgv(model, taskText),
+        apiKeyPassthroughEnv(false),
+      ).terminalId;
     } catch {
       return null; // herdr/claude unavailable → fall back to heuristic
     }

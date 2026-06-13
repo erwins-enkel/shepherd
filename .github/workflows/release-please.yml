@@ -33,7 +33,7 @@ jobs:
       # controllable here. Swap in a PAT via `token: secrets.RELEASE_PLEASE_TOKEN`
       # (a maintainer's token isn't approval-gated) if you want those runs to
       # execute without manual approval.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

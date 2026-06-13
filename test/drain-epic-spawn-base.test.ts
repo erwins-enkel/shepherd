@@ -103,6 +103,7 @@ function makeHarness(
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
     criticEnabled: true,
+    criticAllPrs: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

@@ -6,9 +6,13 @@
 
   let {
     checks,
+    failed = false,
+    onretry,
     ondismiss,
   }: {
     checks: DiagnosticCheck[] | null;
+    failed?: boolean;
+    onretry?: () => void;
     ondismiss: () => void;
   } = $props();
 </script>
@@ -28,7 +32,7 @@
       <p class="intro">{m.onboarding_intro()}</p>
     </header>
     <div class="checks">
-      <DiagnoseRows {checks} />
+      <DiagnoseRows {checks} {failed} {onretry} />
     </div>
     <footer class="foot">
       <button class="gbtn primary" onclick={ondismiss}>{m.onboarding_dismiss()}</button>

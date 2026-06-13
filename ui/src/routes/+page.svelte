@@ -270,6 +270,20 @@
   // this same load — so we latch "was fresh" before seeding and gate on that +
   // the persisted seen-set (markSeen("onboarding") keeps it from reappearing).
   let showOnboarding = $state(false);
+  // True only when the diagnostics seed fetch failed and no snapshot has arrived
+  // yet (HTTP or the WS push) — lets the onboarding checklist show a retry instead
+  // of a permanent "Loading…".
+  let diagnosticsLoadFailed = $state(false);
+  function loadDiagnostics() {
+    getDiagnostics()
+      .then((d) => {
+        store.diagnostics = d;
+        diagnosticsLoadFailed = false;
+      })
+      .catch(() => {
+        if (!store.diagnostics) diagnosticsLoadFailed = true;
+      });
+  }
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
@@ -814,9 +828,7 @@
     getHerdrUpdate()
       .then((u) => (store.herdrUpdate = u))
       .catch(() => {});
-    getDiagnostics()
-      .then((d) => (store.diagnostics = d))
-      .catch(() => {});
+    loadDiagnostics();
     getStarPrompt()
       .then((s) => (store.starPrompt = s))
       .catch(() => {});
@@ -1575,6 +1587,8 @@
 {#if showOnboarding}
   <Onboarding
     checks={store.diagnostics?.checks ?? null}
+    failed={diagnosticsLoadFailed}
+    onretry={loadDiagnostics}
     ondismiss={() => {
       featureDiscovery.markSeen("onboarding");
       showOnboarding = false;

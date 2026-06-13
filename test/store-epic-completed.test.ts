@@ -150,3 +150,15 @@ test("dismissedAt IS NULL filter — dismissed epics never appear in list", () =
   expect(list).toHaveLength(1);
   expect(list[0]!.parentIssueNumber).toBe(2);
 });
+
+test("listEpicRuns returns all persisted epic_run rows", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.listEpicRuns()).toEqual([]);
+  s.setEpicRun({ repoPath: "/a", parentIssueNumber: 1, mode: "auto", status: "idle" });
+  s.setEpicRun({ repoPath: "/b", parentIssueNumber: 2, mode: "attended", status: "running" });
+  const runs = s.listEpicRuns().sort((x, y) => x.repoPath.localeCompare(y.repoPath));
+  expect(runs).toEqual([
+    { repoPath: "/a", parentIssueNumber: 1, mode: "auto", status: "idle" },
+    { repoPath: "/b", parentIssueNumber: 2, mode: "attended", status: "running" },
+  ]);
+});

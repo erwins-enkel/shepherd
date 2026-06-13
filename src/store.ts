@@ -551,6 +551,13 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  /** All persisted epic_run rows (one per repo). Mirrors getEpicRun's row shape. */
+  listEpicRuns(): EpicRun[] {
+    return this.db
+      .query(`SELECT repoPath, parentIssueNumber, mode, status FROM epic_run`)
+      .all() as EpicRun[];
+  }
+
   setEpicRun(r: EpicRun): void {
     this.db.run(
       `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, updatedAt) VALUES (?,?,?,?,?)
@@ -624,6 +631,16 @@ export class SessionStore implements CapStore, CreditStore {
          completedAt = excluded.completedAt,
          childrenJson = excluded.childrenJson`,
       [row.repoPath, row.parentIssueNumber, row.parentTitle, row.completedAt, row.childrenJson],
+    );
+  }
+
+  /** True if an epic_completed row exists for this key, regardless of dismissedAt.
+   *  Used by the backfill pre-check so a dismissed-but-idle run isn't re-backfilled. */
+  hasEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {
+    return (
+      this.db
+        .query(`SELECT 1 FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ? LIMIT 1`)
+        .get(repoPath, parentIssueNumber) !== null
     );
   }
 

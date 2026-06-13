@@ -77,6 +77,7 @@ import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
 import { importEpicLinks, type ImportResult } from "./epic-import";
+import { buildRollup, type CompletedEpic } from "./completed-epic";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
@@ -3077,6 +3078,170 @@ async function handleEpicImport({ req, parts, url, deps }: Ctx): Promise<Respons
   return json(result);
 }
 
+// Short-TTL per-repo cache around forge.listIssues(), shared by the completed-epics
+// band reconcile. Coalesces the concurrent band fetches a UI poll can fan out into one
+// forge round-trip per repo. The /api/epics route still calls listIssues() uncached, so
+// this is the same network cost — just deduplicated within the TTL window.
+const COMPLETED_EPICS_LIST_TTL_MS = 10_000;
+const completedEpicsIssueCache = new Map<
+  string,
+  { issues: Awaited<ReturnType<GitForge["listIssues"]>>; ts: number }
+>();
+
+async function cachedListIssues(
+  repo: string,
+  forge: GitForge,
+): Promise<Awaited<ReturnType<GitForge["listIssues"]>>> {
+  const hit = completedEpicsIssueCache.get(repo);
+  const now = Date.now();
+  if (hit && now - hit.ts < COMPLETED_EPICS_LIST_TTL_MS) return hit.issues;
+  const issues = await forge.listIssues();
+  completedEpicsIssueCache.set(repo, { issues, ts: now });
+  return issues;
+}
+
+// GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; also
+// runs a bounded, best-effort, fail-safe reconcile (auto-dismiss confidently-closed parents +
+// backfill an all-merged idle run that never got recorded). Always serves DB rows; never 500s
+// on forge/network failure and never 503s just because drain is absent.
+async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "GET" &&
+      parts[0] === "api" &&
+      parts[1] === "epics" &&
+      parts[2] === "completed" &&
+      !parts[3]
+    )
+  )
+    return null;
+
+  const repoParam = url.searchParams.get("repo");
+  let repoFilter: string | undefined;
+  if (repoParam !== null) {
+    const dir = safeRepoDir(repoParam, config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    repoFilter = dir;
+  }
+
+  // scopeRepos: ?repo → just that repo; else the union of repos with a DB completed-epic row
+  // and repos with an idle epic_run (the backfill source). One entry per repo — bounded.
+  const scopeRepos: string[] = repoFilter
+    ? [repoFilter]
+    : [
+        ...new Set([
+          ...deps.store.listEpicCompleted().map((r) => r.repoPath),
+          ...deps.store
+            .listEpicRuns()
+            .filter((r) => r.status === "idle")
+            .map((r) => r.repoPath),
+        ]),
+      ];
+
+  for (const repo of scopeRepos) {
+    const forge = deps.resolveForge?.(repo);
+    if (!forge) continue; // no forge → skip reconcile for this repo (its DB rows are still served)
+
+    let open: Awaited<ReturnType<GitForge["listIssues"]>>;
+    try {
+      open = await cachedListIssues(repo, forge);
+    } catch {
+      continue; // forge/network error → skip this repo's reconcile (fail-safe)
+    }
+    const openNumbers = new Set(open.map((i) => i.number));
+    const openTruncated = open.length >= 200;
+
+    // Auto-dismiss: a completed epic whose parent is confidently closed (absent from a
+    // complete open set) gets cleared. openTruncated → can't be confident, so skip.
+    if (!openTruncated) {
+      for (const row of deps.store.listEpicCompleted(repo)) {
+        if (!openNumbers.has(row.parentIssueNumber)) {
+          deps.store.dismissEpicCompleted(repo, row.parentIssueNumber);
+          deps.events?.emit("epic:completed-cleared", {
+            repoPath: repo,
+            parentIssueNumber: row.parentIssueNumber,
+          });
+        }
+      }
+    }
+
+    // Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
+    // across a restart). Needs buildEpic — skip when drain is absent.
+    if (!deps.drain) continue;
+    const run = deps.store.getEpicRun(repo);
+    if (run?.status !== "idle") continue;
+    // hasEpicCompleted ignores dismissedAt, so a dismissed-but-idle run counts as recorded
+    // and never re-fires buildEpic (a forge round-trip) on every GET.
+    if (deps.store.hasEpicCompleted(repo, run.parentIssueNumber)) continue;
+    // Parent confidently still open? If we have a complete open set and the parent is absent,
+    // it's about to be auto-dismissed anyway — skip the flash of recording it.
+    if (!openTruncated && !openNumbers.has(run.parentIssueNumber)) continue;
+
+    const epic = await deps.drain.buildEpic(repo, run);
+    if (!epic || epic.children.length === 0) continue;
+    if (epic.children.every((c) => c.state === "merged")) {
+      const rollup = buildRollup(
+        epic.children,
+        deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
+      );
+      // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
+      const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
+      const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
+      const completed: CompletedEpic = {
+        repoPath: repo,
+        parentIssueNumber: run.parentIssueNumber,
+        parentTitle: epic.parentTitle,
+        completedAt,
+        children: rollup,
+      };
+      deps.store.recordEpicCompleted({
+        repoPath: completed.repoPath,
+        parentIssueNumber: completed.parentIssueNumber,
+        parentTitle: completed.parentTitle,
+        completedAt: completed.completedAt,
+        childrenJson: JSON.stringify(rollup),
+      });
+    } else {
+      // Visible skip — never silently drop a backfill candidate.
+      const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
+      console.warn(
+        `[server] completed-epics backfill skipped for ${repo}#${run.parentIssueNumber}: ` +
+          `children not all merged (pending: ${pending.join(", ")})`,
+      );
+    }
+  }
+
+  // Re-query post-reconcile so the response reflects dismiss + backfill.
+  const rows = deps.store.listEpicCompleted(repoFilter).map((row) => {
+    const { childrenJson, ...rest } = row;
+    return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
+  });
+  return json(rows);
+}
+
+// POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
+async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "POST" &&
+      parts[0] === "api" &&
+      parts[1] === "epics" &&
+      parts[2] === "completed" &&
+      parts[3] === "dismiss"
+    )
+  )
+    return null;
+  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parent = body?.parent;
+  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  deps.store.dismissEpicCompleted(dir, parent);
+  deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
+  return json({ ok: true });
+}
+
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handlePing,
@@ -3091,6 +3256,8 @@ const ROUTE_HANDLERS = [
   handleDrain,
   handleAutoMerge,
   handleEpicsList,
+  handleEpicsCompletedDismiss,
+  handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,
   handleEpicGet,

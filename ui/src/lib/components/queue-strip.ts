@@ -148,6 +148,8 @@ export function pausedText(d: DrainStatus): string {
       return m.drain_paused_error({ desig });
     case "usage":
       return m.drain_paused_usage({ pct: desig });
+    case "credits":
+      return m.drain_paused_credits();
     default:
       return m.drain_paused_generic();
   }

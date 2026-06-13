@@ -264,6 +264,13 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Account-wide extra-credit (paid pay-as-you-go overage) spend ceiling, in account
+  // currency units. Auto-drain/autopilot pauses when measured spend strictly exceeds it.
+  // Persisted + UI-configurable; env seeds a fresh DB. Default 0 = pause on ANY spend.
+  extraCreditsDrainCeiling: Math.max(
+    0,
+    Number(process.env.SHEPHERD_EXTRA_CREDITS_DRAIN_CEILING ?? 0) || 0,
+  ),
   // Max consecutive auto-rebase attempts the merge train spends on a PR before pausing for the operator.
   autoMergeRebaseCap: Number(process.env.SHEPHERD_AUTOMERGE_REBASE_CAP ?? 5),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}

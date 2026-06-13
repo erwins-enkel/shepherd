@@ -21,7 +21,13 @@ function issue(number: number, over: Partial<Issue> = {}): Issue {
   };
 }
 
-const NO_USAGE: UsageLimitsType = { session5h: null, week: null, stale: false, calibratedAt: null };
+const NO_USAGE: UsageLimitsType = {
+  session5h: null,
+  week: null,
+  credits: null,
+  stale: false,
+  calibratedAt: null,
+};
 
 interface ForgeRec {
   listIssuesCalls: number;

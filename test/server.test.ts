@@ -52,7 +52,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     events,
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
   };
   const distiller = { distillNow: () => {} };
   return { store, service, events, usageLimits, distiller };
@@ -67,7 +67,55 @@ test("GET /api/usage/limits returns the limits snapshot", async () => {
   const res = await harness().fetch(new Request("http://x/api/usage/limits"));
   expect(res.status).toBe(200);
   const body = await res.json();
-  expect(body).toEqual({ session5h: null, week: null, stale: true, calibratedAt: null });
+  expect(body).toEqual({
+    session5h: null,
+    week: null,
+    credits: null,
+    stale: true,
+    calibratedAt: null,
+  });
+});
+
+test("POST /api/usage/refresh calls refreshUsage and returns its fresh limits", async () => {
+  const fresh = {
+    session5h: { pct: 80, resetAt: 123 },
+    week: { pct: 95, resetAt: 456 },
+    credits: {
+      pct: 12,
+      spent: 6,
+      cap: 50,
+      currency: "€",
+      resetAt: 789,
+      scrapedAt: 1,
+      stale: false,
+    },
+    stale: false,
+    calibratedAt: 1,
+  };
+  let called = 0;
+  const deps = makeDeps();
+  deps.refreshUsage = async () => {
+    called++;
+    return fresh as any;
+  };
+  const res = await makeApp(deps).fetch(
+    new Request("http://x/api/usage/refresh", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(fresh);
+  expect(called).toBe(1);
+});
+
+test("POST /api/usage/refresh without refreshUsage falls back to current limits snapshot", async () => {
+  const res = await harness().fetch(new Request("http://x/api/usage/refresh", { method: "POST" }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    session5h: null,
+    week: null,
+    credits: null,
+    stale: true,
+    calibratedAt: null,
+  });
 });
 
 test("GET /api/sessions/:id/usage returns zeroed usage for a session w/o JSONL", async () => {
@@ -189,7 +237,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
     reaper: fullReaper,
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };
@@ -1204,7 +1252,7 @@ function clearMergedHarness() {
     },
   };
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
   };
   const app = makeApp({ store, service, events, usageLimits, prCache } as any);
   const mk = (name: string, state: string) => {
@@ -1813,7 +1861,7 @@ function harnessWithPreviewStop({
     preview: { devPortFor },
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };

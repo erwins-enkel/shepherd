@@ -43,7 +43,7 @@ import { sessionTokens, jsonlPathFor } from "./usage";
 import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
-import type { UsageLimitsService } from "./usage-limits";
+import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { StarPromptStatus } from "./star-prompt";
@@ -118,6 +118,9 @@ export interface AppDeps {
   service: SessionService;
   events: EventHub;
   usageLimits: Pick<UsageLimitsService, "limits">;
+  /** Force a `/usage` re-scrape (calibration) and return fresh limits; absent in tests that
+   *  don't wire the live calibrator (the route then falls back to the current snapshot). */
+  refreshUsage?: () => Promise<UsageLimits>;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
@@ -1684,7 +1687,18 @@ async function handleSessionGit(ctx: Ctx): Promise<Response | null> {
   }
 }
 
-function handleUsageLimits({ req, parts, deps }: Ctx): Response | null {
+async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "refresh"
+  ) {
+    const limits = deps.refreshUsage
+      ? await deps.refreshUsage()
+      : deps.usageLimits.limits(Date.now());
+    return json(limits);
+  }
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
     return json(deps.usageLimits.limits(Date.now()));
   }
@@ -1902,6 +1916,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
+      // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
+      // 0 = pause on ANY extra-credit spend.
+      extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
     });
   }
   if (req.method === "PUT") {
@@ -1926,6 +1943,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
+  ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -1978,6 +1996,18 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+// Account-wide extra-credit (paid overage) spend ceiling. Requires a finite, non-negative
+// number; persisted as the canonical "extra_credits_drain_ceiling" setting key and applied
+// live so the next drain assembly reads it without a restart.
+function putExtraCreditsDrainCeiling(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return json({ error: "extraCreditsDrainCeiling must be a non-negative number" }, 400);
+  }
+  config.extraCreditsDrainCeiling = value; // live: next drain assembly reads it
+  deps.store.setSetting("extra_credits_drain_ceiling", String(value)); // persist across restarts
+  return json({ extraCreditsDrainCeiling: config.extraCreditsDrainCeiling });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

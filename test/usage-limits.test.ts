@@ -4,9 +4,17 @@ import { join } from "node:path";
 import {
   parseUsageFrame,
   parseResetLabel,
+  parseMonthlyReset,
+  parseCredits,
+  calibrateDelay,
+  CREDIT_WATCH_INTERVAL_MS,
+  CALIBRATE_INTERVAL_MS,
+  type UsageLimits,
   UsageLimitsService,
   type CapRow,
   type CapStore,
+  type CreditSnapshot,
+  type CreditStore,
   type UsageProbe,
 } from "../src/usage-limits";
 import { AccountUsageIndex } from "../src/usage";
@@ -102,6 +110,101 @@ test("parseUsageFrame: model-scoped weekly gauges never override the account cap
   expect(parseUsageFrame(raw, NOW).week?.pct).toBe(40);
 });
 
+// ── usage credits (paid overage) ─────────────────────────────────────────────
+
+// Mid-June 2026, local time (month 0-indexed; June = 5). Jun1 is already past here.
+const JUN13 = new Date(2026, 5, 13, 12, 0, 0, 0).getTime();
+
+test("parseUsageFrame parses the credits panel from the captured fixture", () => {
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame.txt"), "utf8");
+  const p = parseUsageFrame(raw, NOW);
+  expect(p.credits).not.toBeNull();
+  expect(p.credits!.currency).toBe("€");
+  expect(p.credits!.spent).toBe(0.29);
+  expect(p.credits!.cap).toBe(50);
+  expect(p.credits!.pct).toBe(0);
+  expect(p.credits!.resetLabel).toBe("Jun1");
+});
+
+test("credits: pct rounds to 0 while spend is the real (non-zero) signal", () => {
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame.txt"), "utf8");
+  const c = parseUsageFrame(raw, NOW).credits!;
+  expect(c.pct).toBe(0);
+  expect(c.spent).toBeGreaterThan(0);
+});
+
+test("parseCredits captures $ and £ currency symbols exactly", () => {
+  const usd = parseCredits("Usagecredits12%used$3.50/$25.00spent·ResetsJul1(x)", NOW)!;
+  expect(usd.currency).toBe("$");
+  expect(usd.spent).toBe(3.5);
+  expect(usd.cap).toBe(25);
+  expect(usd.pct).toBe(12);
+  const gbp = parseCredits("Usagecredits0%used£0.99/£10.00spent·ResetsAug2(x)", NOW)!;
+  expect(gbp.currency).toBe("£");
+  expect(gbp.spent).toBe(0.99);
+  expect(gbp.cap).toBe(10);
+});
+
+test("parseCredits stops at the Esc-to-cancel chrome and ignores absent section", () => {
+  expect(parseCredits("Currentsession3%usedResets9:30pm(x)", NOW)).toBeNull();
+  expect(parseUsageFrame("Current session\n3% used\nResets 9:30pm (x)", NOW).credits).toBeNull();
+});
+
+test("parseMonthlyReset rolls a past day forward ONE MONTH, not one year", () => {
+  // Jun1 is past relative to mid-June → next month, same year (Jul 1), NOT Jun 2027
+  const jul1 = new Date(parseMonthlyReset("Jun1", JUN13)!);
+  expect(jul1.getFullYear()).toBe(2026);
+  expect(jul1.getMonth()).toBe(6); // July
+  expect(jul1.getDate()).toBe(1);
+  expect(jul1.getHours()).toBe(0); // midnight local
+});
+
+test("parseMonthlyReset keeps a future day this month", () => {
+  const jun20 = new Date(parseMonthlyReset("Jun20", JUN13)!);
+  expect(jun20.getFullYear()).toBe(2026);
+  expect(jun20.getMonth()).toBe(5); // June
+  expect(jun20.getDate()).toBe(20);
+});
+
+test("parseMonthlyReset carries the year on a Dec→Jan wrap", () => {
+  const dec15 = new Date(2026, 11, 15, 12, 0, 0, 0).getTime();
+  const jan1 = new Date(parseMonthlyReset("Jan1", dec15)!);
+  expect(jan1.getFullYear()).toBe(2027);
+  expect(jan1.getMonth()).toBe(0);
+  expect(jan1.getDate()).toBe(1);
+});
+
+test("parseMonthlyReset clamps a day-31 label to the next month's last day (no month skip)", () => {
+  // Jan31 near end of Jan 2027 (non-leap) → next occurrence is Feb 28, NOT a March spill-over.
+  const jan31 = new Date(2027, 0, 31, 23, 59, 0, 0).getTime();
+  const feb = new Date(parseMonthlyReset("Jan31", jan31)!);
+  expect(feb.getFullYear()).toBe(2027);
+  expect(feb.getMonth()).toBe(1); // February — not skipped to March
+  expect(feb.getDate()).toBe(28); // clamped to Feb's last day
+  expect(feb.getHours()).toBe(0);
+});
+
+test("parseMonthlyReset clamps a day-31 label to Feb 29 in a leap year", () => {
+  // 2028 is a leap year → Jan31 rolls to Feb 29.
+  const jan31 = new Date(2028, 0, 31, 23, 59, 0, 0).getTime();
+  const feb = new Date(parseMonthlyReset("Jan31", jan31)!);
+  expect(feb.getMonth()).toBe(1); // February
+  expect(feb.getDate()).toBe(29); // leap-year last day
+});
+
+test("parseMonthlyReset returns null for an unparseable label", () => {
+  expect(parseMonthlyReset("someday", NOW)).toBeNull();
+  expect(parseMonthlyReset("9:30pm", NOW)).toBeNull();
+});
+
+test("parseUsageFrame: adding credits parsing did not break the week anchor loop", () => {
+  // self-truncation regression: the fixture must still yield BOTH a week window AND credits
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame.txt"), "utf8");
+  const p = parseUsageFrame(raw, NOW);
+  expect(p.week).not.toBeNull();
+  expect(p.credits).not.toBeNull();
+});
+
 // ── calibration + live limits ───────────────────────────────────────────────
 
 class MemCaps implements CapStore {
@@ -111,6 +214,16 @@ class MemCaps implements CapStore {
   }
   putCap(row: CapRow): void {
     this.rows.set(row.window, row);
+  }
+}
+
+class MemCredits implements CreditStore {
+  snap: CreditSnapshot | null = null;
+  getCreditSnapshot(): CreditSnapshot | null {
+    return this.snap;
+  }
+  putCreditSnapshot(row: CreditSnapshot): void {
+    this.snap = row;
   }
 }
 
@@ -130,7 +243,7 @@ test("calibrate backs out cap = units / (pct/100)", async () => {
   const caps = new MemCaps();
   const raw =
     "Current session\n10% used\nResets 9:30pm (x)\nCurrent week\n20% used\nResets Jun 6 (x)";
-  const svc = new UsageLimitsService(fakeIndex(100), caps, new StubProbe(raw));
+  const svc = new UsageLimitsService(fakeIndex(100), caps, new StubProbe(raw), new MemCredits());
   expect(await svc.calibrate(NOW)).toBe(true);
   // session: 100 units at 10% → cap 1000 ; week: 100 at 20% → cap 500
   expect(caps.rows.get("session5h")!.cap).toBeCloseTo(1000, 5);
@@ -141,7 +254,7 @@ test("low-pct scrape keeps the prior cap (noise guard)", async () => {
   const caps = new MemCaps();
   caps.putCap({ window: "session5h", cap: 1000, resetAt: NOW + 1000, pct: 40, scrapedAt: NOW - 1 });
   const raw = "Current session\n2% used\nResets 9:30pm (x)";
-  const svc = new UsageLimitsService(fakeIndex(5), caps, new StubProbe(raw));
+  const svc = new UsageLimitsService(fakeIndex(5), caps, new StubProbe(raw), new MemCredits());
   await svc.calibrate(NOW);
   expect(caps.rows.get("session5h")!.cap).toBe(1000); // unchanged
 });
@@ -152,13 +265,18 @@ test("unparseable reset label keeps the prior anchor rolled forward, not now+per
   const priorReset = NOW - 1000; // just expired → rolls forward one period
   caps.putCap({ window: "week", cap: 500, resetAt: priorReset, pct: 20, scrapedAt: NOW - WEEK });
   const raw = "Current week (all models)\n30% used\nResets someday (x)";
-  const svc = new UsageLimitsService(fakeIndex(100), caps, new StubProbe(raw));
+  const svc = new UsageLimitsService(fakeIndex(100), caps, new StubProbe(raw), new MemCredits());
   await svc.calibrate(NOW);
   expect(caps.rows.get("week")!.resetAt).toBe(priorReset + WEEK);
 });
 
 test("calibrate returns false when the probe fails", async () => {
-  const svc = new UsageLimitsService(fakeIndex(100), new MemCaps(), new StubProbe(null));
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+  );
   expect(await svc.calibrate(NOW)).toBe(false);
 });
 
@@ -172,7 +290,7 @@ test("limits computes pct = units/cap and rolls the reset anchor forward", () =>
     pct: 25,
     scrapedAt: NOW,
   });
-  const svc = new UsageLimitsService(fakeIndex(50), caps, new StubProbe(null));
+  const svc = new UsageLimitsService(fakeIndex(50), caps, new StubProbe(null), new MemCredits());
   const l = svc.limits(NOW);
   expect(l.session5h!.pct).toBe(25); // 50/200
   expect(l.session5h!.resetAt).toBe(NOW - 2 * 3600_000 + 5 * 3600_000);
@@ -180,13 +298,151 @@ test("limits computes pct = units/cap and rolls the reset anchor forward", () =>
 });
 
 test("limits clamps to 100 and reports stale when never calibrated", () => {
-  const empty = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null));
+  const empty = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+  );
   const l = empty.limits(NOW);
   expect(l.session5h).toBeNull();
   expect(l.stale).toBe(true);
 
   const caps = new MemCaps();
   caps.putCap({ window: "week", cap: 10, resetAt: NOW + 1000, pct: 99, scrapedAt: NOW });
-  const over = new UsageLimitsService(fakeIndex(999), caps, new StubProbe(null));
+  const over = new UsageLimitsService(fakeIndex(999), caps, new StubProbe(null), new MemCredits());
   expect(over.limits(NOW).week!.pct).toBe(100);
+});
+
+// ── credits: calibrate persist + live passthrough ────────────────────────────
+
+test("calibrate persists the parsed credit snapshot with scrapedAt === now", async () => {
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame.txt"), "utf8");
+  const credits = new MemCredits();
+  const svc = new UsageLimitsService(fakeIndex(100), new MemCaps(), new StubProbe(raw), credits);
+  expect(await svc.calibrate(NOW)).toBe(true);
+  const snap = credits.getCreditSnapshot()!;
+  expect(snap.spent).toBe(0.29);
+  expect(snap.cap).toBe(50);
+  expect(snap.currency).toBe("€");
+  expect(snap.pct).toBe(0);
+  expect(snap.resetAt).toBe(parseMonthlyReset("Jun1", NOW)); // direct passthrough of parsed reset
+  expect(snap.scrapedAt).toBe(NOW);
+});
+
+test("calibrate with no credits section leaves the prior snapshot untouched", async () => {
+  const credits = new MemCredits();
+  const prior: CreditSnapshot = {
+    spent: 1.5,
+    cap: 50,
+    currency: "$",
+    pct: 3,
+    resetAt: NOW + 1000,
+    scrapedAt: NOW - 1000,
+  };
+  credits.putCreditSnapshot({ ...prior });
+  // a capture with windows but no Usagecredits panel
+  const raw = "Current session\n10% used\nResets 9:30pm (x)";
+  const svc = new UsageLimitsService(fakeIndex(100), new MemCaps(), new StubProbe(raw), credits);
+  await svc.calibrate(NOW);
+  expect(credits.getCreditSnapshot()).toEqual(prior); // never fabricated/cleared
+});
+
+test("limits passes a fresh credit snapshot through (incl. pct 0 while spend > 0)", () => {
+  const credits = new MemCredits();
+  credits.putCreditSnapshot({
+    spent: 0.29,
+    cap: 50,
+    currency: "€",
+    pct: 0,
+    resetAt: NOW + 7 * 24 * 3600_000,
+    scrapedAt: NOW,
+  });
+  const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
+  const c = svc.limits(NOW).credits!;
+  expect(c.stale).toBe(false);
+  expect(c.pct).toBe(0);
+  expect(c.spent).toBe(0.29);
+  expect(c.cap).toBe(50);
+  expect(c.currency).toBe("€");
+  expect(c.resetAt).toBe(NOW + 7 * 24 * 3600_000);
+  expect(c.scrapedAt).toBe(NOW);
+});
+
+test("limits marks a credit snapshot older than 1h as stale", () => {
+  const credits = new MemCredits();
+  credits.putCreditSnapshot({
+    spent: 5,
+    cap: 50,
+    currency: "€",
+    pct: 10,
+    resetAt: NOW + 1000,
+    scrapedAt: NOW - 2 * 3600_000,
+  });
+  const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
+  expect(svc.limits(NOW).credits!.stale).toBe(true);
+});
+
+test("limits drops a credit snapshot whose monthly budget already reset", () => {
+  const credits = new MemCredits();
+  credits.putCreditSnapshot({
+    spent: 5,
+    cap: 50,
+    currency: "€",
+    pct: 10,
+    resetAt: NOW - 1, // already rolled over
+    scrapedAt: NOW,
+  });
+  const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
+  expect(svc.limits(NOW).credits).toBeNull();
+});
+
+test("limits keeps a credit snapshot with an unparseable (null) resetAt", () => {
+  const credits = new MemCredits();
+  credits.putCreditSnapshot({
+    spent: 5,
+    cap: 50,
+    currency: "€",
+    pct: 10,
+    resetAt: null, // can't be known to have rolled over → not post-reset
+    scrapedAt: NOW,
+  });
+  const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
+  const c = svc.limits(NOW).credits!;
+  expect(c).not.toBeNull();
+  expect(c.resetAt).toBeNull();
+});
+
+test("limits returns null credits when nothing has been persisted", () => {
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  expect(svc.limits(NOW).credits).toBeNull();
+});
+
+const mkLimits = (weekPct: number | null): UsageLimits => ({
+  session5h: null,
+  week: weekPct === null ? null : { pct: weekPct, resetAt: NOW },
+  credits: null,
+  stale: false,
+  calibratedAt: NOW,
+});
+
+test("calibrateDelay: week pct above watch threshold escalates cadence", () => {
+  expect(calibrateDelay(mkLimits(95))).toBe(CREDIT_WATCH_INTERVAL_MS);
+});
+
+test("calibrateDelay: week pct exactly at threshold escalates (>= boundary)", () => {
+  expect(calibrateDelay(mkLimits(90))).toBe(CREDIT_WATCH_INTERVAL_MS);
+});
+
+test("calibrateDelay: week pct below threshold stays daily", () => {
+  expect(calibrateDelay(mkLimits(50))).toBe(CALIBRATE_INTERVAL_MS);
+});
+
+test("calibrateDelay: null week window stays daily", () => {
+  expect(calibrateDelay(mkLimits(null))).toBe(CALIBRATE_INTERVAL_MS);
 });

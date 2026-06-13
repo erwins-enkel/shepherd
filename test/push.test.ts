@@ -8,6 +8,7 @@ import {
   attachGitPush,
   attachMergePush,
   attachUsagePush,
+  attachCreditsPush,
   blockSummary,
   buildPayload,
   USAGE_WARN_PCT,
@@ -650,6 +651,180 @@ test("attachUsagePush does not double-warn when an emit lands mid-delivery", asy
   release(true); // delivery completes, window marked
   await tick();
   events.emit("usage:limits", limitsEvent(87, 10_000)); // marked → still no second call
+  await tick();
+  expect(calls.length).toBe(1);
+});
+
+// Credits live on usage:limits alongside session5h/week; only `credits` matters here.
+const creditsEvent = (
+  c: {
+    spent: number;
+    cap: number;
+    currency?: string;
+    resetAt: number | null;
+    stale?: boolean;
+  } | null,
+) => ({
+  session5h: null,
+  week: null,
+  stale: false,
+  calibratedAt: 1,
+  credits:
+    c === null
+      ? null
+      : {
+          pct: 0,
+          spent: c.spent,
+          cap: c.cap,
+          currency: c.currency ?? "$",
+          resetAt: c.resetAt,
+          scrapedAt: 1,
+          stale: c.stale ?? false,
+        },
+});
+
+// Fixed epochs: July 2026 → bucket "2026-07"; August 2026 → "2026-08".
+const JULY = new Date(2026, 6, 1).getTime();
+const AUGUST = new Date(2026, 7, 1).getTime();
+
+test("attachCreditsPush fires once when credits are fresh and spend > 0", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+
+  events.emit("usage:limits", creditsEvent({ spent: 0.29, cap: 50, currency: "$", resetAt: JULY }));
+  await tick();
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toMatchObject({
+    kind: "extra_credits",
+    tag: "usage-credits",
+    creditSpent: 0.29,
+    creditCap: 50,
+    currency: "$",
+    cooldownKey: "usage_limit:credits",
+  });
+  expect(buildPayload(calls[0], "en").body).toContain("$0.29 / $50.00");
+});
+
+test("attachCreditsPush does not fire when the snapshot is stale", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+  events.emit("usage:limits", creditsEvent({ spent: 5, cap: 50, resetAt: JULY, stale: true }));
+  await tick();
+  expect(calls.length).toBe(0);
+});
+
+test("attachCreditsPush does not fire when spend is 0", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+  events.emit("usage:limits", creditsEvent({ spent: 0, cap: 50, resetAt: JULY }));
+  await tick();
+  expect(calls.length).toBe(0);
+});
+
+test("attachCreditsPush does not fire when credits is null", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+  events.emit("usage:limits", creditsEvent(null));
+  await tick();
+  expect(calls.length).toBe(0);
+});
+
+test("attachCreditsPush dedups within a month bucket, re-fires on a new window", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  let nowT = JULY;
+  attachCreditsPush(events, store, push, () => nowT);
+
+  events.emit("usage:limits", creditsEvent({ spent: 1, cap: 50, resetAt: JULY }));
+  await tick();
+  events.emit("usage:limits", creditsEvent({ spent: 2, cap: 50, resetAt: JULY })); // same bucket → suppressed
+  await tick();
+  expect(calls.length).toBe(1);
+
+  // Window rolled over: resetAt now in August → new bucket → fires again
+  nowT = AUGUST;
+  events.emit("usage:limits", creditsEvent({ spent: 3, cap: 50, resetAt: AUGUST }));
+  await tick();
+  expect(calls.length).toBe(2);
+  expect(calls[1]).toMatchObject({ creditSpent: 3 });
+});
+
+test("attachCreditsPush marks only on delivery, retries while suppressed", async () => {
+  const calls: any[] = [];
+  let delivered = false;
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return delivered;
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+
+  events.emit("usage:limits", creditsEvent({ spent: 1, cap: 50, resetAt: JULY })); // suppressed
+  await tick();
+  events.emit("usage:limits", creditsEvent({ spent: 2, cap: 50, resetAt: JULY })); // retried
+  await tick();
+  expect(calls.length).toBe(2);
+  expect(store.getSetting("usage_credits_warned")).toBeNull();
+
+  delivered = true;
+  events.emit("usage:limits", creditsEvent({ spent: 3, cap: 50, resetAt: JULY })); // delivered → marked
+  await tick();
+  expect(store.getSetting("usage_credits_warned")).toBe("2026-07");
+  events.emit("usage:limits", creditsEvent({ spent: 4, cap: 50, resetAt: JULY })); // marked → no more
+  await tick();
+  expect(calls.length).toBe(3);
+});
+
+test("attachCreditsPush does not double-fire when an emit lands mid-delivery", async () => {
+  const calls: any[] = [];
+  let release!: (sent: boolean) => void;
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = (p: any) => {
+    calls.push(p);
+    return new Promise<boolean>((r) => {
+      release = r;
+    });
+  };
+  const events = new EventHub();
+  attachCreditsPush(events, store, push, () => JULY);
+
+  events.emit("usage:limits", creditsEvent({ spent: 1, cap: 50, resetAt: JULY })); // notify in flight
+  events.emit("usage:limits", creditsEvent({ spent: 2, cap: 50, resetAt: JULY })); // not marked yet → skip
+  expect(calls.length).toBe(1);
+
+  release(true);
+  await tick();
+  events.emit("usage:limits", creditsEvent({ spent: 3, cap: 50, resetAt: JULY })); // marked → no second
   await tick();
   expect(calls.length).toBe(1);
 });

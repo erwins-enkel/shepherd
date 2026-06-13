@@ -18,7 +18,8 @@ export interface PushPayload {
     | "autopilot"
     | "autopilot-done"
     | "merge_attention"
-    | "usage_limit";
+    | "usage_limit"
+    | "extra_credits";
   tag: string;
 }
 
@@ -36,6 +37,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   ci: "ci",
   merge_attention: "ci",
   usage_limit: "agent",
+  extra_credits: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -49,7 +51,8 @@ export interface NotifyInput {
     | "autopilot"
     | "autopilot-done"
     | "merge_attention"
-    | "usage_limit";
+    | "usage_limit"
+    | "extra_credits";
   sessionId: string;
   tag: string;
   name: string;
@@ -70,6 +73,12 @@ export interface NotifyInput {
   pct?: number;
   /** For kind "usage_limit": epoch ms when the window resets. */
   resetAt?: number;
+  /** For kind "extra_credits": paid extra-credit overage spent this window. */
+  creditSpent?: number;
+  /** For kind "extra_credits": the extra-credit cap for this window. */
+  creditCap?: number;
+  /** For kind "extra_credits": currency symbol/prefix for the amounts. */
+  currency?: string;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -116,6 +125,8 @@ const NOTIFY_TEXT = {
     usageLimitTitle: (pct: number) => `5-hour limit at ${pct}%`,
     usageLimitBody: (time: string | null) =>
       time ? `Approaching the usage cap — resets at ${time}.` : "Approaching the usage cap.",
+    extraCreditsTitle: "Extra credits in use",
+    extraCreditsBody: (amount: string) => `Now spending paid extra usage — ${amount} this period.`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -147,6 +158,9 @@ const NOTIFY_TEXT = {
     usageLimitTitle: (pct: number) => `5-Stunden-Limit bei ${pct} %`,
     usageLimitBody: (time: string | null) =>
       time ? `Limit fast erreicht — Reset um ${time}.` : "Limit fast erreicht.",
+    extraCreditsTitle: "Zusatzguthaben aktiv",
+    extraCreditsBody: (amount: string) =>
+      `Kostenpflichtige Zusatznutzung läuft — ${amount} in diesem Zeitraum.`,
   },
 } as const;
 
@@ -185,6 +199,27 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
   }
 }
 
+/** Autopilot body: the agent's summary when present, else the locale fallback line. */
+function autopilotBody(summary: string | undefined, fallback: string): string {
+  return summary && summary.trim() ? summary : fallback;
+}
+
+/** Merge-attention title/body: rebase-cap copy when capped, else the generic merge-error copy. */
+function mergeAttentionParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  const desig = input.desig ?? input.name;
+  if (input.mergeState === "rebase_cap") {
+    return { title: t.rebaseCapTitle, body: t.rebaseCapBody(desig) };
+  }
+  return { title: t.mergeErrorTitle, body: t.mergeErrorBody(desig) };
+}
+
+/** Extra-credits body: the spent/cap amount formatted with the optional currency prefix. */
+function extraCreditsBody(t: NotifyText, input: NotifyInput): string {
+  const cur = input.currency ?? "";
+  const amount = `${cur}${(input.creditSpent ?? 0).toFixed(2)} / ${cur}${(input.creditCap ?? 0).toFixed(2)}`;
+  return t.extraCreditsBody(amount);
+}
+
 /** Locale-formatted clock time of a window reset, or null without an anchor. */
 function resetTimeLabel(resetAt: number | undefined, locale: NotifyLocale): string | null {
   if (resetAt === undefined) return null;
@@ -219,27 +254,24 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
       return {
         ...base,
         title: t.autopilotTitle(input.name),
-        body: input.summary && input.summary.trim() ? input.summary : t.autopilotFallback,
+        body: autopilotBody(input.summary, t.autopilotFallback),
       };
     case "autopilot-done":
       return {
         ...base,
         title: t.autopilotDoneTitle(input.name),
-        body: input.summary && input.summary.trim() ? input.summary : t.autopilotDoneFallback,
+        body: autopilotBody(input.summary, t.autopilotDoneFallback),
       };
-    case "merge_attention": {
-      const desig = input.desig ?? input.name;
-      if (input.mergeState === "rebase_cap") {
-        return { ...base, title: t.rebaseCapTitle, body: t.rebaseCapBody(desig) };
-      }
-      return { ...base, title: t.mergeErrorTitle, body: t.mergeErrorBody(desig) };
-    }
+    case "merge_attention":
+      return { ...base, ...mergeAttentionParts(t, input) };
     case "usage_limit":
       return {
         ...base,
         title: t.usageLimitTitle(input.pct ?? 0),
         body: t.usageLimitBody(resetTimeLabel(input.resetAt, asLocale(locale))),
       };
+    case "extra_credits":
+      return { ...base, title: t.extraCreditsTitle, body: extraCreditsBody(t, input) };
     default:
       return {
         ...base,
@@ -474,6 +506,70 @@ export function attachUsagePush(
         if (sent) store.setSetting(USAGE_WARNED_KEY, String(session5h.resetAt));
       })
       .catch((err) => console.warn("[push] usage_limit notify failed:", err))
+      .finally(() => {
+        inFlight = false;
+      });
+  });
+}
+
+/** Setting key holding the year-month bucket of the credit window already warned about. */
+const CREDITS_WARNED_KEY = "usage_credits_warned";
+
+/** A snapshot of the paid extra-credit (pay-as-you-go overage) window, off usage:limits. */
+interface CreditWindowLike {
+  spent: number;
+  cap: number;
+  currency: string;
+  resetAt: number | null;
+  stale: boolean;
+}
+
+/** Year-month bucket ("YYYY-MM") identifying the credit window via its upcoming reset month. */
+function creditBucket(resetAt: number | null, now: number): string {
+  const d = new Date(resetAt ?? now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Push once per monthly credit window the first time paid extra-credit spend exceeds 0. */
+export function attachCreditsPush(
+  events: EventHub,
+  store: SessionStore,
+  push: PushService,
+  now: () => number = () => Date.now(),
+): void {
+  // Same in-flight discipline as attachUsagePush: the warned bucket is read sync
+  // but persisted in notify's .then, so an emit landing mid-delivery would re-read
+  // the stale marker and could double-warn the same window. Skip while one pends.
+  let inFlight = false;
+  events.subscribe((event, data) => {
+    if (event !== "usage:limits") return;
+    const { credits } = data as { credits: CreditWindowLike | null };
+    // Gate on freshness (a stale snapshot is data the app disregards) and key off
+    // spent: pct rounds to 0 while real money is being spent.
+    if (!credits || credits.stale || credits.spent <= 0) return;
+    // One warning per monthly window, keyed by the bucket (stable per window,
+    // survives redeploys) — NOT the raw resetAt epoch, which could shift/mis-roll.
+    const bucket = creditBucket(credits.resetAt, now());
+    const warned = store.getSetting(CREDITS_WARNED_KEY);
+    if (inFlight || warned === bucket) return;
+    inFlight = true;
+    void push
+      .notify({
+        kind: "extra_credits",
+        sessionId: "",
+        tag: "usage-credits",
+        name: "credits",
+        creditSpent: credits.spent,
+        creditCap: credits.cap,
+        currency: credits.currency,
+        cooldownKey: "usage_limit:credits",
+      })
+      .then((sent) => {
+        // Only mark the window once a device heard it: a push suppressed while
+        // the app is active retries next tick and fires when the user steps away.
+        if (sent) store.setSetting(CREDITS_WARNED_KEY, bucket);
+      })
+      .catch((err) => console.warn("[push] extra_credits notify failed:", err))
       .finally(() => {
         inFlight = false;
       });

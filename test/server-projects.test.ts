@@ -49,7 +49,7 @@ function makeDeps(): AppDeps {
     events,
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
   };
   const distiller = { distillNow: () => {} };
   return { store, service, events, usageLimits, distiller };

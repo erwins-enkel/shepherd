@@ -1,11 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
-import TopBar from "./TopBar.svelte";
-import TopBarLimitsHarness from "./TopBarLimitsHarness.svelte";
 import "../../app.css";
 import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+
+// Mock api so the manual /usage refresh path never fires a real network call —
+// individual tests stub refreshUsage's resolution/rejection per case.
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  // Default: resolve (success). The value is ignored by the component (the gauge
+  // self-updates via the ln WS frame); the fail-closed test overrides with a reject.
+  return { ...actual, refreshUsage: vi.fn(async () => undefined) };
+});
+
+const { default: TopBar } = await import("./TopBar.svelte");
+const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
+const { refreshUsage } = await import("$lib/api");
 
 // Deterministic measurement: pin the bar's font so CI (no Berkeley Mono) and
 // local agree. Mounted into a full-width container; widths come from page.viewport.
@@ -63,6 +74,7 @@ const allBadges = {
 const fullLimits: UsageLimits = {
   session5h: { pct: 88, resetAt: 1_700_003_600_000 },
   week: { pct: 64, resetAt: 1_700_600_000_000 },
+  credits: null,
   stale: false,
   calibratedAt: 1_700_000_000_000,
 };
@@ -687,5 +699,169 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.settings_title() }))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar — CR extra-credit gauge", () => {
+  type Credit = NonNullable<UsageLimits["credits"]>;
+  function limitsWithCredit(credit: Partial<Credit>): UsageLimits {
+    return {
+      session5h: { pct: 88, resetAt: 1_700_003_600_000 },
+      week: { pct: 64, resetAt: 1_700_600_000_000 },
+      stale: false,
+      calibratedAt: 1_700_000_000_000,
+      credits: {
+        pct: 0,
+        spent: 0.29,
+        cap: 50,
+        currency: "€",
+        resetAt: 1_702_600_000_000,
+        scrapedAt: 1_700_000_000_000 - 5 * 60_000, // 5m before nowMs
+        stale: false,
+        ...credit,
+      },
+    };
+  }
+
+  async function renderDesktop(limits: UsageLimits | null) {
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      limits,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    return hud!;
+  }
+
+  it("renders the CR gauge on desktop when credits are present", async () => {
+    const hud = await renderDesktop(limitsWithCredit({}));
+    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr, "CR gauge present").not.toBeNull();
+    expect(cr!.textContent ?? "", "CR label + amount").toContain("CR");
+    expect(cr!.textContent ?? "", "amount text").toContain("€0.29");
+  });
+
+  it("does NOT render the CR gauge when credits is null", async () => {
+    const hud = await renderDesktop(fullLimits); // fullLimits.credits === null
+    expect(hud.querySelector(".credit-gauge"), "no CR gauge without credits").toBeNull();
+  });
+
+  it("does NOT render anything credit-related when limits is null", async () => {
+    const hud = await renderDesktop(null);
+    expect(hud.querySelector(".credit-gauge"), "no CR gauge without limits").toBeNull();
+  });
+
+  it("flags the alert state when spend > 0 on a fresh snapshot", async () => {
+    const hud = await renderDesktop(limitsWithCredit({ spent: 0.29, stale: false }));
+    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr!.classList.contains("alert"), "CR gauge alert when overspending").toBe(true);
+  });
+
+  it("does NOT flag alert when spend is zero", async () => {
+    const hud = await renderDesktop(limitsWithCredit({ spent: 0, stale: false }));
+    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr!.classList.contains("alert"), "no alert without spend").toBe(false);
+  });
+
+  it("renders muted/stale (no alert) on a stale snapshot even with spend", async () => {
+    const hud = await renderDesktop(limitsWithCredit({ spent: 5, stale: true }));
+    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr!.classList.contains("stale"), "CR gauge stale class").toBe(true);
+    expect(cr!.classList.contains("alert"), "stale never alerts").toBe(false);
+  });
+
+  it("shows the amount + age text in the hover detail popover", async () => {
+    const hud = await renderDesktop(limitsWithCredit({}));
+    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
+    expect(wrap, "gauges-wrap present").not.toBeNull();
+    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await nextFrame();
+    const detail = hud.querySelector<HTMLElement>(".credit-detail");
+    expect(detail, "credit detail rendered on hover").not.toBeNull();
+    const txt = detail!.textContent ?? "";
+    expect(txt, "amount line").toContain("€0.29");
+    // 2-decimal precision, aligned with the server push copy (src/push.ts extraCreditsBody)
+    expect(txt, "cap").toContain("€50.00");
+    expect(txt, "snapshot age (5m)").toContain(m.topbar_credits_age({ age: "5m" }));
+    // refresh control present
+    expect(detail!.querySelector(".credit-refresh"), "refresh button present").not.toBeNull();
+  });
+
+  it("shows the stale note in the popover for a stale snapshot", async () => {
+    const hud = await renderDesktop(limitsWithCredit({ stale: true }));
+    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
+    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await nextFrame();
+    const detail = hud.querySelector<HTMLElement>(".credit-detail");
+    expect(detail!.textContent ?? "", "stale note").toContain(m.topbar_credits_stale());
+  });
+
+  it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {
+    // The house-rule fail-closed path: refreshUsage() rejects → the popover must show
+    // its visible error state (role=alert / .credit-error / retry message) so the user
+    // sees the refresh FAILED rather than it looking like a success.
+    vi.mocked(refreshUsage).mockRejectedValueOnce(new Error("network down"));
+    const hud = await renderDesktop(limitsWithCredit({}));
+    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
+    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await nextFrame();
+    const detail = hud.querySelector<HTMLElement>(".credit-detail");
+    expect(detail, "credit detail rendered on hover").not.toBeNull();
+    // No error before the refresh is attempted.
+    expect(detail!.querySelector(".credit-error"), "no error before refresh").toBeNull();
+
+    const refreshBtn = detail!.querySelector<HTMLButtonElement>(".credit-refresh");
+    expect(refreshBtn, "refresh button present").not.toBeNull();
+    refreshBtn!.click();
+
+    // The rejection sets refreshError → the error alert appears. Poll for the rAF/
+    // microtask settle so a genuinely-missing error state still fails the test.
+    await vi.waitFor(() => {
+      const err = hud.querySelector<HTMLElement>(".credit-error");
+      expect(err, "error state appears on rejected refresh").not.toBeNull();
+      expect(err!.getAttribute("role"), "error is an alert").toBe("alert");
+      expect(err!.textContent ?? "", "retry message").toContain(m.common_retry());
+    });
+    expect(vi.mocked(refreshUsage), "refresh was attempted").toHaveBeenCalledTimes(1);
+  });
+
+  it("touch: the collapsed credits-only button carries the alert class when overspending", async () => {
+    // On touch the gauges collapse to one button; with no usage windows but extra
+    // spend present it's the credits-only collapsed button, which must read as alert.
+    await page.viewport(1000, 900);
+    document.body.style.width = "1000px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS["touch-desktop"],
+      ...sessionsProp(0),
+      // credits-only: usage windows null so `hotter` is absent → credits-only branch.
+      limits: {
+        session5h: null,
+        week: null,
+        stale: false,
+        calibratedAt: 1_700_000_000_000,
+        credits: {
+          pct: 0,
+          spent: 0.29,
+          cap: 50,
+          currency: "€",
+          resetAt: 1_702_600_000_000,
+          scrapedAt: 1_700_000_000_000 - 5 * 60_000,
+          stale: false,
+        },
+      } as unknown as UsageLimits,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    const btn = hud!.querySelector<HTMLButtonElement>(".gauge-btn");
+    expect(btn, "collapsed gauge button present").not.toBeNull();
+    expect(btn!.classList.contains("alert"), "collapsed button alerts when overspending").toBe(
+      true,
+    );
   });
 });

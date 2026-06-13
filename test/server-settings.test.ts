@@ -15,6 +15,7 @@ let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
+let savedExtraCredits: number;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -27,6 +28,7 @@ beforeEach(() => {
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
+  savedExtraCredits = config.extraCreditsDrainCeiling;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
@@ -40,6 +42,7 @@ afterEach(() => {
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
+  config.extraCreditsDrainCeiling = savedExtraCredits;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -339,4 +342,50 @@ test("PUT /api/settings rejects a non-string defaultModel", async () => {
   const res = await put(app, { defaultModel: 42 });
   expect(res.status).toBe(400);
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
+});
+
+test("GET /api/settings includes extraCreditsDrainCeiling", async () => {
+  config.extraCreditsDrainCeiling = 25;
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  const body = await res.json();
+  expect(body.extraCreditsDrainCeiling).toBe(25);
+});
+
+test("PUT /api/settings sets extraCreditsDrainCeiling, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.extraCreditsDrainCeiling = 0;
+  const { app, store } = harness();
+  const res = await put(app, { extraCreditsDrainCeiling: 50 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).extraCreditsDrainCeiling).toBe(50);
+  expect(config.extraCreditsDrainCeiling).toBe(50); // live
+  expect(store.getSetting("extra_credits_drain_ceiling")).toBe("50"); // persisted
+  expect(config.repoRoot).toBe(tmp); // patch must not touch the repo root
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.extraCreditsDrainCeiling).toBe(50);
+});
+
+test("PUT /api/settings accepts a fractional extraCreditsDrainCeiling (currency amount)", async () => {
+  const { app, store } = harness();
+  const res = await put(app, { extraCreditsDrainCeiling: 0.5 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).extraCreditsDrainCeiling).toBe(0.5);
+  expect(store.getSetting("extra_credits_drain_ceiling")).toBe("0.5");
+});
+
+test("PUT /api/settings rejects a negative extraCreditsDrainCeiling", async () => {
+  const { app } = harness();
+  config.extraCreditsDrainCeiling = 0;
+  const res = await put(app, { extraCreditsDrainCeiling: -5 });
+  expect(res.status).toBe(400);
+  expect(config.extraCreditsDrainCeiling).toBe(0); // unchanged on failure
+});
+
+test("PUT /api/settings rejects a non-number extraCreditsDrainCeiling", async () => {
+  const { app } = harness();
+  config.extraCreditsDrainCeiling = 0;
+  const res = await put(app, { extraCreditsDrainCeiling: "lots" });
+  expect(res.status).toBe(400);
+  expect(config.extraCreditsDrainCeiling).toBe(0); // unchanged on failure
 });

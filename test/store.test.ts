@@ -915,3 +915,60 @@ test("pr_reviews: rows for different (repoPath, prNumber) are independent", () =
   expect(store.getPrReview("/repo/a", 1)?.headSha).toBe("sha-a");
   expect(store.getPrReview("/repo/b", 2)?.headSha).toBe("sha-b");
 });
+
+test("getCreditSnapshot returns null on a fresh store", () => {
+  const store = mk();
+  expect(store.getCreditSnapshot()).toBeNull();
+});
+
+test("putCreditSnapshot round-trips exact values", () => {
+  const store = mk();
+  const row = {
+    spent: 4.2,
+    cap: 25,
+    currency: "USD",
+    pct: 17,
+    resetAt: 1_700_000_000_000,
+    scrapedAt: 1_699_000_000_000,
+  };
+  store.putCreditSnapshot(row);
+  expect(store.getCreditSnapshot()).toEqual(row);
+});
+
+test("putCreditSnapshot overwrites latest (single row wins)", () => {
+  const store = mk();
+  store.putCreditSnapshot({
+    spent: 4.2,
+    cap: 25,
+    currency: "USD",
+    pct: 17,
+    resetAt: 1_700_000_000_000,
+    scrapedAt: 1_699_000_000_000,
+  });
+  const next = {
+    spent: 9.99,
+    cap: 50,
+    currency: "EUR",
+    pct: 20,
+    resetAt: 1_710_000_000_000,
+    scrapedAt: 1_709_000_000_000,
+  };
+  store.putCreditSnapshot(next);
+  expect(store.getCreditSnapshot()).toEqual(next);
+});
+
+test("putCreditSnapshot round-trips a null resetAt as null", () => {
+  const store = mk();
+  const row = {
+    spent: 1,
+    cap: 10,
+    currency: "USD",
+    pct: 10,
+    resetAt: null,
+    scrapedAt: 1_699_000_000_000,
+  };
+  store.putCreditSnapshot(row);
+  const got = store.getCreditSnapshot();
+  expect(got).toEqual(row);
+  expect(got!.resetAt).toBeNull();
+});

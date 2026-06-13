@@ -259,6 +259,7 @@ test("drain pre-check: standard profile holds → service.create NOT called", as
 const NO_USAGE: UsageLimits = {
   session5h: null,
   week: null,
+  credits: null,
   stale: false,
   calibratedAt: null,
 };

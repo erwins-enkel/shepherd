@@ -251,6 +251,11 @@ export interface GitForge {
   canPush?(): Promise<boolean>;
   /** The repo's default branch name (the promote PR's base). */
   defaultBranch(): Promise<string>;
+  /** Ensure a branch exists on the host, creating it at `fromRef`'s tip when absent
+   *  (idempotent; a present branch is left untouched — its tip is NOT reset). Used to
+   *  cut an epic integration branch off the default branch. Optional: hosts without a
+   *  refs API omit it and the caller skips epic-branch orchestration. */
+  ensureBranch?(branch: string, fromRef: string): Promise<void>;
   /** Rename a branch on the host, retargeting any open PR to the new name. Optional:
    *  hosts that can't do this safely (Gitea) omit it, and the caller falls back to a
    *  display-only rename so an open PR is never orphaned. */

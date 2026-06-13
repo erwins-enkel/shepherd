@@ -469,7 +469,12 @@ const planGate = new PlanGateService({
 // without this a restart mid-review orphans the reviewer forever — its verdict goes unread, the
 // gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
 // The next tick() then finalizes each re-adopted run from the verdict it already wrote.
-void planGate.adoptOrphans().catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
+// gcStaleReviewWorktrees runs AFTER adoptOrphans has repopulated `inflight` so it only reaps
+// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans).
+void planGate
+  .adoptOrphans()
+  .then(() => planGate.gcStaleReviewWorktrees())
+  .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);

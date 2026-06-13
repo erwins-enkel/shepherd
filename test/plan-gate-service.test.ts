@@ -550,6 +550,126 @@ test("adopted orphan with no verdict, past timeout → error gate + stall (fail-
   expect(h.removed).toContain("/wt-detached");
 });
 
+// ── #631: per-run unique worktree path + GC of stale review worktrees ──────────
+
+test("two reviews of the SAME session at the SAME sha get DISTINCT per-run slugs", async () => {
+  // Capture the slug (4th arg) createDetached receives across two begin() runs for one session
+  // at one base sha. They must differ AND each equal that run's reviewerSessionId — proving the
+  // path is keyed on the per-RUN reviewer id, not the (identical) session id.
+  const slugs: (string | undefined)[] = [];
+  let plan = "PLAN A";
+  const h = harness({
+    readPlan: () => plan,
+    worktree: {
+      createDetached: async (_r: string, _b: string, _s: string, slug?: string) => {
+        slugs.push(slug);
+        return { worktreePath: `/wt-${slug}`, branch: "main" };
+      },
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  const s1 = await h.svc.consider(planningSession() as any);
+  expect(s1).toBe("started");
+  // Free the first run's inflight slot, then change the plan text to defeat the unchanged-plan
+  // dedupe so the second consider() drives a fresh begin() (same session, same base sha).
+  h.svc.forget("s1");
+  plan = "PLAN B";
+  const s2 = await h.svc.consider(planningSession() as any);
+  expect(s2).toBe("started");
+
+  expect(slugs.length).toBe(2);
+  expect(slugs[0]).not.toBe(slugs[1]); // distinct per run
+  expect(slugs[0]).toBe(h.recordedSpawns[0].reviewerSessionId);
+  expect(slugs[1]).toBe(h.recordedSpawns[1].reviewerSessionId);
+});
+
+test("forget() during the createDetached await aborts the spawn and reaps the worktree", async () => {
+  // Park inside createDetached itself (the slow git fetch + worktree add window), fire forget()
+  // while suspended, then resolve. begin()'s post-createDetached re-check must abort: never spawn,
+  // and reap the worktree it allocated. Proves the createDetached window is covered by the re-check.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const reaped: string[] = [];
+  const h = harness({
+    worktree: {
+      createDetached: async (_r: string, _b: string, _s: string, slug?: string) => {
+        await gate;
+        return { worktreePath: `/wt-${slug}`, branch: "main" };
+      },
+      remove: (p: string) => reaped.push(p),
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  const considering = h.svc.consider(planningSession() as any);
+  await Promise.resolve(); // let begin() advance into the parked createDetached await
+  h.svc.forget("s1"); // archive mid-fetch → clears the `starting` tombstone
+  release();
+  await considering;
+  expect(h.started.length).toBe(0); // never spawned the reviewer
+  expect(reaped.length).toBe(1); // the detached worktree was reaped
+  expect(reaped[0]).toContain("/wt-"); // the per-run path
+  expect(h.svc.reviewingIds()).toEqual([]);
+});
+
+test("adoptOrphans adopts the NEWEST same-session orphan; GC reaps the older", async () => {
+  const older = orphanSpawn({
+    reviewerSessionId: "rev-old",
+    worktreePath: "/wt-old",
+    spawnedAt: 1000,
+  });
+  const newer = orphanSpawn({
+    reviewerSessionId: "rev-new",
+    worktreePath: "/wt-new",
+    spawnedAt: 2000,
+  });
+  const h = harness({
+    worktreeExists: () => true,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [older, newer], // ASC by spawnedAt
+    },
+  });
+  await h.svc.adoptOrphans();
+  // The newer (more recent verdict) is the one adopted into inflight.
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+  expect(h.recordedSpawns).toEqual([]); // adoption doesn't re-record
+
+  h.svc.gcStaleReviewWorktrees();
+  expect(h.removed).toEqual(["/wt-old"]); // older reaped
+  expect(h.removed).not.toContain("/wt-new"); // adopted (inflight) path preserved
+});
+
+test("gcStaleReviewWorktrees reaps only non-inflight plan_gate worktrees", async () => {
+  const stale = orphanSpawn({ worktreePath: "/wt-stale" }); // plan_gate, not inflight → REMOVE
+  const review = orphanSpawn({ kind: "review", worktreePath: "/wt-review" }); // NOT plan_gate → keep
+  const h = harness({
+    worktreeExists: () => true,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [stale, review],
+    },
+  });
+  // No adoptOrphans() call → nothing inflight → the plan_gate orphan is ownerless.
+  h.svc.gcStaleReviewWorktrees();
+  expect(h.removed).toEqual(["/wt-stale"]);
+  expect(h.removed).not.toContain("/wt-review");
+});
+
+test("gcStaleReviewWorktrees leaves an inflight plan_gate worktree alone", async () => {
+  const adopted = orphanSpawn({ worktreePath: "/wt-detached" });
+  const h = harness({
+    worktreeExists: () => true,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [adopted],
+    },
+  });
+  await h.svc.adoptOrphans(); // adopts it into inflight (path /wt-detached)
+  h.svc.gcStaleReviewWorktrees();
+  expect(h.removed).not.toContain("/wt-detached"); // inflight → preserved
+});
+
 test("adoptOrphans resolves the reviewer terminal by worktree cwd for reaping", async () => {
   const stopped: string[] = [];
   const h = harness({

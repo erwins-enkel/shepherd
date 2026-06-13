@@ -297,12 +297,15 @@ export class WorktreeMgr {
    *
    *  `slug` disambiguates the worktree path when callers do NOT have a unique sha to key
    *  on. The PR critic detaches at the PR head sha (unique per PR), so it omits `slug` and
-   *  the path stays `…-review-<sha>` — reused-on-restart to reclaim an interrupted run. The
-   *  plan reviewer, however, detaches every session at the SAME base-branch sha, so without
-   *  a slug all concurrent plan reviews in a repo would collide on one path: a second begin()
-   *  would blow away the first's live worktree, and both inflight records would then read the
-   *  same `.shepherd-plan-review.json` — delivering one session's plan findings to another.
-   *  Passing the session id as `slug` gives each its own path.
+   *  the path stays `…-review-<sha>` — reused-on-restart to reclaim an interrupted run (the
+   *  `existsSync`-reclaim below is load-bearing for that slugless path). The plan reviewer,
+   *  however, detaches every session at the SAME base-branch sha, so without a slug all plan
+   *  reviews in a repo would collide on one path: a second begin() would blow away the first's
+   *  live worktree, and both inflight records would then read the same `.shepherd-plan-review.json`
+   *  — delivering one run's plan findings to another. It passes a per-RUN unique id (the reviewer's
+   *  pinned session id, a fresh randomUUID per spawn) as `slug`, so the path disambiguates across
+   *  RUNS — even two reviews of the SAME session at the SAME sha get distinct paths (#631), not
+   *  just two different sessions.
    *
    *  `pullRef` is the OPTIONAL fork escape hatch for the standalone PR critic. A fork PR's head
    *  sha is NOT on the base repo's `origin` (it lives on the contributor's fork), so the `branch`

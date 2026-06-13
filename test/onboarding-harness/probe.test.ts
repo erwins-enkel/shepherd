@@ -18,9 +18,9 @@ describe("probeDiagnostics", () => {
     const d = new IncusDriver(run, "shep-onb-");
     const snap = await probeDiagnostics(d, "gh-unauthed");
     expect(snap.overall).toBe("error");
-    expect(snap.checks[0].id).toBe("gh");
+    expect(snap.checks[0]!.id).toBe("gh");
     // exec'd a curl against the loopback diagnostics endpoint with refresh
-    const cmd = calls[0].join(" ");
+    const cmd = calls[0]!.join(" ");
     expect(cmd).toContain("curl");
     expect(cmd).toContain("/api/diagnostics?refresh=1");
   });

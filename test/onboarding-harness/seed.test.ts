@@ -26,8 +26,8 @@ describe("seedInstance", () => {
     const d = new IncusDriver(run, "shep-onb-");
     await seedInstance(d, scenario, "/tmp/shepherd.tar");
 
-    expect(calls[0][0]).toBe("launch");
-    expect(calls[0]).toContain("images:ubuntu/24.04");
+    expect(calls[0]![0]).toBe("launch");
+    expect(calls[0]!).toContain("images:ubuntu/24.04");
 
     const flat = calls.map((c) => c.join(" "));
     // baseline installs bun before the scenario seed runs

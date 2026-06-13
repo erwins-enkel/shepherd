@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
+  import type {
+    Session,
+    UsageLimits,
+    UpdateStatus,
+    HerdrUpdateStatus,
+    DiagnosticState,
+  } from "$lib/types";
   import { formatReset, relativeAge } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
@@ -30,6 +36,8 @@
     statusFilter = null,
     onstatusfilter,
     workingBlocked = {},
+    diagnosticsOverall = "ok",
+    ondiagnose,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -53,6 +61,10 @@
     // working-while-blocked display flags (store map); tallies + gear pip read the
     // DISPLAY status through it — the halt e-stop keeps the raw status (see below)
     workingBlocked?: Record<string, boolean>;
+    /** Worst-of diagnostics state; hidden when "ok". */
+    diagnosticsOverall?: DiagnosticState;
+    /** Called when the health pip is clicked — should open Settings → Diagnose tab. */
+    ondiagnose?: () => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -755,6 +767,25 @@
         >
       {/if}
     {/if}
+    <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok".
+         Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right)
+         or the herdr blue gear-dot. Color: slate ring with state-colored core —
+         amber for warning, red for error — distinct from both the halt-pip identity
+         and the herdr blue. Token choice: --color-amber / --color-red for the core,
+         --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
+    {#if diagnosticsOverall !== "ok"}
+      <button
+        class="health-pip tip"
+        class:alert={diagnosticsOverall === "error"}
+        type="button"
+        onclick={() => ondiagnose?.()}
+        data-tip={m.diagnostics_pip_label()}
+        aria-label={m.diagnostics_pip_label()}
+        use:coachTarget={"diagnostics"}
+      >
+        <span class="health-dot" aria-hidden="true"></span>
+      </button>
+    {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. A pip on the gear is the only at-rest cue that there's a
@@ -1059,6 +1090,38 @@
   .gear-dot.shift {
     top: auto;
     bottom: 3px;
+  }
+  /* Health pip: a standalone button placed left of the gear-wrap in .rightside.
+     Visible only when diagnosticsOverall !== "ok" (hidden-when-OK via {#if}).
+     Ring: --color-line-bright (neutral slate) — a quiet outline that doesn't
+     read as the halt-pip or the herdr dot.
+     Core: --color-amber (warning) or --color-red (error, .alert). */
+  .health-pip {
+    position: relative;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+  }
+  .health-pip:hover {
+    border-color: var(--color-muted);
+  }
+  .health-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    display: block;
+  }
+  .health-pip.alert .health-dot {
+    background: var(--color-red);
   }
   /* What's New affordance — blue informational accent (shared with the herdr cue),
      distinct from amber (app-update). */

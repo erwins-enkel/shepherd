@@ -34,6 +34,7 @@
     getDrain,
     getAutoMerge,
     getEpic,
+    getDiagnostics,
     halt as apiHalt,
   } from "$lib/api";
   import type {
@@ -102,6 +103,7 @@
   import { version } from "$lib/build-info";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
   import FableArrival from "$lib/components/FableArrival.svelte";
+  import Onboarding from "$lib/components/Onboarding.svelte";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
@@ -134,7 +136,7 @@
   }
   let showNew = $state(false);
   let showSettings = $state(false);
-  let settingsTab = $state<"workspace" | "session" | "device">("workspace");
+  let settingsTab = $state<"workspace" | "session" | "device" | "diagnose">("workspace");
   let showClone = $state(false);
   let showNewProject = $state(false);
   let showBroadcast = $state(false);
@@ -262,6 +264,26 @@
   // One-time Fable 5 launch celebration (gated separately from the What's-New
   // drawer via the persisted seen-set, so it fires exactly once per upgrade).
   let showFableArrival = $state(false);
+  // First-run onboarding: a one-screen environment checklist shown only on a
+  // genuinely fresh install. The fresh-install branch seeds lastSeenVersion
+  // immediately (so update-diffs work), which would flip the null gate false on
+  // this same load — so we latch "was fresh" before seeding and gate on that +
+  // the persisted seen-set (markSeen("onboarding") keeps it from reappearing).
+  let showOnboarding = $state(false);
+  // True only when the diagnostics seed fetch failed and no snapshot has arrived
+  // yet (HTTP or the WS push) — lets the onboarding checklist show a retry instead
+  // of a permanent "Loading…".
+  let diagnosticsLoadFailed = $state(false);
+  function loadDiagnostics() {
+    getDiagnostics()
+      .then((d) => {
+        store.diagnostics = d;
+        diagnosticsLoadFailed = false;
+      })
+      .catch(() => {
+        if (!store.diagnostics) diagnosticsLoadFailed = true;
+      });
+  }
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
@@ -806,6 +828,7 @@
     getHerdrUpdate()
       .then((u) => (store.herdrUpdate = u))
       .catch(() => {});
+    loadDiagnostics();
     getStarPrompt()
       .then((s) => (store.starPrompt = s))
       .catch(() => {});
@@ -845,6 +868,12 @@
     {
       const lastSeen = featureDiscovery.lastSeenVersion;
       if (lastSeen === null) {
+        // Fresh install: show the one-time onboarding checklist. Latch "was
+        // fresh" (gated on the seen-set, not the version) BEFORE seeding, since
+        // seeding lastSeenVersion below would otherwise make this gate false on
+        // the same load. markSeen("onboarding") on dismiss keeps it from
+        // reappearing on later loads (lastSeenVersion is no longer null then).
+        if (!featureDiscovery.isSeen("onboarding")) showOnboarding = true;
         // Fresh install: seed baseline so future updates can diff against it.
         featureDiscovery.lastSeenVersion = version;
       } else {
@@ -1238,6 +1267,11 @@
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
+        diagnosticsOverall={store.diagnosticsOverall}
+        ondiagnose={() => {
+          settingsTab = "diagnose";
+          showSettings = true;
+        }}
       />
       <RepoSwitcher
         chips={repoChips}
@@ -1550,6 +1584,18 @@
   />
 {/if}
 
+{#if showOnboarding}
+  <Onboarding
+    checks={store.diagnostics?.checks ?? null}
+    failed={diagnosticsLoadFailed}
+    onretry={loadDiagnostics}
+    ondismiss={() => {
+      featureDiscovery.markSeen("onboarding");
+      showOnboarding = false;
+    }}
+  />
+{/if}
+
 {#if showWhatsNew}
   <WhatsNew
     entries={whatsNewEntries}
@@ -1615,6 +1661,7 @@
 {#if showSettings}
   <Settings
     initialTab={settingsTab}
+    initialDiagnostics={store.diagnostics?.checks ?? null}
     onclose={() => {
       showSettings = false;
       loadSettings();

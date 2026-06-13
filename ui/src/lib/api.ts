@@ -15,6 +15,7 @@ import type {
   UpdateStatus,
   DeployState,
   HerdrUpdateStatus,
+  DiagnosticsSnapshot,
   StarPromptStatus,
   Steer,
   DiffResult,
@@ -662,6 +663,13 @@ export async function getUpdateLog(): Promise<DeployState> {
 export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
   const r = await fetch("/api/herdr-update");
   if (!r.ok) throw await failed(r, "herdr update status");
+  return r.json();
+}
+
+/** Current environment-readiness diagnostics; `refresh` forces a re-probe. */
+export async function getDiagnostics(refresh = false): Promise<DiagnosticsSnapshot> {
+  const r = await fetch(`/api/diagnostics${refresh ? "?refresh=1" : ""}`);
+  if (!r.ok) throw await failed(r, "diagnostics");
   return r.json();
 }
 

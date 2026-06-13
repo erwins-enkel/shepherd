@@ -183,6 +183,29 @@ export interface HerdrUpdateStatus {
   error?: string;
 }
 
+// ── environment-readiness diagnostics (issue #623) ──────────────────────────
+/** Tri-state of a single dependency probe. `error` = the hard gate (missing /
+ *  unauthenticated / unreachable); `warning` = advisory (e.g. below the version
+ *  floor, or tailscale serve not configured); `ok` = healthy. */
+export type DiagnosticState = "ok" | "warning" | "error";
+
+/** One probe result. `hintKey` is a UI message-key STRING (e.g.
+ *  "diagnostics_hint_herdr_missing") the client resolves through `m.*` — NEVER
+ *  raw stdout, tokens, absolute paths, or account identity. */
+export interface DiagnosticCheck {
+  id: string;
+  state: DiagnosticState;
+  hintKey: string;
+}
+
+/** The full diagnostics payload returned by GET /api/diagnostics and pushed on
+ *  the `diagnostics:status` WS event. `overall` is worst-of across `checks`. */
+export interface DiagnosticsSnapshot {
+  checks: DiagnosticCheck[];
+  generatedAt: number;
+  overall: DiagnosticState;
+}
+
 // ── pre-execution plan gate ──────────────────────────────────────────────────
 export type PlanDecision = "approved" | "changes_requested" | "error";
 

@@ -28,6 +28,22 @@ export const PR_REVIEW_CYCLES_MIN = 1;
 export const PR_REVIEW_CYCLES_MAX = 8;
 export const PLAN_REVIEW_CYCLES_MIN = 1;
 export const PLAN_REVIEW_CYCLES_MAX = 12;
+
+// ── dependency-diagnostics advisory floors + cache/timeout knobs ────────────
+// Single source of truth for the readiness-probe version floors (issue #623).
+// Floors are ADVISORY: a below-floor toolchain is a `warning`, never an `error`
+// — presence is the only hard gate. Seeded conservatively below the versions
+// installed today (node 24.x, bun 1.3.x, herdr 0.6.x) so a typical install isn't
+// warned on day one while a genuinely stale toolchain still flags.
+export const NODE_MIN_VERSION = "20.0.0";
+export const BUN_MIN_VERSION = "1.1.0";
+export const HERDR_MIN_VERSION = "0.6.0";
+// TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
+// this cache. Matches the existing CountsService/backlog 60s TTL.
+export const DIAGNOSTICS_TTL_MS = 60_000;
+// Per-probe exec timeout: a timed-out probe RESOLVES to its defined non-OK state
+// (never rejects the Promise.all), so one hung binary can't stall the batch.
+export const DIAGNOSTICS_PROBE_TIMEOUT_MS = 5_000;
 // module-local seed defaults, used by the config seeds + boot-override fallbacks only.
 const PR_REVIEW_CYCLES_DEFAULT = 3;
 const PLAN_REVIEW_CYCLES_DEFAULT = 5;

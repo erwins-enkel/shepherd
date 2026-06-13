@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
-import type { SessionStore } from "./store";
+import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrDriver } from "./herdr";
@@ -586,6 +586,15 @@ function agentBaseUrl(): string {
   return `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 }
 
+/**
+ * Pick an override value over an original: an `undefined` override inherits the original;
+ * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
+ * semantics where absent means "keep the original" and present means "use this".
+ */
+function pickOverride<T>(override: T | undefined, original: T): T {
+  return override !== undefined ? override : original;
+}
+
 /** Result of the shared spawn-wrap helper (prepareSpawn). `ok:false` carries the
  *  auto-gate hold reason; callers diverge on it (create throws, resume → null). */
 type SpawnSuccess = {
@@ -902,6 +911,46 @@ export class SessionService {
     return argv;
   }
 
+  /**
+   * Resolve the per-spawn sandbox profile override for a create(), accounting for the
+   * research downgrade: research needs OPEN web egress (web search / fetch + sub-agents),
+   * which the autonomous profile's egress firewall would block. So when a research session
+   * would otherwise resolve to the autonomous profile, downgrade it to standard for this
+   * spawn (warning once). Otherwise the override is `input.sandboxProfile` unchanged.
+   * Mirrors prepareSpawn's own resolveProfile(override, repoConfig.sandboxProfile,
+   * config.sandboxDefaultProfile), using input.sandboxProfile as the override.
+   */
+  private researchSafeProfileOverride(
+    input: CreateSessionInput,
+    repoConfig: RepoConfig,
+    sessionId: string,
+  ): string | null | undefined {
+    const effectiveProfile = resolveProfile(
+      input.sandboxProfile,
+      repoConfig.sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    if (input.research && effectiveProfile === "autonomous") {
+      console.warn(
+        `[sandbox] research ${sessionId}: downgrading autonomous → standard ` +
+          `(research needs open web egress; the autonomous egress firewall would block web search)`,
+      );
+      return "standard";
+    }
+    return input.sandboxProfile;
+  }
+
+  /**
+   * Resolve whether a create() spawns into the plan gate (#348): a session-level override
+   * wins over the repo default. A research task never enters the plan gate — its deliverable
+   * is a report PR / issue, not a planned-then-implemented code change — so force it off
+   * (which also yields planPhase: null).
+   */
+  private resolvePlanGateOn(input: CreateSessionInput, repoConfig: RepoConfig): boolean {
+    if (input.research) return false;
+    return input.planGateEnabled ?? repoConfig.planGateEnabled;
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
@@ -925,12 +974,8 @@ export class SessionService {
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
       // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
-      // plan. Session-level override wins over the repo default.
-      // A research task never enters the plan gate — its deliverable is a report PR / issue, not a
-      // planned-then-implemented code change — so force it off (also yields planPhase: null).
-      const planGateOn = input.research
-        ? false
-        : (input.planGateEnabled ?? repoConfig.planGateEnabled);
+      // plan. See resolvePlanGateOn for the override + research semantics.
+      const planGateOn = this.resolvePlanGateOn(input, repoConfig);
       const trim = await this.trimFor(input.auto);
       const argv = this.buildSpawnArgv(
         input,
@@ -941,23 +986,9 @@ export class SessionService {
         wt.isolated,
         trim,
       );
-      // Research needs OPEN web egress (web search / fetch + sub-agents); the autonomous profile's
-      // egress firewall would block it. So when a research session would otherwise resolve to the
-      // autonomous profile, downgrade it to standard for this spawn. Mirror prepareSpawn's own
-      // resolveProfile(override, repoConfig.sandboxProfile, config.sandboxDefaultProfile) to compute
-      // the effective profile, using input.sandboxProfile as the override.
-      const effectiveProfile = resolveProfile(
-        input.sandboxProfile,
-        repoConfig.sandboxProfile,
-        config.sandboxDefaultProfile,
-      );
-      const researchDowngrade = !!input.research && effectiveProfile === "autonomous";
-      if (researchDowngrade) {
-        console.warn(
-          `[sandbox] research ${sessionId}: downgrading autonomous → standard ` +
-            `(research needs open web egress; the autonomous egress firewall would block web search)`,
-        );
-      }
+      // Research needs OPEN web egress; a research session resolving to autonomous is
+      // downgraded to standard for this spawn (see researchSafeProfileOverride).
+      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -966,7 +997,7 @@ export class SessionService {
         repoPath: input.repoPath,
         isolated: wt.isolated,
         auto: input.auto,
-        profileOverride: researchDowngrade ? "standard" : input.sandboxProfile,
+        profileOverride,
       });
       const session = this.deps.store.create({
         id: sessionId,
@@ -1101,10 +1132,9 @@ export class SessionService {
       repoPath: overrides?.repoPath ?? s.repoPath,
       baseBranch: overrides?.baseBranch ?? s.baseBranch,
       prompt: overrides?.prompt ?? s.prompt,
-      model: overrides?.model !== undefined ? overrides.model : s.model,
-      planGateEnabled:
-        overrides?.planGateEnabled !== undefined ? overrides.planGateEnabled : s.planGateEnabled,
-      research: overrides?.research !== undefined ? overrides.research : s.research,
+      model: pickOverride(overrides?.model, s.model),
+      planGateEnabled: pickOverride(overrides?.planGateEnabled, s.planGateEnabled),
+      research: pickOverride(overrides?.research, s.research),
       images,
       issueRef,
       auto: false,

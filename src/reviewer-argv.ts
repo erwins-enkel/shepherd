@@ -13,11 +13,24 @@ import { randomUUID } from "node:crypto";
 export function readonlyReviewerArgv(
   model: string | null,
   prompt: string,
+  // Optional extended thinking budget. When set, emitted as env.MAX_THINKING_TOKENS in the
+  // --settings JSON — the ONLY knob that grants a spawned session's initial positional prompt a
+  // thinking budget (the think/ultrathink magic words do NOT fire from it), and a no-op on a
+  // non-thinking model. The PR critics pass CRITIC_THINKING_TOKENS; the plan reviewer omits it.
+  thinkingTokens?: number,
 ): { argv: string[]; sessionId: string } {
   // The reviewer's claude session id, forced so the transcript lands at a path we can
   // predict (jsonlPathFor(worktree, sessionId)) — that's how the critic's live tool-use
   // gets surfaced in the UI badge tooltip. Returned to the caller alongside the argv.
   const sessionId = randomUUID();
+  // --settings JSON, assembled as an object so the optional thinking budget folds in cleanly.
+  // disableAllHooks + enableAllProjectMcpServers are load-bearing (see the flag rationale below);
+  // env.MAX_THINKING_TOKENS is added ONLY when a budget is requested (string — env values are).
+  const settings: Record<string, unknown> = {
+    disableAllHooks: true,
+    enableAllProjectMcpServers: true,
+  };
+  if (thinkingTokens) settings.env = { MAX_THINKING_TOKENS: String(thinkingTokens) };
   const argv = [
     "claude",
     "--session-id",
@@ -36,7 +49,7 @@ export function readonlyReviewerArgv(
     // interactive "new MCP servers found" gate never renders (see the MCP block
     // below for why it's necessary AND why it is COUPLED to --safe-mode).
     "--settings",
-    '{"disableAllHooks":true,"enableAllProjectMcpServers":true}',
+    JSON.stringify(settings),
     "--disable-slash-commands",
     // MCP isolation — TWO distinct gates, handled separately.
     // (1) LOADING: a fresh `claude` startup loads MCP servers from three sources —

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { ReviewService, reviewPrompt, scopeFindings } from "../src/review";
+import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
 import type { Session, ReviewVerdict } from "../src/types";
@@ -333,9 +333,12 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   expect(argv).toContain("--disable-slash-commands");
   const settingsRaw = argv[argv.indexOf("--settings") + 1];
   expect(settingsRaw).toBeDefined();
+  // The session critic carries an extended thinking budget (issue #604) so it has the
+  // reasoning headroom for the #597 cross-file verification its prompt now demands.
   expect(JSON.parse(settingsRaw!)).toEqual({
     disableAllHooks: true,
     enableAllProjectMcpServers: true,
+    env: { MAX_THINKING_TOKENS: String(CRITIC_THINKING_TOKENS) },
   });
   expect(argv).toContain("--safe-mode");
 });

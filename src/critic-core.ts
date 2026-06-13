@@ -15,6 +15,16 @@ import type { SessionUsage } from "./usage";
 
 const execFileAsync = promisify(execFile);
 
+/** Extended thinking budget (MAX_THINKING_TOKENS) handed to BOTH PR critic spawns — the session
+ *  critic (`review.ts`) and the standalone PR critic (`standalone-critic.ts`). They share the
+ *  #597 VERIFY prompt (grep/resolve every identifier, confirm locale parity, check callers), which
+ *  needs reasoning headroom to do cross-file checking instead of one-pass pattern-matching. 8000 is
+ *  the "think harder" tier. The plan reviewer (`plan-gate.ts`) deliberately stays unbudgeted.
+ *  A one-line tunable: worst-case ~6 critic spawns/PR (DEFAULT_CAP), so ~8–48k thinking tokens/PR.
+ *  Only takes effect on a thinking-capable resolved model (no-op otherwise — gate verified before
+ *  ship: see issue #604). */
+export const CRITIC_THINKING_TOKENS = 8000;
+
 /** Self-contained instructions for the critic agent. NOT UI chrome — never i18n'd.
  *  `diffBase` is the RESOLVED base commit (a SHA captured by computePatchId from the same fresh
  *  fetch it fingerprints), NOT a branch name — so the review diffs the identical base the

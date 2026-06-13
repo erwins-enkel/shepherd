@@ -75,6 +75,7 @@ import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import { normalizeDefaultModelSetting } from "./default-model";
 import { EgressWatcher } from "./egress-watch";
+import { RecapService } from "./recap";
 
 const execFileAsync = promisify(execFile);
 
@@ -475,6 +476,15 @@ void planGate
   .adoptOrphans()
   .then(() => planGate.gcStaleReviewWorktrees())
   .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
+
+// Session recap (#XXX): generates a plain-language summary of each settled-idle session
+// so the operator can skim what happened without reading the transcript. Mirrors planGate's
+// deps/onChange wiring; model defaults to "sonnet" inside the service.
+const recapService = new RecapService({
+  store,
+  herdr,
+  onChange: (id, recap) => events.emit("session:recap", { id, recap }),
+});
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);
@@ -527,6 +537,8 @@ setInterval(() => {
   void reviewService.tick();
   void planGate.tick();
   void standaloneCritic.tick();
+  void recapService.tick(); // finalize in-flight recaps (restart-safe)
+  void recapService.sweep(); // settled-idle auto-fire
 }, 15_000);
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
@@ -543,6 +555,7 @@ events.subscribe((event, data) => {
     const id = (data as { id: string }).id;
     reviewService.forget(id);
     planGate.forget(id);
+    recapService.forget(id);
   }
 });
 
@@ -940,6 +953,8 @@ const server = serve(
       reviewing: () => planGate.reviewingIds(),
     },
     planGate: { consider: (s) => planGate.consider(s) },
+    recapCache: { snapshot: () => recapService.snapshot() },
+    recap: { regenerate: (s) => recapService.regenerate(s) },
     backlog,
     // After a backlog merge, force-refresh the repo's counts past the read-TTL and
     // re-broadcast the overview so the merged PR (and any auto-closed linked issue)

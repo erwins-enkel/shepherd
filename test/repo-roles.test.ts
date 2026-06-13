@@ -50,6 +50,53 @@ test("unknown me is defensive: a configured role still counts as 'other'", () =>
   expect(r.handoff).toBe("merger");
 });
 
+// ── inference path (no roles.json → infer a merger from the PR) ──────────────
+
+const unconfigured = { reviewer: null, merger: null };
+
+test("unconfigured + foreign pending requested reviewer → infer merger (#539 repro)", () => {
+  // green PR, not yet approved, one foreign reviewer requested → "waiting on scoop",
+  // NOT "your turn".
+  const r = computeHandoff(unconfigured, "kai", undefined, ["scoop"]);
+  expect(r.handoff).toBe("merger");
+  expect(r.handoffWho).toBe("scoop");
+  expect(r.inferred).toBe(true);
+});
+
+test("unconfigured + foreign approval, no pending request → infer merger = approver", () => {
+  const r = computeHandoff(unconfigured, "kai", approved, []);
+  expect(r.handoff).toBe("merger");
+  expect(r.handoffWho).toBe("scoop"); // `approved` is authored by scoop
+  expect(r.inferred).toBe(true);
+});
+
+test("unconfigured + multiple foreign requested reviewers → case-insensitively lowest", () => {
+  const r = computeHandoff(unconfigured, "kai", undefined, ["Zed", "alice", "Bob"]);
+  expect(r.handoff).toBe("merger");
+  expect(r.handoffWho).toBe("alice"); // lowest folded, original casing returned
+  expect(r.inferred).toBe(true);
+});
+
+test("unconfigured + requested reviewer == me (case-folded) → ignored → self", () => {
+  const r = computeHandoff(unconfigured, "kai", undefined, ["KAI"]);
+  expect(r.handoff).toBe("self");
+  expect(r.handoffWho).toBeNull();
+  expect(r.inferred).toBe(false);
+});
+
+test("unconfigured + no requested reviewer + no foreign approval → self", () => {
+  expect(computeHandoff(unconfigured, "kai", undefined, []).handoff).toBe("self");
+  expect(computeHandoff(unconfigured, "kai", undefined).handoff).toBe("self"); // default []
+});
+
+test("configured roles present → inference inert, inferred:false", () => {
+  // requestedReviewers are present but ignored because roles are explicitly set.
+  const r = computeHandoff({ reviewer: null, merger: "scoop" }, "kai", undefined, ["alice"]);
+  expect(r.handoff).toBe("merger");
+  expect(r.handoffWho).toBe("scoop"); // configured merger, not the requested reviewer
+  expect(r.inferred).toBe(false);
+});
+
 test("parseRoles: valid, partial, empty, and garbage", () => {
   expect(parseRoles('{"reviewer":"scoop","merger":"scoop"}')).toEqual({
     reviewer: "scoop",

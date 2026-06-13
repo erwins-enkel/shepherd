@@ -38,6 +38,16 @@ test("merged → one merged entry, phrased issue-state-agnostic", () => {
   expect(e).toEqual([{ key: "merged:7", body: "✅ PR #7 merged." }]);
 });
 
+test("auto-inferred handoff (no roles.json) → NO waiting entry (gated to configured roles)", () => {
+  const inferred = open({ handoff: "merger", handoffWho: "scoop", handoffInferred: true });
+  expect(issueLogEntries(inferred, never)).toEqual([]);
+  // the SAME state without the inferred flag (configured) → comments as before
+  const configured = open({ handoff: "merger", handoffWho: "scoop" });
+  expect(issueLogEntries(configured, never)).toEqual([
+    { key: "waiting:7", body: "⏸️ Waiting on @scoop to merge PR #7." },
+  ]);
+});
+
 test("no handoff / pending checks / no PR number → nothing owed", () => {
   expect(issueLogEntries(open(), never)).toEqual([]); // green but self-turn
   expect(issueLogEntries(open({ handoff: "merger", checks: "pending" }), never)).toEqual([]);

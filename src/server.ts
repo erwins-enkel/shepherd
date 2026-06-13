@@ -689,7 +689,11 @@ function repushHandoff(deps: AppDeps, dir: string, me: string | null): void {
     const prev = snap[s.id];
     if (!prev) continue;
     const updated = annotateHandoff(prev, dir, me);
-    if (updated.handoff !== prev.handoff || updated.handoffWho !== prev.handoffWho) {
+    if (
+      updated.handoff !== prev.handoff ||
+      updated.handoffWho !== prev.handoffWho ||
+      updated.handoffInferred !== prev.handoffInferred
+    ) {
       deps.prCache.set(s.id, updated);
       deps.events.emit("session:git", { id: s.id, git: updated });
     }

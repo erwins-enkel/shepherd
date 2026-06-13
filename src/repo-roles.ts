@@ -34,27 +34,53 @@ export function parseRoles(json: string): RepoRoles {
 }
 
 /** Decide who is up once a PR is open + green. Pure — the testable core.
+ *
+ *  When the repo carries explicit config (`reviewer || merger` set):
  *  - A foreign reviewer who hasn't approved yet → waiting on the reviewer.
  *  - Else a foreign merger → waiting on the merger.
- *  - Else the operator ("self", i.e. today's "Your turn").
+ *  - Else the operator ("self", i.e. today's "Your turn"). `inferred: false`.
+ *
+ *  When the repo is fully unconfigured (no `.shepherd/roles.json` → no roles):
+ *  infer a **merger only** from the PR itself, so a green PR awaiting someone
+ *  else's merge doesn't falsely read as "your turn" (#539). The merger is the
+ *  case-insensitively lowest foreign requested reviewer (gh's array order is not
+ *  contractual, so sort for determinism), else a foreign approver, else self. No
+ *  "reviewer" handoff is ever synthesized from inference; an inferred merger is
+ *  flagged `inferred: true` so the issue-log stays opt-in to configured roles.
+ *
  *  Any human approve counts as "reviewed" (Human-in-the-loop); the critic's own
  *  review is already filtered out upstream (`latestHumanReview`). */
 export function computeHandoff(
   roles: RepoRoles,
   me: string | null,
   latestReview: PrStatus["latestReview"],
-): { handoff: HandoffRole; handoffWho: string | null } {
+  requestedReviewers: string[] = [],
+): { handoff: HandoffRole; handoffWho: string | null; inferred: boolean } {
   // GitHub logins are case-insensitive, so compare folded — else a free-text
   // entry whose casing differs from the operator's own login would mis-read as
   // "someone else" and show "waiting on yourself".
   const meLc = me?.toLowerCase() ?? null;
-  const reviewerIsOther = !!roles.reviewer && roles.reviewer.toLowerCase() !== meLc;
-  const mergerIsOther = !!roles.merger && roles.merger.toLowerCase() !== meLc;
-  const reviewApproved = latestReview?.state === "approved";
-  if (reviewerIsOther && !reviewApproved)
-    return { handoff: "reviewer", handoffWho: roles.reviewer };
-  if (mergerIsOther) return { handoff: "merger", handoffWho: roles.merger };
-  return { handoff: "self", handoffWho: null };
+  if (roles.reviewer || roles.merger) {
+    const reviewerIsOther = !!roles.reviewer && roles.reviewer.toLowerCase() !== meLc;
+    const mergerIsOther = !!roles.merger && roles.merger.toLowerCase() !== meLc;
+    const reviewApproved = latestReview?.state === "approved";
+    if (reviewerIsOther && !reviewApproved)
+      return { handoff: "reviewer", handoffWho: roles.reviewer, inferred: false };
+    if (mergerIsOther) return { handoff: "merger", handoffWho: roles.merger, inferred: false };
+    return { handoff: "self", handoffWho: null, inferred: false };
+  }
+  // Fully unconfigured: infer a merger from the PR. Foreign = login != me (folded).
+  const foreign = (login: string): boolean => login.toLowerCase() !== meLc;
+  const lowestForeignRequestedReviewer =
+    requestedReviewers
+      .filter(foreign)
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))[0] ?? null;
+  const approver = latestReview?.author;
+  const foreignApprover =
+    latestReview?.state === "approved" && approver && foreign(approver) ? approver : null;
+  const merger = lowestForeignRequestedReviewer ?? foreignApprover ?? null;
+  if (merger) return { handoff: "merger", handoffWho: merger, inferred: true };
+  return { handoff: "self", handoffWho: null, inferred: false };
 }
 
 const git = (repoPath: string, args: string[], input?: string): string =>
@@ -114,19 +140,27 @@ function readRolesFromRef(repoPath: string): RepoRoles {
   return EMPTY;
 }
 
-/** Annotate a GitState with `handoff`/`handoffWho`. Always returns a clean state
- *  (any stale handoff is stripped first), so re-running it after a role change
- *  correctly clears a no-longer-applicable waiting state. Only an open + green PR
- *  carries a handoff (the only point the herd consults it); everything else is
- *  returned without one. */
+/** Annotate a GitState with `handoff`/`handoffWho` (+ `handoffInferred` when the
+ *  handoff was auto-inferred from the PR's reviewers rather than configured roles).
+ *  Always returns a clean state (any stale handoff is stripped first), so re-running
+ *  it after a role change correctly clears a no-longer-applicable waiting state. Only
+ *  an open + green PR carries a handoff (the only point the herd consults it);
+ *  everything else is returned without one. */
 export function annotateHandoff(state: GitState, repoPath: string, me: string | null): GitState {
   const base: GitState = { ...state };
   delete base.handoff; // drop any stale handoff so a role change clears it
   delete base.handoffWho;
+  delete base.handoffInferred;
   if (base.state !== "open" || base.checks !== "success") return base;
-  const { handoff, handoffWho } = computeHandoff(readRepoRoles(repoPath), me, base.latestReview);
+  const { handoff, handoffWho, inferred } = computeHandoff(
+    readRepoRoles(repoPath),
+    me,
+    base.latestReview,
+    base.requestedReviewers,
+  );
   if (handoff === "self") return base;
-  return handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };
+  const next = handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };
+  return inferred ? { ...next, handoffInferred: true } : next;
 }
 
 /** Write `.shepherd/roles.json` and push it to the repo's default branch WITHOUT

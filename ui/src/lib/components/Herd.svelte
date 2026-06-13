@@ -270,12 +270,12 @@
         {#each grouped.groups as g (g.key)}
           <EpicGroupHeader
             epic={g.epic}
-            collapsed={collapsedKeys?.has(g.key) ?? false}
+            collapsed={collapsedKeys.has(g.key)}
             cues={cuesFor(g)}
             ontoggle={() => oncollapsetoggle?.(g.key)}
             {onepic}
           />
-          {#if !(collapsedKeys?.has(g.key) ?? false)}
+          {#if !collapsedKeys.has(g.key)}
             <div class="epic-children">
               {#each g.sessions as session (session.id)}
                 <UnitRow

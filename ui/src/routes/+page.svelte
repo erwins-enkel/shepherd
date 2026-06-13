@@ -204,8 +204,11 @@
   }
   // Seed store.epics for any active epic we don't have the full Epic for yet (header
   // needs title + X/Y + backlog link). Reactive on activeEpicKeys, deduped per key.
-  // Fires on load (drain bootstrapped) and when an epic starts mid-session. On fetch
-  // failure we drop the guard so a later tick retries; `epic:update` keeps it fresh.
+  // Fires on load (drain bootstrapped) and when an epic starts mid-session. The effect
+  // re-runs when activeEpicKeys (drain:status) or store.epics (epic:update) change — not on
+  // a timer — so on a transient getEpic failure we drop the guard and the next such update
+  // re-runs this and retries. A persistently failing fetch leaves those children ungrouped
+  // (they still render in the lifecycle sections) — acceptable fail-open degradation.
   // Deliberately a plain (non-reactive) Set: it's a fetch-dedup guard, NOT UI state —
   // a SvelteSet would make the seed $effect re-run on its own .add/.delete and churn.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity

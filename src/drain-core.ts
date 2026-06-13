@@ -29,6 +29,7 @@ export interface HoldReason {
     | "disabled" // per-repo toggle off
     | "cap" // maxAuto auto-agents already running
     | "usage" // usage % at/over the repo's ceiling
+    | "credits" // extra-credit (paid overage) spend over the account ceiling
     | "blocked" // an auto-agent is blocked (trouble pause)
     | "changes_requested" // an auto-agent's critic is blocking (trouble pause)
     | "error" // an auto-agent's critic verdict is an error (don't advance on uncertainty)
@@ -82,6 +83,10 @@ export interface DrainRepoState {
   usageCeilingPct: number;
   /** The worse of the 5h / weekly usage windows, 0–100. */
   usagePct: number;
+  /** Paid extra-credit spend this monthly window (account-wide), 0 when none/stale/unknown. */
+  creditSpent: number;
+  /** Account-wide ceiling (account currency units); spend strictly above it pauses the drain. */
+  creditSpendCeiling: number;
   /** Non-archived auto sessions for this repo (sessions mid-merge carry git: null). */
   autoSessions: AutoSessionView[];
   /** Issue numbers already mapped to a non-archived session (auto OR manual). */
@@ -210,6 +215,11 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 4. Usage ceiling.
   if (state.usagePct >= state.usageCeilingPct) {
     return { kind: "hold", reason: { code: "usage", detail: String(state.usagePct) } };
+  }
+
+  // Extra-credit cost guard: never keep spending real pay-as-you-go money unattended.
+  if (state.creditSpent > state.creditSpendCeiling) {
+    return { kind: "hold", reason: { code: "credits", detail: String(state.creditSpent) } };
   }
 
   // 5. Next un-mapped candidate.

@@ -1,12 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { gaugeList, hotterGauge } from "./usage-gauges";
-import type { UsageLimits, LimitWindow } from "../types";
+import { gaugeList, hotterGauge, overspending } from "./usage-gauges";
+import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
 function w(pct: number, resetAt = 0): LimitWindow {
   return { pct, resetAt };
 }
 function limits(over: Partial<UsageLimits>): UsageLimits {
-  return { session5h: null, week: null, stale: false, calibratedAt: null, ...over };
+  return { session5h: null, week: null, credits: null, stale: false, calibratedAt: null, ...over };
+}
+function credit(over: Partial<CreditWindow>): CreditWindow {
+  return {
+    pct: 0,
+    spent: 0,
+    cap: 50,
+    currency: "€",
+    resetAt: null,
+    scrapedAt: 0,
+    stale: false,
+    ...over,
+  };
 }
 
 describe("gaugeList", () => {
@@ -44,5 +56,23 @@ describe("hotterGauge", () => {
   it("returns the only present window", () => {
     expect(hotterGauge(limits({ session5h: w(40) }))?.label).toBe("5H");
     expect(hotterGauge(limits({ week: w(40) }))?.label).toBe("WK");
+  });
+});
+
+describe("overspending", () => {
+  it("is true on a fresh snapshot with real spend (pct may still round to 0)", () => {
+    expect(overspending(limits({ credits: credit({ spent: 0.29, pct: 0, stale: false }) }))).toBe(
+      true,
+    );
+  });
+  it("is false when the snapshot is stale, even with spend", () => {
+    expect(overspending(limits({ credits: credit({ spent: 5, stale: true }) }))).toBe(false);
+  });
+  it("is false when nothing has been spent", () => {
+    expect(overspending(limits({ credits: credit({ spent: 0, stale: false }) }))).toBe(false);
+  });
+  it("is false when credits is null or limits is null", () => {
+    expect(overspending(limits({ credits: null }))).toBe(false);
+    expect(overspending(null)).toBe(false);
   });
 });

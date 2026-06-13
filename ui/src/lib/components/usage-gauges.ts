@@ -25,3 +25,11 @@ export function hotterGauge(limits: UsageLimits | null): Gauge | null {
   if (!gauges.length) return null;
   return gauges.reduce((hot, g) => (g.w.pct >= hot.w.pct ? g : hot));
 }
+
+/** True when paid extra-credit spend is actually happening on a fresh snapshot — the signal that
+ *  drives the elevated alert. Keyed off `spent` (pct rounds to 0 while money is already spent) and
+ *  gated on freshness so a stale snapshot never raises a false alarm. */
+export function overspending(limits: UsageLimits | null): boolean {
+  const c = limits?.credits;
+  return !!c && !c.stale && c.spent > 0;
+}

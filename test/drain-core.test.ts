@@ -45,6 +45,8 @@ function state(over: Partial<DrainRepoState> = {}): DrainRepoState {
     maxAuto: 2,
     usageCeilingPct: 80,
     usagePct: 0,
+    creditSpent: 0,
+    creditSpendCeiling: 0,
     autoSessions: [],
     mappedIssueNumbers: new Set<number>(),
     candidates: [],
@@ -91,6 +93,36 @@ describe("computeNext", () => {
   test("usage just under ceiling → spawn", () => {
     const d = computeNext(state({ usagePct: 79, usageCeilingPct: 80, candidates: [issue(2)] }));
     expect(d.kind).toBe("spawn");
+  });
+
+  test("extra-credit spend over ceiling → hold credits with spend detail", () => {
+    const d = computeNext(
+      state({ creditSpent: 0.29, creditSpendCeiling: 0, candidates: [issue(2)] }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "credits", detail: "0.29" } });
+  });
+
+  test("extra-credit spend equal to ceiling → no credits hold (uses > not >=)", () => {
+    const d = computeNext(state({ creditSpent: 5, creditSpendCeiling: 5, candidates: [issue(2)] }));
+    expect(d.kind).toBe("spawn");
+  });
+
+  test("extra-credit spend 0 (stale/absent) → no credits hold", () => {
+    const d = computeNext(state({ creditSpent: 0, creditSpendCeiling: 0, candidates: [issue(2)] }));
+    expect(d.kind).toBe("spawn");
+  });
+
+  test("credits guard sits AFTER the usage gate (usage wins when both fire)", () => {
+    const d = computeNext(
+      state({
+        usagePct: 92,
+        usageCeilingPct: 80,
+        creditSpent: 1,
+        creditSpendCeiling: 0,
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "usage", detail: "92" } });
   });
 
   test("blocked auto session → hold blocked with desig", () => {

@@ -11,7 +11,13 @@ const CHILD = 320;
 const PR = 330;
 const EPIC_BRANCH = "epic/327-efi-cluster";
 
-const NO_USAGE: UsageLimitsType = { session5h: null, week: null, stale: false, calibratedAt: null };
+const NO_USAGE: UsageLimitsType = {
+  session5h: null,
+  week: null,
+  credits: null,
+  stale: false,
+  calibratedAt: null,
+};
 
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];

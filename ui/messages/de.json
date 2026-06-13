@@ -1115,5 +1115,18 @@
   "automation_default_model_inherit": "Erben (globaler Standard)",
   "automation_default_model_hint": "Überschreibt das globale Standardmodell (Einstellungen → Sitzung) für dieses Repository. Erben übernimmt die globale Einstellung; eine explizite Wahl wählt den Modell-Picker bei neuen Aufgaben vor und steuert autonome Drain-/Autopilot-Starts in diesem Repository.",
   "feat_repo_default_model_title": "Standardmodell pro Repository",
-  "feat_repo_default_model_body": "Lege im Automatisierungs-Panel eines Repositorys ein Standardmodell fest — es überschreibt den globalen Standard und wählt den Modell-Picker bei neuen Aufgaben vor. Auf Erben belassen, um weiter der globalen Einstellung zu folgen."
+  "feat_repo_default_model_body": "Lege im Automatisierungs-Panel eines Repositorys ein Standardmodell fest — es überschreibt den globalen Standard und wählt den Modell-Picker bei neuen Aufgaben vor. Auf Erben belassen, um weiter der globalen Einstellung zu folgen.",
+  "drain_paused_credits": "Pausiert: Zusatzguthaben wird verbraucht",
+  "topbar_credits_period": "Zusatzguthaben",
+  "topbar_credits_amount": "{spent} von {cap} verbraucht",
+  "topbar_credits_age": "abgerufen vor {age}",
+  "topbar_credits_stale": "Snapshot veraltet — für Live-Verbrauch aktualisieren",
+  "topbar_credits_alert_aria": "Zusatzguthaben in Nutzung: {amount}",
+  "topbar_credits_refresh": "Aktualisieren",
+  "settings_extra_credits_ceiling_title": "Ausgabenlimit für Zusatzguthaben",
+  "settings_extra_credits_ceiling_hint": "Pausiert autonomen Drain und Autopilot, sobald die gemessenen Pay-as-you-go-Ausgaben für Zusatzguthaben (echtes Geld über dein Abo hinaus) diesen Betrag in deiner Kontowährung übersteigen. 0 pausiert bei jeglichen Zusatzguthaben-Ausgaben.",
+  "settings_extra_credits_ceiling_label": "Pausieren, wenn Ausgaben übersteigen",
+  "settings_extra_credits_ceiling_save_failed": "Ausgabenlimit für Zusatzguthaben konnte nicht geändert werden. Erneut versuchen.",
+  "feat_extra_credits_title": "Anzeige für Zusatzguthaben",
+  "feat_extra_credits_body": "Wenn du kostenpflichtige nutzungsbasierte Abrechnung aktivierst, zeigt die obere Leiste jetzt eine CR-Anzeige mit dem verbrauchten Betrag gegen dein monatliches Limit — und hebt sie hervor, sobald echte Kosten anfallen. Öffne sie für Betrag, Reset und Snapshot-Alter, oder aktualisiere sie bei Bedarf."
 }

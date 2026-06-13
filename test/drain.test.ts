@@ -28,7 +28,13 @@ function issue(number: number, over: Partial<Issue> = {}): Issue {
   };
 }
 
-const NO_USAGE: UsageLimitsType = { session5h: null, week: null, stale: false, calibratedAt: null };
+const NO_USAGE: UsageLimitsType = {
+  session5h: null,
+  week: null,
+  credits: null,
+  stale: false,
+  calibratedAt: null,
+};
 
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
@@ -131,6 +137,7 @@ function makeHarness(
     autoDrainEnabled?: boolean;
     usagePct?: number;
     usageCeilingPct?: number;
+    credits?: UsageLimitsType["credits"];
     mergeImpl?: () => Promise<void>;
     listIssuesImpl?: () => Promise<Issue[]>;
     archiveImpl?: (id: string) => number;
@@ -224,7 +231,9 @@ function makeHarness(
   const usage = {
     limits: (): UsageLimitsType => {
       const pct = opts.usagePct ?? 0;
-      return pct > 0 ? { ...NO_USAGE, session5h: { pct, resetAt: 0 } } : NO_USAGE;
+      const base = pct > 0 ? { ...NO_USAGE, session5h: { pct, resetAt: 0 } } : { ...NO_USAGE };
+      if (opts.credits !== undefined) base.credits = opts.credits;
+      return base;
     },
   };
 
@@ -549,6 +558,49 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.reason).toBe("usage");
   expect(last.paused).toBe(true);
   expect(last.detail).toBe("92");
+});
+
+function creditWindow(over: Partial<NonNullable<UsageLimitsType["credits"]>> = {}) {
+  return {
+    pct: 50,
+    spent: 25,
+    cap: 50,
+    currency: "€",
+    resetAt: null,
+    scrapedAt: 0,
+    stale: false,
+    ...over,
+  };
+}
+
+// Fail-safe gate: a stale credits snapshot (>1h old, monthly budget not rolled over) is
+// non-null with a real `spent`, but the rest of the app deliberately disregards it
+// (overspending() = !!c && !c.stale && c.spent > 0). The drain must apply the same !stale
+// gate, else a stale `spent > ceiling` would freeze every repo on disregarded data.
+test("stale credits snapshot → NO credits hold (drain proceeds, stale data disregarded)", async () => {
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    credits: creditWindow({ spent: 999, stale: true }), // far above default ceiling 0
+  });
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).not.toBe("credits");
+  expect(h.creates).toHaveLength(1); // spawned: not frozen on stale spend
+});
+
+// Control: same overage, fresh snapshot → DOES hold. Proves the !stale gate is the difference.
+test("fresh credits snapshot over ceiling → credits hold (paused)", async () => {
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    credits: creditWindow({ spent: 999, stale: false }),
+  });
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("credits");
+  expect(last.paused).toBe(true);
+  expect(h.creates).toHaveLength(0);
 });
 
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {

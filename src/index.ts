@@ -29,7 +29,7 @@ import { reapOrphanTabs } from "./tab-reaper";
 import { serve, buildBacklogPayload } from "./server";
 import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
-import { UsageLimitsService } from "./usage-limits";
+import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
@@ -43,6 +43,7 @@ import {
   attachGitPush,
   attachMergePush,
   attachUsagePush,
+  attachCreditsPush,
 } from "./push";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
@@ -128,6 +129,14 @@ if (savedDm !== null) {
   if (v !== null) config.defaultModel = v;
 }
 
+// A UI-set extra-credit drain ceiling (persisted) overrides the env seed; a missing
+// or invalid row keeps the seeded default. Parsed to a non-negative number.
+const savedEcc = store.getSetting("extra_credits_drain_ceiling");
+if (savedEcc !== null) {
+  const n = Number(savedEcc);
+  if (Number.isFinite(n) && n >= 0) config.extraCreditsDrainCeiling = n;
+}
+
 // ── preview port range startup validation (hard-fail) ──────────────────────
 // Discover the public served port by parsing `tailscale serve status`; default
 // to 443 when tailscale is unavailable or the mapping isn't found. The parser
@@ -186,7 +195,7 @@ const service = new SessionService({
 });
 
 const accountIndex = new AccountUsageIndex();
-const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr));
+const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr), store);
 
 reconcile(store, herdr);
 
@@ -752,24 +761,44 @@ setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 
 // recompute live limit % from local JSONL ~every 30s; push to clients
 attachUsagePush(events, store, push);
+attachCreditsPush(events, store, push);
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
   events.emit("usage:limits", usageLimits.limits(Date.now()));
 }, 30_000);
 
-// calibrate the per-window caps daily (and once on startup) by scraping `/usage`
-const calibrate = async () => {
-  if (maintenance.active) return;
+// calibrate the per-window caps daily (and once on startup) by scraping `/usage`.
+// The `/usage` probe is a single ephemeral agent — a manual refresh and a scheduled
+// calibrate racing each other would double-spawn it and conflict, so guard with a flag.
+let calibrating = false;
+const calibrate = async (): Promise<UsageLimits> => {
+  if (maintenance.active || calibrating) return usageLimits.limits(Date.now());
   try {
+    calibrating = true;
     await accountIndex.refresh(Date.now());
     const ok = await usageLimits.calibrate(Date.now());
     if (ok) events.emit("usage:limits", usageLimits.limits(Date.now()));
   } catch (err) {
     console.warn("[usage] calibration failed:", err);
+  } finally {
+    calibrating = false;
   }
+  return usageLimits.limits(Date.now());
 };
 setTimeout(calibrate, 3_000);
-setInterval(calibrate, 24 * 60 * 60 * 1000);
+// self-rescheduling so the cadence escalates while the weekly window nears its cap (keeping
+// paid extra-credit spend fresh) and relaxes back to daily once it's clear of the cap.
+const scheduleCalibrate = () => {
+  setTimeout(
+    async () => {
+      await calibrate();
+      scheduleCalibrate();
+    },
+    calibrateDelay(usageLimits.limits(Date.now())),
+  );
+};
+scheduleCalibrate();
+const refreshUsage = () => calibrate();
 
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.
@@ -848,6 +877,7 @@ const server = serve(
     service,
     events,
     usageLimits,
+    refreshUsage,
     updates,
     herdrUpdates,
     starPrompt,

@@ -10,14 +10,39 @@ const PERIOD_MS: Record<WindowKey, number> = {
 /** Below this scraped %, inverting to a cap is too noisy — keep the prior cap instead. */
 const MIN_CALIBRATION_PCT = 5;
 
+/** Weekly-window % at/above which we escalate /usage calibration cadence: close enough to the
+ *  subscription cap that paid extra-credit spend becomes plausible and a daily credit snapshot is
+ *  too stale to trust. */
+const CREDIT_WATCH_PCT = 90; // internal watermark for calibrateDelay; not part of the public API
+export const CREDIT_WATCH_INTERVAL_MS = 15 * 60 * 1000; // escalated cadence near the cap
+export const CALIBRATE_INTERVAL_MS = 24 * 60 * 60 * 1000; // normal daily cadence
+
+/** Delay until the next `/usage` calibration, given the latest live limits. Escalates to the
+ *  watch cadence while the weekly window is near its cap so credit spend stays fresh. */
+export function calibrateDelay(limits: UsageLimits): number {
+  return (limits.week?.pct ?? 0) >= CREDIT_WATCH_PCT
+    ? CREDIT_WATCH_INTERVAL_MS
+    : CALIBRATE_INTERVAL_MS;
+}
+
 export interface ScrapedWindow {
   pct: number;
+  resetAt: number | null;
+  resetLabel: string | null;
+}
+/** The "Usage credits" panel: paid pay-as-you-go overage spend against a monthly budget. */
+export interface ScrapedCredit {
+  pct: number;
+  spent: number;
+  cap: number;
+  currency: string;
   resetAt: number | null;
   resetLabel: string | null;
 }
 export interface ScrapedUsage {
   session5h: ScrapedWindow | null;
   week: ScrapedWindow | null;
+  credits: ScrapedCredit | null;
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -54,6 +79,42 @@ export function parseResetLabel(label: string, now: number): number | null {
   return null;
 }
 
+/**
+ * Parse a credits-cycle reset label (month-name + day, e.g. "Jun1" / "Jun 1") to a ms epoch at
+ * local midnight. Unlike `parseResetLabel`, a date already past rolls forward ONE MONTH (the
+ * credits budget is monthly), not one year — carrying the year on a Dec→Jan wrap.
+ */
+export function parseMonthlyReset(label: string, now: number): number | null {
+  const m = label
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .match(/^([a-z]{3})(\d{1,2})$/);
+  if (!m) return null;
+  const mon = MONTHS.indexOf(m[1]!);
+  if (mon < 0) return null;
+  const day = +m[2]!;
+  const d = new Date(now);
+  // day-safe: pin to the 1st before setting the month so a short target month can't overflow
+  // (e.g. setting month while on day 31 spills "Feb 31" into March), then clamp the labeled day
+  // to the new month's length. Re-clamp on every step — the month length changes as we advance.
+  const clampDay = () => {
+    d.setDate(1);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, lastDay));
+  };
+  d.setMonth(mon, 1);
+  clampDay();
+  d.setHours(0, 0, 0, 0);
+  // the credits cycle is monthly: a label naming a past month/day is the NEXT occurrence — step
+  // forward a month at a time (carrying the year on the Dec→Jan wrap) until it lands at/after now.
+  // (One step suffices for "this month, day already past"; the loop also handles Dec-scrape/Jan-reset.)
+  while (d.getTime() < now) {
+    d.setMonth(d.getMonth() + 1, 1);
+    clampDay();
+  }
+  return d.getTime();
+}
+
 // Built from char codes so the control bytes never appear literally in a regex literal.
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -83,6 +144,39 @@ function parseSegment(seg: string, now: number): ScrapedWindow | null {
   };
 }
 
+/**
+ * Read the "Usage credits" panel out of the already-ANSI-stripped, whitespace-collapsed capture.
+ * This is a STANDALONE scan — it must NOT route through the section anchor/`SECTION_TRAILER` loop,
+ * which lists `Usagecredits` as a trailer and would truncate this segment to empty. Collapsed shape:
+ *   Usagecredits▎0%used€0.29/€50.00spent·ResetsJun1(Europe/Berlin)
+ * The gauge pct rounds down (can read `0%used` while real money is spent), so `spent` is the truth
+ * signal and is parsed independently of pct.
+ */
+export function parseCredits(collapsed: string, now: number): ScrapedCredit | null {
+  const start = collapsed.search(/Usagecredits/i);
+  if (start < 0) return null;
+  let seg = collapsed.slice(start);
+  const end = seg.search(/Esctocancel/i);
+  if (end >= 0) seg = seg.slice(0, end);
+  // pct rounds down and can be absent; treat missing as 0 — spend below is the real signal
+  const pct = +(seg.match(/(\d+)%used/i)?.[1] ?? 0);
+  // symbol-only currency group: a `(\D*)([\d.]+)` form would wrongly grab the `%used` of `0%used€`.
+  // Amounts are assumed dot-decimal (as the Europe/Berlin TUI renders, e.g. `€0.29`); a comma render
+  // (`€0,29`) wouldn't match `[\d.]+` and would drop the whole credits section (returns null).
+  // `seg` is already whitespace-collapsed, so there is no inter-group whitespace to skip.
+  const spend = seg.match(/([^\d.\s/])([\d.]+)\/[^\d.\s/]?([\d.]+)spent/i);
+  if (!spend) return null;
+  const label = seg.match(/Resets(.*?)\(/i)?.[1] ?? null;
+  return {
+    pct,
+    spent: +spend[2]!,
+    cap: +spend[3]!,
+    currency: spend[1]!,
+    resetLabel: label,
+    resetAt: label ? parseMonthlyReset(label, now) : null,
+  };
+}
+
 /** Extract the two limit windows from a (possibly multi-frame, ANSI-laden) `/usage` capture. */
 export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   const noAnsi = raw.replace(ANSI_CSI, "").replace(ANSI_OSC, "");
@@ -91,7 +185,7 @@ export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   // so a window's pct/reset can only be read from its OWN section — a truncated redraw must
   // not let one window steal the next section's (or the next frame's) values.
   const anchors = [...c.matchAll(/Currentsession|Currentweek/gi)];
-  const best: ScrapedUsage = { session5h: null, week: null };
+  const best: ScrapedUsage = { session5h: null, week: null, credits: parseCredits(c, now) };
   for (let i = 0; i < anchors.length; i++) {
     let seg = c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length);
     const trailer = seg.search(SECTION_TRAILER);
@@ -118,16 +212,46 @@ export interface LimitWindow {
   pct: number;
   resetAt: number;
 }
+/** Live "Usage credits" window — a direct passthrough of the last scrape snapshot. */
+export interface CreditWindow {
+  pct: number;
+  spent: number;
+  cap: number;
+  currency: string;
+  resetAt: number | null;
+  scrapedAt: number;
+  stale: boolean; // derived from scrapedAt age (NOT the cap-based 2-week stale flag)
+}
 export interface UsageLimits {
   session5h: LimitWindow | null;
   week: LimitWindow | null;
+  credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
 }
 
+// Credits is scrape-fresh-only (no local signal to recompute from), so it goes stale fast —
+// 1h, unlike the 2-week cap stale that tolerates JSONL-recomputed windows drifting.
+const CREDIT_STALE_MS = 60 * 60 * 1000;
+
 export interface CapStore {
   getCaps(): CapRow[];
   putCap(row: CapRow): void;
+}
+
+/** Latest persisted "Usage credits" snapshot — a direct passthrough of the scrape, not back-calculated. */
+export interface CreditSnapshot {
+  spent: number;
+  cap: number;
+  currency: string;
+  pct: number;
+  resetAt: number | null; // monthly reset epoch (ms); null if the label was unparseable
+  scrapedAt: number;
+}
+
+export interface CreditStore {
+  getCreditSnapshot(): CreditSnapshot | null; // null when nothing persisted yet
+  putCreditSnapshot(row: CreditSnapshot): void; // single-row: upsert, latest wins
 }
 
 /** A source of raw `/usage` text. Returns null on failure (spawn/parse/timeout). */
@@ -153,6 +277,7 @@ export class UsageLimitsService {
     private index: AccountUsageIndex,
     private caps: CapStore,
     private probe: UsageProbe,
+    private creditStore: CreditStore,
   ) {}
 
   /** Scrape `/usage` and recalibrate the per-window caps from local JSONL. */
@@ -163,31 +288,63 @@ export class UsageLimitsService {
     const prior = new Map(this.caps.getCaps().map((r) => [r.window, r]));
     let any = false;
     for (const key of ["session5h", "week"] as WindowKey[]) {
-      const w = parsed[key];
-      if (!w) continue;
-      const period = PERIOD_MS[key];
-      const p = prior.get(key);
-      // unparseable reset label: a prior anchor rolled forward beats guessing now+period —
-      // a bogus anchor poisons both the calibration window and the displayed reset time
-      const resetAt = w.resetAt ?? (p ? rollForward(p.resetAt, period, now) : now + period);
-      const start = resetAt - period;
-      const units = this.index.windowSum(start, Math.min(resetAt, now));
-      if (w.pct >= MIN_CALIBRATION_PCT && units > 0) {
-        this.caps.putCap({
-          window: key,
-          cap: units / (w.pct / 100),
-          resetAt,
-          pct: w.pct,
-          scrapedAt: now,
-        });
-        any = true;
-      } else {
-        // too little signal to invert a cap — refresh the anchor on the prior cap if we have one
-        if (p) this.caps.putCap({ ...p, resetAt, pct: w.pct, scrapedAt: now });
-        any = any || !!p;
-      }
+      if (this.calibrateWindow(key, parsed[key], prior.get(key), now)) any = true;
     }
+    if (this.persistCredit(parsed, now)) any = true;
     return any;
+  }
+
+  /**
+   * Recalibrate one window's cap from its scraped pct against local JSONL. Returns true when it
+   * wrote a cap (or refreshed a prior anchor) — i.e. when the calibration produced something worth
+   * emitting. Absent window (`w` null) → no-op, returns false.
+   */
+  private calibrateWindow(
+    key: WindowKey,
+    w: ScrapedUsage[WindowKey],
+    p: CapRow | undefined,
+    now: number,
+  ): boolean {
+    if (!w) return false;
+    const period = PERIOD_MS[key];
+    // unparseable reset label: a prior anchor rolled forward beats guessing now+period —
+    // a bogus anchor poisons both the calibration window and the displayed reset time
+    const resetAt = w.resetAt ?? (p ? rollForward(p.resetAt, period, now) : now + period);
+    const start = resetAt - period;
+    const units = this.index.windowSum(start, Math.min(resetAt, now));
+    if (w.pct >= MIN_CALIBRATION_PCT && units > 0) {
+      this.caps.putCap({
+        window: key,
+        cap: units / (w.pct / 100),
+        resetAt,
+        pct: w.pct,
+        scrapedAt: now,
+      });
+      return true;
+    }
+    // too little signal to invert a cap — refresh the anchor on the prior cap if we have one
+    if (p) this.caps.putCap({ ...p, resetAt, pct: w.pct, scrapedAt: now });
+    return !!p;
+  }
+
+  /**
+   * Credits is a direct passthrough — persist the scrape verbatim whenever the panel rendered it.
+   * No MIN_CALIBRATION_PCT gate (that's a cap-inversion guard, irrelevant here). A missing section
+   * (extra usage disabled) leaves any prior snapshot untouched — never fabricate. Returns true when
+   * a snapshot was persisted (worth emitting usage:limits even if caps didn't move).
+   */
+  private persistCredit(parsed: ScrapedUsage, now: number): boolean {
+    if (!parsed.credits) return false;
+    const cr = parsed.credits;
+    this.creditStore.putCreditSnapshot({
+      spent: cr.spent,
+      cap: cr.cap,
+      currency: cr.currency,
+      pct: cr.pct,
+      resetAt: cr.resetAt,
+      scrapedAt: now,
+    });
+    return true;
   }
 
   /** Current live limits, recomputed from local JSONL against the calibrated caps. */
@@ -205,6 +362,23 @@ export class UsageLimitsService {
     const session5h = compute("session5h");
     const week = compute("week");
     const stale = calibratedAt === null || now - calibratedAt > 2 * PERIOD_MS.week;
-    return { session5h, week, stale, calibratedAt };
+    // Credits is a passthrough of the stored snapshot — not recomputed from JSONL.
+    const snap = this.creditStore.getCreditSnapshot();
+    let credits: CreditWindow | null = null;
+    // Post-reset guard: a snapshot whose monthly budget has already rolled over is meaningless
+    // until re-scraped — drop it (also stops the gauge showing a past reset date). An unparseable
+    // (null) resetAt can't be known to have rolled over, so it passes through.
+    if (snap && !(snap.resetAt != null && snap.resetAt <= now)) {
+      credits = {
+        pct: snap.pct,
+        spent: snap.spent,
+        cap: snap.cap,
+        currency: snap.currency,
+        resetAt: snap.resetAt,
+        scrapedAt: snap.scrapedAt,
+        stale: now - snap.scrapedAt > CREDIT_STALE_MS,
+      };
+    }
+    return { session5h, week, credits, stale, calibratedAt };
   }
 }

@@ -287,6 +287,10 @@ export class DrainService {
         maxAuto: cfg.maxAuto,
         usageCeilingPct: cfg.usageCeilingPct,
         usagePct,
+        // Extra-credit cost guard: paid overage spent this window (0 when credits is
+        // null/stale/post-reset — fail-safe), against the account-wide live ceiling.
+        creditSpent: limits.credits && !limits.credits.stale ? limits.credits.spent : 0,
+        creditSpendCeiling: config.extraCreditsDrainCeiling,
         autoSessions,
         mappedIssueNumbers,
         candidates,
@@ -324,7 +328,8 @@ export class DrainService {
     const hold = decision.kind === "hold" ? decision.reason : null;
     // cap is conveyed by inFlight/max, empty is normal idle — neither pauses.
     const paused =
-      hold !== null && ["blocked", "changes_requested", "error", "usage"].includes(hold.code);
+      hold !== null &&
+      ["blocked", "changes_requested", "error", "usage", "credits"].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
       repoPath,

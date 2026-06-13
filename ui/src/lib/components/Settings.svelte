@@ -8,6 +8,7 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putExtraCreditsDrainCeiling,
     listDirs,
   } from "$lib/api";
   import { MODELS, PREMIUM_MODELS, type DirListing, type HerdrUpdateStatus } from "$lib/types";
@@ -134,6 +135,9 @@
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
+  let extraCreditsCeiling = $state(0); // account-wide extra-credit spend ceiling (0 = pause on any)
+  let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
+  let extraCreditsBusy = $state(false);
 
   async function savePrReviewCycles() {
     if (prRcyBusy) return;
@@ -209,6 +213,32 @@
       });
     } finally {
       defaultModelBusy = false;
+    }
+  }
+
+  async function saveExtraCreditsCeiling() {
+    if (extraCreditsBusy) return;
+    extraCreditsBusy = true;
+    // Clamp to a non-negative number client-side (the server validates too); an
+    // empty/NaN field falls back to 0 rather than posting garbage.
+    const n = Number(extraCreditsCeiling);
+    const clamped = Number.isFinite(n) && n >= 0 ? n : 0;
+    extraCreditsCeiling = clamped;
+    try {
+      const r = await putExtraCreditsDrainCeiling(clamped);
+      extraCreditsCeiling = r.extraCreditsDrainCeiling;
+      extraCreditsCeilingSaved = r.extraCreditsDrainCeiling;
+    } catch {
+      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // deduped alert so the no-op never looks like a save.
+      extraCreditsCeiling = extraCreditsCeilingSaved;
+      toasts.info(m.settings_extra_credits_ceiling_save_failed(), {
+        key: "extra-credits-ceiling",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      extraCreditsBusy = false;
     }
   }
 
@@ -295,6 +325,8 @@
       planReviewCyclesSaved = s.planReviewCyclesCap;
       defaultModel = s.defaultModel;
       defaultModelSaved = s.defaultModel;
+      extraCreditsCeiling = s.extraCreditsDrainCeiling;
+      extraCreditsCeilingSaved = s.extraCreditsDrainCeiling;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -553,6 +585,23 @@
         {#if isPremiumModel}
           <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
         {/if}
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_extra_credits_ceiling_title()}</span>
+        <p class="hint">{m.settings_extra_credits_ceiling_hint()}</p>
+        <label class="cycles">
+          <span class="cycles-label">{m.settings_extra_credits_ceiling_label()}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            step="1"
+            disabled={extraCreditsBusy}
+            bind:value={extraCreditsCeiling}
+            aria-label={m.settings_extra_credits_ceiling_title()}
+            onchange={saveExtraCreditsCeiling}
+          />
+        </label>
       </div>
       <div bind:this={steersEl}><SteersEditor /></div>
     </div>

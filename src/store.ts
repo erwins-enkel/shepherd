@@ -15,7 +15,7 @@ import type {
   ReviewerSpawnRow,
   PrReview,
 } from "./types";
-import type { CapRow, CapStore, WindowKey } from "./usage-limits";
+import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
@@ -151,7 +151,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   auto, issueNumber, sandboxApplied, sandboxDegraded,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
 
-export class SessionStore implements CapStore {
+export class SessionStore implements CapStore, CreditStore {
   private db: Database;
   constructor(path: string) {
     this.db = new Database(path);
@@ -179,6 +179,10 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps (
       window TEXT PRIMARY KEY, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
       pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS usage_credit (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      spent REAL NOT NULL, cap REAL NOT NULL, currency TEXT NOT NULL,
+      pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -764,6 +768,25 @@ export class SessionStore implements CapStore {
        ON CONFLICT(window) DO UPDATE SET cap=excluded.cap, resetAt=excluded.resetAt,
          pct=excluded.pct, scrapedAt=excluded.scrapedAt`,
       [row.window as WindowKey, row.cap, row.resetAt, row.pct, row.scrapedAt],
+    );
+  }
+
+  getCreditSnapshot(): CreditSnapshot | null {
+    return (
+      (this.db
+        .query(
+          `SELECT spent, cap, currency, pct, resetAt, scrapedAt FROM usage_credit WHERE id = 1`,
+        )
+        .get() as CreditSnapshot | null) ?? null
+    );
+  }
+
+  putCreditSnapshot(row: CreditSnapshot): void {
+    this.db.run(
+      `INSERT INTO usage_credit (id, spent, cap, currency, pct, resetAt, scrapedAt) VALUES (1, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET spent=excluded.spent, cap=excluded.cap, currency=excluded.currency,
+         pct=excluded.pct, resetAt=excluded.resetAt, scrapedAt=excluded.scrapedAt`,
+      [row.spent, row.cap, row.currency, row.pct, row.resetAt, row.scrapedAt],
     );
   }
 

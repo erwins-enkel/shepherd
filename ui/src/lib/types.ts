@@ -47,6 +47,9 @@ export interface Settings {
   planReviewCyclesMin: number;
   /** Display-only: upper bound for planReviewCyclesCap (drives the stepper's max). */
   planReviewCyclesMax: number;
+  /** Account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
+   *  0 = pause on ANY extra-credit spend. */
+  extraCreditsDrainCeiling: number;
   /** Display-only: archived sessions older than this many days are pruned. */
   sessionRetentionDays: number;
   /** Display-only: newest archived sessions kept regardless of age. */
@@ -447,9 +450,32 @@ export interface LimitWindow {
   pct: number;
   resetAt: number;
 }
+/**
+ * Paid pay-as-you-go extra-credit overage (mirrors the server's CreditWindow).
+ * The truth signal for "running into extra credits" is `spent > 0` on a FRESH
+ * snapshot (`!stale`), NOT `pct` — pct rounds to 0 while money is already spent.
+ */
+export interface CreditWindow {
+  /** Panel's rounded % — can be 0 while real money is spent; do NOT rely on it for "is spending". */
+  pct: number;
+  /** Money spent this monthly window (e.g. 0.29). */
+  spent: number;
+  /** Monthly extra-usage budget (e.g. 50). */
+  cap: number;
+  /** Currency symbol, e.g. "€" — passed through verbatim, NOT translated. */
+  currency: string;
+  /** Monthly reset epoch ms, or null. */
+  resetAt: number | null;
+  /** When this snapshot was scraped. */
+  scrapedAt: number;
+  /** True when the snapshot is older than 1h (credits is scrape-fresh-only). */
+  stale: boolean;
+}
 export interface UsageLimits {
   session5h: LimitWindow | null;
   week: LimitWindow | null;
+  /** Paid extra-credit overage; null when extra usage is off or post-reset. */
+  credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
 }

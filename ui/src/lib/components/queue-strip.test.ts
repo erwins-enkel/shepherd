@@ -111,6 +111,12 @@ describe("pausedText", () => {
     expect(text.length).toBeGreaterThan(0);
     expect(text).not.toBe(pausedText(drain({ paused: true, reason: null })));
   });
+  it("maps credits to drain_paused_credits", () => {
+    const text = pausedText(drain({ paused: true, reason: "credits", detail: "0.29" }));
+    expect(text.length).toBeGreaterThan(0);
+    // must differ from the generic fallback so it's actually the correct branch
+    expect(text).not.toBe(pausedText(drain({ paused: true, reason: null })));
+  });
   it("does not throw when detail is null", () => {
     expect(() =>
       pausedText(drain({ paused: true, reason: "blocked", detail: null })),

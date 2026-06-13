@@ -260,6 +260,14 @@ export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesC
 export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
   patchSettings<{ defaultModel: string }>({ defaultModel: model });
 
+// Persist the account-wide extra-credit (paid overage) spend ceiling. Auto-drain/autopilot
+// pauses when measured spend strictly exceeds it; 0 = pause on any spend. The server
+// validates a non-negative number and returns the stored value.
+export const putExtraCreditsDrainCeiling = (
+  ceiling: number,
+): Promise<{ extraCreditsDrainCeiling: number }> =>
+  patchSettings({ extraCreditsDrainCeiling: ceiling });
+
 export async function listDirs(path?: string): Promise<DirListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : "";
   const r = await fetch(`/api/fs/dirs${q}`);
@@ -311,6 +319,12 @@ export async function getDiff(id: string): Promise<DiffResult> {
 export async function getUsageLimits(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw await failed(r, "limits");
+  return r.json();
+}
+
+export async function refreshUsage(): Promise<UsageLimits> {
+  const r = await fetch("/api/usage/refresh", { method: "POST" });
+  if (!r.ok) throw await failed(r, "refresh");
   return r.json();
 }
 

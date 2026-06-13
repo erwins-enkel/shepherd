@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
-  import { formatReset } from "$lib/format";
+  import { formatReset, relativeAge } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { gaugeList, hotterGauge, type GaugeKey } from "./usage-gauges";
+  import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
+  import { refreshUsage } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -204,6 +205,48 @@
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
+
+  // Paid extra-credit overage. Rendered as a distinct CR element (NOT a gaugeList
+  // entry — its window shape carries no credit fields, and a 0%-pct credit gauge
+  // must never become the "hotter" collapsed gauge). Null → render nothing.
+  const credits = $derived(limits?.credits ?? null);
+  const overspend = $derived(overspending(limits));
+  // Bar fill is spent/cap (NOT pct — pct rounds to 0 while money is already spent).
+  const creditFill = $derived(
+    credits && credits.cap > 0 ? Math.min(Math.max(credits.spent / credits.cap, 0), 1) : 0,
+  );
+  // Currency + numbers are passthrough data, NOT translated. Amounts use 2 decimals to match the
+  // server push copy (src/push.ts extraCreditsBody) so the gauge and the notification read identically.
+  const creditAmount = $derived(
+    credits
+      ? `${credits.currency}${credits.spent.toFixed(2)} / ${credits.currency}${credits.cap.toFixed(2)}`
+      : "",
+  );
+  // Alert hue: amber is the design system's caution token (reused by the usage
+  // gauges' hot state + the update badge). pct is 0 here so gaugeColor(pct) can't
+  // drive it — overspend keys off real spend instead. Stale → muted; idle → neutral.
+  const creditColor = $derived(
+    credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
+  );
+
+  // Refresh: POST /api/usage/refresh; the server's calibrate emit bridges back to the
+  // client `ln` WS frame, so the gauge self-updates — we ignore the returned value.
+  // Fail closed: a rejected refresh sets an error flag so it never looks like success.
+  let refreshing = $state(false);
+  let refreshError = $state(false);
+  async function doRefresh() {
+    if (refreshing) return;
+    refreshing = true;
+    refreshError = false;
+    try {
+      await refreshUsage();
+    } catch {
+      refreshError = true;
+    } finally {
+      refreshing = false;
+    }
+  }
+
   let popoverOpen = $state(false);
   // Desktop (fine pointer): hovering the inline gauges opens a richer detail
   // card — full window names, wide bars, percentages and reset times — in place
@@ -213,8 +256,8 @@
   let detailOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
   $effect(() => {
-    // close the popover when it can no longer be opened (gauge gone / switched off touch)
-    if (!touch || !hotter) popoverOpen = false;
+    // close the popover when it can no longer be opened (no gauge AND no credit, or off touch)
+    if (!touch || (!hotter && !credits)) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -314,6 +357,74 @@
 </script>
 
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
+
+<!-- CR credit gauge: the compact inline bar (label + bar + amount), reused across the
+     desktop .gauges row and the desktop hover popover. Mirrors the .gauge recipe. -->
+{#snippet creditGauge()}
+  {#if credits}
+    <div
+      class="gauge credit-gauge"
+      class:stale={credits.stale}
+      class:alert={overspend}
+      aria-label={overspend
+        ? m.topbar_credits_alert_aria({ amount: creditAmount })
+        : `${m.topbar_credits_period()} · ${creditAmount}`}
+    >
+      <span class="g-label micro">CR</span>
+      <span class="g-bar"
+        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
+        ></span></span
+      >
+      <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
+    </div>
+  {/if}
+{/snippet}
+
+<!-- CR credit detail block for the popovers: full name, wide bar + amount, reset,
+     snapshot age, stale note, and an on-demand refresh button. -->
+{#snippet creditDetail()}
+  {#if credits}
+    <div class="credit-detail" class:stale={credits.stale}>
+      <div class="gp-head">
+        <span class="gp-period">{m.topbar_credits_period()}</span>
+        <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
+      </div>
+      <span class="g-bar g-bar-wide"
+        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
+        ></span></span
+      >
+      <div class="credit-sub micro">
+        {m.topbar_credits_amount({
+          spent: `${credits.currency}${credits.spent.toFixed(2)}`,
+          cap: `${credits.currency}${credits.cap.toFixed(2)}`,
+        })}
+      </div>
+      {#if credits.resetAt !== null}
+        <div class="gauge-pop-reset micro">
+          {m.topbar_gauge_reset({ reset: formatReset(credits.resetAt, nowMs) })}
+        </div>
+      {/if}
+      <div class="gauge-pop-reset micro">
+        {m.topbar_credits_age({ age: relativeAge(credits.scrapedAt, nowMs) })}
+      </div>
+      {#if credits.stale}
+        <div class="credit-stale micro">{m.topbar_credits_stale()}</div>
+      {/if}
+      <button
+        type="button"
+        class="credit-refresh micro"
+        disabled={refreshing}
+        aria-busy={refreshing}
+        onclick={doRefresh}
+      >
+        {refreshing ? m.common_loading() : m.topbar_credits_refresh()}
+      </button>
+      {#if refreshError}
+        <div class="credit-error micro" role="alert">{m.common_retry()}</div>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
 
 <div class="hud bracket" class:mobile bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
@@ -445,31 +556,59 @@
       </button>
     {/if}
     {#if touch}
-      {#if hotter}
-        <!-- touch: collapse to the hotter window; tap for the full breakdown -->
+      {#if hotter || credits}
+        <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
+             only signal); tap for the full breakdown. The collapsed button carries an
+             alert state while extra credits are being spent. -->
         <div class="gauge-wrap" bind:this={gaugeWrap}>
-          <button
-            class="gauge gauge-btn"
-            class:stale={limits?.stale}
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={popoverOpen}
-            aria-label={m.topbar_gauge_toggle_aria({
-              period: periodLabel(hotter.label),
-              pct: hotter.w.pct,
-            })}
-            onclick={() => (popoverOpen = !popoverOpen)}
-          >
-            <span class="g-label micro">{hotter.label}</span>
-            <span class="g-bar"
-              ><span
-                class="g-fill"
-                style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
-                  100});background:{gaugeColor(hotter.w.pct)}"
-              ></span></span
+          {#if hotter}
+            <button
+              class="gauge gauge-btn"
+              class:stale={limits?.stale}
+              class:alert={overspend}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={popoverOpen}
+              aria-label={m.topbar_gauge_toggle_aria({
+                period: periodLabel(hotter.label),
+                pct: hotter.w.pct,
+              })}
+              onclick={() => (popoverOpen = !popoverOpen)}
             >
-            <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
-          </button>
+              <span class="g-label micro">{hotter.label}</span>
+              <span class="g-bar"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
+                    100});background:{gaugeColor(hotter.w.pct)}"
+                ></span></span
+              >
+              <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
+            </button>
+          {:else}
+            <!-- credits-only: no usage windows scraped, but extra spend exists -->
+            <button
+              class="gauge gauge-btn"
+              class:stale={credits?.stale}
+              class:alert={overspend}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={popoverOpen}
+              aria-label={overspend
+                ? m.topbar_credits_alert_aria({ amount: creditAmount })
+                : `${m.topbar_credits_period()} · ${creditAmount}`}
+              onclick={() => (popoverOpen = !popoverOpen)}
+            >
+              <span class="g-label micro">CR</span>
+              <span class="g-bar"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({creditFill});background:{creditColor}"
+                ></span></span
+              >
+              <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
+            </button>
+          {/if}
           {#if popoverOpen}
             <div
               class="gauge-pop"
@@ -496,11 +635,12 @@
                   {m.topbar_gauge_reset({ reset: formatReset(g.w.resetAt, nowMs) })}
                 </div>
               {/each}
+              {@render creditDetail()}
             </div>
           {/if}
         </div>
       {/if}
-    {:else if gauges.length}
+    {:else if gauges.length || credits}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="gauges-wrap"
@@ -521,6 +661,7 @@
               <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
             </div>
           {/each}
+          {@render creditGauge()}
         </div>
         {#if detailOpen}
           <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
@@ -545,6 +686,11 @@
                 </div>
               </div>
             {/each}
+            {#if credits}
+              <div class="gp-window">
+                {@render creditDetail()}
+              </div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -1000,6 +1146,66 @@
     font-size: var(--fs-meta);
     min-width: 30px;
     text-align: right;
+  }
+  /* CR credit gauge: reuses the .gauge recipe. The amount text is wider than a
+     percentage, so it gets a larger min-width and rides on the same tabular nums. */
+  .credit-gauge.alert .g-label {
+    color: var(--color-amber);
+  }
+  .credit-gauge.stale {
+    opacity: 0.5;
+  }
+  .credit-amount {
+    min-width: max-content;
+    white-space: nowrap;
+  }
+  /* CR collapsed touch button + popover detail when extra credits are being spent. */
+  .gauge-btn.alert {
+    border-color: var(--color-amber);
+  }
+  .credit-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .credit-detail.stale {
+    opacity: 0.5;
+  }
+  .credit-sub {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-ink);
+  }
+  .credit-stale {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-amber);
+  }
+  .credit-error {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-red);
+  }
+  .credit-refresh {
+    align-self: flex-start;
+    margin-top: 2px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-meta);
+    text-transform: none;
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .credit-refresh:hover:not(:disabled) {
+    background: var(--color-inset);
+  }
+  .credit-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
   }
   /* Touch: a single collapsed gauge rendered as a tappable button. */
   .gauge-wrap {

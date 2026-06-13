@@ -1115,5 +1115,18 @@
   "automation_default_model_inherit": "Inherit (global default)",
   "automation_default_model_hint": "Overrides the global default model (Settings → Session) for this repo. Inherit defers to the global setting; an explicit choice preselects the New Task picker and drives autonomous drain/autopilot spawns in this repo.",
   "feat_repo_default_model_title": "Per-repo default model",
-  "feat_repo_default_model_body": "Set a default model per repository in its automation panel — it overrides the global default and preselects the New Task picker. Leave it on Inherit to keep following the global setting."
+  "feat_repo_default_model_body": "Set a default model per repository in its automation panel — it overrides the global default and preselects the New Task picker. Leave it on Inherit to keep following the global setting.",
+  "drain_paused_credits": "Paused: spending extra credits",
+  "topbar_credits_period": "Extra credits",
+  "topbar_credits_amount": "{spent} of {cap} spent",
+  "topbar_credits_age": "scraped {age} ago",
+  "topbar_credits_stale": "snapshot stale — refresh for live spend",
+  "topbar_credits_alert_aria": "Extra credits in use: {amount}",
+  "topbar_credits_refresh": "Refresh",
+  "settings_extra_credits_ceiling_title": "Extra-credit spend ceiling",
+  "settings_extra_credits_ceiling_hint": "Pauses autonomous drain and autopilot once measured pay-as-you-go extra-credit spend (real money beyond your subscription) exceeds this amount, in your account currency. 0 pauses on any extra-credit spend at all.",
+  "settings_extra_credits_ceiling_label": "Pause when spend exceeds",
+  "settings_extra_credits_ceiling_save_failed": "Couldn't change the extra-credit spend ceiling. Retry.",
+  "feat_extra_credits_title": "Extra-credit overage gauge",
+  "feat_extra_credits_body": "When you opt into paid pay-as-you-go usage, the top bar now shows a CR gauge with money spent against your monthly cap — and flags it the moment real spend starts. Open it to see the amount, reset, and snapshot age, or refresh on demand."
 }

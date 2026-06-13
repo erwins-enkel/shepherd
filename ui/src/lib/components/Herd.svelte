@@ -285,7 +285,11 @@
         <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
       {/if}
     {:else if shown.length === 0}
-      <div class="empty micro static">{m.herd_ready_empty()}</div>
+      {#if filter === "research"}
+        <div class="empty micro static">{m.herd_research_empty()}</div>
+      {:else}
+        <div class="empty micro static">{m.herd_ready_empty()}</div>
+      {/if}
     {:else}
       {#each grouped.groups as g (g.key)}
         <EpicGroupHeader

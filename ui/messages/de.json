@@ -1209,5 +1209,6 @@
   "feat_research_title": "Rechercheaufgaben",
   "feat_research_body": "Starte eine Rechercheaufgabe im Dialog „Neue Aufgabe“: Ein betreuter Agent führt Web-Recherche mit Sub-Agenten durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR.",
   "herd_research_filter": "⬡ Recherche",
-  "herd_research_title": "Nur Rechercheaufgaben anzeigen"
+  "herd_research_title": "Nur Rechercheaufgaben anzeigen",
+  "herd_research_empty": "Keine Rechercheaufgaben."
 }

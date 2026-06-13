@@ -55,10 +55,11 @@ type Stage =
 export type HerdFilter = "all" | "ready" | "research";
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
- *  awaiting the operator (not running, not under review). Single source of truth shared
- *  by Herd.svelte's list and herd-keynav's rail order, so keyboard navigation can never
- *  land on a row the rail isn't showing. Goes through `displayStatus` (a working-while-
- *  blocked session is actually mid-turn, so it is NOT awaiting the operator). */
+ *  awaiting the operator (not running, not under review); "research" keeps only sessions
+ *  with `s.research` set. Single source of truth shared by Herd.svelte's list and
+ *  herd-keynav's rail order, so keyboard navigation can never land on a row the rail
+ *  isn't showing. Goes through `displayStatus` (a working-while-blocked session is
+ *  actually mid-turn, so it is NOT awaiting the operator). */
 export function shownSessions(
   sessions: Session[],
   filter: HerdFilter,

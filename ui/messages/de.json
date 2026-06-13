@@ -1237,5 +1237,6 @@
   "integrated_epics_landing_pr": "Landing-PR #{number} — wartet auf Merge",
   "integrated_epics_landing_failed": "Landing-PR konnte nicht geöffnet werden — erneuter Versuch",
   "feat_epic_landing_pr_title": "Epics landen über einen finalen PR",
-  "feat_epic_landing_pr_body": "Wenn alle Kind-Issues eines Epics integriert sind, öffnet Shepherd einen finalen PR, der das gesamte Epic landet und das Eltern-Issue schließt — als Link im Band 'Integrierte Epics'."
+  "feat_epic_landing_pr_body": "Wenn alle Kind-Issues eines Epics integriert sind, öffnet Shepherd einen finalen PR, der das gesamte Epic landet und das Eltern-Issue schließt — als Link im Band 'Integrierte Epics'.",
+  "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt"
 }

@@ -243,7 +243,7 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
     expect(row.landingPrNumber).toBe(99);
   });
 
-  test("merged PR also reused (no second PR), row open", async () => {
+  test("merged PR recorded as merged (no second PR), row merged", async () => {
     const h = makeHarness({
       subIssues: [],
       noEpicRun: true,
@@ -261,7 +261,7 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
 
     expect(h.spy.openPrCalls).toHaveLength(0);
     const row = h.store.listEpicCompleted(REPO)[0]!;
-    expect(row.landingState).toBe("open");
+    expect(row.landingState).toBe("merged");
     expect(row.landingPrNumber).toBe(77);
   });
 
@@ -393,6 +393,25 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
     expect(h.spy.openPrCalls).toHaveLength(0);
     expect(h.spy.prStatusCalls).toHaveLength(0);
     expect(h.store.listEpicCompleted(REPO)[0]!.landingPrNumber).toBe(42);
+  });
+
+  test("terminal short-circuit: a row already merged → no forge calls", async () => {
+    const h = makeHarness({ subIssues: [], noEpicRun: true });
+    seedCompleted(h);
+    h.store.setEpicLandingPr(REPO, PARENT, {
+      state: "merged",
+      prNumber: 77,
+      prUrl: "u",
+      attempts: 0,
+    });
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    expect(h.spy.prStatusCalls).toHaveLength(0);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("merged");
+    expect(row.landingPrNumber).toBe(77);
   });
 
   test("completion not wedged: openPr throws at the edge → run still idle, row error", async () => {

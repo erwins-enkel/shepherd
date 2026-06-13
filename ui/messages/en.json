@@ -1237,5 +1237,6 @@
   "integrated_epics_landing_pr": "Landing PR #{number} — awaiting merge",
   "integrated_epics_landing_failed": "Couldn't open the landing PR — retrying",
   "feat_epic_landing_pr_title": "Epics land via a final PR",
-  "feat_epic_landing_pr_body": "When an epic's children are all integrated, Shepherd opens a final PR that lands the whole epic and closes the parent issue — surfaced as a link in the Integrated-epics band."
+  "feat_epic_landing_pr_body": "When an epic's children are all integrated, Shepherd opens a final PR that lands the whole epic and closes the parent issue — surfaced as a link in the Integrated-epics band.",
+  "integrated_epics_landing_pr_merged": "Landing PR #{number} — merged"
 }

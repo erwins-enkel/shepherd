@@ -559,8 +559,13 @@ export class DrainService {
       if (!row) return; // nothing recorded (or already dismissed/landed)
 
       // Terminal / parked short-circuit — never re-touch the forge for a resolved or
-      // capped-out row. `open`/`none` are terminal; `error` at/over the cap is parked.
-      if (row.landingState === "open" || row.landingState === "none") return;
+      // capped-out row. `open`/`merged`/`none` are terminal; `error` at/over the cap is parked.
+      if (
+        row.landingState === "open" ||
+        row.landingState === "merged" ||
+        row.landingState === "none"
+      )
+        return;
       if (row.landingState === "error" && row.landingAttempts >= MAX_LANDING_ATTEMPTS) return;
 
       // Cheap pre-gate: a pure-legacy epic accumulated nothing on the integration branch,
@@ -590,9 +595,10 @@ export class DrainService {
 
   /**
    * Resolve what the landing PR's state should become by talking to the forge: reuse an
-   * existing open/merged PR, treat a human-closed PR as terminal `none`, open a new one, or
-   * classify the failure (EmptyDiffError → `none`; anything else → `error` + attempt++). Pure
-   * decision — the caller persists + emits. NEVER throws: every forge touch is wrapped here.
+   * existing open PR, record an already-merged one as `merged`, treat a human-closed one as
+   * terminal `none`, open a new one, or classify the failure (EmptyDiffError → `none`; anything
+   * else → `error` + attempt++). Pure decision — the caller persists + emits. NEVER throws:
+   * every forge touch is wrapped here.
    */
   private async classifyLanding(
     forge: GitForge,
@@ -615,10 +621,20 @@ export class DrainService {
       // Idempotency guard: prStatus reads `--state all`, so it sees any prior PR whose head
       // is the integration branch (which is only ever the landing PR's head).
       const existing = await forge.prStatus(integrationBranch);
-      if (existing.state === "open" || existing.state === "merged") {
+      if (existing.state === "open") {
         // Reuse — never open a second PR. Covers the open-succeeded/record-failed gap.
         return {
           state: "open",
+          prNumber: existing.number ?? null,
+          prUrl: existing.url ?? null,
+          attempts: landingAttempts,
+        };
+      }
+      if (existing.state === "merged") {
+        // Already merged (epic landed) — record as terminal `merged` so the band reads
+        // accurately post-merge rather than "awaiting merge" until the parent-close reconcile.
+        return {
+          state: "merged",
           prNumber: existing.number ?? null,
           prUrl: existing.url ?? null,
           attempts: landingAttempts,

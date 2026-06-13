@@ -107,6 +107,17 @@
             >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</span
           >
         {/if}
+      {:else if epic.landingState === "merged" && epic.landingPrNumber != null}
+        {#if epic.landingPrUrl}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+          <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+            >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</a
+          >
+        {:else}
+          <span class="awaiting"
+            >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</span
+          >
+        {/if}
       {:else if epic.landingState === "error"}
         <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
       {:else if parentUrl}

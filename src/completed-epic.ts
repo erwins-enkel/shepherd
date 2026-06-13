@@ -11,8 +11,9 @@ export interface CompletedEpicChild {
 }
 
 /** Landing-PR lifecycle state — pending=not yet resolved, open=PR opened/reused,
+ *  merged=landing PR has merged (epic landed; band about to be dismissed on parent close),
  *  none=nothing to land / human-closed, error=last open attempt failed/retrying. */
-export type EpicLandingState = "pending" | "open" | "none" | "error";
+export type EpicLandingState = "pending" | "open" | "merged" | "none" | "error";
 
 export interface CompletedEpic {
   repoPath: string;

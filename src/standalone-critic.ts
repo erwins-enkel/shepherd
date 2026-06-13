@@ -163,12 +163,13 @@ export class StandalonePrCriticService {
    */
   async sweep(): Promise<void> {
     const flagged = this.deps.repos().filter((r) => this.deps.store.getRepoConfig(r).criticAllPrs);
-    // A pending landing PR is a non-dismissed epic_completed row with landingPrNumber set
-    // (landingState === "open"); listEpicCompleted() already filters out dismissed rows. No-arg =
-    // every repo. The set is small (one row per in-flight epic) so scanning it each sweep is cheap.
+    // A reviewable landing PR is a non-dismissed epic_completed row that is still open
+    // (landingState === "open") — a merged landing PR is no longer reviewable, so it drops out of
+    // the union. listEpicCompleted() already filters out dismissed rows. No-arg = every repo. The
+    // set is small (one row per in-flight epic) so scanning it each sweep is cheap.
     const epicRepos = this.deps.store
       .listEpicCompleted()
-      .filter((r) => r.landingPrNumber != null)
+      .filter((r) => r.landingState === "open")
       .map((r) => r.repoPath);
     const enabled = [...new Set([...flagged, ...epicRepos])];
     if (enabled.length === 0) return;

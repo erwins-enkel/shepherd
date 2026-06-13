@@ -160,6 +160,31 @@ describe("IntegratedEpicRow", () => {
     expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting landing");
   });
 
+  it("landingState 'merged' renders the merged Landing PR link, not the awaiting copy", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "merged",
+        landingPrNumber: 42,
+        landingPrUrl: "https://github.com/o/r/pull/42",
+      }),
+      ondismiss: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const link = await vi.waitFor(() => {
+      const a = [...document.querySelectorAll(".actions a")].find((el) =>
+        el.textContent?.includes("Landing PR #42"),
+      ) as HTMLAnchorElement | undefined;
+      if (!a) throw new Error("no landing pr link yet");
+      return a;
+    });
+    expect(link.getAttribute("href")).toBe("https://github.com/o/r/pull/42");
+    expect(link.textContent).toContain("merged");
+    // not the "awaiting merge" copy, not the awaiting-landing fallback
+    expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting merge");
+    expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting landing");
+  });
+
   it("landingState 'error' renders the failure note and NO PR link", async () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], {

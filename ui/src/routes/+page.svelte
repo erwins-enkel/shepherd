@@ -103,6 +103,7 @@
   import { version } from "$lib/build-info";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
   import FableArrival from "$lib/components/FableArrival.svelte";
+  import Onboarding from "$lib/components/Onboarding.svelte";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
@@ -263,6 +264,12 @@
   // One-time Fable 5 launch celebration (gated separately from the What's-New
   // drawer via the persisted seen-set, so it fires exactly once per upgrade).
   let showFableArrival = $state(false);
+  // First-run onboarding: a one-screen environment checklist shown only on a
+  // genuinely fresh install. The fresh-install branch seeds lastSeenVersion
+  // immediately (so update-diffs work), which would flip the null gate false on
+  // this same load — so we latch "was fresh" before seeding and gate on that +
+  // the persisted seen-set (markSeen("onboarding") keeps it from reappearing).
+  let showOnboarding = $state(false);
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
@@ -849,6 +856,12 @@
     {
       const lastSeen = featureDiscovery.lastSeenVersion;
       if (lastSeen === null) {
+        // Fresh install: show the one-time onboarding checklist. Latch "was
+        // fresh" (gated on the seen-set, not the version) BEFORE seeding, since
+        // seeding lastSeenVersion below would otherwise make this gate false on
+        // the same load. markSeen("onboarding") on dismiss keeps it from
+        // reappearing on later loads (lastSeenVersion is no longer null then).
+        if (!featureDiscovery.isSeen("onboarding")) showOnboarding = true;
         // Fresh install: seed baseline so future updates can diff against it.
         featureDiscovery.lastSeenVersion = version;
       } else {
@@ -1555,6 +1568,16 @@
       showHerdrUpdate = false;
       herdrUpdating = false;
       store.herdrUpdateDone = null;
+    }}
+  />
+{/if}
+
+{#if showOnboarding}
+  <Onboarding
+    checks={store.diagnostics?.checks ?? []}
+    ondismiss={() => {
+      featureDiscovery.markSeen("onboarding");
+      showOnboarding = false;
     }}
   />
 {/if}

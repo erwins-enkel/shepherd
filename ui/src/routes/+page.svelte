@@ -224,7 +224,10 @@
   });
   // sessionId → epic group key, from the SAME pure grouping the Herd render + rail use.
   // Drives NEEDS-YOU auto-expand: a jump target sitting in a collapsed group is found
-  // here so the handler can expand that group before selecting.
+  // here so the handler can expand that group before selecting. Built off raw
+  // herdSessions (no rail ready/status filter): it only resolves the group of a blocked
+  // jump target (which always passes the filter) to remove a collapsed key — never used
+  // for ordering — so the filter asymmetry with render/rail is intentional and harmless.
   const epicGroupOf = $derived.by(() => {
     const isReviewing = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
     const { groups } = groupSessionsByEpic(
@@ -653,16 +656,7 @@
         return true;
       case "g": {
         e.preventDefault();
-        // Keep blockedEntries UNFILTERED (count + jump stay on the same full set);
-        // if the target sits in a collapsed group, expand it first so the row is visible.
-        const { id, expand } = nextNeedsYouTarget(
-          blockedEntries.map((entry) => entry.session.id),
-          selectedId,
-          epicGroupOf,
-          collapsedEpics,
-        );
-        if (expand) collapsedEpics.delete(expand);
-        keyNavSelect(id, focusTerm);
+        selectNextNeedsYou(focusTerm);
         return true;
       }
       default:
@@ -760,17 +754,25 @@
   const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
 
   // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
-  // as the NEEDS YOU badge) starting after the current one, wrapping around.
-  // Same pure helper the "g" shortcut uses, so button and key can't drift.
-  function jumpNextNeedsYou() {
+  // as the NEEDS YOU badge) starting after the current one, wrapping around. Keep
+  // blockedEntries UNFILTERED (count + jump stay on the same full set); if the target
+  // sits in a collapsed epic group, expand it first so the row is visible. Shared by
+  // the "g" shortcut and the header button so they can't drift.
+  async function selectNextNeedsYou(focusTerm = true) {
     const { id, expand } = nextNeedsYouTarget(
       blockedEntries.map((entry) => entry.session.id),
       selectedId,
       epicGroupOf,
       collapsedEpics,
     );
-    if (expand) collapsedEpics.delete(expand);
-    keyNavSelect(id);
+    if (expand) {
+      collapsedEpics.delete(expand);
+      await tick(); // let the now-expanded group's rows mount so keyNavSelect can scroll to the target
+    }
+    keyNavSelect(id, focusTerm);
+  }
+  function jumpNextNeedsYou() {
+    selectNextNeedsYou();
   }
 
   // if the selected unit disappears while in mobile detail, fall back to the list

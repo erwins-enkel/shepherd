@@ -122,8 +122,9 @@ function stageOf(
 /** The canonical top→bottom lifecycle stage order of Herd.svelte's template (active
  *  first, merged last). Single source of truth for stage ordering: `flattenByStage`
  *  here (used by both the render and herd-keynav's `railOrder`) derives from it, so the
- *  render and the keyboard-nav rail can never drift on order. */
-export const STAGE_ORDER = [
+ *  render and the keyboard-nav rail can never drift on order. Module-local: consumers go
+ *  through `flattenByStage` rather than importing the order array directly. */
+const STAGE_ORDER = [
   "active",
   "ciRunning",
   "ciFailed",

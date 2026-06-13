@@ -13,8 +13,6 @@ import { compareSemver } from "./herdr-update";
 import { resolveNodeHost } from "./tailscale";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 
-export type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState };
-
 const execFileAsync = promisify(execFile);
 
 /** Reused from herdr-update.ts's parsing discipline — a (major.minor.patch)

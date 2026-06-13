@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Issue, EpicSummary, Epic } from "$lib/types";
+import type { Issue, EpicSummary, Epic, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
+import { steers } from "$lib/steers.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -94,6 +95,67 @@ describe("IssuesPanel epic badge", () => {
     const badge = document.querySelector(".epic-badge");
     expect(badge).not.toBeNull();
     expect(badge!.textContent?.trim()).toBe(expectedText);
+  });
+
+  it("disables the +Task button on an epic-parent row, enables it on a normal one", async () => {
+    seed([issue(30, "Epic parent"), issue(31, "Plain issue")], [epic(30, 1, 2, "markdown")]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // Wait until both rows have rendered their +Task buttons.
+    await expect.poll(() => document.querySelectorAll(".task-btn").length).toBe(2);
+
+    const rows = document.querySelectorAll(".issue-row");
+    const taskBtn = (row: Element) => row.querySelector(".task-btn") as HTMLButtonElement;
+
+    // Row order mirrors the seeded issue order: 30 (epic parent) then 31 (plain).
+    const epicTask = taskBtn(rows[0]);
+    const plainTask = taskBtn(rows[1]);
+
+    expect(epicTask.disabled).toBe(true);
+    expect(epicTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button_epic_disabled());
+    expect(epicTask.getAttribute("title")).toBe(m.issuespanel_task_button_epic_disabled());
+
+    expect(plainTask.disabled).toBe(false);
+    expect(plainTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button());
+  });
+
+  it("disables quick-launch steers on an epic-parent row, enables them on a normal one", async () => {
+    const steer: Steer = {
+      id: "qa",
+      label: "QA",
+      text: "Run QA on this issue",
+      inSteerBar: false,
+      onIssues: true,
+    };
+    const prev = steers.list;
+    steers.list = [steer];
+    try {
+      seed([issue(40, "Epic parent"), issue(41, "Plain issue")], [epic(40, 1, 2, "markdown")]);
+      // onquick must be set for .quick-btn to render at all.
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
+
+      // One quick-btn per onIssues steer per row → 2 rows × 1 steer = 2 buttons.
+      await expect.poll(() => document.querySelectorAll(".quick-btn").length).toBe(2);
+
+      const rows = document.querySelectorAll(".issue-row");
+      const quickBtn = (row: Element) => row.querySelector(".quick-btn") as HTMLButtonElement;
+
+      // Row order mirrors the seeded issue order: 40 (epic parent) then 41 (plain).
+      const epicQuick = quickBtn(rows[0]);
+      const plainQuick = quickBtn(rows[1]);
+
+      expect(epicQuick.disabled).toBe(true);
+      expect(epicQuick.getAttribute("aria-label")).toBe(m.issuespanel_task_button_epic_disabled());
+      expect(epicQuick.getAttribute("title")).toBe(m.issuespanel_task_button_epic_disabled());
+
+      expect(plainQuick.disabled).toBe(false);
+      expect(plainQuick.getAttribute("aria-label")).toBe(
+        m.issuespanel_action_aria({ label: steer.label }),
+      );
+      expect(plainQuick.getAttribute("title")).toBe(steer.text);
+    } finally {
+      steers.list = prev;
+    }
   });
 });
 

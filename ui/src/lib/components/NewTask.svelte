@@ -1,6 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listRepos, listBranches, getCommands, uploadImage, isPreviewBlocked } from "$lib/api";
+  import {
+    listRepos,
+    listBranches,
+    getCommands,
+    getEpics,
+    uploadImage,
+    isPreviewBlocked,
+  } from "$lib/api";
   import { handleImagePaste } from "$lib/clipboard";
   import {
     MODELS,
@@ -210,6 +217,27 @@
       })
       .catch(() => {
         if (rp === repoPath) allCommands = [];
+      });
+  });
+
+  // Epic-parent tracking issues for the selected repo. The issue picker shows them
+  // disabled (picking one as a manual task collides with the Epic Runner — epics
+  // launch via the epic panel's Start control instead).
+  let epicParents = $state<Set<number>>(new Set());
+  $effect(() => {
+    const rp = repoPath;
+    if (!rp) {
+      epicParents = new Set();
+      return;
+    }
+    getEpics(rp)
+      .then((summaries) => {
+        if (rp !== repoPath) return;
+        epicParents = new Set(summaries.map((s) => s.parentIssueNumber));
+      })
+      .catch(() => {
+        if (rp !== repoPath) return;
+        epicParents = new Set();
       });
   });
 
@@ -511,6 +539,7 @@
     {#if repoPath}
       <PromptSources
         {repoPath}
+        {epicParents}
         allowIssues={!relaunch}
         onpick={(p) => {
           prompt = p;

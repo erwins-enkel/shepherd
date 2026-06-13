@@ -2,12 +2,15 @@ import { test, expect, mock } from "bun:test";
 import {
   AutopilotService,
   PROCEED_STEER,
-  OPEN_PR_STEER,
   openPrSteer,
+  epicBaseDirective,
   CI_FIX_STEER,
   CI_CAP_MESSAGE,
 } from "../src/autopilot";
 import { DRAFT_PR_NOTE } from "../src/service";
+
+// The open-PR steer for sess()'s default base branch ("main"), no draft note.
+const OPEN_PR_STEER_MAIN = openPrSteer(false, "main");
 import type { AutopilotVerdict, Session } from "../src/types";
 import type { BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
@@ -161,19 +164,29 @@ test("gate verdict → proceed steer + step++", async () => {
 test("finished verdict → open-PR steer", async () => {
   const h = harness({ session: sess(), verdict: { kind: "finished", summary: "done, no PR" } });
   await h.svc.onBlock("s1", block(["I'm done."]));
-  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
-test("openPrSteer(false) equals OPEN_PR_STEER (no draft note)", () => {
-  expect(openPrSteer(false)).toBe(OPEN_PR_STEER);
-  expect(openPrSteer(false)).not.toContain(DRAFT_PR_NOTE);
+test("openPrSteer carries an explicit --base for the session's base branch", () => {
+  expect(openPrSteer(false, "epic/9-x")).toContain("gh pr create --base epic/9-x");
+  expect(openPrSteer(false, "main")).toContain("gh pr create --base main");
 });
 
-test("openPrSteer(true) appends the draft note", () => {
-  const steer = openPrSteer(true);
-  expect(steer).toContain(OPEN_PR_STEER);
+test("openPrSteer(false, ...) omits the draft note", () => {
+  expect(openPrSteer(false, "main")).not.toContain(DRAFT_PR_NOTE);
+});
+
+test("openPrSteer(true, ...) appends the draft note", () => {
+  const steer = openPrSteer(true, "main");
+  expect(steer).toContain("gh pr create --base main");
   expect(steer).toContain(DRAFT_PR_NOTE);
+});
+
+test("epicBaseDirective names the integration branch + --base", () => {
+  const d = epicBaseDirective("epic/9-x");
+  expect(d).toContain("gh pr create --base epic/9-x");
+  expect(d).toContain("epic/9-x");
 });
 
 test("finished verdict + draftMode=true → open-PR steer includes draft note", async () => {
@@ -188,14 +201,14 @@ test("finished verdict + draftMode=true → open-PR steer includes draft note", 
   expect(steerEv.steer).toContain(DRAFT_PR_NOTE);
 });
 
-test("finished verdict + draftMode=false → open-PR steer equals OPEN_PR_STEER", async () => {
+test("finished verdict + draftMode=false → open-PR steer equals OPEN_PR_STEER_MAIN", async () => {
   const h = harness({
     session: sess(),
     verdict: { kind: "finished", summary: "done" },
     repoDraftMode: false,
   });
   await h.svc.onBlock("s1", block(["I'm done."]));
-  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
 });
 
 test("complete verdict → markComplete + onComplete, no steer, not paused", async () => {
@@ -351,7 +364,7 @@ test("finished + dead pane → resume then steer", async () => {
   });
   await h.svc.onDone("s1");
   expect(h.events).toContainEqual({ resume: true });
-  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
 });
 
 test("onStatus running after pause clears pause + resets steps", async () => {

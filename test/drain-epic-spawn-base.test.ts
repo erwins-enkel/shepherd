@@ -216,6 +216,10 @@ describe("epic-child spawns base on the integration branch", () => {
     const created = h.creates[0]!;
     expect(created.baseBranch).toBe(EPIC_BRANCH);
     expect(created.issueRef?.number).toBe(CHILD);
+    // The spawn prompt carries the epic base directive so the agent opens its own PR
+    // against the integration branch, not the default branch.
+    expect(created.prompt).toContain(`--base ${EPIC_BRANCH}`);
+    expect(created.prompt).toContain(EPIC_BRANCH);
   });
 
   test("running epic on a forge WITHOUT ensureBranch: falls back to main, never the epic branch", async () => {
@@ -250,6 +254,9 @@ describe("epic-child spawns base on the integration branch", () => {
     expect(h.creates[0]!.baseBranch).toBe("main"); // fallback, NOT the epic branch
     expect(h.creates[0]!.issueRef?.number).toBe(CHILD);
     expect(h.forgeRec.ensured).toHaveLength(0);
+    // Fell back to main → did NOT use the integration branch, so no epic directive.
+    expect(h.creates[0]!.prompt).not.toContain("--base");
+    expect(h.creates[0]!.prompt).not.toContain("part of an epic");
   });
 
   test("regular label-drain spawn: bases on main, never ensures a branch", async () => {
@@ -259,5 +266,7 @@ describe("epic-child spawns base on the integration branch", () => {
     expect(h.creates[0]!.baseBranch).toBe("main");
     expect(h.forgeRec.ensured).toHaveLength(0);
     expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+    // Regular spawn → prompt is just the title, no --base directive.
+    expect(h.creates[0]!.prompt).not.toContain("--base");
   });
 });

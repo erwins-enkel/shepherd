@@ -24,6 +24,7 @@ import { config } from "./config";
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
 import { drainSpawnModel } from "./default-model";
 import { resolveProfile, autoHoldReason, detectBackend } from "./sandbox";
+import { epicBaseDirective } from "./autopilot";
 
 /** Cached epic structure for one pump cycle. */
 interface EpicStructure {
@@ -557,13 +558,17 @@ export class DrainService {
       } else if (decision.integrationBranch) {
         console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
       }
+      // Epic child actually based on the integration branch → tell the agent to target it as
+      // the PR base (the agent opens its own PR and would otherwise default to the main branch).
+      const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
+      const prompt = usingEpicBase ? `${title}\n\n${epicBaseDirective(base)}` : title;
       // Auto-spawns honor an explicit operator default-model; when unset ("auto")
       // they fall back to no --model flag (Claude's own default). The Fable promo
       // is a client-only UI concern and is NEVER applied to autonomous spawns.
       await this.deps.service.create({
         repoPath,
         baseBranch: base,
-        prompt: title,
+        prompt,
         model: drainSpawnModel(config.defaultModel),
         images: [],
         auto: true,

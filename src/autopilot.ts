@@ -17,15 +17,28 @@ export const PROCEED_STEER = [
   "requirements decision that only the user can make.",
 ].join("\n");
 
-export const OPEN_PR_STEER = [
-  "You're in autopilot and you've stopped, but there's no pull request yet. Commit your",
-  "work, push the branch, and open a PR (gh pr create). If something genuinely blocks that,",
-  "say specifically what you need.",
-].join("\n");
+/** Agent-facing directive injected into an epic child's spawn prompt: its PR must target the
+ *  epic integration branch, not the default branch. Shepherd owns this text (never i18n'd). */
+export function epicBaseDirective(baseBranch: string): string {
+  return [
+    `This task is part of an epic. When you open the pull request, it MUST target the epic`,
+    `integration branch \`${baseBranch}\` as its base — open it with`,
+    `\`gh pr create --base ${baseBranch} ...\`. Do NOT open it against the default branch.`,
+  ].join(" ");
+}
 
-/** Returns the open-PR steer, appending the draft-mode note when `draftMode` is true. */
-export function openPrSteer(draftMode: boolean): string {
-  return draftMode ? `${OPEN_PR_STEER} ${DRAFT_PR_NOTE}` : OPEN_PR_STEER;
+/** Returns the open-PR steer for a session whose PR base is `baseBranch`, appending the
+ *  draft-mode note when `draftMode` is true. The explicit `--base` keeps a session that opens
+ *  its PR from the steer (rather than proactively) targeting the right branch — load-bearing for
+ *  epic children whose base is the integration branch, harmless/correct for regular sessions
+ *  (base = default branch). */
+export function openPrSteer(draftMode: boolean, baseBranch: string): string {
+  const steer = [
+    "You're in autopilot and you've stopped, but there's no pull request yet. Commit your",
+    `work, push the branch, and open a PR (gh pr create --base ${baseBranch}). If something`,
+    "genuinely blocks that, say specifically what you need.",
+  ].join("\n");
+  return draftMode ? `${steer} ${DRAFT_PR_NOTE}` : steer;
 }
 
 export const CI_FIX_STEER = [
@@ -179,7 +192,10 @@ export class AutopilotService {
         return;
       case "finished":
         if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
-        await this.driveSteer(s, openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode));
+        await this.driveSteer(
+          s,
+          openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
+        );
         return;
       case "complete":
         this.markComplete(s, v.summary || COMPLETE_MESSAGE);

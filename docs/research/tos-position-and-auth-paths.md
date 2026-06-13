@@ -55,35 +55,44 @@ An operator can stand on any of three auth footings. None is pre-dismissed; each
 Recommend, do **not** mandate — the operator chooses their footing:
 
 - **Keep (A) as the default**, now wearing the honest, softened framing (R1 is Shepherd's _position_, not settled compliance — the PRD/PRODUCT softening lands this).
-- **Offer (B) as a first-class, clearly-compliant opt-in** for risk-averse operators who cannot accept R1's ambiguity. The Commercial/API path sidesteps the automation clause entirely and closes the training-by-default exposure; its cost is metered API rates and the architectural change in §4.
+- **Offer (B) as a first-class, clearly-compliant opt-in** for risk-averse operators who cannot accept R1's ambiguity. The Commercial/API path sidesteps the automation clause entirely and closes the training-by-default exposure; its cost is metered API rates and the architectural change now shipped in §4. **(B) is available as of v1.29.0 — Settings → Session → Auth Mode.)**
 - **Record (C) as the lowest-legal-risk, explicitly-permitted automation channel**, whose adoption is a deliberate **product decision** because it reopens the interactive-substrate thesis (§2(C)). Not recommended as default, but honestly the strongest R1 footing.
 
 **Internal-consistency flag.** Surfacing (B)/(C) revisits **PRD §2's non-goal**, whose original wording was the absolute _"No Agent SDK, no `claude -p`. Ever, on a sub."_ This work has softened that line from the absolute non-goal to a _by-default_ position that cross-refs this doc, so the two stay consistent; this doc names the tension plainly so neither ships a contradictory stance. If (C) is ever adopted, the §2 non-goal must be rewritten further, not silently left standing.
 
 ---
 
-## 4. Design sketch for (B) — API-key mode
+## 4. As-built: (B) API-key mode — shipped v1.29.0 (issue #660, closing R1 Action 3)
 
-> **NOT IMPLEMENTED — sketch for a future issue.** ADR-style outline only. No code in this PR.
+> **SHIPPED in v1.29.0 (issue #660, closing R1 Action 3 and also R5).** The sketch below has been superseded by the as-built notes. What follows is the accurate description of what shipped.
 
-**Shape.** An `authMode` setting: `subscription` (default, footing A) | `api-key` (footing B).
+**Shape.** A global operator setting `authMode`: `subscription` (default, footing A) | `api-key` (footing B). Env seed: `SHEPHERD_AUTH_MODE`. Configured in Settings → Session.
 
-- Under `api-key`, spawns pass `ANTHROPIC_API_KEY` (and may then use `--bare`) instead of relying on subscription OAuth.
-- The deliberate `NOT --bare` choices become **mode-conditional** at every spawn chokepoint:
-  - `src/reviewer-argv.ts` — the critic/plan-gate reviewer argv (currently refuses `--bare` by design).
-  - `src/namer-llm.ts` — the auto-namer spawn.
-  - `src/autopilot-llm.ts` — the autopilot stop-classifier spawn.
-- The autonomous **egress allowlist** (`src/egress.ts`, PR #601) is **unaffected** — `api.anthropic.com` is already on the allowlist regardless of auth mode.
-- The `/usage` probe (`src/usage-probe.ts`) is **subscription-only** (it parses subscription session JSONL / usage limits); under `api-key` it would **no-op** (or surface API-console billing instead — open question).
+**How key delivery works — NOT `--bare`.** All existing spawn flags are kept intact. The API key is not passed as a raw environment variable. Instead Shepherd writes a `0600` `apiKeyHelper` shell script and names it in the spawn's `--settings` JSON. Claude Code's `apiKeyHelper` mechanism invokes the script to retrieve the key at spawn time — so the key never appears in `ps` output, process environment, host logs, or the database (only the script path is stored).
 
-**Touch-points:** `authMode` setting + persistence; the three spawn builders above (mode-conditional `--bare` / env injection); `src/usage-probe.ts` no-op guard; settings UI surface; docs.
+**Credential masking — two paths by spawn type:**
 
-**Open design questions:**
+- **bwrap-membrane spawns** (`standard`/`autonomous` profile): the subscription credential (`~/.claude/.credentials.json`) is masked in-place via a last-wins `--overlay-tmp-upper` binding that presents an empty file; the `apiKeyHelper` is bound into the membrane. The spawned `claude` has no subscription credential to pick up and uses the key exclusively.
+- **Non-membraned spawns** (main interactive session, `trusted` profile): Shepherd provisions a credential-less `CLAUDE_CONFIG_DIR` — a symlink mirror of `~/.claude` with the credential file omitted — and sets that dir in the spawn. No subscription login is presented, so Claude's "Use custom API key" approval prompt cannot hang an unattended spawn.
 
-1. Per-operator global `authMode`, or per-repo / per-spawn-kind (e.g. cheap namer on sub, critic on API key)?
-2. Cost surfacing under `api-key` — where does spend show when `/usage` no-ops? API-console only, or a Shepherd-side meter?
-3. Key storage / scoping — env-only, or a settings-stored secret? Egress/secrets-handling review needed.
-4. Does footing (C) warrant a third `authMode` value (`agent-sdk-credit`), or is it out of scope for this sketch (it reopens the thesis — §2(C))?
+**Secondary spawns** (critic, plan-gate reviewer, namer, classifier, recap, distiller) all route through the same `apiKeyHelper` mechanism. None use `--bare`; hooks, skills, MCP, and `CLAUDE.md` are preserved exactly as in subscription mode.
+
+**Egress:** unaffected — `api.anthropic.com` was already on the autonomous-profile egress allowlist (PR #601) regardless of auth mode.
+
+**`/usage` under api-key:** the `/usage` probe is subscription-only (parses subscription session JSONL/limits). Under `api-key` it no-ops to an explicit "subscription-only" state — it does **not** show a fake zero meter. The UI surfaces a clear "subscription-only feature" message pointing the operator to the Anthropic Console for spend tracking.
+
+**Fail-closed:** `api-key` mode with no key configured refuses the main-session spawn outright and degrades secondary spawns to an error state. It **never** silently falls back to subscription billing.
+
+**Key custody:** operator pastes the key in Settings → Session; Shepherd writes the `0600` `apiKeyHelper` script and stores only its path. The raw key is never written to the DB, process env, or host logs.
+
+**Honest residual:** the `apiKeyHelper` script is readable (`cat`-able) by a hijacked in-sandbox agent — host `ps`/log hygiene only, not in-membrane secrecy. This is the same class as audit R3/R4 (in-membrane token readability, documented in commit ce6a4501 and [`docs/sandbox-security.md`](../sandbox-security.md)).
+
+**Resolved design questions (were open in the original sketch):**
+
+1. **Scope:** global `authMode` only (per-repo / per-spawn-kind granularity is a future extension, not shipped).
+2. **Cost surfacing:** minimal — `/usage` no-ops with a Console pointer; no Shepherd-side spend meter.
+3. **Key storage:** `apiKeyHelper` script path only; raw key never persisted in DB or env.
+4. **Footing (C):** excluded from scope — it reopens the interactive-substrate thesis (§2(C)) and remains a deliberate non-goal by default.
 
 ---
 

@@ -28,6 +28,11 @@ path on a sub. Shepherd's interactive-session substrate aims to be the **intende
 execution path** (per the position above, pending R1's resolution) for the whole ecosystem, not
 just a dashboard.
 
+**For operators who cannot accept the R1 ambiguity**, an API-key footing (B) is available as a
+shipped opt-in (v1.29.0, Settings → Session): still genuinely interactive, auth via Commercial
+Terms API key — the clearly-compliant, no-train-by-default path. See the
+[auth-path evaluation](docs/research/tos-position-and-auth-paths.md).
+
 ## 2. Goals / Non-goals
 
 **Goals**
@@ -47,8 +52,12 @@ just a dashboard.
 
 - No multi-user / team farming (ToS). Single operator, bring-your-own-Claude (sub).
 - No Agent SDK, no `claude -p` on a sub **by default** — but see the
-  [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) (audit R1): a sanctioned
-  API-key / metered footing is offered as an opt-in for operators who need a clearly-compliant path.
+  [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) (audit R1): **API-key auth
+  (footing B) is shipped as of v1.29.0** (Settings → Session → Auth Mode) as an opt-in for
+  operators who need a clearly-compliant path. Sessions remain genuinely interactive even in api-key
+  mode; only the auth channel changes (subscription OAuth → Commercial Terms API key, no-train-by-default,
+  R1 ambiguity resolved). Footing (C) — Agent SDK credit — remains out of scope; it reopens the
+  interactive-substrate thesis.
 - No cloud orchestration.
 
 ## 3. ToS compliance model (hard constraint)
@@ -59,12 +68,12 @@ just a dashboard.
 > and the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md)). The table states
 > _how_ Shepherd operates; it does not assert the model is adjudicated-compliant.
 
-| Requirement                            | Mechanism                                                                         |
-| -------------------------------------- | --------------------------------------------------------------------------------- |
-| Sessions must be genuinely interactive | Real PTY via **herdr**, not `claude -p`                                           |
-| We observe, we don't impersonate       | Read terminal via `herdr agent read`; state via herdr agent-status + Claude hooks |
-| We steer by typing, like a human       | `herdr agent send` injects prompt text into the live pane                         |
-| Auth = the operator's own login        | `claude` uses operator's Max/Pro session; no token relay                          |
+| Requirement                            | Mechanism                                                                                                                         |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Sessions must be genuinely interactive | Real PTY via **herdr**, not `claude -p`                                                                                           |
+| We observe, we don't impersonate       | Read terminal via `herdr agent read`; state via herdr agent-status + Claude hooks                                                 |
+| We steer by typing, like a human       | `herdr agent send` injects prompt text into the live pane                                                                         |
+| Auth = the operator's own login        | Default: `claude` uses operator's Max/Pro subscription (OAuth); opt-in: API-key mode uses operator's Commercial Terms key instead |
 
 As a design default under this position, if a feature can't be done by _typing into a real
 terminal_, it doesn't ship — but this is Shepherd's posture, not adjudicated compliance (R1 open;

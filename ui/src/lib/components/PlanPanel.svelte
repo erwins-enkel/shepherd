@@ -4,6 +4,7 @@
   import { releasePlanGate, reviewPlan } from "$lib/api";
   import { canRelease } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
+  import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
@@ -118,6 +119,7 @@
 <div
   class="overlay"
   role="presentation"
+  use:portal
   onclick={(e) => {
     if (e.target === e.currentTarget) onclose();
   }}

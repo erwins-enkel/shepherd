@@ -1364,8 +1364,15 @@
     let lastMoveT = 0;
     let flingV = 0; // px/ms, sign matches dy (the drag delta)
     let flingRAF = 0;
-    const FLING_MIN_V = 0.04; // px/ms — below this the coast has effectively stopped
-    const FLING_DECAY = 0.95; // velocity retained per 16ms frame
+    // recent move samples (timestamp + clientY) for a windowed release-velocity
+    // read: a hard flick's finger decelerates in its final frame as it lifts, so
+    // measuring over a short trailing window (not just the last sample) keeps a
+    // fast swipe reading fast — and a slow drag-release reading near-zero.
+    const VELOCITY_WINDOW_MS = 90;
+    let trail: { t: number; y: number }[] = [];
+    const FLING_MIN_V = 0.03; // px/ms — below this the coast has effectively stopped
+    const FLING_MAX_V = 6; // px/ms — clamp a freak velocity read so a flick can't rocket
+    const FLING_DECAY = 0.96; // velocity retained per 16ms frame (higher = coasts longer)
     const FLING_STALE_MS = 60; // a release this long after the last move = held still, no coast
     const stopFling = () => {
       if (flingRAF) cancelAnimationFrame(flingRAF);
@@ -1391,6 +1398,7 @@
       lastY = e.touches[0].clientY;
       lastMoveT = performance.now();
       flingV = 0;
+      trail = [{ t: lastMoveT, y: lastY }];
       dragged = false;
     };
     const onTouchMove = (e: TouchEvent) => {
@@ -1399,17 +1407,27 @@
       const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
       lastY = y;
       const now = performance.now();
-      const dt = now - lastMoveT;
       lastMoveT = now;
-      // smooth the per-sample velocity so the release reading isn't a jittery
-      // single frame — weight the latest sample but keep some history.
-      if (dt > 0) flingV = 0.75 * (dy / dt) + 0.25 * flingV;
+      // keep a short trail of samples inside the velocity window; the release
+      // velocity is read from this span, not a single (possibly stuttery) frame.
+      trail.push({ t: now, y });
+      while (trail.length > 2 && now - trail[0].t > VELOCITY_WINDOW_MS) trail.shift();
       if (Math.abs(dy) > 2) dragged = true;
       dispatchScroll(dy);
       e.preventDefault();
     };
     const onTouchEnd = () => {
       lastY = null;
+      // release velocity over the recent window (px/ms, dy-sign): content moved
+      // (head.y − tail.y) across the window's time span. A windowed read makes a
+      // fast flick coast proportionally further while a slow release barely
+      // coasts — and one decelerating final frame can't under-read the swipe.
+      const head = trail[0];
+      const tail = trail[trail.length - 1];
+      const span = head && tail ? tail.t - head.t : 0;
+      flingV = span > 0 ? (head.y - tail.y) / span : 0;
+      flingV = Math.max(-FLING_MAX_V, Math.min(FLING_MAX_V, flingV));
+      trail = [];
       // coast on release only if the finger was still moving with intent: a
       // pause before lifting stops touchmove from firing, leaving stale velocity
       // behind, so a long gap since the last move means "held still" → no coast.

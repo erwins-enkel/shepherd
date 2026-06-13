@@ -106,6 +106,34 @@ describe("IntegratedEpicRow", () => {
     expect(prLink.textContent).not.toContain("77");
   });
 
+  it("integrated child with empty prUrl renders the PR ref as text + merged-ago, no closed marker", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([
+        child({
+          number: 33,
+          prNumber: 808,
+          prUrl: "", // persisted empty when prCache lacked the URL at merge time
+          mergedAt: Date.now() - 90_000,
+          integrated: true,
+        }),
+      ]),
+      ondismiss: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    // PR ref renders as text (no link) — still labelled "PR #808"
+    const ref = await vi.waitFor(() => {
+      const el = document.querySelector(".child .ref") as HTMLElement | null;
+      if (!el) throw new Error("no ref yet");
+      return el;
+    });
+    expect(ref.tagName).toBe("SPAN"); // text, not <a>
+    expect(ref.textContent).toContain("PR #808");
+    // shows the merged-ago line and NOT the closed marker
+    expect(document.querySelector(".child .child-ago")).not.toBeNull();
+    expect(document.querySelector(".child .closed")).toBeNull();
+  });
+
   it("clicking Dismiss calls ondismiss(repoPath, parentIssueNumber)", async () => {
     const ondismiss = vi.fn();
     render(IntegratedEpicRow, {

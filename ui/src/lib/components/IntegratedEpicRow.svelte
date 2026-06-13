@@ -56,13 +56,21 @@
     <ul class="children">
       {#each epic.children as c (c.number)}
         <li class="child">
-          {#if c.integrated && c.prUrl}
-            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-            <a class="ref" href={c.prUrl} target="_blank" rel="noopener noreferrer"
-              >{c.prNumber != null
-                ? m.integrated_epics_pr_ref({ number: c.prNumber })
-                : m.integrated_epics_pr_ref_nonum()}</a
-            >
+          {#if c.integrated}
+            {#if c.prUrl}
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+              <a class="ref" href={c.prUrl} target="_blank" rel="noopener noreferrer"
+                >{c.prNumber != null
+                  ? m.integrated_epics_pr_ref({ number: c.prNumber })
+                  : m.integrated_epics_pr_ref_nonum()}</a
+              >
+            {:else if c.prNumber != null}
+              <!-- integrated but the PR url was empty at merge time → ref as plain text -->
+              <span class="ref">{m.integrated_epics_pr_ref({ number: c.prNumber })}</span>
+            {:else}
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+              <a class="ref" href={c.url} target="_blank" rel="noopener noreferrer">#{c.number}</a>
+            {/if}
             <span class="title">{c.title}</span>
             <span class="child-ago"
               >{m.integrated_epics_child_merged_ago({

@@ -40,6 +40,7 @@
     halt as apiHalt,
   } from "$lib/api";
   import type {
+    CompletedEpic,
     DeployState,
     BacklogPayload,
     Issue,
@@ -1211,18 +1212,23 @@
   }
 
   // Dismiss a completed epic from the integrated-epics band. Optimistic remove, then
-  // reconcile by restoring the prior list (fail-closed) on API error. A successful
-  // dismiss also fires an `epic:completed-cleared` WS event that removes it again —
+  // reconcile against the CURRENT state on API error — re-insert only the removed
+  // entry if it isn't already present, never clobber the whole array. Restoring a
+  // captured snapshot wholesale would drop a completed epic that arrived via an
+  // `epic:completed` WS event during the in-flight request. A successful dismiss
+  // also fires an `epic:completed-cleared` WS event that removes it again —
   // idempotent, harmless.
   async function onDismissEpic(repoPath: string, parent: number) {
-    const prev = store.completedEpics;
-    store.completedEpics = prev.filter(
-      (e) => !(e.repoPath === repoPath && e.parentIssueNumber === parent),
-    );
+    const match = (e: CompletedEpic) => e.repoPath === repoPath && e.parentIssueNumber === parent;
+    const removed = store.completedEpics.find(match);
+    store.completedEpics = store.completedEpics.filter((e) => !match(e)); // optimistic
     try {
       await dismissCompletedEpic(repoPath, parent);
     } catch {
-      store.completedEpics = prev; // reconcile
+      if (removed && !store.completedEpics.some(match)) {
+        // reconcile vs CURRENT state — don't clobber WS arrivals
+        store.completedEpics = [removed, ...store.completedEpics];
+      }
       toasts.info(m.integrated_epics_dismiss_failed(), {
         alert: true,
         duration: null,

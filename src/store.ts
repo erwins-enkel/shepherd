@@ -722,7 +722,10 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   /** Mark a completed epic as dismissed (hides it from listEpicCompleted).
-   *  TODO(#635): Stage B should call this at land-time when it closes the parent. */
+   *  At land-time there's no explicit dismiss call: the aggregate landing PR's
+   *  `Closes #<parent>` closes the parent on merge, and the autoDismissClosed
+   *  reconcile (src/server.ts) then dismisses the band once the parent is
+   *  confidently closed. */
   dismissEpicCompleted(repoPath: string, parentIssueNumber: number): void {
     this.db.run(
       `UPDATE epic_completed SET dismissedAt = ? WHERE repoPath = ? AND parentIssueNumber = ?`,

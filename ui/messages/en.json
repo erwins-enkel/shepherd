@@ -1233,5 +1233,9 @@
   "feat_colorblind_markers_body": "If green and red are hard to tell apart, switch on Colourblind status markers in Settings → Device. A ✓ (waiting) or ! (blocked) then sits next to the session emoji on phones, so those states no longer rely on the header tint alone. Off by default.",
   "timetip_ready_to_merge": "Green light — ready to merge 🟢",
   "feat_quick_theme_title": "Quick theme & contrast in the menu",
-  "feat_quick_theme_body": "On phones, tap the gear (top-right) to switch dark/light theme and toggle high contrast right from the menu — no more digging into Settings → Device. The menu now sits flush to the edge with a blurred backdrop so it reads as the focus."
+  "feat_quick_theme_body": "On phones, tap the gear (top-right) to switch dark/light theme and toggle high contrast right from the menu — no more digging into Settings → Device. The menu now sits flush to the edge with a blurred backdrop so it reads as the focus.",
+  "integrated_epics_landing_pr": "Landing PR #{number} — awaiting merge",
+  "integrated_epics_landing_failed": "Couldn't open the landing PR — retrying",
+  "feat_epic_landing_pr_title": "Epics land via a final PR",
+  "feat_epic_landing_pr_body": "When an epic's children are all integrated, Shepherd opens a final PR that lands the whole epic and closes the parent issue — surfaced as a link in the Integrated-epics band."
 }

@@ -137,6 +137,66 @@ describe("IntegratedEpicRow", () => {
     expect(document.querySelector(".child .closed")).toBeNull();
   });
 
+  it("landingState 'open' with a PR number renders the Landing PR link to landingPrUrl", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 42,
+        landingPrUrl: "https://github.com/o/r/pull/42",
+      }),
+      ondismiss: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const link = await vi.waitFor(() => {
+      const a = [...document.querySelectorAll(".actions a")].find((el) =>
+        el.textContent?.includes("Landing PR #42"),
+      ) as HTMLAnchorElement | undefined;
+      if (!a) throw new Error("no landing pr link yet");
+      return a;
+    });
+    expect(link.getAttribute("href")).toBe("https://github.com/o/r/pull/42");
+    // not the fallback awaiting-landing copy
+    expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting landing");
+  });
+
+  it("landingState 'error' renders the failure note and NO PR link", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "error",
+        landingPrNumber: null,
+        landingPrUrl: null,
+      }),
+      ondismiss: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const note = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .landing-failed") as HTMLElement | null;
+      if (!el) throw new Error("no failure note yet");
+      return el;
+    });
+    expect(note.textContent).toContain("retrying");
+    // no link in the actions block — there's no PR yet
+    expect(document.querySelector(".actions a")).toBeNull();
+  });
+
+  it("landingState 'pending' falls back to the awaiting-landing copy", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], { landingState: "pending" }),
+      ondismiss: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const awaiting = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .awaiting") as HTMLElement | null;
+      if (!el) throw new Error("no awaiting copy yet");
+      return el;
+    });
+    expect(awaiting.textContent).toContain("awaiting landing");
+    expect(document.querySelector(".actions .landing-failed")).toBeNull();
+  });
+
   it("clicking Dismiss calls ondismiss(repoPath, parentIssueNumber)", async () => {
     const ondismiss = vi.fn();
     render(IntegratedEpicRow, {

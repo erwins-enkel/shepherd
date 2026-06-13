@@ -96,7 +96,20 @@
       >
         {m.integrated_epics_dismiss()}
       </button>
-      {#if parentUrl}
+      {#if epic.landingState === "open" && epic.landingPrNumber != null}
+        {#if epic.landingPrUrl}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+          <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</a
+          >
+        {:else}
+          <span class="awaiting"
+            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</span
+          >
+        {/if}
+      {:else if epic.landingState === "error"}
+        <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
+      {:else if parentUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
         <a class="awaiting" href={parentUrl} target="_blank" rel="noopener noreferrer"
           >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</a
@@ -244,6 +257,11 @@
   a.awaiting:hover {
     color: var(--color-muted);
     text-decoration: underline;
+  }
+  /* Quiet warning note — landing PR couldn't be opened (no link yet). */
+  .landing-failed {
+    color: var(--color-amber);
+    font-size: var(--fs-micro);
   }
 
   /* Canonical .gbtn recipe (scoped per-component; see /design-system). */

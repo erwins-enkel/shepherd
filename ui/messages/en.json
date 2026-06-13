@@ -647,6 +647,8 @@
   "steerseditor_saving": "Saving…",
   "steerseditor_saved": "Saved ✓",
   "steerseditor_save": "Save steers",
+  "steerseditor_done": "Done",
+  "steerseditor_done_title": "Finish editing this steer and show the full list",
   "steerseditor_save_failed": "failed to save",
   "broadcast_title": "Broadcast steer",
   "broadcast_targets": "Targets",

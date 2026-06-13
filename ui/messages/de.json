@@ -647,6 +647,8 @@
   "steerseditor_saving": "Speichert…",
   "steerseditor_saved": "Gespeichert ✓",
   "steerseditor_save": "Steers speichern",
+  "steerseditor_done": "Fertig",
+  "steerseditor_done_title": "Bearbeitung dieses Steers beenden und die ganze Liste zeigen",
   "steerseditor_save_failed": "Speichern fehlgeschlagen",
   "broadcast_title": "Steer broadcasten",
   "broadcast_targets": "Ziele",

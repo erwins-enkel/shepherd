@@ -19,6 +19,10 @@
   let saved = $state(false);
   // steer id whose emoji picker is open; null = closed
   let pickerFor = $state<string | null>(null);
+  // steer id currently being edited (its prompt field is focused). While set, that
+  // row expands to a full-width, multi-line layout and — on mobile — becomes the
+  // only row on screen, so a long prompt or a typed /command is fully readable.
+  let editingId = $state<string | null>(null);
 
   // ── inline slash-command autocomplete for each steer's prompt field ──
   // Steers are global presets (not bound to a repo), so we load the user-scope
@@ -59,8 +63,9 @@
     ta.style.height = `${ta.scrollHeight}px`;
   }
 
-  function onTextFocus(e: FocusEvent) {
+  function onTextFocus(s: Steer, e: FocusEvent) {
     activeTa = e.currentTarget as HTMLTextAreaElement;
+    editingId = s.id;
     autogrow(activeTa);
   }
 
@@ -82,8 +87,24 @@
   }
 
   function onTextBlur(s: Steer, e: FocusEvent) {
-    (e.currentTarget as HTMLTextAreaElement).style.height = ""; // collapse to one line
+    const ta = e.currentTarget as HTMLTextAreaElement;
+    ta.style.height = ""; // collapse to one line
     if (slashFor === s.id) slashFor = null;
+    // Focus moving to another control inside this same row (label, emoji, scope
+    // toggles, the emoji popover) keeps edit mode — those stay usable in-place, so
+    // only leaving the row collapses it and (on mobile) restores the full list. The
+    // slash menu picks via mousedown+preventDefault, so it never blurs here at all.
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && ta.closest(".srow")?.contains(next)) return;
+    if (editingId === s.id) editingId = null;
+  }
+
+  // Explicit "Done" affordance for the expanded row: blur the field so edit mode
+  // ends and every steer is shown again (mobile keyboards can hide the global Save).
+  function finishEditing() {
+    editingId = null;
+    slashFor = null;
+    activeTa?.blur();
   }
 
   // Replace the typed `/query` with the chosen command, hoisting it to the front —
@@ -139,6 +160,7 @@
   function remove(id: string) {
     draft = draft.filter((s) => s.id !== id);
     if (pickerFor === id) pickerFor = null;
+    if (editingId === id) editingId = null;
     saved = false;
   }
   function pickEmoji(s: Steer, emoji: string | null) {
@@ -167,6 +189,7 @@
     try {
       await steers.save(draft.map((s) => ({ ...s, label: s.label.trim(), text: s.text.trim() })));
       syncFromStore();
+      editingId = null; // saving exits edit mode → the full list is shown again
       saved = true;
     } catch (e) {
       error = e instanceof Error ? e.message : m.steerseditor_save_failed();
@@ -181,12 +204,17 @@
   <p class="hint">{m.steerseditor_hint()}</p>
   <div
     class="rows"
+    class:focusing={editingId !== null}
     use:dragHandleZone={{ items: draft, flipDurationMs }}
     onconsider={reorder}
     onfinalize={reorder}
   >
     {#each draft as s (s.id)}
-      <div class="srow" animate:flip={{ duration: flipDurationMs }}>
+      <div
+        class="srow"
+        class:editing={editingId === s.id}
+        animate:flip={{ duration: flipDurationMs }}
+      >
         <span
           class="grip"
           use:dragHandle
@@ -215,7 +243,7 @@
             bind:value={s.text}
             placeholder={m.steerseditor_text_placeholder()}
             aria-label={m.steerseditor_text_aria()}
-            onfocus={onTextFocus}
+            onfocus={(e) => onTextFocus(s, e)}
             oninput={(e) => onTextInput(s, e)}
             onblur={(e) => onTextBlur(s, e)}
             onkeydown={(e) => onTextKeydown(s, e)}
@@ -254,6 +282,15 @@
           aria-label={m.steerseditor_delete_aria()}
           onclick={() => remove(s.id)}>✕</button
         >
+        {#if editingId === s.id}
+          <button
+            type="button"
+            class="done"
+            title={m.steerseditor_done_title()}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={finishEditing}>{m.steerseditor_done()}</button
+          >
+        {/if}
         {#if pickerFor === s.id}
           <div class="picker">
             <EmojiPicker
@@ -362,6 +399,65 @@
     overflow: hidden;
     line-height: 1.4;
   }
+  /* ── edit mode: the focused row expands to a full-width, stacked layout so a long
+     prompt / typed /command is fully readable; the controls wrap below it. ── */
+  .srow.editing {
+    flex-wrap: wrap;
+    gap: 6px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    padding: 8px;
+  }
+  .srow.editing .grip {
+    display: none; /* no reordering while a single row is expanded */
+  }
+  .srow.editing .emoji-btn {
+    order: 1;
+  }
+  .srow.editing .label {
+    order: 2;
+    flex: 1 1 auto;
+  }
+  .srow.editing .del {
+    order: 3;
+  }
+  .srow.editing .text-wrap {
+    order: 4;
+    flex: 1 1 100%; /* full width forces the controls onto their own lines */
+  }
+  .srow.editing .text {
+    min-height: 6.5em;
+  }
+  .srow.editing .scopes {
+    order: 5;
+  }
+  .srow.editing .done {
+    order: 6;
+    margin-left: auto;
+  }
+  /* On mobile, isolate the row being edited — show only that steer on screen. */
+  @media (max-width: 768px) {
+    .rows.focusing .srow:not(.editing) {
+      display: none;
+    }
+    .srow.editing .text {
+      min-height: 30vh;
+    }
+  }
+  .done {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+  }
   .emoji-btn {
     flex: 0 0 auto;
     min-width: 32px;
@@ -463,6 +559,7 @@
     .save,
     .del,
     .scope,
+    .done,
     .emoji-btn {
       min-height: 40px;
     }

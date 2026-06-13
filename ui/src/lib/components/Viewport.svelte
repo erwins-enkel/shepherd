@@ -1350,21 +1350,27 @@
     // wheel events on xterm's screen — xterm then forwards them per the active
     // mode (to the app when mouse-tracking, otherwise its own scrollback).
     // Matches desktop in both.
+    // One-finger drag → synthetic wheel, now with flick momentum: releasing
+    // mid-scroll coasts to a stop instead of dead-stopping, which is what makes
+    // native mobile scrolling feel fluid. We track the drag velocity, then decay
+    // it across rAF frames after touchend, dispatching the same wheels the live
+    // drag does.
     let lastY: number | null = null;
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      lastY = e.touches[0].clientY;
-      dragged = false;
+    let lastMoveT = 0;
+    let flingV = 0; // px/ms, sign matches dy (the drag delta)
+    let flingRAF = 0;
+    const FLING_MIN_V = 0.04; // px/ms — below this the coast has effectively stopped
+    const FLING_DECAY = 0.95; // velocity retained per 16ms frame
+    const FLING_STALE_MS = 60; // a release this long after the last move = held still, no coast
+    const stopFling = () => {
+      if (flingRAF) cancelAnimationFrame(flingRAF);
+      flingRAF = 0;
     };
-    const onTouchMove = (e: TouchEvent) => {
-      if (lastY === null || e.touches.length !== 1) return;
-      const y = e.touches[0].clientY;
-      const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
-      lastY = y;
-      if (Math.abs(dy) > 2) dragged = true;
-      // when the agent owns the scroll xterm's viewport never moves (onScroll
-      // won't fire), so track the gesture directly: dy<0 = scrolling up → grow
-      // the depth.
+    // apply a wheel delta the way a live drag does: in the agent-owned regime
+    // xterm's viewport never moves (onScroll won't fire), so track the gesture
+    // depth directly (dy<0 = scrolling up → grow it); then refresh the
+    // jump-to-bottom affordance and forward the wheel to xterm's screen.
+    const dispatchScroll = (dy: number) => {
       if (agentOwnsScroll(term)) {
         scrollDepth = Math.max(0, scrollDepth - dy);
       }
@@ -1373,10 +1379,55 @@
       target.dispatchEvent(
         new WheelEvent("wheel", { deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true }),
       );
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      stopFling(); // a fresh touch catches the coast, like grabbing a moving page
+      lastY = e.touches[0].clientY;
+      lastMoveT = performance.now();
+      flingV = 0;
+      dragged = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (lastY === null || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      const dy = lastY - y; // drag down → wheel up (reveal older), natural scroll
+      lastY = y;
+      const now = performance.now();
+      const dt = now - lastMoveT;
+      lastMoveT = now;
+      // smooth the per-sample velocity so the release reading isn't a jittery
+      // single frame — weight the latest sample but keep some history.
+      if (dt > 0) flingV = 0.75 * (dy / dt) + 0.25 * flingV;
+      if (Math.abs(dy) > 2) dragged = true;
+      dispatchScroll(dy);
       e.preventDefault();
     };
     const onTouchEnd = () => {
       lastY = null;
+      // coast on release only if the finger was still moving with intent: a
+      // pause before lifting stops touchmove from firing, leaving stale velocity
+      // behind, so a long gap since the last move means "held still" → no coast.
+      if (Math.abs(flingV) < FLING_MIN_V || performance.now() - lastMoveT > FLING_STALE_MS) return;
+      let prev = performance.now();
+      const step = (t: number) => {
+        const dt = t - prev;
+        prev = t;
+        flingV *= Math.pow(FLING_DECAY, dt / 16);
+        if (Math.abs(flingV) < FLING_MIN_V) {
+          flingRAF = 0;
+          return;
+        }
+        dispatchScroll(flingV * dt);
+        // coasting toward the latest output and we've hit it → nothing more to
+        // reveal, so stop pushing scroll into the agent.
+        if (agentOwnsScroll(term) && flingV > 0 && scrollDepth === 0) {
+          flingRAF = 0;
+          return;
+        }
+        flingRAF = requestAnimationFrame(step);
+      };
+      flingRAF = requestAnimationFrame(step);
     };
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -1481,6 +1532,7 @@
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
+      stopFling();
       scrollSub.dispose();
       bufSub.dispose();
       writeSub.dispose();
@@ -3228,24 +3280,39 @@
     width: 38px;
     height: 38px;
     border-radius: 50%;
-    border: 1px solid var(--color-line-bright);
+    border: 1px solid color-mix(in srgb, var(--color-amber) 60%, var(--color-line-bright));
     background: color-mix(in srgb, var(--color-head) 96%, transparent);
     backdrop-filter: blur(2px);
-    color: var(--color-ink-bright);
+    color: var(--color-amber);
     font-size: var(--fs-xl);
     line-height: 1;
     cursor: pointer;
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+    /* depth shadow + a soft amber halo so the affordance catches the eye the
+       moment it appears — our accent signals "there's newer output below". */
+    box-shadow:
+      0 3px 12px rgba(0, 0, 0, 0.45),
+      0 0 12px color-mix(in srgb, var(--color-amber) 30%, transparent);
     transition:
       background 0.12s ease,
       color 0.12s ease,
+      box-shadow 0.12s ease,
       transform 0.12s ease;
-    animation: scroll-bottom-in 0.14s ease;
+    /* slide in, then pulse the amber glow twice to draw the eye; the pulse ends
+       and the button rests on the steady halo set above. */
+    animation:
+      scroll-bottom-in 0.14s ease,
+      scroll-bottom-glow 1.5s ease-in-out 0.14s 2;
   }
   .scroll-bottom:hover {
     background: var(--color-hover);
-    color: var(--color-ink-bright);
+    color: var(--color-amber);
     transform: translateY(-1px);
+    /* end the entry/glow pulse so this box-shadow isn't suppressed by the
+       still-running animation (the pulse is a one-shot attention cue anyway). */
+    animation: none;
+    box-shadow:
+      0 3px 12px rgba(0, 0, 0, 0.45),
+      0 0 16px color-mix(in srgb, var(--color-amber) 45%, transparent);
   }
   /* Coarse pointers (touch): grow the free-floating affordance to a ≥44px tap
      target. It sits in the terminal corner with room to spare, so enlarging the
@@ -3265,6 +3332,19 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+  @keyframes scroll-bottom-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 3px 12px rgba(0, 0, 0, 0.45),
+        0 0 12px color-mix(in srgb, var(--color-amber) 30%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 3px 12px rgba(0, 0, 0, 0.45),
+        0 0 22px color-mix(in srgb, var(--color-amber) 65%, transparent);
     }
   }
 

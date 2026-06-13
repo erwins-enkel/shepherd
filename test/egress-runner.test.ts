@@ -3,8 +3,16 @@
  * netns runner orchestrator (issue #551, Task 3).
  *
  * These exercise the REAL rootless-netns machinery (setpriv/unshare/slirp4netns/
- * nft/dnsmasq), so they are GATED: the suite skips cleanly on hosts that can't do
- * rootless user+net namespaces (most CI). When capable, it verifies:
+ * nft/dnsmasq) and tear it down with SIGKILL, so they are GATED. The suite SKIPS
+ * when (a) the host can't do rootless user+net namespaces / lacks the tools, (b)
+ * running under CI (no real slirp teardown in any CI job), or (c) a rootless
+ * docker daemon's socket is present — because on a host (e.g. `backontop`) whose
+ * rootless docker serves the CI runners, churning the real slirp machinery can
+ * take out that daemon's shared `slirp4netns` and knock all runners offline
+ * (2026-06-12 incident; issue #591). The skip decision lives in
+ * egress-runner-gate.ts and is unit-tested in egress-runner-gate.test.ts.
+ *
+ * When NOT skipped, it verifies:
  *   1. exit-code propagation (inner exits 42 ⇒ runner exits 42),
  *   2. clean-exit teardown (no slirp / netns-owner survive the inner exiting),
  *   3. SIGTERM teardown,
@@ -19,11 +27,12 @@
  */
 
 import { test, expect, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildEgressConfig } from "../src/egress";
+import { egressRunnerShouldSkip } from "./egress-runner-gate";
 
 const SCRIPT = join(import.meta.dir, "..", "scripts", "egress-runner.sh");
 
@@ -41,7 +50,18 @@ function hostCapable(): boolean {
   return probe.status === 0;
 }
 
-const CAPABLE = hostCapable();
+const SKIP = egressRunnerShouldSkip({
+  capable: hostCapable(),
+  env: process.env,
+  uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+  isSocket: (p) => {
+    try {
+      return statSync(p).isSocket();
+    } catch {
+      return false;
+    }
+  },
+});
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 
@@ -131,14 +151,14 @@ function spawnRunner(inner: string[]) {
 
 // ── tests (gated) ─────────────────────────────────────────────────────────────────
 
-test.skipIf(!CAPABLE)("propagates the inner exit code (42)", async () => {
+test.skipIf(SKIP)("propagates the inner exit code (42)", async () => {
   const proc = spawnRunner(["bash", "-c", "echo READY; exit 42"]);
   recorded.push(proc.pid);
   const code = await proc.exited;
   expect(code).toBe(42);
 });
 
-test.skipIf(!CAPABLE)("clean inner exit tears down slirp + netns owner", async () => {
+test.skipIf(SKIP)("clean inner exit tears down slirp + netns owner", async () => {
   const proc = spawnRunner(["bash", "-c", "echo READY; sleep 1"]);
   recorded.push(proc.pid);
   const { owner, slirp } = await captureChildren(proc.pid);
@@ -154,7 +174,7 @@ test.skipIf(!CAPABLE)("clean inner exit tears down slirp + netns owner", async (
   expect(alive(slirp!)).toBe(false);
 });
 
-test.skipIf(!CAPABLE)("SIGTERM on the runner tears down slirp + netns owner", async () => {
+test.skipIf(SKIP)("SIGTERM on the runner tears down slirp + netns owner", async () => {
   const proc = spawnRunner(["bash", "-c", "echo READY; sleep 30"]);
   recorded.push(proc.pid);
   const { owner, slirp } = await captureChildren(proc.pid);
@@ -171,7 +191,7 @@ test.skipIf(!CAPABLE)("SIGTERM on the runner tears down slirp + netns owner", as
   expect(alive(slirp!)).toBe(false);
 });
 
-test.skipIf(!CAPABLE)(
+test.skipIf(SKIP)(
   "SIGKILL on the runner STILL tears down slirp + netns owner (pdeathsig leash)",
   async () => {
     const proc = spawnRunner(["bash", "-c", "echo READY; sleep 30"]);
@@ -193,7 +213,7 @@ test.skipIf(!CAPABLE)(
   },
 );
 
-test.skipIf(!CAPABLE)(
+test.skipIf(SKIP)(
   "FAIL-CLOSED: malformed nft ruleset refuses to exec the agent (no firewall, no run)",
   async () => {
     // A fresh tmp dir with a DELIBERATELY malformed egress.nft. The runner's

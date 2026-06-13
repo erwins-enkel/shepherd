@@ -198,6 +198,21 @@ step's warning.
 > (reverting CI to GitHub-hosted runners) **before** the repo goes public, and tear the
 > runner down if it won't be re-privatized.
 
+## Egress real-machinery tests
+
+**`test/egress-runner.test.ts` exercises the REAL rootless-netns machinery** —
+`slirp4netns`/`nft`/`dnsmasq`/`unshare`/`setpriv` — and tears it down with SIGKILL.
+It must **NEVER** run on this host: the rootless docker daemon that serves the
+runner containers uses its **OWN shared `slirp4netns`**, and churning the real
+machinery here can take it out, knocking every runner offline (2026-06-12 incident;
+issue #591). The suite **self-skips** via `test/egress-runner-gate.ts`
+(`egressRunnerShouldSkip`, unit-tested in `test/egress-runner-gate.test.ts`), which
+skips when the host can't do rootless user+net namespaces, when running under `CI`,
+**or** when a rootless docker socket is present — so it runs only on a capable local
+host without rootless docker, never in any CI job. **Do NOT weaken that gate** (e.g.
+don't reintroduce a hosted/self-hosted-only condition): the fail-closed `CI` +
+rootless-socket checks are precisely what keep it off this box.
+
 ## Outage runbook
 
 **Symptom:** PR checks are stuck **pending** (queued, spinner, never go red). Because

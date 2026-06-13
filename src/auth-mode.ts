@@ -116,19 +116,3 @@ export function spawnAuthSettings(
   }
   return {};
 }
-
-// ── log scrubbing ─────────────────────────────────────────────────────────────
-
-/**
- * Conservative regex matching Anthropic API key patterns (`sk-ant-` followed
- * by key-ish characters). Used to scrub keys from log strings.
- */
-const API_KEY_RE = /sk-ant-[A-Za-z0-9_-]+/g;
-
-/**
- * Replace any `sk-ant-…`-style Anthropic key occurrences in `s` with a
- * redaction marker. Leaves all other text intact.
- */
-export function redactKey(s: string): string {
-  return s.replace(API_KEY_RE, "sk-ant-***");
-}

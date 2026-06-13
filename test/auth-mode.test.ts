@@ -10,7 +10,6 @@ import {
   readApiKeyHelperPath,
   clearApiKeyHelper,
   spawnAuthSettings,
-  redactKey,
   API_KEY_HELPER_FILE,
 } from "../src/auth-mode";
 
@@ -214,30 +213,5 @@ describe("spawnAuthSettings", () => {
   test("spread into an object is safe and produces no extra keys in subscription mode", () => {
     const settings = { model: "sonnet", ...spawnAuthSettings("subscription", null) };
     expect(Object.keys(settings)).toEqual(["model"]);
-  });
-});
-
-// ── redactKey ─────────────────────────────────────────────────────────────────
-
-describe("redactKey", () => {
-  test("redacts a sample Anthropic API key", () => {
-    const s = "using key sk-ant-api03-abc123XYZ in request";
-    const out = redactKey(s);
-    expect(out).not.toContain("abc123XYZ");
-    expect(out).toContain("sk-ant-***");
-    expect(out).toContain("in request");
-  });
-
-  test("leaves non-key text intact", () => {
-    const s = "no secrets here";
-    expect(redactKey(s)).toBe(s);
-  });
-
-  test("redacts multiple occurrences", () => {
-    const s = "key1=sk-ant-api03-AAA key2=sk-ant-api03-BBB";
-    const out = redactKey(s);
-    expect(out).not.toContain("AAA");
-    expect(out).not.toContain("BBB");
-    expect((out.match(/sk-ant-\*\*\*/g) ?? []).length).toBe(2);
   });
 });

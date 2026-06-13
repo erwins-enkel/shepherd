@@ -71,6 +71,30 @@ describe("buildEgressAllowlist", () => {
     }
   });
 
+  test("github.com with type OMITTED still adds the well-known set (matches kindFor)", () => {
+    // A valid forges.json like {"github.com":{"token":"…"}} resolves to github via kindFor
+    // even without an explicit type — the allowlist must include the REST/clone/upload hosts
+    // so `gh pr create` and clones work under the firewall.
+    const forges: ForgeMap = {
+      "github.com": { token: "ghp_x" },
+    };
+    const list = buildEgressAllowlist({ forges });
+    expect(list).toContain("github.com");
+    expect(list).toContain("api.github.com");
+    expect(list).toContain("codeload.github.com");
+    expect(list).toContain("objects.githubusercontent.com");
+    expect(list).toContain("uploads.github.com");
+  });
+
+  test("github.com explicitly typed gitea is NOT treated as github (explicit type wins)", () => {
+    const forges: ForgeMap = {
+      "github.com": { type: "gitea", baseUrl: "https://github.com" },
+    };
+    const list = buildEgressAllowlist({ forges });
+    expect(list).toContain("github.com");
+    expect(list).not.toContain("api.github.com");
+  });
+
   test("gitea forge with baseUrl: key + baseUrl hostname extracted", () => {
     const forges: ForgeMap = {
       "git.example.com": { type: "gitea", baseUrl: "https://git.example.com" },

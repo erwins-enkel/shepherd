@@ -55,6 +55,24 @@ test("consider does nothing below the signal threshold", async () => {
   expect(started.length).toBe(0);
 });
 
+test("egress_drop signals are excluded from the learnings corpus + threshold", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 2); // 2 real learning signals — below minSignals (3)
+  // A flood of egress_drop alerts must NOT push the repo over the distill threshold.
+  for (let i = 0; i < 10; i++) {
+    store.addSignal({
+      repoPath: "/r",
+      sessionId: null,
+      kind: "egress_drop",
+      payload: `blocked${i}.evil.com`,
+    });
+  }
+  const { deps, started } = mkDeps(store, { rules: [] });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  expect(started.length).toBe(0); // 2 learning signals < 3, egress_drop ignored
+});
+
 test("distillNow forces a run regardless of threshold", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 1);

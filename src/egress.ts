@@ -267,7 +267,12 @@ export function normalizeHost(raw: string): string | null {
 /** Collect all raw hosts for one forge entry (map key + github set + baseUrl hostname). */
 function collectForgeEntryHosts(host: string, cfg: ForgeMap[string]): string[] {
   const hosts: string[] = [host];
-  if (cfg.type === "github") hosts.push(...GITHUB_EGRESS_HOSTS);
+  // Resolve the forge kind the SAME way the canonical resolver does (kindFor,
+  // src/forge/index.ts): an explicit `type` wins, otherwise `github.com` is github.
+  // So a `{"github.com":{token}}` entry (type omitted) still gets the GitHub REST /
+  // clone / upload hosts — without them `gh pr create` and clones fail under the firewall.
+  const isGithub = cfg.type ? cfg.type === "github" : host === "github.com";
+  if (isGithub) hosts.push(...GITHUB_EGRESS_HOSTS);
   if (cfg.baseUrl) {
     try {
       hosts.push(new URL(cfg.baseUrl).hostname);

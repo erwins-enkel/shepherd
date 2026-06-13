@@ -16,6 +16,7 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "./types";
+import { EmptyDiffError } from "./types";
 
 interface GiteaPr {
   number: number;
@@ -43,6 +44,20 @@ const STATUS_FETCH_CONCURRENCY = 6;
 /** Cap on workflows surfaced in the Actions tab (one row per workflow, latest
  *  run). Mirrors github.ts's own MAX_WORKFLOWS — the two packages don't share it. */
 const MAX_WORKFLOWS = 10;
+
+/** Match (case-insensitively) Gitea's empty-diff signal on a failed pull creation. Best-effort:
+ *  with no live Gitea to verify against, we match a small set of documented no-changes wordings —
+ *  Gitea returns 422 "There are no changes between the head and the base" when head == base. An
+ *  unmatched signal falls through as the original error (the caller's attempt-cap bounds the miss).
+ *  Pass an already-lowercased string. */
+function isGiteaNoChanges(text: string): boolean {
+  return (
+    text.includes("no changes between the head and the base") ||
+    text.includes("there are no changes") ||
+    text.includes("no commits between") ||
+    text.includes("has no changes")
+  );
+}
 
 /** Gitea/Forgejo forge driven through the /api/v1 REST API (API-compatible). */
 export class GiteaForge implements GitForge {
@@ -334,12 +349,27 @@ export class GiteaForge implements GitForge {
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {
     const title = o.draft ? GiteaForge.addWip(o.title) : o.title;
-    const pr = (await this.req("POST", `/api/v1/repos/${this.slug}/pulls`, {
-      head: o.head,
-      base: o.base,
-      title,
-      body: o.body,
-    })) as GiteaPr;
+    let pr: GiteaPr;
+    try {
+      pr = (await this.req("POST", `/api/v1/repos/${this.slug}/pulls`, {
+        head: o.head,
+        base: o.base,
+        title,
+        body: o.body,
+      })) as GiteaPr;
+    } catch (err) {
+      // req()'s error message embeds the Gitea response body + status. Classify the empty-diff
+      // signal so the epic-landing caller (#635) can resolve "nothing to land" rather than
+      // retrying forever. Best-effort: there is no live Gitea to verify against here, so we match
+      // a small set of documented no-changes wordings (Gitea returns 422 "There are no changes
+      // between the head and the base" when head == base). If the signal isn't matched, the
+      // original error propagates and the caller's attempt-cap bounds any miss — it never retries
+      // forever. We deliberately do NOT map all 409/errors here (e.g. a plain already-exists PR or
+      // an unrelated failure) so other openPr callers (gitignore-adopt, etc.) aren't mis-told.
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+      if (isGiteaNoChanges(msg)) throw new EmptyDiffError(o.head, o.base, err);
+      throw err;
+    }
     return this.toStatus(pr);
   }
 

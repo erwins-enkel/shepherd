@@ -151,6 +151,101 @@ test("dismissedAt IS NULL filter — dismissed epics never appear in list", () =
   expect(list[0]!.parentIssueNumber).toBe(2);
 });
 
+test("fresh recordEpicCompleted defaults landing columns (pending/null/null/0)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingState).toBe("pending");
+  expect(row.landingPrNumber).toBe(null);
+  expect(row.landingPrUrl).toBe(null);
+  expect(row.landingAttempts).toBe(0);
+});
+
+test("setEpicLandingPr writes the landing resolution", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+
+  s.setEpicLandingPr("/r", 10, {
+    state: "open",
+    prNumber: 42,
+    prUrl: "http://x/42",
+    attempts: 0,
+  });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingState).toBe("open");
+  expect(row.landingPrNumber).toBe(42);
+  expect(row.landingPrUrl).toBe("http://x/42");
+  expect(row.landingAttempts).toBe(0);
+});
+
+test("setEpicLandingPr persists a non-zero attempts counter", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+
+  s.setEpicLandingPr("/r", 10, {
+    state: "error",
+    prNumber: null,
+    prUrl: null,
+    attempts: 3,
+  });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingState).toBe("error");
+  expect(row.landingAttempts).toBe(3);
+});
+
+test("re-recordEpicCompleted preserves landing resolution by omission", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "Old",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicLandingPr("/r", 10, {
+    state: "open",
+    prNumber: 42,
+    prUrl: "http://x/42",
+    attempts: 0,
+  });
+
+  // a later re-record refreshes title/children but must NOT reset the landing back to pending
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "New",
+    completedAt: 999,
+    childrenJson: "[1,2]",
+  });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.parentTitle).toBe("New");
+  expect(row.childrenJson).toBe("[1,2]");
+  expect(row.landingState).toBe("open");
+  expect(row.landingPrNumber).toBe(42);
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

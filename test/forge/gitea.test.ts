@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { GiteaForge } from "../../src/forge/gitea";
+import { EmptyDiffError } from "../../src/forge/types";
 import type { ForgeConfig } from "../../src/forge/types";
 
 const CFG: ForgeConfig = {
@@ -366,6 +367,45 @@ test("GiteaForge.openPr: POSTs pull then returns status", async () => {
   expect(st.checks).toBe("pending");
   const post = calls.find((c) => c.method === "POST")!;
   expect(post.body).toEqual({ head: "feature", base: "main", title: "T", body: "B" });
+});
+
+test("GiteaForge.openPr: empty-diff response (422 no changes) → EmptyDiffError", async () => {
+  const { fn } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls": {
+      status: 422,
+      // Gitea's wording when head == base (422 Unprocessable Entity).
+      json: { message: "There are no changes between the head and the base" },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  let caught: unknown;
+  try {
+    await forge.openPr({ head: "epic/327-foo", base: "main", title: "T", body: "B" });
+  } catch (e) {
+    caught = e;
+  }
+  expect(caught).toBeInstanceOf(EmptyDiffError);
+  expect((caught as EmptyDiffError).head).toBe("epic/327-foo");
+  expect((caught as EmptyDiffError).base).toBe("main");
+});
+
+test("GiteaForge.openPr: unrelated error (500) propagates unchanged (NOT EmptyDiffError)", async () => {
+  const { fn } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls": {
+      status: 500,
+      json: { message: "internal server error" },
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  let caught: unknown;
+  try {
+    await forge.openPr({ head: "feat", base: "main", title: "T", body: "B" });
+  } catch (e) {
+    caught = e;
+  }
+  expect(caught).not.toBeInstanceOf(EmptyDiffError);
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).toContain("500");
 });
 
 test("GiteaForge.merge: POSTs merge with Do + delete_branch_after_merge", async () => {

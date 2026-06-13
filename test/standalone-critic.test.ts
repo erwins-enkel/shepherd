@@ -90,6 +90,14 @@ function makeDeps(
     forge?: (r: string) => GitForge | null;
     priorReviews?: Record<string, PrReview>; // keyed `${repo}#${n}`
     concurrency?: number;
+    // epic_completed rows surfaced by store.listEpicCompleted() (Stage B, #635). A row whose
+    // landingState is "open" unions its repo into the swept set even with criticAllPrs OFF; a
+    // "merged" row is no longer reviewable and drops out.
+    epicCompleted?: {
+      repoPath: string;
+      landingPrNumber: number | null;
+      landingState?: string;
+    }[];
   } = {},
 ) {
   const spies: Spies = {
@@ -129,6 +137,10 @@ function makeDeps(
       recordReviewerSpawn: (r: any) => spies.recordedSpawns.push(r),
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         spies.completedSpawns.push({ id, u, at }),
+      // Minimal listEpicCompleted: returns the injected rows (filtered by repoPath when given),
+      // shaped just enough for sweep()'s landingPrNumber != null filter + repoPath map.
+      listEpicCompleted: (repoPath?: string) =>
+        (opts.epicCompleted ?? []).filter((r) => repoPath === undefined || r.repoPath === repoPath),
     },
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
@@ -276,6 +288,123 @@ test("does nothing for a repo whose criticAllPrs is OFF", async () => {
   const svc = new StandalonePrCriticService(deps as any);
   await svc.sweep();
   expect(spies.started).toHaveLength(0);
+});
+
+// ── 2b. epic landing PR coverage (Stage B, #635) ─────────────────────────────
+
+test("reviews the epic landing PR even with criticAllPrs OFF everywhere", async () => {
+  // criticAllPrs off, but an epic_completed row with a landing PR number unions /r into the swept
+  // set. The open green regular PR's head is the epic integration branch → eligible.
+  const local = makeDeps(
+    {},
+    {
+      criticAllPrs: false,
+      epicCompleted: [{ repoPath: "/r", landingPrNumber: 42, landingState: "open" }],
+      forge: undefined,
+    },
+  );
+  local.deps.resolveForge = () =>
+    makeForge(local.spies, {
+      prs: [pr({ number: 42, headRefName: "epic/327-foo" })],
+    });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(local.spies.started).toHaveLength(1);
+  expect(local.spies.started[0]!.name).toBe("pr-critic /r#42");
+});
+
+test("with criticAllPrs OFF, a non-epic PR in the (epic-unioned) repo is NOT reviewed", async () => {
+  // /r is swept ONLY because of its landing PR; a normal green regular PR whose head is a plain
+  // task branch must stay excluded (eligible carves the OFF repo down to the integration branch).
+  const local = makeDeps(
+    {},
+    {
+      criticAllPrs: false,
+      epicCompleted: [{ repoPath: "/r", landingPrNumber: 42, landingState: "open" }],
+      forge: undefined,
+    },
+  );
+  local.deps.resolveForge = () =>
+    makeForge(local.spies, {
+      prs: [
+        pr({ number: 42, headRefName: "epic/327-foo" }), // the landing PR — eligible
+        pr({ number: 8, headRefName: "feature/x" }), // a normal PR — excluded
+      ],
+    });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(local.spies.started).toHaveLength(1);
+  expect(local.spies.started[0]!.name).toBe("pr-critic /r#42");
+});
+
+test("empty union (no criticAllPrs, no pending landing PR) → no forge call, no spawn", async () => {
+  // Neither flagged nor epic-unioned: sweep() must early-return before resolving/listing the forge.
+  let listed = 0;
+  const local = makeDeps(
+    {},
+    {
+      criticAllPrs: false,
+      // no open landing PR → not in union
+      epicCompleted: [{ repoPath: "/r", landingPrNumber: null, landingState: "none" }],
+      forge: undefined,
+    },
+  );
+  local.deps.resolveForge = () => {
+    const f = makeForge(local.spies, {});
+    f.listPullRequests = async () => {
+      listed++;
+      return [];
+    };
+    return f;
+  };
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(listed).toBe(0);
+  expect(local.spies.started).toHaveLength(0);
+});
+
+test("a merged epic landing PR is NOT swept (no longer reviewable)", async () => {
+  // The landing PR has merged → landingState "merged"; even though landingPrNumber is still set,
+  // the union keys off "open" only, so the repo is no longer swept (no list, no spawn).
+  let listed = 0;
+  const local = makeDeps(
+    {},
+    {
+      criticAllPrs: false,
+      epicCompleted: [{ repoPath: "/r", landingPrNumber: 42, landingState: "merged" }],
+      forge: undefined,
+    },
+  );
+  local.deps.resolveForge = () => {
+    const f = makeForge(local.spies, { prs: [pr({ number: 42, headRefName: "epic/327-foo" })] });
+    f.listPullRequests = async () => {
+      listed++;
+      return [pr({ number: 42, headRefName: "epic/327-foo" })];
+    };
+    return f;
+  };
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(listed).toBe(0);
+  expect(local.spies.started).toHaveLength(0);
+});
+
+test("per-head dedup still holds for the epic landing PR across two sweeps", async () => {
+  const local = makeDeps(
+    {},
+    {
+      criticAllPrs: false,
+      epicCompleted: [{ repoPath: "/r", landingPrNumber: 42, landingState: "open" }],
+      forge: undefined,
+    },
+  );
+  local.deps.resolveForge = () =>
+    makeForge(local.spies, { prs: [pr({ number: 42, headRefName: "epic/327-foo" })] });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  await svc.sweep(); // still in flight (no tick) → the in-flight guard blocks a re-spawn
+  expect(local.spies.started).toHaveLength(1);
+  expect(local.spies.created).toHaveLength(1);
 });
 
 // ── 3. in-flight exclusion across sweeps ─────────────────────────────────────

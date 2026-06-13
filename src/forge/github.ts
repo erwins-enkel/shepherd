@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
 import { classifyPr } from "./pr-kind";
-import { CRITIC_REVIEW_MARKER } from "./types";
+import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "./types";
 import type {
   ForgeConfig,
   GitForge,
@@ -27,6 +27,12 @@ import type {
 /** Cap on distinct workflows fetched per repo: each kept run costs one extra
  *  `gh run view` subprocess, so bound the fan-out. */
 const MAX_WORKFLOWS = 10;
+
+/** `gh pr create` on an empty diff prints "No commits between <base> and <head>" to stderr.
+ *  Match that case-insensitively to classify an openPr failure as an EmptyDiffError. */
+function isNoCommitsBetween(text: string): boolean {
+  return text.toLowerCase().includes("no commits between");
+}
 
 /** Cap on summary pages for listSubIssueSummaries: 2 pages × 100 issues = ~200 issues,
  *  mirroring the listIssues() 200-open-issue cap. */
@@ -582,7 +588,16 @@ export class GithubForge implements GitForge {
       o.body,
     ];
     if (o.draft) args.push("--draft");
-    await this.run(args);
+    try {
+      await this.run(args);
+    } catch (err) {
+      // An execFile rejection carries the subprocess stderr on err.stderr plus the message;
+      // read both defensively (err is unknown) and classify the empty-diff signal.
+      const stderr = (err as { stderr?: unknown }).stderr;
+      const text = `${typeof stderr === "string" ? stderr : ""} ${err instanceof Error ? err.message : String(err)}`;
+      if (isNoCommitsBetween(text)) throw new EmptyDiffError(o.head, o.base, err);
+      throw err;
+    }
     return this.prStatus(o.head);
   }
 

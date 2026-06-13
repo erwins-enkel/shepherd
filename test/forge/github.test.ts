@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
+import { EmptyDiffError } from "../../src/forge/types";
 
 // A recording fake `gh` runner. Returns canned stdout keyed by the subcommand.
 function fakeRunner(responses: Record<string, string>) {
@@ -953,6 +954,46 @@ test("GithubForge.openPr: draft:false (or omitted) does NOT pass --draft", async
   const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
   expect(createCall).toBeDefined();
   expect(createCall).not.toContain("--draft");
+});
+
+test("GithubForge.openPr: empty diff (gh stderr 'No commits between') → EmptyDiffError", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "pr" && args[1] === "create") {
+      // Mirror an execFile rejection: stderr carries gh's empty-diff message.
+      const err = new Error("Command failed: gh pr create") as Error & { stderr?: string };
+      err.stderr = "No commits between main and epic/327-foo\n";
+      throw err;
+    }
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  let caught: unknown;
+  try {
+    await forge.openPr({ head: "epic/327-foo", base: "main", title: "T", body: "B" });
+  } catch (e) {
+    caught = e;
+  }
+  expect(caught).toBeInstanceOf(EmptyDiffError);
+  expect((caught as EmptyDiffError).head).toBe("epic/327-foo");
+  expect((caught as EmptyDiffError).base).toBe("main");
+});
+
+test("GithubForge.openPr: unrelated failure propagates unchanged (NOT EmptyDiffError)", async () => {
+  const boom = new Error("network unreachable") as Error & { stderr?: string };
+  boom.stderr = "network unreachable";
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "pr" && args[1] === "create") throw boom;
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  let caught: unknown;
+  try {
+    await forge.openPr({ head: "feat", base: "main", title: "T", body: "B" });
+  } catch (e) {
+    caught = e;
+  }
+  expect(caught).toBe(boom);
+  expect(caught).not.toBeInstanceOf(EmptyDiffError);
 });
 
 test("GithubForge.markReady: invokes gh pr ready <n> --repo", async () => {

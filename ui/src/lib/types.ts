@@ -385,6 +385,13 @@ export interface CompletedEpic {
   parentTitle: string;
   completedAt: number;
   children: CompletedEpicChild[];
+  // Stage B (#635) landing-PR carried on the band; null/'pending' until the aggregate PR opens.
+  landingPrNumber: number | null;
+  landingPrUrl: string | null;
+  // Landing-PR lifecycle state (mirrors server EpicLandingState): pending=not yet
+  // resolved, open=PR opened/reused, merged=landing PR merged (epic landed), none=nothing
+  // to land, error=last attempt failed.
+  landingState: "pending" | "open" | "merged" | "none" | "error";
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

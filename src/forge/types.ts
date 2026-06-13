@@ -185,6 +185,21 @@ export interface OpenPrInput {
   draft?: boolean;
 }
 
+/** Thrown by a forge's openPr when the head branch has no net diff vs the base — there is
+ *  nothing to open a PR for (already landed, or commits that net to zero). Forge-agnostic so a
+ *  caller (epic landing, #635) can resolve "nothing to land" instead of retrying openPr forever. */
+export class EmptyDiffError extends Error {
+  constructor(
+    readonly head: string,
+    readonly base: string,
+    cause?: unknown,
+  ) {
+    super(`no commits between ${base} and ${head}`);
+    this.name = "EmptyDiffError";
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
 export interface MergeInput {
   method: MergeMethod;
   deleteBranch: boolean;

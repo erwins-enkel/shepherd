@@ -10,12 +10,21 @@ export interface CompletedEpicChild {
   integrated: boolean;
 }
 
+/** Landing-PR lifecycle state — pending=not yet resolved, open=PR opened/reused,
+ *  merged=landing PR has merged (epic landed; band about to be dismissed on parent close),
+ *  none=nothing to land / human-closed, error=last open attempt failed/retrying. */
+export type EpicLandingState = "pending" | "open" | "merged" | "none" | "error";
+
 export interface CompletedEpic {
   repoPath: string;
   parentIssueNumber: number;
   parentTitle: string;
   completedAt: number;
   children: CompletedEpicChild[];
+  // Stage B (#635) landing-PR carried on the band; null/'pending' until the aggregate PR opens.
+  landingPrNumber: number | null;
+  landingPrUrl: string | null;
+  landingState: EpicLandingState;
 }
 
 export function buildRollup(

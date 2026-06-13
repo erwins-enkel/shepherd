@@ -21,6 +21,7 @@ import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import type { EpicRun } from "./epic-core";
+import type { EpicLandingState } from "./completed-epic";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -393,7 +394,12 @@ export class SessionStore implements CapStore, CreditStore {
       parentTitle TEXT NOT NULL, completedAt INTEGER NOT NULL,
       dismissedAt INTEGER,
       childrenJson TEXT NOT NULL,
+      landingPrNumber INTEGER,
+      landingPrUrl TEXT,
+      landingState TEXT NOT NULL DEFAULT 'pending',
+      landingAttempts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.migrateEpicCompletedColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -651,11 +657,16 @@ export class SessionStore implements CapStore, CreditStore {
     parentTitle: string;
     completedAt: number;
     childrenJson: string;
+    landingPrNumber: number | null;
+    landingPrUrl: string | null;
+    landingState: EpicLandingState;
+    landingAttempts: number;
   }[] {
     if (repoPath !== undefined) {
       return this.db
         .query(
-          `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson
+          `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
+                  landingPrNumber, landingPrUrl, landingState, landingAttempts
            FROM epic_completed WHERE dismissedAt IS NULL AND repoPath = ?
            ORDER BY completedAt DESC`,
         )
@@ -665,11 +676,16 @@ export class SessionStore implements CapStore, CreditStore {
         parentTitle: string;
         completedAt: number;
         childrenJson: string;
+        landingPrNumber: number | null;
+        landingPrUrl: string | null;
+        landingState: EpicLandingState;
+        landingAttempts: number;
       }[];
     }
     return this.db
       .query(
-        `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson
+        `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
+                landingPrNumber, landingPrUrl, landingState, landingAttempts
          FROM epic_completed WHERE dismissedAt IS NULL
          ORDER BY completedAt DESC`,
       )
@@ -679,11 +695,37 @@ export class SessionStore implements CapStore, CreditStore {
       parentTitle: string;
       completedAt: number;
       childrenJson: string;
+      landingPrNumber: number | null;
+      landingPrUrl: string | null;
+      landingState: EpicLandingState;
+      landingAttempts: number;
     }[];
   }
 
+  /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
+   *  Direct UPDATE (not part of recordEpicCompleted's preserve-by-omission upsert). */
+  setEpicLandingPr(
+    repoPath: string,
+    parentIssueNumber: number,
+    fields: {
+      state: EpicLandingState;
+      prNumber: number | null;
+      prUrl: string | null;
+      attempts: number;
+    },
+  ): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
+    );
+  }
+
   /** Mark a completed epic as dismissed (hides it from listEpicCompleted).
-   *  TODO(#635): Stage B should call this at land-time when it closes the parent. */
+   *  At land-time there's no explicit dismiss call: the aggregate landing PR's
+   *  `Closes #<parent>` closes the parent on merge, and the autoDismissClosed
+   *  reconcile (src/server.ts) then dismisses the band once the parent is
+   *  confidently closed. */
   dismissEpicCompleted(repoPath: string, parentIssueNumber: number): void {
     this.db.run(
       `UPDATE epic_completed SET dismissedAt = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
@@ -1490,6 +1532,20 @@ export class SessionStore implements CapStore, CreditStore {
     };
     add("prNumber", `prNumber INTEGER`);
     add("prUrl", `prUrl TEXT`);
+  }
+
+  private migrateEpicCompletedColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_completed)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE epic_completed ADD COLUMN ${ddl}`);
+    };
+    // Stage B (#635) landing-PR lifecycle. NOT NULL columns carry constant defaults so the
+    // ALTER backfills existing rows to 'pending'/0.
+    add("landingPrNumber", `landingPrNumber INTEGER`);
+    add("landingPrUrl", `landingPrUrl TEXT`);
+    add("landingState", `landingState TEXT NOT NULL DEFAULT 'pending'`);
+    add("landingAttempts", `landingAttempts INTEGER NOT NULL DEFAULT 0`);
   }
 
   private migrateReviewColumns(): void {

@@ -22,6 +22,9 @@ const epic = (n: number): CompletedEpic => ({
       integrated: true,
     },
   ],
+  landingPrNumber: null,
+  landingPrUrl: null,
+  landingState: "pending",
 });
 
 afterEach(() => {

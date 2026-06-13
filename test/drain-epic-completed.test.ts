@@ -153,11 +153,14 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
     // Run flipped to idle.
     expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
 
-    // Emitter fired with the same CompletedEpic.
-    expect(h.completedEmits).toHaveLength(1);
+    // Two emits: the completion record, then the Stage B (#635) landing-PR resolution. Both
+    // children are issue-closed (no epic_integrated rows) so the landing resolves to 'none'.
+    expect(h.completedEmits.length).toBeGreaterThanOrEqual(1);
     const emit = h.completedEmits[0]!;
     expect(emit.parentIssueNumber).toBe(PARENT);
     expect(emit.children.map((c) => c.number).sort()).toEqual([320, 321]);
+    // Last emit carries the resolved landing state (no integrated children → 'none').
+    expect(h.completedEmits.at(-1)!.landingState).toBe("none");
   });
 
   test("record failure keeps the epic RUNNING (no flip, no row) → retried next pump", async () => {

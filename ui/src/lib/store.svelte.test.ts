@@ -739,6 +739,9 @@ function completedEpic(repoPath: string, parentIssueNumber: number): CompletedEp
         integrated: true,
       },
     ],
+    landingPrNumber: null,
+    landingPrUrl: null,
+    landingState: "pending",
   };
 }
 

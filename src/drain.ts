@@ -15,7 +15,14 @@ import {
 import { assembleEpic } from "./epic-model";
 import { epicIntegrationBranch as epicBranchName, isEpicIntegrationBranch } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
-import { buildRollup, type CompletedEpic } from "./completed-epic";
+import {
+  buildRollup,
+  type CompletedEpic,
+  type CompletedEpicChild,
+  type EpicLandingState,
+} from "./completed-epic";
+import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
+import { EmptyDiffError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
 
@@ -23,6 +30,13 @@ import { config } from "./config";
  *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
  *  trip GitHub secondary rate limits. */
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
+
+/** Cap on epic-landing-PR open attempts (#635, Stage B). A failed `openPr` flips the
+ *  `epic_completed` row to `landingState:'error'` and increments `landingAttempts`; the
+ *  autonomous tick retries until this many failures, then PARKS the row in `error` —
+ *  still surfaced on the band, but excluded from the retry set so it makes no further
+ *  forge calls. Bounds the cost of a permanently-broken landing (no perpetual retry). */
+const MAX_LANDING_ATTEMPTS = 5;
 import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
 import {
   resolveProfile,
@@ -83,6 +97,8 @@ export interface DrainDeps {
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
+    | "listEpicCompleted"
+    | "setEpicLandingPr"
   >;
   service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
   resolveForge: (repoPath: string) => GitForge | null;
@@ -130,6 +146,14 @@ export class DrainService {
   // repoPath lock held across the whole async pump — a concurrent pump for the
   // same repo bails immediately so we never double-spawn/double-retire.
   private pumping = new Set<string>();
+  // In-flight guard for ensureLandingPr, keyed `${repoPath}#${parentIssueNumber}`.
+  // ensureLandingPr is a read-modify-write across awaits and runs OUTSIDE the per-repo
+  // `pumping` lock (reachable from tick(), which has no re-entrancy guard, and from the
+  // pumpStep completion edge). Two overlapping resolutions for the same epic would
+  // otherwise both read prStatus=none → both openPr (two landing PRs) and both read the
+  // same landingAttempts → lose an increment. This set makes the second invocation a
+  // no-op; it'll be retried next tick anyway.
+  private landingInFlight = new Set<string>();
   // sessionIds whose claim label onArchived must NOT release. Populated in doRetire
   // (a ready PR stays open → keep the claim so no instance re-spawns it; the human
   // merge auto-closes the issue, retiring the claim) and in onGit ONLY for a merge
@@ -406,6 +430,11 @@ export class DrainService {
           parentTitle: epic.parentTitle,
           completedAt: this.now(),
           children: rollup,
+          // Recorded as pending — its final state here; ensureLandingPr (driven by the
+          // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
+          landingPrNumber: null,
+          landingPrUrl: null,
+          landingState: "pending",
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -436,6 +465,254 @@ export class DrainService {
   }
 
   /**
+   * Re-read the resolved `epic_completed` row and emit it as a {@link CompletedEpic}
+   * so the integrated-epics band reflects the new landing state. Called by every
+   * resolve branch of {@link ensureLandingPr} after `setEpicLandingPr` writes, so the
+   * band sees the latest landing fields without duplicating the build. A
+   * vanished row (dismissed mid-flight) silently no-ops.
+   */
+  private emitCompleted(repoPath: string, parentIssueNumber: number): void {
+    const row = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parentIssueNumber);
+    if (!row) return;
+    // Display-only emit; called from ensureLandingPr's catch path, so a malformed
+    // childrenJson must NOT throw past the handler (breaking its never-throws contract).
+    let children: CompletedEpicChild[];
+    try {
+      children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
+    } catch (err) {
+      console.warn(
+        `[drain] emitCompleted skipped — bad childrenJson for ${repoPath}#${parentIssueNumber}:`,
+        err,
+      );
+      return;
+    }
+    const completed: CompletedEpic = {
+      repoPath,
+      parentIssueNumber,
+      parentTitle: row.parentTitle,
+      completedAt: row.completedAt,
+      children,
+      landingPrNumber: row.landingPrNumber,
+      landingPrUrl: row.landingPrUrl,
+      landingState: row.landingState,
+    };
+    this.deps.emitEpicCompleted?.(completed);
+  }
+
+  /** Write the resolved landing fields to the `epic_completed` row and re-emit the band's
+   *  CompletedEpic. The store-write + emit pair recurs in every resolve branch of
+   *  {@link ensureLandingPr}; collapsing it here removes copy-paste drift risk. */
+  private resolveLanding(
+    repoPath: string,
+    parentIssueNumber: number,
+    fields: {
+      state: EpicLandingState;
+      prNumber: number | null;
+      prUrl: string | null;
+      attempts: number;
+    },
+  ): void {
+    this.deps.store.setEpicLandingPr(repoPath, parentIssueNumber, fields);
+    this.emitCompleted(repoPath, parentIssueNumber);
+  }
+
+  /**
+   * Open (or reuse) the aggregate `epic/<#>-<slug> → <default>` landing PR for a completed
+   * epic and record its resolution on the `epic_completed` row — a single idempotent
+   * operation (#635, Stage B).
+   *
+   * DECOUPLED FROM THE IDLE FLIP (NEVER wedges the repo's drain): completion already
+   * recorded the row + flipped `running → idle` (see {@link handleEpicSideEffects}); a
+   * running epic suppresses the repo's label-mode drain, so we MUST NOT gate that flip on
+   * the landing PR — a single forge hiccup would otherwise freeze ALL autonomous drain for
+   * the repo. This runs separately and surfaces failure on the band (`landingState:'error'`),
+   * never by holding the run open. It MUST NEVER throw: every forge touch is wrapped and
+   * mapped to a terminal/retryable state.
+   *
+   * Idempotent: `prStatus(integrationBranch)` (the integration branch is only ever the
+   * landing PR's head, and prStatus reads `--state all`) reuses any prior PR (open/merged),
+   * treats a human-closed PR as terminal `none` (we don't re-open what an operator closed),
+   * and only opens when there is none. An `EmptyDiffError` (nothing to land) resolves `none`;
+   * any other failure resolves `error` and increments `landingAttempts` for capped retry.
+   */
+  private async ensureLandingPr(
+    repoPath: string,
+    parentIssueNumber: number,
+    parentTitle: string,
+  ): Promise<void> {
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge) return;
+
+    // Serialize per (repo, parent): bail if a resolution for this epic is already mid-flight.
+    // The body is a read-modify-write across awaits and runs outside the `pumping` lock, so an
+    // overlapping invocation (tick() ⟷ pumpStep edge) would otherwise double-open the PR and
+    // lose a landingAttempts increment. The second caller no-ops; the tick retries it anyway.
+    const inFlightKey = `${repoPath}#${parentIssueNumber}`;
+    if (this.landingInFlight.has(inFlightKey)) return;
+    this.landingInFlight.add(inFlightKey);
+    try {
+      const row = this.deps.store
+        .listEpicCompleted(repoPath)
+        .find((r) => r.parentIssueNumber === parentIssueNumber);
+      if (!row) return; // nothing recorded (or already dismissed/landed)
+
+      // Terminal / parked short-circuit — never re-touch the forge for a resolved or
+      // capped-out row. `open`/`merged`/`none` are terminal; `error` at/over the cap is parked.
+      if (
+        row.landingState === "open" ||
+        row.landingState === "merged" ||
+        row.landingState === "none"
+      )
+        return;
+      if (row.landingState === "error" && row.landingAttempts >= MAX_LANDING_ATTEMPTS) return;
+
+      // Cheap pre-gate: a pure-legacy epic accumulated nothing on the integration branch,
+      // so there is nothing to land. The authoritative empty-diff check is the openPr
+      // EmptyDiffError below; this just avoids a doomed openPr round-trip.
+      const integratedDetails = this.deps.store.listEpicIntegratedDetails(
+        repoPath,
+        parentIssueNumber,
+      );
+      if (integratedDetails.length === 0) {
+        this.resolveLanding(repoPath, parentIssueNumber, {
+          state: "none",
+          prNumber: null,
+          prUrl: null,
+          attempts: row.landingAttempts,
+        });
+        return;
+      }
+
+      const integrationBranch = epicBranchName(parentIssueNumber, parentTitle);
+      const resolution = await this.classifyLanding(forge, row, integrationBranch);
+      this.resolveLanding(repoPath, parentIssueNumber, resolution);
+    } finally {
+      this.landingInFlight.delete(inFlightKey);
+    }
+  }
+
+  /**
+   * Resolve what the landing PR's state should become by talking to the forge: reuse an
+   * existing open PR, record an already-merged one as `merged`, treat a human-closed one as
+   * terminal `none`, open a new one, or classify the failure (EmptyDiffError → `none`; anything
+   * else → `error` + attempt++). Pure decision — the caller persists + emits. NEVER throws:
+   * every forge touch is wrapped here.
+   */
+  private async classifyLanding(
+    forge: GitForge,
+    row: {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      childrenJson: string;
+      landingAttempts: number;
+    },
+    integrationBranch: string,
+  ): Promise<{
+    state: EpicLandingState;
+    prNumber: number | null;
+    prUrl: string | null;
+    attempts: number;
+  }> {
+    const { repoPath, parentIssueNumber, parentTitle, landingAttempts } = row;
+    try {
+      // Idempotency guard: prStatus reads `--state all`, so it sees any prior PR whose head
+      // is the integration branch (which is only ever the landing PR's head).
+      const existing = await forge.prStatus(integrationBranch);
+      if (existing.state === "open") {
+        // Reuse — never open a second PR. Covers the open-succeeded/record-failed gap.
+        return {
+          state: "open",
+          prNumber: existing.number ?? null,
+          prUrl: existing.url ?? null,
+          attempts: landingAttempts,
+        };
+      }
+      if (existing.state === "merged") {
+        // Already merged (epic landed) — record as terminal `merged` so the band reads
+        // accurately post-merge rather than "awaiting merge" until the parent-close reconcile.
+        return {
+          state: "merged",
+          prNumber: existing.number ?? null,
+          prUrl: existing.url ?? null,
+          attempts: landingAttempts,
+        };
+      }
+      if (existing.state === "closed") {
+        // A human deliberately closed the landing PR (unmerged) — terminal, do NOT re-open it.
+        return { state: "none", prNumber: null, prUrl: null, attempts: landingAttempts };
+      }
+      // existing.state === "none" → no PR yet, open one.
+      const defaultBranch = await forge.defaultBranch();
+      const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
+      const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
+      const body = buildLandingPrBody({
+        parentNumber: parentIssueNumber,
+        parentTitle,
+        integrationBranch,
+        defaultBranch,
+        children,
+      });
+      const status = await forge.openPr({
+        head: integrationBranch,
+        base: defaultBranch,
+        title,
+        body,
+      });
+      return {
+        state: "open",
+        prNumber: status.number ?? null,
+        prUrl: status.url ?? null,
+        attempts: landingAttempts,
+      };
+    } catch (err) {
+      if (err instanceof EmptyDiffError) {
+        // No net diff vs default (already landed, or integrations that net to nothing) —
+        // terminal `none`, NOT an error. The length>0 pre-gate can't detect a zero net diff.
+        return { state: "none", prNumber: null, prUrl: null, attempts: landingAttempts };
+      }
+      // Transient/unknown failure (network, no push access) → error + count it; retried by
+      // the autonomous tick until the cap, then parked. NEVER holds the run.
+      console.warn(
+        `[drain] ensureLandingPr openPr failed for ${repoPath}#${parentIssueNumber} (attempt ${landingAttempts + 1}/${MAX_LANDING_ATTEMPTS}):`,
+        err,
+      );
+      return { state: "error", prNumber: null, prUrl: null, attempts: landingAttempts + 1 };
+    }
+  }
+
+  /**
+   * DB-gated landing-PR retry for one repo, run UNGATED in {@link tick} (even for an idle
+   * epic in a repo with autoDrain off). It touches the forge ONLY when a completed epic
+   * still needs its landing PR resolved (`pending`, or `error` below the cap) — so steady
+   * state (all rows `open`/`none`/parked-`error`) is zero forge calls. This is the genuinely-
+   * autonomous home: it covers both an edge-time openPr failure and a completion recorded
+   * across a restart (no UI required).
+   */
+  private async ensureLandingPrsForRepo(repoPath: string): Promise<void> {
+    const pending = this.deps.store
+      .listEpicCompleted(repoPath)
+      .filter(
+        (r) =>
+          (r.landingState === "pending" || r.landingState === "error") &&
+          r.landingAttempts < MAX_LANDING_ATTEMPTS,
+      );
+    for (const r of pending) {
+      try {
+        await this.ensureLandingPr(repoPath, r.parentIssueNumber, r.parentTitle);
+      } catch (err) {
+        // ensureLandingPr already swallows; this is defense-in-depth.
+        console.warn(
+          `[drain] ensureLandingPr retry failed for ${repoPath}#${r.parentIssueNumber}:`,
+          err,
+        );
+      }
+    }
+  }
+
+  /**
    * Execute one step of the drain loop: build state, run epic side-effects,
    * compute the next decision, emit status, then apply the decision.
    * Returns false when the loop should break (hold or error), true to continue.
@@ -455,6 +732,7 @@ export class DrainService {
         const epicRun = this.deps.store.getEpicRun(repoPath);
         if (epicRun) epicAutoCompleted = this.handleEpicSideEffects(repoPath, epicRun, epic);
       }
+      if (epicAutoCompleted && epic) await this.openLandingPrOnComplete(repoPath, epic);
       decision = computeNext(state);
       // When the epic just auto-completed (running→idle), the state we built still
       // carries epicParent from the now-idle run. Emit a corrected status built from
@@ -484,6 +762,23 @@ export class DrainService {
       return true;
     }
     return false; // hold
+  }
+
+  /**
+   * Best-effort landing PR on the completion edge. DECOUPLED from the (already-done) record+idle
+   * flip: {@link ensureLandingPr} resolves to a state and never throws, but the try/catch is
+   * defense-in-depth — a landing failure must NEVER hold the run open (that would freeze the
+   * whole repo's drain). The autonomous tick retries it.
+   */
+  private async openLandingPrOnComplete(repoPath: string, epic: Epic): Promise<void> {
+    try {
+      await this.ensureLandingPr(repoPath, epic.parentIssueNumber, epic.parentTitle);
+    } catch (err) {
+      console.warn(
+        `[drain] ensureLandingPr (completion edge) failed for ${repoPath}#${epic.parentIssueNumber}:`,
+        err,
+      );
+    }
   }
 
   /** Drain `repoPath`: build state → computeNext → apply, until the core holds.
@@ -829,6 +1124,10 @@ export class DrainService {
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
     for (const repoPath of this.deps.repos()) {
+      // UNGATED landing-PR retry: runs for EVERY repo, BEFORE the pump gate, so a completed
+      // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.
+      // DB-gated internally → zero forge calls in steady state.
+      await this.ensureLandingPrsForRepo(repoPath);
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);

@@ -1233,5 +1233,10 @@
   "feat_colorblind_markers_body": "Falls Grün und Rot schwer zu unterscheiden sind, aktiviere die Farbenblind-Status-Marker unter Einstellungen → Gerät. Dann steht am Handy ein ✓ (wartet) oder ! (blockiert) neben dem Session-Emoji, sodass diese Zustände nicht mehr allein an der Header-Färbung hängen. Standardmäßig aus.",
   "timetip_ready_to_merge": "Grünes Licht — bereit zum Mergen 🟢",
   "feat_quick_theme_title": "Thema & Kontrast direkt im Menü",
-  "feat_quick_theme_body": "Am Handy öffnest du mit dem Zahnrad (oben rechts) das Menü und schaltest Dark-/Light-Thema sowie hohen Kontrast direkt dort um — kein Umweg mehr über Einstellungen → Gerät. Das Menü sitzt jetzt bündig am Rand und legt einen unscharfen Hintergrund darunter, damit es klar im Fokus steht."
+  "feat_quick_theme_body": "Am Handy öffnest du mit dem Zahnrad (oben rechts) das Menü und schaltest Dark-/Light-Thema sowie hohen Kontrast direkt dort um — kein Umweg mehr über Einstellungen → Gerät. Das Menü sitzt jetzt bündig am Rand und legt einen unscharfen Hintergrund darunter, damit es klar im Fokus steht.",
+  "integrated_epics_landing_pr": "Landing-PR #{number} — wartet auf Merge",
+  "integrated_epics_landing_failed": "Landing-PR konnte nicht geöffnet werden — erneuter Versuch",
+  "feat_epic_landing_pr_title": "Epics landen über einen finalen PR",
+  "feat_epic_landing_pr_body": "Wenn alle Kind-Issues eines Epics integriert sind, öffnet Shepherd einen finalen PR, der das gesamte Epic landet und das Eltern-Issue schließt — als Link im Band 'Integrierte Epics'.",
+  "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt"
 }

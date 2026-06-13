@@ -7,7 +7,7 @@ import {
   HERDR_MIN_VERSION,
   NODE_MIN_VERSION,
   config,
-  parseServedPort,
+  findServedPort,
 } from "./config";
 import { compareSemver } from "./herdr-update";
 import { resolveNodeHost } from "./tailscale";
@@ -35,8 +35,9 @@ export interface DiagnosticsDeps {
   /** This node's tailnet hostname, or null when tailscale is absent / not logged
    *  in. Defaults to the shared `resolveNodeHost`. */
   resolveHost?: () => Promise<string | null>;
-  /** Raw `tailscale serve status` text, parsed into a served-port via the pure
-   *  `parseServedPort`. Reject ⇒ treated as "not serving". */
+  /** Raw `tailscale serve status --json` output, parsed into a served-port via
+   *  `findServedPort`. Both a direct `tailscale serve` mapping and a Tailscale
+   *  Service mapping are detected. Reject ⇒ treated as "not serving". */
   runServeStatus?: () => Promise<string>;
 }
 
@@ -99,7 +100,7 @@ export class DiagnosticsService {
     this.runServeStatus =
       deps.runServeStatus ??
       (async () => {
-        const { stdout } = await execFileAsync("tailscale", ["serve", "status"], {
+        const { stdout } = await execFileAsync("tailscale", ["serve", "status", "--json"], {
           encoding: "utf8",
           timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
         });
@@ -182,10 +183,11 @@ export class DiagnosticsService {
   };
 
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
-   *  logged-in but not serving the HUD's local port (parseServedPort finds no
-   *  mapping for config.port) ⇒ warning (advisory — Shepherd runs fine without
-   *  serve, it only gates the remote-access nicety); both serving ⇒ ok. Never
-   *  forwards raw status output. */
+   *  logged-in but not serving the HUD's local port (findServedPort finds no
+   *  mapping for config.port in `tailscale serve status --json`) ⇒ warning
+   *  (advisory — Shepherd runs fine without serve, it only gates the
+   *  remote-access nicety); serving via direct serve OR a Tailscale Service ⇒
+   *  ok. Never forwards raw status output. */
   private tailscaleProbe = async (): Promise<DiagnosticCheck> => {
     const host = await this.resolveHost();
     if (!host) {
@@ -196,7 +198,7 @@ export class DiagnosticsService {
       };
     }
     const status = await this.runServeStatus();
-    const served = parseServedPort(status, config.port);
+    const served = findServedPort(status, config.port);
     if (served === null) {
       return {
         id: "tailscale",

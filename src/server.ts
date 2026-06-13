@@ -3100,6 +3100,99 @@ async function cachedListIssues(
   return issues;
 }
 
+// Auto-dismiss: a completed epic whose parent is confidently closed (absent from a complete
+// open set) gets cleared + emitted. openTruncated → can't be confident, so this is a no-op.
+function autoDismissClosed(
+  deps: AppDeps,
+  repo: string,
+  openNumbers: Set<number>,
+  openTruncated: boolean,
+): void {
+  if (openTruncated) return;
+  for (const row of deps.store.listEpicCompleted(repo)) {
+    if (!openNumbers.has(row.parentIssueNumber)) {
+      deps.store.dismissEpicCompleted(repo, row.parentIssueNumber);
+      deps.events?.emit("epic:completed-cleared", {
+        repoPath: repo,
+        parentIssueNumber: row.parentIssueNumber,
+      });
+    }
+  }
+}
+
+// Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
+// across a restart). Needs buildEpic — no-op when drain is absent. Records the completed epic
+// when all children are merged; otherwise logs a visible skip (never silently dropped).
+async function backfillIdleEpic(
+  deps: AppDeps,
+  repo: string,
+  openNumbers: Set<number>,
+  openTruncated: boolean,
+): Promise<void> {
+  if (!deps.drain) return;
+  const run = deps.store.getEpicRun(repo);
+  if (run?.status !== "idle") return;
+  // hasEpicCompleted ignores dismissedAt, so a dismissed-but-idle run counts as recorded
+  // and never re-fires buildEpic (a forge round-trip) on every GET.
+  if (deps.store.hasEpicCompleted(repo, run.parentIssueNumber)) return;
+  // Parent confidently still open? If we have a complete open set and the parent is absent,
+  // it's about to be auto-dismissed anyway — skip the flash of recording it.
+  if (!openTruncated && !openNumbers.has(run.parentIssueNumber)) return;
+
+  const epic = await deps.drain.buildEpic(repo, run);
+  if (!epic || epic.children.length === 0) return;
+  if (epic.children.every((c) => c.state === "merged")) {
+    const rollup = buildRollup(
+      epic.children,
+      deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
+    );
+    // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
+    const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
+    const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
+    const completed: CompletedEpic = {
+      repoPath: repo,
+      parentIssueNumber: run.parentIssueNumber,
+      parentTitle: epic.parentTitle,
+      completedAt,
+      children: rollup,
+    };
+    deps.store.recordEpicCompleted({
+      repoPath: completed.repoPath,
+      parentIssueNumber: completed.parentIssueNumber,
+      parentTitle: completed.parentTitle,
+      completedAt: completed.completedAt,
+      childrenJson: JSON.stringify(rollup),
+    });
+  } else {
+    // Visible skip — never silently drop a backfill candidate.
+    const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
+    console.warn(
+      `[server] completed-epics backfill skipped for ${repo}#${run.parentIssueNumber}: ` +
+        `children not all merged (pending: ${pending.join(", ")})`,
+    );
+  }
+}
+
+// Bounded, best-effort, fail-safe per-repo reconcile: resolve the forge (skip if none), fetch
+// the open set (forge throw → skip this repo, route still serves DB rows), then auto-dismiss
+// confidently-closed parents + backfill an all-merged idle run that never got recorded.
+async function reconcileCompletedEpicsForRepo(deps: AppDeps, repo: string): Promise<void> {
+  const forge = deps.resolveForge?.(repo);
+  if (!forge) return; // no forge → skip reconcile for this repo (its DB rows are still served)
+
+  let open: Awaited<ReturnType<GitForge["listIssues"]>>;
+  try {
+    open = await cachedListIssues(repo, forge);
+  } catch {
+    return; // forge/network error → skip this repo's reconcile (fail-safe)
+  }
+  const openNumbers = new Set(open.map((i) => i.number));
+  const openTruncated = open.length >= 200;
+
+  autoDismissClosed(deps, repo, openNumbers, openTruncated);
+  await backfillIdleEpic(deps, repo, openNumbers, openTruncated);
+}
+
 // GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; also
 // runs a bounded, best-effort, fail-safe reconcile (auto-dismiss confidently-closed parents +
 // backfill an all-merged idle run that never got recorded). Always serves DB rows; never 500s
@@ -3138,78 +3231,7 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
         ]),
       ];
 
-  for (const repo of scopeRepos) {
-    const forge = deps.resolveForge?.(repo);
-    if (!forge) continue; // no forge → skip reconcile for this repo (its DB rows are still served)
-
-    let open: Awaited<ReturnType<GitForge["listIssues"]>>;
-    try {
-      open = await cachedListIssues(repo, forge);
-    } catch {
-      continue; // forge/network error → skip this repo's reconcile (fail-safe)
-    }
-    const openNumbers = new Set(open.map((i) => i.number));
-    const openTruncated = open.length >= 200;
-
-    // Auto-dismiss: a completed epic whose parent is confidently closed (absent from a
-    // complete open set) gets cleared. openTruncated → can't be confident, so skip.
-    if (!openTruncated) {
-      for (const row of deps.store.listEpicCompleted(repo)) {
-        if (!openNumbers.has(row.parentIssueNumber)) {
-          deps.store.dismissEpicCompleted(repo, row.parentIssueNumber);
-          deps.events?.emit("epic:completed-cleared", {
-            repoPath: repo,
-            parentIssueNumber: row.parentIssueNumber,
-          });
-        }
-      }
-    }
-
-    // Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
-    // across a restart). Needs buildEpic — skip when drain is absent.
-    if (!deps.drain) continue;
-    const run = deps.store.getEpicRun(repo);
-    if (run?.status !== "idle") continue;
-    // hasEpicCompleted ignores dismissedAt, so a dismissed-but-idle run counts as recorded
-    // and never re-fires buildEpic (a forge round-trip) on every GET.
-    if (deps.store.hasEpicCompleted(repo, run.parentIssueNumber)) continue;
-    // Parent confidently still open? If we have a complete open set and the parent is absent,
-    // it's about to be auto-dismissed anyway — skip the flash of recording it.
-    if (!openTruncated && !openNumbers.has(run.parentIssueNumber)) continue;
-
-    const epic = await deps.drain.buildEpic(repo, run);
-    if (!epic || epic.children.length === 0) continue;
-    if (epic.children.every((c) => c.state === "merged")) {
-      const rollup = buildRollup(
-        epic.children,
-        deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
-      );
-      // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
-      const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
-      const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
-      const completed: CompletedEpic = {
-        repoPath: repo,
-        parentIssueNumber: run.parentIssueNumber,
-        parentTitle: epic.parentTitle,
-        completedAt,
-        children: rollup,
-      };
-      deps.store.recordEpicCompleted({
-        repoPath: completed.repoPath,
-        parentIssueNumber: completed.parentIssueNumber,
-        parentTitle: completed.parentTitle,
-        completedAt: completed.completedAt,
-        childrenJson: JSON.stringify(rollup),
-      });
-    } else {
-      // Visible skip — never silently drop a backfill candidate.
-      const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
-      console.warn(
-        `[server] completed-epics backfill skipped for ${repo}#${run.parentIssueNumber}: ` +
-          `children not all merged (pending: ${pending.join(", ")})`,
-      );
-    }
-  }
+  for (const repo of scopeRepos) await reconcileCompletedEpicsForRepo(deps, repo);
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.
   const rows = deps.store.listEpicCompleted(repoFilter).map((row) => {

@@ -12,11 +12,21 @@ export interface Scenario {
   seed: string[];
   /** Checks that MUST be flagged at the given state after seeding. */
   expect: ExpectedCheck[];
-  /** Which apply path to use. In Phase 1 "structured" falls back to the agent path. */
+  /** Which apply path to use when the scenario is green-able. "structured" ⇒ a
+   *  verbatim REMEDIATIONS command (LLM-free, gate-eligible); "prose" ⇒ the agent
+   *  interprets the coaching. Ignored when `detectionOnly` is set (no apply runs). */
   coaching: "structured" | "prose";
-  /** The agent apply path runs `claude` INSIDE the instance; a scenario that
-   *  removes claude (claude-missing) cannot use it. Such scenarios are
-   *  detection-only in Phase 1 and switch to the verbatim path in Phase 2. */
+  /** The defect is DETECTABLE but cannot be auto-remediated to green in a
+   *  throw-away instance because the fix needs a human/secret (e.g. `gh auth login`
+   *  device-flow, a Tailscale tailnet login + `serve`). Such scenarios verify
+   *  detection only — no apply is attempted, they are excluded from the green
+   *  tally and from the release gate, and the gap report classes them DETECTION-ONLY.
+   *  An honest "onboarding still needs the user here" finding, not a failure. */
+  detectionOnly?: boolean;
+  /** Safety net: the agent apply path runs `claude` INSIDE the instance, so a
+   *  scenario that removes claude can't use it. With verbatim-first dispatch this
+   *  rarely triggers (claude-missing has a verbatim reinstall), but a scenario with
+   *  no verbatim fix AND no claude falls back to detection-only rather than failing. */
   agentIncompatible?: boolean;
 }
 

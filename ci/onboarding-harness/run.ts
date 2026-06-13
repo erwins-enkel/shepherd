@@ -36,11 +36,17 @@ async function runScenario(
     const verbatim = remediationsFor(before);
     let appliedVia: ScenarioResult["appliedVia"];
     let detectionOnly = false;
-    if (verbatim.length > 0) {
+    if (scenario.detectionOnly) {
+      // Defect detectable but unfixable unattended (needs human/secret) — verify
+      // detection only, never apply.
+      console.log(`[${scenario.id}] detection-only by design — no apply`);
+      appliedVia = "skipped";
+      detectionOnly = true;
+    } else if (verbatim.length > 0) {
       await applyVerbatim(driver, scenario.id, before);
       appliedVia = "verbatim";
     } else if (scenario.agentIncompatible) {
-      console.log(`[${scenario.id}] agent-incompatible — detection-only`);
+      console.log(`[${scenario.id}] agent-incompatible, no verbatim fix — detection-only`);
       appliedVia = "skipped";
       detectionOnly = true;
     } else {
@@ -48,11 +54,17 @@ async function runScenario(
       appliedVia = "agent";
     }
     const after = detectionOnly ? before : await probeDiagnostics(driver, scenario.id);
+    // Success is SCOPED to the checks this scenario broke: a throw-away instance
+    // never has a fully-healthy host (no tailnet, no gh login, etc.), so the global
+    // `overall` can't be "ok" — green means the seeded defect's checks recovered.
+    const expectedNowOk = scenario.expect.every(
+      (e) => after.checks.find((c) => c.id === e.id)?.state === "ok",
+    );
     return {
       ...base,
       detection,
       appliedVia,
-      reachedGreen: !detectionOnly && after.overall === "ok",
+      reachedGreen: !detectionOnly && expectedNowOk,
       detectionOnly: detectionOnly || undefined,
     };
   } catch (err) {

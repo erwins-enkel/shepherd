@@ -17,7 +17,7 @@ This framework **discovers where onboarding fails today** (the primary deliverab
 - **Isolation primitive:** **Incus** (already on the host). **System containers** are the default tier (real `systemd`, real `tailscaled`+TUN, full distro userland — unlike single-process Docker app containers); **Incus VMs** are reserved per-scenario for kernel/arch fidelity. One CLI/API for both; snapshots give instant throw-away reset.
 - **Success signal:** *detect → apply → re-probe green*. A scenario passes only if the environment actually reaches a healthy state after Shepherd's coaching is applied — proving advice is correct, not merely present.
 - **Apply mechanism:** **both** — run a **structured remediation verbatim** where the check provides one; fall back to an **agent interpreting prose coaching** otherwise.
-- **Finish line:** **host green** — Shepherd boots and all 7 diagnostic checks pass. Target-repo readiness coaching and "first agent launches" are explicitly **out of scope** (separate, already-shipped or future surfaces).
+- **Finish line:** **the seeded defect recovers.** Success is evaluated *per-scenario* — the checks a scenario broke return to `ok` after the coaching is applied — NOT global "all 7 green". A throw-away instance can never reach all-7-green (no tailnet login, no `gh` device-flow, no `tailscale serve`), so an all-`overall`-ok finish line would make every scenario permanently red. Checks whose fix needs a human/secret (`gh` auth, `tailscale` login+serve) are **detection-only**: detected and reported, but not expected to reach green, and excluded from the release gate. Target-repo readiness coaching and "first agent launches" remain **out of scope**.
 - **Cadence/location:** **manual + nightly + pre-release gate**, on the self-hosted **Incus host**. **Never per-PR.**
 
 ### The bootstrap-paradox boundary
@@ -44,7 +44,7 @@ Code lives in **`ci/onboarding-harness/`** (Bun + TS), a sibling of the existing
 5. **Apply engine** — two paths, chosen per scenario `coaching` kind:
    - **Verbatim:** runs the command from the **harness-side remediation catalog** (Phase 2 `ci/onboarding-harness/remediations.ts`, keyed by the `hintKey` Shepherd emits) exactly as written. Deterministic, LLM-free. No change to the shipped diagnostics payload (revised per plan review — keeps the `DiagnosticCheck` exact-keys purity contract intact).
    - **Agent:** spawns a fresh Claude Code agent given **only** what a real user sees (the diagnostics snapshot + prose coaching) and lets it drive the env to green — a proxy-user UX test. Non-deterministic; LLM cost.
-6. **Re-probe + report** — re-runs diagnostics; the scenario passes only when all checks are green. Emits a **markdown gap report**: per scenario — detected? advice present? advice actually fixed it? — plus an agent-transcript reference for prose cases.
+6. **Re-probe + report** — re-runs diagnostics; the scenario passes only when its **expected** checks are back to `ok` (scoped, not global `overall`). Detection-only scenarios skip apply and are excluded from the green tally. Emits a **markdown gap report**: per scenario — detected? advice present? advice actually fixed it? (PASS / DETECTION GAP / ADVICE GAP / DETECTION-ONLY) — plus an agent-transcript reference for prose cases.
 
 ### Unit boundaries
 
@@ -65,23 +65,21 @@ Units 1–4 + 5(**agent path**) + 6, run **manually**. Tests *current* Shepherd 
 
 ## Scenario matrix (backbone)
 
-Derived from the 7 checks × their states, across the distro spread. Representative (not exhaustive) Phase 1 set:
+Derived from the 7 checks × their states, across the distro spread. **As-built** Phase 1 catalog (`ci/onboarding-harness/scenarios.ts`):
 
-| Scenario | Image | Seed (messy state) | Expect | Coaching path |
+| Scenario | Image | Seed (messy state) | Expect | Class |
 | --- | --- | --- | --- | --- |
-| `gh-unauthed` | ubuntu | `gh` installed, not logged in | `gh: error/warning` (not-authenticated) | prose (agent) |
-| `gh-missing` | debian | `gh` absent | `gh: error` (missing) | structured (P2) / prose |
-| `tailscale-missing` | ubuntu | no tailscale | `tailscale: error` | structured (P2) / prose |
-| `tailscale-not-serving` | ubuntu (sys container, TUN) | tailscaled up, not serving | `tailscale: warning` | prose (agent) |
-| `herdr-missing` | arch | no herdr | `herdr: error` | structured (P2) / prose |
-| `claude-missing` | fedora | no claude CLI | `claude: error` | structured (P2) / prose |
-| `git-missing` | alpine | no git | `git: error` | structured (P2) / prose |
-| `bun-too-old` | ubuntu | bun < `BUN_MIN_VERSION` | `bun: warning` | structured (P2) / prose |
-| `node-too-old` | debian | node < `NODE_MIN_VERSION` | `node: warning` | structured (P2) / prose |
-| `herdr-too-old` | ubuntu | herdr < `HERDR_MIN_VERSION` | `herdr: warning` | structured (P2) / prose |
-| *(Phase 2 stretch)* `cold-bun-absent` | ubuntu (bare) | no bun at all | Shepherd can't boot | agent-bootstrap |
+| `gh-unauthed` | ubuntu | `gh` installed, not logged in | `gh: error` | detection-only (auth needs device-flow) |
+| `gh-missing` | debian | `gh` absent | `gh: error` | detection-only (distro install + auth) |
+| `tailscale-missing` | ubuntu | no tailscale | `tailscale: error` | detection-only (ok needs tailnet login + serve) |
+| `herdr-missing` | arch | no herdr | `herdr: error` | green-able · structured (verbatim) |
+| `claude-missing` | fedora | no claude CLI | `claude: error` | green-able · structured (verbatim reinstall) |
+| `git-missing` | alpine | no git | `git: error` | green-able · prose (agent picks installer) |
+| `node-too-old` | debian | node < `NODE_MIN_VERSION` | `node: warning` | green-able · structured (verbatim) |
 
-Additional divergence axes to fold in opportunistically (confirmed in scope as future scenarios, not blocking Phase 1): corrupted/short `PATH`, root-vs-nonroot user, restricted-egress / proxied networks.
+Only the green-able **structured** scenarios (`herdr-missing`, `claude-missing`, `node-too-old`) feed the deterministic release gate. `git-missing` is green-able via the agent path (nightly, not gated). The three detection-only rows are the honest "onboarding still needs the user" findings.
+
+**Deferred / omitted** (not shipped as permanent gaps — fixtures not yet implemented): `tailscale-not-serving` (needs a faked tailnet for the not-serving `warning` state), `herdr-too-old` (needs a pinned outdated herdr build), the `cold-bun-absent` Phase-2 agent-bootstrap stretch, and the further divergence axes (corrupted/short `PATH`, root-vs-nonroot, restricted-egress). These are follow-ups once the framework's first real-Incus run lands.
 
 ## Risks & mitigations
 

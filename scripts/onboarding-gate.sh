@@ -15,9 +15,16 @@ if ! command -v incus >/dev/null 2>&1 || ! incus list >/dev/null 2>&1; then
   exit 0
 fi
 
+# Gate runs only green-able deterministic scenarios: structured (verbatim, LLM-free)
+# AND not detection-only (detection-only defects need a human/secret to clear, so
+# they can never reach green and must not gate a release).
 STRUCTURED_IDS=$(bun -e '
   import("./ci/onboarding-harness/scenarios.ts").then(({ SCENARIOS }) =>
-    console.log(SCENARIOS.filter((s) => s.coaching === "structured").map((s) => s.id).join(" ")));
+    console.log(
+      SCENARIOS.filter((s) => s.coaching === "structured" && !s.detectionOnly)
+        .map((s) => s.id)
+        .join(" "),
+    ));
 ')
 
 fail=0

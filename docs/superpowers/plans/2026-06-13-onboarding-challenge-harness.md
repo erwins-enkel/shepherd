@@ -8,6 +8,12 @@
 
 **Tech Stack:** Bun, TypeScript, `bun:test`, the `incus` CLI (system containers + VMs), Shepherd's existing `GET /api/diagnostics` HTTP API, the `claude` CLI (agent apply path).
 
+> **Post-implementation revisions (PR critic review).** The shipped code supersedes a few blocks below — where they differ, the code in `ci/onboarding-harness/` is authoritative:
+> 1. **Scoped success.** `reachedGreen` is evaluated over the scenario's **expected checks** (`scenario.expect.every(e => after.checks…state === "ok")`), not the global `after.overall === "ok"` shown in the Task 9 block — a throw-away instance can never reach all-7-green, so a global finish line would be permanently red.
+> 2. **Detection-only class.** Auth/serve defects whose fix needs a human/secret (`gh-unauthed`, `gh-missing`, `tailscale-missing`) carry `detectionOnly: true` (new `Scenario` field): no apply, excluded from the green tally and the release gate, reported DETECTION-ONLY.
+> 3. **Catalog trimmed.** `tailscale-not-serving` and `herdr-too-old` were **removed** (their fixtures — a faked tailnet, a pinned old herdr — aren't implemented; shipping them would be permanent detection gaps). They're deferred follow-ups.
+> 4. **Gate filter.** `scripts/onboarding-gate.sh` selects `coaching === "structured" && !detectionOnly` (green-able deterministic subset): `herdr-missing`, `claude-missing`, `node-too-old`.
+
 ---
 
 ## File structure

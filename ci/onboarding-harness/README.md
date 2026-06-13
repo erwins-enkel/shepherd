@@ -1,6 +1,15 @@
 # Onboarding Challenge & Regression Harness
 
-Boots deliberately-messy Incus instances, runs Shepherd inside them in degraded mode, captures diagnostics, applies coaching via a Claude Code proxy-user agent, re-probes, and emits a gap report.
+Boots deliberately-messy Incus instances, runs Shepherd inside them in degraded mode, captures diagnostics, applies the coaching (a verbatim remediation where one exists, else a Claude Code proxy-user agent), re-probes, and emits a gap report.
+
+## Scenarios & success
+
+Success is scoped **per scenario**: a scenario passes when the checks it broke return to `ok` after the coaching is applied — NOT when the whole host is green. A throw-away instance never reaches all-7-green (no tailnet, no `gh` login), so a global finish line would be permanently red.
+
+Two scenario classes:
+
+- **Green-able** — the defect can be coached back to `ok` unattended. `coaching: "structured"` runs a verbatim `REMEDIATIONS` command (deterministic, LLM-free, **release-gate-eligible**); `coaching: "prose"` uses the agent (e.g. distro-specific git install). Today: `herdr-missing`, `claude-missing`, `node-too-old` (structured) and `git-missing` (prose).
+- **Detection-only** (`detectionOnly: true`) — the defect is detectable but its fix needs a human/secret a throw-away instance can't supply (`gh auth login`; a Tailscale tailnet login + `serve`). No apply is attempted; excluded from the green tally and the gate; reported as DETECTION-ONLY. Today: `gh-unauthed`, `gh-missing`, `tailscale-missing`.
 
 ## Prerequisites
 
@@ -58,4 +67,4 @@ Before tagging a release, run:
 scripts/onboarding-gate.sh
 ```
 
-This runs the deterministic (`structured`) scenario subset and exits non-zero on any red. It bypasses with exit 0 (loudly logged) when the Incus host is unavailable, so infra outages do not block unrelated releases. Add this check to the OSS-release checklist.
+This runs the deterministic, green-able subset (`structured` AND not `detectionOnly`) and exits non-zero on any red. It bypasses with exit 0 (loudly logged) when the Incus host is unavailable, so infra outages do not block unrelated releases. Add this check to the OSS-release checklist.

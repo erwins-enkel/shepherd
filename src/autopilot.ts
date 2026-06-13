@@ -340,8 +340,14 @@ export class AutopilotService {
    *  unchanged red head — sustained idle re-engagement on that is owned by tick(). Synchronous (no
    *  classify needed: a red rollup is already an actionable verdict). The caller (onGit) has already
    *  checked existence / archive / enablement; here we gate on pause + per-head dedup and bound it
-   *  by the same step cap as the gate loop. */
+   *  by the same step cap as the gate loop.
+   *  Merge-train stand-down: while the session is merge-train-marked (`mergingSince !== null`) the
+   *  train owns it and is steering its own rebase — the CI-fix loop must not double-steer, so this
+   *  returns immediately. The gate/classify path stays alive (so a procedural prompt won't stall
+   *  the rebase); only this CI-fix entry point stands down. The mark is kept fresh by the 60s
+   *  sweepStaleMerging. */
   private considerCi(s: Session, git: GitState): void {
+    if (s.mergingSince !== null) return; // merge train owns this session; don't double-steer its rebase
     if (s.autopilotPaused) return; // already handed back; waits for operator
     if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
     if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
@@ -364,10 +370,20 @@ export class AutopilotService {
    *  so it works even when no `session:git` re-emits (unchanged red head). Returns true when it
    *  OWNED the session (re-engaged or paused), so onDone can short-circuit before classifying.
    *  Returns false for any ineligible session (no PR / green / pending / paused / complete /
-   *  autopilot-off / non-full-auto), leaving it untouched. */
+   *  autopilot-off / non-full-auto), leaving it untouched.
+   *  Merge-train stand-down: while the session is merge-train-marked (`mergingSince !== null`) the
+   *  train owns it and steers its own rebase. We CLAIM ownership (return true) so onDone
+   *  short-circuits BEFORE classify — but we do NOT steer/bump/pause. Returning true (not false) is
+   *  load-bearing: a false return would let the LLM classifier run on a marked, stuck-red full-auto
+   *  session and possibly mark it complete/paused, a terminal state that would SURVIVE the mark
+   *  clearing (reEngageCi/considerCi/eligible all reject complete/paused), wedging the CI-fix loop
+   *  shut. Claiming-but-not-acting leaves no state that outlives the mark, so the loop auto-resumes
+   *  once the train clears it. The guard sits before the step-cap branch (which calls pause()) so a
+   *  marked session is never paused either. The mark is kept fresh by the 60s sweepStaleMerging. */
   private reEngageCi(id: string): boolean {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") return false;
+    if (s.mergingSince !== null) return true; // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
     if (!this.enabled(s)) return false;
     if (s.autopilotPaused) return false; // already handed back; waits for operator
     if (s.autopilotComplete) return false; // terminal

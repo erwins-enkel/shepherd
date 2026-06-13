@@ -393,6 +393,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "prompt",
   "model",
   "planGateEnabled",
+  "research",
   "images",
 ]);
 
@@ -427,6 +428,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
     { key: "model", apply: () => validateModel(obj.model) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
+    { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
   ];

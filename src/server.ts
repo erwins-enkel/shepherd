@@ -3159,6 +3159,10 @@ async function backfillIdleEpic(
       parentTitle: epic.parentTitle,
       completedAt,
       children: rollup,
+      // Stage B landing-PR fields wired by a later task; defaults until then.
+      landingPrNumber: null,
+      landingPrUrl: null,
+      landingState: "pending",
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -3238,8 +3242,10 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   for (const repo of scopeRepos) await reconcileCompletedEpicsForRepo(deps, repo);
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.
-  const rows = deps.store.listEpicCompleted(repoFilter).map((row) => {
-    const { childrenJson, ...rest } = row;
+  const rows = deps.store.listEpicCompleted(repoFilter).map((row): CompletedEpic => {
+    // landingAttempts is an internal retry counter, not part of the CompletedEpic response.
+    const { childrenJson, landingAttempts, ...rest } = row;
+    void landingAttempts;
     return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
   });
   return json(rows);

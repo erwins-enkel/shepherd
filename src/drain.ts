@@ -406,6 +406,10 @@ export class DrainService {
           parentTitle: epic.parentTitle,
           completedAt: this.now(),
           children: rollup,
+          // Stage B landing-PR fields wired by a later task; defaults until then.
+          landingPrNumber: null,
+          landingPrUrl: null,
+          landingState: "pending",
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,

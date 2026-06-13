@@ -23,6 +23,9 @@ const epic = (children: CompletedEpicChild[], p: Partial<CompletedEpic> = {}): C
   parentTitle: "Big epic",
   completedAt: Date.now() - 120_000,
   children,
+  landingPrNumber: null,
+  landingPrUrl: null,
+  landingState: "pending",
   ...p,
 });
 

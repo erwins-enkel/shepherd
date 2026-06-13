@@ -61,8 +61,13 @@ const cases: { name: string; probes: GateProbes; expected: boolean }[] = [
     expected: false,
   },
   {
-    name: "capable + no CI + path exists but not a socket ⇒ run",
-    probes: { capable: true, env: {}, uid: 1000, isSocket: never },
+    name: "capable + no CI + DOCKER_HOST unix candidate probed but isSocket false ⇒ run",
+    probes: {
+      capable: true,
+      env: { DOCKER_HOST: "unix:///var/run/docker.sock" },
+      uid: 1000,
+      isSocket: never,
+    },
     expected: false,
   },
   {

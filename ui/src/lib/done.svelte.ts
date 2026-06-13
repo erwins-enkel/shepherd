@@ -7,14 +7,15 @@ import { getDoneSessions } from "./api";
  *  this store deliberately subscribes to no WS events. */
 class DoneSessionsStore {
   sessions = $state<Session[]>([]);
-  loaded = $state(false);
 
+  /** Re-fetches every call; the Done lens reloads on each open (see +page.svelte) so the
+   *  list reflects sessions that finished since last time. On failure it leaves the
+   *  existing list untouched and swallows the error — the next open retries. */
   async load() {
     try {
       this.sessions = await getDoneSessions();
-      this.loaded = true;
     } catch {
-      /* best-effort; leaves the list empty + loaded=false so a retry is possible */
+      /* best-effort; the next lens open retries */
     }
   }
 }

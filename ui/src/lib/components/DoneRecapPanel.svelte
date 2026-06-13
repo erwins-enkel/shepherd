@@ -2,6 +2,7 @@
   import type { Session, RecapVerdict } from "$lib/types";
   import { recaps } from "$lib/recaps.svelte";
   import { formatAgo } from "$lib/format";
+  import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { session }: { session: Session } = $props();
@@ -9,8 +10,11 @@
   const recap = $derived(recaps.map[session.id]);
 
   // relative "finished X ago" from archivedAt; falls back to updatedAt when an
-  // archived session somehow has no archivedAt stamp.
-  const finishedAgo = $derived(formatAgo(Date.now() - (session.archivedAt ?? session.updatedAt)));
+  // archived session somehow has no archivedAt stamp. Driven by the shared 30s
+  // `clock` (matching the Herd row's nowMs) so the stamp ticks while the panel stays open.
+  const finishedAgo = $derived(
+    formatAgo(clock.current - (session.archivedAt ?? session.updatedAt)),
+  );
 
   // Render the (LLM-authored) body as sanitized markdown. Dynamically imported so
   // marked/DOMPurify stay off the first-paint critical path; gated on a ready recap

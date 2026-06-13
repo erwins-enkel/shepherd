@@ -2095,7 +2095,7 @@
         <!-- earned prominence: once a PR exists the work is delivered, so the
              decommission nudge surfaces inline (green, arms red on click) — one
              obvious click+confirm away. Before that, desktop shows the quiet
-             icon-only ✕ below; compact keeps the labelled control in the git strip. -->
+             icon-only ✕ below; compact shows the same icon-only ✕ in the git strip. -->
         <button
           class="decom"
           class:armed
@@ -2116,7 +2116,7 @@
       {:else if !compact}
         <!-- no PR yet → desktop still keeps decommission one click away, but quiet:
              a faint icon-only ✕ (the green nudge is earned by delivering a PR).
-             Compact layouts keep the labelled control in the git strip instead.
+             Compact layouts show the same icon-only ✕ in the git strip instead.
              Same glyph rule as above: armed = red ✕?, never ✓. -->
         <button
           class="decom quiet"
@@ -2184,10 +2184,10 @@
             class:armed
             type="button"
             onclick={decommission}
-            title={m.viewport_decommission_title()}
-            aria-label={m.viewport_decommission_aria()}
+            title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
+            aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
           >
-            {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+            {armed ? "✕?" : "✕"}
           </button>
         {/if}
       </span>

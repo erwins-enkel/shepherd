@@ -1,29 +1,27 @@
-import type { Session, GitState } from "$lib/types";
-import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
+import type { Session, GitState, Epic } from "$lib/types";
+import {
+  partitionSessions,
+  shownSessions,
+  flattenByStage,
+  type HerdFilter,
+} from "./herd-partition";
+import { groupSessionsByEpic } from "./epic-grouping";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
  *  rail's visible order here instead of duplicating Herd.svelte's template walk. */
 
-/** Top→bottom group order of Herd.svelte's template — MUST match the order the
- *  rail renders its stage groups in (active first, merged last). */
-const RAIL_GROUP_ORDER = [
-  "active",
-  "ciRunning",
-  "ciFailed",
-  "reviewerRunning",
-  "waitingOnReviewer",
-  "waitingOnMerger",
-  "draftAwaitingSignoff",
-  "awaitingMerge",
-  "ready",
-  "merging",
-  "merged",
-] as const;
-
-/** Session ids in the exact order the herd rail renders them: the same shown
- *  set (rail filter applied) and partition Herd.svelte derives, flattened in
- *  its template's group order. */
+/** Session ids in the exact order the herd rail renders them. Mirrors Herd.svelte's
+ *  template: epic groups render at the TOP (in `groupSessionsByEpic` order, each
+ *  group's sessions already lifecycle-flattened, a collapsed group contributing
+ *  nothing), then the lifecycle sections render over the non-epic `rest` in
+ *  `STAGE_ORDER`. Reuses the SAME `groupSessionsByEpic` + `flattenByStage` the
+ *  template does, so the rail can never drift from the render.
+ *
+ *  The trailing epic args default empty: with no epics, `grouped.groups` is empty
+ *  and `grouped.rest === shown`, so the output equals the pre-epic behavior
+ *  (`flattenByStage(partitionSessions(shownSessions(...)))`) — existing callers and
+ *  tests that pass no grouping args see identical order. */
 export function railOrder(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -31,14 +29,19 @@ export function railOrder(
   now: number = Date.now(),
   filter: HerdFilter = "all",
   workingBlocked: Record<string, boolean> = {},
+  epics: Record<string, Epic> = {},
+  activeEpicKeys: Set<string> = new Set(),
+  collapsedKeys: Set<string> = new Set(),
 ): string[] {
-  const partition = partitionSessions(
-    shownSessions(sessions, filter, isReviewing, workingBlocked),
-    git,
-    isReviewing,
-    now,
+  const shown = shownSessions(sessions, filter, isReviewing, workingBlocked);
+  const grouped = groupSessionsByEpic(shown, epics, activeEpicKeys, git, isReviewing, now);
+  const groupIds = grouped.groups.flatMap((g) =>
+    collapsedKeys.has(g.key) ? [] : g.sessions.map((s) => s.id),
   );
-  return RAIL_GROUP_ORDER.flatMap((group) => partition[group].map((s) => s.id));
+  const restIds = flattenByStage(partitionSessions(grouped.rest, git, isReviewing, now)).map(
+    (s) => s.id,
+  );
+  return [...groupIds, ...restIds];
 }
 
 /** The id one step (+1 down / -1 up) from `currentId` in `order`, wrapping at
@@ -95,4 +98,20 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
     if (id !== currentId) return id;
   }
   return null;
+}
+
+/** Resolve the next needs-you jump target plus the epic group key (if any) that must be
+ *  expanded so the target row is visible. `groupOf` maps sessionId → its epic group key.
+ *  Keeps the `g`-handler and the NEEDS-YOU jump button DRY: both resolve the target AND
+ *  the collapsed-group-to-expand through one tested helper so they can't drift. */
+export function nextNeedsYouTarget(
+  blockedIds: string[],
+  currentId: string | null,
+  groupOf: Map<string, string>,
+  collapsed: ReadonlySet<string>,
+): { id: string | null; expand: string | null } {
+  const id = nextNeedsYou(blockedIds, currentId);
+  if (id === null) return { id: null, expand: null };
+  const key = groupOf.get(id);
+  return { id, expand: key != null && collapsed.has(key) ? key : null };
 }

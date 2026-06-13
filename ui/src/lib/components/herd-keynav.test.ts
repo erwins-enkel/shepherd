@@ -1,14 +1,27 @@
 import { test, expect } from "vitest";
-import { railOrder, cycleId, nthId, nextNeedsYou, altComboKey } from "./herd-keynav";
-import type { Session, GitState, SessionStatus } from "$lib/types";
+import {
+  railOrder,
+  cycleId,
+  nthId,
+  nextNeedsYou,
+  nextNeedsYouTarget,
+  altComboKey,
+} from "./herd-keynav";
+import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
-function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
+function session(
+  id: string,
+  readyToMerge = false,
+  status: SessionStatus = "running",
+  issueNumber: number | null = null,
+  repoPath = "/r",
+): Session {
   return {
     id,
     desig: "TASK-01",
     name: "n",
     prompt: "p",
-    repoPath: "/r",
+    repoPath,
     baseBranch: "main",
     branch: "b",
     worktreePath: "/wt",
@@ -33,7 +46,7 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     auto: false,
     sandboxApplied: null,
     sandboxDegraded: false,
-    issueNumber: null,
+    issueNumber,
     lastState: "working",
     createdAt: 0,
     updatedAt: 0,
@@ -44,6 +57,36 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
 function git(state: GitState["state"], checks: GitState["checks"] = "none"): GitState {
   return { kind: "github", state, checks, deployConfigured: false };
 }
+
+function child(number: number): EpicChild {
+  return {
+    number,
+    title: `child #${number}`,
+    url: `https://x/${number}`,
+    order: number,
+    body: "",
+    blockedBy: [],
+    state: "running",
+    sessionId: null,
+    prNumber: null,
+    issueClosed: false,
+    claimed: false,
+  };
+}
+
+function epic(repoPath: string, parentIssueNumber: number, childNumbers: number[]): Epic {
+  return {
+    repoPath,
+    parentIssueNumber,
+    parentTitle: `epic #${parentIssueNumber}`,
+    source: "native",
+    children: childNumbers.map(child),
+    warnings: [],
+    run: { repoPath, parentIssueNumber, mode: "auto", status: "running" },
+  };
+}
+
+const epicKey = (repoPath: string, parent: number) => `${repoPath}#${parent}`;
 
 test("railOrder flattens the partition in the rail's render order", () => {
   // input order interleaves stages; the rail renders active → ciRunning →
@@ -79,6 +122,104 @@ test("railOrder under the ready filter only walks rows the rail shows", () => {
 
 test("railOrder of an empty herd is empty", () => {
   expect(railOrder([], {})).toEqual([]);
+});
+
+test("railOrder puts epic-group children first (group order, lifecycle within), then rest by stage", () => {
+  // Two active epics in one repo: parent 100 (children 101,102), parent 200 (child 201).
+  // groups sort by parentIssueNumber → epic-100 before epic-200.
+  const epics = {
+    [epicKey("/r", 100)]: epic("/r", 100, [101, 102]),
+    [epicKey("/r", 200)]: epic("/r", 200, [201]),
+  };
+  const active = new Set([epicKey("/r", 100), epicKey("/r", 200)]);
+
+  // epic-100 members: g-active (active), g-merged (merged) → lifecycle puts active before merged
+  const gActive = session("g-active", false, "running", 101);
+  const gMerged = session("g-merged", false, "idle", 102);
+  // epic-200 member
+  const gp2 = session("g200", false, "running", 201);
+  // rest (non-epic) spanning two stages: active + ready
+  const restActive = session("rest-active", false, "running", null);
+  const restReady = session("rest-ready", true, "idle", null);
+
+  // deliberately scrambled input order
+  const list = [restReady, gMerged, gp2, restActive, gActive];
+  const order = railOrder(
+    list,
+    { "g-merged": git("merged") },
+    () => false,
+    1000,
+    "all",
+    {},
+    epics,
+    active,
+  );
+
+  // groups first (100 before 200; within 100, active before merged), then rest by STAGE_ORDER
+  expect(order).toEqual(["g-active", "g-merged", "g200", "rest-active", "rest-ready"]);
+});
+
+test("railOrder: a collapsed group contributes no ids; other groups and rest still do", () => {
+  const epics = {
+    [epicKey("/r", 100)]: epic("/r", 100, [101]),
+    [epicKey("/r", 200)]: epic("/r", 200, [201]),
+  };
+  const active = new Set([epicKey("/r", 100), epicKey("/r", 200)]);
+
+  const g100 = session("g100", false, "running", 101);
+  const g200 = session("g200", false, "running", 201);
+  const rest1 = session("rest1", false, "running", null);
+
+  const collapsed = new Set([epicKey("/r", 100)]); // collapse the first group only
+
+  const order = railOrder(
+    [g100, g200, rest1],
+    {},
+    () => false,
+    1000,
+    "all",
+    {},
+    epics,
+    active,
+    collapsed,
+  );
+
+  // g100's child hidden; g200's child + rest still present
+  expect(order).toEqual(["g200", "rest1"]);
+});
+
+test("railOrder mirrors the template across ≥2 groups + rest over ≥2 stages", () => {
+  // groups sort by repo basename then parent: /repo-a#10 before /repo-b#20.
+  const epics = {
+    [epicKey("/repo-a", 10)]: epic("/repo-a", 10, [1, 2]),
+    [epicKey("/repo-b", 20)]: epic("/repo-b", 20, [3]),
+  };
+  const active = new Set([epicKey("/repo-a", 10), epicKey("/repo-b", 20)]);
+
+  // group A members across two stages (active + ready)
+  const aActive = session("a-active", false, "running", 1, "/repo-a");
+  const aReady = session("a-ready", true, "idle", 2, "/repo-a");
+  // group B member
+  const bMember = session("b-member", false, "running", 3, "/repo-b");
+  // rest across two stages (ciRunning + merged)
+  const restCi = session("rest-ci", false, "running", null, "/repo-c");
+  const restMerged = session("rest-merged", false, "idle", null, "/repo-c");
+
+  const list = [restMerged, aReady, bMember, restCi, aActive];
+  const order = railOrder(
+    list,
+    { "rest-ci": git("open", "pending"), "rest-merged": git("merged") },
+    () => false,
+    1000,
+    "all",
+    {},
+    epics,
+    active,
+  );
+
+  // groups top in basename/parent order (A then B), each lifecycle-flattened;
+  // then rest by STAGE_ORDER (ciRunning before merged)
+  expect(order).toEqual(["a-active", "a-ready", "b-member", "rest-ci", "rest-merged"]);
 });
 
 test("cycleId steps down and up through the order", () => {
@@ -128,6 +269,42 @@ test("nextNeedsYou cycles among blocked sessions, wrapping", () => {
 test("nextNeedsYou is a no-op (null) when none are blocked or only the current one is", () => {
   expect(nextNeedsYou([], "a")).toBeNull();
   expect(nextNeedsYou(["a"], "a")).toBeNull();
+});
+
+// nextNeedsYouTarget — target id + the collapsed group to auto-expand
+
+test("nextNeedsYouTarget: target inside a collapsed group returns that group key to expand", () => {
+  const groupOf = new Map([["x", "/r#100"]]);
+  const collapsed = new Set(["/r#100"]);
+  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
+    id: "x",
+    expand: "/r#100",
+  });
+});
+
+test("nextNeedsYouTarget: target in an EXPANDED group needs no expand", () => {
+  const groupOf = new Map([["x", "/r#100"]]);
+  const collapsed = new Set<string>(); // group not collapsed
+  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
+    id: "x",
+    expand: null,
+  });
+});
+
+test("nextNeedsYouTarget: ungrouped target needs no expand", () => {
+  expect(nextNeedsYouTarget(["x", "y"], "other", new Map(), new Set(["/r#100"]))).toEqual({
+    id: "x",
+    expand: null,
+  });
+});
+
+test("nextNeedsYouTarget: no blocked → null id, null expand", () => {
+  expect(nextNeedsYouTarget([], null, new Map(), new Set())).toEqual({ id: null, expand: null });
+  // only the current one blocked → nextNeedsYou is null → no expand either
+  expect(nextNeedsYouTarget(["a"], "a", new Map([["a", "/r#100"]]), new Set(["/r#100"]))).toEqual({
+    id: null,
+    expand: null,
+  });
 });
 
 // altComboKey — physical KeyboardEvent.code → keynav key vocabulary

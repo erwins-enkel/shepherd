@@ -71,6 +71,23 @@ describe("EpicBadge", () => {
     await expect.element(page.getByText("EPIC 1/4")).toBeInTheDocument();
   });
 
+  it("renders live-derived counts with no summary and click still calls onepic", async () => {
+    const onepic = vi.fn();
+    // live has 4 children, 2 merged → EPIC 2/4, no summary passed at all.
+    const live = epic([
+      child("merged", 1),
+      child("merged", 2),
+      child("in-review", 3),
+      child("ready", 4),
+    ]);
+    render(EpicBadge, { live, repoPath: "/liverepo", issueNumber: 99, onepic });
+    await expect.element(page.getByText("EPIC 2/4")).toBeInTheDocument();
+    const btn = document.querySelector(".epic-badge") as HTMLButtonElement;
+    btn.click();
+    expect(onepic).toHaveBeenCalledTimes(1);
+    expect(onepic).toHaveBeenCalledWith("/liverepo", 99);
+  });
+
   it("calls onepic with (repoPath, issueNumber) on click", async () => {
     const onepic = vi.fn();
     render(EpicBadge, { summary: summary(), repoPath: "/myrepo", issueNumber: 42, onepic });

@@ -36,7 +36,7 @@ import { isMerging } from "./merge-train";
  *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
  *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
  *  awaitingMerge → ready → merging → merged (Herd.svelte's template order, mirrored
- *  by herd-keynav's RAIL_GROUP_ORDER), tracking the session lifecycle. `isReviewing`
+ *  by herd-keynav's railOrder via flattenByStage), tracking the session lifecycle. `isReviewing`
  *  is injected so this stays a pure function (the caller wires it to the reviews store). */
 type Stage =
   | "merged"
@@ -117,6 +117,30 @@ function stageOf(
     s.status !== "running" &&
     s.status !== "blocked";
   return greenIdle ? handoffStage(g) : "active";
+}
+
+/** The canonical top→bottom lifecycle stage order of Herd.svelte's template (active
+ *  first, merged last). Single source of truth for stage ordering: `flattenByStage`
+ *  here (used by both the render and herd-keynav's `railOrder`) derives from it, so the
+ *  render and the keyboard-nav rail can never drift on order. Module-local: consumers go
+ *  through `flattenByStage` rather than importing the order array directly. */
+const STAGE_ORDER = [
+  "active",
+  "ciRunning",
+  "ciFailed",
+  "reviewerRunning",
+  "waitingOnReviewer",
+  "waitingOnMerger",
+  "draftAwaitingSignoff",
+  "awaitingMerge",
+  "ready",
+  "merging",
+  "merged",
+] as const satisfies readonly Stage[];
+
+/** Flatten a partitionSessions result into a single list in STAGE_ORDER. */
+export function flattenByStage(p: ReturnType<typeof partitionSessions>): Session[] {
+  return STAGE_ORDER.flatMap((stage) => p[stage]);
 }
 
 export function partitionSessions(

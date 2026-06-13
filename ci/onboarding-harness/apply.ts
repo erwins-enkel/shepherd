@@ -35,7 +35,7 @@ export function buildAgentPrompt(lines: CoachingLine[]): string {
 }
 
 /** Load the EN catalog once (the user-visible coaching source of truth). */
-export function loadEnMessages(): Record<string, string> {
+function loadEnMessages(): Record<string, string> {
   const p = join(import.meta.dir, "..", "..", "ui", "messages", "en.json");
   return JSON.parse(readFileSync(p, "utf8")) as Record<string, string>;
 }
@@ -60,7 +60,7 @@ export async function applyAgent(
 }
 
 /** Minimal single-quote shell escape for embedding the prompt safely. */
-export function shellQuote(s: string): string {
+function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 

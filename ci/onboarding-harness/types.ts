@@ -1,4 +1,4 @@
-import type { DiagnosticState, DiagnosticsSnapshot } from "../../src/types";
+import type { DiagnosticState } from "../../src/types";
 
 /** A single deliberately-messy environment definition (pure data). */
 export interface Scenario {
@@ -57,5 +57,3 @@ export interface IncusExec {
 /** Injectable `incus` runner: receives argv (after the `incus` binary), resolves
  *  with captured output. Tests inject a fake; production runs the real binary. */
 export type IncusRunner = (args: string[]) => Promise<IncusExec>;
-
-export type { DiagnosticsSnapshot };

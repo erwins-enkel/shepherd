@@ -12,6 +12,15 @@ function classify(r: ScenarioResult): "PASS" | "DETECTION GAP" | "ADVICE GAP" | 
   return r.detection.detected ? "ADVICE GAP" : "DETECTION GAP";
 }
 
+function tableRow(r: ScenarioResult, klass: ReturnType<typeof classify>): string {
+  return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`;
+}
+
+function gapEntry(r: ScenarioResult, klass: "DETECTION GAP" | "ADVICE GAP"): string {
+  const misses = r.detection.misses.map((m) => `${m.id} want=${m.want} got=${m.got}`).join("; ");
+  return `- **${r.scenarioId}** (${klass})${misses ? ` — ${misses}` : ""}${r.error ? ` — ${r.error}` : ""}`;
+}
+
 export function buildGapReport(results: ScenarioResult[]): string {
   const applicable = results.filter((r) => !r.detectionOnly);
   const green = applicable.filter((r) => r.reachedGreen).length;
@@ -28,17 +37,9 @@ export function buildGapReport(results: ScenarioResult[]): string {
   const gaps: string[] = [];
   for (const r of results) {
     const klass = classify(r);
-    lines.push(
-      `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`,
-    );
-    // Only genuine gaps go in the gaps section; PASS and DETECTION-ONLY do not.
+    lines.push(tableRow(r, klass));
     if (klass === "DETECTION GAP" || klass === "ADVICE GAP") {
-      const misses = r.detection.misses
-        .map((m) => `${m.id} want=${m.want} got=${m.got}`)
-        .join("; ");
-      gaps.push(
-        `- **${r.scenarioId}** (${klass})${misses ? ` — ${misses}` : ""}${r.error ? ` — ${r.error}` : ""}`,
-      );
+      gaps.push(gapEntry(r, klass));
     }
   }
   if (gaps.length) {

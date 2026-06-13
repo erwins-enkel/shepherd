@@ -270,6 +270,10 @@ export class SessionStore implements CapStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_integrated (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -482,6 +486,24 @@ export class SessionStore implements CapStore {
       ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, updatedAt=excluded.updatedAt`,
       [r.repoPath, r.parentIssueNumber, r.mode, r.status, Date.now()],
     );
+  }
+
+  /** Record that a child PR was squash-merged into the epic integration branch.
+   *  Idempotent (PK upsert) — the drain may re-observe a merge across pumps. */
+  recordEpicIntegrated(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+    this.db.run(
+      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt)
+       VALUES (?,?,?,?) ON CONFLICT DO NOTHING`,
+      [repoPath, parentIssueNumber, childNumber, Date.now()],
+    );
+  }
+
+  /** Child #s squash-merged into the integration branch for one epic. */
+  listEpicIntegrated(repoPath: string, parentIssueNumber: number): Set<number> {
+    const rows = this.db
+      .query(`SELECT childNumber FROM epic_integrated WHERE repoPath = ? AND parentIssueNumber = ?`)
+      .all(repoPath, parentIssueNumber) as { childNumber: number }[];
+    return new Set(rows.map((r) => r.childNumber));
   }
 
   private nextDesignationSeq(): number {

@@ -5,6 +5,8 @@ import type {
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
+  DiagnosticsSnapshot,
+  DiagnosticState,
   StarPromptStatus,
   GitState,
   SessionActivity,
@@ -30,6 +32,7 @@ export class HerdStore {
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
+  diagnostics = $state<DiagnosticsSnapshot | null>(null);
   herdrUpdateLog = $state<string[]>([]);
   herdrUpdateDone = $state<{
     ok: boolean;
@@ -37,6 +40,10 @@ export class HerdStore {
     to: string | null;
     error?: string;
   } | null>(null);
+  /** Worst-of diagnostics state; "ok" until a snapshot lands. */
+  get diagnosticsOverall(): DiagnosticState {
+    return this.diagnostics?.overall ?? "ok";
+  }
   /** "Star us on GitHub?" nudge state; null until the first GET/push. */
   starPrompt = $state<StarPromptStatus | null>(null);
   git = $state<Record<string, GitState>>({});
@@ -334,6 +341,9 @@ export class HerdStore {
         break;
       case "herdr-update:status":
         this.herdrUpdate = ev.data;
+        break;
+      case "diagnostics:status":
+        this.diagnostics = ev.data;
         break;
       case "star-prompt:status":
         this.starPrompt = ev.data;

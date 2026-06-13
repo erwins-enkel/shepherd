@@ -588,6 +588,19 @@ export interface ReadinessReport {
   claudeMd: string;
 }
 
+// ── environment-readiness diagnostics (issue #623) ──────────────────────────
+export type DiagnosticState = "ok" | "warning" | "error";
+export interface DiagnosticCheck {
+  id: string;
+  state: DiagnosticState;
+  hintKey: string;
+}
+export interface DiagnosticsSnapshot {
+  checks: DiagnosticCheck[];
+  generatedAt: number;
+  overall: DiagnosticState;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
@@ -618,6 +631,7 @@ export type WsEvent =
   | { event: "session:preview-serve"; data: { id: string; serve: "ok" | "failed" | null } }
   | { event: "update:status"; data: UpdateStatus }
   | { event: "herdr-update:status"; data: HerdrUpdateStatus }
+  | { event: "diagnostics:status"; data: DiagnosticsSnapshot }
   | { event: "star-prompt:status"; data: StarPromptStatus }
   | { event: "herdr-update:log"; data: { line: string } }
   | {

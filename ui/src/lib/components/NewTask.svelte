@@ -618,6 +618,7 @@
           onchange={() => {
             if (research) {
               planGate = false;
+              // pin touched so a later repo switch doesn't re-seed/re-enable plan-gate while research is active
               planGateTouched = true;
               if (sandboxProfile === "autonomous") sandboxProfile = "default";
             }

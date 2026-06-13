@@ -370,16 +370,10 @@ describe("NewTask research toggle", () => {
   });
 
   it("submits research:true when Research is checked", async () => {
-    render(NewTask, { props: base({ initialRepoPath: "/repo/research-submit" }) });
-    await expect.poll(() => researchBox()).toBeTruthy();
-
-    researchBox().click();
-    expect(researchBox().checked).toBe(true);
-
-    // re-render with a capturable onsubmit
-    document.body.innerHTML = "";
     const captured = vi.fn();
-    render(NewTask, { props: { onsubmit: captured, initialRepoPath: "/repo/research-submit2" } });
+    render(NewTask, {
+      props: base({ onsubmit: captured, initialRepoPath: "/repo/research-submit" }),
+    });
     await expect.poll(() => researchBox()).toBeTruthy();
 
     researchBox().click();

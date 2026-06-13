@@ -1258,5 +1258,20 @@
   "done_recap_panel_aria": "Recap for {desig}",
   "done_back_to_list": "‹ Back to done",
   "feat_done_lens_title": "Done lens",
-  "feat_done_lens_body": "Filter the Herd to your finished and merged sessions, then open any one to review its read-only recap of what happened."
+  "feat_done_lens_body": "Filter the Herd to your finished and merged sessions, then open any one to review its read-only recap of what happened.",
+  "settings_auth_mode_title": "Authentication",
+  "settings_auth_mode_hint": "How spawned agents authenticate. API-key mode bills metered API rates under the Commercial Terms instead of your subscription.",
+  "settings_auth_mode_subscription": "Subscription (OAuth)",
+  "settings_auth_mode_apikey": "Anthropic API key",
+  "settings_auth_mode_save_failed": "Couldn't update authentication mode",
+  "settings_auth_key_label": "Anthropic API key",
+  "settings_auth_key_placeholder": "sk-ant-…",
+  "settings_auth_key_save": "Save",
+  "settings_auth_key_saved": "API key configured",
+  "settings_auth_key_clear": "Clear key",
+  "settings_auth_key_missing_warning": "API-key mode is selected but no key is set — agent spawns are paused until you add one.",
+  "settings_auth_key_save_failed": "Couldn't save the API key",
+  "usage_subscription_only": "Usage tracking is subscription-only — see the Anthropic Console.",
+  "feat_api_key_auth_title": "API-key auth mode",
+  "feat_api_key_auth_body": "Opt into billing spawned agents against an Anthropic API key (Commercial Terms) instead of your subscription — Settings → Session."
 }

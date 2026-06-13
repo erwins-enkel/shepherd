@@ -232,6 +232,9 @@
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
+  // api-key auth mode: subscription usage windows carry no data. Fail closed —
+  // render an explicit note instead of empty/zero meters.
+  const subscriptionOnly = $derived(limits?.subscriptionOnly === true);
 
   // Paid extra-credit overage. Rendered as a distinct CR element (NOT a gaugeList
   // entry — its window shape carries no credit fields, and a 0%-pct credit gauge
@@ -592,7 +595,9 @@
         {/if}
       </button>
     {/if}
-    {#if touch}
+    {#if subscriptionOnly}
+      <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
+    {:else if touch}
       {#if hotter || credits}
         <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
              only signal); tap for the full breakdown. The collapsed button carries an
@@ -1324,6 +1329,11 @@
   }
   .gauges-wrap {
     position: relative;
+  }
+  /* api-key mode: explicit fail-closed note in place of the usage meters. */
+  .usage-sub-only {
+    color: var(--color-muted);
+    max-width: 22rem;
   }
   .gauges {
     display: flex;

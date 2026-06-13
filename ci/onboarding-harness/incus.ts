@@ -1,20 +1,41 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { IncusExec, IncusRunner } from "./types";
 
-const execFileAsync = promisify(execFile);
+/** Backstop kill timeout for any single `incus` call. The genuine hang fix is
+ *  closing stdin (below); this cap only guards a process that wedges for some
+ *  other reason. Generous on purpose — a cold image pull and an in-instance
+ *  `bun install` legitimately take minutes. */
+const RUNNER_TIMEOUT_MS = 20 * 60_000;
 
 /** Default runner: invokes the real `incus` binary, capturing output and never
- *  throwing on a non-zero exit (the caller inspects `code`). */
-const defaultRunner: IncusRunner = async (args) => {
-  try {
-    const { stdout, stderr } = await execFileAsync("incus", args, { encoding: "utf8" });
-    return { stdout: stdout.toString(), stderr: stderr.toString(), code: 0 };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; code?: number };
-    return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", code: e.code ?? 1 };
-  }
-};
+ *  throwing on a non-zero exit (the caller inspects `code`).
+ *
+ *  stdin MUST be `"ignore"`, NOT an (execFile-style) pipe: the incus Go client
+ *  DEADLOCKS forever on an open stdin pipe for its operation-streaming commands
+ *  (`launch`, `exec`, `file push`) — every worker thread parks in `futex_wait`
+ *  and the call never resolves. `execFile` forces a stdin pipe, which is why the
+ *  harness hung on the very first launch. Closing stdin lets these commands
+ *  return; the backstop timeout above is belt-and-suspenders only. */
+const defaultRunner: IncusRunner = (args) =>
+  new Promise((resolve) => {
+    const child = spawn("incus", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    child.stderr.on("data", (d) => (stderr += d));
+    const timer = setTimeout(() => {
+      stderr += `\nincus ${args[0] ?? ""} killed after ${RUNNER_TIMEOUT_MS}ms (timeout)`;
+      child.kill("SIGKILL");
+    }, RUNNER_TIMEOUT_MS);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr: stderr + String(err), code: 1 });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code: code ?? 1 });
+    });
+  });
 
 /** Thin, throw-away-instance lifecycle wrapper over the `incus` CLI. All managed
  *  instances carry `prefix` in their name so `sweep()` can reap leaks. */
@@ -31,11 +52,14 @@ export class IncusDriver {
   async launch(
     image: string,
     name: string,
-    opts: { vm?: boolean; profile?: string } = {},
+    opts: { vm?: boolean; profiles?: string[] } = {},
   ): Promise<void> {
     const args = ["launch", image, this.full(name)];
     if (opts.vm) args.push("--vm");
-    if (opts.profile) args.push("--profile", opts.profile);
+    // Each `--profile` STACKS; the caller must include `default` explicitly, since
+    // passing only a custom profile REPLACES default and strips its root disk + NIC
+    // ("No root device could be found"). See seed.ts for the canonical list.
+    for (const p of opts.profiles ?? []) args.push("--profile", p);
     const r = await this.run(args);
     if (r.code !== 0) throw new Error(`incus launch failed: ${r.stderr || r.stdout}`);
   }

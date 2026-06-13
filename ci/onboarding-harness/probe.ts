@@ -15,10 +15,20 @@ const PORT = 7330; // config.port default
  *  correct option. (If a future scenario needs a token, the probe must add
  *  `-H "Authorization: Bearer $SHEPHERD_TOKEN"` instead.) */
 export async function bootShepherd(driver: IncusDriver, name: string): Promise<void> {
+  // - `bun src/index.ts`, NOT `bun run start`: the `start` package-script spawns a
+  //   nested BARE `bun`, which the non-login exec PATH can't resolve ("bun: not
+  //   found"). Running the entry file directly avoids the indirection.
+  // - `setsid`: a plain `nohup … &` child is reaped when the `incus exec` session
+  //   closes; setsid detaches it into its own session so the server outlives exec.
+  // - PATH adds ~/.local/bin + ~/.bun/bin so binaries a remediation installs there
+  //   (node symlink, claude, herdr) are visible to the running server's probes,
+  //   which resolve each tool via PATH on every `?refresh=1`.
   await driver.exec(name, [
     "sh",
     "-c",
-    `cd ${SHEPHERD_DIR} && env -u SHEPHERD_TOKEN nohup ~/.bun/bin/bun run start >/var/log/shepherd.log 2>&1 &`,
+    `cd ${SHEPHERD_DIR} && setsid env -u SHEPHERD_TOKEN ` +
+      `PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH" ` +
+      `~/.bun/bin/bun src/index.ts >/var/log/shepherd.log 2>&1 </dev/null &`,
   ]);
   const poll = await driver.exec(name, [
     "sh",

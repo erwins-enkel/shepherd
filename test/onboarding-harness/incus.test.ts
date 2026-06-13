@@ -12,14 +12,17 @@ function recorder(reply: Partial<IncusExec> = {}) {
 }
 
 describe("IncusDriver", () => {
-  it("launches a system container with the managed-name prefix and profile", async () => {
+  it("launches a system container with the managed-name prefix and STACKED profiles", async () => {
     const { calls, run } = recorder();
     const d = new IncusDriver(run, "shep-onb-");
-    await d.launch("images:ubuntu/24.04", "gh-unauthed", { profile: "shep-onb" });
+    await d.launch("images:ubuntu/24.04", "gh-unauthed", { profiles: ["default", "shep-onb"] });
+    // `default` MUST be stacked (not replaced) or the instance loses its root disk.
     expect(calls[0]).toEqual([
       "launch",
       "images:ubuntu/24.04",
       "shep-onb-gh-unauthed",
+      "--profile",
+      "default",
       "--profile",
       "shep-onb",
     ]);

@@ -87,7 +87,11 @@ async function runScenario(
 const LOCK_PATH = join(homedir(), ".shepherd", "onboarding-harness.lock");
 
 /** Acquire a host-wide exclusive lock so concurrent runs never share the Incus
- *  host. `wx` fails if the lock already exists. Returns a release fn. */
+ *  host. `wx` fails if the lock already exists. Returns an idempotent release fn.
+ *  The release is ALSO wired to SIGINT/SIGTERM: Node skips `finally` on a
+ *  signal-kill, so without this a Ctrl-C'd or `systemctl stop`-ed run would leave
+ *  a stale lock that blocks every future run at exit 3. (A hard SIGKILL still
+ *  can't be caught — `--reap-orphans` clears such a leak.) */
 function acquireHostLock(): () => void {
   mkdirSync(dirname(LOCK_PATH), { recursive: true });
   let fd: number;
@@ -97,7 +101,10 @@ function acquireHostLock(): () => void {
     console.error(`another onboarding-harness run holds ${LOCK_PATH}; aborting`);
     process.exit(3);
   }
-  return () => {
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
     closeSync(fd);
     try {
       unlinkSync(LOCK_PATH);
@@ -105,12 +112,26 @@ function acquireHostLock(): () => void {
       /* already gone */
     }
   };
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.once(sig, () => {
+      release();
+      process.exit(130);
+    });
+  }
+  return release;
 }
 
 async function main() {
-  // Maintenance: reap ALL harness instances across runs (manual recovery only).
+  // Maintenance: reap ALL harness instances across runs AND clear a stale lock
+  // left by a hard-killed (SIGKILL) run (manual recovery only).
   if (process.argv.includes("--reap-orphans")) {
     await new IncusDriver(undefined, "shep-onb-").sweep();
+    try {
+      unlinkSync(LOCK_PATH);
+      console.log("cleared stale host lock");
+    } catch {
+      /* no lock held */
+    }
     console.log("reaped all shep-onb-* instances");
     return;
   }

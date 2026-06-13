@@ -8,7 +8,17 @@ import type { DiagnosticsSnapshot } from "../../src/types";
  *  the agent path. Every `coaching: "structured"` scenario must have a matching
  *  entry here — otherwise it silently falls through to the LLM agent path,
  *  breaking the deterministic LLM-free gate guarantee. */
-const NODE_INSTALL = "curl -fsSL https://fnm.vercel.app/install | bash && fnm install --lts";
+// fnm installs node into its own versions dir (NOT on PATH) and exposes it only
+// via a shell `eval` an `incus exec sh -c` never runs — so a bare `fnm install`
+// leaves the running server still seeing the old node. Reference fnm by absolute
+// path and symlink the installed node into ~/.local/bin, which the booted server
+// has FIRST on PATH (see probe.ts), so the next probe resolves the new node.
+const NODE_INSTALL =
+  "curl -fsSL https://fnm.vercel.app/install | bash && " +
+  'FNM="$HOME/.local/share/fnm/fnm" && "$FNM" install --lts && ' +
+  'mkdir -p "$HOME/.local/bin" && ' +
+  'ln -sf "$("$FNM" exec --using=lts-latest node -e \'console.log(process.execPath)\')" ' +
+  '"$HOME/.local/bin/node"';
 const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
 
 export const REMEDIATIONS: Record<string, string> = {

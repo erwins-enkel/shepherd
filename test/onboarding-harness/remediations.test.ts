@@ -7,6 +7,12 @@ describe("remediations catalog", () => {
     expect(REMEDIATIONS.diagnostics_hint_bun_missing).toContain("bun.sh/install");
   });
 
+  it("node remediation symlinks the new node onto the server's PATH (~/.local/bin), not just fnm's dir", () => {
+    // Regression: a bare `fnm install` leaves node off PATH, so the re-probe never
+    // sees it and the scenario can't reach green.
+    expect(REMEDIATIONS.diagnostics_hint_node_outdated).toContain(".local/bin/node");
+  });
+
   it("collects verbatim commands for non-ok checks that have one (skips prose-only and ok)", () => {
     const snap: DiagnosticsSnapshot = {
       checks: [

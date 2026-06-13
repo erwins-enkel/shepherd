@@ -28,6 +28,9 @@ describe("seedInstance", () => {
 
     expect(calls[0]![0]).toBe("launch");
     expect(calls[0]!).toContain("images:ubuntu/24.04");
+    // stacks default (root disk + NIC) under the shep-onb limits profile
+    expect(calls[0]!).toContain("default");
+    expect(calls[0]!).toContain("shep-onb");
 
     const flat = calls.map((c) => c.join(" "));
     // baseline installs bun before the scenario seed runs
@@ -35,6 +38,9 @@ describe("seedInstance", () => {
     const seedIdx = flat.findIndex((c) => c.includes("rm -rf ~/.config/gh"));
     expect(bunIdx).toBeGreaterThanOrEqual(0);
     expect(seedIdx).toBeGreaterThan(bunIdx);
+    // unzip (bun installer prereq) + a build toolchain (node-pty) are ensured
+    expect(flat.some((c) => c.includes("unzip"))).toBe(true);
+    expect(flat.some((c) => c.includes("build-essential"))).toBe(true);
   });
 
   it("pushes the Shepherd build tarball into the instance", async () => {

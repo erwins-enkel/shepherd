@@ -342,6 +342,16 @@ export class ReviewService {
       return;
     }
 
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
+    // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      this.deps.worktree.remove(wt.worktreePath);
+      return;
+    }
     const { argv, sessionId: criticSessionId } = this.criticArgv(
       session,
       diffBase,
@@ -363,14 +373,6 @@ export class ReviewService {
       // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
       ...apiKeyMembraneFields(),
     };
-    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
-      console.warn(
-        "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
-      );
-      this.deps.worktree.remove(wt.worktreePath);
-      return;
-    }
     const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     let terminalId: string;
     try {

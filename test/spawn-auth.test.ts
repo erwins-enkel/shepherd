@@ -1,5 +1,4 @@
-import { expect, test } from "bun:test";
-import { join } from "node:path";
+import { expect, test, beforeEach, afterEach } from "bun:test";
 import { config } from "../src/config";
 import {
   isApiKeyMode,
@@ -7,7 +6,18 @@ import {
   apiKeySettingsFragment,
   apiKeyMembraneFields,
   apiKeyPassthroughEnv,
+  __setApiKeyConfigDirProvisionForTest,
 } from "../src/spawn-auth";
+
+const FAKE_CONFIG_DIR = "/tmp/shepherd-test-apikey-config";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => FAKE_CONFIG_DIR);
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
 
 // Helper: run `fn` with config auth fields temporarily set, always restoring them.
 function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
@@ -93,14 +103,11 @@ test("apiKeyPassthroughEnv is undefined when wrapped (membrane masks in place)",
 });
 
 test("apiKeyPassthroughEnv returns a single CLAUDE_CONFIG_DIR key for api-key + not wrapped", () => {
-  // Shape-only assertion (homedir() is OS-derived, not $HOME-overridable here): the
-  // canonical mirror lives at <home>/.shepherd/claude-apikey-config — assert that
-  // suffix rather than scribbling the real ~/.shepherd via an env override.
+  // The test seam stubs provisioning so no real ~/.shepherd is written.
   withAuth("api-key", "/h.sh", () => {
     const env = apiKeyPassthroughEnv(false);
     expect(env).toBeDefined();
     expect(Object.keys(env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
-    const dir = env!.CLAUDE_CONFIG_DIR ?? "";
-    expect(dir.endsWith(join(".shepherd", "claude-apikey-config"))).toBe(true);
+    expect(env!.CLAUDE_CONFIG_DIR).toBe(FAKE_CONFIG_DIR);
   });
 });

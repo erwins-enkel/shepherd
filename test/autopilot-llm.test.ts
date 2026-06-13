@@ -1,6 +1,15 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { classifyStop, classifierPrompt, VERDICT_FILE } from "../src/autopilot-llm";
 import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
 
 async function withAuth<T>(
   mode: typeof config.authMode,

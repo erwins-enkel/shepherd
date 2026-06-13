@@ -29,6 +29,14 @@ import { config } from "./config";
 import { spawnAuthSettings } from "./auth-mode";
 import { ensureApiKeyConfigDir } from "./auth-config-dir";
 
+// Test seam: lets tests stub the (real-fs) config-dir provisioning so the suite never
+// scribbles the developer's real ~/.shepherd. Production never sets this. Mirrors the
+// resetBackendCache test seam in sandbox.ts.
+let _provisionForTest: (() => string) | null = null;
+export function __setApiKeyConfigDirProvisionForTest(fn: (() => string) | null): void {
+  _provisionForTest = fn;
+}
+
 /** True when the operator selected api-key auth mode (regardless of whether a key is configured). */
 export function isApiKeyMode(): boolean {
   return config.authMode === "api-key";
@@ -68,5 +76,8 @@ export function apiKeyMembraneFields(): {
  */
 export function apiKeyPassthroughEnv(wrapped: boolean): Record<string, string> | undefined {
   if (config.authMode !== "api-key" || wrapped) return undefined;
-  return { CLAUDE_CONFIG_DIR: ensureApiKeyConfigDir(homedir(), config.claudeDir) };
+  const dir = _provisionForTest
+    ? _provisionForTest()
+    : ensureApiKeyConfigDir(homedir(), config.claudeDir);
+  return { CLAUDE_CONFIG_DIR: dir };
 }

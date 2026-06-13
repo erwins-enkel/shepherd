@@ -1,7 +1,16 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { DistillerService } from "../src/distiller";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
 
 function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
   const prevMode = config.authMode;

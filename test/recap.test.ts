@@ -1,8 +1,17 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach, afterEach } from "bun:test";
 import { RecapService } from "../src/recap";
 import type { Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
 import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
 
 async function withAuth<T>(
   mode: typeof config.authMode,

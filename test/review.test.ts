@@ -1,7 +1,16 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
 import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
 
 async function withAuth<T>(
   mode: typeof config.authMode,

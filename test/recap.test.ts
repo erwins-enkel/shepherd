@@ -681,3 +681,105 @@ test("forget: no existing recap → no crash", async () => {
   svc.forget("s1"); // should not throw
   expect(store.getRecap("s1")).toBeNull();
 });
+
+// ── git/diff failure self-heals to "error" (must NOT throw out of bare-void sweep) ──
+
+test("generate: computeDiff rejection → 'error', no throw, no row", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  const cleaned: string[] = [];
+
+  const svc = new RecapService({
+    store: store as any,
+    herdr: herdr as any,
+    onChange: () => {},
+    model: "sonnet",
+    now: () => 200_000,
+    timeoutMs: 300_000,
+    headSha: async () => "sha-head",
+    computeDiff: async () => {
+      throw new Error("git diff exceeded maxBuffer");
+    },
+    readTranscript: (): ActivityEntry[] => [],
+    readPlan: () => "",
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/recap-diff-fail",
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  const result = await svc.generate(s); // must resolve, not reject
+  expect(result).toBe("error");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")).toBeNull(); // no row left → a later settle can retry
+});
+
+test("regenerate: headSha rejection → 'error', no throw", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = new RecapService({
+    store: store as any,
+    herdr: herdr as any,
+    onChange: () => {},
+    model: "sonnet",
+    now: () => 200_000,
+    timeoutMs: 300_000,
+    headSha: async () => {
+      throw new Error("rev-parse failed");
+    },
+    computeDiff: async () => NON_EMPTY_DIFF as any,
+    readTranscript: (): ActivityEntry[] => [],
+    readPlan: () => "",
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/recap-head-fail",
+    cleanup: () => {},
+  });
+
+  const result = await svc.regenerate(s);
+  expect(result).toBe("error");
+  expect(herdr.started.length).toBe(0);
+});
+
+test("considerSession: headSha failure leaves fired=false so next sweep retries", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let t = 0;
+  let failHead = true;
+
+  const svc = new RecapService({
+    store: store as any,
+    herdr: herdr as any,
+    onChange: () => {},
+    model: "sonnet",
+    now: () => t,
+    idleThresholdMs: 120_000,
+    timeoutMs: 300_000,
+    headSha: async () => {
+      if (failHead) throw new Error("transient git failure");
+      return "sha-head";
+    },
+    computeDiff: async () => NON_EMPTY_DIFF as any,
+    readTranscript: (): ActivityEntry[] => [],
+    readPlan: () => "",
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/recap-retry",
+    cleanup: () => {},
+  });
+
+  t = 0;
+  await svc.sweep(); // stamp set
+  t = 200_000;
+  await svc.sweep(); // settled → headSha throws → no spawn, fired stays false
+  expect(herdr.started.length).toBe(0);
+
+  failHead = false;
+  t = 400_000;
+  await svc.sweep(); // retries headSha (fired was not burned) → spawns
+  expect(herdr.started.length).toBe(1);
+});

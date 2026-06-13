@@ -249,18 +249,22 @@ export class RecapService {
     const idleMs = now - entry.stamp;
     if (!isSettledIdle(s.status, idleMs, this.idleThresholdMs)) return;
 
-    // Eligibility: mark fired NOW (prevents repeated rev-parse until re-activity).
-    entry.fired = true;
-
-    // Skip drain sessions and sessions without a branch.
-    if (s.auto || !s.branch) return;
+    // Skip drain sessions and sessions without a branch — stable for the episode, so
+    // burn the marker (no point re-checking until the session re-activates).
+    if (s.auto || !s.branch) {
+      entry.fired = true;
+      return;
+    }
 
     let head: string;
     try {
       head = await this._headSha(s.worktreePath);
     } catch {
-      return; // git unavailable; retry next sweep
+      return; // git unavailable; leave fired=false so the next sweep retries
     }
+
+    // rev-parse succeeded → mark fired so we don't re-rev-parse until re-activity.
+    entry.fired = true;
 
     if (!needsRecap(this.deps.store.getRecap(s.id), head)) return;
 
@@ -296,9 +300,11 @@ export class RecapService {
    * Returns:
    *   "empty"   — diff had no files; an empty row is written and onChange is fired.
    *   "started" — spawn launched; a generating row is written.
-   *   "error"   — herdr.start failed; tmpdir is cleaned, no row is left so a later
-   *               auto-settle can retry. Does NOT throw.
+   *   "error"   — git (rev-parse/diff) failed, or herdr.start failed; any tmpdir is
+   *               cleaned and no row is left so a later auto-settle can retry.
    *
+   * Does NOT throw — git/diff rejections are caught and surface as "error" — so callers
+   * (incl. the bare-`void` sweep loop) need not guard it.
    * A synchronous in-flight guard prevents double-spawn if regenerate races sweep.
    */
   async generate(session: Session, knownHead?: string): Promise<"started" | "empty" | "error"> {
@@ -312,9 +318,17 @@ export class RecapService {
       // Reap any in-flight row for this session first (prevents stale generating rows).
       this.reapGenerating(id);
 
-      const head = knownHead ?? (await this._headSha(worktreePath));
+      // Resolve HEAD + diff up front; a git/diff rejection self-heals to "error"
+      // (no row left) rather than throwing out of this bare-`void`-called method.
+      let head: string;
+      let diff: DiffResult;
+      try {
+        head = knownHead ?? (await this._headSha(worktreePath));
+        diff = await this._computeDiff(worktreePath, baseBranch, branch);
+      } catch {
+        return "error";
+      }
 
-      const diff = await this._computeDiff(worktreePath, baseBranch, branch);
       if (diff.files.length === 0) {
         const t = this.now();
         this.deps.store.putRecap({

@@ -537,8 +537,8 @@ setInterval(() => {
   void reviewService.tick();
   void planGate.tick();
   void standaloneCritic.tick();
-  void recapService.tick(); // finalize in-flight recaps (restart-safe)
-  void recapService.sweep(); // settled-idle auto-fire
+  void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
+  void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
 }, 15_000);
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far

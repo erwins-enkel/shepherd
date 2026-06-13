@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.29.0](https://github.com/erwins-enkel/shepherd/compare/v1.28.0...v1.29.0) (2026-06-13)
+
+
+### Features
+
+* integrated-epics band — finished epics stop vanishing ([#642](https://github.com/erwins-enkel/shepherd/issues/642)) ([ef65503](https://github.com/erwins-enkel/shepherd/commit/ef65503e3567608479c5485b9682d9e11d73b575))
+* **onboarding-harness:** Incus-based onboarding challenge & regression framework ([#644](https://github.com/erwins-enkel/shepherd/issues/644)) ([40f2b50](https://github.com/erwins-enkel/shepherd/commit/40f2b50f0e703d4a6a30066cd85edfdb80bdbd7e))
+* **recap:** session recap card — LLM merge-decision summary at the bottom of a finished task ([#640](https://github.com/erwins-enkel/shepherd/issues/640)) ([67c7228](https://github.com/erwins-enkel/shepherd/commit/67c7228c801ee7e52ccf4b0e44874f34aead2d66))
+* **research:** attended research task kind (web research → report PR or issue) ([#297](https://github.com/erwins-enkel/shepherd/issues/297), F9) ([#637](https://github.com/erwins-enkel/shepherd/issues/637)) ([ef27e9b](https://github.com/erwins-enkel/shepherd/commit/ef27e9bf1ad7b2261b16352fc5ed630be2c4f130))
+* **ui:** opt-in colourblind status markers, hidden by default ([#641](https://github.com/erwins-enkel/shepherd/issues/641)) ([3ddff48](https://github.com/erwins-enkel/shepherd/commit/3ddff48cc593c1a5479fd063b56899f2115fd101))
+
+
+### Bug Fixes
+
+* **autopilot:** stand down CI-fix loop while a session is in a merge train ([#643](https://github.com/erwins-enkel/shepherd/issues/643)) ([871f09e](https://github.com/erwins-enkel/shepherd/commit/871f09e35b50942783354a6f0c98e781a6e5a965))
+* **diagnostics:** accurate Tailscale check — detect Service-fronted HUD, fix copy ([#634](https://github.com/erwins-enkel/shepherd/issues/634)) ([3a07940](https://github.com/erwins-enkel/shepherd/commit/3a0794007307d21be5ab5c1ea50a6aa8ac84d399))
+* **merge-train:** confirm before launching a merge train ([#632](https://github.com/erwins-enkel/shepherd/issues/632)) ([d3254c3](https://github.com/erwins-enkel/shepherd/commit/d3254c3ece91b8318730621b40c9e9da443161da))
+* **plan-gate:** unique per-run reviewer worktree path; GC stale review worktrees ([#631](https://github.com/erwins-enkel/shepherd/issues/631)) ([#638](https://github.com/erwins-enkel/shepherd/issues/638)) ([d04fad6](https://github.com/erwins-enkel/shepherd/commit/d04fad6d852218350146c0c8b6ad9c7e8030500b))
+* **steers:** expand the focused steer to a full-width edit mode ([#639](https://github.com/erwins-enkel/shepherd/issues/639)) ([cc7c106](https://github.com/erwins-enkel/shepherd/commit/cc7c1064a8b916b8be903e15c67f3325ce3151cd))
+* **ui:** drop redundant PR merged/closed badge when Stepper shows terminal chip ([#633](https://github.com/erwins-enkel/shepherd/issues/633)) ([6c4b5ea](https://github.com/erwins-enkel/shepherd/commit/6c4b5eaec6d539286229c00ff7841a264edc7d45))
+
 ## [1.28.0](https://github.com/erwins-enkel/shepherd/compare/v1.27.0...v1.28.0) (2026-06-13)
 
 

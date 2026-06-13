@@ -82,6 +82,7 @@
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
+  import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
@@ -144,6 +145,17 @@
   // leftover subprocess count (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
   let clearMergedLeftovers = $state(0);
+  // Pending merge-train awaiting operator confirmation. Setting it opens the
+  // confirm modal; confirming runs `run` (the original launch); closing discards
+  // with zero side effects. `run` carries the full launch closure for whichever
+  // trigger armed it, so the modal stays uniform across both paths.
+  let pendingTrain = $state<{
+    repoLabel: string;
+    items: { number: number; title: string }[];
+    handpicked: boolean;
+    otherRepoCount: number;
+    run: () => Promise<void>;
+  } | null>(null);
   let showTriage = $state(false);
   let showLearnings = $state(false);
   // When the learnings drawer is opened from a repo's chip (its ✦ in the RepoSwitcher
@@ -477,7 +489,7 @@
   // order. A merge train is per-repo, so when ready PRs span repos we scope to
   // the repo with the most and surface a fail-loud notice for the rest rather
   // than silently folding them in. Mirrors onquickissue for branch + create.
-  async function onmergetrain() {
+  function onmergetrain() {
     const ready = collectReadyPrs(
       store.sessions,
       store.git,
@@ -488,27 +500,35 @@
       toasts.info(m.toast_merge_train_no_prs());
       return;
     }
-    const br = await listBranches(repoPath).catch(() => null);
-    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
-    try {
-      const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
-      selectedId = s.id;
-      // Mark this repo's ready PR-sessions as "merging" so the list shows them
-      // in-flight. Derived from the same scoped `prs` array the train works
-      // through — single source of truth, no separate filter needed.
-      // Fire-and-forget + fail-soft: a marking error must not abort the launch —
-      // the train (session s) is already running.
-      startMergeTrain(
-        prs.map((p) => p.sessionId),
-        s.id,
-      ).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
-      showBacklog = false;
-      if (mobile.current) mobileScreen = "detail";
-      if (otherRepoCount > 0)
-        toasts.info(m.toast_merge_train_other_repos({ count: otherRepoCount }));
-    } catch {
-      toasts.info(m.toast_merge_train_failed());
-    }
+    // Don't launch yet — open the confirm modal. The excluded-repo count is
+    // surfaced as the modal's warn line, NOT a post-launch toast (no double-surfacing).
+    pendingTrain = {
+      repoLabel: basename(repoPath),
+      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      handpicked: false,
+      otherRepoCount,
+      run: async () => {
+        const br = await listBranches(repoPath).catch(() => null);
+        const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+        try {
+          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
+          selectedId = s.id;
+          // Mark this repo's ready PR-sessions as "merging" so the list shows them
+          // in-flight. Derived from the same scoped `prs` array the train works
+          // through — single source of truth, no separate filter needed.
+          // Fire-and-forget + fail-soft: a marking error must not abort the launch —
+          // the train (session s) is already running.
+          startMergeTrain(
+            prs.map((p) => p.sessionId),
+            s.id,
+          ).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
+          showBacklog = false;
+          if (mobile.current) mobileScreen = "detail";
+        } catch {
+          toasts.info(m.toast_merge_train_failed());
+        }
+      },
+    };
   }
 
   /** Launch a merge train scoped to a hand-picked set of PRs from the backlog
@@ -516,30 +536,40 @@
    *  operator chose these PRs directly, so the kickoff prompt uses the
    *  hand-picked framing. Matching ready-to-merge sessions are marked "merging";
    *  backlog-only PRs (no session) still ride along in the prompt. */
-  async function onlaunchtrain(repoPath: string, prs: PullRequest[]) {
+  function onlaunchtrain(repoPath: string, prs: PullRequest[]) {
     if (prs.length < 2) return; // UI gates at >=2; defensive guard
-    const br = await listBranches(repoPath).catch(() => null);
-    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
-    try {
-      const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
-      selectedId = s.id;
-      // Mark any ready-to-merge sessions whose open PR is in this selection as
-      // "merging" (same coupling as onmergetrain). Composed review predicate
-      // matches onmergetrain. Fire-and-forget + fail-soft; skip when none match.
-      const ids = sessionsForPrNumbers(
-        repoPath,
-        prs.map((p) => p.number),
-        store.sessions,
-        store.git,
-        (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
-      );
-      if (ids.length > 0)
-        startMergeTrain(ids, s.id).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
-      showBacklog = false;
-      if (mobile.current) mobileScreen = "detail";
-    } catch {
-      toasts.info(m.toast_merge_train_failed());
-    }
+    // Don't launch yet — open the confirm modal (renders above the still-mounted
+    // backlog overlay). The launch body runs on confirm; backlog stays open until then.
+    pendingTrain = {
+      repoLabel: basename(repoPath),
+      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      handpicked: true,
+      otherRepoCount: 0,
+      run: async () => {
+        const br = await listBranches(repoPath).catch(() => null);
+        const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+        try {
+          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
+          selectedId = s.id;
+          // Mark any ready-to-merge sessions whose open PR is in this selection as
+          // "merging" (same coupling as onmergetrain). Composed review predicate
+          // matches onmergetrain. Fire-and-forget + fail-soft; skip when none match.
+          const ids = sessionsForPrNumbers(
+            repoPath,
+            prs.map((p) => p.number),
+            store.sessions,
+            store.git,
+            (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+          );
+          if (ids.length > 0)
+            startMergeTrain(ids, s.id).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
+          showBacklog = false;
+          if (mobile.current) mobileScreen = "detail";
+        } catch {
+          toasts.info(m.toast_merge_train_failed());
+        }
+      },
+    };
   }
 
   const mobile = new MediaQuery("max-width: 768px");
@@ -1174,6 +1204,14 @@
     void runClearMerged(targets.map((s) => s.id));
   }
 
+  // Confirmed: capture the launch closure, clear the dialog state BEFORE awaiting
+  // (so it can't double-fire), then run the original launch.
+  function confirmTrain() {
+    const run = pendingTrain?.run;
+    pendingTrain = null;
+    if (run) void run();
+  }
+
   // The deploy runs detached: it builds, restarts the server, and only then —
   // after the new process answers a health check — writes its success marker.
   // So a readable `done` GUARANTEES the new build is already live. We poll the
@@ -1752,6 +1790,17 @@
     onclose={() => (showBacklog = false)}
     epics={store.epics}
     target={epicTarget}
+  />
+{/if}
+
+{#if pendingTrain}
+  <MergeTrainConfirmDialog
+    repoLabel={pendingTrain.repoLabel}
+    items={pendingTrain.items}
+    handpicked={pendingTrain.handpicked}
+    otherRepoCount={pendingTrain.otherRepoCount}
+    onclose={() => (pendingTrain = null)}
+    onconfirm={confirmTrain}
   />
 {/if}
 

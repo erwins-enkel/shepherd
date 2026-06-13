@@ -666,7 +666,6 @@
   "toast_cleared_merged": "Cleared {count} merged sessions",
   "toast_clear_merged_failed": "Couldn't clear merged sessions",
   "toast_merge_train_no_prs": "No ready-to-merge PRs to run a merge train on",
-  "toast_merge_train_other_repos": "{count} ready-to-merge PRs in other repos were left out; run a separate merge train there",
   "toast_merge_train_failed": "Couldn't start the merge train",
   "toast_merge_train_mark_failed": "Merge train started, but marking its PRs failed.",
   "toast_merged": "Merged {name}",
@@ -1181,5 +1180,10 @@
   "feat_diagnostics_body": "Shepherd now checks its prerequisites — herdr, tailscale, git, gh, claude, bun, and node — and warns you in Settings → Diagnostics when something's missing or could be configured better.",
   "diagnostics_hint_gh_missing": "GitHub CLI (gh) not found in PATH — install it, then run gh auth login.",
   "diagnostics_rerun_error": "Failed to re-run checks.",
-  "diagnostics_load_error": "Couldn't load checks."
+  "diagnostics_load_error": "Couldn't load checks.",
+  "mergetrain_confirm_title": "Start merge train",
+  "mergetrain_confirm_desc_ready": "Work through {count} ready PRs in {repo}?",
+  "mergetrain_confirm_desc_picked": "Work through {count} selected PRs in {repo}?",
+  "mergetrain_confirm_action": "Start merge train",
+  "mergetrain_confirm_other_repos": "{count} ready PR(s) in other repos are not included."
 }

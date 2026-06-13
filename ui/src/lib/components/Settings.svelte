@@ -686,6 +686,22 @@
           >
         </button>
       </div>
+      <div class="rc">
+        <span class="micro">{m.settings_colorblind_title()}</span>
+        <p class="hint">{m.settings_colorblind_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={theme.colorblind}
+          onclick={() => theme.toggleColorblind()}
+        >
+          <span class="track" class:on={theme.colorblind}><span class="knob"></span></span>
+          <span class="state"
+            >{theme.colorblind ? m.settings_colorblind_on() : m.settings_colorblind_off()}</span
+          >
+        </button>
+      </div>
       <div class="push">
         <span class="micro">{m.settings_push_title()}</span>
         {#if !push.supported}

@@ -104,6 +104,8 @@ The caveat: this line is being _actively tightened_, and the distinction between
 
 ## 6. Recommendations (prioritised)
 
+> Recs 1 & 2 (resolving R1 + offering a sanctioned path) are actioned in the companion doc [ToS position & auth paths](./tos-position-and-auth-paths.md): it frames R1 as Shepherd's position, evaluates the subscription / API-key / metered-Agent-SDK footings even-handedly, sketches an API-key mode, and drafts the question for Anthropic.
+
 1. **Resolve R1 directly with Anthropic.** This is the only item that can move the verdict from "partially compliant / material risk" to "cleared." Ask the specific question: _is keystroke-driven automation of interactive Claude Code sessions on a subscription permitted, or must automated/unattended usage go through the Agent SDK credit?_ Until answered, treat the interactive-puppeting model as **at-risk, not blessed** — and say so in `PRD.md` / `PRODUCT.md` rather than asserting "interactive use was not banned" as settled fact.
 2. **Offer the sanctioned path as a first-class option.** Support running on the **Commercial/API key** path (Commercial Terms, no automation-clause problem, no training-by-default) and/or the **metered Agent SDK credit** path for users who want a clearly-compliant footing. This de-risks operators who can't accept R1's ambiguity, and is the only mode Anthropic _explicitly_ permits for automation.
 3. **Tidy the egress residuals (R3 is already largely fixed by #601).** The exfil channel is closed for autonomous agents; the remaining work is narrowing the in-membrane token-readability gap (defence in depth) and confirming attended-session coverage. Also **fix the stale `README.md:140` paragraph** that still claims the egress allowlist is "not yet implemented" — #601 shipped it without updating that text, which an auditor (this one included) will misread as a live gap.
@@ -114,6 +116,8 @@ The caveat: this line is being _actively tightened_, and the distinction between
 ---
 
 ## 7. Open questions (need a primary-source or Anthropic answer)
+
+> Q1/Q2 (R1) are positioned and the Anthropic question is drafted in the companion doc [ToS position & auth paths](./tos-position-and-auth-paths.md).
 
 1. Does keystroke-puppeting interactive Claude Code for automated/unattended work fall inside the Consumer Terms automation prohibition, or is it permitted interactive use? _(R1 — no primary clause resolves it.)_
 2. After June 15, 2026, are Shepherd's automated spawns (critic, namer, classifier, plan-gate, recap, distiller) expected to draw from the Agent SDK credit even though they use the interactive CLI form — and is using the interactive channel to avoid that credit a fair-use violation? _(R1/R2.)_

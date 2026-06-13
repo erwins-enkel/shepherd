@@ -2,7 +2,9 @@
 
 > Self-hosted mission control for **interactive** Claude Code — and opinionated about how
 > agent-built software ships. Spawn, watch, and steer a herd of real `claude` sessions live in
-> the browser/mobile — ToS-clean, with best-practice guardrails built in, on your own server.
+> the browser/mobile — designed to keep subscription use ToS-clean (Shepherd's position, not a
+> settled guarantee — see [audit R1](docs/research/claude-anthropic-tos-compliance-audit.md)),
+> with best-practice guardrails built in, on your own server.
 
 Derived from Creator Magic's "Shepherd" demo (yt: hXWwqPgexZU), re-architected for our stack
 (kanban-api · herdr · gitea · searxng · Hermes). Clean-room; we can do better.
@@ -12,14 +14,19 @@ Derived from Creator Magic's "Shepherd" demo (yt: hXWwqPgexZU), re-architected f
 ## 1. Why (thesis)
 
 Anthropic's 2026 crackdown killed **programmatic** subscription use — Agent SDK and `claude -p`
-cut off **2026-06-15**. **Interactive terminal use was NOT banned.** Shepherd drives genuine
-interactive `claude` sessions and only _observes/steers_ them. That keeps subscription usage in
-the white zone. Black zone = token hijack, impersonation, 3rd-party clients, programmatic SDK,
-team farming.
+cut off **2026-06-15**. **Shepherd's position** (a good-faith reading, **not confirmed by
+Anthropic**) is that **interactive terminal use was NOT banned**: Shepherd drives genuine
+interactive `claude` sessions and only _observes/steers_ them, which it argues keeps subscription
+usage in the white zone. Black zone = token hijack, impersonation, 3rd-party clients, programmatic
+SDK, team farming. This reading is the open question in audit **R1** — whether keystroke-puppeting
+of interactive sessions for automated work is permitted is **unresolved by any primary Anthropic
+clause** (see the [ToS compliance audit](docs/research/claude-anthropic-tos-compliance-audit.md)
+and the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md)).
 
 **Corollary (the real prize):** Hermes today executes via `claude -p` — exactly the restricted
-path on a sub. Shepherd's interactive-session substrate becomes the **compliant execution path** for
-the whole ecosystem, not just a dashboard.
+path on a sub. Shepherd's interactive-session substrate aims to be the **intended compliant
+execution path** (per the position above, pending R1's resolution) for the whole ecosystem, not
+just a dashboard.
 
 ## 2. Goals / Non-goals
 
@@ -39,10 +46,18 @@ the whole ecosystem, not just a dashboard.
 **Non-goals (v1)**
 
 - No multi-user / team farming (ToS). Single operator, bring-your-own-Claude (sub).
-- No Agent SDK, no `claude -p`. Ever, on a sub.
+- No Agent SDK, no `claude -p` on a sub **by default** — but see the
+  [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) (audit R1): a sanctioned
+  API-key / metered footing is offered as an opt-in for operators who need a clearly-compliant path.
 - No cloud orchestration.
 
 ## 3. ToS compliance model (hard constraint)
+
+> **Position, not settled compliance.** The interactive-puppeting model below is Shepherd's
+> good-faith reading, **not confirmed by Anthropic**; audit **R1** is open pending Anthropic
+> confirmation (see the [ToS compliance audit](docs/research/claude-anthropic-tos-compliance-audit.md)
+> and the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md)). The table states
+> _how_ Shepherd operates; it does not assert the model is adjudicated-compliant.
 
 | Requirement                            | Mechanism                                                                         |
 | -------------------------------------- | --------------------------------------------------------------------------------- |
@@ -51,7 +66,9 @@ the whole ecosystem, not just a dashboard.
 | We steer by typing, like a human       | `herdr agent send` injects prompt text into the live pane                         |
 | Auth = the operator's own login        | `claude` uses operator's Max/Pro session; no token relay                          |
 
-If a feature can't be done by _typing into a real terminal_, it doesn't ship.
+As a design default under this position, if a feature can't be done by _typing into a real
+terminal_, it doesn't ship — but this is Shepherd's posture, not adjudicated compliance (R1 open;
+see the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) for opt-in footings).
 
 ## 4. Users
 
@@ -121,7 +138,7 @@ Greenfield app in `~/Work/shepherd/`. Thin orchestrator over existing infra.
 
 **Improvements over the original (explicit):**
 
-- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens ToS "interactive" claim.
+- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens Shepherd's _position_ that this is genuine interactive use (R1, unconfirmed).
 - I2 Worktree-per-task → concurrent agents never collide on a checkout.
 - I3 Permission profiles roadmap (v1 = skip/auto mode per user; v2 = per-project allowlists). _(partially shipped #294: trusted/standard/autonomous profiles + auto=true gate; network egress allowlist follow-up #551)_
 - I4 Real sandboxing roadmap (firejail/bwrap/nspawn) — make "live dangerously" not literal. _(partially shipped #294: bwrap filesystem/process membrane, host-derived bind set, degraded-mode banner; network egress not yet implemented, tracked #551)_

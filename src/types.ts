@@ -283,6 +283,7 @@ export interface Recap {
   headline: string; // <=100 chars; "" until ready
   body: string; // markdown; "" until ready
   openItems: string[]; // [] until ready
+  changedFiles: string[]; // files changed in the session (captured at gen time; survives worktree teardown)
   spawnSessionId: string; // claude --session-id of the recap spawn (usage + pane resolve)
   cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)
   model: string | null;

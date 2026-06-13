@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
-import type { PrReview, ReviewVerdict } from "../src/types";
+import type { PrReview, Recap, ReviewVerdict } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
 function mk() {
@@ -442,6 +442,59 @@ test("pruneArchivedSessions: legacy archived row with null archivedAt expires vi
   const removed = s.pruneArchivedSessions({ maxAgeMs: 1, keepNewest: 250 });
   expect(removed).toBe(1);
   expect(s.get(a.id)).toBeNull();
+});
+
+const recap = (sessionId: string, over: Partial<Recap> = {}): Recap => ({
+  sessionId,
+  state: "ready",
+  headSha: "sha",
+  verdict: "ready",
+  headline: "done",
+  body: "",
+  openItems: [],
+  changedFiles: [],
+  spawnSessionId: "spawn",
+  cwd: "/tmp",
+  model: null,
+  spawnedAt: 1,
+  generatedAt: 2,
+  updatedAt: 2,
+  ...over,
+});
+
+test("listRecentlyArchived: only archived sessions with archivedAt >= cutoff, newest-first", async () => {
+  const s = mk();
+  // a running (never-archived) session must be excluded regardless of cutoff
+  s.create({ ...base, herdrAgentId: "live" });
+  const old = s.create({ ...base, herdrAgentId: "old" });
+  s.archive(old.id);
+  await sleep(5);
+  const cutoff = Date.now();
+  await sleep(2);
+  const mid = s.create({ ...base, herdrAgentId: "mid" });
+  s.archive(mid.id);
+  await sleep(2);
+  const recent = s.create({ ...base, herdrAgentId: "recent" });
+  s.archive(recent.id);
+
+  const got = s.listRecentlyArchived(cutoff);
+  // old archived (before cutoff) and the live row are both excluded; newest-first ordering
+  expect(got.map((x) => x.id)).toEqual([recent.id, mid.id]);
+});
+
+test("pruneArchivedSessions: cascades the victim's recap, keeps survivor's", async () => {
+  const s = mk();
+  const victim = s.create({ ...base, herdrAgentId: "tv" });
+  s.archive(victim.id);
+  await sleep(2);
+  const keep = s.create({ ...base, herdrAgentId: "tk" });
+  s.archive(keep.id);
+  s.putRecap(recap(victim.id, { changedFiles: ["a.ts"] }));
+  s.putRecap(recap(keep.id, { changedFiles: ["b.ts"] }));
+  const removed = s.pruneArchivedSessions({ maxAgeMs: YEAR_MS, keepNewest: 1 });
+  expect(removed).toBe(1);
+  expect(s.getRecap(victim.id)).toBeNull(); // recap pruned with the session
+  expect(s.getRecap(keep.id)).not.toBeNull(); // survivor's recap intact
 });
 
 function newMergeInput() {

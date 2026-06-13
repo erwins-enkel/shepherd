@@ -1211,5 +1211,16 @@
   "herd_research_filter": "⬡ Research",
   "herd_research_title": "Show only research tasks",
   "herd_research_empty": "No research tasks.",
-  "completed_epic_toast": "Epic #{number} complete — {count} sub-issues landed"
+  "completed_epic_toast": "Epic #{number} complete — {count} sub-issues landed",
+  "integrated_epics_band_title": "Integrated epics ({count})",
+  "integrated_epics_chip": "INTEGRATED {merged}/{total}",
+  "integrated_epics_finished_ago": "finished {ago} ago",
+  "integrated_epics_pr_ref": "PR #{number}",
+  "integrated_epics_pr_ref_nonum": "PR",
+  "integrated_epics_child_merged_ago": "merged {ago} ago",
+  "integrated_epics_child_closed": "closed",
+  "integrated_epics_dismiss": "Dismiss",
+  "integrated_epics_awaiting_landing": "parent #{number} still open · awaiting landing",
+  "integrated_epics_expand_aria": "Expand integrated epic #{number}",
+  "integrated_epics_collapse_aria": "Collapse integrated epic #{number}"
 }

@@ -1211,5 +1211,16 @@
   "herd_research_filter": "⬡ Recherche",
   "herd_research_title": "Nur Rechercheaufgaben anzeigen",
   "herd_research_empty": "Keine Rechercheaufgaben.",
-  "completed_epic_toast": "Epic #{number} abgeschlossen — {count} Teil-Issues gelandet"
+  "completed_epic_toast": "Epic #{number} abgeschlossen — {count} Teil-Issues gelandet",
+  "integrated_epics_band_title": "Integrierte Epics ({count})",
+  "integrated_epics_chip": "INTEGRIERT {merged}/{total}",
+  "integrated_epics_finished_ago": "vor {ago} abgeschlossen",
+  "integrated_epics_pr_ref": "PR #{number}",
+  "integrated_epics_pr_ref_nonum": "PR",
+  "integrated_epics_child_merged_ago": "vor {ago} gemergt",
+  "integrated_epics_child_closed": "geschlossen",
+  "integrated_epics_dismiss": "Verwerfen",
+  "integrated_epics_awaiting_landing": "Eltern-#{number} noch offen · wartet auf Landung",
+  "integrated_epics_expand_aria": "Integriertes Epic #{number} ausklappen",
+  "integrated_epics_collapse_aria": "Integriertes Epic #{number} einklappen"
 }

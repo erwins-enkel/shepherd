@@ -666,6 +666,7 @@ const drain = new DrainService({
   emitArchived: (id) => events.emit("session:archived", { id }),
   dropPrCache: (id) => prPoller.drop(id),
   emitEpic: (epic) => events.emit("epic:update", epic),
+  emitEpicCompleted: (e) => events.emit("epic:completed", e),
 });
 
 // Drive the drain off the poller events the rest of the system already emits.

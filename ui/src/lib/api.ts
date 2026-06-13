@@ -45,6 +45,7 @@ import type {
   EpicRun,
   EpicSummary,
   Recap,
+  CompletedEpic,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -1122,4 +1123,22 @@ export async function importEpic(
   });
   if (!r.ok) throw await failed(r, "import epic");
   return r.json();
+}
+
+export async function getCompletedEpics(repoPath?: string): Promise<CompletedEpic[]> {
+  return getJson(
+    `/api/epics/completed${repoPath ? `?repo=${encodeURIComponent(repoPath)}` : ""}`,
+    "get completed epics",
+  );
+}
+
+export async function dismissCompletedEpic(
+  repoPath: string,
+  parent: number,
+): Promise<{ ok: boolean }> {
+  return postJson(
+    "/api/epics/completed/dismiss",
+    { repo: repoPath, parent },
+    "dismiss completed epic",
+  );
 }

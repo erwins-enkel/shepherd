@@ -1210,5 +1210,20 @@
   "feat_research_body": "Start a Research task from New Task: an attended agent does web research with sub-agents and delivers a report PR or opens a GitHub issue. Research never opens a code PR.",
   "herd_research_filter": "⬡ Research",
   "herd_research_title": "Show only research tasks",
-  "herd_research_empty": "No research tasks."
+  "herd_research_empty": "No research tasks.",
+  "completed_epic_toast": "Epic #{number} complete — {count} sub-issues landed",
+  "integrated_epics_band_title": "Integrated epics ({count})",
+  "integrated_epics_chip": "INTEGRATED {merged}/{total}",
+  "integrated_epics_finished_ago": "finished {ago} ago",
+  "integrated_epics_pr_ref": "PR #{number}",
+  "integrated_epics_pr_ref_nonum": "PR",
+  "integrated_epics_child_merged_ago": "merged {ago} ago",
+  "integrated_epics_child_closed": "closed",
+  "integrated_epics_dismiss": "Dismiss",
+  "integrated_epics_awaiting_landing": "parent #{number} still open · awaiting landing",
+  "integrated_epics_expand_aria": "Expand integrated epic #{number}",
+  "integrated_epics_collapse_aria": "Collapse integrated epic #{number}",
+  "integrated_epics_dismiss_failed": "Couldn't dismiss the epic — try again",
+  "feat_integrated_epics_title": "Completed epics stay visible",
+  "feat_integrated_epics_body": "When an epic's sub-issues all land, it no longer vanishes — a new 'Integrated epics' band at the bottom of the Herd keeps it, with each child's PR and a one-click dismiss once you've followed up."
 }

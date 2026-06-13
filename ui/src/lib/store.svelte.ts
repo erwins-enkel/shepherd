@@ -16,6 +16,7 @@ import type {
   AutoMergeStatus,
   BuildQueue,
   Epic,
+  CompletedEpic,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -89,6 +90,9 @@ export class HerdStore {
   /** Live epic state keyed by `${repoPath}#${parentIssueNumber}`;
    *  updated in real-time by the `epic:update` WS event. */
   epics = $state<Record<string, Epic>>({});
+  /** Completed-epic records (newest first); bootstrapped via GET /api/epics/completed,
+   *  kept live by the `epic:completed` / `epic:completed-cleared` WS events. */
+  completedEpics = $state<CompletedEpic[]>([]);
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -134,6 +138,10 @@ export class HerdStore {
   /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push. */
   setEpic(e: Epic) {
     this.epics = { ...this.epics, [`${e.repoPath}#${e.parentIssueNumber}`]: e };
+  }
+  /** Seed (or replace) the completed-epics list after a bootstrap GET. */
+  seedCompletedEpics(list: CompletedEpic[]): void {
+    this.completedEpics = list;
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -384,6 +392,27 @@ export class HerdStore {
         break;
       case "epic:update":
         this.setEpic(ev.data);
+        break;
+      case "epic:completed": {
+        const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
+        const filtered = this.completedEpics.filter(
+          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
+        );
+        this.completedEpics = [ev.data, ...filtered];
+        toasts.info(
+          m.completed_epic_toast({
+            number: ev.data.parentIssueNumber,
+            count: ev.data.children.length,
+          }),
+          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
+        );
+        break;
+      }
+      case "epic:completed-cleared":
+        this.completedEpics = this.completedEpics.filter(
+          (e) =>
+            e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
+        );
         break;
       case "halt:done":
         // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the

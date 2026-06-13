@@ -6,7 +6,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import { validateEpicRunPatch } from "../src/validate";
-import type { Epic, EpicRun } from "../src/epic-core";
+import type { Epic, EpicChild, EpicRun } from "../src/epic-core";
 
 // ── validateEpicRunPatch unit tests ──────────────────────────────────────────
 
@@ -706,6 +706,409 @@ describe("GET /api/epics", () => {
     const epicB = body.find((e) => e.parentIssueNumber === 11);
     expect(epicA?.status).toBe("running");
     expect(epicB?.status).toBe("idle");
+  });
+});
+
+// ── completed-epics band (GET /api/epics/completed + dismiss) ─────────────────
+
+function mergedChild(number: number): EpicChild {
+  return {
+    number,
+    title: `Child #${number}`,
+    url: `https://x/issues/${number}`,
+    order: number,
+    body: "",
+    blockedBy: [],
+    state: "merged",
+    sessionId: null,
+    prNumber: null,
+    issueClosed: true,
+    integrationMerged: true,
+    claimed: true,
+  };
+}
+
+// Harness that also captures epic:completed-cleared events (the default harness only
+// captures epic:update).
+function completedHarness(opts?: {
+  drainOverrides?: Partial<NonNullable<AppDeps["drain"]>>;
+  drain?: AppDeps["drain"] | null;
+  resolveForge?: AppDeps["resolveForge"];
+}): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  cleared: { repoPath: string; parentIssueNumber: number }[];
+} {
+  const store = new SessionStore(":memory:");
+  const cleared: { repoPath: string; parentIssueNumber: number }[] = [];
+  const events = new EventHub();
+  events.subscribe((event, data) => {
+    if (event === "epic:completed-cleared")
+      cleared.push(data as { repoPath: string; parentIssueNumber: number });
+  });
+
+  const defaultDrain: NonNullable<AppDeps["drain"]> = {
+    snapshot: async () => [],
+    queue: async () => [],
+    retainClaim: () => {},
+    buildEpic: async (repoPath, run) => makeEpic(repoPath, run.parentIssueNumber, run),
+    approveEpicNext: () => {},
+    tick: async () => {},
+  };
+  const drain =
+    opts?.drain === null ? undefined : { ...defaultDrain, ...(opts?.drainOverrides ?? {}) };
+
+  const deps: AppDeps = {
+    store,
+    service: {} as AppDeps["service"],
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+    drain,
+    resolveForge: opts?.resolveForge,
+  };
+  return { app: makeApp(deps), store, cleared };
+}
+
+describe("GET /api/epics/completed", () => {
+  test("returns persisted completed epics with parsed children", async () => {
+    const { app, store } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 42,
+      parentTitle: "Epic Done",
+      completedAt: 5000,
+      childrenJson: JSON.stringify([
+        {
+          number: 1,
+          title: "C1",
+          url: "u1",
+          prNumber: 9,
+          prUrl: "pu9",
+          mergedAt: 4000,
+          integrated: true,
+        },
+      ]),
+    });
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].parentIssueNumber).toBe(42);
+    expect(body[0].parentTitle).toBe("Epic Done");
+    expect(body[0].childrenJson).toBeUndefined();
+    expect(body[0].children).toEqual([
+      {
+        number: 1,
+        title: "C1",
+        url: "u1",
+        prNumber: 9,
+        prUrl: "pu9",
+        mergedAt: 4000,
+        integrated: true,
+      },
+    ]);
+  });
+
+  test("?repo= filters to one repo", async () => {
+    const other = join(tmpRoot, "other");
+    mkdirSync(other);
+    const { app, store } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 1,
+      parentTitle: "A",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    store.recordEpicCompleted({
+      repoPath: other,
+      parentIssueNumber: 2,
+      parentTitle: "B",
+      completedAt: 2,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].parentIssueNumber).toBe(1);
+  });
+
+  test("invalid ?repo= → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(new Request(`http://x/api/epics/completed?repo=/nope/not/here`));
+    expect(res.status).toBe(400);
+  });
+
+  test("auto-dismiss: confidently-closed parent cleared + event; still-open retained", async () => {
+    const { app, store, cleared } = completedHarness({
+      // open set = [7] (the retained one); #5 is absent → confidently closed
+      resolveForge: () =>
+        ({
+          listIssues: async () => [
+            { number: 7, title: "Open epic", body: "", url: "", labels: [], createdAt: 0 },
+          ],
+        }) as any,
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Closed",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 7,
+      parentTitle: "Still open",
+      completedAt: 2,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    const body = await res.json();
+    expect(body.map((e: any) => e.parentIssueNumber)).toEqual([7]);
+    expect(cleared).toEqual([{ repoPath: repoDir, parentIssueNumber: 5 }]);
+  });
+
+  test("auto-dismiss: skipped when open list is truncated (>=200)", async () => {
+    const openIssues = Array.from({ length: 200 }, (_, i) => ({
+      number: i + 1000,
+      title: `I${i}`,
+      body: "",
+      url: "",
+      labels: [],
+      createdAt: 0,
+    }));
+    const { app, store, cleared } = completedHarness({
+      resolveForge: () => ({ listIssues: async () => openIssues }) as any,
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Maybe closed",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    const body = await res.json();
+    // not confidently closed → retained, no clear event
+    expect(body.map((e: any) => e.parentIssueNumber)).toEqual([5]);
+    expect(cleared).toEqual([]);
+  });
+
+  test("backfill: idle all-merged epic with no record → recorded + returned", async () => {
+    const { app, store } = completedHarness({
+      resolveForge: () =>
+        ({
+          listIssues: async () => [
+            { number: 88, title: "Epic", body: "", url: "", labels: [], createdAt: 0 },
+          ],
+        }) as any,
+      drainOverrides: {
+        buildEpic: async (repoPath, run) => ({
+          ...makeEpic(repoPath, run.parentIssueNumber, run),
+          children: [mergedChild(1), mergedChild(2)],
+        }),
+      },
+    });
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 88, mode: "auto", status: "idle" });
+    store.recordEpicIntegrated(repoDir, 88, 1, { number: 11, url: "pr11" });
+    store.recordEpicIntegrated(repoDir, 88, 2, { number: 22, url: "pr22" });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].parentIssueNumber).toBe(88);
+    expect(body[0].children).toHaveLength(2);
+    expect(body[0].children.every((c: any) => c.integrated)).toBe(true);
+    // persisted
+    expect(store.listEpicCompleted(repoDir)).toHaveLength(1);
+  });
+
+  test("backfill: NOT-all-merged epic → no record created (skip logged)", async () => {
+    const { app, store } = completedHarness({
+      resolveForge: () =>
+        ({
+          listIssues: async () => [
+            { number: 88, title: "Epic", body: "", url: "", labels: [], createdAt: 0 },
+          ],
+        }) as any,
+      drainOverrides: {
+        buildEpic: async (repoPath, run) => ({
+          ...makeEpic(repoPath, run.parentIssueNumber, run),
+          children: [
+            mergedChild(1),
+            { ...mergedChild(2), state: "in-review", integrationMerged: false },
+          ],
+        }),
+      },
+    });
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 88, mode: "auto", status: "idle" });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    const body = await res.json();
+    expect(body).toEqual([]);
+    expect(store.listEpicCompleted(repoDir)).toHaveLength(0);
+  });
+
+  test("backfill: dismissed idle run is NOT re-backfilled (buildEpic not re-called)", async () => {
+    let buildEpicCalls = 0;
+    const { app, store } = completedHarness({
+      // open set includes the parent → not auto-dismissed by the open-set sweep; the dismissed
+      // row must be honored by the hasEpicCompleted pre-check, not by absence from the open set.
+      resolveForge: () =>
+        ({
+          listIssues: async () => [
+            { number: 88, title: "Epic", body: "", url: "", labels: [], createdAt: 0 },
+          ],
+        }) as any,
+      drainOverrides: {
+        buildEpic: async (repoPath, run) => {
+          buildEpicCalls++;
+          return {
+            ...makeEpic(repoPath, run.parentIssueNumber, run),
+            children: [mergedChild(1), mergedChild(2)],
+          };
+        },
+      },
+    });
+    // Record + dismiss the completed epic, leaving an idle run for the same parent.
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 88,
+      parentTitle: "Epic",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    store.dismissEpicCompleted(repoDir, 88);
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 88, mode: "auto", status: "idle" });
+
+    const res1 = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(res1.status).toBe(200);
+    expect(await res1.json()).toEqual([]); // dismissed → stays absent from response
+    const res2 = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(await res2.json()).toEqual([]);
+    // hasEpicCompleted (dismissedAt-agnostic) short-circuits the backfill → buildEpic never fires.
+    expect(buildEpicCalls).toBe(0);
+  });
+
+  test("forge throw during reconcile → still 200 with DB rows (fail-safe)", async () => {
+    const { app, store } = completedHarness({
+      resolveForge: () =>
+        ({
+          listIssues: async () => {
+            throw new Error("boom");
+          },
+        }) as any,
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Persisted",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].parentIssueNumber).toBe(5);
+  });
+
+  test("no drain → still serves DB rows + auto-dismiss (backfill skipped)", async () => {
+    const { app, store } = completedHarness({
+      drain: null,
+      resolveForge: () => ({ listIssues: async () => [] }) as any,
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Closed",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(res.status).toBe(200);
+    // open set empty → #5 confidently closed → auto-dismissed even without drain
+    expect(await res.json()).toEqual([]);
+  });
+});
+
+describe("POST /api/epics/completed/dismiss", () => {
+  test("dismiss hides row from subsequent GET + emits event", async () => {
+    const { app, store, cleared } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "X",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/dismiss`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, parent: 5 }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(cleared).toEqual([{ repoPath: repoDir, parentIssueNumber: 5 }]);
+    const get = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(await get.json()).toEqual([]);
+  });
+
+  test("invalid repo → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/dismiss`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: "/nope/not/here", parent: 5 }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("invalid parent → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/dismiss`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, parent: -1 }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("missing body (no repo) → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/dismiss`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ parent: 5 }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 });
 

@@ -387,6 +387,13 @@ export class SessionStore implements CapStore, CreditStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    this.migrateEpicIntegratedColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_completed (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      parentTitle TEXT NOT NULL, completedAt INTEGER NOT NULL,
+      dismissedAt INTEGER,
+      childrenJson TEXT NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -544,6 +551,13 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  /** All persisted epic_run rows (one per repo). Mirrors getEpicRun's row shape. */
+  listEpicRuns(): EpicRun[] {
+    return this.db
+      .query(`SELECT repoPath, parentIssueNumber, mode, status FROM epic_run`)
+      .all() as EpicRun[];
+  }
+
   setEpicRun(r: EpicRun): void {
     this.db.run(
       `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, updatedAt) VALUES (?,?,?,?,?)
@@ -553,12 +567,22 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   /** Record that a child PR was squash-merged into the epic integration branch.
-   *  Idempotent (PK upsert) — the drain may re-observe a merge across pumps. */
-  recordEpicIntegrated(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+   *  Idempotent (PK upsert) — the drain may re-observe a merge across pumps.
+   *  On conflict, updates only PR columns (guarded by COALESCE so a null re-observe
+   *  cannot clobber previously-recorded good values). createdAt is never overwritten. */
+  recordEpicIntegrated(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+    pr?: { number: number; url: string },
+  ): void {
     this.db.run(
-      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt)
-       VALUES (?,?,?,?) ON CONFLICT DO NOTHING`,
-      [repoPath, parentIssueNumber, childNumber, Date.now()],
+      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt, prNumber, prUrl)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         prNumber = COALESCE(excluded.prNumber, epic_integrated.prNumber),
+         prUrl = COALESCE(NULLIF(excluded.prUrl, ''), epic_integrated.prUrl)`,
+      [repoPath, parentIssueNumber, childNumber, Date.now(), pr?.number ?? null, pr?.url ?? null],
     );
   }
 
@@ -568,6 +592,103 @@ export class SessionStore implements CapStore, CreditStore {
       .query(`SELECT childNumber FROM epic_integrated WHERE repoPath = ? AND parentIssueNumber = ?`)
       .all(repoPath, parentIssueNumber) as { childNumber: number }[];
     return new Set(rows.map((r) => r.childNumber));
+  }
+
+  /** All integrated child rows for one epic, with PR details and mergedAt timestamp. */
+  listEpicIntegratedDetails(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { childNumber: number; prNumber: number | null; prUrl: string | null; mergedAt: number }[] {
+    return this.db
+      .query(
+        `SELECT childNumber, prNumber, prUrl, createdAt AS mergedAt
+         FROM epic_integrated WHERE repoPath = ? AND parentIssueNumber = ?
+         ORDER BY childNumber`,
+      )
+      .all(repoPath, parentIssueNumber) as {
+      childNumber: number;
+      prNumber: number | null;
+      prUrl: string | null;
+      mergedAt: number;
+    }[];
+  }
+
+  /** Record a completed epic (all children done-in-epic). Idempotent upsert.
+   *  On conflict, refreshes parentTitle/completedAt/childrenJson but leaves dismissedAt untouched
+   *  so a previously dismissed epic never resurrects. */
+  recordEpicCompleted(row: {
+    repoPath: string;
+    parentIssueNumber: number;
+    parentTitle: string;
+    completedAt: number;
+    childrenJson: string;
+  }): void {
+    this.db.run(
+      `INSERT INTO epic_completed (repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         parentTitle = excluded.parentTitle,
+         completedAt = excluded.completedAt,
+         childrenJson = excluded.childrenJson`,
+      [row.repoPath, row.parentIssueNumber, row.parentTitle, row.completedAt, row.childrenJson],
+    );
+  }
+
+  /** True if an epic_completed row exists for this key, regardless of dismissedAt.
+   *  Used by the backfill pre-check so a dismissed-but-idle run isn't re-backfilled. */
+  hasEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {
+    return (
+      this.db
+        .query(`SELECT 1 FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ? LIMIT 1`)
+        .get(repoPath, parentIssueNumber) !== null
+    );
+  }
+
+  /** All non-dismissed completed epics, optionally filtered by repoPath, newest-completed first. */
+  listEpicCompleted(repoPath?: string): {
+    repoPath: string;
+    parentIssueNumber: number;
+    parentTitle: string;
+    completedAt: number;
+    childrenJson: string;
+  }[] {
+    if (repoPath !== undefined) {
+      return this.db
+        .query(
+          `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson
+           FROM epic_completed WHERE dismissedAt IS NULL AND repoPath = ?
+           ORDER BY completedAt DESC`,
+        )
+        .all(repoPath) as {
+        repoPath: string;
+        parentIssueNumber: number;
+        parentTitle: string;
+        completedAt: number;
+        childrenJson: string;
+      }[];
+    }
+    return this.db
+      .query(
+        `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson
+         FROM epic_completed WHERE dismissedAt IS NULL
+         ORDER BY completedAt DESC`,
+      )
+      .all() as {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      completedAt: number;
+      childrenJson: string;
+    }[];
+  }
+
+  /** Mark a completed epic as dismissed (hides it from listEpicCompleted).
+   *  TODO(#635): Stage B should call this at land-time when it closes the parent. */
+  dismissEpicCompleted(repoPath: string, parentIssueNumber: number): void {
+    this.db.run(
+      `UPDATE epic_completed SET dismissedAt = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [Date.now(), repoPath, parentIssueNumber],
+    );
   }
 
   private nextDesignationSeq(): number {
@@ -1359,6 +1480,16 @@ export class SessionStore implements CapStore, CreditStore {
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
+  }
+
+  private migrateEpicIntegratedColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_integrated)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE epic_integrated ADD COLUMN ${ddl}`);
+    };
+    add("prNumber", `prNumber INTEGER`);
+    add("prUrl", `prUrl TEXT`);
   }
 
   private migrateReviewColumns(): void {

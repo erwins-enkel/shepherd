@@ -8,6 +8,7 @@ import type {
   AutoMergeStatus,
   BacklogPayload,
   BuildQueue,
+  CompletedEpic,
   DrainStatus,
   GitState,
   Session,
@@ -717,4 +718,71 @@ test("draftreconcile:status null with no prior error toast is a no-op", () => {
     data: { repoPath: "/r", sessionId: "dr-noop-1", state: null, detail: null },
   });
   expect(toasts.items.filter((x) => x.key?.startsWith("draft-reconcile:"))).toHaveLength(0);
+});
+
+// ── completed epics ───────────────────────────────────────────────────────────
+
+function completedEpic(repoPath: string, parentIssueNumber: number): CompletedEpic {
+  return {
+    repoPath,
+    parentIssueNumber,
+    parentTitle: `Epic #${parentIssueNumber}`,
+    completedAt: Date.now(),
+    children: [
+      {
+        number: 1,
+        title: "sub-issue",
+        url: "https://github.com/x/y/issues/1",
+        prNumber: 2,
+        prUrl: "https://github.com/x/y/pull/2",
+        mergedAt: Date.now(),
+        integrated: true,
+      },
+    ],
+  };
+}
+
+test("epic:completed adds to completedEpics and enqueues a toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  const epic = completedEpic("/r", 42);
+  s.apply({ event: "epic:completed", data: epic });
+  expect(s.completedEpics).toHaveLength(1);
+  expect(s.completedEpics[0].parentIssueNumber).toBe(42);
+  expect(toasts.items.some((t) => t.key === "epic-complete:/r#42")).toBe(true);
+});
+
+test("epic:completed with same key replaces (no duplicates)", () => {
+  const s = new HerdStore();
+  const v1 = completedEpic("/r", 42);
+  const v2 = { ...completedEpic("/r", 42), parentTitle: "Updated title" };
+  s.apply({ event: "epic:completed", data: v1 });
+  s.apply({ event: "epic:completed", data: v2 });
+  expect(s.completedEpics).toHaveLength(1);
+  expect(s.completedEpics[0].parentTitle).toBe("Updated title");
+});
+
+test("epic:completed for different repos/parents appends", () => {
+  const s = new HerdStore();
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 42) });
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 99) });
+  expect(s.completedEpics).toHaveLength(2);
+});
+
+test("epic:completed-cleared removes matching entry and leaves others", () => {
+  const s = new HerdStore();
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 42) });
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 99) });
+  s.apply({ event: "epic:completed-cleared", data: { repoPath: "/r", parentIssueNumber: 42 } });
+  expect(s.completedEpics).toHaveLength(1);
+  expect(s.completedEpics[0].parentIssueNumber).toBe(99);
+});
+
+test("seedCompletedEpics replaces the array", () => {
+  const s = new HerdStore();
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 1) });
+  const fresh = [completedEpic("/r", 7), completedEpic("/r", 8)];
+  s.seedCompletedEpics(fresh);
+  expect(s.completedEpics).toHaveLength(2);
+  expect(s.completedEpics[0].parentIssueNumber).toBe(7);
 });

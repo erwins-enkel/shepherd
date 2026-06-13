@@ -1,12 +1,13 @@
 import type { Scenario } from "./types";
 
 /**
- * The Phase 1 messy-environment catalog. Every baseline is assumed bootable
+ * The messy-environment scenario catalog. Every baseline is assumed bootable
  * (the bun runtime is installed by the seed engine before these seeds run — see
  * seed.ts); defects are layered on top so degraded Shepherd can still boot and
- * self-diagnose. `coaching: "structured"` scenarios fall back to the agent path
- * in Phase 1 (no diagnostics remediation field exists yet) and switch to the
- * deterministic verbatim path in Phase 2.
+ * self-diagnose. `coaching: "structured"` scenarios use the deterministic
+ * verbatim-remediation path (LLM-free gate); every such scenario MUST have a
+ * matching REMEDIATIONS entry in remediations.ts. `coaching: "prose"` scenarios
+ * are agent-path only (e.g. distro-specific installs with no single one-liner).
  */
 export const SCENARIOS: Scenario[] = [
   {
@@ -24,7 +25,9 @@ export const SCENARIOS: Scenario[] = [
     image: "images:debian/12",
     seed: ["apt-get remove -y gh 2>/dev/null || true", "rm -f /usr/bin/gh /usr/local/bin/gh"],
     expect: [{ id: "gh", state: "error" }],
-    coaching: "structured",
+    // prose: gh install is distro-specific; no single verbatim one-liner covers
+    // ubuntu/debian/alpine/arch/fedora → agent path only, not the deterministic gate.
+    coaching: "prose",
   },
   {
     id: "tailscale-missing",
@@ -68,7 +71,9 @@ export const SCENARIOS: Scenario[] = [
     image: "images:alpine/3.20",
     seed: ["apk del git 2>/dev/null || true", "rm -f /usr/bin/git"],
     expect: [{ id: "git", state: "error" }],
-    coaching: "structured",
+    // prose: git install is distro-specific; no single verbatim one-liner covers
+    // ubuntu/debian/alpine/arch/fedora → agent path only, not the deterministic gate.
+    coaching: "prose",
   },
   {
     id: "node-too-old",

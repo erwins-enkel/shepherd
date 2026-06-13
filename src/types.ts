@@ -262,6 +262,29 @@ export interface PrReview {
 }
 
 // ── reviewer spawn cost-attribution record ──────────────────────────────────
+// ── session recap ────────────────────────────────────────────────────────────
+export type RecapState = "generating" | "ready" | "failed" | "empty";
+export type RecapVerdict = "ready" | "parked" | "needs_attention";
+
+/** A per-session LLM recap. One row per session, keyed by the HEAD it summarizes
+ *  (head-keyed dedupe: a new head re-generates). `state` distinguishes in-flight /
+ *  done / failed / no-changes. verdict/headline/body/openItems are empty until ready. */
+export interface Recap {
+  sessionId: string;
+  state: RecapState;
+  headSha: string; // the git HEAD this recap summarizes; "" for empty/in-flight w/o head
+  verdict: RecapVerdict | null;
+  headline: string; // <=100 chars; "" until ready
+  body: string; // markdown; "" until ready
+  openItems: string[]; // [] until ready
+  spawnSessionId: string; // claude --session-id of the recap spawn (usage + pane resolve)
+  cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null; // set when finalized (ready/failed/empty)
+  updatedAt: number;
+}
+
 /** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
  *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
  *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —
@@ -269,7 +292,7 @@ export interface PrReview {
 export interface ReviewerSpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
-  kind: "review" | "plan_gate";
+  kind: "review" | "plan_gate" | "recap";
   worktreePath: string;
   model: string | null;
   spawnedAt: number;

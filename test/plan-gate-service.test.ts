@@ -21,6 +21,7 @@ function harness(over: any = {}) {
     get: () => ({ id: "s1", auto: false }),
     recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
     completeReviewerSpawn: (id: any, u: any, at: any) => completedSpawns.push({ id, u, at }),
+    listReviewerSpawns: () => [],
     ...(over.store ?? {}),
   };
   const deps: any = {
@@ -31,7 +32,9 @@ function harness(over: any = {}) {
         return { terminalId: "t1" };
       },
       stop() {},
+      list: () => [],
     },
+    worktreeExists: () => true,
     worktree: {
       createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
       remove: (p: string) => removed.push(p),
@@ -452,4 +455,116 @@ test("plan-gate reviewer spawn degrades to unwrapped when backend is null", asyn
   await h.svc.consider(planningSession() as any);
   const argv = h.started[0]!.argv;
   expect(argv[0]).not.toBe("bwrap"); // passthrough — identical to pre-sandbox behavior
+});
+
+// ── adoptOrphans: recover plan reviews orphaned by a restart ──────────────────
+const orphanSpawn = (over: any = {}) => ({
+  reviewerSessionId: "rev-1",
+  taskSessionId: "s1",
+  kind: "plan_gate",
+  worktreePath: "/wt-detached",
+  model: null,
+  spawnedAt: 1000,
+  completedAt: null,
+  inputTokens: null,
+  outputTokens: null,
+  cacheReadTokens: null,
+  cacheWriteTokens: null,
+  totalTokens: null,
+  ...over,
+});
+
+test("adoptOrphans re-adopts an orphaned review; next tick finalizes it from the on-disk verdict", async () => {
+  const replied: string[] = [];
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      getPlanGate: () => ({ round: 1, decision: "changes_requested" }),
+      listReviewerSpawns: () => [orphanSpawn()],
+    },
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "fix it",
+      body: "B",
+      findings: ["do A"],
+    }),
+    reply: (id: string) => {
+      replied.push(id);
+      return true;
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual(["s1"]); // re-claimed into inflight
+  await h.svc.tick();
+  expect(h.store.gate.decision).toBe("changes_requested");
+  expect(h.store.gate.round).toBe(2); // priorRound (1) advanced once the steer landed
+  expect(replied).toEqual(["s1"]); // findings steered back to the planning agent
+  expect(h.removed).toContain("/wt-detached"); // reviewer worktree reaped
+});
+
+test("adoptOrphans skips a spawn whose worktree was already reaped (finalized)", async () => {
+  const h = harness({
+    worktreeExists: () => false,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn()],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]);
+});
+
+test("adoptOrphans ignores completed, non-plan_gate, and non-planning spawns", async () => {
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "executing" }),
+      listReviewerSpawns: () => [
+        orphanSpawn({ completedAt: 5 }),
+        orphanSpawn({ kind: "review" }),
+        orphanSpawn(), // planPhase is "executing" above → skipped
+      ],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]);
+});
+
+test("adopted orphan with no verdict, past timeout → error gate + stall (fail-closed)", async () => {
+  const signals: any[] = [];
+  let t = 1000;
+  const h = harness({
+    now: () => t,
+    readVerdict: () => null,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn()], // spawnedAt = 1000
+      addSignal: (s: any) => signals.push(s),
+    },
+  });
+  await h.svc.adoptOrphans();
+  t = 1000 + 11 * 60 * 1000; // exceed the 10m timeout measured from spawnedAt
+  await h.svc.tick();
+  expect(h.store.gate.decision).toBe("error");
+  expect(signals.some((s) => s.kind === "stall")).toBe(true);
+  expect(h.removed).toContain("/wt-detached");
+});
+
+test("adoptOrphans resolves the reviewer terminal by worktree cwd for reaping", async () => {
+  const stopped: string[] = [];
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn()],
+    },
+    herdr: {
+      start: () => ({ terminalId: "t1" }),
+      stop: (id: string) => stopped.push(id),
+      list: () => [{ cwd: "/wt-detached", terminalId: "rev-term-9" }],
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(stopped).toContain("rev-term-9"); // reaped the resolved live reviewer terminal
 });

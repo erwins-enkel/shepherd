@@ -465,6 +465,11 @@ const planGate = new PlanGateService({
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   cap: () => config.planReviewCyclesCap,
 });
+// Re-adopt plan reviews left in flight by the previous run (the `inflight` map is in-memory):
+// without this a restart mid-review orphans the reviewer forever — its verdict goes unread, the
+// gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
+// The next tick() then finalizes each re-adopted run from the verdict it already wrote.
+void planGate.adoptOrphans().catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);

@@ -29,7 +29,7 @@ execution path** (per the position above, pending R1's resolution) for the whole
 just a dashboard.
 
 **For operators who cannot accept the R1 ambiguity**, an API-key footing (B) is available as a
-shipped opt-in (v1.29.0, Settings → Session): still genuinely interactive, auth via Commercial
+shipped opt-in (v1.30.0, Settings → Session): still genuinely interactive, auth via Commercial
 Terms API key — the clearly-compliant, no-train-by-default path. See the
 [auth-path evaluation](docs/research/tos-position-and-auth-paths.md).
 
@@ -53,7 +53,7 @@ Terms API key — the clearly-compliant, no-train-by-default path. See the
 - No multi-user / team farming (ToS). Single operator, bring-your-own-Claude (sub).
 - No Agent SDK, no `claude -p` on a sub **by default** — but see the
   [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) (audit R1): **API-key auth
-  (footing B) is shipped as of v1.29.0** (Settings → Session → Auth Mode) as an opt-in for
+  (footing B) is shipped as of v1.30.0** (Settings → Session → Auth Mode) as an opt-in for
   operators who need a clearly-compliant path. Sessions remain genuinely interactive even in api-key
   mode; only the auth channel changes (subscription OAuth → Commercial Terms API key, no-train-by-default,
   R1 ambiguity resolved). Footing (C) — Agent SDK credit — remains out of scope; it reopens the

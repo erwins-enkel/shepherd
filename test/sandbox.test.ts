@@ -256,14 +256,6 @@ function hasTriple(flags: string[], flag: string, a: string, b: string): boolean
   return false;
 }
 
-/** Index of the `flag a b` triple's first token, or -1. */
-function findTripleIndex(flags: string[], flag: string, a: string, b: string): number {
-  for (let i = 0; i + 2 < flags.length; i++) {
-    if (flags[i] === flag && flags[i + 1] === a && flags[i + 2] === b) return i;
-  }
-  return -1;
-}
-
 describe("buildMembraneFlags", () => {
   test("has hardened process isolation flags", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
@@ -479,14 +471,31 @@ describe("buildMembraneFlags", () => {
     expect(explicit).toEqual(bare);
   });
 
-  test("maskCredentials + apiKeyHelperPath: /dev/null overlay AFTER whole-dir bind, helper RO, no rw credential bind", () => {
+  test("maskCredentials: .credentials.json ABSENT (per-child binds, no whole-dir bind, no overlay), helper RO", () => {
     const f = buildMembraneFlags(
       fakeMembrane({ maskCredentials: true, apiKeyHelperPath: "/h/x.sh" }),
-      detDeps,
+      {
+        ...detDeps,
+        readdir: () => [
+          ".credentials.json",
+          "skills",
+          "settings.json",
+          "projects",
+          "statsig",
+          "CLAUDE.md",
+        ],
+      },
     );
-    // /dev/null overlay of the credential present
-    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(true);
-    // the rw bind of the credential is GONE
+    // NO whole-dir RO bind of claudeDir (replaced by per-child binds).
+    expect(hasTriple(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude")).toBe(false);
+    // The mount point still exists via --dir.
+    const di = f.indexOf("--dir");
+    expect(di).toBeGreaterThanOrEqual(0);
+    expect(f[di + 1]).toBe("/home/me/.claude");
+    // NO bind of .credentials.json of ANY kind — the file is absent.
+    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(
+      false,
+    );
     expect(
       hasTriple(
         f,
@@ -495,16 +504,29 @@ describe("buildMembraneFlags", () => {
         "/home/me/.claude/.credentials.json",
       ),
     ).toBe(false);
-    // overlay must come AFTER the whole-dir RO bind so it wins (last-wins).
-    const wholeDir = findTripleIndex(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude");
-    const overlay = findTripleIndex(
-      f,
-      "--ro-bind",
-      "/dev/null",
-      "/home/me/.claude/.credentials.json",
-    );
-    expect(wholeDir).toBeGreaterThanOrEqual(0);
-    expect(overlay).toBeGreaterThan(wholeDir);
+    expect(
+      hasTriple(
+        f,
+        "--ro-bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(false);
+    // Per-child RO binds present for the non-credential entries.
+    expect(
+      hasTriple(f, "--ro-bind-try", "/home/me/.claude/skills", "/home/me/.claude/skills"),
+    ).toBe(true);
+    expect(
+      hasTriple(
+        f,
+        "--ro-bind-try",
+        "/home/me/.claude/settings.json",
+        "/home/me/.claude/settings.json",
+      ),
+    ).toBe(true);
+    expect(
+      hasTriple(f, "--ro-bind-try", "/home/me/.claude/CLAUDE.md", "/home/me/.claude/CLAUDE.md"),
+    ).toBe(true);
     // helper bound RO at the same path inside the sandbox
     expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
   });

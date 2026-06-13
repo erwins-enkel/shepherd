@@ -55,16 +55,16 @@ An operator can stand on any of three auth footings. None is pre-dismissed; each
 Recommend, do **not** mandate — the operator chooses their footing:
 
 - **Keep (A) as the default**, now wearing the honest, softened framing (R1 is Shepherd's _position_, not settled compliance — the PRD/PRODUCT softening lands this).
-- **Offer (B) as a first-class, clearly-compliant opt-in** for risk-averse operators who cannot accept R1's ambiguity. The Commercial/API path sidesteps the automation clause entirely and closes the training-by-default exposure; its cost is metered API rates and the architectural change now shipped in §4. **(B) is available as of v1.29.0 — Settings → Session → Auth Mode.)**
+- **Offer (B) as a first-class, clearly-compliant opt-in** for risk-averse operators who cannot accept R1's ambiguity. The Commercial/API path sidesteps the automation clause entirely and closes the training-by-default exposure; its cost is metered API rates and the architectural change now shipped in §4. **(B) is available as of v1.30.0 — Settings → Session → Auth Mode.)**
 - **Record (C) as the lowest-legal-risk, explicitly-permitted automation channel**, whose adoption is a deliberate **product decision** because it reopens the interactive-substrate thesis (§2(C)). Not recommended as default, but honestly the strongest R1 footing.
 
 **Internal-consistency flag.** Surfacing (B)/(C) revisits **PRD §2's non-goal**, whose original wording was the absolute _"No Agent SDK, no `claude -p`. Ever, on a sub."_ This work has softened that line from the absolute non-goal to a _by-default_ position that cross-refs this doc, so the two stay consistent; this doc names the tension plainly so neither ships a contradictory stance. If (C) is ever adopted, the §2 non-goal must be rewritten further, not silently left standing.
 
 ---
 
-## 4. As-built: (B) API-key mode — shipped v1.29.0 (issue #660, closing R1 Action 3)
+## 4. As-built: (B) API-key mode — shipped v1.30.0 (issue #660, closing R1 Action 3)
 
-> **SHIPPED in v1.29.0 (issue #660, closing R1 Action 3 and also R5).** The sketch below has been superseded by the as-built notes. What follows is the accurate description of what shipped.
+> **SHIPPED in v1.30.0 (issue #660, closing R1 Action 3 and also R5).** The sketch below has been superseded by the as-built notes. What follows is the accurate description of what shipped.
 
 **Shape.** A global operator setting `authMode`: `subscription` (default, footing A) | `api-key` (footing B). Env seed: `SHEPHERD_AUTH_MODE`. Configured in Settings → Session.
 

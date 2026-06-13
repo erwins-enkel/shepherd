@@ -123,8 +123,8 @@ Greenfield app in `~/Work/shepherd/`. Thin orchestrator over existing infra.
 
 - I1 Real bidirectional PTY (not hook-echo-only) — also strengthens ToS "interactive" claim.
 - I2 Worktree-per-task → concurrent agents never collide on a checkout.
-- I3 Permission profiles roadmap (v1 = skip/auto mode per user; v2 = per-project allowlists). _(partially shipped #294: trusted/standard/autonomous profiles + auto=true gate; network egress allowlist follow-up #551)_
-- I4 Real sandboxing roadmap (firejail/bwrap/nspawn) — make "live dangerously" not literal. _(partially shipped #294: bwrap filesystem/process membrane, host-derived bind set, degraded-mode banner; network egress not yet implemented, tracked #551)_
+- I3 Permission profiles roadmap (v1 = skip/auto mode per user; v2 = per-project allowlists). _(partially shipped #294: trusted/standard/autonomous profiles + auto=true gate; network egress allowlist shipped #601)_
+- I4 Real sandboxing roadmap (firejail/bwrap/nspawn) — make "live dangerously" not literal. _(partially shipped #294: bwrap filesystem/process membrane, host-derived bind set, degraded-mode banner; network egress allowlist shipped #601)_
 - I5 Real cost from session JSONL, not just usage %.
 - I6 Mobile-native monitoring/steering via existing PWA patterns.
 
@@ -148,7 +148,7 @@ Chat history + usage either in kanban-api SQLite or a small Shepherd-local SQLit
 
 - v1: `--dangerously-skip-permissions` / auto mode (per user). Run isolated, never as root.
 - Network: Tailscale-only, same as kanban-api. Nothing public.
-- Roadmap: per-agent sandbox (I4) + permission profiles (I3) before any unattended autonomy. _(filesystem/process membrane shipped #294; network egress follow-up #551)_
+- Roadmap: per-agent sandbox (I4) + permission profiles (I3) before any unattended autonomy. _(filesystem/process membrane shipped #294; network egress allowlist shipped #601)_
 
 ## 11. Phasing (proposed)
 
@@ -158,7 +158,7 @@ Chat history + usage either in kanban-api SQLite or a small Shepherd-local SQLit
 - **P2 Git** — gitea PR/merge/redeploy buttons + CI.
 - **P3 Research + chat + usage** — searxng, history, cost from JSONL, image DnD.
 - **P4 Hermes migration** — move Hermes off `claude -p` onto interactive-via-herdr.
-- **P5 Hardening** — sandboxing _(filesystem/process membrane shipped #294; egress #551)_, permission profiles _(shipped #294)_, mobile polish.
+- **P5 Hardening** — sandboxing _(filesystem/process membrane shipped #294; network egress allowlist shipped #601)_, permission profiles _(shipped #294)_, mobile polish.
 
 ## 12. Open questions
 

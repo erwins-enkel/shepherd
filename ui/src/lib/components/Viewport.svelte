@@ -1678,6 +1678,7 @@
 <div
   class="viewport"
   class:swiping
+  class:phone={mobile}
   bind:this={viewportEl}
   style:transform={swipeX ? `translateX(${swipeX}px)` : undefined}
 >
@@ -2546,6 +2547,18 @@
 
   .viewport.swiping {
     transition: none;
+  }
+
+  /* phone session view: full-bleed terminal — the side borders + rounded corners
+     cost two vertical lines plus gutters on a narrow phone, so drop them and
+     stretch into the shell's base edge padding (--mobile-shell-pad, shared with
+     .shell.mobile in +page.svelte; a larger safe-area inset keeps the remainder).
+     The top/bottom borders stay as horizontal section rules. Mirrors Herd's
+     .panel.flow full-bleed treatment for the mobile list. */
+  .viewport.phone {
+    border-inline: 0;
+    border-radius: 0;
+    margin-inline: calc(-1 * var(--mobile-shell-pad));
   }
 
   .vp-head {

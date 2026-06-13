@@ -328,15 +328,7 @@
 {/if}
 
 {#if tipRect && !menu}
-  <TimePopover
-    {session}
-    {git}
-    {activity}
-    {nowMs}
-    working={dStatus === "running"}
-    anchorRect={tipRect}
-    onclose={tipHide}
-  />
+  <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
 {/if}
 
 <style>

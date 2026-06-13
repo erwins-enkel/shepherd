@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly Shepherd onboarding harness run
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

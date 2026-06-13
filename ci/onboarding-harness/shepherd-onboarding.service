@@ -1,0 +1,8 @@
+[Unit]
+Description=Shepherd onboarding regression harness (nightly)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Work/shepherd
+ExecStart=/usr/bin/env bun run onboarding:test

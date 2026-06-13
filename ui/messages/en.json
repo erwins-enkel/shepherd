@@ -1108,5 +1108,7 @@
   "automation_allprs_detail": "Normally the Critic only reviews pull requests opened by Shepherd's own agents. Turn this on and the Critic instead sweeps the whole repo on a timer, reviewing every open, CI-green pull request — including ones humans or other tools opened, and fork contributions. Each gets the same read-only diff review, posted as a comment (never a blocking change request, so it won't gate third-party PRs). This is independent of the per-session Critic switch and reviews more PRs, so it costs more tokens. Each PR is reviewed once per pushed head; a pure rebase isn't re-reviewed.",
   "feat_critic_all_prs_title": "Critic reviews every PR",
   "feat_critic_all_prs_body": "Enable \"Review all PRs\" in a repo's automation panel and the Critic will review every CI-green pull request — not just ones tied to a Shepherd session. Opt-in per repo; note the higher token cost for busy repos.",
-  "automation_sandbox_profile_summary": "Opt-in confinement for agents."
+  "automation_sandbox_profile_summary": "Opt-in confinement for agents.",
+  "feat_steers_prompt_editor_title": "Roomier steer editor with slash commands",
+  "feat_steers_prompt_editor_body": "In Saved Steers, clicking into a prompt field now expands it to show the whole text, and typing \"/\" offers the same slash-command picker as the New Task and compose fields — pick a command with the arrow keys or a tap."
 }

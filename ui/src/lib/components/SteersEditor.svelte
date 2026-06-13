@@ -5,7 +5,10 @@
   import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "$lib/steers.svelte";
   import EmojiPicker from "$lib/components/EmojiPicker.svelte";
-  import type { Steer } from "$lib/types";
+  import SlashCommandMenu from "$lib/components/SlashCommandMenu.svelte";
+  import { getCommands } from "$lib/api";
+  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
+  import type { Steer, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   const flipDurationMs = 150;
@@ -16,6 +19,20 @@
   let saved = $state(false);
   // steer id whose emoji picker is open; null = closed
   let pickerFor = $state<string | null>(null);
+
+  // ── inline slash-command autocomplete for each steer's prompt field ──
+  // Steers are global presets (not bound to a repo), so we load the user-scope
+  // command index: passing no repo to /api/commands yields the user/.claude
+  // commands + skills only, the layer common to every session.
+  let allCommands = $state<SlashCommand[]>([]);
+  // steer id whose slash menu is open; null = closed (only one field is focused
+  // at a time, so a single set of menu state covers the whole list).
+  let slashFor = $state<string | null>(null);
+  let slashQuery = $state("");
+  let slashIndex = $state(0);
+  // the textarea currently driving the menu, for caret reads + post-pick refocus
+  let activeTa: HTMLTextAreaElement | null = null;
+  const slashMatches = $derived(slashFor ? filterCommands(allCommands, slashQuery) : []);
 
   function reorder(e: CustomEvent<DndEvent<Steer>>) {
     draft = e.detail.items;
@@ -29,7 +46,88 @@
   onMount(async () => {
     if (!steers.loaded) await steers.load();
     syncFromStore();
+    getCommands("")
+      .then((r) => (allCommands = r.commands))
+      .catch(() => (allCommands = []));
   });
+
+  // Grow the focused prompt field to fit its content; at rest it collapses back to
+  // a single line so the row list stays compact. This is the "click-in → bigger"
+  // behaviour: a long steer prompt is fully visible and editable once focused.
+  function autogrow(ta: HTMLTextAreaElement) {
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }
+
+  function onTextFocus(e: FocusEvent) {
+    activeTa = e.currentTarget as HTMLTextAreaElement;
+    autogrow(activeTa);
+  }
+
+  function onTextInput(s: Steer, e: Event) {
+    saved = false;
+    const ta = e.currentTarget as HTMLTextAreaElement;
+    activeTa = ta;
+    autogrow(ta);
+    // open/refresh the menu from the caret, or close it once the text is no longer
+    // a leading `/token` (mirrors the ComposeBar / New Task picker).
+    const trigger = matchSlashTrigger(s.text, ta.selectionStart ?? s.text.length);
+    if (trigger) {
+      slashFor = s.id;
+      slashQuery = trigger.query;
+      slashIndex = 0;
+    } else if (slashFor === s.id) {
+      slashFor = null;
+    }
+  }
+
+  function onTextBlur(s: Steer, e: FocusEvent) {
+    (e.currentTarget as HTMLTextAreaElement).style.height = ""; // collapse to one line
+    if (slashFor === s.id) slashFor = null;
+  }
+
+  // Replace the typed `/query` with the chosen command, hoisting it to the front —
+  // Claude only runs a *leading* slash command, so any surrounding text becomes its
+  // argument. Caret lands past `/name ` so arguments can be typed straight away.
+  function pickCommand(s: Steer, cmd: SlashCommand) {
+    const ta = activeTa;
+    const caret = ta?.selectionStart ?? s.text.length;
+    const start = matchSlashTrigger(s.text, caret)?.start ?? 0;
+    const next = applyCommandPick(s.text, start, caret, cmd.name);
+    s.text = next.value;
+    slashFor = null;
+    saved = false;
+    queueMicrotask(() => {
+      if (!ta) return;
+      ta.focus();
+      autogrow(ta);
+      ta.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
+  // While the menu is open, arrows/Enter/Tab/Escape drive the picker instead of the
+  // textarea (a tap on a row works regardless).
+  function onTextKeydown(s: Steer, e: KeyboardEvent) {
+    if (slashFor !== s.id) return;
+    if (slashMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        slashIndex = (slashIndex + 1) % slashMatches.length;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        slashIndex = (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickCommand(s, slashMatches[slashIndex]!);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        slashFor = null;
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      slashFor = null;
+    }
+  }
 
   function add() {
     draft = [
@@ -110,13 +208,28 @@
           aria-label={m.steerseditor_label_aria()}
           oninput={() => (saved = false)}
         />
-        <input
-          class="text"
-          bind:value={s.text}
-          placeholder={m.steerseditor_text_placeholder()}
-          aria-label={m.steerseditor_text_aria()}
-          oninput={() => (saved = false)}
-        />
+        <div class="text-wrap">
+          <textarea
+            class="text"
+            rows="1"
+            bind:value={s.text}
+            placeholder={m.steerseditor_text_placeholder()}
+            aria-label={m.steerseditor_text_aria()}
+            onfocus={onTextFocus}
+            oninput={(e) => onTextInput(s, e)}
+            onblur={(e) => onTextBlur(s, e)}
+            onkeydown={(e) => onTextKeydown(s, e)}
+          ></textarea>
+          {#if slashFor === s.id}
+            <SlashCommandMenu
+              commands={slashMatches}
+              activeIndex={slashIndex}
+              placement="down"
+              onpick={(cmd) => pickCommand(s, cmd)}
+              onhover={(i) => (slashIndex = i)}
+            />
+          {/if}
+        </div>
         <div class="scopes" class:none={!s.inSteerBar && !s.onIssues}>
           <button
             type="button"
@@ -199,7 +312,9 @@
     position: relative;
     display: flex;
     gap: 4px;
-    align-items: center;
+    /* top-aligned so the controls stay level with the first line when the prompt
+       field grows to multiple lines on focus */
+    align-items: flex-start;
   }
   .grip {
     flex: 0 0 auto;
@@ -217,7 +332,8 @@
   .grip:active {
     cursor: grabbing;
   }
-  .srow input {
+  .srow input,
+  .srow textarea {
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
@@ -230,9 +346,21 @@
     flex: 1 1 26%;
     min-width: 0;
   }
-  .srow .text {
+  /* anchors the slash-command menu (absolutely positioned) to the prompt field */
+  .text-wrap {
+    position: relative;
     flex: 2 1 38%;
     min-width: 0;
+    display: flex;
+  }
+  /* one-line at rest (compact list), autogrows to its content while focused —
+     JS sets an inline height on focus/input and clears it on blur. */
+  .srow .text {
+    flex: 1 1 auto;
+    min-width: 0;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.4;
   }
   .emoji-btn {
     flex: 0 0 auto;

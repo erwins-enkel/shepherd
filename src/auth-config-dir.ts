@@ -81,68 +81,76 @@ export function provisionApiKeyConfigDir(opts: {
   // real files/dirs by a previous bad provisioning run, or are symlinks
   // pointing at the wrong absolute path. Always skip CREDENTIAL_FILE — we'll
   // enforce its absence separately.
-  const destEntries = readdirSync(destDir);
-
-  for (const entry of destEntries) {
-    if (entry === CREDENTIAL_FILE) {
-      // Handled explicitly below — remove unconditionally.
-      _tryRemove(join(destDir, entry));
-      continue;
-    }
-
-    const destEntryPath = join(destDir, entry);
-    const sourcePath = join(sourceClaudeDir, entry);
-
-    const isStale = !sourceEntries.has(entry);
-    let isCorrectSymlink = false;
-
-    if (!isStale) {
-      try {
-        const stat = lstatSync(destEntryPath);
-        if (stat.isSymbolicLink()) {
-          // Correct only if the symlink target matches the intended source path.
-          isCorrectSymlink = readlinkSync(destEntryPath) === sourcePath;
-        }
-      } catch {
-        // lstat/readlink failed — treat as not a correct symlink; fall through to remove.
-      }
-    }
-
-    if (isStale || !isCorrectSymlink) {
-      _tryRemove(destEntryPath);
-    }
+  for (const entry of readdirSync(destDir)) {
+    _pruneStaleDestEntry(entry, { sourceClaudeDir, destDir, sourceEntries });
   }
 
   // ── 2. Create symlinks for all source entries except CREDENTIAL_FILE ──────
   for (const entry of sourceEntries) {
     if (entry === CREDENTIAL_FILE) continue;
-
-    const sourcePath = join(sourceClaudeDir, entry);
-    const destEntryPath = join(destDir, entry);
-
-    // If a correct symlink already exists, skip it.
-    try {
-      const stat = lstatSync(destEntryPath);
-      if (stat.isSymbolicLink() && readlinkSync(destEntryPath) === sourcePath) {
-        continue; // already linked to the right target — leave it
-      }
-      // Wrong target or a real file/dir (shouldn't happen after step 1, but be defensive).
-      _tryRemove(destEntryPath);
-    } catch {
-      // Entry doesn't exist — fall through to create.
-    }
-
-    try {
-      symlinkSync(sourcePath, destEntryPath);
-    } catch {
-      // Best-effort per entry; don't abort the whole provisioning loop.
-    }
+    _ensureSourceSymlink(entry, { sourceClaudeDir, destDir });
   }
 
   // ── 3. Guarantee no credential file in dest ───────────────────────────────
   _removeCredentialIfPresent(destDir);
 
   return destDir;
+}
+
+/**
+ * Whether `path` is a symlink whose target is exactly `expectedTarget`.
+ * Swallows lstat/readlink failures (missing entry, perms) → `false`.
+ */
+function _isSymlinkTo(path: string, expectedTarget: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink() && readlinkSync(path) === expectedTarget;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Step-1 per-entry cleanup: remove a dest entry that is stale (gone from
+ * source), a leftover real file/dir, or a symlink to the wrong target.
+ * CREDENTIAL_FILE is always removed (enforced absent in step 3).
+ */
+function _pruneStaleDestEntry(
+  entry: string,
+  ctx: { sourceClaudeDir: string; destDir: string; sourceEntries: Set<string> },
+): void {
+  const destEntryPath = join(ctx.destDir, entry);
+  if (entry === CREDENTIAL_FILE) {
+    _tryRemove(destEntryPath);
+    return;
+  }
+  const isStale = !ctx.sourceEntries.has(entry);
+  if (isStale || !_isSymlinkTo(destEntryPath, join(ctx.sourceClaudeDir, entry))) {
+    _tryRemove(destEntryPath);
+  }
+}
+
+/**
+ * Step-2 per-entry linking: ensure `destDir/entry` is a symlink to the source
+ * entry. Leaves an already-correct symlink untouched; otherwise removes any
+ * leftover and (re)creates the link best-effort (a single failure never aborts
+ * the loop).
+ */
+function _ensureSourceSymlink(
+  entry: string,
+  ctx: { sourceClaudeDir: string; destDir: string },
+): void {
+  const sourcePath = join(ctx.sourceClaudeDir, entry);
+  const destEntryPath = join(ctx.destDir, entry);
+
+  if (_isSymlinkTo(destEntryPath, sourcePath)) return; // already correct — leave it
+
+  // Wrong target or a real file/dir (shouldn't happen after step 1, but be defensive).
+  _tryRemove(destEntryPath);
+  try {
+    symlinkSync(sourcePath, destEntryPath);
+  } catch {
+    // Best-effort per entry; don't abort the whole provisioning loop.
+  }
 }
 
 /**

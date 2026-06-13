@@ -744,6 +744,32 @@ export class SessionService {
    * `applied` = the resolved profile (what was requested), `degraded` = a sandboxed
    * profile was requested but no backend was present, so it ran unconfined.
    */
+  /**
+   * Resolve this spawn's api-key auth wiring in one place (the addition this
+   * feature layered onto prepareSpawn):
+   *   - `hold`: fail-closed reason string when api-key mode is on but no key is
+   *     configured (else null) — caller refuses before the auto-gate;
+   *   - `membraneFields`: helper-bind + credential-mask flags for the membrane;
+   *   - `passthroughEnv(willWrap)`: CLAUDE_CONFIG_DIR override for the non-wrapped
+   *     (passthrough) case, undefined otherwise.
+   * Subscription mode: hold null, fields null/false, env undefined.
+   */
+  private resolveApiKeyAuth(): {
+    hold: string | null;
+    membraneFields: { apiKeyHelperPath: string | null; maskCredentials: boolean };
+    passthroughEnv: (willWrap: boolean) => Record<string, string> | undefined;
+  } {
+    const hold =
+      isApiKeyMode() && !isApiKeyConfigured()
+        ? "API-key auth mode is enabled but no Anthropic API key is configured (Settings → Session)."
+        : null;
+    return {
+      hold,
+      membraneFields: apiKeyMembraneFields(),
+      passthroughEnv: apiKeyPassthroughEnv,
+    };
+  }
+
   private prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -757,17 +783,14 @@ export class SessionService {
     },
   ): SpawnOutcome {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
+    // Resolve api-key auth wiring once: fail-closed hold reason (null when OK),
+    // the membrane mask/helper fields, and the passthrough config-dir env.
+    const apiKeyAuth = this.resolveApiKeyAuth();
     // Fail closed: api-key mode with no helper path configured must NOT silently
     // fall back to subscription (OAuth) billing. Refuse before the auto-gate so it
     // applies to BOTH interactive create (prepareSpawnOrThrow → throws) and
     // resume/drain (returns ok:false → null/caught).
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
-      return {
-        ok: false,
-        holdReason:
-          "API-key auth mode is enabled but no Anthropic API key is configured (Settings → Session).",
-      };
-    }
+    if (apiKeyAuth.hold) return { ok: false, holdReason: apiKeyAuth.hold };
     const profile = resolveProfile(
       ctx.profileOverride,
       repoConfig.sandboxProfile,
@@ -812,7 +835,7 @@ export class SessionService {
           extraEnv: collectPassthroughEnv(),
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
-          ...apiKeyMembraneFields(),
+          ...apiKeyAuth.membraneFields,
         }
       : ({} as MembraneInputs);
 
@@ -852,7 +875,7 @@ export class SessionService {
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there.
-    const spawnEnv = apiKeyPassthroughEnv(willWrap);
+    const spawnEnv = apiKeyAuth.passthroughEnv(willWrap);
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {

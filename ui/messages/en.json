@@ -1182,7 +1182,7 @@
   "diagnostics_rerun_error": "Failed to re-run checks.",
   "diagnostics_load_error": "Couldn't load checks.",
   "mergetrain_confirm_title": "Start merge train",
-  "mergetrain_confirm_desc_ready": "Work through {count} ready PRs in {repo}?",
+  "mergetrain_confirm_desc_ready": "Work through {count} ready PR(s) in {repo}?",
   "mergetrain_confirm_desc_picked": "Work through {count} selected PRs in {repo}?",
   "mergetrain_confirm_action": "Start merge train",
   "mergetrain_confirm_other_repos": "{count} ready PR(s) in other repos are not included."

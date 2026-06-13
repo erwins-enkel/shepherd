@@ -1182,7 +1182,7 @@
   "diagnostics_rerun_error": "Checks konnten nicht neu geprüft werden.",
   "diagnostics_load_error": "Checks konnten nicht geladen werden.",
   "mergetrain_confirm_title": "Merge-Train starten",
-  "mergetrain_confirm_desc_ready": "{count} bereite PRs in {repo} abarbeiten?",
+  "mergetrain_confirm_desc_ready": "{count} bereite PR(s) in {repo} abarbeiten?",
   "mergetrain_confirm_desc_picked": "{count} ausgewählte PRs in {repo} abarbeiten?",
   "mergetrain_confirm_action": "Merge-Train starten",
   "mergetrain_confirm_other_repos": "{count} bereite PR(s) in anderen Repos sind nicht enthalten."

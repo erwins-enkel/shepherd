@@ -38,7 +38,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 /** The file the recap agent writes its JSON verdict to, in its temp cwd. */
-export const RECAP_VERDICT_FILE = ".shepherd-recap.json";
+const RECAP_VERDICT_FILE = ".shepherd-recap.json";
 
 /** Plan file the agent writes in its LIVE session worktree. */
 const PLAN_FILE = ".shepherd-plan.md";
@@ -235,6 +235,39 @@ export class RecapService {
   // ── sweep ────────────────────────────────────────────────────────────────────
 
   /**
+   * Per-session debounce + eligibility decision. Called by sweep() for each settled session.
+   */
+  private async considerSession(s: Session, now: number): Promise<void> {
+    const entry = this.debounce.get(s.id);
+    if (!entry) {
+      this.debounce.set(s.id, { stamp: now, fired: false });
+      return;
+    }
+
+    if (entry.fired) return; // already triggered this episode
+
+    const idleMs = now - entry.stamp;
+    if (!isSettledIdle(s.status, idleMs, this.idleThresholdMs)) return;
+
+    // Eligibility: mark fired NOW (prevents repeated rev-parse until re-activity).
+    entry.fired = true;
+
+    // Skip drain sessions and sessions without a branch.
+    if (s.auto || !s.branch) return;
+
+    let head: string;
+    try {
+      head = await this._headSha(s.worktreePath);
+    } catch {
+      return; // git unavailable; retry next sweep
+    }
+
+    if (!needsRecap(this.deps.store.getRecap(s.id), head)) return;
+
+    await this.generate(s, head);
+  }
+
+  /**
    * Periodic auto-fire. For each active session, debounce the settled-idle window
    * then generate a recap once per idle episode (head-keyed).
    */
@@ -251,34 +284,7 @@ export class RecapService {
         continue;
       }
 
-      // Settled:
-      const entry = this.debounce.get(s.id);
-      if (!entry) {
-        this.debounce.set(s.id, { stamp: t, fired: false });
-        continue;
-      }
-
-      if (entry.fired) continue; // already triggered this episode
-
-      const idleMs = t - entry.stamp;
-      if (!isSettledIdle(s.status, idleMs, this.idleThresholdMs)) continue;
-
-      // Eligibility: mark fired NOW (prevents repeated rev-parse until re-activity).
-      entry.fired = true;
-
-      // Skip drain sessions and sessions without a branch.
-      if (s.auto || !s.branch) continue;
-
-      let head: string;
-      try {
-        head = await this._headSha(s.worktreePath);
-      } catch {
-        continue; // git unavailable; retry next sweep
-      }
-
-      if (!needsRecap(this.deps.store.getRecap(s.id), head)) continue;
-
-      await this.generate(s, head);
+      await this.considerSession(s, t);
     }
   }
 

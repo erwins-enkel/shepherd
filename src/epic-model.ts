@@ -26,6 +26,9 @@ export interface AssembleInput {
   openIssues: { number: number; body: string; labels: string[] }[]; // markdown fallback only (200-capped)
   openIssuesTruncated: boolean; // listIssues() hit the 200 cap
   sessions: AssembleSession[];
+  /** Child #s whose PR was squash-merged into the epic integration branch (persisted
+   *  by the drain). Satisfies dependencies even though the issue is still open. */
+  integrated: Set<number>;
 }
 
 interface ResolvedGraph {
@@ -84,7 +87,9 @@ export function assembleEpic(input: AssembleInput): Epic {
   const warnings = [...graph.warnings];
 
   const members = new Set(order);
-  const closed = new Set(order.filter((n) => resolved.get(n)?.closed === true));
+  const done = new Set(
+    order.filter((n) => resolved.get(n)?.closed === true || input.integrated.has(n)),
+  );
   const sessByIssue = new Map<number, AssembleSession>();
   for (const s of input.sessions) if (s.issueNumber != null) sessByIssue.set(s.issueNumber, s);
 
@@ -113,9 +118,10 @@ export function assembleEpic(input: AssembleInput): Epic {
       sessionId: sess?.id ?? null,
       prNumber: sess?.prNumber ?? null,
       issueClosed: r.closed,
+      integrationMerged: input.integrated.has(number),
       claimed: r.claimed,
     };
-    child.state = deriveChildState(child, closed);
+    child.state = deriveChildState(child, done);
     return child;
   });
 

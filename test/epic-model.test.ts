@@ -22,6 +22,7 @@ const BASE: AssembleInput = {
   openIssues: [], // markdown-only input; ignored on the native path
   openIssuesTruncated: false,
   sessions: [],
+  integrated: new Set<number>(),
 };
 
 describe("assembleEpic", () => {
@@ -82,4 +83,39 @@ describe("assembleEpic", () => {
     expect(e.children.find((c) => c.number === 322)!.blockedBy).toEqual([]);
     expect(e.warnings.filter((w) => w.includes("blocked_by")).length).toBe(2);
   });
+});
+
+function input(over: Partial<AssembleInput>): AssembleInput {
+  return {
+    repoPath: "/r",
+    run: { repoPath: "/r", parentIssueNumber: 327, mode: "auto", status: "running" },
+    parent: { number: 327, title: "Epic", body: "" },
+    subIssues: [
+      { number: 320, title: "root", url: "u320", body: "", closed: false, labels: [] },
+      { number: 322, title: "dep", url: "u322", body: "", closed: false, labels: [] },
+    ],
+    blockedBy: new Map([[322, [320]]]),
+    openIssues: [],
+    openIssuesTruncated: false,
+    sessions: [],
+    integrated: new Set<number>(),
+    ...over,
+  };
+}
+
+test("a child in the integrated set is integrationMerged and reads 'merged'", () => {
+  const epic = assembleEpic(input({ integrated: new Set([320]) }));
+  const c320 = epic.children.find((c) => c.number === 320)!;
+  expect(c320.integrationMerged).toBe(true);
+  expect(c320.state).toBe("merged");
+});
+
+test("integration-merging the blocker unblocks the dependent (issues still open)", () => {
+  const epic = assembleEpic(input({ integrated: new Set([320]) }));
+  expect(epic.children.find((c) => c.number === 322)!.state).toBe("ready");
+});
+
+test("empty integrated set leaves the dependent blocked", () => {
+  const epic = assembleEpic(input({ integrated: new Set() }));
+  expect(epic.children.find((c) => c.number === 322)!.state).toBe("blocked");
 });

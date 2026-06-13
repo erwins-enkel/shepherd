@@ -4,9 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
-import type { Signal } from "./types";
+import type { Signal, SignalKind } from "./types";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
+
+/** Signal kinds the learnings distiller does NOT mine for code-review patterns.
+ *  `egress_drop` is a security/operational alert (a blocked-host name) — feeding it to
+ *  the rule-proposal LLM would pollute the corpus and count toward the distill threshold. */
+const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>(["egress_drop"]);
 
 /**
  * Reserved herdr label for the ephemeral distiller agent. The underscores are load-bearing:
@@ -86,12 +91,20 @@ export class DistillerService {
     this.readProposals = deps.readProposals ?? defaultReadProposals;
   }
 
+  /** Recent learning signals for a repo — listSignals minus non-learning kinds
+   *  (e.g. egress_drop), so security alerts don't pollute the corpus or the threshold. */
+  private recentLearningSignals(repoPath: string): Signal[] {
+    const since = this.now() - this.windowMs;
+    return this.deps.store
+      .listSignals(repoPath, { sinceTs: since })
+      .filter((s) => !NON_LEARNING_SIGNAL_KINDS.has(s.kind));
+  }
+
   /** Start a distill run for `repoPath` if enough recent signals exist and none is in flight. */
   consider(repoPath: string): void {
     if (this.inflight.has(repoPath)) return;
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
-    const since = this.now() - this.windowMs;
-    const signals = this.deps.store.listSignals(repoPath, { sinceTs: since });
+    const signals = this.recentLearningSignals(repoPath);
     if (signals.length < this.minSignals) return;
     this.begin(repoPath, signals);
   }
@@ -100,8 +113,7 @@ export class DistillerService {
    *  Still requires at least one signal — nothing to distill from otherwise. */
   distillNow(repoPath: string): void {
     if (this.inflight.has(repoPath)) return;
-    const since = this.now() - this.windowMs;
-    const signals = this.deps.store.listSignals(repoPath, { sinceTs: since });
+    const signals = this.recentLearningSignals(repoPath);
     if (signals.length === 0) return;
     this.begin(repoPath, signals);
   }

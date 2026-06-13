@@ -28,7 +28,10 @@ import {
   detectBackend as detectSandboxBackend,
   autoHoldReason,
   isDegraded,
+  isEgressDegraded,
+  egressApplies,
   wrapArgv,
+  buildMembraneFlags,
   safeRealpath,
   collectPassthroughEnv,
   SandboxAutoRefused,
@@ -36,6 +39,19 @@ import {
   type SandboxBackend,
   type MembraneInputs,
 } from "./sandbox";
+import {
+  detectEgressBackend as detectRealEgressBackend,
+  egressMembraneOverrideFlags,
+  buildEgressAllowlist,
+  buildEgressConfig,
+  writeEgressConfigFiles,
+  wrapEgress,
+  egressTmpDir,
+  removeEgressTmp,
+  sweepEgressTmp,
+  type EgressBackend,
+} from "./egress";
+import type { EgressWatcher } from "./egress-watch";
 
 /** A merge-train mark older than this is treated as stale and swept, so a
  *  rejected/held-back PR (never merged, train never archived) can't stay
@@ -84,6 +100,12 @@ export interface ServiceDeps {
   /** Sandbox backend probe seam (tests inject `() => "bwrap"` / `() => null` so no real
    *  bwrap is spawned); defaults to the cached real self-test in sandbox.ts. */
   detectBackend?: () => SandboxBackend;
+  /** Egress-firewall backend probe seam (tests inject `() => "slirp4netns"` / `() => null`
+   *  so no real netns/dnsmasq stack is spawned); defaults to the cached real self-test in
+   *  egress.ts. Probed only for an autonomous spawn that already has an FS backend. */
+  detectEgressBackend?: () => EgressBackend;
+  /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
+  egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
 }
 
 /**
@@ -535,7 +557,16 @@ function agentBaseUrl(): string {
 
 /** Result of the shared spawn-wrap helper (prepareSpawn). `ok:false` carries the
  *  auto-gate hold reason; callers diverge on it (create throws, resume → null). */
-type SpawnSuccess = { ok: true; terminalId: string; applied: SandboxProfile; degraded: boolean };
+type SpawnSuccess = {
+  ok: true;
+  terminalId: string;
+  applied: SandboxProfile;
+  degraded: boolean;
+  /** True when the egress firewall actually wrapped the spawn (autonomous + both backends). */
+  egressApplied: boolean;
+  /** True when an interactive autonomous session ran FS-only because egress was unavailable. */
+  egressDegraded: boolean;
+};
 type SpawnOutcome = SpawnSuccess | { ok: false; holdReason: string };
 
 export class SessionService {
@@ -609,6 +640,18 @@ export class SessionService {
     });
   }
 
+  /** Egress backend probe: injected seam (tests) or the real cached self-test. Like
+   *  detectBackend, checks the dep's PRESENCE rather than `?? real()` — the seam (and the
+   *  real probe) legitimately returns null, which `??` would collapse into the real probe. */
+  private detectEgressBackend(): EgressBackend {
+    if (this.deps.detectEgressBackend) return this.deps.detectEgressBackend();
+    return detectRealEgressBackend({
+      home: homedir(),
+      claudeDir: config.claudeDir,
+      nodeBinReal: safeRealpath(config.nodeBin),
+    });
+  }
+
   /**
    * Auto-gate hold reason for resuming an auto session, or null when allowed. Prefers the
    * profile the session was SPAWNED with (`s.sandboxApplied`) so a per-spawn override is
@@ -623,7 +666,14 @@ export class SessionService {
       rc.sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    return autoHoldReason(profile, profile === "trusted" ? null : this.detectBackend());
+    const backend = profile === "trusted" ? null : this.detectBackend();
+    // Re-check egress too: an autonomous auto session must refuse to resume if the egress
+    // backend is now gone (same 3-arg semantics as the initial spawn). Only probe for an
+    // autonomous profile that still has an FS backend; otherwise leave it undefined so
+    // autoHoldReason's 2-arg behavior holds (egress not considered).
+    const egressBackend =
+      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
+    return autoHoldReason(profile, backend, egressBackend);
   }
 
   /**
@@ -641,6 +691,7 @@ export class SessionService {
   private prepareSpawn(
     innerArgv: string[],
     ctx: {
+      sessionId: string;
       name: string;
       worktreePath: string;
       repoPath: string;
@@ -660,9 +711,21 @@ export class SessionService {
     // never held, never degraded). This keeps a default/trusted install from paying a bwrap
     // node/git probe on its first spawn.
     const backend = profile === "trusted" ? null : this.detectBackend();
-    const hold = autoHoldReason(profile, backend);
+    // Probe the egress backend ONLY for an autonomous spawn that already has an FS backend;
+    // otherwise leave it undefined so autoHoldReason's 2-arg semantics hold (egress not
+    // considered — standard/trusted are never egress-confined).
+    const egressBackend =
+      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
+    // 3-arg gate: an autonomous AUTO spawn refuses (loud EGRESS_UNAVAILABLE_REASON) when the
+    // egress backend is null. standard/trusted are unaffected (egressBackend undefined).
+    const hold = autoHoldReason(profile, backend, egressBackend);
     if (ctx.auto && hold) return { ok: false, holdReason: hold };
     const degraded = isDegraded(profile, backend);
+    // egress WILL wrap iff autonomous + FS backend + egress backend all present.
+    const egressOn = egressApplies(profile) && backend !== null && egressBackend != null;
+    // An interactive autonomous session with the FS membrane but no egress backend ran
+    // FS-only (network open) — warrants the egress-degraded banner.
+    const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
 
     // Build the membrane only when it'll actually wrap (a sandboxed profile WITH a backend).
     // wrapArgv ignores the membrane for trusted / no-backend (passthrough), so skipping the
@@ -682,9 +745,55 @@ export class SessionService {
           extraEnv: collectPassthroughEnv(),
         }
       : ({} as MembraneInputs);
-    const wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
+
+    let wrapped: string[];
+    let egressAllowlist: string[] | undefined;
+    let egressDnsLog: string | undefined;
+    if (egressOn) {
+      // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
+      // egress override binds (between the membrane flags and `--`), then wrap that in the
+      // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
+      // this case bypasses it.
+      const tmp = egressTmpDir(ctx.sessionId);
+      const allowlist = buildEgressAllowlist({
+        forges: config.forges,
+        extraHosts: [
+          ...config.sandboxEgressExtraHosts,
+          ...this.deps.store.getRepoConfig(ctx.repoPath).egressExtraHosts,
+        ],
+      });
+      const cfg = buildEgressConfig(allowlist, { tmpDir: tmp });
+      writeEgressConfigFiles(tmp, cfg);
+      const bwrapArgv = [
+        "bwrap",
+        ...buildMembraneFlags(membrane),
+        ...egressMembraneOverrideFlags(tmp),
+        "--",
+        ...innerArgv,
+      ];
+      wrapped = wrapEgress(bwrapArgv, tmp);
+      egressAllowlist = allowlist;
+      egressDnsLog = join(tmp, "dns.log");
+    } else {
+      wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
+    }
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped);
-    return { ok: true, terminalId: agent.terminalId, applied: profile, degraded };
+    // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
+    if (egressOn && egressAllowlist && egressDnsLog) {
+      this.deps.egressWatcher?.start(ctx.sessionId, {
+        repoPath: ctx.repoPath,
+        dnsLogPath: egressDnsLog,
+        allowlist: egressAllowlist,
+      });
+    }
+    return {
+      ok: true,
+      terminalId: agent.terminalId,
+      applied: profile,
+      degraded,
+      egressApplied: egressOn,
+      egressDegraded,
+    };
   }
 
   /** prepareSpawn for callers that can't proceed on an auto-refuse: throws
@@ -798,6 +907,7 @@ export class SessionService {
       );
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = this.prepareSpawnOrThrow(argv, {
+        sessionId,
         name,
         worktreePath: wt.worktreePath,
         repoPath: input.repoPath,
@@ -818,6 +928,8 @@ export class SessionService {
         herdrAgentId: outcome.terminalId,
         sandboxApplied: outcome.applied,
         sandboxDegraded: outcome.degraded,
+        egressApplied: outcome.egressApplied,
+        egressDegraded: outcome.egressDegraded,
         claudeSessionId,
         model: input.model,
         auto: input.auto ?? false,
@@ -1152,6 +1264,7 @@ export class SessionService {
     innerArgv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
     if (s.model) innerArgv.push("--model", s.model);
     const outcome = this.prepareSpawn(innerArgv, {
+      sessionId: s.id,
       name: s.name,
       worktreePath: s.worktreePath,
       repoPath: s.repoPath,
@@ -1173,7 +1286,12 @@ export class SessionService {
       status: "running",
       lastState: "idle",
     });
-    this.deps.store.setSandboxState(id, { applied: outcome.applied, degraded: outcome.degraded });
+    this.deps.store.setSandboxState(id, {
+      applied: outcome.applied,
+      degraded: outcome.degraded,
+      egressApplied: outcome.egressApplied,
+      egressDegraded: outcome.egressDegraded,
+    });
     return this.deps.store.get(id);
   }
 
@@ -1597,8 +1715,24 @@ export class SessionService {
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     if (s.isolated)
       this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
+    // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
+    this.deps.egressWatcher?.stop(id);
+    // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
+    // stopped above, so nothing still tails it. No-op when the session never had egress on.
+    removeEgressTmp(id);
     this.deps.store.archive(id);
     return reaped;
+  }
+
+  /**
+   * Startup reconcile: remove any orphaned `shepherd-egress/<id>` temp dir whose id is
+   * not a currently live (non-archived) session — bounds unbounded growth from teardown
+   * removals missed across a crash/restart. Best-effort (never throws). Call once at
+   * server boot. A live session's dir (incl. its dns.log) is preserved.
+   */
+  sweepEgressTmp(): void {
+    const live = this.deps.store.list({ activeOnly: true }).map((s) => s.id);
+    sweepEgressTmp(live);
   }
 
   /**

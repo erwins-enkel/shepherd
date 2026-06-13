@@ -231,6 +231,8 @@ function session(over: Partial<Session>): Session {
     auto: false,
     sandboxApplied: null,
     sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,

@@ -459,6 +459,14 @@
           aria-label={m.session_sandbox_degraded_label()}
           title={m.session_sandbox_degraded_title()}>{m.session_sandbox_degraded_label()}</span
         >
+      {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
+        <span
+          class="badge sandbox-warn"
+          role="img"
+          aria-label={m.session_sandbox_egress_degraded_label()}
+          title={m.session_sandbox_egress_degraded_title()}
+          >{m.session_sandbox_egress_degraded_label()}</span
+        >
       {:else if session.sandboxApplied === "autonomous"}
         <span
           class="badge sandbox"

@@ -14,6 +14,7 @@ import {
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -441,6 +442,31 @@ function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | u
   if (value === null) return field(null);
   if (isSandboxProfile(value)) return field(value);
   return err(`sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, null, or absent`);
+}
+
+/**
+ * egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall.
+ * Absent → default []. Each entry is validated AND normalized with the SAME gate the
+ * allowlist builder uses (`normalizeHost` from egress.ts), so a host that validates is
+ * exactly a host that will make the allowlist — and the stored value is the normalized
+ * form, eliminating the "persisted but silently dropped at spawn" skew.
+ */
+export function validateEgressExtraHosts(value: unknown): Field<string[]> {
+  if (value === undefined || value === null) return field([]);
+  if (!Array.isArray(value)) return err("egressExtraHosts must be an array of hostname strings");
+  const normalized: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const h = value[i];
+    if (typeof h !== "string") return err(`egressExtraHosts[${i}]: must be a string`);
+    const n = normalizeHost(h);
+    if (n === null)
+      return err(
+        `egressExtraHosts[${i}]: "${h}" is not a valid hostname (≥2 dot-separated labels, ` +
+          `lowercase alphanum/hyphen, no leading/trailing hyphen or empty label)`,
+      );
+    normalized.push(n);
+  }
+  return field(normalized);
 }
 
 /**

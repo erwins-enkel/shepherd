@@ -58,6 +58,10 @@ export interface Session {
   sandboxApplied: SandboxProfile | null;
   /** True when a sandboxed profile was requested but no backend was available → ran unconfined. */
   sandboxDegraded: boolean;
+  /** True when the egress firewall was actually applied at spawn (autonomous + backend present). */
+  egressApplied: boolean;
+  /** Autonomous requested but egress backend absent → ran FS-confined with open network. */
+  egressDegraded: boolean;
   status: SessionStatus;
   lastState: HerdrState;
   createdAt: number;
@@ -328,7 +332,7 @@ export interface SessionPreviewServeEvent {
 }
 
 // ── learnings flywheel ────────────────────────────────────────────────────────
-export type SignalKind = "reply" | "critic" | "block" | "stall";
+export type SignalKind = "reply" | "critic" | "block" | "stall" | "egress_drop";
 
 export interface Signal {
   id: string;

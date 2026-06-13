@@ -89,6 +89,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);
 });

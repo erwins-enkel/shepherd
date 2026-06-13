@@ -180,6 +180,12 @@ export const config = {
   // Default sandbox profile for spawned task agents. "trusted" = unconfined (opt-in
   // sandboxing); set SHEPHERD_SANDBOX_DEFAULT_PROFILE=standard|autonomous to sandbox by default.
   sandboxDefaultProfile: parseSandboxProfile(process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE),
+  // Operator escape-hatch: extra hosts always allowlisted in the autonomous egress firewall
+  // (e.g. private package registries). Comma-separated; e.g. "registry.corp.com,pypi.corp.io".
+  sandboxEgressExtraHosts: (process.env.SHEPHERD_SANDBOX_EXTRA_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean),
   // security
   // immutable ceiling: the absolute outermost dir the UI may ever reach. captured
   // once from the env (or $HOME) and NEVER mutated by settings. the settable

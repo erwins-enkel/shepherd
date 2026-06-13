@@ -75,6 +75,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -93,6 +94,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -111,6 +113,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -129,6 +132,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -147,6 +151,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 });
 
@@ -177,6 +182,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     usageCeilingPct: 65,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,
@@ -568,6 +574,99 @@ test("session: create accepts sandboxApplied/sandboxDegraded inputs and survives
   expect(a.sandboxDegraded).toBe(true);
   expect(s.get(a.id)?.sandboxApplied).toBe("standard");
   expect(s.get(a.id)?.sandboxDegraded).toBe(true);
+});
+
+test("session: egressApplied/egressDegraded default false, round-trip via create", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.egressApplied).toBe(false);
+  expect(a.egressDegraded).toBe(false);
+  expect(s.get(a.id)?.egressApplied).toBe(false);
+  expect(s.get(a.id)?.egressDegraded).toBe(false);
+  const b = s.create({ ...base, herdrAgentId: "t2", egressApplied: true, egressDegraded: true });
+  expect(b.egressApplied).toBe(true);
+  expect(b.egressDegraded).toBe(true);
+  expect(s.get(b.id)?.egressApplied).toBe(true);
+  expect(s.get(b.id)?.egressDegraded).toBe(true);
+});
+
+test("session: setSandboxState patches egressApplied/egressDegraded without disturbing sandboxApplied/sandboxDegraded", () => {
+  const s = mk();
+  const a = s.create({ ...base, sandboxApplied: "autonomous", sandboxDegraded: false });
+  s.setSandboxState(a.id, { egressApplied: true, egressDegraded: false });
+  const r1 = s.get(a.id)!;
+  expect(r1.sandboxApplied).toBe("autonomous"); // untouched
+  expect(r1.sandboxDegraded).toBe(false); // untouched
+  expect(r1.egressApplied).toBe(true);
+  expect(r1.egressDegraded).toBe(false);
+  // patch egressDegraded only
+  s.setSandboxState(a.id, { egressDegraded: true });
+  const r2 = s.get(a.id)!;
+  expect(r2.egressApplied).toBe(true); // untouched
+  expect(r2.egressDegraded).toBe(true);
+  expect(r2.sandboxApplied).toBe("autonomous"); // still untouched
+});
+
+test("session: legacy row (egressApplied/egressDegraded columns defaulting 0) reads as false", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-egress-legacy-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Seed a DB without the egress columns, simulating a pre-feature DB.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, worktreePath, isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt)
+       VALUES ('leg1', 'TASK-01', 'n', 'p', '/r', 'main', '/wt', 1, 'h', 't', 'running', 'idle', 1, 1)`,
+    );
+    raw.close();
+    const store = new SessionStore(dbPath);
+    const s = store.get("leg1")!;
+    expect(s.egressApplied).toBe(false);
+    expect(s.egressDegraded).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repo_config: egressExtraHosts round-trips through set/get", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/r").egressExtraHosts).toEqual([]);
+  const cfg = store.getRepoConfig("/r");
+  store.setRepoConfig("/r", { ...cfg, egressExtraHosts: ["registry.npmjs.org"] });
+  expect(store.getRepoConfig("/r").egressExtraHosts).toEqual(["registry.npmjs.org"]);
+  store.setRepoConfig("/r", { ...cfg, egressExtraHosts: ["a.example.com", "b.example.com"] });
+  expect(store.getRepoConfig("/r").egressExtraHosts).toEqual(["a.example.com", "b.example.com"]);
+});
+
+test("repo_config: egressExtraHosts missing/null in DB → []", () => {
+  const store = new SessionStore(":memory:");
+  // No row → default []
+  expect(store.getRepoConfig("/missing").egressExtraHosts).toEqual([]);
+});
+
+test("repo_config: invalid JSON in egressExtraHosts column → []", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-egress-json-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const store = new SessionStore(dbPath);
+    const cfg = store.getRepoConfig("/r");
+    store.setRepoConfig("/r", { ...cfg, egressExtraHosts: ["pkg.example.com"] });
+    // Scribble invalid JSON directly into the column.
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE repo_config SET egressExtraHosts = 'NOT_JSON' WHERE repoPath = '/r'`);
+    raw.close();
+    expect(new SessionStore(dbPath).getRepoConfig("/r").egressExtraHosts).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("session: autoMergeEnabled override + rebase count round-trip", () => {

@@ -11,6 +11,7 @@ import {
   isValidTerminalId,
   expandHome,
   parseTermDims,
+  validateEgressExtraHosts,
 } from "../src/validate";
 import { stagingDir } from "../src/uploads";
 
@@ -722,4 +723,78 @@ test("validateNewProject: containment guard fires for a crafted escaping path", 
   const r = validateNewProject({ name: "my-project" }, subRoot);
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.value.name).toBe("my-project");
+});
+
+// ── validateEgressExtraHosts ──────────────────────────────────────────────────
+
+test("egressExtraHosts: absent → []", () => {
+  const r = validateEgressExtraHosts(undefined);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: null → []", () => {
+  const r = validateEgressExtraHosts(null);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: valid array passes", () => {
+  const r = validateEgressExtraHosts(["registry.npmjs.org", "pkg.debian.org"]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual(["registry.npmjs.org", "pkg.debian.org"]);
+});
+
+test("egressExtraHosts: empty array passes", () => {
+  const r = validateEgressExtraHosts([]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual([]);
+});
+
+test("egressExtraHosts: non-array → error", () => {
+  expect(validateEgressExtraHosts("registry.npmjs.org").ok).toBe(false);
+  expect(validateEgressExtraHosts(42).ok).toBe(false);
+  expect(validateEgressExtraHosts({}).ok).toBe(false);
+  const r = validateEgressExtraHosts("not-an-array");
+  if (!r.ok) expect(r.error).toMatch(/array/);
+});
+
+test("egressExtraHosts: non-string element → error", () => {
+  const r = validateEgressExtraHosts(["good.example.com", 123]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/string/);
+});
+
+test("egressExtraHosts: hostname without dot → error", () => {
+  const r = validateEgressExtraHosts(["localhost"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: uppercase is normalized to lowercase (not rejected)", () => {
+  // Mirrors the allowlist builder, which also lowercases — what validates is exactly
+  // what makes the allowlist, stored in normalized form.
+  const r = validateEgressExtraHosts(["UPPER.Example.COM", "  Pad.Host.org  "]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual(["upper.example.com", "pad.host.org"]);
+});
+
+test("egressExtraHosts: invalid chars (underscore) → error", () => {
+  const r = validateEgressExtraHosts(["foo_bar.example.com"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: hostname with spaces → error", () => {
+  const r = validateEgressExtraHosts(["bad host.example.com"]);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+});
+
+test("egressExtraHosts: aligned with allowlist normalizer — rejects what egress.ts drops", () => {
+  // These previously passed the looser validator then were SILENTLY dropped at spawn.
+  // Now validation matches normalizeHost exactly, so they're rejected up front.
+  for (const bad of ["foo..com", "-foo.com", "foo-.com", ".foo.com", "foo.com."]) {
+    expect(validateEgressExtraHosts([bad]).ok).toBe(false);
+  }
 });

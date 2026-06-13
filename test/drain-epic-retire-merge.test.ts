@@ -98,6 +98,7 @@ function makeHarness(
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
   if (opts.epicStatus) {
     store.setEpicRun({

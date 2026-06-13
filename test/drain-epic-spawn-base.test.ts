@@ -124,6 +124,7 @@ function makeHarness(
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    egressExtraHosts: [],
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };

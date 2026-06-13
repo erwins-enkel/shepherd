@@ -79,6 +79,8 @@ export interface RepoConfig {
   sandboxProfile: SandboxProfile;
   /** Per-repo default-model override; "inherit" (default) defers to the global default setting. */
   defaultModel: string;
+  /** Per-repo extra allowlisted hosts appended to the autonomous egress allowlist. */
+  egressExtraHosts: string[];
 }
 
 export interface PushSubInput {
@@ -131,6 +133,8 @@ type NewSession = Omit<
   | "issueNumber"
   | "sandboxApplied"
   | "sandboxDegraded"
+  | "egressApplied"
+  | "egressDegraded"
 > & {
   id?: string;
   model?: string | null;
@@ -141,6 +145,8 @@ type NewSession = Omit<
   planPhase?: Session["planPhase"];
   sandboxApplied?: SandboxProfile | null;
   sandboxDegraded?: boolean;
+  egressApplied?: boolean;
+  egressDegraded?: boolean;
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
@@ -148,8 +154,90 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
-  auto, issueNumber, sandboxApplied, sandboxDegraded,
+  auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
+
+// ── repo_config row type + helpers ────────────────────────────────────────────
+
+type RepoCfgRow = {
+  criticEnabled: number;
+  criticAllPrs: number;
+  autoAddressEnabled: number;
+  learningsEnabled: number;
+  autopilotEnabled: number;
+  planGateEnabled: number;
+  autoDrainEnabled: number;
+  autoMergeEnabled: number;
+  buildQueueEnabled: number;
+  draftMode: number;
+  signoffAuthority: string;
+  maxAuto: number;
+  autoLabel: string;
+  usageCeilingPct: number;
+  sandboxProfile: string;
+  defaultModel: string;
+  egressExtraHosts: string | null;
+};
+
+/** Tolerantly parse the persisted egressExtraHosts JSON back to string[] (never throws). */
+function parseEgressExtraHostsJson(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map a nullable repo_config row to a fully-defaulted RepoConfig.
+ * absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in).
+ * drain fields default OFF / cap-1 / default-label / ceiling-80. Early-return for the absent
+ * row keeps the present-row mapping branch-free (low complexity).
+ */
+function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
+  if (!r) {
+    return {
+      criticEnabled: true,
+      criticAllPrs: false,
+      autoAddressEnabled: false,
+      learningsEnabled: true,
+      autopilotEnabled: false,
+      planGateEnabled: false,
+      autoDrainEnabled: false,
+      autoMergeEnabled: false,
+      buildQueueEnabled: false,
+      draftMode: false,
+      signoffAuthority: "human",
+      maxAuto: 1,
+      autoLabel: "shepherd:auto",
+      usageCeilingPct: 80,
+      sandboxProfile: "trusted",
+      defaultModel: "inherit",
+      egressExtraHosts: [],
+    };
+  }
+  return {
+    criticEnabled: !!r.criticEnabled,
+    criticAllPrs: !!r.criticAllPrs,
+    autoAddressEnabled: !!r.autoAddressEnabled,
+    learningsEnabled: !!r.learningsEnabled,
+    autopilotEnabled: !!r.autopilotEnabled,
+    planGateEnabled: !!r.planGateEnabled,
+    autoDrainEnabled: !!r.autoDrainEnabled,
+    autoMergeEnabled: !!r.autoMergeEnabled,
+    buildQueueEnabled: !!r.buildQueueEnabled,
+    draftMode: !!r.draftMode,
+    signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
+    maxAuto: r.maxAuto,
+    autoLabel: r.autoLabel,
+    usageCeilingPct: r.usageCeilingPct,
+    sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+    defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
+    egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
+  };
+}
 
 export class SessionStore implements CapStore, CreditStore {
   private db: Database;
@@ -303,7 +391,7 @@ export class SessionStore implements CapStore, CreditStore {
     }
   }
 
-  // ── settings (key/value) ──────────────────────────────────────────────────
+  // ── settings (key/value) ─────────────────────────────────────────────────
   getSetting(key: string): string | null {
     const r = this.db.query(`SELECT value FROM settings WHERE key = ?`).get(key) as {
       value: string;
@@ -325,67 +413,11 @@ export class SessionStore implements CapStore, CreditStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts
          FROM repo_config WHERE repoPath = ?`,
       )
-      .get(repoPath) as {
-      criticEnabled: number;
-      criticAllPrs: number;
-      autoAddressEnabled: number;
-      learningsEnabled: number;
-      autopilotEnabled: number;
-      planGateEnabled: number;
-      autoDrainEnabled: number;
-      autoMergeEnabled: number;
-      buildQueueEnabled: number;
-      draftMode: number;
-      signoffAuthority: string;
-      maxAuto: number;
-      autoLabel: string;
-      usageCeilingPct: number;
-      sandboxProfile: string;
-      defaultModel: string;
-    } | null;
-    // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
-    // drain fields default OFF / cap-1 / default-label / ceiling-80
-    if (!r) {
-      return {
-        criticEnabled: true,
-        criticAllPrs: false,
-        autoAddressEnabled: false,
-        learningsEnabled: true,
-        autopilotEnabled: false,
-        planGateEnabled: false,
-        autoDrainEnabled: false,
-        autoMergeEnabled: false,
-        buildQueueEnabled: false,
-        draftMode: false,
-        signoffAuthority: "human",
-        maxAuto: 1,
-        autoLabel: "shepherd:auto",
-        usageCeilingPct: 80,
-        sandboxProfile: "trusted",
-        defaultModel: "inherit",
-      };
-    }
-    return {
-      criticEnabled: !!r.criticEnabled,
-      criticAllPrs: !!r.criticAllPrs,
-      autoAddressEnabled: !!r.autoAddressEnabled,
-      learningsEnabled: !!r.learningsEnabled,
-      autopilotEnabled: !!r.autopilotEnabled,
-      planGateEnabled: !!r.planGateEnabled,
-      autoDrainEnabled: !!r.autoDrainEnabled,
-      autoMergeEnabled: !!r.autoMergeEnabled,
-      buildQueueEnabled: !!r.buildQueueEnabled,
-      draftMode: !!r.draftMode,
-      signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
-      maxAuto: r.maxAuto,
-      autoLabel: r.autoLabel,
-      usageCeilingPct: r.usageCeilingPct,
-      sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
-      defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
-    };
+      .get(repoPath) as RepoCfgRow | null;
+    return repoConfigFromRow(r);
   }
 
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
@@ -393,8 +425,8 @@ export class SessionStore implements CapStore, CreditStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -411,6 +443,7 @@ export class SessionStore implements CapStore, CreditStore {
          usageCeilingPct = excluded.usageCeilingPct,
          sandboxProfile = excluded.sandboxProfile,
          defaultModel = excluded.defaultModel,
+         egressExtraHosts = excluded.egressExtraHosts,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -430,6 +463,7 @@ export class SessionStore implements CapStore, CreditStore {
         cfg.usageCeilingPct,
         cfg.sandboxProfile,
         cfg.defaultModel,
+        JSON.stringify(cfg.egressExtraHosts ?? []),
         Date.now(),
       ],
     );
@@ -547,6 +581,8 @@ export class SessionStore implements CapStore, CreditStore {
       issueNumber: input.issueNumber ?? null,
       sandboxApplied: input.sandboxApplied ?? null,
       sandboxDegraded: input.sandboxDegraded ?? false,
+      egressApplied: input.egressApplied ?? false,
+      egressDegraded: input.egressDegraded ?? false,
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -563,7 +599,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -595,6 +631,8 @@ export class SessionStore implements CapStore, CreditStore {
           s.issueNumber,
           s.sandboxApplied,
           s.sandboxDegraded ? 1 : 0,
+          s.egressApplied ? 1 : 0,
+          s.egressDegraded ? 1 : 0,
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -658,18 +696,25 @@ export class SessionStore implements CapStore, CreditStore {
    *  Only the provided keys are written. */
   setSandboxState(
     id: string,
-    patch: { applied?: SandboxProfile | null; degraded?: boolean },
+    patch: {
+      applied?: SandboxProfile | null;
+      degraded?: boolean;
+      egressApplied?: boolean;
+      egressDegraded?: boolean;
+    },
   ): void {
     const cur = this.get(id);
     if (!cur) return;
     const applied = patch.applied === undefined ? cur.sandboxApplied : patch.applied;
     const degraded = patch.degraded === undefined ? cur.sandboxDegraded : patch.degraded;
-    this.db.run(`UPDATE sessions SET sandboxApplied=?, sandboxDegraded=?, updatedAt=? WHERE id=?`, [
-      applied,
-      degraded ? 1 : 0,
-      Date.now(),
-      id,
-    ]);
+    const egressApplied =
+      patch.egressApplied === undefined ? cur.egressApplied : patch.egressApplied;
+    const egressDegraded =
+      patch.egressDegraded === undefined ? cur.egressDegraded : patch.egressDegraded;
+    this.db.run(
+      `UPDATE sessions SET sandboxApplied=?, sandboxDegraded=?, egressApplied=?, egressDegraded=?, updatedAt=? WHERE id=?`,
+      [applied, degraded ? 1 : 0, egressApplied ? 1 : 0, egressDegraded ? 1 : 0, Date.now(), id],
+    );
   }
 
   /** Patch a session's autopilot fields. Only the provided keys are written. */
@@ -1164,6 +1209,9 @@ export class SessionStore implements CapStore, CreditStore {
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
     add("sandboxApplied", `sandboxApplied TEXT`);
     add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
+    // egress firewall: applied flag + degrade flag (legacy rows default false/false).
+    add("egressApplied", `egressApplied INTEGER NOT NULL DEFAULT 0`);
+    add("egressDegraded", `egressDegraded INTEGER NOT NULL DEFAULT 0`);
     add("mergingSince", `mergingSince INTEGER`);
     add("mergingTrainId", `mergingTrainId TEXT`);
   }
@@ -1191,6 +1239,8 @@ export class SessionStore implements CapStore, CreditStore {
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
     add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
+    // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
+    add("egressExtraHosts", `egressExtraHosts TEXT`);
   }
 
   private migrateReviewColumns(): void {
@@ -1554,6 +1604,8 @@ export class SessionStore implements CapStore, CreditStore {
       issueNumber: r.issueNumber ?? null,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
       sandboxDegraded: !!r.sandboxDegraded,
+      egressApplied: !!r.egressApplied,
+      egressDegraded: !!r.egressDegraded,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
     } as Session;

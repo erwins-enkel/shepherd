@@ -39,6 +39,8 @@ function session(
     auto: false,
     sandboxApplied: null,
     sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
     issueNumber,
     lastState: "working",
     createdAt: 0,

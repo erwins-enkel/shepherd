@@ -30,6 +30,7 @@ function makeSession(over: Partial<Session> = {}): Session {
     autopilotQuestion: null,
     planGateEnabled: null,
     planPhase: null,
+    research: false,
     autoMergeEnabled: null,
     autoMergeRebaseCount: 0,
     autoMergeRebaseHead: null,

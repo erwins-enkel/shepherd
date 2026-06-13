@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { MediaQuery } from "svelte/reactivity";
+  import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import {
     listSessions,
@@ -33,6 +33,7 @@
     clearMerged,
     getDrain,
     getAutoMerge,
+    getEpic,
     halt as apiHalt,
   } from "$lib/api";
   import type {
@@ -50,7 +51,6 @@
   import { displayStatus } from "$lib/display-status";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
-  import { epicSummaries } from "$lib/epic-summaries.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -62,9 +62,10 @@
     railOrder,
     cycleId,
     nthId,
-    nextNeedsYou,
+    nextNeedsYouTarget,
     altComboKey,
   } from "$lib/components/herd-keynav";
+  import { groupSessionsByEpic } from "$lib/components/epic-grouping";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import {
     collectReadyPrs,
@@ -179,6 +180,68 @@
   });
   // basename of the active filter for the herd's empty-state copy; null when unfiltered
   const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
+
+  // ── Epic grouping (page-owned, shared by the Herd render AND the keynav rail) ──
+  // The live ACTIVE epics: one per repo whose drain carries an `epicParent`. Keyed
+  // `${repoPath}#${parentIssueNumber}` (same shape as store.epics / activeEpicKeys
+  // in groupSessionsByEpic). Derived from store.drain so it updates on the bootstrap
+  // GET /api/drain AND on every `drain:status` WS push — an epic starting mid-session
+  // enters this set at once, without waiting for a chance `epic:update`.
+  const activeEpicKeys = $derived(
+    new Set(
+      Object.values(store.drain)
+        .filter((d) => d.epicParent != null)
+        .map((d) => `${d.repoPath}#${d.epicParent}`),
+    ),
+  );
+  // Page-owned collapse state (group key → collapsed). SvelteSet so .has/.add/.delete
+  // are reactive (a plain Set is not in Svelte 5); passed to both <Herd> (render) and
+  // railOrder (nav) so the two read ONE source and can't drift.
+  const collapsedEpics = new SvelteSet<string>();
+  function toggleEpicCollapse(key: string) {
+    if (collapsedEpics.has(key)) collapsedEpics.delete(key);
+    else collapsedEpics.add(key);
+  }
+  // Seed store.epics for any active epic we don't have the full Epic for yet (header
+  // needs title + X/Y + backlog link). Reactive on activeEpicKeys, deduped per key.
+  // Fires on load (drain bootstrapped) and when an epic starts mid-session. On fetch
+  // failure we drop the guard so a later tick retries; `epic:update` keeps it fresh.
+  // Deliberately a plain (non-reactive) Set: it's a fetch-dedup guard, NOT UI state —
+  // a SvelteSet would make the seed $effect re-run on its own .add/.delete and churn.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const seededEpics = new Set<string>();
+  $effect(() => {
+    for (const k of activeEpicKeys) {
+      if (store.epics[k] || seededEpics.has(k)) continue;
+      seededEpics.add(k);
+      const i = k.lastIndexOf("#"); // repoPath may contain no '#'; parent is after the last '#'
+      const repoPath = k.slice(0, i);
+      const parent = Number(k.slice(i + 1));
+      getEpic(repoPath, parent)
+        .then((e) => store.setEpic(e))
+        .catch(() => seededEpics.delete(k));
+    }
+  });
+  // sessionId → epic group key, from the SAME pure grouping the Herd render + rail use.
+  // Drives NEEDS-YOU auto-expand: a jump target sitting in a collapsed group is found
+  // here so the handler can expand that group before selecting.
+  const epicGroupOf = $derived.by(() => {
+    const isReviewing = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+    const { groups } = groupSessionsByEpic(
+      herdSessions,
+      store.epics,
+      activeEpicKeys,
+      store.git,
+      isReviewing,
+      nowMs,
+    );
+    // Build from an entries array (not .set in a loop) so it's a plain non-reactive
+    // lookup, matching Herd's groupParts pattern.
+    return new Map<string, string>(
+      groups.flatMap((g) => g.sessions.map((s): [string, string] => [s.id, g.key])),
+    );
+  });
+
   let showUpdate = $state(false);
   // live state of a launched deploy → modal tails its log + surfaces failures
   let deploy = $state<DeployState | null>(null);
@@ -550,6 +613,9 @@
       // exactly the visible rows, never a "ready" subset of the status-filtered list
       statusFilter != null ? "all" : herdFilter,
       store.workingBlocked,
+      store.epics,
+      activeEpicKeys,
+      collapsedEpics,
     );
   }
 
@@ -585,16 +651,20 @@
         e.preventDefault();
         keyNavSelect(cycleId(railIds(), selectedId, -1), focusTerm);
         return true;
-      case "g":
+      case "g": {
         e.preventDefault();
-        keyNavSelect(
-          nextNeedsYou(
-            blockedEntries.map((entry) => entry.session.id),
-            selectedId,
-          ),
-          focusTerm,
+        // Keep blockedEntries UNFILTERED (count + jump stay on the same full set);
+        // if the target sits in a collapsed group, expand it first so the row is visible.
+        const { id, expand } = nextNeedsYouTarget(
+          blockedEntries.map((entry) => entry.session.id),
+          selectedId,
+          epicGroupOf,
+          collapsedEpics,
         );
+        if (expand) collapsedEpics.delete(expand);
+        keyNavSelect(id, focusTerm);
         return true;
+      }
       default:
         if (key >= "1" && key <= "9") {
           const id = nthId(railIds(), Number(key));
@@ -693,12 +763,14 @@
   // as the NEEDS YOU badge) starting after the current one, wrapping around.
   // Same pure helper the "g" shortcut uses, so button and key can't drift.
   function jumpNextNeedsYou() {
-    keyNavSelect(
-      nextNeedsYou(
-        blockedEntries.map((entry) => entry.session.id),
-        selectedId,
-      ),
+    const { id, expand } = nextNeedsYouTarget(
+      blockedEntries.map((entry) => entry.session.id),
+      selectedId,
+      epicGroupOf,
+      collapsedEpics,
     );
+    if (expand) collapsedEpics.delete(expand);
+    keyNavSelect(id);
   }
 
   // if the selected unit disappears while in mobile detail, fall back to the list
@@ -802,13 +874,9 @@
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("pageshow", onPageShow);
-    // Keep epic summary counts fresh on a long-open dashboard. Reads the live
-    // epicRepoPaths each tick (not a captured snapshot); the singleton throttles.
-    const epicPoll = setInterval(() => epicSummaries.refresh(epicRepoPaths), 45_000);
     return () => {
       dispose();
       disposeSelect();
-      clearInterval(epicPoll);
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };
@@ -827,19 +895,6 @@
     nowMs = Date.now(); // refresh on the empty→non-empty flip so the first frame isn't up to 1s stale
     const t = setInterval(() => (nowMs = Date.now()), 1000);
     return () => clearInterval(t);
-  });
-
-  // Epic badges: the distinct repos of sessions whose seeding issue could be an epic.
-  // Drives the per-repo summary fetch (epicSummaries throttles internally). Sessions are
-  // WS-pushed, not polled, so the badge data is refreshed off this set + a slow interval —
-  // never the 1s nowMs tick.
-  const epicRepoPaths = $derived([
-    ...new Set(store.sessions.filter((s) => s.issueNumber != null).map((s) => s.repoPath)),
-  ]);
-  // Fetch promptly when the set changes (a newly-appearing epic-session repo). The
-  // singleton throttles per-repo, so re-running on every change is safe.
-  $effect(() => {
-    epicSummaries.refresh(epicRepoPaths);
   });
 
   // Clear ALL compose + relaunch seed state. Called on every dialog dismissal and
@@ -1214,6 +1269,9 @@
             onpreview={openPreview}
             epics={store.epics}
             onepic={openEpicInBacklog}
+            {activeEpicKeys}
+            collapsedKeys={collapsedEpics}
+            oncollapsetoggle={toggleEpicCollapse}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -1336,6 +1394,9 @@
             onpreview={openPreview}
             epics={store.epics}
             onepic={openEpicInBacklog}
+            {activeEpicKeys}
+            collapsedKeys={collapsedEpics}
+            oncollapsetoggle={toggleEpicCollapse}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}

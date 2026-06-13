@@ -1,5 +1,12 @@
 import { test, expect } from "vitest";
-import { railOrder, cycleId, nthId, nextNeedsYou, altComboKey } from "./herd-keynav";
+import {
+  railOrder,
+  cycleId,
+  nthId,
+  nextNeedsYou,
+  nextNeedsYouTarget,
+  altComboKey,
+} from "./herd-keynav";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
 function session(
@@ -262,6 +269,42 @@ test("nextNeedsYou cycles among blocked sessions, wrapping", () => {
 test("nextNeedsYou is a no-op (null) when none are blocked or only the current one is", () => {
   expect(nextNeedsYou([], "a")).toBeNull();
   expect(nextNeedsYou(["a"], "a")).toBeNull();
+});
+
+// nextNeedsYouTarget — target id + the collapsed group to auto-expand
+
+test("nextNeedsYouTarget: target inside a collapsed group returns that group key to expand", () => {
+  const groupOf = new Map([["x", "/r#100"]]);
+  const collapsed = new Set(["/r#100"]);
+  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
+    id: "x",
+    expand: "/r#100",
+  });
+});
+
+test("nextNeedsYouTarget: target in an EXPANDED group needs no expand", () => {
+  const groupOf = new Map([["x", "/r#100"]]);
+  const collapsed = new Set<string>(); // group not collapsed
+  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
+    id: "x",
+    expand: null,
+  });
+});
+
+test("nextNeedsYouTarget: ungrouped target needs no expand", () => {
+  expect(nextNeedsYouTarget(["x", "y"], "other", new Map(), new Set(["/r#100"]))).toEqual({
+    id: "x",
+    expand: null,
+  });
+});
+
+test("nextNeedsYouTarget: no blocked → null id, null expand", () => {
+  expect(nextNeedsYouTarget([], null, new Map(), new Set())).toEqual({ id: null, expand: null });
+  // only the current one blocked → nextNeedsYou is null → no expand either
+  expect(nextNeedsYouTarget(["a"], "a", new Map([["a", "/r#100"]]), new Set(["/r#100"]))).toEqual({
+    id: null,
+    expand: null,
+  });
 });
 
 // altComboKey — physical KeyboardEvent.code → keynav key vocabulary

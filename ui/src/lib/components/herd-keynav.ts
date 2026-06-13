@@ -99,3 +99,19 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
   }
   return null;
 }
+
+/** Resolve the next needs-you jump target plus the epic group key (if any) that must be
+ *  expanded so the target row is visible. `groupOf` maps sessionId → its epic group key.
+ *  Keeps the `g`-handler and the NEEDS-YOU jump button DRY: both resolve the target AND
+ *  the collapsed-group-to-expand through one tested helper so they can't drift. */
+export function nextNeedsYouTarget(
+  blockedIds: string[],
+  currentId: string | null,
+  groupOf: Map<string, string>,
+  collapsed: ReadonlySet<string>,
+): { id: string | null; expand: string | null } {
+  const id = nextNeedsYou(blockedIds, currentId);
+  if (id === null) return { id: null, expand: null };
+  const key = groupOf.get(id);
+  return { id, expand: key != null && collapsed.has(key) ? key : null };
+}

@@ -165,6 +165,7 @@ class RepoConfigStore {
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
   sandboxProfile = $state<Record<string, SandboxProfile>>({}); // per-repo sandbox confinement (default "trusted")
+  defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
@@ -187,6 +188,7 @@ class RepoConfigStore {
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
+    this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -240,6 +242,7 @@ class RepoConfigStore {
         | "draftMode"
         | "signoffAuthority"
         | "sandboxProfile"
+        | "defaultModel"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -358,6 +361,14 @@ class RepoConfigStore {
     });
   }
 
+  async setDefaultModel(repoPath: string, value: string) {
+    const prev = this.defaultModel[repoPath];
+    this.defaultModel = { ...this.defaultModel, [repoPath]: value }; // optimistic
+    await this.apply(repoPath, { defaultModel: value }, () => {
+      this.defaultModel = { ...this.defaultModel, [repoPath]: prev };
+    });
+  }
+
   async toggleBuildQueue(repoPath: string) {
     const prev = this.buildQueue[repoPath];
     const next = !this.isBuildQueueEnabled(repoPath);
@@ -446,6 +457,11 @@ class RepoConfigStore {
 
   sandboxProfileFor(repoPath: string): SandboxProfile {
     return this.sandboxProfile[repoPath] ?? "trusted";
+  }
+
+  /** The repo's default-model override SETTING ("inherit" | "auto" | "default" | <model>). */
+  defaultModelFor(repoPath: string): string {
+    return this.defaultModel[repoPath] ?? "inherit";
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's

@@ -1110,5 +1110,10 @@
   "feat_critic_all_prs_body": "Aktiviere „Alle PRs prüfen“ im Automatisierungs-Panel eines Repos, damit der Critic jeden CI-grünen Pull Request bewertet – nicht nur solche, die einer Shepherd-Sitzung zugeordnet sind. Pro Repo opt-in; beachte den höheren Token-Verbrauch bei vielen offenen PRs.",
   "automation_sandbox_profile_summary": "Optionale Abschottung für Agenten.",
   "feat_steers_prompt_editor_title": "Größerer Steer-Editor mit Slash-Befehlen",
-  "feat_steers_prompt_editor_body": "In den gespeicherten Steers vergrößert sich ein Prompt-Feld jetzt beim Reinklicken, sodass der ganze Text sichtbar ist, und mit „/“ erscheint dieselbe Slash-Befehl-Auswahl wie in den Feldern für Neue Aufgabe und Verfassen – Befehl per Pfeiltasten oder Tipp auswählen."
+  "feat_steers_prompt_editor_body": "In den gespeicherten Steers vergrößert sich ein Prompt-Feld jetzt beim Reinklicken, sodass der ganze Text sichtbar ist, und mit „/“ erscheint dieselbe Slash-Befehl-Auswahl wie in den Feldern für Neue Aufgabe und Verfassen – Befehl per Pfeiltasten oder Tipp auswählen.",
+  "automation_default_model_label": "Standardmodell",
+  "automation_default_model_inherit": "Erben (globaler Standard)",
+  "automation_default_model_hint": "Überschreibt das globale Standardmodell (Einstellungen → Sitzung) für dieses Repository. Erben übernimmt die globale Einstellung; eine explizite Wahl wählt den Modell-Picker bei neuen Aufgaben vor und steuert autonome Drain-/Autopilot-Starts in diesem Repository.",
+  "feat_repo_default_model_title": "Standardmodell pro Repository",
+  "feat_repo_default_model_body": "Lege im Automatisierungs-Panel eines Repositorys ein Standardmodell fest — es überschreibt den globalen Standard und wählt den Modell-Picker bei neuen Aufgaben vor. Auf Erben belassen, um weiter der globalen Einstellung zu folgen."
 }

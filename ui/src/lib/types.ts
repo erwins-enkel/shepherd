@@ -259,6 +259,8 @@ export interface RepoConfig {
   signoffAuthority: "human" | "critic" | "either";
   /** Per-repo sandbox confinement profile (default "trusted" = no sandbox). */
   sandboxProfile: SandboxProfile;
+  /** Per-repo default-model override; "inherit" (default) defers to the global default. */
+  defaultModel: string;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;

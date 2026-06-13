@@ -74,6 +74,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -91,6 +92,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -108,6 +110,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -125,6 +128,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -142,6 +146,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
 });
 
@@ -153,6 +158,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   store.setRepoConfig("/repo/d", {
     criticEnabled: true,
@@ -170,6 +176,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoLabel: "auto-go",
     usageCeilingPct: 65,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,
@@ -177,6 +184,17 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoLabel: "auto-go",
     usageCeilingPct: 65,
   });
+});
+
+test("repo_config: defaultModel defaults to 'inherit', persists an explicit override round-trip", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/m").defaultModel).toBe("inherit");
+  const cfg = store.getRepoConfig("/repo/m");
+  store.setRepoConfig("/repo/m", { ...cfg, defaultModel: "opus" });
+  expect(store.getRepoConfig("/repo/m").defaultModel).toBe("opus");
+  // an unrecognised stored value normalises back to "inherit" on read
+  store.setRepoConfig("/repo/m", { ...cfg, defaultModel: "bogus" });
+  expect(store.getRepoConfig("/repo/m").defaultModel).toBe("inherit");
 });
 
 test("create: auto + issueNumber default false/null, persist when set, survive hydrate", () => {

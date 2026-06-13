@@ -1110,5 +1110,10 @@
   "feat_critic_all_prs_body": "Enable \"Review all PRs\" in a repo's automation panel and the Critic will review every CI-green pull request — not just ones tied to a Shepherd session. Opt-in per repo; note the higher token cost for busy repos.",
   "automation_sandbox_profile_summary": "Opt-in confinement for agents.",
   "feat_steers_prompt_editor_title": "Roomier steer editor with slash commands",
-  "feat_steers_prompt_editor_body": "In Saved Steers, clicking into a prompt field now expands it to show the whole text, and typing \"/\" offers the same slash-command picker as the New Task and compose fields — pick a command with the arrow keys or a tap."
+  "feat_steers_prompt_editor_body": "In Saved Steers, clicking into a prompt field now expands it to show the whole text, and typing \"/\" offers the same slash-command picker as the New Task and compose fields — pick a command with the arrow keys or a tap.",
+  "automation_default_model_label": "Default model",
+  "automation_default_model_inherit": "Inherit (global default)",
+  "automation_default_model_hint": "Overrides the global default model (Settings → Session) for this repo. Inherit defers to the global setting; an explicit choice preselects the New Task picker and drives autonomous drain/autopilot spawns in this repo.",
+  "feat_repo_default_model_title": "Per-repo default model",
+  "feat_repo_default_model_body": "Set a default model per repository in its automation panel — it overrides the global default and preselects the New Task picker. Leave it on Inherit to keep following the global setting."
 }

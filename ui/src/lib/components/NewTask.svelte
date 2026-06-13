@@ -87,14 +87,17 @@
   // svelte-ignore state_referenced_locally
   let seededBase = $state(initialBaseBranch != null);
   // Picker preselect precedence: explicit initialModel (e.g. the "Try Fable" CTA) wins;
-  // else the operator's configured default if it's an explicit model; else the fresh
-  // client promo (configured "auto", or settings not yet loaded). Resolved at mount,
-  // and NewTask remounts per open, so the promo cutoff is honored fresh each open.
+  // else the selected repo's default-model override; else the operator's global default
+  // if it's an explicit model; else the fresh client promo (configured "auto", or
+  // settings not yet loaded). NewTask remounts per open, so the promo cutoff is honored
+  // fresh each open. `modelTouched` pins a manual pick so switching repos / a late repo
+  // config load doesn't clobber it.
   function preselectModel(configured: string | undefined): string {
     return configured && configured !== "auto" ? configured : promoDefaultModel();
   }
   // svelte-ignore state_referenced_locally
   let model = $state(initialModel ?? preselectModel(defaultModel));
+  let modelTouched = $state(false);
   // Relaunch reuses this composer with a distinct title + note set.
   const heading = $derived(relaunch ? m.newtask_relaunch_title() : m.newtask_title());
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
@@ -207,6 +210,17 @@
   $effect(() => {
     // mirror the repo default until the user makes a manual choice
     if (!planGateTouched) planGate = planGateDefault;
+  });
+
+  // Effective default model = repo override (if not "inherit") → global default → promo.
+  // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit
+  // initialModel (CTA) pinned it or the user already picked a model by hand.
+  const repoModelOverride = $derived(repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit");
+  const effectiveModelSetting = $derived(
+    repoModelOverride !== "inherit" ? repoModelOverride : (defaultModel ?? "auto"),
+  );
+  $effect(() => {
+    if (initialModel == null && !modelTouched) model = preselectModel(effectiveModelSetting);
   });
 
   // (re)load the slash-command list when the target repo changes — a repo's own
@@ -593,7 +607,7 @@
       <div class="run-config">
         <div class="model-field">
           <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
-          <select id="nt-model" bind:value={model}>
+          <select id="nt-model" bind:value={model} onchange={() => (modelTouched = true)}>
             <option value="default">{m.newtask_model_default()}</option>
             {#each MODELS as mdl (mdl)}
               <option value={mdl}>{mdl}</option>

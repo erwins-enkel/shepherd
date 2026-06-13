@@ -18,6 +18,7 @@ import type {
 import type { CapRow, CapStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
+import { normalizeRepoDefaultModelSetting } from "./default-model";
 import type { EpicRun } from "./epic-core";
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -76,6 +77,8 @@ export interface RepoConfig {
   usageCeilingPct: number;
   /** OS-level sandbox membrane for spawned task agents (default "trusted" = unconfined). */
   sandboxProfile: SandboxProfile;
+  /** Per-repo default-model override; "inherit" (default) defers to the global default setting. */
+  defaultModel: string;
 }
 
 export interface PushSubInput {
@@ -318,7 +321,7 @@ export class SessionStore implements CapStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as {
@@ -337,6 +340,7 @@ export class SessionStore implements CapStore {
       autoLabel: string;
       usageCeilingPct: number;
       sandboxProfile: string;
+      defaultModel: string;
     } | null;
     // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
     // drain fields default OFF / cap-1 / default-label / ceiling-80
@@ -357,6 +361,7 @@ export class SessionStore implements CapStore {
         autoLabel: "shepherd:auto",
         usageCeilingPct: 80,
         sandboxProfile: "trusted",
+        defaultModel: "inherit",
       };
     }
     return {
@@ -375,6 +380,7 @@ export class SessionStore implements CapStore {
       autoLabel: r.autoLabel,
       usageCeilingPct: r.usageCeilingPct,
       sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+      defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     };
   }
 
@@ -383,8 +389,8 @@ export class SessionStore implements CapStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -400,6 +406,7 @@ export class SessionStore implements CapStore {
          autoLabel = excluded.autoLabel,
          usageCeilingPct = excluded.usageCeilingPct,
          sandboxProfile = excluded.sandboxProfile,
+         defaultModel = excluded.defaultModel,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -418,6 +425,7 @@ export class SessionStore implements CapStore {
         cfg.autoLabel,
         cfg.usageCeilingPct,
         cfg.sandboxProfile,
+        cfg.defaultModel,
         Date.now(),
       ],
     );
@@ -1159,6 +1167,7 @@ export class SessionStore implements CapStore {
     add("draftMode", `draftMode INTEGER NOT NULL DEFAULT 0`);
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
     add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
+    add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
   }
 
   private migrateReviewColumns(): void {

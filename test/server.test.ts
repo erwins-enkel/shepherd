@@ -1153,6 +1153,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
 
   const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
@@ -1628,6 +1629,34 @@ test("PUT /api/repo-config omitting sandboxProfile preserves existing value", as
   // PUT without sandboxProfile — should preserve autonomous
   await putRepoConfig(app, validRepo, { criticEnabled: true });
   expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
+});
+
+// ── defaultModel repo-config override ──────────────────────────────────────────
+
+test("PUT /api/repo-config accepts defaultModel override → 200 and GET reflects it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("inherit");
+  const res = await putRepoConfig(app, validRepo, { defaultModel: "opus" });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("opus");
+});
+
+test("PUT /api/repo-config rejects unknown defaultModel → 400 with error message", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { defaultModel: "gpt4" });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain("defaultModel");
+});
+
+test("PUT /api/repo-config omitting defaultModel preserves existing override", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await putRepoConfig(app, validRepo, { defaultModel: "haiku" });
+  await putRepoConfig(app, validRepo, { criticEnabled: true });
+  expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("haiku");
 });
 
 test("PUT /api/sessions/:id/automerge sets the override", async () => {

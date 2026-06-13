@@ -196,6 +196,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    defaultModel: "inherit",
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -230,6 +231,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         autoLabel: "shepherd:auto",
         usageCeilingPct: 80,
         sandboxProfile: "trusted",
+        defaultModel: "inherit",
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

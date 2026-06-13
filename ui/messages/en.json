@@ -1100,5 +1100,7 @@
   "epic_group_cue_ci_failed": "{count} failing CI",
   "epic_group_cue_ready": "{count} ready to merge",
   "epic_group_cue_blocked": "{count} need you",
-  "herd_in_epics_above": "{count} in epics above"
+  "herd_in_epics_above": "{count} in epics above",
+  "feat_epic_grouping_title": "Epics group your sessions",
+  "feat_epic_grouping_body": "Sessions spawned from an epic's sub-issues now gather under a collapsible EPIC headline at the top of the list, showing live progress, attention cues, and a shortcut to the epic in the backlog."
 }

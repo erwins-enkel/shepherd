@@ -1100,5 +1100,7 @@
   "epic_group_cue_ci_failed": "{count} CI fehlgeschlagen",
   "epic_group_cue_ready": "{count} bereit zum Mergen",
   "epic_group_cue_blocked": "{count} brauchen dich",
-  "herd_in_epics_above": "{count} weiter oben in Epics"
+  "herd_in_epics_above": "{count} weiter oben in Epics",
+  "feat_epic_grouping_title": "Epics gruppieren deine Sessions",
+  "feat_epic_grouping_body": "Sessions, die aus den Unter-Issues eines Epics gestartet wurden, sammeln sich jetzt unter einer einklappbaren EPIC-Überschrift oben in der Liste — mit Live-Fortschritt, Hinweisen auf offene Punkte und einer Verknüpfung zum Epic im Backlog."
 }

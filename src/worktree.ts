@@ -113,21 +113,23 @@ export class WorktreeMgr {
     }
   }
 
-  /** Ensure `baseBranch` resolves LOCALLY before a worktree bases on it. The common case —
-   *  the default branch — already exists locally and returns immediately. An epic integration
-   *  branch exists only on origin, so fetch it into a local branch of the same name
-   *  (`git fetch origin <b>:<b>`, fast-forward). Best-effort + async (network — never sync on
-   *  the server loop): a failure leaves local state as-is and the subsequent worktree.create
-   *  surfaces a real error if the base is genuinely unresolvable. */
+  /** Ensure `baseBranch` resolves locally AND is current before a worktree bases on it.
+   *  Skips the fetch only for the main clone's checked-out branch (git refuses to fetch into
+   *  it; the default branch is normally HEAD, so regular spawns keep basing on the local tip
+   *  as before — no new network hit). For any other base (e.g. an epic integration branch that
+   *  advances on the remote as siblings merge), `git fetch origin <b>:<b>` creates-or-FFs the
+   *  local branch so the worktree bases on the latest tip. Best-effort + async (never sync on
+   *  the server loop): a failure warns and the subsequent worktree.create surfaces a real error
+   *  if the base is genuinely unresolvable. */
   async ensureBaseRef(repoPath: string, baseBranch: string): Promise<void> {
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return;
     try {
-      await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${baseBranch}`], {
+      const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
         cwd: repoPath,
       });
-      return; // already a local branch (default branch path) — nothing to do
+      if (stdout.trim() === baseBranch) return; // checked-out branch — can't/needn't fetch
     } catch {
-      // not a local branch — try to materialize it from origin below
+      // detached HEAD or error — fall through and attempt the fetch
     }
     try {
       await execFileAsync("git", ["fetch", "origin", `${baseBranch}:${baseBranch}`], {

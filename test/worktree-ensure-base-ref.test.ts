@@ -27,6 +27,10 @@ function localBranches(dir: string): string[] {
     .filter(Boolean);
 }
 
+function revParse(dir: string, ref: string): string {
+  return execFileSync("git", ["rev-parse", ref], { cwd: dir, stdio: "pipe" }).toString().trim();
+}
+
 let origin: string;
 let repo: string;
 beforeEach(() => {
@@ -55,13 +59,23 @@ afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("ensureBaseRef: local ref already exists (default branch) → no-op, no new branch", async () => {
+test("ensureBaseRef: checked-out (default) branch is NOT fetched → no-op, stays at local tip", async () => {
   const wt = new WorktreeMgr();
-  // main is the clone's local checkout branch — already resolves locally.
+  // main is the clone's local checkout branch — git refuses to fetch into it.
   expect(localBranches(repo)).toEqual(["main"]);
+  const before = revParse(repo, "main");
+
+  // Advance origin/main from a second clone so a fetch (if it wrongly happened) would move it.
+  const other = mkdtempSync(join(tmpdir(), "shepherd-other-"));
+  execFileSync("git", ["clone", "-q", "--branch", "main", origin, other], { stdio: "pipe" });
+  commit(other, "a.txt", "advanced", "advance main");
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: other, stdio: "pipe" });
+  rmSync(other, { recursive: true, force: true });
+
   await wt.ensureBaseRef(repo, "main");
-  // still just main — nothing fetched/created
+  // still just main, still at the original local tip — the checked-out branch is skipped.
   expect(localBranches(repo)).toEqual(["main"]);
+  expect(revParse(repo, "main")).toBe(before);
 });
 
 test("ensureBaseRef: origin-only branch is materialized into a local branch", async () => {
@@ -74,6 +88,28 @@ test("ensureBaseRef: origin-only branch is materialized into a local branch", as
   const r = wt.create(repo, "epic/9-x", "child");
   expect(r.isolated).toBe(true);
   wt.remove(r.worktreePath);
+});
+
+test("ensureBaseRef: existing local integration branch is fast-forwarded to origin tip", async () => {
+  const wt = new WorktreeMgr();
+  // C1: materialize local epic/9-x at origin's current tip.
+  await wt.ensureBaseRef(repo, "epic/9-x");
+  expect(localBranches(repo)).toContain("epic/9-x");
+  const c1 = revParse(repo, "epic/9-x");
+
+  // C2: a sibling advances origin/epic/9-x (simulates a sibling PR squash-merging into it).
+  const other = mkdtempSync(join(tmpdir(), "shepherd-sibling-"));
+  execFileSync("git", ["clone", "-q", "--branch", "epic/9-x", origin, other], { stdio: "pipe" });
+  commit(other, "c.txt", "sibling work", "sibling merge");
+  execFileSync("git", ["push", "-q", "origin", "epic/9-x"], { cwd: other, stdio: "pipe" });
+  const c2 = revParse(other, "epic/9-x");
+  rmSync(other, { recursive: true, force: true });
+  expect(c2).not.toBe(c1); // origin genuinely advanced
+
+  // Second spawn: local epic/9-x must fast-forward to C2, not stay stale at C1.
+  await wt.ensureBaseRef(repo, "epic/9-x");
+  expect(revParse(repo, "epic/9-x")).toBe(c2);
+  expect(revParse(repo, "epic/9-x")).not.toBe(c1);
 });
 
 test("ensureBaseRef: invalid base name is ignored (no throw, no branch)", async () => {

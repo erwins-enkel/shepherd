@@ -68,7 +68,7 @@ export interface VerifyKeyResult {
 }
 
 /** Self-contained instructions for the verify agent. NOT UI chrome — never i18n'd. */
-export function verifyPrompt(): string {
+function verifyPrompt(): string {
   return [
     `Write EXACTLY the token \`${SENTINEL}\` (and nothing else — no quotes, no newline preamble)`,
     `to the file \`${VERIFY_FILE}\` in the current directory, then stop.`,

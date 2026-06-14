@@ -362,9 +362,16 @@ function generateClaudeMd(scan: RepoScan, checks: GuardrailCheck[]): string {
   const isTs = scan.deps.has("typescript") || scan.has("tsconfig.json");
   const stack = isTs ? "TypeScript" : "JavaScript";
   const missing = checks.filter((c) => !c.present).sort((a, b) => b.weight - a.weight);
+  const verbs = PM_VERBS[scan.pm];
 
   const adoptLines = missing.length
-    ? missing.map((c) => `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`).join("\n")
+    ? missing
+        .map((c) => {
+          const head = `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`;
+          const cmds = INSTALL_STEPS[c.id](verbs);
+          return cmds.length ? `${head}\n${cmds.map((cmd) => `    $ ${cmd}`).join("\n")}` : head;
+        })
+        .join("\n")
     : "- None — your deterministic guardrails already cover the baseline.";
 
   return `# House rules for AI agents (${stack})
@@ -432,4 +439,34 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
     "without it the whole tree is re-checked or skipped; staged-only keeps the hook fast.",
   commit_lint: "without it you correct commit message format by hand.",
   dead_code_audit: "without it dead exports and unused deps accrete and you spot them by eye.",
+};
+
+/** Dev-add + exec verbs per package manager (verbatim — feed the generated artifact). */
+export const PM_VERBS: Record<PackageManager, { add: string; exec: string }> = {
+  bun: { add: "bun add -d", exec: "bunx" },
+  pnpm: { add: "pnpm add -D", exec: "pnpm dlx" },
+  yarn: { add: "yarn add -D", exec: "yarn dlx" },
+  npm: { add: "npm i -D", exec: "npx" },
+};
+
+/**
+ * Concrete install steps per guardrail for the detected package manager. An empty
+ * array means there is no package to install — the guardrail is satisfied by
+ * creating a file (a CI workflow, a CLAUDE.md, a dependabot config), so the
+ * prescription keeps only its prose line. Exhaustive Record so a new guardrail is
+ * forced to declare its steps (matches TOOLING_LABEL / CHURN_PLAIN).
+ */
+export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string }) => string[]> = {
+  pre_push_ci: (v) => [`${v.add} husky`, `${v.exec} husky init`],
+  git_hooks: (v) => [`${v.add} husky`, `${v.exec} husky init`],
+  type_checker: (v) => [`${v.add} typescript`, `${v.exec} tsc --init`],
+  linter: (v) => [`${v.add} eslint @eslint/js`],
+  formatter: (v) => [`${v.add} prettier`],
+  test_runner: (v) => [`${v.add} vitest`],
+  lint_staged: (v) => [`${v.add} lint-staged`],
+  commit_lint: (v) => [`${v.add} @commitlint/cli @commitlint/config-conventional`],
+  dead_code_audit: (v) => [`${v.add} fallow`],
+  agent_instructions: () => [],
+  ci: () => [],
+  dependency_automation: () => [],
 };

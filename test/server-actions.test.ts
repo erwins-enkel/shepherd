@@ -80,6 +80,7 @@ test("GET /api/actions resolves via the forge → {slug, kind, runs, capability 
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     slug: "team/proj",
+    webUrl: null,
     kind: "github",
     runs: [RUN],
     supportsActions: true,
@@ -100,6 +101,7 @@ test("GET /api/actions: full GitHub forge (rerun+cancel) → all caps true", asy
   const res = await app.fetch(getReq(repoDir));
   expect(await res.json()).toEqual({
     slug: "team/proj",
+    webUrl: null,
     kind: "github",
     runs: [RUN],
     supportsActions: true,
@@ -113,6 +115,7 @@ test("GET /api/actions with no forge → empty, null slug/kind, all caps false",
   const res = await app.fetch(getReq(repoDir));
   expect(await res.json()).toEqual({
     slug: null,
+    webUrl: null,
     kind: null,
     runs: [],
     supportsActions: false,
@@ -128,6 +131,7 @@ test("GET /api/actions for a forge without listWorkflowRuns (e.g. gitea) → emp
   const res = await app.fetch(getReq(repoDir));
   expect(await res.json()).toEqual({
     slug: "team/proj",
+    webUrl: null,
     kind: "gitea",
     runs: [],
     supportsActions: false,
@@ -149,12 +153,20 @@ test("GET /api/actions swallows forge errors → empty runs, caps still reflect 
   const res = await app.fetch(getReq(repoDir));
   expect(await res.json()).toEqual({
     slug: "team/proj",
+    webUrl: null,
     kind: "github",
     runs: [],
     supportsActions: true,
     canRerun: false,
     canCancel: false,
   });
+});
+
+test("GET /api/actions includes forge webUrl in response", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ webUrl: "https://github.com/team/proj" })));
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  expect((await res.json()).webUrl).toBe("https://github.com/team/proj");
 });
 
 test("GET /api/actions?repo outside root → 400", async () => {

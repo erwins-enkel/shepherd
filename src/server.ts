@@ -1735,7 +1735,12 @@ async function dispatchForgeAction(
       // owned this PR, else drop a reused-branch-name collision to "none" so GitRail and
       // the list overview agree.
       const prev = deps.prCache?.get(session.id);
-      const trusted = trustsTerminal(prev, git, session.mergingSince != null);
+      const trusted = trustsTerminal(
+        prev,
+        git,
+        session.mergingSince != null,
+        session.mergingPrNumber ?? null,
+      );
       return json(
         trusted
           ? git

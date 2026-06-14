@@ -1163,3 +1163,16 @@ export async function dismissCompletedEpic(
     "dismiss completed epic",
   );
 }
+
+/** Acknowledge the migrations detected in a completed epic's landing PR (#645). Like dismiss,
+ *  this clears the band row — one operator action both records the acknowledgement and dismisses. */
+export async function ackEpicMigrations(
+  repoPath: string,
+  parent: number,
+): Promise<{ ok: boolean }> {
+  return postJson(
+    "/api/epics/completed/ack-migrations",
+    { repo: repoPath, parent },
+    "acknowledge epic migrations",
+  );
+}

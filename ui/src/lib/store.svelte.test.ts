@@ -742,6 +742,8 @@ function completedEpic(repoPath: string, parentIssueNumber: number): CompletedEp
     landingPrNumber: null,
     landingPrUrl: null,
     landingState: "pending",
+    migrationPaths: [],
+    migrationsAckedAt: null,
   };
 }
 

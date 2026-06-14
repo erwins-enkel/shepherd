@@ -246,6 +246,140 @@ test("re-recordEpicCompleted preserves landing resolution by omission", () => {
   expect(row.landingPrNumber).toBe(42);
 });
 
+test("fresh recordEpicCompleted defaults migration columns (empty paths, null ackedAt)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.migrationPaths).toEqual([]);
+  expect(row.migrationsAckedAt).toBe(null);
+});
+
+test("setEpicMigrationPaths round-trips a detected-paths array", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicMigrationPaths("/r", 10, ["drizzle/0001.sql", "server/migrations/002.sql"]);
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.migrationPaths).toEqual(["drizzle/0001.sql", "server/migrations/002.sql"]);
+  expect(row.migrationsAckedAt).toBe(null); // detection alone doesn't acknowledge
+});
+
+test("re-recordEpicCompleted preserves migration columns by omission", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "Old",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicMigrationPaths("/r", 10, ["drizzle/0001.sql", "server/migrations/002.sql"]);
+
+  // detection populated the paths, ack is still pending
+  const detected = s.listEpicCompleted()[0]!;
+  expect(detected.migrationPaths).toEqual(["drizzle/0001.sql", "server/migrations/002.sql"]);
+  expect(detected.migrationsAckedAt).toBe(null);
+
+  // a later re-record refreshes title/children but must NOT wipe the migration columns
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "New",
+    completedAt: 999,
+    childrenJson: "[1,2]",
+  });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.parentTitle).toBe("New");
+  expect(row.childrenJson).toBe("[1,2]");
+  // preserved by omission — the upsert touches neither migration column
+  expect(row.migrationPaths).toEqual(["drizzle/0001.sql", "server/migrations/002.sql"]);
+  expect(row.migrationsAckedAt).toBe(null);
+});
+
+test("re-recordEpicCompleted preserves a prior migrationsAckedAt by omission", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "Old",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicMigrationPaths("/r", 10, ["migrations/001.sql"]);
+  s.ackEpicMigrations("/r", 10); // stamps migrationsAckedAt AND dismisses
+
+  // helper to read the (now-dismissed, hidden) row straight from the DB
+  const readRow = () =>
+    (
+      s as unknown as {
+        db: { query: (q: string) => { get: (...a: unknown[]) => unknown } };
+      }
+    ).db
+      .query(
+        `SELECT migrationPathsJson, migrationsAckedAt FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get("/r", 10) as { migrationPathsJson: string | null; migrationsAckedAt: number | null };
+
+  const acked = readRow();
+  expect(acked.migrationsAckedAt).not.toBe(null);
+
+  // re-record must not resurrect (stays dismissed) and must not wipe the ack timestamp/paths
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "New",
+    completedAt: 999,
+    childrenJson: "[1,2]",
+  });
+  expect(s.listEpicCompleted()).toHaveLength(0); // still dismissed, not resurrected
+
+  const after = readRow();
+  expect(after.migrationsAckedAt).toBe(acked.migrationsAckedAt); // ack survives the upsert
+  expect(after.migrationPathsJson).toBe(JSON.stringify(["migrations/001.sql"]));
+});
+
+test("ackEpicMigrations stamps migrationsAckedAt AND clears the row from the list", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicMigrationPaths("/r", 10, ["migrations/001.sql"]);
+  expect(s.listEpicCompleted()).toHaveLength(1);
+
+  const before = Date.now();
+  s.ackEpicMigrations("/r", 10);
+  // acknowledging dismisses → gone from the (dismissedAt IS NULL) list
+  expect(s.listEpicCompleted()).toHaveLength(0);
+
+  // the ack timestamp is durably recorded even though the row is hidden
+  const acked = (
+    s as unknown as {
+      db: { query: (q: string) => { get: (...a: unknown[]) => unknown } };
+    }
+  ).db
+    .query(
+      `SELECT migrationsAckedAt FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?`,
+    )
+    .get("/r", 10) as { migrationsAckedAt: number };
+  expect(acked.migrationsAckedAt).toBeGreaterThanOrEqual(before);
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

@@ -806,6 +806,24 @@ export class GithubForge implements GitForge {
     }));
   }
 
+  async prChangedPaths(prNumber: number): Promise<string[]> {
+    const out = await this.run([
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      "files",
+      "--jq",
+      ".files[].path",
+    ]);
+    return out
+      .split("\n")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+  }
+
   async prReviewMeta(prNumber: number): Promise<PrReviewMeta | null> {
     try {
       const out = await this.run([

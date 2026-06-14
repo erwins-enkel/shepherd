@@ -19,6 +19,7 @@ import {
   branchReferencesEpic,
 } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
+import { detectMigrationPaths } from "./epic-migrations";
 import {
   buildRollup,
   type CompletedEpic,
@@ -114,6 +115,7 @@ export interface DrainDeps {
     | "recordEpicCompleted"
     | "listEpicCompleted"
     | "setEpicLandingPr"
+    | "setEpicMigrationPaths"
     | "recordEpicBaseMismatch"
     | "clearEpicBaseMismatch"
     | "getEpicBaseMismatch"
@@ -518,6 +520,9 @@ export class DrainService {
           landingPrNumber: null,
           landingPrUrl: null,
           landingState: "pending",
+          // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
+          migrationPaths: [],
+          migrationsAckedAt: null,
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -580,6 +585,8 @@ export class DrainService {
       landingPrNumber: row.landingPrNumber,
       landingPrUrl: row.landingPrUrl,
       landingState: row.landingState,
+      migrationPaths: row.migrationPaths,
+      migrationsAckedAt: row.migrationsAckedAt,
     };
     this.deps.emitEpicCompleted?.(completed);
   }
@@ -599,6 +606,35 @@ export class DrainService {
   ): void {
     this.deps.store.setEpicLandingPr(repoPath, parentIssueNumber, fields);
     this.emitCompleted(repoPath, parentIssueNumber);
+  }
+
+  /**
+   * Migration-awareness checkpoint (#645): fetch the landing PR's changed paths, detect migration
+   * files, and persist them on the `epic_completed` row so the band can prompt the operator to
+   * acknowledge before clearing it. STRICTLY best-effort + fail-safe — the whole body is wrapped:
+   * a forge without `prChangedPaths`, a fetch failure, or any throw leaves no paths (hence no
+   * chip) and is swallowed. It NEVER affects the landing resolution and NEVER throws past the
+   * caller (which owns ensureLandingPr's never-throws contract). Re-emits so the chip appears live.
+   */
+  private async detectAndPersistMigrations(
+    forge: GitForge,
+    repoPath: string,
+    parentIssueNumber: number,
+    prNumber: number,
+  ): Promise<void> {
+    if (!forge.prChangedPaths) return; // host can't enumerate PR files → detection off
+    try {
+      const paths = await forge.prChangedPaths(prNumber);
+      const migrations = detectMigrationPaths(paths);
+      if (migrations.length === 0) return; // nothing to flag → leave the row untouched
+      this.deps.store.setEpicMigrationPaths(repoPath, parentIssueNumber, migrations);
+      this.emitCompleted(repoPath, parentIssueNumber);
+    } catch (err) {
+      console.warn(
+        `[drain] migration detection skipped for ${repoPath}#${parentIssueNumber} (PR #${prNumber}):`,
+        err,
+      );
+    }
   }
 
   /**
@@ -677,6 +713,18 @@ export class DrainService {
       );
       const resolution = await this.classifyLanding(forge, row, integrationBranch);
       this.resolveLanding(repoPath, parentIssueNumber, resolution);
+      // Migration-awareness checkpoint (#645): once the landing PR's number is known, detect any
+      // migration files it carries so the band can ask the operator to acknowledge them. Strictly
+      // best-effort — a detection failure (or a forge without prChangedPaths) leaves no paths,
+      // hence no chip, and NEVER affects the landing resolution above.
+      if (resolution.state === "open" && resolution.prNumber != null) {
+        await this.detectAndPersistMigrations(
+          forge,
+          repoPath,
+          parentIssueNumber,
+          resolution.prNumber,
+        );
+      }
     } finally {
       this.landingInFlight.delete(inFlightKey);
     }

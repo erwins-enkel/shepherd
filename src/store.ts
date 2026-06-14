@@ -780,35 +780,14 @@ export class SessionStore implements CapStore, CreditStore {
     landingPrUrl: string | null;
     landingState: EpicLandingState;
     landingAttempts: number;
+    migrationPaths: string[];
+    migrationsAckedAt: number | null;
   }[] {
-    if (repoPath !== undefined) {
-      return this.db
-        .query(
-          `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
-                  landingPrNumber, landingPrUrl, landingState, landingAttempts
-           FROM epic_completed WHERE dismissedAt IS NULL AND repoPath = ?
-           ORDER BY completedAt DESC`,
-        )
-        .all(repoPath) as {
-        repoPath: string;
-        parentIssueNumber: number;
-        parentTitle: string;
-        completedAt: number;
-        childrenJson: string;
-        landingPrNumber: number | null;
-        landingPrUrl: string | null;
-        landingState: EpicLandingState;
-        landingAttempts: number;
-      }[];
-    }
-    return this.db
-      .query(
-        `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
-                landingPrNumber, landingPrUrl, landingState, landingAttempts
-         FROM epic_completed WHERE dismissedAt IS NULL
-         ORDER BY completedAt DESC`,
-      )
-      .all() as {
+    const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
+                landingPrNumber, landingPrUrl, landingState, landingAttempts,
+                migrationPathsJson, migrationsAckedAt
+         FROM epic_completed WHERE dismissedAt IS NULL`;
+    type Raw = {
       repoPath: string;
       parentIssueNumber: number;
       parentTitle: string;
@@ -818,7 +797,19 @@ export class SessionStore implements CapStore, CreditStore {
       landingPrUrl: string | null;
       landingState: EpicLandingState;
       landingAttempts: number;
-    }[];
+      migrationPathsJson: string | null;
+      migrationsAckedAt: number | null;
+    };
+    const rows =
+      repoPath !== undefined
+        ? (this.db
+            .query(`${sql} AND repoPath = ? ORDER BY completedAt DESC`)
+            .all(repoPath) as Raw[])
+        : (this.db.query(`${sql} ORDER BY completedAt DESC`).all() as Raw[]);
+    return rows.map(({ migrationPathsJson, ...rest }) => ({
+      ...rest,
+      migrationPaths: parseFindings(migrationPathsJson),
+    }));
   }
 
   /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
@@ -837,6 +828,28 @@ export class SessionStore implements CapStore, CreditStore {
       `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
       [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Persist the migration paths detected in a completed epic's landing PR (#645). Stored as a
+   *  JSON array; an empty array clears any prior detection. Direct UPDATE, mirroring
+   *  {@link setEpicLandingPr}'s style. */
+  setEpicMigrationPaths(repoPath: string, parentIssueNumber: number, paths: string[]): void {
+    this.db.run(
+      `UPDATE epic_completed SET migrationPathsJson = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [JSON.stringify(paths), repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Acknowledge a completed epic's landing-PR migrations (#645): stamp `migrationsAckedAt` AND
+   *  dismiss the row — one operator action both records the acknowledgement durably (so it isn't
+   *  re-prompted on a re-record) and clears the band. */
+  ackEpicMigrations(repoPath: string, parentIssueNumber: number): void {
+    const now = Date.now();
+    this.db.run(
+      `UPDATE epic_completed SET migrationsAckedAt = ?, dismissedAt = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [now, now, repoPath, parentIssueNumber],
     );
   }
 
@@ -1705,6 +1718,11 @@ export class SessionStore implements CapStore, CreditStore {
     add("landingPrUrl", `landingPrUrl TEXT`);
     add("landingState", `landingState TEXT NOT NULL DEFAULT 'pending'`);
     add("landingAttempts", `landingAttempts INTEGER NOT NULL DEFAULT 0`);
+    // Migration-awareness checkpoint (#645): paths of migration files detected in the landing
+    // PR (JSON array) + the epoch the operator acknowledged them. Both nullable: absence = no
+    // detection ran / nothing to acknowledge.
+    add("migrationPathsJson", `migrationPathsJson TEXT`);
+    add("migrationsAckedAt", `migrationsAckedAt INTEGER`);
   }
 
   private migrateReviewColumns(): void {

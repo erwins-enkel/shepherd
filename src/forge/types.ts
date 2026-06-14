@@ -308,6 +308,12 @@ export interface GitForge {
    *  responses to earlier review rounds. Optional: only hosts with a comments API
    *  implement it (GitHub); others omit it and no author notes are surfaced. */
   listPrComments?(prNumber: number): Promise<PrComment[]>;
+  /** The changed file paths of a PR (`gh pr view <n> --json files`). Used by the epic-landing
+   *  migration-awareness check (#645) to detect migration files carried by the landing PR.
+   *  Optional: only hosts with a PR-files API (GitHub) implement it; others omit it and the
+   *  migration check degrades to off (no chip). Best-effort; the caller wraps the call so a
+   *  failure never breaks the landing. */
+  prChangedPaths?(prNumber: number): Promise<string[]>;
   /** Number-keyed PR metadata for the standalone critic: body + base branch + fork flag +
    *  live state, via `gh pr view <number>`. Number-keyed so a recurring/fork head branch
    *  name can't resolve a different PR (unlike branch-keyed prStatus). Optional: only hosts

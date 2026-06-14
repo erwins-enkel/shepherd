@@ -3228,6 +3228,8 @@ async function backfillIdleEpic(
       landingPrNumber: null,
       landingPrUrl: null,
       landingState: "pending",
+      migrationPaths: [],
+      migrationsAckedAt: null,
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -3339,6 +3341,35 @@ async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<R
   return json({ ok: true });
 }
 
+// POST /api/epics/completed/ack-migrations — body { repo, parent }. Acknowledge the landing PR's
+// detected migrations (#645): stamps migrationsAckedAt + dismisses the row (one operator action,
+// clears the band). Mirrors the dismiss handler's validation + clear emit.
+async function handleEpicsCompletedAckMigrations({
+  req,
+  parts,
+  deps,
+}: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "POST" &&
+      parts[0] === "api" &&
+      parts[1] === "epics" &&
+      parts[2] === "completed" &&
+      parts[3] === "ack-migrations"
+    )
+  )
+    return null;
+  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parent = body?.parent;
+  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  deps.store.ackEpicMigrations(dir, parent);
+  deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
+  return json({ ok: true });
+}
+
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handlePing,
@@ -3354,6 +3385,7 @@ const ROUTE_HANDLERS = [
   handleAutoMerge,
   handleEpicsList,
   handleEpicsCompletedDismiss,
+  handleEpicsCompletedAckMigrations,
   handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,

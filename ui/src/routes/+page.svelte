@@ -35,6 +35,7 @@
     getAutoMerge,
     getCompletedEpics,
     dismissCompletedEpic,
+    ackEpicMigrations,
     getEpic,
     getDiagnostics,
     halt as apiHalt,
@@ -1281,6 +1282,26 @@
     }
   }
 
+  // Acknowledge a completed epic's landing-PR migrations (#645). Like onDismissEpic, the server
+  // ack also dismisses the row, so optimistically remove it; on failure, restore + toast.
+  async function onAckEpicMigrations(repoPath: string, parent: number) {
+    const match = (e: CompletedEpic) => e.repoPath === repoPath && e.parentIssueNumber === parent;
+    const removed = store.completedEpics.find(match);
+    store.completedEpics = store.completedEpics.filter((e) => !match(e)); // optimistic
+    try {
+      await ackEpicMigrations(repoPath, parent);
+    } catch {
+      if (removed && !store.completedEpics.some(match)) {
+        store.completedEpics = [removed, ...store.completedEpics];
+      }
+      toasts.info(m.integrated_epics_ack_migrations_failed(), {
+        alert: true,
+        duration: null,
+        key: `epic-ack-migrations-fail:${repoPath}#${parent}`,
+      });
+    }
+  }
+
   // Confirmed: clear the dialog state (before the await, so it can't double-submit),
   // then run the bulk archive.
   function confirmClearMerged() {
@@ -1455,6 +1476,7 @@
               doneSelectedId = id;
               mobileScreen = "detail";
             }}
+            onackmigrationsepic={onAckEpicMigrations}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done"}
             <BacklogView
@@ -1598,6 +1620,7 @@
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}
+            onackmigrationsepic={onAckEpicMigrations}
           />
         {/if}
         {#if herdFilter === "done"}

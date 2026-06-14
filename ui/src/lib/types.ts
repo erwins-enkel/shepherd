@@ -397,6 +397,12 @@ export interface CompletedEpic {
   // resolved, open=PR opened/reused, merged=landing PR merged (epic landed), none=nothing
   // to land, error=last attempt failed.
   landingState: "pending" | "open" | "merged" | "none" | "error";
+  // Migration-awareness checkpoint (#645): migration file paths detected in the landing PR
+  // (empty when none / detection unavailable) + the epoch the operator acknowledged them (null
+  // until acknowledged). A non-empty migrationPaths with a null migrationsAckedAt makes the row
+  // ask for acknowledgement before it can be cleared — never gates the completion flip.
+  migrationPaths: string[];
+  migrationsAckedAt: number | null;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

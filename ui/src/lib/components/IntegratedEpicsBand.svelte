@@ -6,10 +6,12 @@
   let {
     epics,
     ondismiss,
+    onackmigrations,
     nowMs = Date.now(),
   }: {
     epics: CompletedEpic[];
     ondismiss: (repoPath: string, parent: number) => void;
+    onackmigrations: (repoPath: string, parent: number) => void;
     nowMs?: number;
   } = $props();
 
@@ -34,7 +36,7 @@
     {#if !collapsed}
       <div class="rows">
         {#each epics as epic (`${epic.repoPath}#${epic.parentIssueNumber}`)}
-          <IntegratedEpicRow {epic} {ondismiss} {nowMs} />
+          <IntegratedEpicRow {epic} {ondismiss} {onackmigrations} {nowMs} />
         {/each}
       </div>
     {/if}

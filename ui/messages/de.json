@@ -1291,5 +1291,10 @@
   "feat_readiness_install_commands_body": "Die Readiness-Empfehlung listet jetzt die exakten Installationsbefehle für den Paketmanager deines Repos auf, sodass jede fehlende Schutzregel ohne Nachschlagen übernommen werden kann.",
   "topbar_menu_docs": "README & Doku",
   "feat_mobile_menu_docs_title": "Doku & Version im Mobil-Menü",
-  "feat_mobile_menu_docs_body": "Auf dem Handy verlinkt das Zahnrad-Menü jetzt direkt auf die Shepherd-Startseite — README und Doku — und zeigt die laufende Build-Version an."
+  "feat_mobile_menu_docs_body": "Auf dem Handy verlinkt das Zahnrad-Menü jetzt direkt auf die Shepherd-Startseite — README und Doku — und zeigt die laufende Build-Version an.",
+  "epic_migrations_pending": "{count} Migrationsdatei(en) — vor dem Merge prüfen (nicht im Harness ausgeführt)",
+  "integrated_epics_ack_migrations": "Migrationen bestätigen & schließen",
+  "integrated_epics_ack_migrations_failed": "Migrationen konnten nicht bestätigt werden — erneut versuchen",
+  "feat_epic_migrations_title": "Epic-Landungen melden nicht ausgeführte Migrationen",
+  "feat_epic_migrations_body": "Wenn der Landing-PR eines Epics Datenbankmigrationen hinzufügt, zeigt das Band 'Integrierte Epics' jetzt einen Warn-Chip mit der Dateianzahl — der Harness führt sie nie aus, prüfe sie also vor dem Merge. Vor dem Schließen der Zeile musst du die Migrationen bestätigen."
 }

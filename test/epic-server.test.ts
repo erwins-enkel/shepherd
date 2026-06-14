@@ -1266,3 +1266,65 @@ describe("POST /api/epic/import", () => {
     expect(body.error).toMatch(/native epic links/i);
   });
 });
+
+// ── POST /api/epics/completed/ack-migrations (#645) ───────────────────────────
+
+describe("POST /api/epics/completed/ack-migrations", () => {
+  function seedRow(store: SessionStore, parent: number) {
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: parent,
+      parentTitle: "E",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    store.setEpicMigrationPaths(repoDir, parent, ["server/migrations/001.sql"]);
+  }
+
+  test("acknowledges migrations: dismisses the row, clears band, emits cleared", async () => {
+    const { app, store, cleared } = completedHarness({ resolveForge: () => null });
+    seedRow(store, 327);
+    expect(store.listEpicCompleted(repoDir)).toHaveLength(1);
+
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/ack-migrations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, parent: 327 }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    // acknowledging dismisses → row cleared from the band + cleared event emitted
+    expect(store.listEpicCompleted(repoDir)).toHaveLength(0);
+    expect(cleared).toEqual([{ repoPath: repoDir, parentIssueNumber: 327 }]);
+    const get = await app.fetch(
+      new Request(`http://x/api/epics/completed?repo=${encRepo(repoDir)}`),
+    );
+    expect(await get.json()).toEqual([]);
+  });
+
+  test("invalid repo → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/ack-migrations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: "/nope/not/here", parent: 327 }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("non-positive parent → 400", async () => {
+    const { app } = completedHarness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epics/completed/ack-migrations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, parent: 0 }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+});

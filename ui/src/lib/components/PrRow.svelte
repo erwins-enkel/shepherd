@@ -17,6 +17,7 @@
     selectable = false,
     selected = false,
     ontoggle,
+    inTrain = false,
   }: {
     repoPath: string;
     pr: PullRequest;
@@ -28,13 +29,16 @@
     selectable?: boolean;
     selected?: boolean;
     ontoggle?: () => void;
+    /** This PR is owned by a running merge train — show the MERGING badge and
+     *  lock the manual merge button so the train (not the operator) lands it. */
+    inTrain?: boolean;
   } = $props();
 
   // Merge is outward-facing and hard to reverse, so it arms on first click and
   // fires on the second. The armed state self-disarms after a few seconds so a
   // stray click never leaves a hot button waiting.
   let armed = $state(false);
-  let merging = $state(false);
+  let mergeBusy = $state(false);
   let failed = $state(false);
   // Stuck Dependabot PRs get a one-click "@dependabot rebase" opt-in. `requested`
   // is sticky for the row's lifetime so Dependabot is never asked twice.
@@ -88,7 +92,7 @@
   });
 
   async function onmerge() {
-    if (merging || blocked) return;
+    if (mergeBusy || blocked) return;
     failed = false;
     rebaseFailed = false; // a fresh merge attempt clears any stale rebase-error text
     if (!armed) {
@@ -97,14 +101,14 @@
       return;
     }
     disarm();
-    merging = true;
+    mergeBusy = true;
     try {
       await mergeBacklogPr(repoPath, pr.number);
       onmerged(pr.number);
       offerUpdateMain(repoPath);
     } catch {
       failed = true;
-      merging = false;
+      mergeBusy = false;
     }
   }
 
@@ -159,6 +163,9 @@
     </div>
 
     <div class="pr-meta">
+      {#if inTrain}
+        <span class="badge merging" title={m.prrow_in_train_title()}>{m.status_merging()}</span>
+      {/if}
       {#if pr.checks !== "none"}
         {#if hasJobs}
           <button
@@ -261,11 +268,15 @@
         <button
           class="merge-btn"
           class:armed
-          disabled={merging || blocked}
+          disabled={mergeBusy || blocked || inTrain}
           onclick={onmerge}
-          title={blocked ? m.prspanel_merge_blocked_title() : undefined}
+          title={inTrain
+            ? m.prrow_in_train_title()
+            : blocked
+              ? m.prspanel_merge_blocked_title()
+              : undefined}
         >
-          {merging
+          {mergeBusy
             ? m.prspanel_merging()
             : armed
               ? m.prspanel_merge_confirm()
@@ -486,6 +497,22 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-red);
+  }
+
+  /* In-train badge — mirrors the session-list MERGING badge (UnitRow): the one
+     colored, moving status badge, amber + pulse, marking the running merge train
+     that owns this PR. Surfaces the same state the session row already shows. */
+  .badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .badge.merging {
+    color: var(--color-amber);
+    animation: merge-pulse 1.5s ease-in-out infinite;
   }
 
   /* Non-default target branch — a hairline neutral chip (mirrors .kind-tag),

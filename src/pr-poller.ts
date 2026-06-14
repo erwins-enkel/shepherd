@@ -48,12 +48,12 @@ export function guardStaleTerminal(
  *  Returns false immediately for any non-terminal `raw` — `guardStaleTerminal` is a no-op off-terminal
  *  anyway, and this prevents a malformed `{state:"none"}` from ever being trusted.
  *  True (for a terminal `raw`) when either:
- *   - `marked`  — the session is currently merge-train-flagged (mergingSince set): a marked session
- *                 always had an open PR, so its terminal result is the train landing it (this holds
- *                 even when the PR was never cached open — the cold-cache case). NOTE this trusts ANY
- *                 terminal result while marked, relying on the invariant that `setMerging` only flags
- *                 `readyToMerge` sessions whose own PR is genuinely open (see `collectReadyPrs`); were
- *                 that invariant to break, a name-collision terminal hit could be trusted here; or
+ *   - `marked && markedNumber === raw.number` — the session is merge-train-flagged AND its recorded
+ *                 observed PR number matches the terminal result: server-side reconcile only sets
+ *                 `mergingSince` when it observed the PR as `state:"open"` with that number, so this
+ *                 still holds for the cold-cache rebase/force-push case (same PR number, head moved).
+ *                 A different-number terminal (reused branch name) falls through to the prev-cache check
+ *                 rather than being blanket-trusted; or
  *   - `prev` already cached THIS PR (same number, non-"none" state) — a PR we already owned.
  *  When this returns false, `raw` may be a reused-branch-name collision and must run through
  *  `guardStaleTerminal`. */
@@ -61,9 +61,10 @@ export function trustsTerminal(
   prev: GitState | undefined,
   raw: GitState,
   marked: boolean,
+  markedNumber: number | null,
 ): boolean {
   if (raw.state !== "merged" && raw.state !== "closed") return false; // guardStaleTerminal is a no-op off-terminal anyway
-  if (marked) return true;
+  if (marked && markedNumber != null && raw.number === markedNumber) return true;
   return !!prev && prev.number != null && prev.number === raw.number && prev.state !== "none";
 }
 
@@ -221,8 +222,9 @@ export class PrPoller implements PrCache {
     const me = (await forge.currentUser?.()) ?? null;
     const prev = this.cache.get(s.id);
     const marked = s.mergingSince != null;
+    const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
-      trustsTerminal(prev, raw, marked) ? raw : this.rejectStaleTerminal(s, raw);
+      trustsTerminal(prev, raw, marked, markedNumber) ? raw : this.rejectStaleTerminal(s, raw);
     let git: GitState;
     try {
       git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch)) });

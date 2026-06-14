@@ -19,6 +19,7 @@
     onlaunchtrain,
     flow = false,
     epics = undefined,
+    inTrainPrs = new Set(),
     target = null,
   }: {
     payload: BacklogPayload | null;
@@ -38,6 +39,9 @@
     flow?: boolean;
     /** Live epic record from the store, threaded down to IssuesPanel. */
     epics?: Record<string, Epic>;
+    /** PR identity keys (`${repoPath}#${number}`) owned by a running merge train,
+     *  forwarded to PrsPanel → PrRow for the in-train badge + merge lock. */
+    inTrainPrs?: Set<string>;
     /** When set (EPIC badge click), select that repo, switch to the Issues tab,
      *  and expand+scroll the epic's row. Applied once per distinct value. */
     target?: { repoPath: string; issueNumber: number } | null;
@@ -241,6 +245,7 @@
               repoPath={selectedPath}
               onreview={(pr) => onpr(selectedPath!, pr)}
               {onlaunchtrain}
+              {inTrainPrs}
               age
             />
           {:else if activeTab === "actions"}
@@ -338,6 +343,7 @@
                 repoPath={selectedPath}
                 onreview={(pr) => onpr(selectedPath!, pr)}
                 {onlaunchtrain}
+                {inTrainPrs}
                 age
               />
             {:else if activeTab === "actions"}

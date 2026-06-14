@@ -5,8 +5,7 @@ import {
   mergeTrainCreateInput,
   pickTrainRepo,
   isMerging,
-  sessionsForPrNumbers,
-  MERGE_STALE_MS,
+  MERGE_MARK_BACKSTOP_MS,
 } from "./merge-train";
 import type { Session, GitState } from "$lib/types";
 
@@ -28,6 +27,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,
+    mergeTrainPrs: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,
@@ -243,9 +243,17 @@ describe("mergeTrainCreateInput", () => {
     expect(typeof input.prompt).toBe("string");
     expect(input.prompt.length).toBeGreaterThan(0);
   });
+
+  it("includes mergeTrainPrs as the PR numbers (default call)", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prs).mergeTrainPrs).toEqual([11, 22]);
+  });
+
+  it("includes mergeTrainPrs as the PR numbers (handpicked call)", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prs, true).mergeTrainPrs).toEqual([11, 22]);
+  });
 });
 
-test("isMerging: true when marked and within TTL, false when null or stale", () => {
+test("isMerging: marked + within backstop true; null/aged-past-backstop false; 30-min cliff gone", () => {
   const now = 1_000_000_000;
   const make = (mergingSince: number | null) => ({
     ...session({ id: "m" }),
@@ -254,76 +262,10 @@ test("isMerging: true when marked and within TTL, false when null or stale", () 
   });
   expect(isMerging(make(null), now)).toBe(false);
   expect(isMerging(make(now - 1000), now)).toBe(true);
-  expect(isMerging(make(now - MERGE_STALE_MS - 1), now)).toBe(false);
-});
-
-describe("sessionsForPrNumbers", () => {
-  const repoA = "/repo/a";
-  const repoB = "/repo/b";
-
-  it("returns session ids for ready PRs matching repo and numbers", () => {
-    const sessions = [
-      session({ id: "a", readyToMerge: true, repoPath: repoA }),
-      session({ id: "b", readyToMerge: true, repoPath: repoA }),
-    ];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-      b: openPr(22, "feat: b", "https://h/pull/22"),
-    };
-    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a", "b"]);
-  });
-
-  it("excludes sessions from a different repo", () => {
-    const sessions = [
-      session({ id: "a", readyToMerge: true, repoPath: repoA }),
-      session({ id: "b", readyToMerge: true, repoPath: repoB }),
-    ];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-      b: openPr(22, "feat: b", "https://h/pull/22"),
-    };
-    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a"]);
-  });
-
-  it("excludes sessions not readyToMerge", () => {
-    const sessions = [
-      session({ id: "a", readyToMerge: true, repoPath: repoA }),
-      session({ id: "b", readyToMerge: false, repoPath: repoA }),
-    ];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-      b: openPr(22, "feat: b", "https://h/pull/22"),
-    };
-    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git)).toEqual(["a"]);
-  });
-
-  it("excludes sessions where isReviewing returns true", () => {
-    const sessions = [
-      session({ id: "a", readyToMerge: true, repoPath: repoA }),
-      session({ id: "b", readyToMerge: true, repoPath: repoA }),
-    ];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-      b: openPr(22, "feat: b", "https://h/pull/22"),
-    };
-    expect(sessionsForPrNumbers(repoA, [11, 22], sessions, git, (id) => id === "a")).toEqual(["b"]);
-  });
-
-  it("returns empty array when no numbers match", () => {
-    const sessions = [session({ id: "a", readyToMerge: true, repoPath: repoA })];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-    };
-    expect(sessionsForPrNumbers(repoA, [99, 100], sessions, git)).toEqual([]);
-  });
-
-  it("returns empty array for an empty numbers list", () => {
-    const sessions = [session({ id: "a", readyToMerge: true, repoPath: repoA })];
-    const git: Record<string, GitState> = {
-      a: openPr(11, "feat: a", "https://h/pull/11"),
-    };
-    expect(sessionsForPrNumbers(repoA, [], sessions, git)).toEqual([]);
-  });
+  // 31 min old is now still merging — proves the old 30-min cliff is gone.
+  expect(isMerging(make(now - 31 * 60_000), now)).toBe(true);
+  // Past the 24h safety backstop → no longer merging.
+  expect(isMerging(make(now - MERGE_MARK_BACKSTOP_MS - 1), now)).toBe(false);
 });
 
 describe("mergeTrainCreateInput with handpicked param", () => {

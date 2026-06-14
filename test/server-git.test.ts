@@ -26,6 +26,8 @@ const SESSION: Session = {
   readyToMerge: false,
   mergingSince: null,
   mergingTrainId: null,
+  mergeTrainPrs: null,
+  mergingPrNumber: null,
   autopilotEnabled: null,
   autopilotStepCount: 0,
   autopilotPaused: false,
@@ -294,7 +296,12 @@ test("GET git trusts a merged PR when session is merge-train-flagged, cold cache
       deployConfigured: true,
     }),
   });
-  const mergeTrainSession = { ...SESSION, mergingSince: Date.now(), mergingTrainId: "t" };
+  const mergeTrainSession = {
+    ...SESSION,
+    mergingSince: Date.now(),
+    mergingTrainId: "t",
+    mergingPrNumber: 344,
+  };
   const deps = Object.assign(makeDeps(f, mergeTrainSession), { ownsPr: () => false });
   const app = makeApp(deps);
   const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));

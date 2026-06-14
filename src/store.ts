@@ -121,6 +121,8 @@ type NewSession = Omit<
   | "readyToMerge"
   | "mergingSince"
   | "mergingTrainId"
+  | "mergeTrainPrs"
+  | "mergingPrNumber"
   | "autopilotEnabled"
   | "autopilotStepCount"
   | "autopilotPaused"
@@ -152,6 +154,7 @@ type NewSession = Omit<
   egressApplied?: boolean;
   egressDegraded?: boolean;
   research?: boolean;
+  mergeTrainPrs?: number[];
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
@@ -161,7 +164,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research,
-  createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId`;
+  createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber`;
 
 // ── repo_config row type + helpers ────────────────────────────────────────────
 
@@ -184,6 +187,19 @@ type RepoCfgRow = {
   defaultModel: string;
   egressExtraHosts: string | null;
 };
+
+/** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
+function parseMergeTrainPrsJson(raw: string | null | undefined): number[] | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    if (parsed.some((el) => typeof el !== "number")) return null;
+    return parsed as number[];
+  } catch {
+    return null;
+  }
+}
 
 /** Tolerantly parse the persisted egressExtraHosts JSON back to string[] (never throws). */
 function parseEgressExtraHostsJson(raw: string | null | undefined): string[] {
@@ -914,6 +930,8 @@ export class SessionStore implements CapStore, CreditStore {
       archivedAt: null,
       mergingSince: null,
       mergingTrainId: null,
+      mergeTrainPrs: input.mergeTrainPrs ?? null,
+      mergingPrNumber: null,
     };
   }
 
@@ -923,7 +941,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -963,6 +981,8 @@ export class SessionStore implements CapStore, CreditStore {
           s.archivedAt,
           s.mergingSince,
           s.mergingTrainId,
+          s.mergeTrainPrs !== null ? JSON.stringify(s.mergeTrainPrs) : null,
+          null, // mergingPrNumber — always null at create
         ],
       );
       return s;
@@ -1006,6 +1026,7 @@ export class SessionStore implements CapStore, CreditStore {
         | "readyToMerge"
         | "mergingSince"
         | "mergingTrainId"
+        | "mergingPrNumber"
       >
     >,
   ) {
@@ -1013,7 +1034,7 @@ export class SessionStore implements CapStore, CreditStore {
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -1023,6 +1044,7 @@ export class SessionStore implements CapStore, CreditStore {
         next.readyToMerge ? 1 : 0,
         next.mergingSince,
         next.mergingTrainId,
+        next.mergingPrNumber,
         next.updatedAt,
         id,
       ],
@@ -1664,6 +1686,8 @@ export class SessionStore implements CapStore, CreditStore {
     add("mergingTrainId", `mergingTrainId TEXT`);
     // research task kind: default 0 (false) for pre-existing rows.
     add("research", `research INTEGER NOT NULL DEFAULT 0`);
+    add("mergeTrainPrs", `mergeTrainPrs TEXT`);
+    add("mergingPrNumber", `mergingPrNumber INTEGER`);
   }
 
   // migrate repo_config that predates these opt-in columns. auto-address defaults
@@ -2095,6 +2119,8 @@ export class SessionStore implements CapStore, CreditStore {
       research: !!r.research,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
+      mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),
+      mergingPrNumber: r.mergingPrNumber ?? null,
     } as Session;
   }
 }

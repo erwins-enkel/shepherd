@@ -190,6 +190,28 @@ describe("PrsPanel launch-train toolbar", () => {
     await expect.element(launchBtn()).toBeDisabled();
   });
 
+  it("shows the in-train badge and disables merge only for PRs in the train set", async () => {
+    seed([pr(1), pr(2)]);
+    render(PrsPanel, {
+      repoPath: "/repo",
+      onreview: noop,
+      onlaunchtrain: noop,
+      // PR 1 is owned by a running train; PR 2 is not.
+      inTrainPrs: new Set(["/repo#1"]),
+    });
+    await expect.element(checkbox(1)).toBeInTheDocument();
+
+    // PR 1: in-train badge present, merge button locked.
+    await expect.element(page.getByText(m.status_merging())).toBeInTheDocument();
+    const mergeBtns = page.getByRole("button", { name: m.prspanel_merge_button(), exact: true });
+    await expect.element(mergeBtns.nth(0)).toBeDisabled();
+
+    // PR 2: not in the set → no badge of its own, merge button enabled.
+    await expect.element(mergeBtns.nth(1)).toBeEnabled();
+    // exactly one in-train badge (only PR 1)
+    expect(page.getByText(m.status_merging()).elements()).toHaveLength(1);
+  });
+
   it("calls onlaunchtrain with the selected PRs in display order", async () => {
     seed([pr(1, "first"), pr(2, "second"), pr(3, "third")]);
     const onlaunchtrain = vi.fn();

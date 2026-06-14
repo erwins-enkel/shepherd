@@ -1,15 +1,17 @@
 import { m } from "$lib/paraglide/messages";
 import type { Session, GitState, CreateInput } from "$lib/types";
 
-/** Merge-train marks older than this read as stale (the row falls back to its
- *  prior state) so a stuck PR never sticks visually even if the server's TTL
- *  sweep is briefly behind. Mirrors MERGE_STALE_MS in src/service.ts. */
-export const MERGE_STALE_MS = 30 * 60_000;
+/** Safety backstop, NOT the authoritative TTL. The server keeps a merge mark for
+ *  the life of the train and clears it authoritatively on merge/close/archive, so
+ *  the client no longer expires marks on a short clock. This generous cap mirrors
+ *  TRAIN_TRACKER_MAX_MS in src/service.ts and exists only so a wedged mark can't
+ *  stick forever if a clear event is missed. */
+export const MERGE_MARK_BACKSTOP_MS = 24 * 60 * 60_000;
 
-/** True when a session is in a currently-running merge train: marked and the
- *  mark is still within the TTL. `now` injectable for tests. */
+/** True when a session is in a currently-running merge train: marked and the mark
+ *  is still within the safety backstop. `now` injectable for tests. */
 export function isMerging(s: Session, now: number = Date.now()): boolean {
-  return s.mergingSince !== null && now - s.mergingSince < MERGE_STALE_MS;
+  return s.mergingSince !== null && now - s.mergingSince < MERGE_MARK_BACKSTOP_MS;
 }
 
 /** A ready-to-merge session's open PR, the unit a merge train works through. */
@@ -114,6 +116,9 @@ export function mergeTrainCreateInput(
       ? m.prspanel_merge_train_prompt({ prs: formatted })
       : m.herd_merge_train_prompt({ prs: formatted }),
     model: null,
+    // Selected PR numbers — the server marks these participants as "merging" on
+    // create and clears them authoritatively on merge/close/archive.
+    mergeTrainPrs: prs.map((p) => p.number),
     // Merge train is a procedural land-the-queue task, never a feature plan —
     // always skip the plan gate regardless of the per-repo toggle.
     planGateEnabled: false,
@@ -121,22 +126,4 @@ export function mergeTrainCreateInput(
     // driver into other work (overrides repo default).
     autopilotEnabled: false,
   };
-}
-
-/** Return the `sessionId`s of ready-to-merge sessions whose open PR number is
- *  in `numbers` AND whose `repoPath` matches.
- *
- *  Selects **only `readyToMerge`** sessions (mirroring `onmergetrain`), so an
- *  in-progress session's PR not appearing here is deliberate, not a bug. */
-export function sessionsForPrNumbers(
-  repoPath: string,
-  numbers: number[],
-  sessions: Session[],
-  git: Record<string, GitState>,
-  isReviewing: (id: string) => boolean = () => false,
-): string[] {
-  const numberSet = new Set(numbers);
-  return collectReadyPrs(sessions, git, isReviewing)
-    .filter((p) => p.repoPath === repoPath && numberSet.has(p.number))
-    .map((p) => p.sessionId);
 }

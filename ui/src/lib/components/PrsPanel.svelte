@@ -11,6 +11,7 @@
     repoPath,
     onreview,
     onlaunchtrain,
+    inTrainPrs = new Set(),
     age = false,
   }: {
     repoPath: string;
@@ -19,6 +20,9 @@
     /** Launch a merge train from the multi-selected PRs (in display order).
      *  Optional so existing consumers keep compiling until Task 3 wires it. */
     onlaunchtrain?: (repoPath: string, prs: PullRequest[]) => void;
+    /** PR identity keys (`${repoPath}#${number}`) owned by a running merge train;
+     *  a matching row shows the in-train badge and locks its manual merge button. */
+    inTrainPrs?: Set<string>;
     age?: boolean;
   } = $props();
 
@@ -119,6 +123,7 @@
           {age}
           {onreview}
           {onmerged}
+          inTrain={inTrainPrs.has(`${repoPath}#${pr.number}`)}
           selectable
           selected={selected.has(pr.number)}
           ontoggle={() => toggle(pr.number)}

@@ -667,14 +667,37 @@ test("prunes cache entries for sessions no longer active", async () => {
 
 // ── trustsTerminal unit tests ─────────────────────────────────────────────────
 
-test("trustsTerminal: signal (a) cold cache + marked → true", () => {
+test("trustsTerminal: signal (a) cold cache + marked + same number → true", () => {
   expect(
     trustsTerminal(
       undefined,
-      { kind: "github", state: "merged", number: 5, checks: "none", deployConfigured: false },
+      { kind: "github", state: "merged", number: 42, checks: "none", deployConfigured: false },
       true,
+      42,
     ),
   ).toBe(true);
+});
+
+test("trustsTerminal: marked + different-number terminal → false (falls to prev-cache path)", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "merged", number: 99, checks: "success", deployConfigured: false },
+      true,
+      42,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: marked + markedNumber null + terminal, no prev → false", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
+      true,
+      null,
+    ),
+  ).toBe(false);
 });
 
 test("trustsTerminal: marked but state none → false (terminal-state gate)", () => {
@@ -684,7 +707,7 @@ test("trustsTerminal: marked but state none → false (terminal-state gate)", ()
     checks: "none" as const,
     deployConfigured: false,
   };
-  expect(trustsTerminal(undefined, noneState, true)).toBe(false);
+  expect(trustsTerminal(undefined, noneState, true, 42)).toBe(false);
 });
 
 test("trustsTerminal: marked but state open (non-terminal) → false (terminal-state gate)", () => {
@@ -693,6 +716,7 @@ test("trustsTerminal: marked but state open (non-terminal) → false (terminal-s
       undefined,
       { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
       true,
+      7,
     ),
   ).toBe(false);
 });
@@ -703,6 +727,7 @@ test("trustsTerminal: signal (b) prev open #7, raw merged #7, unmarked → true"
       { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
       { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
       false,
+      null,
     ),
   ).toBe(true);
 });
@@ -713,6 +738,7 @@ test("trustsTerminal: no prev, raw merged #7, unmarked → false", () => {
       undefined,
       { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
       false,
+      null,
     ),
   ).toBe(false);
 });
@@ -723,6 +749,7 @@ test("trustsTerminal: prev none, raw merged #7, unmarked → false", () => {
       { kind: "github", state: "none", checks: "none", deployConfigured: false },
       { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
       false,
+      null,
     ),
   ).toBe(false);
 });
@@ -733,6 +760,7 @@ test("trustsTerminal: prev open #7, raw merged #8 (mismatched number), unmarked 
       { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
       { kind: "github", state: "merged", number: 8, checks: "success", deployConfigured: false },
       false,
+      null,
     ),
   ).toBe(false);
 });
@@ -775,11 +803,11 @@ test("refresh signal (b): prior-owned PR transitions to merged, bypasses guard w
   expect(poller.snapshot()[s.id]?.state).toBe("merged");
 });
 
-test("refresh signal (a): cold cache + marked, ownsPr=false → merged passes through", async () => {
+test("refresh signal (a): cold cache + marked + markedNumber matches, ownsPr=false → merged passes through", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
-  // Mark the session as merge-train-flagged BEFORE any poll
-  store.update(s.id, { mergingSince: Date.now(), mergingTrainId: "t" });
+  // Mark the session as merge-train-flagged with the observed PR number BEFORE any poll
+  store.update(s.id, { mergingSince: Date.now(), mergingTrainId: "t", mergingPrNumber: 344 });
   const emitted: { state: string; number?: number }[] = [];
   const poller = new PrPoller(
     store,

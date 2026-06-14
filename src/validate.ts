@@ -41,6 +41,7 @@ const ALLOWED_KEYS = new Set([
   "autopilotEnabled",
   "sandboxProfile",
   "research",
+  "mergeTrainPrs",
 ]);
 
 /** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
@@ -420,6 +421,35 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const issueRef = validateIssueRef(obj.issueRef);
   if (!issueRef.ok) return issueRef;
 
+  const options = validateOptions(obj);
+  if (!options.ok) return options;
+
+  return {
+    ok: true,
+    value: {
+      repoPath: repoPath.value,
+      baseBranch: baseBranch.value,
+      prompt: prompt.value,
+      model: model.value,
+      images: images.value,
+      issueRef: issueRef.value,
+      // mergeTrainPrs is number[] | undefined; consumers read it via truthiness /
+      // `?? null`, so an explicit undefined is equivalent to omitting the key.
+      ...options.value,
+    },
+  };
+}
+
+/** Optional create-time overrides, bundled so validateCreate stays flat (below the
+ *  complexity gate). Validator order is preserved, so first-error precedence is
+ *  identical to inlining these. */
+function validateOptions(obj: Record<string, unknown>): Field<{
+  planGateEnabled: boolean | null | undefined;
+  autopilotEnabled: boolean | null | undefined;
+  sandboxProfile: SandboxProfile | null | undefined;
+  research: boolean;
+  mergeTrainPrs: number[] | undefined;
+}> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
 
@@ -432,21 +462,16 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const research = validateResearch(obj.research);
   if (!research.ok) return research;
 
-  return {
-    ok: true,
-    value: {
-      repoPath: repoPath.value,
-      baseBranch: baseBranch.value,
-      prompt: prompt.value,
-      model: model.value,
-      images: images.value,
-      issueRef: issueRef.value,
-      planGateEnabled: planGateEnabled.value,
-      autopilotEnabled: autopilotEnabled.value,
-      sandboxProfile: sandboxProfile.value,
-      research: research.value,
-    },
-  };
+  const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
+  if (!mergeTrainPrs.ok) return mergeTrainPrs;
+
+  return field({
+    planGateEnabled: planGateEnabled.value,
+    autopilotEnabled: autopilotEnabled.value,
+    sandboxProfile: sandboxProfile.value,
+    research: research.value,
+    mergeTrainPrs: mergeTrainPrs.value,
+  });
 }
 
 /** planGateEnabled — optional per-task override; absent/null → inherit the repo default. */
@@ -468,6 +493,18 @@ function validateResearch(value: unknown): Field<boolean> {
   if (value === undefined) return field(false);
   if (typeof value === "boolean") return field(value);
   return err("research must be a boolean or absent");
+}
+
+/** mergeTrainPrs — optional array of positive integers; absent → undefined (store defaults null). */
+function validateMergeTrainPrs(value: unknown): Field<number[] | undefined> {
+  if (value === undefined) return field(undefined);
+  if (!Array.isArray(value)) return err("mergeTrainPrs must be an array of integers");
+  for (let i = 0; i < value.length; i++) {
+    const n = value[i];
+    if (typeof n !== "number" || !Number.isInteger(n) || n <= 0)
+      return err(`mergeTrainPrs[${i}] must be an integer`);
+  }
+  return field(value as number[]);
 }
 
 type RelaunchResult = { ok: true; value: RelaunchOverrides } | { ok: false; error: string };

@@ -669,7 +669,6 @@
   "toast_clear_merged_failed": "Gemergte Sessions konnten nicht aufgeräumt werden",
   "toast_merge_train_no_prs": "Keine merge-bereiten PRs für einen Merge-Train vorhanden",
   "toast_merge_train_failed": "Merge-Train konnte nicht gestartet werden",
-  "toast_merge_train_mark_failed": "Merge-Train gestartet, aber das Markieren der PRs ist fehlgeschlagen.",
   "toast_merged": "{name} gemergt",
   "toast_update_main_offer": "PR gemergt. Deinen lokalen Standard-Branch aktualisieren?",
   "toast_update_main_action": "Aktualisieren",
@@ -1316,5 +1315,6 @@
   "feat_fork_repo_title": "Repo forken, um zum Upstream beizutragen",
   "feat_fork_repo_body": "Die Repo-Auswahl hat jetzt neben „Klonen“ die Option „GitHub-Repo forken“. Gib owner/repo (oder eine URL) ein, und Shepherd forkt es unter deinem Account, klont es und richtet die Remotes so ein, dass deine Pull Requests auf das Original (Upstream) zielen — der Weg, um zu einem Projekt beizutragen, für das du keine Schreibrechte hast.",
   "feat_backlog_repo_link_title": "Repo-Name verlinkt auf die Forge",
-  "feat_backlog_repo_link_body": "Der Repository-Name in den Kopfzeilen der Backlog-Bereiche Issues, PRs und Actions verlinkt jetzt direkt auf das Repo in seiner Forge."
+  "feat_backlog_repo_link_body": "Der Repository-Name in den Kopfzeilen der Backlog-Bereiche Issues, PRs und Actions verlinkt jetzt direkt auf das Repo in seiner Forge.",
+  "prrow_in_train_title": "Ein Merge-Train landet diesen PR"
 }

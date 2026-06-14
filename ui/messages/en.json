@@ -669,7 +669,6 @@
   "toast_clear_merged_failed": "Couldn't clear merged sessions",
   "toast_merge_train_no_prs": "No ready-to-merge PRs to run a merge train on",
   "toast_merge_train_failed": "Couldn't start the merge train",
-  "toast_merge_train_mark_failed": "Merge train started, but marking its PRs failed.",
   "toast_merged": "Merged {name}",
   "toast_update_main_offer": "PR merged. Update your local default branch?",
   "toast_update_main_action": "Update",
@@ -1316,5 +1315,6 @@
   "feat_fork_repo_title": "Fork a repo to contribute upstream",
   "feat_fork_repo_body": "The repo picker now has a “Fork a GitHub repo” option next to Clone. Paste owner/repo (or a URL) and Shepherd forks it under your account, clones it, and wires the remotes so pull requests you open target the original (upstream) repo — the way to contribute to a project you don't have write access to.",
   "feat_backlog_repo_link_title": "Repo name links to its forge",
-  "feat_backlog_repo_link_body": "The repository name in the backlog Issues, PRs, and Actions headers now links straight to the repo on its forge."
+  "feat_backlog_repo_link_body": "The repository name in the backlog Issues, PRs, and Actions headers now links straight to the repo on its forge.",
+  "prrow_in_train_title": "a merge train is landing this PR"
 }

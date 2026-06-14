@@ -462,6 +462,8 @@ export interface Session {
   mergingSince: number | null;
   /** Id of the owning merge-train session; null when not merging. */
   mergingTrainId: string | null;
+  /** PR numbers selected by the merge train for this TRAIN session; null on non-train sessions. */
+  mergeTrainPrs: number[] | null;
   autopilotEnabled: boolean | null;
   autopilotStepCount: number;
   autopilotPaused: boolean;
@@ -748,6 +750,7 @@ export interface CreateInput {
   autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
+  mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

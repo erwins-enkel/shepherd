@@ -60,10 +60,14 @@ import {
   type EgressBackend,
 } from "./egress";
 import type { EgressWatcher } from "./egress-watch";
+import type { GitState } from "./forge/types";
 
-/** A merge-train mark older than this is treated as stale and swept, so a
- *  rejected/held-back PR (never merged, train never archived) can't stay
- *  "Merging" forever. Mirrored in ui/src/lib/components/merge-train.ts. */
+/** Post-archive late-credit await window: after a merge-train session archives,
+ *  its completion-tracker entry waits this long for a poller-gated late merge to
+ *  credit it before the sweep reclaims it (no-credit); also bounds the same await
+ *  started in clearMergingForTrain. NOTE: per-session marks are NOT aged out by
+ *  this — they persist for the life of the train (see sweepStaleMerging, which
+ *  releases a mark only when its train leaves #liveTrains). */
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
@@ -102,6 +106,11 @@ export interface ServiceDeps {
    *  when a merge train archives before the 120s sweep surfaces its members' merges.
    *  Fire-and-forget, debounced, no-ops on archived sessions. Absent → no nudge. */
   refreshPr?: (id: string) => void;
+  /** Live PR-state map keyed by session id (= prPoller.snapshot), the source the
+   *  merge-train reconcile reads to derive which active sessions hold a selected,
+   *  still-open PR. Absent → reconcile sees an empty snapshot (marks nothing). Wired
+   *  from the poller in src/index.ts. */
+  prSnapshot?: () => Record<string, GitState>;
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
@@ -665,18 +674,32 @@ export class SessionService {
       repoPath: string;
       merged: boolean;
       archived: boolean;
-      // null while the train is still running — a LIVE entry is never swept on the
-      // normal path (however long the run / a slow first CI takes), only cleaned when
-      // the train archives; the sole exception is the TRAIN_TRACKER_MAX_MS absolute
-      // backstop below, for a train that died without a session:archived. Set to
-      // archive time when the train archives awaiting a late credit; the sweep then
-      // reclaims it once that post-archive window lapses.
+      // null while the train is still running — a LIVE entry is reclaimed only once
+      // the train leaves #liveTrains (phase A of sweepStaleMerging deregisters a train
+      // whose session is archived/missing or inactive past TRAIN_TRACKER_MAX_MS,
+      // measured by max(registeredAt, trainSession.updatedAt); phase C then reclaims
+      // the offer via liveCrashOrphan). Set to archive time when the train archives
+      // awaiting a late credit; the sweep reclaims it once that post-archive window
+      // lapses.
       awaitingSince: number | null;
-      launchedAt: number; // for the dead-train absolute backstop only
       members: Set<string>;
     }
   >();
   #memberToTrain = new Map<string, string>();
+
+  /**
+   * Live merge-trains, the SINGLE source of truth for "is this train running". A
+   * train is live iff it has an entry here. Registered when the train session
+   * launches (`registerTrain`), removed when it archives (`clearMergingForTrain`)
+   * or when the sweep deregisters a crashed/gone one. Keyed by train session id;
+   * `prNumbers` is the scoped queue (the PRs the train will land), `repoPath`
+   * scopes which active sessions a reconcile may mark, `registeredAt` feeds the
+   * crash backstop's last-activity ceiling.
+   */
+  #liveTrains = new Map<
+    string,
+    { repoPath: string; prNumbers: Set<number>; registeredAt: number }
+  >();
 
   /**
    * Build the human-turn prompt: the user's text plus any attached images and the
@@ -1100,6 +1123,7 @@ export class SessionService {
         autopilotEnabled: input.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: input.research ?? false,
+        mergeTrainPrs: input.mergeTrainPrs,
       });
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
@@ -1107,6 +1131,7 @@ export class SessionService {
       if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
+      this.#maybeRegisterTrain(session, input);
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error
@@ -1728,45 +1753,136 @@ export class SessionService {
   }
 
   /**
-   * Mark each session as part of a launched merge train (the client passes the
-   * scoped ready-PR ids). Stamps `mergingSince`/`mergingTrainId`, persists, and
-   * pushes `session:merging` (carrying `trainId` so the live patch matches a
-   * refetch — the field is server state mirrored on the client). Unknown ids are
-   * skipped (best-effort: the set is cosmetic, never load-bearing).
+   * Register a launched merge train as LIVE (the train session owns it). `repoPath`
+   * scopes which active sessions a reconcile may mark; `prNumbers` is the scoped
+   * queue (the PR numbers the train will land). A train is "running" iff it has a
+   * `#liveTrains` entry. Immediately reconciles, so any session already holding a
+   * selected open PR is marked on launch; the rest are marked as their PRs open
+   * (via subsequent `reconcileTrainMarks` driven by `session:git`). `now` injectable.
    */
-  setMerging(ids: string[], trainId: string): void {
-    const since = Date.now();
-    const members = new Set<string>();
-    let repoPath: string | null = null;
-    for (const id of ids) {
-      const s = this.deps.store.get(id);
-      if (!s) continue;
-      this.deps.store.update(id, { mergingSince: since, mergingTrainId: trainId });
-      this.deps.events?.emit("session:merging", { id, since, trainId });
-      // Register the resolvable member for the completion tracker. repoPath is read
-      // off the FIRST resolvable member (never a skipped id) — the train is per-repo.
-      members.add(id);
-      this.#memberToTrain.set(id, trainId);
-      if (repoPath === null) repoPath = s.repoPath;
+  /**
+   * Launch-time merge-train trigger: when `create` spawned a train session (a
+   * non-empty `mergeTrainPrs`), register the train so its scoped PRs are tracked in
+   * `#liveTrains` and any already-open participant session is marked immediately
+   * (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
+   */
+  #maybeRegisterTrain(session: Session, input: CreateSessionInput): void {
+    if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
+      this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
+  }
+
+  registerTrain(
+    trainId: string,
+    repoPath: string,
+    prNumbers: number[],
+    now: number = Date.now(),
+  ): void {
+    this.#liveTrains.set(trainId, {
+      repoPath,
+      prNumbers: new Set(prNumbers),
+      registeredAt: now,
+    });
+    this.reconcileTrainMarks(trainId, now);
+  }
+
+  /**
+   * Server-derived participant marking: for each live train (the one `trainId`, or
+   * all when omitted), mark every ACTIVE same-repo session whose live PR is OPEN and
+   * whose number is in the train's scoped queue. Reads the live PR snapshot via
+   * `deps.prSnapshot` (empty when unwired). The train session itself is never marked,
+   * and an already-marked session is left alone (idempotent — `markTrainMember`
+   * re-guards). Drives both the launch-time reconcile and the per-`session:git`
+   * one (a PR that opens later is picked up the next time this runs). `now` injectable.
+   */
+  reconcileTrainMarks(trainId?: string, now: number = Date.now()): void {
+    const targets = this.#resolveReconcileTargets(trainId);
+    if (targets.length === 0) return;
+    const snap = this.deps.prSnapshot?.() ?? {};
+    for (const tid of targets) {
+      const train = this.#liveTrains.get(tid)!;
+      for (const s of this.deps.store.list({ activeOnly: true })) {
+        const prNumber = this.#matchedOpenPrNumber(s, tid, train, snap);
+        if (prNumber !== null) this.markTrainMember(tid, s.id, prNumber, now);
+      }
     }
-    // No resolvable member → create no entry (so repoPath is never read off a skip).
-    if (repoPath !== null) {
-      this.#trainOffers.set(trainId, {
-        repoPath,
+  }
+
+  /** The live trains a reconcile targets: the one `trainId` (if live), or all live. */
+  #resolveReconcileTargets(trainId?: string): string[] {
+    if (trainId === undefined) return [...this.#liveTrains.keys()];
+    return this.#liveTrains.has(trainId) ? [trainId] : [];
+  }
+
+  /**
+   * The open PR number that makes `session` a fresh member of `train`, or null when
+   * it doesn't qualify: it IS the train, is a different repo, is already marked, or
+   * its live PR isn't OPEN / not in the train's scoped queue.
+   */
+  #matchedOpenPrNumber(
+    session: Session,
+    trainId: string,
+    train: { repoPath: string; prNumbers: Set<number> },
+    snap: Record<string, GitState>,
+  ): number | null {
+    if (session.id === trainId) return null; // never mark the train itself
+    if (session.repoPath !== train.repoPath) return null;
+    if (session.mergingSince !== null) return null; // already marked
+    const g = snap[session.id];
+    if (g?.state === "open" && g.number != null && train.prNumbers.has(g.number)) {
+      return g.number;
+    }
+    return null;
+  }
+
+  /**
+   * Stamp one session as a member of a live train and register it with the
+   * completion tracker. Idempotent and guarded: a no-op when the session IS the
+   * train, when the train is no longer live (a `session:git` after archive must not
+   * resurrect a member), when the session is unknown, or when already marked. The
+   * tracker entry is lazily created on the FIRST marked member, so a train whose PRs
+   * never open creates no entry. `now` injectable.
+   */
+  markTrainMember(
+    trainId: string,
+    sessionId: string,
+    prNumber: number,
+    now: number = Date.now(),
+  ): void {
+    if (sessionId === trainId) return;
+    const live = this.#liveTrains.get(trainId);
+    if (!live) return; // train not live → no resurrection
+    const s = this.deps.store.get(sessionId);
+    if (!s || s.mergingSince !== null) return; // unknown or already marked
+    this.deps.store.update(sessionId, {
+      mergingSince: now,
+      mergingTrainId: trainId,
+      mergingPrNumber: prNumber,
+    });
+    this.deps.events?.emit("session:merging", { id: sessionId, since: now, trainId });
+    this.#memberToTrain.set(sessionId, trainId);
+    let entry = this.#trainOffers.get(trainId);
+    if (!entry) {
+      entry = {
+        repoPath: live.repoPath,
         merged: false,
         archived: false,
         awaitingSince: null,
-        launchedAt: since,
-        members,
-      });
+        members: new Set<string>(),
+      };
+      this.#trainOffers.set(trainId, entry);
     }
+    entry.members.add(sessionId);
   }
 
   /** Clear one session's merge-train mark. No-op (no event) when not marked. */
   clearMerging(id: string): void {
     const s = this.deps.store.get(id);
     if (!s || s.mergingSince === null) return;
-    this.deps.store.update(id, { mergingSince: null, mergingTrainId: null });
+    this.deps.store.update(id, {
+      mergingSince: null,
+      mergingTrainId: null,
+      mergingPrNumber: null,
+    });
     this.deps.events?.emit("session:merging", { id, since: null, trainId: null });
   }
 
@@ -1809,6 +1925,10 @@ export class SessionService {
    * reclaimed mid-flight; only the post-archive wait is bounded). `now` injectable.
    */
   clearMergingForTrain(trainId: string, now: number = Date.now()): void {
+    // Drop the live-train entry FIRST (unconditionally, even with no #trainOffers
+    // entry) — the train has stopped running, so a later `session:git` reconcile
+    // must not re-mark a member against it.
+    this.#liveTrains.delete(trainId);
     for (const s of this.deps.store.list({ activeOnly: true })) {
       if (s.mergingTrainId === trainId) this.clearMerging(s.id);
     }
@@ -1831,25 +1951,80 @@ export class SessionService {
     this.#trainOffers.delete(trainId);
   }
 
-  /** Backstop: clear marks older than MERGE_STALE_MS. `now` injectable for tests. */
+  /**
+   * Liveness-based reclaim: marks live with their train, never on a flat age. Runs
+   * three ordered phases each call (order matters — A feeds B and C):
+   *  A. Deregister crashed/gone live trains. A train whose session is missing or
+   *     archived, or whose last activity (`max(registeredAt, updatedAt)`) is past
+   *     TRAIN_TRACKER_MAX_MS, is dropped from `#liveTrains`. Last-activity-keyed so a
+   *     slow-but-alive train (still touching its row) is never ceiled mid-run.
+   *  B. Clear member marks whose train is no longer live — a mark is released exactly
+   *     when its train stops running (cleanly via clearMergingForTrain, or via A's
+   *     deregistration here in the same sweep). No standalone age TTL.
+   *  C. Reclaim `#trainOffers` entries, both no-emit (fail-safe no-offer):
+   *     - AWAITING (archived, awaiting a late credit): once the post-archive window
+   *       (MERGE_STALE_MS, #426) lapses — preserved exactly.
+   *     - LIVE-CRASH ORPHAN (awaitingSince null, train no longer live): A having just
+   *       dropped a crashed train, its still-live entry is reclaimed here. The
+   *       awaitingSince-null gate keeps a cleanly-archived entry on the AWAITING path.
+   * `now` injectable for tests.
+   */
   sweepStaleMerging(now: number = Date.now()): void {
+    // Three ordered phases — A feeds B and C, so the A→B→C ordering MUST be preserved.
+    this.#deregisterInactiveTrains(now);
+    this.#releaseNonLiveMarks();
+    this.#reclaimStaleTrainOffers(now);
+  }
+
+  /**
+   * Phase A: Deregister crashed/gone trains (release them before clearing member
+   * marks). A train whose session is missing or archived, or whose last activity
+   * (`max(registeredAt, updatedAt)`) is past TRAIN_TRACKER_MAX_MS, is dropped from
+   * `#liveTrains`. Last-activity-keyed so a slow-but-alive train (still touching its
+   * row) is never ceiled mid-run. `now` injectable.
+   */
+  #deregisterInactiveTrains(now: number): void {
+    for (const [trainId, lt] of this.#liveTrains) {
+      const ts = this.deps.store.get(trainId);
+      if (!ts || ts.archivedAt != null) {
+        this.#liveTrains.delete(trainId);
+        continue;
+      }
+      const lastActive = Math.max(lt.registeredAt, ts.updatedAt);
+      if (now - lastActive > TRAIN_TRACKER_MAX_MS) this.#liveTrains.delete(trainId);
+    }
+  }
+
+  /**
+   * Phase B: Clear a member mark exactly when its train is no longer live — released
+   * cleanly (via clearMergingForTrain) or via phase A's deregistration in the same
+   * sweep. No standalone age TTL.
+   */
+  #releaseNonLiveMarks(): void {
     for (const s of this.deps.store.list({ activeOnly: true })) {
-      if (s.mergingSince !== null && now - s.mergingSince > MERGE_STALE_MS) {
+      if (s.mergingSince === null) continue;
+      if (s.mergingTrainId === null || !this.#liveTrains.has(s.mergingTrainId)) {
         this.clearMerging(s.id);
       }
     }
-    // Reclaim tracker entries directly (NOT via activeOnly, which excludes archived
-    // trains). Two cases, both no-emit (fail-safe no-offer):
-    //  - AWAITING (archived, awaiting a late credit): once the post-archive window lapses.
-    //  - LIVE (awaitingSince null): NEVER on a normal run, however long it takes — only
-    //    the TRAIN_TRACKER_MAX_MS absolute backstop, which bounds an entry orphaned by a
-    //    train that died without a session:archived. Real runs finish far inside it.
+  }
+
+  /**
+   * Phase C: Reclaim `#trainOffers` entries directly (NOT via activeOnly, which
+   * excludes archived trains), both no-emit (fail-safe no-offer):
+   *  - AWAITING (archived, awaiting a late credit): once the post-archive window
+   *    (MERGE_STALE_MS, #426) lapses — preserved exactly.
+   *  - LIVE-CRASH ORPHAN (awaitingSince null, train no longer live): A having just
+   *    dropped a crashed train, its still-live entry is reclaimed here. The
+   *    awaitingSince-null gate keeps a cleanly-archived entry on the AWAITING path.
+   * `now` injectable.
+   */
+  #reclaimStaleTrainOffers(now: number): void {
     for (const [trainId, entry] of this.#trainOffers) {
       const awaitingStale =
         entry.awaitingSince !== null && now - entry.awaitingSince > MERGE_STALE_MS;
-      const deadTrainOrphan =
-        entry.awaitingSince === null && now - entry.launchedAt > TRAIN_TRACKER_MAX_MS;
-      if (awaitingStale || deadTrainOrphan) {
+      const liveCrashOrphan = entry.awaitingSince === null && !this.#liveTrains.has(trainId);
+      if (awaitingStale || liveCrashOrphan) {
         for (const id of entry.members) this.#memberToTrain.delete(id);
         this.#trainOffers.delete(trainId);
       }

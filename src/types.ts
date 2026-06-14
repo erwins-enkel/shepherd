@@ -96,6 +96,8 @@ export interface CreateSessionInput {
   auto?: boolean;
   /** Per-task plan-gate override; absent → inherit repo default. */
   planGateEnabled?: boolean | null;
+  /** Per-task autopilot override; absent/null → inherit repo default. */
+  autopilotEnabled?: boolean | null;
   /** Per-spawn sandbox profile override; absent → inherit repo default. */
   sandboxProfile?: SandboxProfile | null;
   /** Research task kind; absent → false. */

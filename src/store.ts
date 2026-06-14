@@ -145,6 +145,7 @@ type NewSession = Omit<
   auto?: boolean;
   issueNumber?: number | null;
   planGateEnabled?: boolean | null;
+  autopilotEnabled?: boolean | null;
   planPhase?: Session["planPhase"];
   sandboxApplied?: SandboxProfile | null;
   sandboxDegraded?: boolean;
@@ -889,7 +890,7 @@ export class SessionStore implements CapStore, CreditStore {
       id: input.id ?? randomUUID(),
       desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
       readyToMerge: false,
-      autopilotEnabled: null,
+      autopilotEnabled: input.autopilotEnabled ?? null,
       autopilotStepCount: 0,
       autopilotPaused: false,
       autopilotComplete: false,
@@ -940,7 +941,7 @@ export class SessionStore implements CapStore, CreditStore {
           s.readyToMerge ? 1 : 0,
           s.status,
           s.lastState,
-          null, // autopilotEnabled — inherit repo default
+          s.autopilotEnabled === null ? null : s.autopilotEnabled ? 1 : 0, // autopilotEnabled
           0, // autopilotStepCount
           0, // autopilotPaused
           0, // autopilotComplete

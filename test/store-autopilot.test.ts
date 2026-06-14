@@ -32,6 +32,25 @@ test("new sessions default autopilot off/zeroed/unpaused", () => {
   expect(s.autopilotQuestion).toBeNull();
 });
 
+test("create honors autopilotEnabled override (false round-trips, default → null)", () => {
+  const store = freshStore();
+  const off = store.create({
+    name: "t",
+    prompt: "p",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/t-off",
+    worktreePath: "/wt-off",
+    isolated: true,
+    herdrSession: "h",
+    herdrAgentId: "term_1",
+    autopilotEnabled: false,
+  } as any);
+  expect(store.get(off.id)!.autopilotEnabled).toBe(false);
+  // default create (no override) inherits the repo default → null
+  expect(store.get(seed(store).id)!.autopilotEnabled).toBeNull();
+});
+
 test("setAutopilotState patches only the given fields", () => {
   const store = freshStore();
   const id = seed(store).id;

@@ -117,6 +117,9 @@ export function mergeTrainCreateInput(
     // Merge train is a procedural land-the-queue task, never a feature plan —
     // always skip the plan gate regardless of the per-repo toggle.
     planGateEnabled: false,
+    // Merge train lands the queue procedurally — never let autopilot steer the
+    // driver into other work (overrides repo default).
+    autopilotEnabled: false,
   };
 }
 

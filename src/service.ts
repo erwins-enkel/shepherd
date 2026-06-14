@@ -29,6 +29,7 @@ import {
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import { effectiveAutopilot } from "./effective-autopilot";
 import { MAX_IMAGES } from "./validate";
 import {
   resolveProfile,
@@ -611,6 +612,24 @@ function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
 
+/**
+ * A freshly-created session is pre-approved into the build queue only when the repo runs the
+ * build queue AND the session is effectively on autopilot (so no human approval gate will ever
+ * come) AND it isn't a research task. Keyed on the session's EFFECTIVE autopilot (not the raw
+ * repo default), so an autopilot-off session — e.g. a merge-train driver — is never auto-approved.
+ */
+function shouldPreApproveBuildQueue(
+  repoConfig: RepoConfig,
+  session: Pick<Session, "autopilotEnabled">,
+  research?: boolean,
+): boolean {
+  return (
+    repoConfig.buildQueueEnabled &&
+    effectiveAutopilot(session, repoConfig.autopilotEnabled) &&
+    !research
+  );
+}
+
 /** Result of the shared spawn-wrap helper (prepareSpawn). `ok:false` carries the
  *  auto-gate hold reason; callers diverge on it (create throws, resume → null). */
 type SpawnSuccess = {
@@ -1078,13 +1097,14 @@ export class SessionService {
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
         planGateEnabled: input.planGateEnabled ?? null,
+        autopilotEnabled: input.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: input.research ?? false,
       });
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
-      if (repoConfig.buildQueueEnabled && repoConfig.autopilotEnabled && !input.research)
+      if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
       return session;
@@ -1193,6 +1213,11 @@ export class SessionService {
       prompt: overrides?.prompt ?? s.prompt,
       model: pickOverride(overrides?.model, s.model),
       planGateEnabled: pickOverride(overrides?.planGateEnabled, s.planGateEnabled),
+      // Carry autopilot at spawn time (NOT redundant with the setAutopilotState copy below):
+      // create()'s build-queue pre-approval reads the session's effective autopilot and is never
+      // re-evaluated after, so an autopilot-off original (e.g. a merge-train driver) must be off
+      // here too or a relaunch under an autopilot-on repo would wrongly auto-approve its queue.
+      autopilotEnabled: s.autopilotEnabled,
       research: pickOverride(overrides?.research, s.research),
       images,
       issueRef,

@@ -108,6 +108,48 @@ test("sandboxProfile: invalid value rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/sandboxProfile/);
 });
 
+test("autopilotEnabled: false accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", autopilotEnabled: false },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.autopilotEnabled).toBe(false);
+});
+
+test("autopilotEnabled: true accepted + passed through", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", autopilotEnabled: true },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.autopilotEnabled).toBe(true);
+});
+
+test("autopilotEnabled: null accepted (inherit repo default)", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", autopilotEnabled: null },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.autopilotEnabled).toBeNull();
+});
+
+test("autopilotEnabled: absent → undefined (inherit repo default)", () => {
+  const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.autopilotEnabled).toBeUndefined();
+});
+
+test("autopilotEnabled: non-boolean string rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", autopilotEnabled: "yes" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/autopilotEnabled/);
+});
+
 test("research: true accepted + passed through", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", research: true },

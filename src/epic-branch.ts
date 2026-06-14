@@ -19,3 +19,13 @@ export function epicIntegrationBranch(parentNumber: number, parentTitle: string)
 export function isEpicIntegrationBranch(branch: string): boolean {
   return /^epic\/\d+(-[a-z0-9-]+)?$/.test(branch);
 }
+
+/** True iff `branch` references `parentNumber` as a digit-bounded token — the number
+ *  appears with a non-digit (or string edge) on both sides. Used by divergence detection
+ *  (#645) to decide whether a stray `epic/*` branch belongs to this epic, catching BOTH
+ *  the canonical `epic/<#>-<slug>` and a hand-named `epic/<slug>-<#>` while rejecting
+ *  numeric superstrings (`1327`, `3270`). Out of scope: a rogue epic branch that doesn't
+ *  carry the parent number at all. */
+export function branchReferencesEpic(branch: string, parentNumber: number): boolean {
+  return new RegExp(`(?:^|[^0-9])${parentNumber}(?:[^0-9]|$)`).test(branch);
+}

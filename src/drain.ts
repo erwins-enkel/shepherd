@@ -13,7 +13,11 @@ import {
   type DrainRepoState,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
-import { epicIntegrationBranch as epicBranchName, isEpicIntegrationBranch } from "./epic-branch";
+import {
+  epicIntegrationBranch as epicBranchName,
+  isEpicIntegrationBranch,
+  branchReferencesEpic,
+} from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import {
   buildRollup,
@@ -30,6 +34,11 @@ import { config } from "./config";
  *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
  *  trip GitHub secondary rate limits. */
 const EPIC_BLOCKED_BY_CONCURRENCY = 8;
+
+/** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
+ *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
+ *  keeps `gh api matching-refs` off the per-pump hot path. */
+const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
 
 /** Cap on epic-landing-PR open attempts (#635, Stage B). A failed `openPr` flips the
  *  `epic_completed` row to `landingState:'error'` and increments `landingAttempts`; the
@@ -167,6 +176,10 @@ export class DrainService {
   private retainClaimOnArchive = new Set<string>();
   private issuesCache = new Map<string, { issues: Issue[]; ts: number }>();
   private epicStructureCache = new Map<string, { reads: EpicStructure; ts: number }>();
+  // #645 (c): throttle the host epic/* branch scan — keyed `${repoPath}#${parentIssueNumber}`,
+  // refreshed at most every EPIC_BRANCH_SCAN_TTL_MS. In-memory only (ephemeral advisory warning;
+  // recomputing on restart is fine — no persisted column).
+  private epicBranchScanCache = new Map<string, { at: number; divergent: string[] }>();
   private lastEpicSig = new Map<string, string>();
   private approvedNext = new Set<string>();
   private now: () => number;
@@ -243,13 +256,31 @@ export class DrainService {
         prNumber: prSnap[x.id]?.number ?? null,
       }));
     const integrated = this.deps.store.listEpicIntegrated(repoPath, run.parentIssueNumber);
+    const parentTitle = struct.parent?.title ?? `#${run.parentIssueNumber}`;
+    // The pinned canonical name (#645) — divergence is measured against THIS, not the live title.
+    const persistedBranch = this.deps.store.getOrInitEpicIntegrationBranch(
+      repoPath,
+      run.parentIssueNumber,
+      epicBranchName(run.parentIssueNumber, parentTitle),
+    );
+    // (b) recorded merge base per integrated child (null bases — legacy rows — are skipped).
+    const integratedBases = new Map<number, string>();
+    for (const d of this.deps.store.listEpicIntegratedDetails(repoPath, run.parentIssueNumber)) {
+      if (d.mergedBase) integratedBases.set(d.childNumber, d.mergedBase);
+    }
+    // (c) throttled host scan for stray epic/* refs that reference this epic.
+    const divergentBranches = await this.scanDivergentEpicBranches(
+      repoPath,
+      run.parentIssueNumber,
+      persistedBranch,
+    );
     return assembleEpic({
       repoPath,
       run,
       integrated,
       parent: {
         number: run.parentIssueNumber,
-        title: struct.parent?.title ?? `#${run.parentIssueNumber}`,
+        title: parentTitle,
         body: struct.parent?.body ?? "",
       },
       subIssues: struct.subIssues,
@@ -257,7 +288,37 @@ export class DrainService {
       openIssues,
       openIssuesTruncated,
       sessions,
+      persistedBranch,
+      integratedBases,
+      divergentBranches,
     });
+  }
+
+  /** #645 (c): list host `epic/*` branches that reference `parentNumber` as a digit-bounded
+   *  token but are NOT the pinned branch — i.e. divergent epic branches. Throttled per epic
+   *  (EPIC_BRANCH_SCAN_TTL_MS) and best-effort: a forge without `listBranches` or a scan
+   *  failure yields the cached or empty list and never breaks buildEpic. */
+  private async scanDivergentEpicBranches(
+    repoPath: string,
+    parentNumber: number,
+    persistedBranch: string,
+  ): Promise<string[]> {
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge?.listBranches) return [];
+    const key = `${repoPath}#${parentNumber}`;
+    const cached = this.epicBranchScanCache.get(key);
+    if (cached && this.now() - cached.at < EPIC_BRANCH_SCAN_TTL_MS) return cached.divergent;
+    try {
+      const branches = await forge.listBranches("epic/");
+      const divergent = branches.filter(
+        (b) => b !== persistedBranch && branchReferencesEpic(b, parentNumber),
+      );
+      this.epicBranchScanCache.set(key, { at: this.now(), divergent });
+      return divergent;
+    } catch (err) {
+      console.warn(`[drain] epic-branch scan for #${parentNumber} failed:`, err);
+      return cached?.divergent ?? [];
+    }
   }
 
   /** Emit the epic only when something meaningful changed (de-dup by signature). */
@@ -851,10 +912,16 @@ export class DrainService {
         );
         return; // leave the session live; next tick retries. Do NOT record or archive.
       }
-      this.deps.store.recordEpicIntegrated(repoPath, epicRun!.parentIssueNumber, s.issueNumber, {
-        number: decision.prNumber,
-        url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
-      });
+      this.deps.store.recordEpicIntegrated(
+        repoPath,
+        epicRun!.parentIssueNumber,
+        s.issueNumber,
+        {
+          number: decision.prNumber,
+          url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
+        },
+        s.baseBranch, // #645 (b): the branch this child actually squash-merged into
+      );
       try {
         await this.deps.service.archive(decision.sessionId);
       } catch (err) {

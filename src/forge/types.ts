@@ -274,6 +274,11 @@ export interface GitForge {
   canPush?(): Promise<boolean>;
   /** The repo's default branch name (the promote PR's base). */
   defaultBranch(): Promise<string>;
+  /** Short-names of all host branches under `prefix` (e.g. `"epic/"`), `refs/heads/`
+   *  stripped. Used by epic-branch divergence detection (#645) to spot stray `epic/*`
+   *  branches that diverge from the pinned integration branch. Optional: only hosts with a
+   *  matching-refs API (GitHub) implement it; absent → divergence signal (c) degrades to off. */
+  listBranches?(prefix: string): Promise<string[]>;
   /** Ensure a branch exists on the host, creating it at `fromRef`'s tip when absent
    *  (idempotent; a present branch is left untouched — its tip is NOT reset). Used to
    *  cut an epic integration branch off the default branch. Optional: hosts without a

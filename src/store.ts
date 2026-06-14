@@ -613,14 +613,24 @@ export class SessionStore implements CapStore, CreditStore {
     parentIssueNumber: number,
     childNumber: number,
     pr?: { number: number; url: string },
+    mergedBase?: string,
   ): void {
     this.db.run(
-      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt, prNumber, prUrl)
-       VALUES (?,?,?,?,?,?)
+      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt, prNumber, prUrl, mergedBase)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT DO UPDATE SET
          prNumber = COALESCE(excluded.prNumber, epic_integrated.prNumber),
-         prUrl = COALESCE(NULLIF(excluded.prUrl, ''), epic_integrated.prUrl)`,
-      [repoPath, parentIssueNumber, childNumber, Date.now(), pr?.number ?? null, pr?.url ?? null],
+         prUrl = COALESCE(NULLIF(excluded.prUrl, ''), epic_integrated.prUrl),
+         mergedBase = COALESCE(excluded.mergedBase, epic_integrated.mergedBase)`,
+      [
+        repoPath,
+        parentIssueNumber,
+        childNumber,
+        Date.now(),
+        pr?.number ?? null,
+        pr?.url ?? null,
+        mergedBase ?? null,
+      ],
     );
   }
 
@@ -636,10 +646,16 @@ export class SessionStore implements CapStore, CreditStore {
   listEpicIntegratedDetails(
     repoPath: string,
     parentIssueNumber: number,
-  ): { childNumber: number; prNumber: number | null; prUrl: string | null; mergedAt: number }[] {
+  ): {
+    childNumber: number;
+    prNumber: number | null;
+    prUrl: string | null;
+    mergedBase: string | null;
+    mergedAt: number;
+  }[] {
     return this.db
       .query(
-        `SELECT childNumber, prNumber, prUrl, createdAt AS mergedAt
+        `SELECT childNumber, prNumber, prUrl, mergedBase, createdAt AS mergedAt
          FROM epic_integrated WHERE repoPath = ? AND parentIssueNumber = ?
          ORDER BY childNumber`,
       )
@@ -647,6 +663,7 @@ export class SessionStore implements CapStore, CreditStore {
       childNumber: number;
       prNumber: number | null;
       prUrl: string | null;
+      mergedBase: string | null;
       mergedAt: number;
     }[];
   }
@@ -1601,6 +1618,9 @@ export class SessionStore implements CapStore, CreditStore {
     };
     add("prNumber", `prNumber INTEGER`);
     add("prUrl", `prUrl TEXT`);
+    // #645: the branch the child actually squash-merged into. Nullable — pre-existing rows
+    // backfill to NULL and never fire divergence warnings (forward-looking only; no backfill).
+    add("mergedBase", `mergedBase TEXT`);
   }
 
   private migrateEpicCompletedColumns(): void {

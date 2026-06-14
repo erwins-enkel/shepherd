@@ -514,6 +514,17 @@ export class GithubForge implements GitForge {
     ]);
   }
 
+  /** Short-names of all branches matching `prefix` via the matching-refs API. Strips the
+   *  leading `refs/heads/`. Returns [] when none match (the endpoint 200s with an empty list). */
+  async listBranches(prefix: string): Promise<string[]> {
+    const out = await this.run(["api", `repos/${this.slug}/git/matching-refs/heads/${prefix}`]);
+    const refs = JSON.parse(out || "[]") as { ref?: string }[];
+    return refs
+      .map((r) => r.ref ?? "")
+      .filter((r) => r.startsWith("refs/heads/"))
+      .map((r) => r.slice("refs/heads/".length));
+  }
+
   private cachedUser: string | null | undefined;
   /** The authenticated gh login (`gh api user`), cached for the forge's lifetime —
    *  it never changes mid-session, so one call serves every handoff computation. */

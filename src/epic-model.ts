@@ -1,5 +1,6 @@
 import { parseEpicBody } from "./epic-parse";
 import { deriveChildState, type Epic, type EpicChild, type EpicRun } from "./epic-core";
+import { epicIntegrationBranch } from "./epic-branch";
 import type { SubIssueRef } from "./forge/types";
 
 const ACTIVE_LABEL = "shepherd:active"; // mirror src/drain-core.ts
@@ -29,6 +30,19 @@ export interface AssembleInput {
   /** Child #s whose PR was squash-merged into the epic integration branch (persisted
    *  by the drain). Satisfies dependencies even though the issue is still open. */
   integrated: Set<number>;
+  /** #645 divergence detection inputs (all pure — the drain reads forge/store and passes
+   *  them in; assembleEpic does NO I/O). */
+  /** The pinned canonical integration-branch name (`epic_run.integrationBranch`). Drives
+   *  signals (a)/(b)/(c): a freshly-derived name, a child's recorded merge base, or a stray
+   *  host branch is "divergent" iff it differs from this. */
+  persistedBranch: string;
+  /** Per integrated-child recorded merge base (`epic_integrated.mergedBase`). A child whose
+   *  base is non-null and `!== persistedBranch` merged into the WRONG epic branch → warn (b).
+   *  Null/absent entries (legacy rows) never fire. */
+  integratedBases?: Map<number, string>;
+  /** Stray `epic/*` host branches that reference the parent number but are NOT the pinned
+   *  branch (computed + throttled in drain.buildEpic). Each surfaces a warning (c). */
+  divergentBranches?: string[];
 }
 
 interface ResolvedGraph {
@@ -124,6 +138,31 @@ export function assembleEpic(input: AssembleInput): Epic {
     child.state = deriveChildState(child, done);
     return child;
   });
+
+  // ── #645 epic-branch divergence warnings ──────────────────────────────────
+  // (a) title drift: the live title now derives a different canonical name than the pinned one.
+  const canonical = epicIntegrationBranch(input.parent.number, input.parent.title);
+  if (canonical !== input.persistedBranch) {
+    warnings.push(
+      `epic branch pinned to \`${input.persistedBranch}\`; current title derives \`${canonical}\` (title edited — children stay on the pinned branch)`,
+    );
+  }
+  // (b) integrated-child drift: a child squash-merged into a branch other than the pinned one.
+  if (input.integratedBases) {
+    for (const [n, base] of input.integratedBases) {
+      if (base && base !== input.persistedBranch) {
+        warnings.push(
+          `child #${n} merged into \`${base}\`, not the pinned \`${input.persistedBranch}\``,
+        );
+      }
+    }
+  }
+  // (c) host-branch drift: a stray epic/* ref references this epic but isn't the pinned branch.
+  for (const b of input.divergentBranches ?? []) {
+    warnings.push(
+      `divergent epic branch \`${b}\` references epic #${input.parent.number} but is not the pinned \`${input.persistedBranch}\``,
+    );
+  }
 
   return {
     repoPath: input.repoPath,

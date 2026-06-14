@@ -23,6 +23,7 @@ const BASE: AssembleInput = {
   openIssuesTruncated: false,
   sessions: [],
   integrated: new Set<number>(),
+  persistedBranch: "epic/327-efi-cluster", // matches derive(327,"EFI cluster") → no (a) warning
 };
 
 describe("assembleEpic", () => {
@@ -68,6 +69,7 @@ describe("assembleEpic", () => {
       subIssues: [],
       blockedBy: new Map(),
       parent: { number: 1, title: "p", body: "```epic-dag\n#2\n#3 <- #2\n```" },
+      persistedBranch: "epic/1-p", // matches derive(1,"p") → isolate the truncation warning
       openIssues: [
         { number: 2, body: "", labels: [] },
         { number: 3, body: "", labels: [] },
@@ -99,6 +101,7 @@ function input(over: Partial<AssembleInput>): AssembleInput {
     openIssuesTruncated: false,
     sessions: [],
     integrated: new Set<number>(),
+    persistedBranch: "epic/327-epic", // matches derive(327,"Epic") → no (a) warning
     ...over,
   };
 }
@@ -118,4 +121,65 @@ test("integration-merging the blocker unblocks the dependent (issues still open)
 test("empty integrated set leaves the dependent blocked", () => {
   const epic = assembleEpic(input({ integrated: new Set() }));
   expect(epic.children.find((c) => c.number === 322)!.state).toBe("blocked");
+});
+
+// ── #645 divergence warnings ──────────────────────────────────────────────
+describe("epic-branch divergence warnings (#645)", () => {
+  // (a) title drift
+  test("(a) pinned branch ≠ freshly-derived canonical → title-drift warning", () => {
+    const e = assembleEpic(
+      input({ parent: { number: 327, title: "Renamed thing", body: "" } }),
+      // persistedBranch stays epic/327-epic from input(); live title now derives differently
+    );
+    expect(
+      e.warnings.some(
+        (w) =>
+          w.includes("epic/327-epic") &&
+          w.includes("epic/327-renamed-thing") &&
+          w.includes("title edited"),
+      ),
+    ).toBe(true);
+  });
+  test("(a) aligned pinned/derived name → NO title-drift warning", () => {
+    const e = assembleEpic(input({})); // title "Epic" derives epic/327-epic = pinned
+    expect(e.warnings.some((w) => w.includes("title edited"))).toBe(false);
+  });
+
+  // (b) integrated-child drift
+  test("(b) child merged into a non-pinned base → drift warning", () => {
+    const e = assembleEpic(input({ integratedBases: new Map([[320, "epic/efi-valuemap-327"]]) }));
+    expect(
+      e.warnings.some(
+        (w) =>
+          w.includes("child #320") &&
+          w.includes("epic/efi-valuemap-327") &&
+          w.includes("epic/327-epic"),
+      ),
+    ).toBe(true);
+  });
+  test("(b) child merged into the pinned base → NO warning", () => {
+    const e = assembleEpic(input({ integratedBases: new Map([[320, "epic/327-epic"]]) }));
+    expect(e.warnings.some((w) => w.includes("child #320"))).toBe(false);
+  });
+  test("(b) null mergedBase (legacy row) → NO warning", () => {
+    // a Map without the entry, or absent map entirely
+    const e1 = assembleEpic(input({ integratedBases: new Map() }));
+    const e2 = assembleEpic(input({})); // integratedBases undefined
+    expect(e1.warnings.some((w) => w.includes("child #"))).toBe(false);
+    expect(e2.warnings.some((w) => w.includes("child #"))).toBe(false);
+  });
+
+  // (c) host-branch drift
+  test("(c) divergent host branch → drift warning per branch", () => {
+    const e = assembleEpic(input({ divergentBranches: ["epic/efi-valuemap-327", "epic/327-old"] }));
+    const c = e.warnings.filter((w) => w.includes("divergent epic branch"));
+    expect(c).toHaveLength(2);
+    expect(c.some((w) => w.includes("epic/efi-valuemap-327") && w.includes("epic #327"))).toBe(
+      true,
+    );
+  });
+  test("(c) no divergent branches → NO warning", () => {
+    const e = assembleEpic(input({ divergentBranches: [] }));
+    expect(e.warnings.some((w) => w.includes("divergent epic branch"))).toBe(false);
+  });
 });

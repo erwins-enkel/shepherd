@@ -12,9 +12,16 @@
   // relative "finished X ago" from archivedAt; falls back to updatedAt when an
   // archived session somehow has no archivedAt stamp. Driven by the shared 30s
   // `clock` (matching the Herd row's nowMs) so the stamp ticks while the panel stays open.
-  const finishedAgo = $derived(
-    formatAgo(clock.current - (session.archivedAt ?? session.updatedAt)),
-  );
+  const finishedAt = $derived(session.archivedAt ?? session.updatedAt);
+  const finishedAgo = $derived(formatAgo(clock.current - finishedAt));
+
+  // Durable recaps + this Done lens shipped with #665 (2026-06-14 09:44 +02:00).
+  // A session that finished before then never got the chance to record a recap
+  // row, so the empty state explains *why* rather than reading like a failure.
+  // (epoch ms of the shipping commit; sessions carry no herdr-version stamp to
+  // compare against, so the finish time is the signal.)
+  const RECAP_FEATURE_EPOCH_MS = 1781423073000;
+  const predatesRecapFeature = $derived(recap === undefined && finishedAt < RECAP_FEATURE_EPOCH_MS);
 
   // Render the (LLM-authored) body as sanitized markdown. Dynamically imported so
   // marked/DOMPurify stay off the first-paint critical path; gated on a ready recap
@@ -100,9 +107,14 @@
       {/if}
     {:else if recap?.state === "generating"}
       <p class="dr-muted">{m.recap_generating()}</p>
+    {:else if recap?.state === "failed"}
+      <!-- generation ran but couldn't produce a recap — say so, don't imply it was never tried. -->
+      <p class="dr-muted">{m.recap_failed()}</p>
+    {:else if predatesRecapFeature}
+      <!-- finished before durable recaps existed: name the reason instead of a bare "unavailable". -->
+      <p class="dr-muted">{m.recap_predates_feature()}</p>
     {:else}
-      <!-- failed, empty, or no recap row: fail-closed — never a blank card that reads
-           as a success. -->
+      <!-- empty diff or no recap row: fail-closed — never a blank card that reads as a success. -->
       <p class="dr-muted">{m.recap_unavailable()}</p>
     {/if}
   </div>

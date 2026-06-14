@@ -1250,6 +1250,7 @@
   "integrated_epics_landing_pr_merged": "Landing PR #{number} — merged",
   "recap_changed_files": "Changed files",
   "recap_unavailable": "No recap available for this session.",
+  "recap_predates_feature": "This session finished before session recaps were available, so none was recorded.",
   "recap_issue": "Issue #{n}",
   "herd_done_filter": "✓ Done",
   "herd_done_title": "Show finished (archived) sessions and their recaps",

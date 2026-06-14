@@ -127,20 +127,30 @@ describe("DoneRecapPanel generating state", () => {
 });
 
 describe("DoneRecapPanel fail-closed", () => {
-  it("failed recap → recap unavailable (never a blank success card)", async () => {
+  it("failed recap → names the failure (never a blank success card)", async () => {
     recaps.map = { f1: recap({ sessionId: "f1", state: "failed" }) };
     render(DoneRecapPanel, { session: session({ id: "f1" }) });
-    await expect
-      .element(page.getByText("No recap available for this session."))
-      .toBeInTheDocument();
+    await expect.element(page.getByText("Recap generation failed.")).toBeInTheDocument();
     expect(page.getByText("Shipped the feature").elements().length, "no headline").toBe(0);
   });
 
-  it("missing recap row → recap unavailable", async () => {
-    // no entry in recaps.map for this id
+  it("missing recap row on a recent session → generic unavailable", async () => {
+    // no entry in recaps.map; finished after recaps shipped → generic message
     render(DoneRecapPanel, { session: session({ id: "missing" }) });
     await expect
       .element(page.getByText("No recap available for this session."))
+      .toBeInTheDocument();
+  });
+
+  it("missing recap row on a pre-feature session → explains it predates recaps", async () => {
+    // finished before durable recaps shipped (epoch 1781423073000) → reason-named message
+    render(DoneRecapPanel, { session: session({ id: "old", archivedAt: 1_700_000_000_000 }) });
+    await expect
+      .element(
+        page.getByText(
+          "This session finished before session recaps were available, so none was recorded.",
+        ),
+      )
       .toBeInTheDocument();
   });
 });

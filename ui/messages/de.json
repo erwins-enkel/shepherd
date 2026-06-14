@@ -1250,6 +1250,7 @@
   "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt",
   "recap_changed_files": "Geänderte Dateien",
   "recap_unavailable": "Für diese Sitzung ist keine Zusammenfassung verfügbar.",
+  "recap_predates_feature": "Diese Sitzung wurde abgeschlossen, bevor Sitzungs-Zusammenfassungen verfügbar waren – daher wurde keine erstellt.",
   "recap_issue": "Issue #{n}",
   "herd_done_filter": "✓ Fertig",
   "herd_done_title": "Abgeschlossene (archivierte) Sitzungen und ihre Zusammenfassungen anzeigen",

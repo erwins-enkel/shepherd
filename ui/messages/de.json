@@ -1275,5 +1275,7 @@
   "settings_auth_key_save_failed": "API-Schlüssel konnte nicht gespeichert werden",
   "usage_subscription_only": "Nutzungserfassung nur im Abonnement — siehe die Anthropic-Konsole.",
   "feat_api_key_auth_title": "API-Schlüssel-Authentifizierung",
-  "feat_api_key_auth_body": "Aktiviere die Abrechnung gestarteter Agenten über einen Anthropic-API-Schlüssel (Commercial Terms) statt über dein Abonnement — Einstellungen → Sitzung."
+  "feat_api_key_auth_body": "Aktiviere die Abrechnung gestarteter Agenten über einen Anthropic-API-Schlüssel (Commercial Terms) statt über dein Abonnement — Einstellungen → Sitzung.",
+  "feat_tappable_slash_commands_title": "Antippbare Slash-Commands",
+  "feat_tappable_slash_commands_body": "Tippe einen von Claude im Terminal vorgeschlagenen Slash-Command an (z. B. /squad, /gsd-quick), um ihn in die Eingabe zu übernehmen — kein Abtippen auf dem Handy. Er wird eingefügt, nicht gesendet: du prüfst und drückst selbst Enter."
 }

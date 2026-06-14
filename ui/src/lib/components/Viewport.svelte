@@ -1,6 +1,6 @@
 <script lang="ts">
   import "@xterm/xterm/css/xterm.css";
-  import { Terminal } from "@xterm/xterm";
+  import { Terminal, type IBufferLine, type IBufferCell } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import type {
@@ -31,9 +31,11 @@
     setSessionAutopilot,
     startPreview as apiStartPreview,
     stopPreview as apiStopPreview,
+    getCommands,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
+  import { findCommandLinks } from "$lib/slashLinks";
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
@@ -204,6 +206,50 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+
+  // Installed slash-command names (lowercased) for the terminal link provider, which
+  // linkifies command tokens Claude suggests in its output so a tap pastes them into
+  // the prompt. Same authoritative source ComposeBar uses; lowercased so branch (A)
+  // membership is case-insensitive. Stale-guarded against repoPath changing in flight.
+  let knownCommands = $state<Set<string>>(new Set());
+  $effect(() => {
+    const rp = session.repoPath;
+    if (!rp) {
+      knownCommands = new Set();
+      return;
+    }
+    getCommands(rp)
+      .then((r) => {
+        if (rp === session.repoPath)
+          knownCommands = new Set(r.commands.map((c) => c.name.toLowerCase()));
+      })
+      .catch(() => {
+        if (rp === session.repoPath) knownCommands = new Set();
+      });
+  });
+
+  // Build a terminal line's visible text together with a string-index → 0-based column
+  // map by walking cells, so a wide char (emoji/CJK: 2 columns but 1+ string chars)
+  // before a token doesn't desync the link's tap region from the glyph. Mirrors xterm's
+  // own translateToString (empty cell → " ", advance by the cell's width). `cell` is a
+  // reusable scratch cell to avoid per-cell allocation.
+  function lineTextWithColumns(
+    line: IBufferLine,
+    cell: IBufferCell,
+  ): { text: string; colAt: number[] } {
+    let text = "";
+    const colAt: number[] = [];
+    let col = 0;
+    while (col < line.length) {
+      const c = line.getCell(col, cell);
+      const width = c?.getWidth() ?? 1;
+      const chars = c?.getChars() || " ";
+      for (let i = 0; i < chars.length; i++) colAt.push(col);
+      text += chars;
+      col += width || 1;
+    }
+    return { text, colAt };
+  }
 
   /** Hand the keyboard to the live terminal — the page's Enter shortcut calls this
    *  so plain-key navigation (which deliberately keeps focus *out* of the PTY, see
@@ -1180,6 +1226,46 @@
     );
     conn = c;
     term.onData((d) => c.send(d));
+
+    // Linkify slash-command tokens Claude suggests in its output (e.g. "/squad",
+    // "/gsd-quick") so a tap pastes the command into the prompt — on a phone the
+    // command text is otherwise un-actionable inside xterm's canvas. Same link layer
+    // as the URL WebLinksAddon above; recognizer is in slashLinks.ts. The paste omits
+    // a trailing CR (composeKeystrokes would submit) so the user reviews and presses
+    // Enter themselves. No preventDefault/focus here: the el click→onTap→term.focus()
+    // listener below already focuses the terminal on the same tap. Disposed implicitly
+    // by term.dispose() in teardown, like the WebLinksAddon.
+    const linkCell = term.buffer.active.getNullCell();
+    term.registerLinkProvider({
+      provideLinks(bufferLineNumber, callback) {
+        const line = term.buffer.active.getLine(bufferLineNumber - 1);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+        const { text, colAt } = lineTextWithColumns(line, linkCell);
+        const found = findCommandLinks(text, knownCommands);
+        if (found.length === 0) {
+          callback(undefined);
+          return;
+        }
+        callback(
+          found.map((f) => ({
+            text: `/${f.name}`,
+            // Map string indices → 1-based terminal columns via colAt so a wide char
+            // before the token doesn't shift the tap region; range end is the inclusive
+            // last cell of the token.
+            range: {
+              start: { x: colAt[f.start]! + 1, y: bufferLineNumber },
+              end: { x: colAt[f.end - 1]! + 1, y: bufferLineNumber },
+            },
+            activate: () => {
+              c.send(`\x1b[200~/${f.name}\x1b[201~`);
+            },
+          })),
+        );
+      },
+    });
 
     // Fit + push the size to the PTY — but only while the mount is actually
     // visible. A hidden (To-Do tab → display:none) or mid-layout mount

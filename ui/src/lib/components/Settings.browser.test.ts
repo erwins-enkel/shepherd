@@ -1,0 +1,180 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import "../../app.css";
+import type { Settings as SettingsPayload } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+import { getSettings, verifyApiKey, putAnthropicApiKey } from "$lib/api";
+
+// Mock the API so Settings never hits the network. The settings GET is seeded to
+// land on api-key mode WITH a key configured, so the api-key block + Verify button
+// render; each test then drives verifyApiKey / putAnthropicApiKey.
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  return {
+    ...actual,
+    getSettings: vi.fn(),
+    listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
+    getDiagnostics: vi.fn(async () => ({ checks: [] })),
+    verifyApiKey: vi.fn(),
+    putAnthropicApiKey: vi.fn(),
+    putAuthMode: vi.fn(async () => ({ authMode: "api-key", hasApiKey: true })),
+  };
+});
+
+// `onMount` awaits refreshPush() before loading settings; a throwing push probe
+// would abort the load and never render the api-key block. Stub it to a quiet,
+// unsupported, unsubscribed state.
+vi.mock("$lib/push", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/push")>();
+  return {
+    ...actual,
+    pushState: vi.fn(async () => ({
+      supported: false,
+      permission: "unsupported" as const,
+      subscribed: false,
+    })),
+    getPushCategories: vi.fn(async () => ({ agent: true, reviews: true, ci: true })),
+  };
+});
+
+const { default: Settings } = await import("./Settings.svelte");
+
+const mockGetSettings = vi.mocked(getSettings);
+const mockVerify = vi.mocked(verifyApiKey);
+const mockPutKey = vi.mocked(putAnthropicApiKey);
+
+function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
+  return {
+    repoRoot: "/repo",
+    repoRootDisplay: "/repo",
+    remoteControlAtStartup: false,
+    sessionHousekeepingEnabled: true,
+    defaultModel: "auto",
+    authMode: "api-key",
+    hasApiKey: true,
+    prReviewCyclesCap: 3,
+    prReviewCyclesMin: 1,
+    prReviewCyclesMax: 8,
+    planReviewCyclesCap: 5,
+    planReviewCyclesMin: 1,
+    planReviewCyclesMax: 12,
+    extraCreditsDrainCeiling: 0,
+    sessionRetentionDays: 30,
+    sessionRetentionKeep: 250,
+    previewHost: null,
+    ...over,
+  };
+}
+
+let fontStyle: HTMLStyleElement;
+beforeEach(() => {
+  fontStyle = document.createElement("style");
+  fontStyle.textContent = `:root {
+    --font-mono: ui-monospace, monospace;
+    --color-panel: #1a1a1a;
+    --color-line: #333;
+    --color-line-bright: #555;
+    --color-inset: #111;
+    --color-ink: #ccc;
+    --color-ink-bright: #fff;
+    --color-muted: #666;
+    --color-faint: #444;
+    --color-amber: #f5a623;
+    --color-green: #4caf50;
+    --color-red: #f44336;
+    --color-blue: #2196f3;
+    --color-scrim: rgba(0,0,0,0.6);
+    --fs-base: 13px;
+    --fs-meta: 12px;
+    --fs-micro: 10px;
+    --fs-lg: 15px;
+    --fs-xl: 18px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; }`;
+  document.head.appendChild(fontStyle);
+  mockGetSettings.mockReset();
+  mockVerify.mockReset();
+  mockPutKey.mockReset();
+  // Default seed: api-key mode, key configured → Verify button renders.
+  mockGetSettings.mockResolvedValue(settings());
+});
+afterEach(() => {
+  fontStyle.remove();
+  document.body.innerHTML = "";
+});
+
+const noop = () => {};
+
+const verifyBtn = () => page.getByRole("button", { name: m.settings_auth_key_verify() });
+const saveBtn = () => page.getByRole("button", { name: m.settings_auth_key_save(), exact: true });
+const keyInput = () => page.getByRole("textbox", { name: m.settings_auth_key_label() });
+
+function mountSession() {
+  render(Settings, { initialTab: "session", onclose: noop, onsaved: noop });
+}
+
+describe("Settings api-key verify", () => {
+  it("verify → OK renders the verified line", async () => {
+    mockVerify.mockResolvedValue({ ok: true });
+    mountSession();
+
+    await expect.element(verifyBtn()).toBeInTheDocument();
+    await verifyBtn().click();
+
+    await expect.element(page.getByText(m.settings_auth_key_verify_ok())).toBeInTheDocument();
+  });
+
+  it("verify → failed surfaces the not-authenticated message AND the verbatim detail", async () => {
+    mockVerify.mockResolvedValue({
+      ok: false,
+      reason: "not-authenticated",
+      detail: "invalid x-api-key",
+    });
+    mountSession();
+
+    await expect.element(verifyBtn()).toBeInTheDocument();
+    await verifyBtn().click();
+
+    // The failed line prefixes the failure header, then the resolved not-authenticated
+    // message, then the verbatim server detail (surfaced as data, not translated).
+    await expect
+      .element(page.getByText(m.settings_auth_key_verify_not_authenticated(), { exact: false }))
+      .toBeInTheDocument();
+    await expect.element(page.getByText("invalid x-api-key", { exact: false })).toBeInTheDocument();
+    // Not the OK state.
+    await expect.element(page.getByText(m.settings_auth_key_verify_ok())).not.toBeInTheDocument();
+  });
+
+  it("verify throw → fail-closed (renders FAILED, never OK)", async () => {
+    mockVerify.mockRejectedValue(new Error("boom"));
+    mountSession();
+
+    await expect.element(verifyBtn()).toBeInTheDocument();
+    await verifyBtn().click();
+
+    // A thrown probe must read as a failure, not silently pass.
+    await expect
+      .element(page.getByText(m.settings_auth_key_verify_error_generic(), { exact: false }))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(m.settings_auth_key_verify_ok())).not.toBeInTheDocument();
+  });
+
+  it("saving a key auto-verifies it (the key gap) and renders the verdict", async () => {
+    // Start with NO key so the Save flow is the thing under test.
+    mockGetSettings.mockResolvedValue(settings({ hasApiKey: false }));
+    mockPutKey.mockResolvedValue({ hasApiKey: true });
+    mockVerify.mockResolvedValue({ ok: true });
+    mountSession();
+
+    await expect.element(keyInput()).toBeInTheDocument();
+    await keyInput().fill("sk-ant-test");
+    await saveBtn().click();
+
+    // Auto-verify must have fired off the back of a successful save…
+    await vi.waitFor(() => expect(mockVerify).toHaveBeenCalled());
+    // …and its verdict renders inline.
+    await expect.element(page.getByText(m.settings_auth_key_verify_ok())).toBeInTheDocument();
+  });
+});

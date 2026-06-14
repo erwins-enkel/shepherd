@@ -6,12 +6,9 @@
 
   let { id, label }: { id: string; label: string } = $props();
 
-  // Stable unique id for aria-describedby wiring — crypto/Math.random-free counter.
-  let _counter = 0;
-  function nextId() {
-    return ++_counter;
-  }
-  const tooltipId = `gloss-tip-${nextId()}`;
+  // Unique, SSR-stable id for aria-describedby wiring — Svelte's per-instance id
+  // (a module counter would collide across instances and risk hydration mismatch).
+  const tooltipId = $props.id();
 
   const term = $derived(glossaryById.get(id));
 
@@ -79,22 +76,57 @@
     };
   });
 
+  // Hover-bridge grace delay: pointer-leave schedules a close rather than closing
+  // immediately, so the mouse can travel the gap from the trigger to the tooltip
+  // (e.g. to click the Wikipedia link) without it vanishing mid-traverse.
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelScheduledClose() {
+    if (closeTimer !== null) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+  }
+
+  function scheduleClose() {
+    cancelScheduledClose();
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      open = false;
+    }, 120);
+  }
+
+  // Clear any pending close timer on unmount.
+  $effect(() => () => cancelScheduledClose());
+
   function openTooltip() {
+    cancelScheduledClose();
     open = true;
   }
 
   function close() {
+    cancelScheduledClose();
     open = false;
   }
 
-  // Desktop (fine pointer): hover open/close.
+  // Desktop (fine pointer): hover open, grace-delayed close.
   function onPointerenter(e: PointerEvent) {
     if (e.pointerType === "touch") return; // coarse — handled by click
     openTooltip();
   }
   function onPointerleave(e: PointerEvent) {
     if (e.pointerType === "touch") return;
-    close();
+    scheduleClose();
+  }
+
+  // Keep the tooltip open while the mouse is over it, so its link stays clickable.
+  function onTipPointerenter(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    cancelScheduledClose();
+  }
+  function onTipPointerleave(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    scheduleClose();
   }
 
   // Desktop: focus open/close.
@@ -164,6 +196,8 @@
     role={term.kind === "external" ? "dialog" : "tooltip"}
     aria-label={term.kind === "external" ? label : undefined}
     popover="manual"
+    onpointerenter={onTipPointerenter}
+    onpointerleave={onTipPointerleave}
   >
     <p class="gt-body">{(m as unknown as Record<string, () => string>)[term.bodyKey]()}</p>
     {#if term.kind === "external" && wikiHref}

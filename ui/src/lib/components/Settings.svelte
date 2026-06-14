@@ -10,10 +10,12 @@
     putDefaultModel,
     putAuthMode,
     putAnthropicApiKey,
+    verifyApiKey,
     putExtraCreditsDrainCeiling,
     listDirs,
     getDiagnostics,
   } from "$lib/api";
+  import { verifyFailureMessage } from "$lib/verify-key";
   import {
     MODELS,
     PREMIUM_MODELS,
@@ -155,6 +157,9 @@
   let authBusy = $state(false);
   let hasApiKey = $state(false); // whether a key is configured (boolean only; key never sent)
   let apiKeyInput = $state(""); // write-only paste field; cleared after save, never prefilled
+  // Inline verify-key result (probes whether the stored key actually authenticates).
+  let verifyState = $state<"idle" | "verifying" | "ok" | "failed">("idle");
+  let verifyMsg = $state(""); // resolved, localized failure message (incl. any verbatim detail)
   let extraCreditsCeiling = $state(0); // account-wide extra-credit spend ceiling (0 = pause on any)
   let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
   let extraCreditsBusy = $state(false);
@@ -264,6 +269,11 @@
       authMode = r.authMode;
       authModeSaved = r.authMode;
       hasApiKey = r.hasApiKey;
+      // The verify result belongs only to api-key mode; drop it when leaving.
+      if (r.authMode !== "api-key") {
+        verifyState = "idle";
+        verifyMsg = "";
+      }
     } catch {
       // revert to the last server-confirmed value; surface the failure persistently.
       authMode = authModeSaved;
@@ -293,11 +303,40 @@
     } finally {
       authBusy = false;
     }
+    // After a successful save the key is configured — immediately probe whether it
+    // actually authenticates so a bad/expired key surfaces here, not on first spawn.
+    if (hasApiKey) await verifyKey();
+  }
+
+  // Probe the stored key against claude auth. Inline result only (no toast); guards
+  // against concurrent runs so a double-click can't race two checks.
+  async function verifyKey() {
+    if (verifyState === "verifying") return;
+    verifyState = "verifying";
+    verifyMsg = "";
+    try {
+      const r = await verifyApiKey();
+      if (r.ok) {
+        verifyState = "ok";
+      } else {
+        verifyState = "failed";
+        verifyMsg = verifyFailureMessage(r.reason, r.detail, {
+          notAuthenticated: m.settings_auth_key_verify_not_authenticated,
+          timeout: m.settings_auth_key_verify_timeout,
+          generic: m.settings_auth_key_verify_error_generic,
+        });
+      }
+    } catch {
+      verifyState = "failed";
+      verifyMsg = m.settings_auth_key_verify_error_generic();
+    }
   }
 
   async function clearApiKey() {
     if (authBusy) return;
     authBusy = true;
+    verifyState = "idle"; // a cleared key has no verdict
+    verifyMsg = "";
     try {
       const r = await putAnthropicApiKey(null);
       hasApiKey = r.hasApiKey;
@@ -711,9 +750,29 @@
           <div class="apikey">
             {#if hasApiKey}
               <p class="key-status">{m.settings_auth_key_saved()}</p>
-              <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
-                {m.settings_auth_key_clear()}
-              </button>
+              <div class="key-actions">
+                <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
+                  {m.settings_auth_key_clear()}
+                </button>
+                <button
+                  type="button"
+                  class="gbtn"
+                  disabled={authBusy || verifyState === "verifying"}
+                  onclick={verifyKey}
+                >
+                  {m.settings_auth_key_verify()}
+                </button>
+              </div>
+              {#if verifyState === "verifying"}
+                <p class="verify-line verify-busy">{m.settings_auth_key_verifying()}</p>
+              {:else if verifyState === "ok"}
+                <p class="verify-line verify-ok">{m.settings_auth_key_verify_ok()}</p>
+              {:else if verifyState === "failed"}
+                <p class="verify-line verify-failed">
+                  {m.settings_auth_key_verify_failed()}
+                  {verifyMsg}
+                </p>
+              {/if}
             {/if}
             <div class="key-entry">
               <input
@@ -1307,6 +1366,27 @@
     color: var(--color-muted);
     font-size: var(--fs-meta);
     margin: 0;
+  }
+  .key-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .verify-line {
+    font-size: var(--fs-meta);
+    margin: 0;
+    font-weight: 500;
+  }
+  .verify-busy {
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+  .verify-ok {
+    color: var(--color-green);
+  }
+  .verify-failed {
+    color: var(--color-red);
   }
   .gbtn {
     background: transparent;

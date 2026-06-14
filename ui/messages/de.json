@@ -1277,5 +1277,14 @@
   "feat_api_key_auth_title": "API-Schlüssel-Authentifizierung",
   "feat_api_key_auth_body": "Aktiviere die Abrechnung gestarteter Agenten über einen Anthropic-API-Schlüssel (Commercial Terms) statt über dein Abonnement — Einstellungen → Sitzung.",
   "feat_tappable_slash_commands_title": "Antippbare Slash-Commands",
-  "feat_tappable_slash_commands_body": "Tippe einen von Claude im Terminal vorgeschlagenen Slash-Command an (z. B. /squad, /gsd-quick), um ihn in die Eingabe zu übernehmen — kein Abtippen auf dem Handy. Er wird eingefügt, nicht gesendet: du prüfst und drückst selbst Enter."
+  "feat_tappable_slash_commands_body": "Tippe einen von Claude im Terminal vorgeschlagenen Slash-Command an (z. B. /squad, /gsd-quick), um ihn in die Eingabe zu übernehmen — kein Abtippen auf dem Handy. Er wird eingefügt, nicht gesendet: du prüfst und drückst selbst Enter.",
+  "settings_auth_key_verify": "Prüfen",
+  "settings_auth_key_verifying": "Wird geprüft…",
+  "settings_auth_key_verify_ok": "Schlüssel verifiziert — authentifiziert",
+  "settings_auth_key_verify_failed": "Prüfung fehlgeschlagen:",
+  "settings_auth_key_verify_timeout": "Zeitüberschreitung beim Warten auf eine Antwort.",
+  "settings_auth_key_verify_not_authenticated": "Der Schlüssel hat sich nicht authentifiziert.",
+  "settings_auth_key_verify_error_generic": "Schlüssel konnte nicht geprüft werden.",
+  "feat_api_key_verify_title": "API-Schlüssel verifizieren",
+  "feat_api_key_verify_body": "Prüfe, ob dein gespeicherter Anthropic-API-Schlüssel einen gestarteten Agenten tatsächlich authentifiziert — direkt in Einstellungen → Sitzung, bevor er beim ersten Einsatz versagt."
 }

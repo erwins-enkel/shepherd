@@ -1277,5 +1277,14 @@
   "feat_api_key_auth_title": "API-key auth mode",
   "feat_api_key_auth_body": "Opt into billing spawned agents against an Anthropic API key (Commercial Terms) instead of your subscription — Settings → Session.",
   "feat_tappable_slash_commands_title": "Tappable slash commands",
-  "feat_tappable_slash_commands_body": "Tap a slash command Claude suggests in the terminal (e.g. /squad, /gsd-quick) to drop it into the prompt — no retyping on mobile. It's inserted, not sent, so you review and press Enter yourself."
+  "feat_tappable_slash_commands_body": "Tap a slash command Claude suggests in the terminal (e.g. /squad, /gsd-quick) to drop it into the prompt — no retyping on mobile. It's inserted, not sent, so you review and press Enter yourself.",
+  "settings_auth_key_verify": "Verify",
+  "settings_auth_key_verifying": "Verifying…",
+  "settings_auth_key_verify_ok": "Key verified — authenticates",
+  "settings_auth_key_verify_failed": "Verification failed:",
+  "settings_auth_key_verify_timeout": "Timed out waiting for a response.",
+  "settings_auth_key_verify_not_authenticated": "The key did not authenticate.",
+  "settings_auth_key_verify_error_generic": "Could not verify the key.",
+  "feat_api_key_verify_title": "Verify your API key",
+  "feat_api_key_verify_body": "Check that your saved Anthropic API key actually authenticates a spawned agent — right from Settings → Session, before it fails on first use."
 }

@@ -290,9 +290,11 @@
   async function saveApiKey() {
     if (authBusy || apiKeyInput.trim() === "") return;
     authBusy = true;
+    let saved = false;
     try {
       const r = await putAnthropicApiKey(apiKeyInput.trim());
       hasApiKey = r.hasApiKey;
+      saved = true;
       apiKeyInput = ""; // never retain the key in component state
     } catch {
       toasts.info(m.settings_auth_key_save_failed(), {
@@ -303,9 +305,11 @@
     } finally {
       authBusy = false;
     }
-    // After a successful save the key is configured — immediately probe whether it
-    // actually authenticates so a bad/expired key surfaces here, not on first spawn.
-    if (hasApiKey) await verifyKey();
+    // Only after a genuinely successful save — gate on the save outcome, not residual
+    // `hasApiKey` (a replacement-save that throws must NOT auto-verify the old key) —
+    // immediately probe whether it actually authenticates so a bad/expired key surfaces
+    // here, not on first spawn.
+    if (saved) await verifyKey();
   }
 
   // Probe the stored key against claude auth. Inline result only (no toast); guards

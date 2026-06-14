@@ -19,7 +19,7 @@ export function verifyFailureMessage(
   switch (reason) {
     case "not-authenticated": {
       const base = msgs.notAuthenticated();
-      return detail ? `${base}: ${detail}` : base;
+      return detail ? `${base} (${detail})` : base;
     }
     case "timeout":
       return msgs.timeout();

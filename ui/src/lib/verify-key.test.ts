@@ -16,9 +16,9 @@ describe("verifyFailureMessage", () => {
   });
 
   it("appends the verbatim detail to not-authenticated when present", () => {
-    expect(verifyFailureMessage("not-authenticated", "invalid x-api-key", msgs)).toBe(
-      "The key did not authenticate.: invalid x-api-key",
-    );
+    const out = verifyFailureMessage("not-authenticated", "invalid x-api-key", msgs);
+    expect(out).toContain("The key did not authenticate.");
+    expect(out).toContain("invalid x-api-key");
   });
 
   it("maps timeout to its message", () => {

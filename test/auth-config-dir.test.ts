@@ -4,6 +4,7 @@ import {
   mkdirSync,
   rmSync,
   writeFileSync,
+  readFileSync,
   lstatSync,
   realpathSync,
   existsSync,
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   CREDENTIAL_FILE,
+  CONFIG_FILE,
   apiKeyConfigDir,
   provisionApiKeyConfigDir,
   ensureApiKeyConfigDir,
@@ -60,6 +62,77 @@ function buildFakeSource(root: string): string {
 describe("CREDENTIAL_FILE", () => {
   test("is .credentials.json", () => {
     expect(CREDENTIAL_FILE).toBe(".credentials.json");
+  });
+});
+
+// ── CONFIG_FILE (.claude.json copy) ─────────────────────────────────────────────
+
+describe("CONFIG_FILE", () => {
+  test("is .claude.json", () => {
+    expect(CONFIG_FILE).toBe(".claude.json");
+  });
+});
+
+describe("provisionApiKeyConfigDir .claude.json handling", () => {
+  // .claude.json lives at $HOME/.claude.json — a SIBLING of ~/.claude, so it's never
+  // a child the symlink mirror would pick up. Claude reads it from CLAUDE_CONFIG_DIR,
+  // so the mirror must COPY it in or the spawn fails to start. These cover that copy.
+  test("copies the HOME-sibling .claude.json into dest as a real file (not a symlink)", () => {
+    const root = makeTmp();
+    const src = buildFakeSource(root); // ${root}/fake-claude
+    writeFileSync(join(root, ".claude.json"), '{"hasCompletedOnboarding":true}');
+    const dest = join(root, "dest");
+
+    provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest });
+
+    const destConfig = join(dest, ".claude.json");
+    expect(existsSync(destConfig)).toBe(true);
+    expect(lstatSync(destConfig).isSymbolicLink()).toBe(false); // a copy, not a symlink
+    expect(readFileSync(destConfig, "utf8")).toBe('{"hasCompletedOnboarding":true}');
+    // credential still absent; no stray temp file left behind
+    expect(existsSync(join(dest, CREDENTIAL_FILE))).toBe(false);
+    expect(existsSync(`${destConfig}.tmp.${process.pid}`)).toBe(false);
+  });
+
+  test("does not prune .claude.json on re-provision (idempotent) and refreshes it", () => {
+    const root = makeTmp();
+    const src = buildFakeSource(root);
+    const homeConfig = join(root, ".claude.json");
+    writeFileSync(homeConfig, '{"v":1}');
+    const dest = join(root, "dest");
+
+    provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest });
+    expect(readFileSync(join(dest, ".claude.json"), "utf8")).toBe('{"v":1}');
+
+    // source changes → re-provision picks it up, and the prune step must NOT delete it
+    writeFileSync(homeConfig, '{"v":2}');
+    provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest });
+    expect(existsSync(join(dest, ".claude.json"))).toBe(true);
+    expect(readFileSync(join(dest, ".claude.json"), "utf8")).toBe('{"v":2}');
+  });
+
+  test("is a snapshot copy — mutating dest does not touch the source", () => {
+    const root = makeTmp();
+    const src = buildFakeSource(root);
+    const homeConfig = join(root, ".claude.json");
+    writeFileSync(homeConfig, '{"v":1}');
+    const dest = join(root, "dest");
+
+    provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest });
+    writeFileSync(join(dest, ".claude.json"), '{"v":"mutated-by-spawn"}');
+    expect(readFileSync(homeConfig, "utf8")).toBe('{"v":1}'); // source untouched
+  });
+
+  test("missing HOME-sibling .claude.json → no dest copy, no throw, credential still absent", () => {
+    const root = makeTmp();
+    const src = buildFakeSource(root); // no ${root}/.claude.json written
+    const dest = join(root, "dest");
+
+    expect(() => provisionApiKeyConfigDir({ sourceClaudeDir: src, destDir: dest })).not.toThrow();
+    expect(existsSync(join(dest, ".claude.json"))).toBe(false);
+    expect(existsSync(join(dest, CREDENTIAL_FILE))).toBe(false);
+    // mirror still built
+    expect(existsSync(join(dest, "settings.json"))).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import "@xterm/xterm/css/xterm.css";
-  import { Terminal } from "@xterm/xterm";
+  import { Terminal, type IBufferLine, type IBufferCell } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import type {
@@ -227,6 +227,29 @@
         if (rp === session.repoPath) knownCommands = new Set();
       });
   });
+
+  // Build a terminal line's visible text together with a string-index → 0-based column
+  // map by walking cells, so a wide char (emoji/CJK: 2 columns but 1+ string chars)
+  // before a token doesn't desync the link's tap region from the glyph. Mirrors xterm's
+  // own translateToString (empty cell → " ", advance by the cell's width). `cell` is a
+  // reusable scratch cell to avoid per-cell allocation.
+  function lineTextWithColumns(
+    line: IBufferLine,
+    cell: IBufferCell,
+  ): { text: string; colAt: number[] } {
+    let text = "";
+    const colAt: number[] = [];
+    let col = 0;
+    while (col < line.length) {
+      const c = line.getCell(col, cell);
+      const width = c?.getWidth() ?? 1;
+      const chars = c?.getChars() || " ";
+      for (let i = 0; i < chars.length; i++) colAt.push(col);
+      text += chars;
+      col += width || 1;
+    }
+    return { text, colAt };
+  }
 
   /** Hand the keyboard to the live terminal — the page's Enter shortcut calls this
    *  so plain-key navigation (which deliberately keeps focus *out* of the PTY, see
@@ -1212,13 +1235,15 @@
     // Enter themselves. No preventDefault/focus here: the el click→onTap→term.focus()
     // listener below already focuses the terminal on the same tap. Disposed implicitly
     // by term.dispose() in teardown, like the WebLinksAddon.
+    const linkCell = term.buffer.active.getNullCell();
     term.registerLinkProvider({
       provideLinks(bufferLineNumber, callback) {
-        const text = term.buffer.active.getLine(bufferLineNumber - 1)?.translateToString(true);
-        if (!text) {
+        const line = term.buffer.active.getLine(bufferLineNumber - 1);
+        if (!line) {
           callback(undefined);
           return;
         }
+        const { text, colAt } = lineTextWithColumns(line, linkCell);
         const found = findCommandLinks(text, knownCommands);
         if (found.length === 0) {
           callback(undefined);
@@ -1227,12 +1252,12 @@
         callback(
           found.map((f) => ({
             text: `/${f.name}`,
-            // xterm columns are 1-based and the range end is inclusive of the last
-            // cell; f.start/f.end are 0-based with end exclusive → +1 / as-is. ASCII
-            // tokens map 1:1 char-index ↔ column.
+            // Map string indices → 1-based terminal columns via colAt so a wide char
+            // before the token doesn't shift the tap region; range end is the inclusive
+            // last cell of the token.
             range: {
-              start: { x: f.start + 1, y: bufferLineNumber },
-              end: { x: f.end, y: bufferLineNumber },
+              start: { x: colAt[f.start]! + 1, y: bufferLineNumber },
+              end: { x: colAt[f.end - 1]! + 1, y: bufferLineNumber },
             },
             activate: () => {
               c.send(`\x1b[200~/${f.name}\x1b[201~`);

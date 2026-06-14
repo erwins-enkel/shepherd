@@ -54,6 +54,12 @@ export interface ScenarioResult {
   /** True when no apply was attempted BY DESIGN (e.g. claude-missing in Phase 1):
    *  the report classifies it DETECTION-ONLY, not an advice gap. */
   detectionOnly?: boolean;
+  /** Whether this scenario is part of the deterministic RELEASE GATE — i.e.
+   *  `coaching: "structured"` AND not `detectionOnly`, the same subset
+   *  `onboarding-gate.sh` runs. Only these drive the gate verdict (commit status +
+   *  rolling issue); prose/agent + detection-only scenarios stay in the report as
+   *  information and never block a release. */
+  gateEligible: boolean;
   error?: string;
 }
 

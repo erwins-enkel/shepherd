@@ -9,6 +9,7 @@ const results: ScenarioResult[] = [
     detection: { scenarioId: "gh-unauthed", detected: true, misses: [] },
     appliedVia: "agent",
     reachedGreen: true,
+    gateEligible: false,
   },
   {
     scenarioId: "tailscale-missing",
@@ -20,6 +21,7 @@ const results: ScenarioResult[] = [
     },
     appliedVia: "agent",
     reachedGreen: false,
+    gateEligible: false,
     error: "agent gave up",
   },
 ];
@@ -43,6 +45,7 @@ describe("buildGapReport", () => {
         detection: { scenarioId: "x", detected: true, misses: [] },
         appliedVia: "agent",
         reachedGreen: false,
+        gateEligible: false,
       },
     ]);
     expect(md).toContain("ADVICE GAP");
@@ -52,11 +55,12 @@ describe("buildGapReport", () => {
     const md = buildGapReport([
       {
         scenarioId: "claude-missing",
-        image: "images:fedora/40",
+        image: "images:fedora/42",
         detection: { scenarioId: "claude-missing", detected: true, misses: [] },
         appliedVia: "skipped",
         reachedGreen: false,
         detectionOnly: true,
+        gateEligible: false,
       },
       {
         scenarioId: "gh-unauthed",
@@ -64,6 +68,7 @@ describe("buildGapReport", () => {
         detection: { scenarioId: "gh-unauthed", detected: true, misses: [] },
         appliedVia: "agent",
         reachedGreen: true,
+        gateEligible: false,
       },
     ]);
     expect(md).toContain("DETECTION-ONLY");

@@ -10,13 +10,21 @@ function result(over: Partial<ScenarioResult>): ScenarioResult {
     detection: { scenarioId: "herdr-missing", detected: true, misses: [] },
     appliedVia: "verbatim",
     reachedGreen: true,
+    gateEligible: true, // structured, non-detection-only
     ...over,
   };
 }
 
-const GAP = result({ reachedGreen: false }); // detected but not green → ADVICE GAP
+const GAP = result({ reachedGreen: false }); // gate-eligible + not green → GATE GAP
 const PASS = result({ reachedGreen: true });
-const DETECTION_ONLY = result({ detectionOnly: true }); // by design — NOT a gap
+const DETECTION_ONLY = result({ detectionOnly: true, gateEligible: false }); // by design — NOT a gap
+// A prose/agent gap (e.g. git-missing): not green, but NOT gate-eligible → must not
+// open/keep an issue or fail the gate.
+const NON_GATE_GAP = result({
+  scenarioId: "git-missing",
+  reachedGreen: false,
+  gateEligible: false,
+});
 
 /** Fake `gh` that records argv and replies to `issue list` with `openIssue`. */
 function fakeGh(openIssue: { number: number; url: string } | null) {
@@ -71,6 +79,19 @@ describe("reportToGitHub", () => {
     const out = await reportToGitHub([PASS], "REPORT", "2026-06-15", gh);
     expect(calls.every((c) => !["create", "edit", "comment", "close"].includes(c[1]!))).toBe(true);
     expect(out.summary).toMatch(/nothing/i);
+  });
+
+  it("ignores a non-gate gap (git-missing) — it must not open an issue", async () => {
+    const { calls, gh } = fakeGh(null);
+    const out = await reportToGitHub([PASS, NON_GATE_GAP], "REPORT", "2026-06-15", gh);
+    expect(calls.some((c) => c[0] === "issue" && c[1] === "create")).toBe(false);
+    expect(out.summary).toMatch(/nothing/i);
+  });
+
+  it("closes the gate issue when only a non-gate gap remains (gate is green)", async () => {
+    const { calls, gh } = fakeGh({ number: 42, url: "https://github.com/x/y/issues/42" });
+    await reportToGitHub([PASS, NON_GATE_GAP], "REPORT", "2026-06-15", gh);
+    expect(calls.some((c) => c[0] === "issue" && c[1] === "close" && c[2] === "42")).toBe(true);
   });
 });
 

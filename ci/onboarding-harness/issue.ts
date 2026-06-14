@@ -1,4 +1,4 @@
-import { gapScenarios } from "./report";
+import { gateGapScenarios } from "./report";
 import { captureSpawn, type Captured } from "./spawn";
 import type { ScenarioResult } from "./types";
 
@@ -74,7 +74,7 @@ export async function reportToGitHub(
   stamp: string,
   gh: GhRunner = defaultGh,
 ): Promise<IssueOutcome> {
-  const gaps = gapScenarios(results);
+  const gaps = gateGapScenarios(results);
   const existing = await findOpenIssue(gh);
 
   if (gaps.length === 0) {

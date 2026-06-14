@@ -18,6 +18,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 type BranchesRef = { branches: string[]; calls: number; throws?: boolean };
@@ -104,7 +105,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
           auto: input.auto ?? false,
           issueNumber: input.issueRef?.number ?? null,
         }),
-      archive: (id: string): number => {
+      archive: async (id: string): Promise<number> => {
         store.archive(id);
         return 1;
       },

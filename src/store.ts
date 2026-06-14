@@ -390,7 +390,14 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
-    this.migrateEpicRunColumns();
+    // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
+    // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
+    // repo, so a pin stored there would be inherited by the next epic and would outlive its own
+    // epic's landing. A dedicated row per epic stays correct across supersession + into landing.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_branch (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      branch TEXT NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_integrated (
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
@@ -586,28 +593,29 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
-  /** Single source of truth for an epic's pinned integration-branch name (#645).
-   *  The name is derived from the parent title, but the title can be edited mid-run —
-   *  re-deriving everywhere would re-point new spawns + the landing base, orphaning
-   *  children already merged on the old branch. So we pin it once and read it forever:
-   *   - row exists with a non-null `integrationBranch` → return the pinned value;
-   *   - row exists but unpinned → lazily pin `derived` and return it;
-   *   - no row exists → return `derived` WITHOUT persisting (best-effort; there is no
-   *     row to write into — the caller is deriving outside an active epic run). */
+  /** Single source of truth for an epic's pinned integration-branch name (#645), keyed
+   *  PER EPIC `(repoPath, parentIssueNumber)`. The name derives from the parent title, but
+   *  the title can be edited mid-run — re-deriving everywhere would re-point new spawns +
+   *  the landing base and orphan children already merged on the old branch. So we pin it
+   *  once on first sight and read it forever: an existing pin is returned as-is; otherwise
+   *  `derived` is persisted for THIS epic and returned. Per-epic keying is load-bearing —
+   *  `epic_run` is one-row-per-repo and superseded when a new epic starts, so a repo-scoped
+   *  pin would be inherited by the next epic and would be wrong for a superseded epic's
+   *  still-pending landing PR. */
   getOrInitEpicIntegrationBranch(
     repoPath: string,
     parentIssueNumber: number,
     derived: string,
   ): string {
     const row = this.db
-      .query(`SELECT integrationBranch FROM epic_run WHERE repoPath = ?`)
-      .get(repoPath) as { integrationBranch: string | null } | null;
-    if (!row) return derived; // no epic_run row → nothing to pin into; best-effort derive
-    if (row.integrationBranch != null) return row.integrationBranch; // already pinned
-    this.db.run(`UPDATE epic_run SET integrationBranch = ? WHERE repoPath = ?`, [
-      derived,
-      repoPath,
-    ]);
+      .query(`SELECT branch FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`)
+      .get(repoPath, parentIssueNumber) as { branch: string } | null;
+    if (row) return row.branch; // already pinned for this epic
+    this.db.run(
+      `INSERT INTO epic_branch (repoPath, parentIssueNumber, branch) VALUES (?,?,?)
+       ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
+      [repoPath, parentIssueNumber, derived],
+    );
     return derived;
   }
 
@@ -1682,16 +1690,6 @@ export class SessionStore implements CapStore, CreditStore {
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
-  }
-
-  // The pinned canonical integration-branch name (#645). Nullable: existing rows backfill
-  // to NULL and lazy-pin on first use; rows that predate the epic-runner had no name to pin.
-  private migrateEpicRunColumns(): void {
-    const cols = this.db.query(`PRAGMA table_info(epic_run)`).all() as { name: string }[];
-    const add = (name: string, ddl: string) => {
-      if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE epic_run ADD COLUMN ${ddl}`);
-    };
-    add("integrationBranch", `integrationBranch TEXT`);
   }
 
   private migrateEpicIntegratedColumns(): void {

@@ -24,9 +24,8 @@ describe("epic_run", () => {
 });
 
 describe("getOrInitEpicIntegrationBranch (pin-and-record)", () => {
-  test("first call on an existing row lazily pins + returns the derived name", () => {
+  test("first call pins + returns the derived name", () => {
     const s = new SessionStore(":memory:");
-    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 327, mode: "auto", status: "running" });
     expect(s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-efi-cluster")).toBe(
       "epic/327-efi-cluster",
     );
@@ -34,7 +33,6 @@ describe("getOrInitEpicIntegrationBranch (pin-and-record)", () => {
 
   test("second call returns the PINNED value even when given a different derived (title-edit regression)", () => {
     const s = new SessionStore(":memory:");
-    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 327, mode: "auto", status: "running" });
     // first use pins "epic/327-efi-cluster"
     s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-efi-cluster");
     // operator renames the epic mid-run → derived now slugs differently, but the pinned
@@ -44,21 +42,38 @@ describe("getOrInitEpicIntegrationBranch (pin-and-record)", () => {
     );
   });
 
-  test("no epic_run row: returns derived without persisting (best-effort)", () => {
+  test("the pin is independent of epic_run lifecycle (persists with no epic_run row)", () => {
     const s = new SessionStore(":memory:");
+    // No setEpicRun — the pin lives in its own per-epic table, so it persists regardless.
     expect(s.getOrInitEpicIntegrationBranch("/repo", 999, "epic/999-x")).toBe("epic/999-x");
-    // nothing was written — still no row
-    expect(s.getEpicRun("/repo")).toBeNull();
+    expect(s.getEpicRun("/repo")).toBeNull(); // pinning did not fabricate an epic_run row
+    // and a later derive (e.g. at landing, after a title edit) still returns the pinned name
+    expect(s.getOrInitEpicIntegrationBranch("/repo", 999, "epic/999-renamed")).toBe("epic/999-x");
   });
 
-  test("pin is scoped per-repo and survives setEpicRun status churn", () => {
+  test("pin survives setEpicRun status churn (not stored on epic_run)", () => {
     const s = new SessionStore(":memory:");
     s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 327, mode: "auto", status: "running" });
     s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-efi-cluster");
-    // a status change re-upserts the row but must NOT clear the pinned branch
+    // a status change re-upserts the epic_run row but must NOT affect the pinned branch
     s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 327, mode: "auto", status: "paused" });
     expect(s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-anything-else")).toBe(
       "epic/327-efi-cluster",
+    );
+  });
+
+  test("a second epic superseding the same repo gets its OWN pin (no inheritance); the first epic's pin survives for its landing", () => {
+    const s = new SessionStore(":memory:");
+    // Epic A runs on /repo and pins its branch.
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 327, mode: "auto", status: "running" });
+    expect(s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-alpha")).toBe("epic/327-alpha");
+    // Epic B supersedes the repo's single epic_run row (server replaces parentIssueNumber).
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 400, mode: "auto", status: "running" });
+    // B must NOT inherit A's pin — it pins its own branch...
+    expect(s.getOrInitEpicIntegrationBranch("/repo", 400, "epic/400-beta")).toBe("epic/400-beta");
+    // ...and A's pin is still retrievable (e.g. for A's still-pending landing PR).
+    expect(s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-whatever-now")).toBe(
+      "epic/327-alpha",
     );
   });
 });

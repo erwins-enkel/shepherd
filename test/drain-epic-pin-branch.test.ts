@@ -19,6 +19,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 interface ForgeRec {
@@ -123,7 +124,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: (id: string): number => {
+    archive: async (id: string): Promise<number> => {
       store.archive(id);
       return 1;
     },

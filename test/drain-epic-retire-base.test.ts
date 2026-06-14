@@ -28,6 +28,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 interface ForgeRec {
@@ -151,7 +152,7 @@ function makeHarness(
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
       }),
-    archive: (id: string): number => {
+    archive: async (id: string): Promise<number> => {
       store.archive(id);
       return 1;
     },
@@ -344,7 +345,7 @@ describe("epic base-mismatch marker self-heal on buildEpic (#645)", () => {
       create: async (): Promise<Session> => {
         throw new Error("unused");
       },
-      archive: (): number => 1,
+      archive: async (): Promise<number> => 1,
     };
     const drain = new DrainService({
       store,

@@ -49,6 +49,7 @@ import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { DiagnosticsService } from "./diagnostics";
+import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
@@ -196,6 +197,9 @@ export interface AppDeps {
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
+  /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
+   *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
+  verifyKey?: () => Promise<VerifyKeyResult>;
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
@@ -1974,6 +1978,25 @@ async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | nul
   return null;
 }
 
+// ── settings: verify the configured api-key authenticates end-to-end ──
+// POST /api/settings/verify-key → spawns a transient verify agent (via deps.verifyKey)
+// and returns ONLY {ok,reason?,detail?} — never the key or its helper path, never logged.
+async function handleSettingsVerifyKey({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      parts[0] === "api" &&
+      parts[1] === "settings" &&
+      parts[2] === "verify-key" &&
+      !parts[3] &&
+      req.method === "POST"
+    )
+  )
+    return null;
+  if (!deps.verifyKey) return json({ error: "verify not available" }, 503);
+  const r = await deps.verifyKey();
+  return json({ ok: r.ok, reason: r.reason, detail: r.detail });
+}
+
 // ── settings: read/update the repo root (persisted, applied at runtime) ──
 async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "settings" && !parts[2])) return null;
@@ -3352,6 +3375,7 @@ const ROUTE_HANDLERS = [
   handleUploads,
   handleRepos,
   handleProjects,
+  handleSettingsVerifyKey,
   handleSettings,
   handleSteers,
   handleProjectIcons,

@@ -538,3 +538,57 @@ test("PUT anthropicApiKey with non-string/non-null value → 400", async () => {
     expect(res.status).toBe(400);
   }
 });
+
+// ── POST /api/settings/verify-key ──────────────────────────────────────────
+// Builds an app wiring a stubbed deps.verifyKey (or omitting it).
+function verifyHarness(verifyKey?: AppDeps["verifyKey"]): ReturnType<typeof makeApp> {
+  const deps: AppDeps = {
+    store: new SessionStore(":memory:"),
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    verifyKey,
+  };
+  return makeApp(deps);
+}
+
+const postVerify = (app: ReturnType<typeof makeApp>) =>
+  app.fetch(new Request("http://x/api/settings/verify-key", { method: "POST" }));
+
+test("POST /api/settings/verify-key → 200 {ok:true} when the verify succeeds", async () => {
+  const app = verifyHarness(async () => ({ ok: true }));
+  const res = await postVerify(app);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+});
+
+test("POST /api/settings/verify-key echoes reason+detail and leaks no key/path", async () => {
+  const app = verifyHarness(async () => ({
+    ok: false,
+    reason: "not-authenticated",
+    detail: "invalid x-api-key",
+  }));
+  const res = await postVerify(app);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.ok).toBe(false);
+  expect(body.reason).toBe("not-authenticated");
+  expect(body.detail).toBe("invalid x-api-key");
+  // Body must carry ONLY {ok,reason,detail} — never a key or its helper path.
+  const allowed = new Set(["ok", "reason", "detail"]);
+  expect(Object.keys(body).every((k) => allowed.has(k))).toBe(true);
+});
+
+test("POST /api/settings/verify-key → 503 when deps.verifyKey is absent", async () => {
+  const app = verifyHarness(undefined);
+  const res = await postVerify(app);
+  expect(res.status).toBe(503);
+});
+
+test("GET /api/settings is unaffected by the verify-key route", async () => {
+  config.repoRoot = tmp;
+  const app = verifyHarness(async () => ({ ok: true }));
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  expect((await res.json()).repoRoot).toBe(tmp);
+});

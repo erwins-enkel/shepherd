@@ -93,6 +93,7 @@ export interface DrainDeps {
     | "archive"
     | "getEpicRun"
     | "setEpicRun"
+    | "getOrInitEpicIntegrationBranch"
     | "listEpicIntegrated"
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
@@ -323,7 +324,13 @@ export class DrainService {
       builtEpic = await this.buildEpic(repoPath, epicRun!);
       if (builtEpic) {
         epicParent = epicRun!.parentIssueNumber;
-        epicIntegrationBranch = epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle);
+        // Pin the canonical name once (#645): re-deriving from the live title would re-point
+        // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
+        epicIntegrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
+          repoPath,
+          builtEpic.parentIssueNumber,
+          epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle),
+        );
         if (epicRun!.status === "running") candidates = selectEpicCandidates(builtEpic.children);
         epicAttended = epicRun!.mode === "attended";
       }
@@ -588,7 +595,13 @@ export class DrainService {
         return;
       }
 
-      const integrationBranch = epicBranchName(parentIssueNumber, parentTitle);
+      // Read the pinned name (#645) so the landing PR bases on the SAME branch children
+      // merged into — even if the epic's title was edited after the branch was first pinned.
+      const integrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
+        repoPath,
+        parentIssueNumber,
+        epicBranchName(parentIssueNumber, parentTitle),
+      );
       const resolution = await this.classifyLanding(forge, row, integrationBranch);
       this.resolveLanding(repoPath, parentIssueNumber, resolution);
     } finally {

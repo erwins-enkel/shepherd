@@ -390,6 +390,7 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
+    this.migrateEpicRunColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_integrated (
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
@@ -576,6 +577,31 @@ export class SessionStore implements CapStore, CreditStore {
       ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, updatedAt=excluded.updatedAt`,
       [r.repoPath, r.parentIssueNumber, r.mode, r.status, Date.now()],
     );
+  }
+
+  /** Single source of truth for an epic's pinned integration-branch name (#645).
+   *  The name is derived from the parent title, but the title can be edited mid-run —
+   *  re-deriving everywhere would re-point new spawns + the landing base, orphaning
+   *  children already merged on the old branch. So we pin it once and read it forever:
+   *   - row exists with a non-null `integrationBranch` → return the pinned value;
+   *   - row exists but unpinned → lazily pin `derived` and return it;
+   *   - no row exists → return `derived` WITHOUT persisting (best-effort; there is no
+   *     row to write into — the caller is deriving outside an active epic run). */
+  getOrInitEpicIntegrationBranch(
+    repoPath: string,
+    parentIssueNumber: number,
+    derived: string,
+  ): string {
+    const row = this.db
+      .query(`SELECT integrationBranch FROM epic_run WHERE repoPath = ?`)
+      .get(repoPath) as { integrationBranch: string | null } | null;
+    if (!row) return derived; // no epic_run row → nothing to pin into; best-effort derive
+    if (row.integrationBranch != null) return row.integrationBranch; // already pinned
+    this.db.run(`UPDATE epic_run SET integrationBranch = ? WHERE repoPath = ?`, [
+      derived,
+      repoPath,
+    ]);
+    return derived;
   }
 
   /** Record that a child PR was squash-merged into the epic integration branch.
@@ -1555,6 +1581,16 @@ export class SessionStore implements CapStore, CreditStore {
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
+  }
+
+  // The pinned canonical integration-branch name (#645). Nullable: existing rows backfill
+  // to NULL and lazy-pin on first use; rows that predate the epic-runner had no name to pin.
+  private migrateEpicRunColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_run)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE epic_run ADD COLUMN ${ddl}`);
+    };
+    add("integrationBranch", `integrationBranch TEXT`);
   }
 
   private migrateEpicIntegratedColumns(): void {

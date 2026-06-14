@@ -296,3 +296,115 @@ describe("epic child retire → PR base enforcement (#645 Task 2)", () => {
     expect(h.store.getEpicBaseMismatch(REPO, PARENT, CHILD)).toBeNull();
   });
 });
+
+// Self-heal (#645 final review): a base-mismatch marker for a child resolved out-of-band — its PR
+// merged into the default branch (issue closed) OR shepherd-integrated — never re-enters doRetire,
+// so buildEpic must clear the now-orphaned marker (and drop its "epic blocked until fixed" warning).
+// A still-open, not-done child's marker MUST persist.
+describe("epic base-mismatch marker self-heal on buildEpic (#645)", () => {
+  // Native epic so we control each child's closed-state + the integrated set directly. Children:
+  // OPEN (blocked), ICLOSED (issue closed out-of-band), IINTEG (shepherd-integrated).
+  const OPEN = 401;
+  const ICLOSED = 402;
+  const IINTEG = 403;
+
+  function makeNativeHarness(): { store: SessionStore; drain: DrainService } {
+    const store = new SessionStore(":memory:");
+    store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    const sub = (number: number, closed: boolean) => ({
+      number,
+      title: `#${number}`,
+      url: `https://x/${number}`,
+      body: "",
+      closed,
+      labels: [] as string[],
+    });
+    const forge: GitForge = {
+      ...fakeForge({ merges: [], reviewMetaCalls: 0 }),
+      getIssue: async (n: number): Promise<Issue | null> =>
+        n === PARENT
+          ? {
+              number: PARENT,
+              title: "EFI cluster",
+              body: "",
+              url: `https://x/${PARENT}`,
+              labels: [],
+              createdAt: 0,
+            }
+          : null,
+      listSubIssues: async () => [sub(OPEN, false), sub(ICLOSED, true), sub(IINTEG, false)],
+      listBlockedBy: async () => [],
+    };
+    const service = {
+      create: async (): Promise<Session> => {
+        throw new Error("unused");
+      },
+      archive: (): number => 1,
+    };
+    const drain = new DrainService({
+      store,
+      service,
+      resolveForge: () => forge,
+      prCache: { snapshot: () => ({}) },
+      usage: { limits: (): UsageLimitsType => NO_USAGE },
+      repos: () => [REPO],
+      emitStatus: () => {},
+      emitArchived: () => {},
+      dropPrCache: () => {},
+      emitEpic: () => {},
+    });
+    return { store, drain };
+  }
+
+  test("clears markers for issue-closed AND integration-merged children; keeps the open one", async () => {
+    const { store, drain } = makeNativeHarness();
+    // IINTEG is shepherd-integrated; mark a base-mismatch on all three.
+    store.recordEpicIntegrated(REPO, PARENT, IINTEG, { number: 510, url: "" }, EPIC_BRANCH);
+    for (const c of [OPEN, ICLOSED, IINTEG]) {
+      store.recordEpicBaseMismatch(REPO, PARENT, c, {
+        actualBase: "main",
+        prNumber: c + 100,
+        checkedAt: 0,
+      });
+    }
+
+    const epic = await drain.buildEpic(REPO, store.getEpicRun(REPO)!);
+
+    // done-in-epic markers swept; open marker persists
+    expect(store.getEpicBaseMismatch(REPO, PARENT, ICLOSED)).toBeNull();
+    expect(store.getEpicBaseMismatch(REPO, PARENT, IINTEG)).toBeNull();
+    expect(store.getEpicBaseMismatch(REPO, PARENT, OPEN)).not.toBeNull();
+
+    // and the warnings reflect the sweep: only the open child is still "blocked until fixed"
+    const blocked = (n: number) =>
+      epic!.warnings.some(
+        (w) => w.includes(`child #${n}`) && w.includes("epic blocked until fixed"),
+      );
+    expect(blocked(OPEN)).toBe(true);
+    expect(blocked(ICLOSED)).toBe(false);
+    expect(blocked(IINTEG)).toBe(false);
+  });
+
+  test("a marker for a still-open, not-done child persists across buildEpic", async () => {
+    const { store, drain } = makeNativeHarness();
+    store.recordEpicBaseMismatch(REPO, PARENT, OPEN, {
+      actualBase: "main",
+      prNumber: 501,
+      checkedAt: 0,
+    });
+
+    const epic = await drain.buildEpic(REPO, store.getEpicRun(REPO)!);
+
+    expect(store.getEpicBaseMismatch(REPO, PARENT, OPEN)?.actualBase).toBe("main");
+    expect(
+      epic!.warnings.some(
+        (w) => w.includes(`child #${OPEN}`) && w.includes("epic blocked until fixed"),
+      ),
+    ).toBe(true);
+  });
+});

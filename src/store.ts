@@ -842,8 +842,9 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   /** Acknowledge a completed epic's landing-PR migrations (#645): stamp `migrationsAckedAt` AND
-   *  dismiss the row — one operator action both records the acknowledgement durably (so it isn't
-   *  re-prompted on a re-record) and clears the band. */
+   *  dismiss the row in one operator action. `migrationsAckedAt` is the durable audit record of
+   *  WHEN the human acknowledged; the coupled `dismissedAt` is what actually clears the band and
+   *  prevents a re-prompt (listEpicCompleted filters `dismissedAt IS NULL`). */
   ackEpicMigrations(repoPath: string, parentIssueNumber: number): void {
     const now = Date.now();
     this.db.run(
@@ -1718,9 +1719,13 @@ export class SessionStore implements CapStore, CreditStore {
     add("landingPrUrl", `landingPrUrl TEXT`);
     add("landingState", `landingState TEXT NOT NULL DEFAULT 'pending'`);
     add("landingAttempts", `landingAttempts INTEGER NOT NULL DEFAULT 0`);
-    // Migration-awareness checkpoint (#645): paths of migration files detected in the landing
-    // PR (JSON array) + the epoch the operator acknowledged them. Both nullable: absence = no
-    // detection ran / nothing to acknowledge.
+    // Migration-awareness checkpoint (#645). migrationPathsJson: paths of migration files
+    // detected in the landing PR (JSON array). migrationsAckedAt: a durable audit timestamp
+    // recording WHEN a human acknowledged those migrations — written alongside dismissedAt by
+    // ackEpicMigrations. It is a record, NOT a gate: re-prompt suppression is the coupled
+    // dismissedAt (listEpicCompleted filters `dismissedAt IS NULL`), so an acked row is hidden
+    // by the dismiss, never by this column. Both nullable: absence = no detection ran / not
+    // yet acknowledged.
     add("migrationPathsJson", `migrationPathsJson TEXT`);
     add("migrationsAckedAt", `migrationsAckedAt INTEGER`);
   }

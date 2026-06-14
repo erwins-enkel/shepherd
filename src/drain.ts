@@ -286,8 +286,11 @@ export class DrainService {
       persistedBranch,
     );
     // (Task 2) children parked at retire because their PR targets the wrong base.
-    const baseMismatches = this.deps.store.listEpicBaseMismatches(repoPath, run.parentIssueNumber);
-    return assembleEpic({
+    const recordedMismatches = this.deps.store.listEpicBaseMismatches(
+      repoPath,
+      run.parentIssueNumber,
+    );
+    const base = {
       repoPath,
       run,
       integrated,
@@ -304,8 +307,29 @@ export class DrainService {
       persistedBranch,
       integratedBases,
       divergentBranches,
-      baseMismatches,
+    };
+    // Self-heal orphaned base-mismatch markers (#645). The marker is only cleared inside the
+    // retire path (doRetire → epicChildBaseBlocked), which re-runs only while the child PR is
+    // still open. A blocked child resolved out-of-band (PR merged into default → issue closed)
+    // never re-enters retire, so its marker — and its actionable "epic blocked until fixed"
+    // warning — would persist forever. assembleEpic is PURE; the model decides done-in-epic as
+    // `integrationMerged || issueClosed`, so derive the same done-set from the assembled children
+    // (no forge call), clear markers for any now-done child, and surface only the still-blocked
+    // ones. Idempotent (runs every build) and fail-safe.
+    const probe = assembleEpic({ ...base, baseMismatches: recordedMismatches });
+    const doneInEpic = new Set(
+      probe.children.filter((c) => c.integrationMerged || c.issueClosed).map((c) => c.number),
+    );
+    const liveMismatches = recordedMismatches.filter((mm) => {
+      if (doneInEpic.has(mm.childNumber)) {
+        this.deps.store.clearEpicBaseMismatch(repoPath, run.parentIssueNumber, mm.childNumber);
+        return false;
+      }
+      return true;
     });
+    // No swept markers → the probe is already correct; reuse it rather than re-assembling.
+    if (liveMismatches.length === recordedMismatches.length) return probe;
+    return assembleEpic({ ...base, baseMismatches: liveMismatches });
   }
 
   /** #645 (c): list host `epic/*` branches that reference `parentNumber` as a digit-bounded

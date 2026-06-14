@@ -20,6 +20,9 @@
   // Migration-awareness checkpoint (#645): the landing PR carries unacknowledged migration
   // files. The harness never runs them (read-only critic, no DB), so the operator must verify +
   // acknowledge before clearing the row. Count derives from the array — no hardcoded number.
+  // Note: acknowledging dismisses the row server-side (ackEpicMigrations sets dismissedAt, which
+  // listEpicCompleted filters out), so a displayed row always has migrationsAckedAt == null; the
+  // == null guard is belt-and-suspenders, not the gate. The real gate is the row being shown.
   const migrationCount = $derived(epic.migrationPaths.length);
   const pendingAck = $derived(migrationCount > 0 && epic.migrationsAckedAt == null);
 

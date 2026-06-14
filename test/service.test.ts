@@ -2056,16 +2056,36 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
   expect(store.get(b.id)?.status).not.toBe("archived"); // b stays active (teardown threw)
 });
 
-function mergeSvc() {
+function mergeSvc(opts: { isolated?: boolean } = {}) {
   const store = new SessionStore(":memory:");
   const emitted: { event: string; data: any }[] = [];
   const refreshed: string[] = [];
+  // Controllable live PR-state map keyed by session id; tests mutate it to simulate
+  // a session's PR opening / merging, then re-run reconcile. `openPr(id, number)`
+  // and `mergedPr(id, number)` are tiny helpers over it.
+  const snap: Record<string, any> = {};
+  const openPr = (id: string, number: number) =>
+    (snap[id] = {
+      kind: "github",
+      state: "open",
+      number,
+      checks: "success",
+      deployConfigured: false,
+    });
+  const mergedPr = (id: string, number: number) =>
+    (snap[id] = {
+      kind: "github",
+      state: "merged",
+      number,
+      checks: "success",
+      deployConfigured: false,
+    });
   const service = new SessionService({
     store,
     namer: async () => "n",
     worktree: {
       ensureBaseRef: async () => {},
-      create: () => ({ worktreePath: "/wt", branch: "b", isolated: true }),
+      create: () => ({ worktreePath: "/wt", branch: "b", isolated: opts.isolated ?? true }),
       remove: () => {},
     } as any,
     herdr: {
@@ -2083,8 +2103,9 @@ function mergeSvc() {
     } as any,
     events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
     refreshPr: (id: string) => refreshed.push(id),
+    prSnapshot: () => snap,
   });
-  return { store, service, emitted, refreshed };
+  return { store, service, emitted, refreshed, snap, openPr, mergedPr };
 }
 
 async function mkSession(service: SessionService) {
@@ -2097,51 +2118,92 @@ async function mkSession(service: SessionService) {
   });
 }
 
-test("setMerging stamps each id and emits session:merging; skips unknown ids", async () => {
-  const { store, service, emitted } = mergeSvc();
+test("registerTrain marks every selected-PR session observed open (incl. readyToMerge=false); emits session:merging", async () => {
+  const { store, service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
-  service.setMerging([a.id, "ghost"], "train-9");
+  const b = await mkSession(service);
+  // a + b both hold OPEN selected PRs; b's PR is NOT ready-to-merge — must STILL mark
+  // (readyToMerge no longer gates marking — marking is purely state:"open").
+  openPr(a.id, 11);
+  openPr(b.id, 12);
+  expect(store.get(b.id)!.readyToMerge).toBe(false);
+  service.registerTrain(train.id, "/r", [11, 12]);
   expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
-  expect(store.get(a.id)!.mergingTrainId).toBe("train-9");
+  expect(store.get(a.id)!.mergingTrainId).toBe(train.id);
+  expect(store.get(a.id)!.mergingPrNumber).toBe(11);
+  expect(store.get(b.id)!.mergingSince).toBeGreaterThan(0);
+  expect(store.get(b.id)!.mergingPrNumber).toBe(12);
+  // the train session itself is never marked
+  expect(store.get(train.id)!.mergingSince).toBeNull();
   const ev = emitted.filter((e) => e.event === "session:merging");
-  expect(ev).toHaveLength(1);
-  expect(ev[0]!.data).toMatchObject({ id: a.id, trainId: "train-9" });
-  expect(typeof ev[0]!.data.since).toBe("number");
+  expect(ev).toHaveLength(2);
+  expect(ev.map((e) => e.data.id).sort()).toEqual([a.id, b.id].sort());
+  ev.forEach((e) => expect(e.data.trainId).toBe(train.id));
 });
 
-test("clearMerging nulls the fields and emits since:null; no-op when not merging", async () => {
-  const { store, service, emitted } = mergeSvc();
+test("a participant already merged at launch (never open) is never marked", async () => {
+  const { store, service, mergedPr } = mergeSvc();
+  const train = await mkSession(service);
+  const a = await mkSession(service);
+  mergedPr(a.id, 21); // terminal in the snapshot — never observed open
+  service.registerTrain(train.id, "/r", [21]);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+});
+
+test("a PR not yet open at launch is marked once a later reconcile observes it open", async () => {
+  const { store, service, openPr } = mergeSvc();
+  const train = await mkSession(service);
+  const a = await mkSession(service);
+  // No open PR at launch → not marked.
+  service.registerTrain(train.id, "/r", [31]);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+  // Its PR opens; a later reconcile (the `session:git` path) marks it.
+  openPr(a.id, 31);
+  service.reconcileTrainMarks(train.id);
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  expect(store.get(a.id)!.mergingPrNumber).toBe(31);
+});
+
+test("launchedAt = first-observed-open: PRs never open → no tracker entry, archive is a no-op", async () => {
+  const { service, emitted } = mergeSvc();
+  const train = await mkSession(service);
+  await mkSession(service); // a participant, but its PR never opens in the snapshot
+  service.registerTrain(train.id, "/r", [41]); // nothing open → no member, no entry
+  // No #trainOffers entry was created → a later archive has nothing to finalize.
+  expect(() => service.clearMergingForTrain(train.id)).not.toThrow();
+  expect(landed(emitted)).toHaveLength(0);
+});
+
+test("clearMerging nulls all three fields and emits since:null; no-op when not merging", async () => {
+  const { store, service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
   service.clearMerging(a.id);
   expect(emitted.filter((e) => e.event === "session:merging")).toHaveLength(0);
-  service.setMerging([a.id], "t1");
+  openPr(a.id, 51);
+  service.registerTrain(train.id, "/r", [51]);
   service.clearMerging(a.id);
   expect(store.get(a.id)!.mergingSince).toBeNull();
   expect(store.get(a.id)!.mergingTrainId).toBeNull();
+  expect(store.get(a.id)!.mergingPrNumber).toBeNull();
   const last = emitted.filter((e) => e.event === "session:merging").at(-1)!;
   expect(last.data).toEqual({ id: a.id, since: null, trainId: null });
 });
 
 test("clearMergingForTrain clears every member of one train, leaves others", async () => {
-  const { store, service } = mergeSvc();
+  const { store, service, openPr } = mergeSvc();
+  const tA = await mkSession(service);
+  const tB = await mkSession(service);
   const a = await mkSession(service);
   const b = await mkSession(service);
-  service.setMerging([a.id], "train-A");
-  service.setMerging([b.id], "train-B");
-  service.clearMergingForTrain("train-A");
+  openPr(a.id, 61);
+  openPr(b.id, 62);
+  service.registerTrain(tA.id, "/r", [61]);
+  service.registerTrain(tB.id, "/r", [62]);
+  service.clearMergingForTrain(tA.id);
   expect(store.get(a.id)!.mergingSince).toBeNull();
   expect(store.get(b.id)!.mergingSince).toBeGreaterThan(0);
-});
-
-test("sweepStaleMerging clears marks older than the TTL, keeps fresh ones", async () => {
-  const { store, service } = mergeSvc();
-  const a = await mkSession(service);
-  service.setMerging([a.id], "t");
-  const now = Date.now();
-  service.sweepStaleMerging(now);
-  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
-  service.sweepStaleMerging(now + MERGE_STALE_MS + 1);
-  expect(store.get(a.id)!.mergingSince).toBeNull();
 });
 
 // ── mergetrain:landed completion tracker ──────────────────────────────────────
@@ -2151,26 +2213,31 @@ function landed(emitted: { event: string; data: any }[]) {
 }
 
 test("merge-before-archive: member merges, then train archives → one mergetrain:landed", async () => {
-  const { service, emitted } = mergeSvc();
+  const { service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service); // repoPath "/r", isolated
-  service.setMerging([a.id], "train-X");
+  openPr(a.id, 71);
+  service.registerTrain(train.id, "/r", [71]);
   service.resolveMerging(a.id, true); // credited, but no emit yet (train still live)
   expect(landed(emitted)).toHaveLength(0);
-  service.clearMergingForTrain("train-X");
+  service.clearMergingForTrain(train.id);
   const ev = landed(emitted);
   expect(ev).toHaveLength(1);
   expect(ev[0]!.data).toEqual({ repoPath: "/r" });
   // idempotence: a second archive call is a no-op (entry already finalized)
-  service.clearMergingForTrain("train-X");
+  service.clearMergingForTrain(train.id);
   expect(landed(emitted)).toHaveLength(1);
 });
 
 test("archive-before-merge (the race): archive defers + nudges, late merge fires once", async () => {
-  const { service, emitted, refreshed } = mergeSvc();
+  const { service, emitted, refreshed, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
   const b = await mkSession(service);
-  service.setMerging([a.id, b.id], "train-R");
-  service.clearMergingForTrain("train-R"); // archives first, merged still false
+  openPr(a.id, 81);
+  openPr(b.id, 82);
+  service.registerTrain(train.id, "/r", [81, 82]);
+  service.clearMergingForTrain(train.id); // archives first, merged still false
   expect(landed(emitted)).toHaveLength(0); // deferred — no emit yet
   expect(refreshed.sort()).toEqual([a.id, b.id].sort()); // nudged each live member
   service.resolveMerging(a.id, true); // late credit → fires
@@ -2182,142 +2249,174 @@ test("archive-before-merge (the race): archive defers + nudges, late merge fires
   expect(landed(emitted)).toHaveLength(1);
 });
 
-test("nothing merged: all resolve false, archive, TTL sweep → never emits", async () => {
-  const { service, emitted } = mergeSvc();
+test("post-archive late credit survives: PR merges after a clean archive, fires once, reclaimed only after the await window", async () => {
+  const { service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
-  service.setMerging([a.id], "train-N");
-  service.resolveMerging(a.id, false);
-  service.clearMergingForTrain("train-N");
+  openPr(a.id, 91);
+  const t0 = Date.now();
+  service.registerTrain(train.id, "/r", [91], t0);
+  service.clearMergingForTrain(train.id, t0); // clean archive (out of #liveTrains), awaiting late credit
   expect(landed(emitted)).toHaveLength(0);
-  service.sweepStaleMerging(Date.now() + MERGE_STALE_MS + 1);
+  // The member's PR merges AFTER archive → late credit fires exactly once.
+  service.resolveMerging(a.id, true);
+  expect(landed(emitted)).toHaveLength(1);
+  // The awaiting entry is reclaimed only after the post-archive window lapses.
+  // A re-resolve before reclaim would not re-fire (entry finalized), and a sweep
+  // inside the window leaves no new emit; advancing past it reclaims silently.
+  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
+  expect(landed(emitted)).toHaveLength(1);
+});
+
+test("nothing merged: all resolve false, archive, sweep → never emits", async () => {
+  const { service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
+  const a = await mkSession(service);
+  openPr(a.id, 101);
+  const t0 = Date.now();
+  service.registerTrain(train.id, "/r", [101], t0);
+  service.resolveMerging(a.id, false);
+  service.clearMergingForTrain(train.id, t0);
+  expect(landed(emitted)).toHaveLength(0);
+  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
   expect(landed(emitted)).toHaveLength(0);
 });
 
-test("isolated guard: a sole non-isolated merged member never emits", async () => {
-  const store = new SessionStore(":memory:");
-  const emitted: { event: string; data: any }[] = [];
-  const service = new SessionService({
-    store,
-    namer: async () => "n",
-    worktree: {
-      ensureBaseRef: async () => {},
-      create: () => ({ worktreePath: "/wt", branch: null, isolated: false }),
-      remove: () => {},
-    } as any,
-    herdr: {
-      start: () => ({
-        terminalId: "t",
-        cwd: "/",
-        agent: "claude",
-        agentStatus: "idle",
-        paneId: "p",
-        tabId: "x",
-        workspaceId: "w",
-      }),
-      list: () => [],
-      stop: () => {},
-    } as any,
-    events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
-  });
+test("isolated guard: a member is tracked even when non-isolated, but never credits a landing", async () => {
+  const { store, service, emitted, openPr } = mergeSvc({ isolated: false });
+  const train = await mkSession(service);
   const a = await mkSession(service); // non-isolated (worktree mock)
   expect(store.get(a.id)!.isolated).toBe(false);
-  service.setMerging([a.id], "train-NI");
-  service.resolveMerging(a.id, true); // not credited (non-isolated)
+  openPr(a.id, 111);
+  service.registerTrain(train.id, "/r", [111]);
+  // The non-isolated session IS marked and tracked as a member …
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  service.resolveMerging(a.id, true); // … but its merge does not credit (non-isolated)
   expect(landed(emitted)).toHaveLength(0);
-  service.clearMergingForTrain("train-NI"); // archive with merged still false
+  service.clearMergingForTrain(train.id); // archive with merged still false → no emit
   expect(landed(emitted)).toHaveLength(0);
 });
 
 test("pre-archive credit alone does not emit (fires on completion, not first merge)", async () => {
-  const { service, emitted } = mergeSvc();
+  const { service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
-  service.setMerging([a.id], "train-P");
+  openPr(a.id, 121);
+  service.registerTrain(train.id, "/r", [121]);
   service.resolveMerging(a.id, true);
   expect(landed(emitted)).toHaveLength(0); // train still live
 });
 
-test("sweep eviction: stale awaiting entry evicted with no emit; fresh entry untouched", async () => {
-  const { service, emitted } = mergeSvc();
+test("sweep eviction: stale awaiting entry evicted with no emit; fresh live entry untouched", async () => {
+  const { service, emitted, openPr } = mergeSvc();
+  const tS = await mkSession(service);
   const a = await mkSession(service);
-  service.setMerging([a.id], "train-S");
-  service.clearMergingForTrain("train-S"); // archived, merged false → awaiting
-  // evict by age; verify no emit and that the memberToTrain row is cleared
-  service.sweepStaleMerging(Date.now() + MERGE_STALE_MS + 1);
+  openPr(a.id, 131);
+  const t0 = Date.now();
+  service.registerTrain(tS.id, "/r", [131], t0);
+  service.clearMergingForTrain(tS.id, t0); // archived, merged false → awaiting
+  // evict by the post-archive window; verify no emit and the memberToTrain row is cleared
+  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
   expect(landed(emitted)).toHaveLength(0);
   // a later credit can no longer fire (entry + memberToTrain row gone)
   service.resolveMerging(a.id, true);
   expect(landed(emitted)).toHaveLength(0);
 
-  // a LIVE (un-archived) entry is never swept — even by a sweep far past launch+TTL
+  // a LIVE (still-registered) entry whose train session is alive is never swept —
+  // even by a sweep far past launch (its updatedAt is recent / registeredAt fresh).
+  const tF = await mkSession(service);
   const b = await mkSession(service);
-  service.setMerging([b.id], "train-F");
-  service.sweepStaleMerging(Date.now() + 10 * MERGE_STALE_MS); // live → not evicted
-  service.clearMergingForTrain("train-F"); // would only fire if entry survived
-  // merged false so still no emit, but entry must still exist (not evicted):
+  openPr(b.id, 132);
+  const t1 = Date.now();
+  service.registerTrain(tF.id, "/r", [132], t1);
+  service.sweepStaleMerging(t1 + 10 * MERGE_STALE_MS); // live + alive → not evicted
+  service.clearMergingForTrain(tF.id); // would only fire if entry survived
   service.resolveMerging(b.id, true);
   expect(landed(emitted)).toHaveLength(1);
 });
 
-test("slow/long run: a still-running train is never swept, however long it takes (no activity, no archive)", async () => {
-  const { service, emitted } = mergeSvc();
+test("live train at 25h with a still-active train session keeps its members' marks (no age expiry)", async () => {
+  const { store, service, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
-  service.setMerging([a.id], "train-Slow"); // live; first PR's CI is slow — no member has resolved yet
-  const t0 = Date.now();
-  // The critic's case: no member activity and no archive for well past MERGE_STALE_MS.
-  // A live entry must NOT be reclaimed (a launch-/activity-keyed TTL would drop it here).
-  service.sweepStaleMerging(t0 + 5 * MERGE_STALE_MS);
-  // The first PR finally lands, then the train archives → entry intact, fires once.
-  service.resolveMerging(a.id, true);
-  service.clearMergingForTrain("train-Slow", t0 + 5 * MERGE_STALE_MS + 1);
-  expect(landed(emitted)).toHaveLength(1);
+  openPr(a.id, 141);
+  // registeredAt set near `now` (a recent activity) so the last-activity ceiling
+  // never trips even at 25h — the train is slow but ALIVE.
+  const now = Date.now() + TRAIN_TRACKER_MAX_MS + 60 * 60_000; // 25h out
+  service.registerTrain(train.id, "/r", [141], now - 1000);
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  service.sweepStaleMerging(now); // alive (recent registeredAt) → kept
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  // An archive clears the member's mark immediately (no waiting on any age window).
+  service.clearMergingForTrain(train.id, now);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
 });
 
-test("repeat archive is idempotent: doesn't restart the await window or re-nudge members", async () => {
-  const { service, emitted, refreshed } = mergeSvc();
+test("crash without archive: a train session that never archives is deregistered past the backstop and its members' marks cleared", async () => {
+  const { store, service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service); // train session's updatedAt is frozen at ~now (real clock)
   const a = await mkSession(service);
-  service.setMerging([a.id], "train-Re");
-  const t0 = Date.now();
-  service.clearMergingForTrain("train-Re", t0); // archived, awaiting (merged false) → window starts at t0
-  // A second session:archived for the same train must be ignored — it must NOT
-  // restart the await window or fire refreshPr again.
-  service.clearMergingForTrain("train-Re", t0 + MERGE_STALE_MS / 2);
-  expect(refreshed).toEqual([a.id]); // nudged exactly once across both calls
-  // Window stays anchored at t0, so a sweep at t0+TTL+1 evicts (it would NOT have if reset).
-  service.sweepStaleMerging(t0 + MERGE_STALE_MS + 1);
-  service.resolveMerging(a.id, true); // entry gone → no late credit
-  expect(landed(emitted)).toHaveLength(0);
-});
-
-test("dead-train backstop: a live entry orphaned past TRAIN_TRACKER_MAX_MS is reclaimed (no emit)", async () => {
-  const { service, emitted } = mergeSvc();
-  const a = await mkSession(service);
-  // `base` is captured BEFORE setMerging, so launchedAt >= base; the ±1min margins
-  // dwarf any sub-ms drift, keeping the boundary checks non-flaky.
+  openPr(a.id, 151);
   const base = Date.now();
-  service.setMerging([a.id], "train-Dead"); // launchedAt ≈ base; train session then dies w/o session:archived
-  // Below the backstop while live → NOT reclaimed.
+  service.registerTrain(train.id, "/r", [151], base); // train then dies w/o session:archived
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  // Below the backstop (and train row still present/active) → NOT reclaimed.
   service.sweepStaleMerging(base + TRAIN_TRACKER_MAX_MS - 60_000);
-  // Past the backstop → reclaimed with no emit (no session:archived ever arrived).
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  // Past the backstop with frozen last-activity → train deregistered AND the member's
+  // persisted mark is cleared in the SAME sweep (A deregisters, B releases the mark).
   service.sweepStaleMerging(base + TRAIN_TRACKER_MAX_MS + 60_000);
-  // Entry gone: a later merge + archive can no longer fire an offer.
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+  expect(store.get(a.id)!.mergingTrainId).toBeNull();
+  // Entry reclaimed (no emit): a later merge + archive can no longer fire an offer.
   service.resolveMerging(a.id, true);
-  service.clearMergingForTrain("train-Dead", base + TRAIN_TRACKER_MAX_MS + 120_000);
+  service.clearMergingForTrain(train.id, base + TRAIN_TRACKER_MAX_MS + 120_000);
   expect(landed(emitted)).toHaveLength(0);
 });
 
-test("setMerging with all-unknown ids creates no entry; later archive is a no-op", async () => {
+test("crash via archived/missing train row: deregistered immediately, members released", async () => {
+  const { store, service, openPr } = mergeSvc();
+  const train = await mkSession(service);
+  const a = await mkSession(service);
+  openPr(a.id, 161);
+  service.registerTrain(train.id, "/r", [161]);
+  expect(store.get(a.id)!.mergingSince).toBeGreaterThan(0);
+  // The train row gets archived out-of-band without clearMergingForTrain ever running
+  // (a crash where the archive hook didn't fire). The sweep's phase A catches it.
+  store.archive(train.id);
+  service.sweepStaleMerging();
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+});
+
+test("post-archive markTrainMember/reconcile do NOT re-add a member or re-mark", async () => {
+  const { store, service, openPr } = mergeSvc();
+  const train = await mkSession(service);
+  const a = await mkSession(service);
+  openPr(a.id, 171);
+  service.registerTrain(train.id, "/r", [171]);
+  service.clearMergingForTrain(train.id); // train removed from #liveTrains, mark cleared
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+  // A late `session:git` reconcile or a direct markTrainMember must NOT resurrect it.
+  service.reconcileTrainMarks(train.id);
+  service.markTrainMember(train.id, a.id, 171);
+  expect(store.get(a.id)!.mergingSince).toBeNull();
+});
+
+test("registerTrain with no participant PRs open creates no entry; later archive is a no-op", async () => {
   const { service, emitted } = mergeSvc();
-  service.setMerging(["ghost"], "train-G"); // no resolvable member
-  expect(() => service.clearMergingForTrain("train-G")).not.toThrow();
+  const train = await mkSession(service);
+  service.registerTrain(train.id, "/r", [181]); // nothing open in the snapshot → no member
+  expect(() => service.clearMergingForTrain(train.id)).not.toThrow();
   expect(landed(emitted)).toHaveLength(0);
 });
 
 test("untracked passthrough: resolveMerging/clearMergingForTrain on unknown ids no-op, still clear marks", async () => {
-  const { store, service, emitted } = mergeSvc();
+  const { store, service, emitted, openPr } = mergeSvc();
+  const train = await mkSession(service);
   const a = await mkSession(service);
-  // resolveMerging on a session never registered with a train: clears mark, no emit
-  service.setMerging([a.id], "train-U");
-  // simulate an untracked member by resolving a truly unknown id
+  openPr(a.id, 191);
+  service.registerTrain(train.id, "/r", [191]);
+  // resolveMerging on a truly unknown id: no throw, no emit
   expect(() => service.resolveMerging("nobody", true)).not.toThrow();
   expect(() => service.clearMergingForTrain("no-such-train")).not.toThrow();
   expect(landed(emitted)).toHaveLength(0);

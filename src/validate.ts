@@ -449,7 +449,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       autopilotEnabled: autopilotEnabled.value,
       sandboxProfile: sandboxProfile.value,
       research: research.value,
-      ...(mergeTrainPrs.value !== undefined ? { mergeTrainPrs: mergeTrainPrs.value } : {}),
+      // value is number[] | undefined; consumers read it via truthiness / `?? null`,
+      // so an explicit undefined is equivalent to omitting the key.
+      mergeTrainPrs: mergeTrainPrs.value,
     },
   };
 }

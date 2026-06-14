@@ -1131,11 +1131,7 @@ export class SessionService {
       if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
-      // Launch-time merge-train trigger: register the train so its scoped PRs are tracked
-      // in #liveTrains and any already-open participant session is marked immediately
-      // (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
-      if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
-        this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
+      this.#maybeRegisterTrain(session, input);
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error
@@ -1764,6 +1760,17 @@ export class SessionService {
    * selected open PR is marked on launch; the rest are marked as their PRs open
    * (via subsequent `reconcileTrainMarks` driven by `session:git`). `now` injectable.
    */
+  /**
+   * Launch-time merge-train trigger: when `create` spawned a train session (a
+   * non-empty `mergeTrainPrs`), register the train so its scoped PRs are tracked in
+   * `#liveTrains` and any already-open participant session is marked immediately
+   * (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
+   */
+  #maybeRegisterTrain(session: Session, input: CreateSessionInput): void {
+    if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
+      this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
+  }
+
   registerTrain(
     trainId: string,
     repoPath: string,
@@ -1788,26 +1795,43 @@ export class SessionService {
    * one (a PR that opens later is picked up the next time this runs). `now` injectable.
    */
   reconcileTrainMarks(trainId?: string, now: number = Date.now()): void {
-    const targets =
-      trainId !== undefined
-        ? this.#liveTrains.has(trainId)
-          ? [trainId]
-          : []
-        : [...this.#liveTrains.keys()];
+    const targets = this.#resolveReconcileTargets(trainId);
     if (targets.length === 0) return;
     const snap = this.deps.prSnapshot?.() ?? {};
     for (const tid of targets) {
       const train = this.#liveTrains.get(tid)!;
       for (const s of this.deps.store.list({ activeOnly: true })) {
-        if (s.id === tid) continue; // never mark the train itself
-        if (s.repoPath !== train.repoPath) continue;
-        if (s.mergingSince !== null) continue; // already marked
-        const g = snap[s.id];
-        if (g?.state === "open" && g.number != null && train.prNumbers.has(g.number)) {
-          this.markTrainMember(tid, s.id, g.number, now);
-        }
+        const prNumber = this.#matchedOpenPrNumber(s, tid, train, snap);
+        if (prNumber !== null) this.markTrainMember(tid, s.id, prNumber, now);
       }
     }
+  }
+
+  /** The live trains a reconcile targets: the one `trainId` (if live), or all live. */
+  #resolveReconcileTargets(trainId?: string): string[] {
+    if (trainId === undefined) return [...this.#liveTrains.keys()];
+    return this.#liveTrains.has(trainId) ? [trainId] : [];
+  }
+
+  /**
+   * The open PR number that makes `session` a fresh member of `train`, or null when
+   * it doesn't qualify: it IS the train, is a different repo, is already marked, or
+   * its live PR isn't OPEN / not in the train's scoped queue.
+   */
+  #matchedOpenPrNumber(
+    session: Session,
+    trainId: string,
+    train: { repoPath: string; prNumbers: Set<number> },
+    snap: Record<string, GitState>,
+  ): number | null {
+    if (session.id === trainId) return null; // never mark the train itself
+    if (session.repoPath !== train.repoPath) return null;
+    if (session.mergingSince !== null) return null; // already marked
+    const g = snap[session.id];
+    if (g?.state === "open" && g.number != null && train.prNumbers.has(g.number)) {
+      return g.number;
+    }
+    return null;
   }
 
   /**
@@ -1946,7 +1970,20 @@ export class SessionService {
    * `now` injectable for tests.
    */
   sweepStaleMerging(now: number = Date.now()): void {
-    // A. Deregister crashed/gone trains (release them before clearing member marks).
+    // Three ordered phases — A feeds B and C, so the A→B→C ordering MUST be preserved.
+    this.#deregisterInactiveTrains(now);
+    this.#releaseNonLiveMarks();
+    this.#reclaimStaleTrainOffers(now);
+  }
+
+  /**
+   * Phase A: Deregister crashed/gone trains (release them before clearing member
+   * marks). A train whose session is missing or archived, or whose last activity
+   * (`max(registeredAt, updatedAt)`) is past TRAIN_TRACKER_MAX_MS, is dropped from
+   * `#liveTrains`. Last-activity-keyed so a slow-but-alive train (still touching its
+   * row) is never ceiled mid-run. `now` injectable.
+   */
+  #deregisterInactiveTrains(now: number): void {
     for (const [trainId, lt] of this.#liveTrains) {
       const ts = this.deps.store.get(trainId);
       if (!ts || ts.archivedAt != null) {
@@ -1956,15 +1993,33 @@ export class SessionService {
       const lastActive = Math.max(lt.registeredAt, ts.updatedAt);
       if (now - lastActive > TRAIN_TRACKER_MAX_MS) this.#liveTrains.delete(trainId);
     }
-    // B. Clear a member mark exactly when its train is no longer live.
+  }
+
+  /**
+   * Phase B: Clear a member mark exactly when its train is no longer live — released
+   * cleanly (via clearMergingForTrain) or via phase A's deregistration in the same
+   * sweep. No standalone age TTL.
+   */
+  #releaseNonLiveMarks(): void {
     for (const s of this.deps.store.list({ activeOnly: true })) {
       if (s.mergingSince === null) continue;
       if (s.mergingTrainId === null || !this.#liveTrains.has(s.mergingTrainId)) {
         this.clearMerging(s.id);
       }
     }
-    // C. Reclaim tracker entries directly (NOT via activeOnly, which excludes archived
-    // trains).
+  }
+
+  /**
+   * Phase C: Reclaim `#trainOffers` entries directly (NOT via activeOnly, which
+   * excludes archived trains), both no-emit (fail-safe no-offer):
+   *  - AWAITING (archived, awaiting a late credit): once the post-archive window
+   *    (MERGE_STALE_MS, #426) lapses — preserved exactly.
+   *  - LIVE-CRASH ORPHAN (awaitingSince null, train no longer live): A having just
+   *    dropped a crashed train, its still-live entry is reclaimed here. The
+   *    awaitingSince-null gate keeps a cleanly-archived entry on the AWAITING path.
+   * `now` injectable.
+   */
+  #reclaimStaleTrainOffers(now: number): void {
     for (const [trainId, entry] of this.#trainOffers) {
       const awaitingStale =
         entry.awaitingSince !== null && now - entry.awaitingSince > MERGE_STALE_MS;

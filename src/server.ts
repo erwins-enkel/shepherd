@@ -1723,30 +1723,7 @@ async function dispatchForgeAction(
 ): Promise<Response | null> {
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
-    if (!parts[4]) {
-      const me = (await forge.currentUser?.()) ?? null;
-      const git: GitState = annotateHandoff(
-        { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
-        session.repoPath,
-        me,
-      );
-      // Same trust logic as the background poller (trustsTerminal): keep a genuinely-
-      // merged/closed PR when the session is merge-train-flagged or the cache already
-      // owned this PR, else drop a reused-branch-name collision to "none" so GitRail and
-      // the list overview agree.
-      const prev = deps.prCache?.get(session.id);
-      const trusted = trustsTerminal(
-        prev,
-        git,
-        session.mergingSince != null,
-        session.mergingPrNumber ?? null,
-      );
-      return json(
-        trusted
-          ? git
-          : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null),
-      );
-    }
+    if (!parts[4]) return await forgeGitStateResponse(forge, session, deps);
     return null;
   }
   if (req.method === "POST") {
@@ -1755,6 +1732,35 @@ async function dispatchForgeAction(
     if (parts[4] === "redeploy") return forgeRedeploy(forge, session);
   }
   return null;
+}
+
+/**
+ * GET /api/sessions/:id/git — the session's current PR status, with the same trust
+ * logic as the background poller (trustsTerminal): keep a genuinely-merged/closed PR
+ * when the session is merge-train-flagged or the cache already owned this PR, else
+ * drop a reused-branch-name collision to "none" so GitRail and the list overview agree.
+ */
+async function forgeGitStateResponse(
+  forge: GitForge,
+  session: Session,
+  deps: AppDeps,
+): Promise<Response> {
+  const me = (await forge.currentUser?.()) ?? null;
+  const git: GitState = annotateHandoff(
+    { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
+    session.repoPath,
+    me,
+  );
+  const prev = deps.prCache?.get(session.id);
+  const trusted = trustsTerminal(
+    prev,
+    git,
+    session.mergingSince != null,
+    session.mergingPrNumber ?? null,
+  );
+  return json(
+    trusted ? git : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null),
+  );
 }
 
 async function handleSessionGit(ctx: Ctx): Promise<Response | null> {

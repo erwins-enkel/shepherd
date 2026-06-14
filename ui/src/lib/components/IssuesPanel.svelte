@@ -8,6 +8,7 @@
   import { clock } from "$lib/now.svelte";
   import { filterIssues } from "./issues-panel";
   import EpicPanel from "./EpicPanel.svelte";
+  import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick } from "svelte";
 
@@ -45,6 +46,7 @@
 
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);
+  let repoUrl = $state<string | null>(null);
   let loading = $state(true);
   let filter = $state("");
   let visibleIssues = $derived(filterIssues(issues, filter));
@@ -67,6 +69,7 @@
       .then((r) => {
         if (rp !== repoPath) return;
         slug = r.slug;
+        repoUrl = r.webUrl;
         issues = r.issues;
         loading = false;
       })
@@ -139,7 +142,7 @@
 
 <div class="issues-panel">
   <div class="issues-header">
-    {#if slug}{m.issuespanel_title_with_slug({ slug })}{:else}{m.issuespanel_title()}{/if}
+    {m.issuespanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
   <div class="issues-list">

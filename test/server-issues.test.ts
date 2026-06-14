@@ -72,7 +72,7 @@ test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async 
   const app = makeApp(makeDeps(() => null));
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: null, issues: [] });
+  expect(await res.json()).toEqual({ slug: null, webUrl: null, issues: [] });
 });
 
 test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => {
@@ -87,7 +87,14 @@ test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => 
   );
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: "team/proj", issues: [] });
+  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, issues: [] });
+});
+
+test("GET /api/issues includes forge webUrl in response", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ webUrl: "https://github.com/team/proj" })));
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  expect((await res.json()).webUrl).toBe("https://github.com/team/proj");
 });
 
 test("GET /api/issues?repo outside root → 400", async () => {

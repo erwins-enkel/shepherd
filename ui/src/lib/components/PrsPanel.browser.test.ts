@@ -36,8 +36,8 @@ function pr(number: number, title = `PR ${number}`): PullRequest {
   };
 }
 
-function seed(prs: PullRequest[], slug = "acme/repo") {
-  mockList.mockResolvedValue({ slug, prs });
+function seed(prs: PullRequest[], slug = "acme/repo", webUrl: string | null = null) {
+  mockList.mockResolvedValue({ slug, webUrl, prs });
 }
 
 let fontStyle: HTMLStyleElement;
@@ -76,6 +76,32 @@ const noop = () => {};
 const launchBtn = () => page.getByRole("button", { name: m.prspanel_launch_train() });
 const checkbox = (n: number) =>
   page.getByRole("checkbox", { name: m.prspanel_select_pr({ number: n }) });
+
+describe("PrsPanel repo slug link", () => {
+  it("renders an <a> linking to webUrl when provided", async () => {
+    seed([], "owner/repo", "https://github.com/owner/repo");
+    render(PrsPanel, { repoPath: "/repo", onreview: noop });
+
+    await expect.poll(() => document.querySelector(".prs-header")).toBeTruthy();
+    const link = document.querySelector(".prs-header .repo-link") as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+    expect(link!.href).toBe("https://github.com/owner/repo");
+    expect(link!.getAttribute("target")).toBe("_blank");
+    expect(link!.textContent?.trim()).toBe("owner/repo");
+  });
+
+  it("renders slug as plain text when webUrl is null", async () => {
+    seed([], "owner/repo", null);
+    render(PrsPanel, { repoPath: "/repo", onreview: noop });
+
+    await expect.poll(() => document.querySelector(".prs-header")).toBeTruthy();
+    await expect
+      .poll(() => document.querySelector(".prs-header")?.textContent)
+      .toContain("owner/repo");
+    const link = document.querySelector(".prs-header .repo-link");
+    expect(link).toBeNull();
+  });
+});
 
 describe("PrsPanel launch-train toolbar", () => {
   it("disables Launch with 0 and 1 selected, enables it with 2", async () => {

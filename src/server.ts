@@ -72,7 +72,7 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
-import type { GitForge, GitState, MergeMethod } from "./forge/types";
+import type { GitForge, GitState, MergeMethod, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
@@ -2323,12 +2323,16 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
     if (!dir) return json({ error: "invalid repo" }, 400);
     const forge = deps.resolveForge?.(dir) ?? null;
-    if (!forge) return json({ slug: null, issues: [] });
+    if (!forge) return json({ slug: null, webUrl: null, issues: [] });
     try {
-      return json({ slug: forge.slug, issues: await forge.listIssues() });
+      return json({
+        slug: forge.slug,
+        webUrl: forge.webUrl ?? null,
+        issues: await forge.listIssues(),
+      });
     } catch {
       // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
-      return json({ slug: forge.slug, issues: [] });
+      return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, issues: [] });
     }
   }
   return null;
@@ -2406,13 +2410,32 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
-  if (!forge) return json({ slug: null, prs: [] });
+  if (!forge) return json({ slug: null, webUrl: null, prs: [] });
   try {
-    return json({ slug: forge.slug, prs: await forge.listPullRequests() });
+    return json({
+      slug: forge.slug,
+      webUrl: forge.webUrl ?? null,
+      prs: await forge.listPullRequests(),
+    });
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches issues path)
-    return json({ slug: forge.slug, prs: [] });
+    return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs: [] });
   }
+}
+
+/** Builds the uniform actions-endpoint payload; safe for all three branches. */
+function actionsPayload(
+  forge: GitForge | null,
+  runs: WorkflowRun[],
+  caps: { supportsActions: boolean; canRerun: boolean; canCancel: boolean },
+) {
+  return {
+    slug: forge?.slug ?? null,
+    webUrl: forge?.webUrl ?? null,
+    kind: forge?.kind ?? null,
+    runs,
+    ...caps,
+  };
 }
 
 // GET /api/actions?repo= — latest Actions run per workflow on the default branch
@@ -2431,19 +2454,12 @@ async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Respon
     canRerun: Boolean(forge?.rerunWorkflowRun),
     canCancel: Boolean(forge?.cancelWorkflowRun),
   };
-  if (!forge?.listWorkflowRuns) {
-    return json({ slug: forge?.slug ?? null, kind: forge?.kind ?? null, runs: [], ...caps });
-  }
+  if (!forge?.listWorkflowRuns) return json(actionsPayload(forge, [], caps));
   try {
-    return json({
-      slug: forge.slug,
-      kind: forge.kind,
-      runs: await forge.listWorkflowRuns(),
-      ...caps,
-    });
+    return json(actionsPayload(forge, await forge.listWorkflowRuns(), caps));
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches PRs path)
-    return json({ slug: forge.slug, kind: forge.kind, runs: [], ...caps });
+    return json(actionsPayload(forge, [], caps));
   }
 }
 

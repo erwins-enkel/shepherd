@@ -470,7 +470,7 @@ export async function startMergeTrain(ids: string[], trainId: string): Promise<v
 
 export async function listIssues(
   repoPath: string,
-): Promise<{ slug: string | null; issues: Issue[] }> {
+): Promise<{ slug: string | null; webUrl: string | null; issues: Issue[] }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");
   return r.json();
@@ -478,7 +478,7 @@ export async function listIssues(
 
 export async function listPullRequests(
   repoPath: string,
-): Promise<{ slug: string | null; prs: PullRequest[] }> {
+): Promise<{ slug: string | null; webUrl: string | null; prs: PullRequest[] }> {
   const r = await fetch(`/api/prs?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "prs");
   return r.json();
@@ -490,6 +490,7 @@ export async function listPullRequests(
  *  `supportsActions` (can list runs), `canRerun` / `canCancel` (REST controls). */
 export async function listWorkflowRuns(repoPath: string): Promise<{
   slug: string | null;
+  webUrl: string | null;
   kind: ForgeKind | null;
   runs: WorkflowRun[];
   supportsActions: boolean;

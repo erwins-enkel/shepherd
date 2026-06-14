@@ -4,11 +4,13 @@
   import type { WorkflowRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ActionRunRow from "./ActionRunRow.svelte";
+  import RepoLink from "./RepoLink.svelte";
 
   let { repoPath }: { repoPath: string } = $props();
 
   let runs = $state<WorkflowRun[]>([]);
   let slug = $state<string | null>(null);
+  let repoUrl = $state<string | null>(null);
   let loading = $state(true);
   // Server-reported forge capabilities. `supportsActions` defaults true so the
   // first load doesn't flash the "unavailable" message before the response lands;
@@ -32,6 +34,7 @@
       .then((r) => {
         if (rp !== repoPath) return; // stale response for a since-changed repo
         slug = r.slug;
+        repoUrl = r.webUrl;
         runs = r.runs;
         supportsActions = r.supportsActions;
         canRerun = r.canRerun;
@@ -69,7 +72,7 @@
 
 <div class="actions-panel">
   <div class="actions-header">
-    {#if slug}{m.actionspanel_title_with_slug({ slug })}{:else}{m.actionspanel_title()}{/if}
+    {m.actionspanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
   <div class="actions-list">

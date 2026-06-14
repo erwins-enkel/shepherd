@@ -5,6 +5,7 @@
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import PrRow from "./PrRow.svelte";
+  import RepoLink from "./RepoLink.svelte";
 
   let {
     repoPath,
@@ -23,6 +24,7 @@
 
   let prs = $state<PullRequest[]>([]);
   let slug = $state<string | null>(null);
+  let repoUrl = $state<string | null>(null);
   let loading = $state(true);
 
   // Multi-select for launching a merge train. Holds PR numbers; the launch
@@ -49,6 +51,7 @@
       .then((r) => {
         if (rp !== repoPath) return;
         slug = r.slug;
+        repoUrl = r.webUrl;
         prs = r.prs;
         loading = false;
       })
@@ -81,7 +84,7 @@
 
 <div class="prs-panel">
   <div class="prs-header">
-    {#if slug}{m.prspanel_title_with_slug({ slug })}{:else}{m.prspanel_title()}{/if}
+    {m.prspanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
   {#if prs.length > 0}

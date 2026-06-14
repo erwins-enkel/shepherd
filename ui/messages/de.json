@@ -237,7 +237,6 @@
   "herd_collapse": "Seitenleiste einklappen",
   "herd_expand": "Seitenleiste ausklappen",
   "issuespanel_title": "ISSUES",
-  "issuespanel_title_with_slug": "ISSUES · {slug}",
   "issuespanel_no_host": "kein Git-Host für dieses Repo konfiguriert",
   "issuespanel_open_on_github": "auf GitHub öffnen",
   "issuespanel_task_button": "Aufgabe",
@@ -715,7 +714,6 @@
   "backlog_tab_actions_count": "Actions · {count}",
   "backlog_tab_actions_failing": "Actions · fehlerhaft",
   "actionspanel_title": "ACTIONS",
-  "actionspanel_title_with_slug": "ACTIONS · {slug}",
   "actionspanel_unavailable": "Actions sind für dieses Repository nicht verfügbar",
   "actionspanel_no_runs": "keine aktuellen Workflow-Läufe",
   "actionspanel_run_link": "Lauf öffnen",
@@ -733,7 +731,6 @@
   "actionspanel_history_failed": "Laden fehlgeschlagen, erneut",
   "backlog_pinned_label": "Angeheftet",
   "prspanel_title": "PULL REQUESTS",
-  "prspanel_title_with_slug": "PULL REQUESTS · {slug}",
   "prspanel_no_open": "keine offenen PRs",
   "prspanel_open_link": "PR öffnen",
   "prspanel_draft": "Entwurf",
@@ -1317,5 +1314,7 @@
   "forkrepo_failed_gh_missing": "GitHub CLI (gh) ist nicht installiert.",
   "forkrepo_failed_generic": "Forken fehlgeschlagen",
   "feat_fork_repo_title": "Repo forken, um zum Upstream beizutragen",
-  "feat_fork_repo_body": "Die Repo-Auswahl hat jetzt neben „Klonen“ die Option „GitHub-Repo forken“. Gib owner/repo (oder eine URL) ein, und Shepherd forkt es unter deinem Account, klont es und richtet die Remotes so ein, dass deine Pull Requests auf das Original (Upstream) zielen — der Weg, um zu einem Projekt beizutragen, für das du keine Schreibrechte hast."
+  "feat_fork_repo_body": "Die Repo-Auswahl hat jetzt neben „Klonen“ die Option „GitHub-Repo forken“. Gib owner/repo (oder eine URL) ein, und Shepherd forkt es unter deinem Account, klont es und richtet die Remotes so ein, dass deine Pull Requests auf das Original (Upstream) zielen — der Weg, um zu einem Projekt beizutragen, für das du keine Schreibrechte hast.",
+  "feat_backlog_repo_link_title": "Repo-Name verlinkt auf die Forge",
+  "feat_backlog_repo_link_body": "Der Repository-Name in den Kopfzeilen der Backlog-Bereiche Issues, PRs und Actions verlinkt jetzt direkt auf das Repo in seiner Forge."
 }

@@ -171,6 +171,10 @@ export class GithubForge implements GitForge {
     this.forkOwner = forkSlug?.split("/")[0] || undefined;
   }
 
+  get webUrl(): string {
+    return `https://github.com/${this.slug}`;
+  }
+
   async listIssues(): Promise<Issue[]> {
     const out = await this.run([
       "issue",

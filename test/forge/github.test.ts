@@ -319,6 +319,11 @@ test("GithubForge.kind + slug", () => {
   expect(forge.slug).toBe("o/r");
 });
 
+test("GithubForge.webUrl: returns https://github.com/<slug>", () => {
+  const forge = new GithubForge("o/r", {}, async () => "");
+  expect(forge.webUrl).toBe("https://github.com/o/r");
+});
+
 test("GithubForge.postReview: request-changes invokes gh pr review", async () => {
   const { run, calls } = fakeRunner({});
   const forge = new GithubForge("o/r", {}, run);

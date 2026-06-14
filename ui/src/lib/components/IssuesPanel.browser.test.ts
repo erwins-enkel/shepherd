@@ -40,6 +40,42 @@ afterEach(() => {
 
 const noop = () => {};
 
+describe("IssuesPanel repo slug link", () => {
+  it("renders an <a> linking to webUrl when provided", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: "https://github.com/owner/repo",
+      issues: [],
+    });
+    mockGetEpics.mockResolvedValue([]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
+    const link = document.querySelector(".issues-header .repo-link") as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+    expect(link!.href).toBe("https://github.com/owner/repo");
+    expect(link!.getAttribute("target")).toBe("_blank");
+    expect(link!.textContent?.trim()).toBe("owner/repo");
+  });
+
+  it("renders slug as plain text when webUrl is null", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+    });
+    mockGetEpics.mockResolvedValue([]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
+    await expect
+      .poll(() => document.querySelector(".issues-header")?.textContent)
+      .toContain("owner/repo");
+    const link = document.querySelector(".issues-header .repo-link");
+    expect(link).toBeNull();
+  });
+});
+
 describe("IssuesPanel epic badge", () => {
   function issue(number: number, title: string): Issue {
     return {
@@ -69,7 +105,7 @@ describe("IssuesPanel epic badge", () => {
   }
 
   function seed(issues: Issue[], epics: EpicSummary[] = [], slug = "owner/repo") {
-    mockListIssues.mockResolvedValue({ slug, issues });
+    mockListIssues.mockResolvedValue({ slug, webUrl: null, issues });
     mockGetEpics.mockResolvedValue(epics);
   }
 
@@ -195,7 +231,11 @@ describe("IssuesPanel expandEpic", () => {
   }
 
   it("auto-expands the targeted epic's badge (aria-expanded=true)", async () => {
-    mockIssues.mockResolvedValue({ slug: "acme/repo", issues: [issue(327), issue(400)] });
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(327), issue(400)],
+    });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
 
@@ -212,7 +252,11 @@ describe("IssuesPanel expandEpic", () => {
   });
 
   it("lets the user collapse the targeted epic — it does NOT spring back open", async () => {
-    mockIssues.mockResolvedValue({ slug: "acme/repo", issues: [issue(327), issue(400)] });
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(327), issue(400)],
+    });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
 
@@ -237,7 +281,7 @@ describe("IssuesPanel expandEpic", () => {
   });
 
   it("does NOT auto-expand any epic when expandEpic is null", async () => {
-    mockIssues.mockResolvedValue({ slug: "acme/repo", issues: [issue(327)] });
+    mockIssues.mockResolvedValue({ slug: "acme/repo", webUrl: null, issues: [issue(327)] });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
 

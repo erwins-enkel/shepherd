@@ -124,6 +124,28 @@ input, select, textarea {
 }
 /* state colors come from the accent/status tokens, applied to color + border */`;
 
+  const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
+<!-- "Shepherd groups sessions under an [[epic|epic]]." -->
+
+<!-- GlossaryText parses the markers and renders each term as a GlossaryTerm: -->
+<GlossaryText text={m.feat_epic_runner_body()} />
+
+<!-- GlossaryTerm is the low-level trigger + tooltip (rarely used directly): -->
+<GlossaryTerm id="epic" label="epic" />
+
+/* .gloss-term — applied by GlossaryTerm to its trigger button */
+.gloss-term {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: help;
+  text-decoration: underline dashed;
+  text-decoration-color: var(--color-line-bright);
+  text-underline-offset: 3px;
+}`;
+
   const panelMarkup = `<section class="panel">…</section>
 
 .panel {
@@ -298,6 +320,28 @@ input, select, textarea {
       >
     </div>
     <pre><code>{badgeMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Glossary term</h2>
+    <p class="when">
+      <strong>When:</strong> a dashed underline marks a term that has a definition in the glossary
+      registry. Internal terms (kind <code>"internal"</code>) show an in-app definition only.
+      External terms (kind <code>"external"</code>) add a locale-aware Wikipedia link. The tooltip
+      is a small anchored, <strong>non-blocking popover</strong> (no scrim) that opens on hover or
+      focus (desktop) or tap (touch), and dismisses on Esc, outside pointerdown, or scroll/resize.
+      <strong>When not:</strong> do not use for decorative underlines or links — every dashed-underline
+      term must resolve to a glossary entry.
+    </p>
+    <div class="demo">
+      <p class="gloss-demo-text">
+        Shepherd groups sessions under an
+        <span class="gloss-term">epic</span>
+        and posts results to a
+        <span class="gloss-term">PR</span>.
+      </p>
+    </div>
+    <pre><code>{glossMarkup}</code></pre>
   </section>
 
   <section class="panel">
@@ -586,6 +630,25 @@ input, select, textarea {
     position: relative;
     z-index: 1;
     background: var(--color-panel);
+  }
+
+  /* glossary term — dashed underline trigger (mirrors GlossaryTerm.svelte) */
+  .gloss-term {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: help;
+    text-decoration: underline dashed;
+    text-decoration-color: var(--color-line-bright);
+    text-underline-offset: 3px;
+  }
+  .gloss-demo-text {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    line-height: 1.6;
   }
 
   pre {

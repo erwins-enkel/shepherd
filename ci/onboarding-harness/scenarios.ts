@@ -74,7 +74,7 @@ export const SCENARIOS: Scenario[] = [
     // dispatch reinstalls claude deterministically, so this IS green-able;
     // `agentIncompatible` is only the fallback if the verbatim fix were ever absent.
     id: "claude-missing",
-    image: "images:fedora/40",
+    image: "images:fedora/42",
     seed: ["rm -f /usr/local/bin/claude ~/.local/bin/claude"],
     expect: [{ id: "claude", state: "error" }],
     coaching: "structured",

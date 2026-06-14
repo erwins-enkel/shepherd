@@ -62,9 +62,12 @@ import {
 import type { EgressWatcher } from "./egress-watch";
 import type { GitState } from "./forge/types";
 
-/** A merge-train mark older than this is treated as stale and swept, so a
- *  rejected/held-back PR (never merged, train never archived) can't stay
- *  "Merging" forever. Mirrored in ui/src/lib/components/merge-train.ts. */
+/** Post-archive late-credit await window: after a merge-train session archives,
+ *  its completion-tracker entry waits this long for a poller-gated late merge to
+ *  credit it before the sweep reclaims it (no-credit); also bounds the same await
+ *  started in clearMergingForTrain. NOTE: per-session marks are NOT aged out by
+ *  this — they persist for the life of the train (see sweepStaleMerging, which
+ *  releases a mark only when its train leaves #liveTrains). */
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a

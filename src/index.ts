@@ -432,12 +432,13 @@ events.subscribe((event, data) => {
   service.clearMergingForTrain((data as { id: string }).id);
 });
 
-// Backstop sweep: drop marks older than the TTL so a stuck/rejected PR can't
-// stay "Merging" forever when neither of the above fires. Expected dwell: a PR
-// the train holds back (never merged, train not yet archived) keeps the amber
-// MERGING badge until the operator archives the train session, else up to
-// MERGE_STALE_MS (~30 min). There is no per-PR "rejected" signal — an accepted
-// cosmetic trade-off, fine while held-back PRs are rare; revisit if they aren't.
+// Backstop sweep: release a mark once its train is no longer live and reclaim
+// stale tracker entries. A PR the train holds back (never merged, train not yet
+// archived) keeps the amber MERGING badge for the LIFE of the train session — it
+// clears when the operator archives the train (clearMergingForTrain), or, for a
+// train that died without ever emitting session:archived, at the
+// TRAIN_TRACKER_MAX_MS liveness ceiling. There is no per-PR "rejected" signal —
+// an accepted cosmetic trade-off, fine while held-back PRs are rare.
 setInterval(() => service.sweepStaleMerging(), 60_000);
 
 // Hourly: delete local shepherd/* branches whose PR has merged. The merge train

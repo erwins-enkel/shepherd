@@ -28,6 +28,8 @@ export type GuardrailId =
   | "dependency_automation"
   | "agent_instructions";
 
+export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
+
 export interface GuardrailCheck {
   id: GuardrailId;
   /** True when the guardrail is configured in the target repo. */
@@ -58,6 +60,8 @@ interface RepoScan {
   has: (rel: string) => boolean;
   /** Returns matching basenames in `subdir` (empty if missing). */
   glob: (subdir: string, test: (name: string) => boolean) => string[];
+  /** Detected package manager — drives the install verbs in the prescription. */
+  pm: PackageManager;
 }
 
 interface GuardrailDef {
@@ -249,12 +253,37 @@ function findPackageRoots(dir: string): string[] {
     .sort();
 }
 
-/** Merges one package.json's deps + scripts into the accumulators (first script wins). */
-function collectManifest(file: string, deps: Set<string>, scripts: Record<string, string>) {
+/**
+ * Resolves the target repo's package manager from its `packageManager` field
+ * (highest authority), else a root lockfile, else `npm` (universal fallback).
+ * Pure: `has(rel)` is the scan's root-aware existence probe, so detection spans
+ * the repo root and any package subdir without re-reading the tree.
+ */
+export function pickPackageManager(
+  field: string | undefined,
+  has: (rel: string) => boolean,
+): PackageManager {
+  const name = field?.split("@")[0]?.trim();
+  if (name === "bun" || name === "pnpm" || name === "yarn" || name === "npm") return name;
+  if (has("bun.lock") || has("bun.lockb")) return "bun";
+  if (has("pnpm-lock.yaml")) return "pnpm";
+  if (has("yarn.lock")) return "yarn";
+  if (has("package-lock.json")) return "npm";
+  return "npm";
+}
+
+/** Merges one package.json's deps + scripts (+ first packageManager) into the accumulators. */
+function collectManifest(
+  file: string,
+  deps: Set<string>,
+  scripts: Record<string, string>,
+  meta: { packageManager?: string },
+) {
   let pkg: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     scripts?: Record<string, string>;
+    packageManager?: string;
   } = {};
   try {
     pkg = JSON.parse(readFileSync(file, "utf8"));
@@ -265,6 +294,7 @@ function collectManifest(file: string, deps: Set<string>, scripts: Record<string
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);
   for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) scripts[name] ??= cmd;
+  meta.packageManager ??= pkg.packageManager;
 }
 
 function scanRepo(dir: string): RepoScan | null {
@@ -273,28 +303,26 @@ function scanRepo(dir: string): RepoScan | null {
 
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
-  for (const root of pkgRoots) collectManifest(join(dir, root, "package.json"), deps, scripts);
+  const meta: { packageManager?: string } = {};
+  for (const root of pkgRoots)
+    collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
   // Repo-level markers (.husky, .github/workflows, CLAUDE.md) stay at the
   // root, so file checks span the repo root + each package dir.
   const roots = pkgRoots[0] === "" ? pkgRoots : ["", ...pkgRoots];
-  return {
-    dir,
-    deps,
-    scripts,
-    has: (rel) => roots.some((root) => existsSync(join(dir, root, rel))),
-    glob: (subdir, test) => {
-      const names = new Set<string>();
-      for (const root of roots) {
-        try {
-          for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
-        } catch {
-          // missing dir in this root
-        }
+  const has = (rel: string) => roots.some((root) => existsSync(join(dir, root, rel)));
+  const glob = (subdir: string, test: (name: string) => boolean) => {
+    const names = new Set<string>();
+    for (const root of roots) {
+      try {
+        for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
+      } catch {
+        // missing dir in this root
       }
-      return [...names];
-    },
+    }
+    return [...names];
   };
+  return { dir, deps, scripts, has, glob, pm: pickPackageManager(meta.packageManager, has) };
 }
 
 export function analyzeReadiness(dir: string): ReadinessReport {

@@ -2586,6 +2586,25 @@ test("create with buildQueueEnabled=true + autopilot off: queue is NOT auto-appr
   expect(store.getBuildQueue(s.id).approved).toBe(false);
 });
 
+test("create with per-task autopilotEnabled=false: queue NOT pre-approved even when repo autopilot on", async () => {
+  // Merge-train driver path: repo default is autopilot-on, but the create input forces it off
+  // → the session's effective autopilot is off → build-queue pre-approval must be skipped.
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true, autopilotEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+    autopilotEnabled: false,
+  });
+  expect(store.getBuildQueue(s.id).approved).toBe(false);
+});
+
 // ── draft mode ───────────────────────────────────────────────────────────────
 
 test("composeSystemPrompt includes <draft-mode> block when draftMode=true", () => {

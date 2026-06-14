@@ -38,6 +38,7 @@ const ALLOWED_KEYS = new Set([
   "images",
   "issueRef",
   "planGateEnabled",
+  "autopilotEnabled",
   "sandboxProfile",
   "research",
 ]);
@@ -349,6 +350,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
 
+  const autopilotEnabled = validateAutopilotEnabled(obj.autopilotEnabled);
+  if (!autopilotEnabled.ok) return autopilotEnabled;
+
   const sandboxProfile = validateSandboxProfile(obj.sandboxProfile);
   if (!sandboxProfile.ok) return sandboxProfile;
 
@@ -365,6 +369,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       images: images.value,
       issueRef: issueRef.value,
       planGateEnabled: planGateEnabled.value,
+      autopilotEnabled: autopilotEnabled.value,
       sandboxProfile: sandboxProfile.value,
       research: research.value,
     },
@@ -376,6 +381,13 @@ function validatePlanGateEnabled(value: unknown): Field<boolean | null | undefin
   if (value === undefined) return field(undefined);
   if (value === null || typeof value === "boolean") return field(value);
   return err("planGateEnabled must be a boolean, null, or absent");
+}
+
+/** autopilotEnabled — optional per-task override; absent/null → inherit the repo default. */
+function validateAutopilotEnabled(value: unknown): Field<boolean | null | undefined> {
+  if (value === undefined) return field(undefined);
+  if (value === null || typeof value === "boolean") return field(value);
+  return err("autopilotEnabled must be a boolean, null, or absent");
 }
 
 /** research — optional plain boolean; absent/undefined → false; null or non-boolean rejected. */

@@ -231,6 +231,10 @@ describe("mergeTrainCreateInput", () => {
     expect(mergeTrainCreateInput("/repo/a", "main", prs).planGateEnabled).toBe(false);
   });
 
+  it("always launches the driver with autopilot off (autopilotEnabled === false)", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prs).autopilotEnabled).toBe(false);
+  });
+
   it("passes through repoPath/baseBranch with null model and a non-empty prompt", () => {
     const input = mergeTrainCreateInput("/repo/a", "main", prs);
     expect(input.repoPath).toBe("/repo/a");
@@ -358,6 +362,15 @@ describe("mergeTrainCreateInput with handpicked param", () => {
       false,
     );
     expect(mergeTrainCreateInput("/repo/a", "main", prsNoSession, true).planGateEnabled).toBe(
+      false,
+    );
+  });
+
+  it("always launches with autopilot off regardless of handpicked", () => {
+    expect(mergeTrainCreateInput("/repo/a", "main", prsNoSession, false).autopilotEnabled).toBe(
+      false,
+    );
+    expect(mergeTrainCreateInput("/repo/a", "main", prsNoSession, true).autopilotEnabled).toBe(
       false,
     );
   });

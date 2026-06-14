@@ -311,6 +311,22 @@ test("session override off beats repo on", async () => {
   expect(h.events.length).toBe(0);
 });
 
+test("merge-train driver (override off, repo on) is never classified or steered", async () => {
+  // A merge-train driver is created with autopilotEnabled:false even though the repo
+  // default is on — neither a finished turn nor a steerable block may steer it elsewhere.
+  const h = harness({
+    session: sess({ autopilotEnabled: false }),
+    repoEnabled: true,
+    verdict: { kind: "gate", summary: "x" },
+  });
+  await h.svc.onDone("s1");
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  // The disabled driver is never classified and never steered (onDone may emit a benign
+  // refreshPr kick, so assert on the classifier + steer rather than zero events).
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
 test("any PR (open/merged/closed) → autopilot stands down", async () => {
   // hasPr is true for a PR in ANY state — open is the critic's territory, merged/closed mean
   // the pre-PR mission is over; autopilot must never steer such a session to open another PR.

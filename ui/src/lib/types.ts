@@ -745,6 +745,7 @@ export interface CreateInput {
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
+  autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
 }

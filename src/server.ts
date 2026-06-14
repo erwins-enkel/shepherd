@@ -72,7 +72,7 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
-import type { GitForge, GitState, MergeMethod } from "./forge/types";
+import type { GitForge, GitState, MergeMethod, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
@@ -2423,6 +2423,21 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   }
 }
 
+/** Builds the uniform actions-endpoint payload; safe for all three branches. */
+function actionsPayload(
+  forge: GitForge | null,
+  runs: WorkflowRun[],
+  caps: { supportsActions: boolean; canRerun: boolean; canCancel: boolean },
+) {
+  return {
+    slug: forge?.slug ?? null,
+    webUrl: forge?.webUrl ?? null,
+    kind: forge?.kind ?? null,
+    runs,
+    ...caps,
+  };
+}
+
 // GET /api/actions?repo= — latest Actions run per workflow on the default branch
 // (backlog Actions-tab detail pane). Alongside the runs it reports three capability
 // flags (supportsActions / canRerun / canCancel) derived from which optional forge
@@ -2439,32 +2454,12 @@ async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Respon
     canRerun: Boolean(forge?.rerunWorkflowRun),
     canCancel: Boolean(forge?.cancelWorkflowRun),
   };
-  if (!forge?.listWorkflowRuns) {
-    return json({
-      slug: forge?.slug ?? null,
-      webUrl: forge?.webUrl ?? null,
-      kind: forge?.kind ?? null,
-      runs: [],
-      ...caps,
-    });
-  }
+  if (!forge?.listWorkflowRuns) return json(actionsPayload(forge, [], caps));
   try {
-    return json({
-      slug: forge.slug,
-      webUrl: forge.webUrl ?? null,
-      kind: forge.kind,
-      runs: await forge.listWorkflowRuns(),
-      ...caps,
-    });
+    return json(actionsPayload(forge, await forge.listWorkflowRuns(), caps));
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches PRs path)
-    return json({
-      slug: forge.slug,
-      webUrl: forge.webUrl ?? null,
-      kind: forge.kind,
-      runs: [],
-      ...caps,
-    });
+    return json(actionsPayload(forge, [], caps));
   }
 }
 

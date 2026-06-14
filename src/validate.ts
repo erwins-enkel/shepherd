@@ -338,6 +338,58 @@ export function validateCloneUrl(value: unknown): Field<{ url: string; name: str
   return field({ url, name });
 }
 
+// Bare `owner/repo` shorthand for `gh repo fork` (exactly two safe segments).
+const OWNER_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Resolve a fork input into the gh `repo` argument and its `owner/repo` slug, or
+ * null if the form is unrecognized. Accepts the same URL forms as
+ * {@link validateCloneUrl} (https://, http://, scp-style git@) plus the bare
+ * `owner/repo` shorthand that `gh repo fork` understands.
+ */
+function parseForkInput(input: string): { repo: string; slug: string } | null {
+  const isHttps = /^https?:\/\//i.test(input);
+  const isScp = /^[^@]+@[^:/]+:/.test(input) && !input.includes("://");
+  if (isHttps || isScp) {
+    const parsed = parseRemote(input);
+    return parsed ? { repo: input, slug: parsed.slug } : null; // full URL → gh
+  }
+  if (OWNER_REPO_RE.test(input)) {
+    const slug = input.replace(/\.git$/i, "");
+    return { repo: slug, slug }; // normalized owner/repo → gh
+  }
+  return null;
+}
+
+/**
+ * Validate a fork target submitted by the user. Derives the target folder name
+ * from the last slug segment. Returns `{ repo, name }` where `repo` is the
+ * argument passed to `gh repo fork` and `name` is the destination folder.
+ */
+export function validateForkTarget(value: unknown): Field<{ repo: string; name: string }> {
+  if (typeof value !== "string") return err("forkrepo_failed_url");
+  const input = value.trim();
+  if (input.length === 0 || input.length > CLONE_URL_MAX) return err("forkrepo_failed_url");
+
+  const parsed = parseForkInput(input);
+  if (!parsed) return err("forkrepo_failed_url");
+  const { repo, slug } = parsed;
+
+  // Reject slugs containing any traversal segment
+  if (slug.split("/").some((s) => s === "..")) return err("forkrepo_failed_outside");
+
+  // Derive folder name from the last slug segment (e.g. "owner/repo" → "repo")
+  const name = (slug.split("/").at(-1) ?? "").replace(/\.git$/i, "").trim();
+  if (name.length === 0) return err("forkrepo_failed_url");
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+    return err("forkrepo_failed_outside");
+  }
+  // Reject values that would be interpreted as a git/gh flag
+  if (name.startsWith("-") || repo.startsWith("-")) return err("forkrepo_failed_url");
+
+  return field({ repo, name });
+}
+
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
 export function validateCreate(body: unknown, repoRoot: string): Result {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {

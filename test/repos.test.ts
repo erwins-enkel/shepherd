@@ -21,6 +21,8 @@ import {
   createProject,
   classifyProjectError,
   listGithubOwners,
+  forkRepo,
+  classifyForkError,
   type GhRunner,
   type GhOutRunner,
 } from "../src/repos";
@@ -620,4 +622,153 @@ test("createProject: runner _timeout on repo create → ok:true + warning timeou
   } finally {
     cleanup();
   }
+});
+
+// ── forkRepo ──────────────────────────────────────────────────────────────────
+
+/** Happy path: auth ok + fork ok → ok:true, entry, and the exact gh args. */
+test("forkRepo: happy path → ok:true, entry, runs auth then `repo fork --clone -- <target>`", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const calls: string[][] = [];
+    const stubRunner: GhRunner = async (args) => {
+      calls.push(args);
+      // resolve void — success for both auth status and repo fork
+    };
+    const result = await forkRepo({ repo: "dannymcc/may", name: "may" }, repoRoot, stubRunner);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.name).toBe("may");
+    expect(result.entry.path).toBe(join(repoRoot, "may"));
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toEqual(["auth", "status"]);
+    expect(calls[1]).toEqual([
+      "repo",
+      "fork",
+      "dannymcc/may",
+      "--clone",
+      "--",
+      join(repoRoot, "may"),
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Not logged in: auth status rejects → ok:false + forkrepo_failed_auth, no fork attempted. */
+test("forkRepo: gh not logged in → forkrepo_failed_auth", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const calls: string[][] = [];
+    const stubRunner: GhRunner = async (args) => {
+      calls.push(args);
+      const err = Object.assign(new Error("You are not logged into any GitHub hosts"), {
+        stderr: "You are not logged into any GitHub hosts. Run gh auth login",
+      });
+      throw err;
+    };
+    const result = await forkRepo({ repo: "dannymcc/may", name: "may" }, repoRoot, stubRunner);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("forkrepo_failed_auth");
+    expect(calls.length).toBe(1); // fork never attempted
+  } finally {
+    cleanup();
+  }
+});
+
+/** gh not installed: auth status rejects ENOENT → forkrepo_failed_gh_missing. */
+test("forkRepo: gh missing → forkrepo_failed_gh_missing", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const stubRunner: GhRunner = async () => {
+      throw Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
+    };
+    const result = await forkRepo({ repo: "dannymcc/may", name: "may" }, repoRoot, stubRunner);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("forkrepo_failed_gh_missing");
+  } finally {
+    cleanup();
+  }
+});
+
+/** Existence guard: target dir already exists → forkrepo_failed_exists (no gh call). */
+test("forkRepo: target dir exists → forkrepo_failed_exists", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    mkdirSync(join(repoRoot, "may"));
+    let called = false;
+    const stubRunner: GhRunner = async () => {
+      called = true;
+    };
+    const result = await forkRepo({ repo: "dannymcc/may", name: "may" }, repoRoot, stubRunner);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("forkrepo_failed_exists");
+    expect(called).toBe(false);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Containment guard: an escaping name → forkrepo_failed_outside (no gh call). */
+test("forkRepo: escaping name → forkrepo_failed_outside", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    let called = false;
+    const stubRunner: GhRunner = async () => {
+      called = true;
+    };
+    const result = await forkRepo(
+      { repo: "dannymcc/may", name: "../escape" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("forkrepo_failed_outside");
+    expect(called).toBe(false);
+  } finally {
+    cleanup();
+  }
+});
+
+/** Fork step fails with "repository not found" → forkrepo_failed_url (auth passed). */
+test("forkRepo: fork step 'repository not found' → forkrepo_failed_url", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    let call = 0;
+    const stubRunner: GhRunner = async () => {
+      call++;
+      if (call === 1) return; // auth ok
+      throw Object.assign(new Error("not found"), {
+        stderr:
+          "GraphQL: Could not resolve to a Repository with the name 'dannymcc/nope'. (not found)",
+      });
+    };
+    const result = await forkRepo({ repo: "dannymcc/nope", name: "nope" }, repoRoot, stubRunner);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("forkrepo_failed_url");
+  } finally {
+    cleanup();
+  }
+});
+
+test("classifyForkError: timeout, gh-missing, auth, url, generic", () => {
+  expect(classifyForkError(Object.assign(new Error("t"), { code: "_timeout" }))).toBe(
+    "forkrepo_failed_timeout",
+  );
+  expect(classifyForkError(Object.assign(new Error("x"), { code: "ENOENT" }))).toBe(
+    "forkrepo_failed_gh_missing",
+  );
+  expect(classifyForkError({ stderr: "you are not logged in" })).toBe("forkrepo_failed_auth");
+  expect(classifyForkError({ stderr: "HTTP 403: forbidden (permission)" })).toBe(
+    "forkrepo_failed_auth",
+  );
+  expect(classifyForkError({ stderr: "could not resolve host github.com" })).toBe(
+    "forkrepo_failed_url",
+  );
+  expect(classifyForkError({ stderr: "something weird" })).toBe("forkrepo_failed_generic");
 });

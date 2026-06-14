@@ -201,6 +201,27 @@ Notes:
   branch and requires `deployWorkflow` (the host's CI must support
   `workflow_dispatch`).
 
+### Forking a repo to contribute upstream
+
+To contribute to a GitHub project you don't have write access to, use **Fork a
+GitHub repo** in the repo picker (next to _Clone_). Paste `owner/repo` (or a URL);
+Shepherd runs `gh repo fork --clone`, which forks it under your account and sets
+up the standard topology: **`origin` = your fork**, **`upstream` = the original**.
+
+In this fork mode Shepherd is **upstream-aware**: issues, the PR list, checks, and
+the backlog all read from the **upstream** repo (the issues you'd work on, your
+upstream PRs), branches push to your **fork**, and a **PR you open targets the
+upstream** with its head on your fork (`<you>:<branch>`).
+
+Requires `gh auth login`. The fork is a real, persistent repo on your GitHub
+account — Shepherd does not remove it.
+
+v1 limitations on a fork (surfaced, not silent — they return GitHub's permission
+error if attempted): maintainer-side actions you don't have rights for —
+**merging** the upstream PR (the maintainer does that), re-running upstream CI,
+renaming upstream branches, requesting reviewers — and **epic / multi-branch**
+orchestration. Keeping the fork current with upstream (`gh repo sync`) is manual.
+
 ### Submitting tasks from external agents
 
 The HTTP API the UI uses is open to any client that can reach the core — no

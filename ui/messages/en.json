@@ -1300,5 +1300,22 @@
   "feat_epic_migrations_title": "Epic landings flag unrun migrations",
   "feat_epic_migrations_body": "When an epic's landing PR adds database migrations, the Integrated-epics band now shows a warning chip with the file count — the harness never runs them, so verify them before merging. Clearing the row asks you to acknowledge the migrations first.",
   "feat_newproject_owner_title": "Choose the owner for a new GitHub repo",
-  "feat_newproject_owner_body": "When you create a project with a GitHub repository, you can now pick whether it lands under your personal account or one of your organizations — the dialog lists every org you belong to instead of always defaulting to your account."
+  "feat_newproject_owner_body": "When you create a project with a GitHub repository, you can now pick whether it lands under your personal account or one of your organizations — the dialog lists every org you belong to instead of always defaulting to your account.",
+  "forkrepo_title": "Fork a GitHub repo",
+  "forkrepo_input_label": "Repository (owner/repo or URL)",
+  "forkrepo_input_placeholder": "dannymcc/may",
+  "forkrepo_target_preview": "→ {root}/{name}",
+  "forkrepo_hint": "Forks the repo under your GitHub account and clones it. Pull requests you open from it target the original (upstream) repo. The fork stays in your account.",
+  "forkrepo_submit": "Fork & start",
+  "forkrepo_forking": "Forking…",
+  "forkrepo_trigger": "+ Fork a GitHub repo",
+  "forkrepo_failed_auth": "Not logged in to GitHub (or no permission to fork). Run gh auth login.",
+  "forkrepo_failed_exists": "Target folder already exists",
+  "forkrepo_failed_url": "Invalid repository — use owner/repo or a GitHub URL",
+  "forkrepo_failed_outside": "Target is outside the projects folder",
+  "forkrepo_failed_timeout": "Timed out, please retry",
+  "forkrepo_failed_gh_missing": "GitHub CLI (gh) is not installed.",
+  "forkrepo_failed_generic": "Fork failed",
+  "feat_fork_repo_title": "Fork a repo to contribute upstream",
+  "feat_fork_repo_body": "The repo picker now has a “Fork a GitHub repo” option next to Clone. Paste owner/repo (or a URL) and Shepherd forks it under your account, clones it, and wires the remotes so pull requests you open target the original (upstream) repo — the way to contribute to a project you don't have write access to."
 }

@@ -24,10 +24,10 @@ export function forgeFor(remoteUrl: string, map: ForgeMap): GitForge | null {
   return new GiteaForge(parsed.slug, cfg);
 }
 
-/** Read `origin` remote URL for a repo dir, or null. */
-function originUrl(repoDir: string): string | null {
+/** Read a named remote's URL for a repo dir, or null if the remote is absent. */
+function remoteUrl(repoDir: string, remote: string): string | null {
   try {
-    return execFileSync("git", ["-C", repoDir, "remote", "get-url", "origin"], {
+    return execFileSync("git", ["-C", repoDir, "remote", "get-url", remote], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -36,8 +36,45 @@ function originUrl(repoDir: string): string | null {
   }
 }
 
-/** Resolve the forge for a repo directory using its origin remote + config map. */
+/**
+ * Resolve the forge for a repo directory.
+ *
+ * Default: the forge targets the `origin` remote's slug.
+ *
+ * Fork mode: when an `upstream` remote exists whose slug differs from `origin`,
+ * and both resolve to GitHub, the forge targets the **upstream** slug (so issues,
+ * PRs, checks, backlog and the PR base all point at the original repo a
+ * contributor works against) while carrying the `origin` slug as `forkSlug` (the
+ * write target — pushes, the `pr create --head` qualifier, and the `canPush`
+ * probe). This is exactly the topology `gh repo fork --clone` produces.
+ *
+ * The trigger leans on the git convention that a remote literally named `upstream`
+ * is the repo `origin` was forked from — the dominant (and `gh`'s own) meaning. A
+ * repo that keeps a differing-slug `upstream` for some OTHER purpose while actually
+ * working within `origin` will read upstream's issues/PRs and target PRs there;
+ * that is intentional (we follow the convention rather than a network fork-check,
+ * which detectForge — sync and hot-path cached — must avoid). Rename the remote to
+ * opt out.
+ */
 export function detectForge(repoDir: string, map: ForgeMap): GitForge | null {
-  const url = originUrl(repoDir);
-  return url ? forgeFor(url, map) : null;
+  const origin = remoteUrl(repoDir, "origin");
+  if (!origin) return null;
+
+  const upstream = remoteUrl(repoDir, "upstream");
+  if (upstream) {
+    const originParsed = parseRemote(origin);
+    const upstreamParsed = parseRemote(upstream);
+    if (
+      originParsed &&
+      upstreamParsed &&
+      upstreamParsed.slug !== originParsed.slug &&
+      kindFor(upstreamParsed.host, map) === "github" &&
+      kindFor(originParsed.host, map) === "github"
+    ) {
+      const cfg = map[upstreamParsed.host] ?? {};
+      return new GithubForge(upstreamParsed.slug, cfg, undefined, originParsed.slug);
+    }
+  }
+
+  return forgeFor(origin, map);
 }

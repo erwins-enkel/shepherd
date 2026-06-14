@@ -1300,5 +1300,22 @@
   "feat_epic_migrations_title": "Epic-Landungen melden nicht ausgeführte Migrationen",
   "feat_epic_migrations_body": "Wenn der Landing-PR eines Epics Datenbankmigrationen hinzufügt, zeigt das Band 'Integrierte Epics' jetzt einen Warn-Chip mit der Dateianzahl — der Harness führt sie nie aus, prüfe sie also vor dem Merge. Vor dem Schließen der Zeile musst du die Migrationen bestätigen.",
   "feat_newproject_owner_title": "Besitzer für neues GitHub-Repo wählen",
-  "feat_newproject_owner_body": "Wenn du ein Projekt mit GitHub-Repository anlegst, kannst du jetzt wählen, ob es unter deinem persönlichen Konto oder einer deiner Organisationen landet — der Dialog listet jede Organisation auf, der du angehörst, statt immer dein Konto zu nehmen."
+  "feat_newproject_owner_body": "Wenn du ein Projekt mit GitHub-Repository anlegst, kannst du jetzt wählen, ob es unter deinem persönlichen Konto oder einer deiner Organisationen landet — der Dialog listet jede Organisation auf, der du angehörst, statt immer dein Konto zu nehmen.",
+  "forkrepo_title": "GitHub-Repo forken",
+  "forkrepo_input_label": "Repository (owner/repo oder URL)",
+  "forkrepo_input_placeholder": "dannymcc/may",
+  "forkrepo_target_preview": "→ {root}/{name}",
+  "forkrepo_hint": "Forkt das Repo unter deinem GitHub-Account und klont es. Pull Requests, die du daraus öffnest, zielen auf das Original (Upstream). Der Fork bleibt in deinem Account.",
+  "forkrepo_submit": "Forken & starten",
+  "forkrepo_forking": "Forke…",
+  "forkrepo_trigger": "+ GitHub-Repo forken",
+  "forkrepo_failed_auth": "Nicht bei GitHub angemeldet (oder keine Berechtigung zum Forken). Führe gh auth login aus.",
+  "forkrepo_failed_exists": "Zielordner existiert bereits",
+  "forkrepo_failed_url": "Ungültiges Repository — nutze owner/repo oder eine GitHub-URL",
+  "forkrepo_failed_outside": "Ziel liegt außerhalb des Projektordners",
+  "forkrepo_failed_timeout": "Timeout, bitte erneut",
+  "forkrepo_failed_gh_missing": "GitHub CLI (gh) ist nicht installiert.",
+  "forkrepo_failed_generic": "Forken fehlgeschlagen",
+  "feat_fork_repo_title": "Repo forken, um zum Upstream beizutragen",
+  "feat_fork_repo_body": "Die Repo-Auswahl hat jetzt neben „Klonen“ die Option „GitHub-Repo forken“. Gib owner/repo (oder eine URL) ein, und Shepherd forkt es unter deinem Account, klont es und richtet die Remotes so ein, dass deine Pull Requests auf das Original (Upstream) zielen — der Weg, um zu einem Projekt beizutragen, für das du keine Schreibrechte hast."
 }

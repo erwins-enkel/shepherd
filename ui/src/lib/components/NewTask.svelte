@@ -31,6 +31,7 @@
     onsubmit,
     onclose,
     onclone,
+    onfork,
     onnewproject,
     initialPrompt,
     initialRepoPath,
@@ -55,6 +56,7 @@
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
+    onfork?: () => void;
     onnewproject?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
@@ -475,6 +477,7 @@
         value={repoPath}
         onchange={(p) => (repoPath = p)}
         {onclone}
+        {onfork}
         {onnewproject}
       />
     </div>

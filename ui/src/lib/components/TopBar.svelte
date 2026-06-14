@@ -923,7 +923,7 @@
               <span class="menu-glyph" aria-hidden="true">↗</span>
               <span class="menu-label">{m.topbar_menu_docs()}</span>
             </a>
-            <div class="menu-foot micro">v{version}</div>
+            <div class="menu-foot micro" role="none">v{version}</div>
           {/if}
         </div>
       {/if}

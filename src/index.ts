@@ -226,6 +226,9 @@ const service = new SessionService({
   // archives before the 120s PR sweep credits it (the merge-train completion race).
   // prPoller is defined below; this closure is only invoked at runtime, after init.
   refreshPr: (id) => prPoller.pollSession(id),
+  // Live PR snapshot for server-derived merge-train participant marking; lazy (prPoller
+  // defined below). reconcileTrainMarks reads this to mark sessions whose PR is open.
+  prSnapshot: (): Record<string, import("./forge/types").GitState> => prPoller.snapshot(),
   egressWatcher,
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
@@ -405,7 +408,20 @@ events.subscribe((event, data) => {
   const { id, git } = data as { id: string; git: import("./forge/types").GitState };
   if (git.state === "merged" || git.state === "closed")
     service.resolveMerging(id, git.state === "merged");
+  // A participant's PR may flip to "open" only after the train launched (cold poller
+  // cache at create time). Re-reconcile all live trains on every git change so it gets
+  // marked. Cheap no-op when no train is live (#liveTrains empty).
+  service.reconcileTrainMarks();
 });
+
+// Startup rebuild: repopulate #liveTrains from persisted train sessions so their marks
+// survive a restart. Must run BEFORE the first sweepStaleMerging (below) — an empty
+// #liveTrains would otherwise sweep all persisted marks. Safe with a cold snapshot:
+// registerTrain just seeds the map; reconcile re-marks as the poller warms up.
+for (const s of store.list({ activeOnly: true })) {
+  if (s.mergeTrainPrs && s.mergeTrainPrs.length > 0)
+    service.registerTrain(s.id, s.repoPath, s.mergeTrainPrs);
+}
 
 // The train session itself was archived → clear any of its PRs still marked
 // (e.g. ones it held back / rejected and never merged). Keyed on archive (a

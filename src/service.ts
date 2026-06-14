@@ -1120,6 +1120,7 @@ export class SessionService {
         autopilotEnabled: input.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: input.research ?? false,
+        mergeTrainPrs: input.mergeTrainPrs,
       });
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
@@ -1127,6 +1128,11 @@ export class SessionService {
       if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
         this.deps.store.setBuildQueueApproved(sessionId, true);
       this.scheduleRefine(session, herdSlug);
+      // Launch-time merge-train trigger: register the train so its scoped PRs are tracked
+      // in #liveTrains and any already-open participant session is marked immediately
+      // (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
+      if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
+        this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error

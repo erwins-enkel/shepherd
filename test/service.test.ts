@@ -2142,6 +2142,30 @@ test("registerTrain marks every selected-PR session observed open (incl. readyTo
   ev.forEach((e) => expect(e.data.trainId).toBe(train.id));
 });
 
+test("create() with mergeTrainPrs registers the train and marks an already-open participant", async () => {
+  const { store, service, openPr } = mergeSvc();
+  // A pre-existing ready participant whose PR #51 is already open in the snapshot.
+  const a = await mkSession(service);
+  openPr(a.id, 51);
+  // Launch the train session selecting PR #51 → create() must registerTrain, which
+  // reconciles and marks `a` immediately.
+  const train = await service.create({
+    repoPath: "/r",
+    baseBranch: "main",
+    prompt: "train",
+    model: null,
+    images: [],
+    mergeTrainPrs: [51],
+  });
+  expect(store.get(a.id)!.mergingSince).not.toBeNull();
+  expect(store.get(a.id)!.mergingTrainId).toBe(train.id);
+  expect(store.get(a.id)!.mergingPrNumber).toBe(51);
+  // the train session itself is never marked
+  expect(store.get(train.id)!.mergingSince).toBeNull();
+  // the train's selected PRs are persisted on its row
+  expect(store.get(train.id)!.mergeTrainPrs).toEqual([51]);
+});
+
 test("a participant already merged at launch (never open) is never marked", async () => {
   const { store, service, mergedPr } = mergeSvc();
   const train = await mkSession(service);

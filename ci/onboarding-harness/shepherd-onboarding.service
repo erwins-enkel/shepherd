@@ -6,6 +6,9 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=%h/Work/shepherd
 ExecStart=/usr/bin/env bun run onboarding:test
+# File the outcome to GitHub as a rolling accountability issue (opt-in, so only
+# the nightly does it — manual full runs stay side-effect-free).
+Environment=SHEPHERD_ONBOARDING_REPORT_ISSUE=1
 # A oneshot start has no timeout by default — bound the whole nightly run so a
 # wedged scenario is killed instead of pinning the host lock indefinitely.
 TimeoutStartSec=2h

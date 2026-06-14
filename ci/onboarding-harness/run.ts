@@ -9,6 +9,7 @@ import { bootShepherd, probeDiagnostics } from "./probe";
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport } from "./report";
+import { reportToGitHub } from "./issue";
 import { remediationsFor } from "./remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 
@@ -166,6 +167,21 @@ async function main() {
   const out = join(process.cwd(), "onboarding-gap-report.md");
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
+
+  // Accountability: on a FULL run (never a single `--scenario`, which only checks
+  // one defect and must not open/close the rolling issue), file the outcome to
+  // GitHub. Opt-in via env so manual full runs stay side-effect-free; the nightly
+  // service sets it. A gh failure is logged loudly but never masks the run result.
+  if (!only && process.env.SHEPHERD_ONBOARDING_REPORT_ISSUE === "1") {
+    try {
+      const action = await reportToGitHub(results, report, new Date().toISOString());
+      console.log(`[github] ${action}`);
+    } catch (err) {
+      console.error(
+        `[github] failed to file accountability issue: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   // Non-zero exit if any APPLY-ABLE scenario failed to reach green (detection-only
   // scenarios are excluded). Consumed by the Phase 2 gate.

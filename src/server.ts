@@ -32,7 +32,16 @@ import {
 } from "./validate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
-import { listRepos, readTodo, writeTodo, cloneRepo, createProject, type GhRunner } from "./repos";
+import {
+  listRepos,
+  readTodo,
+  writeTodo,
+  cloneRepo,
+  createProject,
+  listGithubOwners,
+  type GhRunner,
+  type GhOutRunner,
+} from "./repos";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
@@ -238,6 +247,10 @@ export interface AppDeps {
    *  fake so the route's partial-success mapping can be exercised WITHOUT creating
    *  real GitHub repos. */
   newProjectGhRunner?: GhRunner;
+  /** Injectable stdout `gh` runner for GET /api/github/owners. Absent in production
+   *  (listGithubOwners falls back to the real `gh` runner); tests inject a fake so the
+   *  owner-enumeration route can be exercised without hitting GitHub. */
+  githubOwnersRunner?: GhOutRunner;
 }
 
 const sessionUsage = (s: Session) =>
@@ -1978,6 +1991,23 @@ async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | nul
   return null;
 }
 
+// GET /api/github/owners — list the owners a new repo can be created under (the
+// authenticated user + their orgs). A gh failure (missing/not-authed) returns 200
+// with `{ login: null, orgs: [] }` so the new-project dialog degrades to a personal
+// repo without surfacing an error before the user has even opted into a remote.
+async function handleGithubOwners({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "github" && parts[2] === "owners" && !parts[3])) {
+    return null;
+  }
+  if (req.method !== "GET") return null;
+  try {
+    const owners = await listGithubOwners(deps.githubOwnersRunner);
+    return json(owners);
+  } catch {
+    return json({ login: null, orgs: [] });
+  }
+}
+
 // ── settings: verify the configured api-key authenticates end-to-end ──
 // POST /api/settings/verify-key → spawns a transient verify agent (via deps.verifyKey)
 // and returns ONLY {ok,reason?,detail?} — never the key or its helper path, never logged.
@@ -3407,6 +3437,7 @@ const ROUTE_HANDLERS = [
   handleUploads,
   handleRepos,
   handleProjects,
+  handleGithubOwners,
   handleSettingsVerifyKey,
   handleSettings,
   handleSteers,

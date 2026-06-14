@@ -198,6 +198,44 @@ const defaultGhRunner: GhRunner = async (args) => {
   ]);
 };
 
+/** Injectable gh runner that returns stdout — used to enumerate the GitHub
+ *  owners (the authenticated user + their orgs) the new-project dialog offers. */
+export type GhOutRunner = (args: string[]) => Promise<string>;
+
+const defaultGhOutRunner: GhOutRunner = async (args) => {
+  const { stdout } = await execFileAsync("gh", args, {
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 15_000,
+  });
+  return stdout.toString();
+};
+
+export type GithubOwners = { login: string; orgs: string[] };
+
+/**
+ * Enumerate the GitHub owners a new repo can be created under: the authenticated
+ * user's login plus every org they belong to (`/user/orgs` needs the `read:org`
+ * scope; if it's missing or the call fails we fall back to no orgs rather than
+ * erroring, so the dialog still offers the personal account).
+ * Throws only when the login itself can't be resolved (gh missing / not authed).
+ */
+export async function listGithubOwners(runner?: GhOutRunner): Promise<GithubOwners> {
+  const run = runner ?? defaultGhOutRunner;
+  const login = (await run(["api", "user", "--jq", ".login"])).trim();
+  let orgs: string[];
+  try {
+    const out = await run(["api", "user/orgs", "--jq", ".[].login"]);
+    orgs = out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    // Missing read:org scope (or any org-list failure) → personal account only.
+    orgs = [];
+  }
+  return { login, orgs };
+}
+
 /** Check whether a commit identity is available — either via the GIT_AUTHOR_ /
  *  GIT_COMMITTER_ environment variables (which git honors over config, e.g. on
  *  CI runners without a global config) or via configured user.name/user.email. */
@@ -298,7 +336,13 @@ export function classifyProjectError(e: unknown): string {
  *   because Bun's process.env mutations don't propagate to child processes in the same way Node does.
  */
 export async function createProject(
-  input: { name: string; idea: string; createRemote: boolean; visibility: "private" | "public" },
+  input: {
+    name: string;
+    idea: string;
+    createRemote: boolean;
+    visibility: "private" | "public";
+    owner?: string;
+  },
   repoRoot: string,
   ghRunner?: GhRunner,
   _identityCheck?: () => boolean,
@@ -389,7 +433,7 @@ function writeBootstrapFiles(input: { name: string; idea: string }, target: stri
  */
 async function pushToGitHub(
   runner: GhRunner,
-  input: { name: string; visibility: "private" | "public" },
+  input: { name: string; visibility: "private" | "public"; owner?: string },
   target: string,
 ): Promise<string | undefined> {
   try {
@@ -401,11 +445,16 @@ async function pushToGitHub(
       : "newproject_failed_gh_auth";
   }
 
+  // An explicit owner (an org the user belongs to) is created as `<owner>/<name>`;
+  // an empty owner lets `gh` default to the authenticated user's personal account.
+  const owner = input.owner?.trim();
+  const repoArg = owner ? `${owner}/${input.name}` : input.name;
+
   try {
     await runner([
       "repo",
       "create",
-      input.name,
+      repoArg,
       "--source",
       target,
       input.visibility === "public" ? "--public" : "--private",

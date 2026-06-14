@@ -177,9 +177,16 @@ export type NewProjectInput = {
   idea: string;
   createRemote: boolean;
   visibility: "private" | "public";
+  owner: string;
 };
 
-const NEW_PROJECT_ALLOWED_KEYS = new Set(["name", "idea", "createRemote", "visibility"]);
+const NEW_PROJECT_ALLOWED_KEYS = new Set(["name", "idea", "createRemote", "visibility", "owner"]);
+
+/**
+ * GitHub login/org slug: 1–39 chars, alphanumeric with single internal hyphens,
+ * no leading/trailing hyphen. Empty is allowed and means "personal account".
+ */
+const GH_OWNER_RE = /^[a-zA-Z0-9](?:-?[a-zA-Z0-9])*$/;
 
 /**
  * Validate and normalize a project name against slug rules.
@@ -223,6 +230,16 @@ function parseVisibilityField(value: unknown): Field<"private" | "public"> {
   return field(value);
 }
 
+/** owner — optional GitHub login/org slug, default "" (personal account). */
+function parseOwnerField(value: unknown): Field<string> {
+  if (value === undefined || value === "") return field("");
+  if (typeof value !== "string") return err("newproject_failed_generic");
+  const owner = value.trim();
+  if (owner === "") return field("");
+  if (owner.length > 39 || !GH_OWNER_RE.test(owner)) return err("newproject_failed_generic");
+  return field(owner);
+}
+
 /**
  * Validate a POST /api/projects request body.
  * Returns `{ ok: true; value: NewProjectInput }` on success or `{ ok: false; error: string }`
@@ -255,6 +272,9 @@ export function validateNewProject(
   const visibilityResult = parseVisibilityField(obj.visibility);
   if (!visibilityResult.ok) return visibilityResult;
 
+  const ownerResult = parseOwnerField(obj.owner);
+  if (!ownerResult.ok) return ownerResult;
+
   // Containment guard: target must resolve inside repoRoot.
   // The slug regex already blocks separators, but this is defense-in-depth (mirrors cloneRepo).
   const root = resolve(expandHome(repoRoot));
@@ -268,6 +288,7 @@ export function validateNewProject(
       idea: ideaResult.value,
       createRemote: createRemoteResult.value,
       visibility: visibilityResult.value,
+      owner: ownerResult.value,
     },
   };
 }

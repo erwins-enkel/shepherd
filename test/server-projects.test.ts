@@ -313,3 +313,34 @@ test("POST /api/projects partial-success (gh missing) → 201 + warning", async 
     if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
   }
 });
+
+// ── GET /api/github/owners ────────────────────────────────────────────────────
+
+function getOwners(app: ReturnType<typeof makeApp>): Promise<Response> {
+  return app.fetch(new Request("http://x/api/github/owners", { method: "GET" }));
+}
+
+test("GET /api/github/owners → login + orgs from injected runner", async () => {
+  const runner = async (args: string[]) => {
+    if (args[1] === "user") return "octocat\n";
+    if (args[1] === "user/orgs") return "acme-corp\nwidgets-inc\n";
+    return "";
+  };
+  const app = makeApp({ ...makeDeps(), githubOwnersRunner: runner });
+  const res = await getOwners(app);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.login).toBe("octocat");
+  expect(body.orgs).toEqual(["acme-corp", "widgets-inc"]);
+});
+
+test("GET /api/github/owners gh failure → 200 with null login, empty orgs", async () => {
+  const runner = () =>
+    Promise.reject(Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }));
+  const app = makeApp({ ...makeDeps(), githubOwnersRunner: runner });
+  const res = await getOwners(app);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.login).toBeNull();
+  expect(body.orgs).toEqual([]);
+});

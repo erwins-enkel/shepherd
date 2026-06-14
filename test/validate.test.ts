@@ -1012,3 +1012,32 @@ test("validateRelaunchOverrides: absent research is not written onto output", ()
   expect(r.ok).toBe(true);
   if (r.ok) expect("research" in r.value).toBe(false);
 });
+
+// ── validateCreate: mergeTrainPrs ────────────────────────────────────────────
+
+test("mergeTrainPrs: [0] rejected (not positive)", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", mergeTrainPrs: [0] },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/mergeTrainPrs/);
+});
+
+test("mergeTrainPrs: [-1] rejected (not positive)", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", mergeTrainPrs: [-1] },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/mergeTrainPrs/);
+});
+
+test("mergeTrainPrs: [1, 2, 3] accepted", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", mergeTrainPrs: [1, 2, 3] },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.mergeTrainPrs).toEqual([1, 2, 3]);
+});

@@ -42,6 +42,7 @@ function session(id: string): Session {
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,
+    mergeTrainPrs: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

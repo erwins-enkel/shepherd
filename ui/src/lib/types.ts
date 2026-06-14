@@ -462,6 +462,8 @@ export interface Session {
   mergingSince: number | null;
   /** Id of the owning merge-train session; null when not merging. */
   mergingTrainId: string | null;
+  /** PR numbers selected by the merge train for this TRAIN session; null on non-train sessions. */
+  mergeTrainPrs: number[] | null;
   autopilotEnabled: boolean | null;
   autopilotStepCount: number;
   autopilotPaused: boolean;

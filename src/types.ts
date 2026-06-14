@@ -26,6 +26,10 @@ export interface Session {
   /** Id of the merge-train session that owns this mark (clears the whole set when
    *  that session is archived). Null when not merging. */
   mergingTrainId: string | null;
+  /** PR numbers selected by the merge train for this TRAIN session; null on non-train sessions. */
+  mergeTrainPrs: number[] | null;
+  /** The open-PR number observed when a PARTICIPANT session is marked "merging"; null otherwise. */
+  mergingPrNumber: number | null;
   /** Autopilot opt-in: true/false override, or null to inherit the repo default. */
   autopilotEnabled: boolean | null;
   /** Count of auto-steers autopilot has spent on this session (runaway guard; reset on PR-open / operator reply). */
@@ -102,6 +106,8 @@ export interface CreateSessionInput {
   sandboxProfile?: SandboxProfile | null;
   /** Research task kind; absent → false. */
   research?: boolean;
+  /** PR numbers selected for this TRAIN session; absent → null. */
+  mergeTrainPrs?: number[];
 }
 
 /**

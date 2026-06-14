@@ -1168,3 +1168,46 @@ test("putCreditSnapshot round-trips a null resetAt as null", () => {
   expect(got).toEqual(row);
   expect(got!.resetAt).toBeNull();
 });
+
+test("mergeTrainPrs: absent → null, array round-trips, empty array round-trips", () => {
+  const store = new SessionStore(":memory:");
+  // absent → null
+  const plain = store.create(base);
+  expect(plain.mergeTrainPrs).toBeNull();
+
+  // array round-trips
+  const withPrs = store.create({ ...base, herdrAgentId: "t2", mergeTrainPrs: [1, 2, 3] });
+  expect(store.get(withPrs.id)!.mergeTrainPrs).toEqual([1, 2, 3]);
+
+  // empty array round-trips as [] (not null)
+  const empty = store.create({ ...base, herdrAgentId: "t3", mergeTrainPrs: [] });
+  expect(store.get(empty.id)!.mergeTrainPrs).toEqual([]);
+});
+
+test("mergingPrNumber: defaults null, set via update, clears back to null", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(base);
+  expect(s.mergingPrNumber).toBeNull();
+
+  store.update(s.id, { mergingPrNumber: 42 });
+  expect(store.get(s.id)!.mergingPrNumber).toBe(42);
+
+  store.update(s.id, { mergingPrNumber: null });
+  expect(store.get(s.id)!.mergingPrNumber).toBeNull();
+});
+
+test("parseMergeTrainPrsJson: non-number elements treated as corrupt → null", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-mtp-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const store = new SessionStore(dbPath);
+    const s = store.create({ ...base, herdrAgentId: "mtp1" });
+    // inject a corrupt value: JSON array of strings, not numbers
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE sessions SET mergeTrainPrs = '["a"]' WHERE id = ?`, [s.id]);
+    raw.close();
+    expect(new SessionStore(dbPath).get(s.id)!.mergeTrainPrs).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

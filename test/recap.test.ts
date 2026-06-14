@@ -50,6 +50,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,
+    mergeTrainPrs: null,
+    mergingPrNumber: null,
     autopilotEnabled: null,
     autopilotStepCount: 0,
     autopilotPaused: false,

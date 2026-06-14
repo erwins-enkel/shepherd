@@ -41,6 +41,7 @@ const ALLOWED_KEYS = new Set([
   "autopilotEnabled",
   "sandboxProfile",
   "research",
+  "mergeTrainPrs",
 ]);
 
 /** Max staged images per spawn. Bounds the attach list (and the relaunch merge of
@@ -432,6 +433,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const research = validateResearch(obj.research);
   if (!research.ok) return research;
 
+  const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
+  if (!mergeTrainPrs.ok) return mergeTrainPrs;
+
   return {
     ok: true,
     value: {
@@ -445,6 +449,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       autopilotEnabled: autopilotEnabled.value,
       sandboxProfile: sandboxProfile.value,
       research: research.value,
+      ...(mergeTrainPrs.value !== undefined ? { mergeTrainPrs: mergeTrainPrs.value } : {}),
     },
   };
 }
@@ -468,6 +473,18 @@ function validateResearch(value: unknown): Field<boolean> {
   if (value === undefined) return field(false);
   if (typeof value === "boolean") return field(value);
   return err("research must be a boolean or absent");
+}
+
+/** mergeTrainPrs — optional array of positive integers; absent → undefined (store defaults null). */
+function validateMergeTrainPrs(value: unknown): Field<number[] | undefined> {
+  if (value === undefined) return field(undefined);
+  if (!Array.isArray(value)) return err("mergeTrainPrs must be an array of integers");
+  for (let i = 0; i < value.length; i++) {
+    const n = value[i];
+    if (typeof n !== "number" || !Number.isInteger(n) || n <= 0)
+      return err(`mergeTrainPrs[${i}] must be an integer`);
+  }
+  return field(value as number[]);
 }
 
 type RelaunchResult = { ok: true; value: RelaunchOverrides } | { ok: false; error: string };

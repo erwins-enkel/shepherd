@@ -1325,5 +1325,7 @@
   "gloss_ci_def": "Continuous integration — automatically building and testing every change so problems surface early.",
   "gloss_critic_term": "Critic",
   "gloss_critic_def": "Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is green and posts a verdict.",
-  "gloss_wikipedia_link": "Read on Wikipedia"
+  "gloss_wikipedia_link": "Read on Wikipedia",
+  "feat_glossary_title": "Glossary tooltips",
+  "feat_glossary_body": "Terms in What's-New and coachmarks now have a dashed underline — hover or tap to see what they mean, with a Wikipedia link for industry-standard terms."
 }

@@ -1325,5 +1325,7 @@
   "gloss_ci_def": "Kontinuierliche Integration — jede Änderung wird automatisch gebaut und getestet, damit Probleme frühzeitig sichtbar werden.",
   "gloss_critic_term": "Critic",
   "gloss_critic_def": "Shepherds isolierter, nur-lesender Review-Agent, der den Diff eines PRs prüft, sobald die CI grün ist, und ein Urteil abgibt.",
-  "gloss_wikipedia_link": "Auf Wikipedia weiterlesen"
+  "gloss_wikipedia_link": "Auf Wikipedia weiterlesen",
+  "feat_glossary_title": "Glossar-Tooltips",
+  "feat_glossary_body": "Begriffe in What's-New und Coachmarks sind jetzt gestrichelt unterstrichen — fahre darüber oder tippe, um die Bedeutung zu sehen, mit Wikipedia-Link für Fachbegriffe."
 }

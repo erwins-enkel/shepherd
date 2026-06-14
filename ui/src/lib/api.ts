@@ -272,6 +272,13 @@ export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey
 export const putAnthropicApiKey = (key: string | null): Promise<{ hasApiKey: boolean }> =>
   patchSettings({ anthropicApiKey: key });
 
+// Probe whether the stored API key actually authenticates a spawned agent. The server
+// runs a short, throwaway claude auth check and returns only the verdict — never the key.
+// `reason` codes a known failure (not-authenticated/timeout/not-configured/…); `detail`
+// (present on not-authenticated) is a verbatim claude auth-error string surfaced as data.
+export const verifyApiKey = (): Promise<{ ok: boolean; reason?: string; detail?: string }> =>
+  postJson("/api/settings/verify-key", {}, "verify-key");
+
 // Persist the account-wide extra-credit (paid overage) spend ceiling. Auto-drain/autopilot
 // pauses when measured spend strictly exceeds it; 0 = pause on any spend. The server
 // validates a non-negative number and returns the stored value.

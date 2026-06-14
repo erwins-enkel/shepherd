@@ -77,6 +77,7 @@ import { normalizeDefaultModelSetting } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { RecapService } from "./recap";
+import { verifyApiKey } from "./verify-key";
 
 const execFileAsync = promisify(execFile);
 
@@ -977,6 +978,7 @@ const server = serve(
     planGate: { consider: (s) => planGate.consider(s) },
     recapCache: { snapshot: () => recapService.snapshot() },
     recap: { regenerate: (s) => recapService.regenerate(s) },
+    verifyKey: () => verifyApiKey({ herdr }),
     backlog,
     // After a backlog merge, force-refresh the repo's counts past the read-TTL and
     // re-broadcast the overview so the merged PR (and any auto-closed linked issue)

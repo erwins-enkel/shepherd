@@ -13,7 +13,8 @@
     "start": "bun run src/index.ts",
     "update": "bash deploy/update.sh",
     "prepare": "husky; node scripts/register-merge-driver.mjs",
-    "onboarding:test": "bun run ci/onboarding-harness/run.ts"
+    "onboarding:test": "bun run ci/onboarding-harness/run.ts",
+    "check:glossary": "node scripts/check-glossary.mjs"
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write",

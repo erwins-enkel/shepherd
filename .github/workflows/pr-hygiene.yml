@@ -31,3 +31,5 @@ jobs:
         run: bash scripts/check-branch-hygiene.sh
       - name: Feature catalog upkeep (feat + UI ⇒ catalog entry)
         run: bash scripts/check-feature-catalog.sh
+      - name: Glossary referential integrity (terms ↔ keys ↔ markers)
+        run: node scripts/check-glossary.mjs

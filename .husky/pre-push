@@ -18,6 +18,9 @@ bash scripts/check-branch-hygiene.sh
 echo "→ feature catalog upkeep (feat + UI ⇒ catalog entry)"
 bash scripts/check-feature-catalog.sh
 
+echo "→ glossary referential integrity (terms ↔ keys ↔ markers)"
+node scripts/check-glossary.mjs
+
 echo "→ prettier --check"
 bunx prettier --check .
 

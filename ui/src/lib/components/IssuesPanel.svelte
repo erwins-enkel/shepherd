@@ -8,6 +8,7 @@
   import { clock } from "$lib/now.svelte";
   import { filterIssues } from "./issues-panel";
   import EpicPanel from "./EpicPanel.svelte";
+  import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick } from "svelte";
 
@@ -141,10 +142,7 @@
 
 <div class="issues-panel">
   <div class="issues-header">
-    {m.issuespanel_title()}{#if slug}<span class="sep">·</span
-      >{#if repoUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-        <a class="repo-link" href={repoUrl} target="_blank" rel="noopener">{slug}</a
-        >{:else}{slug}{/if}{/if}
+    {m.issuespanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
   <div class="issues-list">
@@ -290,26 +288,6 @@
     color: var(--color-muted);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
-  }
-
-  .sep {
-    color: var(--color-faint);
-    margin: 0 0.35em;
-  }
-
-  .repo-link {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .repo-link:hover,
-  .repo-link:focus-visible {
-    text-decoration: underline;
-  }
-
-  .repo-link:focus-visible {
-    outline: 1px solid var(--color-line-bright);
-    outline-offset: 1px;
   }
 
   .issues-list {

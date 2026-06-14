@@ -4,6 +4,7 @@
   import type { WorkflowRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ActionRunRow from "./ActionRunRow.svelte";
+  import RepoLink from "./RepoLink.svelte";
 
   let { repoPath }: { repoPath: string } = $props();
 
@@ -71,10 +72,7 @@
 
 <div class="actions-panel">
   <div class="actions-header">
-    {m.actionspanel_title()}{#if slug}<span class="sep">·</span
-      >{#if repoUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-        <a class="repo-link" href={repoUrl} target="_blank" rel="noopener">{slug}</a
-        >{:else}{slug}{/if}{/if}
+    {m.actionspanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
   <div class="actions-list">
@@ -116,26 +114,6 @@
     color: var(--color-muted);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
-  }
-
-  .sep {
-    color: var(--color-faint);
-    margin: 0 0.35em;
-  }
-
-  .repo-link {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .repo-link:hover,
-  .repo-link:focus-visible {
-    text-decoration: underline;
-  }
-
-  .repo-link:focus-visible {
-    outline: 1px solid var(--color-line-bright);
-    outline-offset: 1px;
   }
 
   .actions-list {

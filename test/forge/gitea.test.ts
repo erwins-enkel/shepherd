@@ -254,6 +254,24 @@ test("GiteaForge.kind + slug", () => {
   expect(forge.slug).toBe("team/proj");
 });
 
+test("GiteaForge.webUrl: with baseUrl returns <base>/<slug>", () => {
+  const { fn } = fakeFetch({});
+  const forge = new GiteaForge("team/proj", { ...CFG, baseUrl: "https://gitea.example.com" }, fn);
+  expect(forge.webUrl).toBe("https://gitea.example.com/team/proj");
+});
+
+test("GiteaForge.webUrl: trailing slash on baseUrl is stripped", () => {
+  const { fn } = fakeFetch({});
+  const forge = new GiteaForge("team/proj", { ...CFG, baseUrl: "https://gitea.example.com/" }, fn);
+  expect(forge.webUrl).toBe("https://gitea.example.com/team/proj");
+});
+
+test("GiteaForge.webUrl: no baseUrl → null", () => {
+  const { fn } = fakeFetch({});
+  const forge = new GiteaForge("team/proj", { type: "gitea" }, fn);
+  expect(forge.webUrl).toBeNull();
+});
+
 const GITEA_ISSUE_CREATED_AT = "2024-02-01T12:00:00Z";
 
 test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues", async () => {

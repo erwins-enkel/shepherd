@@ -236,6 +236,8 @@ export interface GitForge {
   readonly mergeMethod: MergeMethod;
   /** Configured deploy workflow filename, or null if redeploy is unavailable. */
   readonly deployWorkflow: string | null;
+  /** Repo's web home page (e.g. https://github.com/owner/repo); null when unbuildable; absent → null. */
+  readonly webUrl?: string | null;
   listIssues(): Promise<Issue[]>;
   /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
   listPullRequests(): Promise<PullRequest[]>;

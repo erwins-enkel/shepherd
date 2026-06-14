@@ -76,6 +76,10 @@ export class GiteaForge implements GitForge {
     this.deployWorkflow = cfg.deployWorkflow ?? null;
   }
 
+  get webUrl(): string | null {
+    return this.base ? `${this.base}/${this.slug}` : null;
+  }
+
   private async req(method: string, path: string, body?: unknown): Promise<unknown> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.cfg.token) headers.Authorization = `token ${this.cfg.token}`;

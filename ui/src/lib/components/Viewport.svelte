@@ -31,9 +31,11 @@
     setSessionAutopilot,
     startPreview as apiStartPreview,
     stopPreview as apiStopPreview,
+    getCommands,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { composeKeystrokes } from "$lib/compose";
+  import { findCommandLinks } from "$lib/slashLinks";
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
@@ -204,6 +206,27 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+
+  // Installed slash-command names (lowercased) for the terminal link provider, which
+  // linkifies command tokens Claude suggests in its output so a tap pastes them into
+  // the prompt. Same authoritative source ComposeBar uses; lowercased so branch (A)
+  // membership is case-insensitive. Stale-guarded against repoPath changing in flight.
+  let knownCommands = $state<Set<string>>(new Set());
+  $effect(() => {
+    const rp = session.repoPath;
+    if (!rp) {
+      knownCommands = new Set();
+      return;
+    }
+    getCommands(rp)
+      .then((r) => {
+        if (rp === session.repoPath)
+          knownCommands = new Set(r.commands.map((c) => c.name.toLowerCase()));
+      })
+      .catch(() => {
+        if (rp === session.repoPath) knownCommands = new Set();
+      });
+  });
 
   /** Hand the keyboard to the live terminal — the page's Enter shortcut calls this
    *  so plain-key navigation (which deliberately keeps focus *out* of the PTY, see
@@ -1180,6 +1203,44 @@
     );
     conn = c;
     term.onData((d) => c.send(d));
+
+    // Linkify slash-command tokens Claude suggests in its output (e.g. "/squad",
+    // "/gsd-quick") so a tap pastes the command into the prompt — on a phone the
+    // command text is otherwise un-actionable inside xterm's canvas. Same link layer
+    // as the URL WebLinksAddon above; recognizer is in slashLinks.ts. The paste omits
+    // a trailing CR (composeKeystrokes would submit) so the user reviews and presses
+    // Enter themselves. No preventDefault/focus here: the el click→onTap→term.focus()
+    // listener below already focuses the terminal on the same tap. Disposed implicitly
+    // by term.dispose() in teardown, like the WebLinksAddon.
+    term.registerLinkProvider({
+      provideLinks(bufferLineNumber, callback) {
+        const text = term.buffer.active.getLine(bufferLineNumber - 1)?.translateToString(true);
+        if (!text) {
+          callback(undefined);
+          return;
+        }
+        const found = findCommandLinks(text, knownCommands);
+        if (found.length === 0) {
+          callback(undefined);
+          return;
+        }
+        callback(
+          found.map((f) => ({
+            text: `/${f.name}`,
+            // xterm columns are 1-based and the range end is inclusive of the last
+            // cell; f.start/f.end are 0-based with end exclusive → +1 / as-is. ASCII
+            // tokens map 1:1 char-index ↔ column.
+            range: {
+              start: { x: f.start + 1, y: bufferLineNumber },
+              end: { x: f.end, y: bufferLineNumber },
+            },
+            activate: () => {
+              c.send(`\x1b[200~/${f.name}\x1b[201~`);
+            },
+          })),
+        );
+      },
+    });
 
     // Fit + push the size to the PTY — but only while the mount is actually
     // visible. A hidden (To-Do tab → display:none) or mid-layout mount

@@ -1273,5 +1273,7 @@
   "settings_auth_key_save_failed": "Couldn't save the API key",
   "usage_subscription_only": "Usage tracking is subscription-only — see the Anthropic Console.",
   "feat_api_key_auth_title": "API-key auth mode",
-  "feat_api_key_auth_body": "Opt into billing spawned agents against an Anthropic API key (Commercial Terms) instead of your subscription — Settings → Session."
+  "feat_api_key_auth_body": "Opt into billing spawned agents against an Anthropic API key (Commercial Terms) instead of your subscription — Settings → Session.",
+  "feat_tappable_slash_commands_title": "Tappable slash commands",
+  "feat_tappable_slash_commands_body": "Tap a slash command Claude suggests in the terminal (e.g. /squad, /gsd-quick) to drop it into the prompt — no retyping on mobile. It's inserted, not sent, so you review and press Enter yourself."
 }

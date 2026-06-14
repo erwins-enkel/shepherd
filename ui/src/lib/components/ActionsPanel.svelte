@@ -9,6 +9,7 @@
 
   let runs = $state<WorkflowRun[]>([]);
   let slug = $state<string | null>(null);
+  let repoUrl = $state<string | null>(null);
   let loading = $state(true);
   // Server-reported forge capabilities. `supportsActions` defaults true so the
   // first load doesn't flash the "unavailable" message before the response lands;
@@ -32,6 +33,7 @@
       .then((r) => {
         if (rp !== repoPath) return; // stale response for a since-changed repo
         slug = r.slug;
+        repoUrl = r.webUrl;
         runs = r.runs;
         supportsActions = r.supportsActions;
         canRerun = r.canRerun;
@@ -69,7 +71,10 @@
 
 <div class="actions-panel">
   <div class="actions-header">
-    {#if slug}{m.actionspanel_title_with_slug({ slug })}{:else}{m.actionspanel_title()}{/if}
+    {m.actionspanel_title()}{#if slug}<span class="sep">·</span
+      >{#if repoUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+        <a class="repo-link" href={repoUrl} target="_blank" rel="noopener">{slug}</a
+        >{:else}{slug}{/if}{/if}
   </div>
 
   <div class="actions-list">
@@ -111,6 +116,26 @@
     color: var(--color-muted);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
+  }
+
+  .sep {
+    color: var(--color-faint);
+    margin: 0 0.35em;
+  }
+
+  .repo-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .repo-link:hover,
+  .repo-link:focus-visible {
+    text-decoration: underline;
+  }
+
+  .repo-link:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: 1px;
   }
 
   .actions-list {

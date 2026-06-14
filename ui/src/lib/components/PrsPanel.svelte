@@ -23,6 +23,7 @@
 
   let prs = $state<PullRequest[]>([]);
   let slug = $state<string | null>(null);
+  let repoUrl = $state<string | null>(null);
   let loading = $state(true);
 
   // Multi-select for launching a merge train. Holds PR numbers; the launch
@@ -49,6 +50,7 @@
       .then((r) => {
         if (rp !== repoPath) return;
         slug = r.slug;
+        repoUrl = r.webUrl;
         prs = r.prs;
         loading = false;
       })
@@ -81,7 +83,10 @@
 
 <div class="prs-panel">
   <div class="prs-header">
-    {#if slug}{m.prspanel_title_with_slug({ slug })}{:else}{m.prspanel_title()}{/if}
+    {m.prspanel_title()}{#if slug}<span class="sep">·</span
+      >{#if repoUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+        <a class="repo-link" href={repoUrl} target="_blank" rel="noopener">{slug}</a
+        >{:else}{slug}{/if}{/if}
   </div>
 
   {#if prs.length > 0}
@@ -143,6 +148,26 @@
     color: var(--color-muted);
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
+  }
+
+  .sep {
+    color: var(--color-faint);
+    margin: 0 0.35em;
+  }
+
+  .repo-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .repo-link:hover,
+  .repo-link:focus-visible {
+    text-decoration: underline;
+  }
+
+  .repo-link:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: 1px;
   }
 
   /* Pinned launch toolbar: a sibling of the scroller (never a row inside it) so

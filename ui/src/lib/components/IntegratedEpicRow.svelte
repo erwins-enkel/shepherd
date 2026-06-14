@@ -6,14 +6,25 @@
   let {
     epic,
     ondismiss,
+    onackmigrations,
     nowMs = Date.now(),
   }: {
     epic: CompletedEpic;
     ondismiss: (repoPath: string, parent: number) => void;
+    onackmigrations: (repoPath: string, parent: number) => void;
     nowMs?: number;
   } = $props();
 
   let open = $state(false);
+
+  // Migration-awareness checkpoint (#645): the landing PR carries unacknowledged migration
+  // files. The harness never runs them (read-only critic, no DB), so the operator must verify +
+  // acknowledge before clearing the row. Count derives from the array — no hardcoded number.
+  // Note: acknowledging dismisses the row server-side (ackEpicMigrations sets dismissedAt, which
+  // listEpicCompleted filters out), so a displayed row always has migrationsAckedAt == null; the
+  // == null guard is belt-and-suspenders, not the gate. The real gate is the row being shown.
+  const migrationCount = $derived(epic.migrationPaths.length);
+  const pendingAck = $derived(migrationCount > 0 && epic.migrationsAckedAt == null);
 
   // repo basename — last path segment (e.g. "community-map")
   const repoName = $derived(epic.repoPath.split("/").filter(Boolean).at(-1) ?? epic.repoPath);
@@ -88,14 +99,28 @@
     </ul>
 
     <div class="actions">
-      <button
-        class="gbtn"
-        type="button"
-        title={m.integrated_epics_dismiss()}
-        onclick={() => ondismiss(epic.repoPath, epic.parentIssueNumber)}
-      >
-        {m.integrated_epics_dismiss()}
-      </button>
+      {#if pendingAck}
+        <span class="chip-migrations" title={m.epic_migrations_pending({ count: migrationCount })}>
+          {m.epic_migrations_pending({ count: migrationCount })}
+        </span>
+        <button
+          class="gbtn"
+          type="button"
+          title={m.integrated_epics_ack_migrations()}
+          onclick={() => onackmigrations(epic.repoPath, epic.parentIssueNumber)}
+        >
+          {m.integrated_epics_ack_migrations()}
+        </button>
+      {:else}
+        <button
+          class="gbtn"
+          type="button"
+          title={m.integrated_epics_dismiss()}
+          onclick={() => ondismiss(epic.repoPath, epic.parentIssueNumber)}
+        >
+          {m.integrated_epics_dismiss()}
+        </button>
+      {/if}
       {#if epic.landingState === "open" && epic.landingPrNumber != null}
         {#if epic.landingPrUrl}
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
@@ -273,6 +298,19 @@
   .landing-failed {
     color: var(--color-amber);
     font-size: var(--fs-micro);
+  }
+
+  /* Warning-tone chip — unrun migrations need operator verification before clearing the row.
+     Amber = caution (NOT success-green); mirrors the .badge recipe with the warning hue. */
+  .chip-migrations {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    background: color-mix(in oklab, var(--color-amber) 12%, transparent);
   }
 
   /* Canonical .gbtn recipe (scoped per-component; see /design-system). */

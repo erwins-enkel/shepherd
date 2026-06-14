@@ -64,6 +64,22 @@ test("first observation stamps createdAt; later conflicting insert preserves it"
   expect(after.prUrl).toBe("https://github.com/r/pull/99");
 });
 
+test("recordEpicIntegrated persists mergedBase; listEpicIntegratedDetails returns it (#645)", () => {
+  const s = new SessionStore(":memory:");
+  // null when omitted (legacy / no base recorded)
+  s.recordEpicIntegrated("/r", 327, 320);
+  expect(s.listEpicIntegratedDetails("/r", 327)[0]!.mergedBase).toBeNull();
+  // recorded when passed
+  s.recordEpicIntegrated("/r", 327, 322, { number: 7, url: "u7" }, "epic/327-foo");
+  const d = s.listEpicIntegratedDetails("/r", 327).find((x) => x.childNumber === 322)!;
+  expect(d.mergedBase).toBe("epic/327-foo");
+  // re-observe without a base must NOT clobber a previously-recorded one (COALESCE)
+  s.recordEpicIntegrated("/r", 327, 322, { number: 7, url: "u7" });
+  expect(
+    s.listEpicIntegratedDetails("/r", 327).find((x) => x.childNumber === 322)!.mergedBase,
+  ).toBe("epic/327-foo");
+});
+
 test("3-arg recordEpicIntegrated + listEpicIntegrated Set behavior unchanged", () => {
   const s = new SessionStore(":memory:");
   s.recordEpicIntegrated("/r", 200, 11);
@@ -75,4 +91,42 @@ test("3-arg recordEpicIntegrated + listEpicIntegrated Set behavior unchanged", (
   const details = s.listEpicIntegratedDetails("/r", 200);
   expect(details[0]!.prNumber).toBeNull();
   expect(details[0]!.prUrl).toBeNull();
+});
+
+test("epic base-mismatch markers: record/get/list/clear round-trip (#645)", () => {
+  const s = new SessionStore(":memory:");
+  // absent → null / empty
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toBeNull();
+  expect(s.listEpicBaseMismatches("/r", 327)).toEqual([]);
+
+  s.recordEpicBaseMismatch("/r", 327, 320, { actualBase: "main", prNumber: 42, checkedAt: 1000 });
+  const got = s.getEpicBaseMismatch("/r", 327, 320);
+  expect(got).toEqual({ actualBase: "main", prNumber: 42, checkedAt: 1000 });
+
+  // upsert refreshes actualBase/prNumber/checkedAt (checkedAt is the throttle anchor)
+  s.recordEpicBaseMismatch("/r", 327, 320, { actualBase: "dev", prNumber: 42, checkedAt: 2000 });
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toEqual({
+    actualBase: "dev",
+    prNumber: 42,
+    checkedAt: 2000,
+  });
+
+  // null prNumber is allowed
+  s.recordEpicBaseMismatch("/r", 327, 321, { actualBase: "main", prNumber: null, checkedAt: 3000 });
+  const list = s.listEpicBaseMismatches("/r", 327);
+  expect(list).toEqual([
+    { childNumber: 320, actualBase: "dev", prNumber: 42 },
+    { childNumber: 321, actualBase: "main", prNumber: null },
+  ]);
+
+  // scoped by repo + parent
+  expect(s.listEpicBaseMismatches("/other", 327)).toEqual([]);
+  expect(s.listEpicBaseMismatches("/r", 999)).toEqual([]);
+
+  // clear removes only the one child
+  s.clearEpicBaseMismatch("/r", 327, 320);
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toBeNull();
+  expect(s.listEpicBaseMismatches("/r", 327)).toEqual([
+    { childNumber: 321, actualBase: "main", prNumber: null },
+  ]);
 });

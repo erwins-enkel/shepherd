@@ -25,6 +25,8 @@ const epic = (n: number): CompletedEpic => ({
   landingPrNumber: null,
   landingPrUrl: null,
   landingState: "pending",
+  migrationPaths: [],
+  migrationsAckedAt: null,
 });
 
 afterEach(() => {
@@ -33,13 +35,17 @@ afterEach(() => {
 
 describe("IntegratedEpicsBand", () => {
   it("renders nothing when epics is empty", async () => {
-    render(IntegratedEpicsBand, { epics: [], ondismiss: vi.fn() });
+    render(IntegratedEpicsBand, { epics: [], ondismiss: vi.fn(), onackmigrations: vi.fn() });
     expect(document.querySelector(".band")).toBeNull();
     expect(document.querySelector(".band-head")).toBeNull();
   });
 
   it("header shows the count and expanding reveals one row per epic", async () => {
-    render(IntegratedEpicsBand, { epics: [epic(1), epic(2)], ondismiss: vi.fn() });
+    render(IntegratedEpicsBand, {
+      epics: [epic(1), epic(2)],
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+    });
     await expect.element(page.getByText("Integrated epics (2)")).toBeInTheDocument();
     // collapsed by default → no rows
     expect(document.querySelectorAll(".rows .row").length).toBe(0);

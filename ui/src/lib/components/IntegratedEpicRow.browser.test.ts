@@ -26,6 +26,8 @@ const epic = (children: CompletedEpicChild[], p: Partial<CompletedEpic> = {}): C
   landingPrNumber: null,
   landingPrUrl: null,
   landingState: "pending",
+  migrationPaths: [],
+  migrationsAckedAt: null,
   ...p,
 });
 
@@ -38,6 +40,7 @@ describe("IntegratedEpicRow", () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 }), child({ number: 2 })]),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     await expect.element(page.getByText("INTEGRATED 2/2")).toBeInTheDocument();
     const chip = document.querySelector(".chip") as HTMLElement;
@@ -63,6 +66,7 @@ describe("IntegratedEpicRow", () => {
         }),
       ]),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     // mixed epic: merged counts only integrated children, total counts all → 1/2 (not 2/2)
     await expect.element(page.getByText("INTEGRATED 1/2")).toBeInTheDocument();
@@ -95,6 +99,7 @@ describe("IntegratedEpicRow", () => {
         }),
       ]),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -121,6 +126,7 @@ describe("IntegratedEpicRow", () => {
         }),
       ]),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -145,6 +151,7 @@ describe("IntegratedEpicRow", () => {
         landingPrUrl: "https://github.com/o/r/pull/42",
       }),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -168,6 +175,7 @@ describe("IntegratedEpicRow", () => {
         landingPrUrl: "https://github.com/o/r/pull/42",
       }),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -193,6 +201,7 @@ describe("IntegratedEpicRow", () => {
         landingPrUrl: null,
       }),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -210,6 +219,7 @@ describe("IntegratedEpicRow", () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], { landingState: "pending" }),
       ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -227,6 +237,7 @@ describe("IntegratedEpicRow", () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], { repoPath: "/x/y/zrepo", parentIssueNumber: 42 }),
       ondismiss,
+      onackmigrations: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
     const btn = await vi.waitFor(() => {
@@ -237,5 +248,89 @@ describe("IntegratedEpicRow", () => {
     btn.click();
     expect(ondismiss).toHaveBeenCalledTimes(1);
     expect(ondismiss).toHaveBeenCalledWith("/x/y/zrepo", 42);
+  });
+
+  // ── Migration-awareness checkpoint (#645) ──────────────────────────────────
+
+  it("pending ack: shows the warning chip (count from array) + ack button, hides plain Dismiss", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        migrationPaths: ["server/migrations/001.sql", "drizzle/0002.sql"],
+        migrationsAckedAt: null,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const chip = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-migrations") as HTMLElement | null;
+      if (!el) throw new Error("no migration chip yet");
+      return el;
+    });
+    // count derives from migrationPaths.length (2), not a hardcoded number
+    expect(chip.textContent).toContain("2 migration");
+    // amber warning tone (NOT green)
+    expect(getComputedStyle(chip).color).not.toBe("");
+
+    // the ack action replaces the plain Dismiss button
+    const actionText = document.querySelector(".actions")?.textContent ?? "";
+    expect(actionText).toContain("Acknowledge migrations");
+    expect(actionText).not.toContain("Dismiss");
+  });
+
+  it("acknowledged migrations: behaves as normal (plain Dismiss, no chip)", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        migrationPaths: ["server/migrations/001.sql"],
+        migrationsAckedAt: Date.now(),
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      if (!document.querySelector(".actions .gbtn")) throw new Error("no actions yet");
+    });
+    expect(document.querySelector(".actions .chip-migrations")).toBeNull();
+    expect(document.querySelector(".actions")?.textContent).toContain("Dismiss");
+    expect(document.querySelector(".actions")?.textContent).not.toContain("Acknowledge migrations");
+  });
+
+  it("no migrations: behaves as normal (plain Dismiss, no chip)", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], { migrationPaths: [], migrationsAckedAt: null }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      if (!document.querySelector(".actions .gbtn")) throw new Error("no actions yet");
+    });
+    expect(document.querySelector(".actions .chip-migrations")).toBeNull();
+    expect(document.querySelector(".actions")?.textContent).toContain("Dismiss");
+  });
+
+  it("clicking the ack button calls onackmigrations(repoPath, parentIssueNumber)", async () => {
+    const onackmigrations = vi.fn();
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        repoPath: "/x/y/zrepo",
+        parentIssueNumber: 42,
+        migrationPaths: ["migrations/001.sql"],
+        migrationsAckedAt: null,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations,
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+    const btn = await vi.waitFor(() => {
+      const b = document.querySelector(".actions .gbtn") as HTMLButtonElement | null;
+      if (!b) throw new Error("no ack button yet");
+      return b;
+    });
+    btn.click();
+    expect(onackmigrations).toHaveBeenCalledTimes(1);
+    expect(onackmigrations).toHaveBeenCalledWith("/x/y/zrepo", 42);
   });
 });

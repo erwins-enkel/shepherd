@@ -25,6 +25,12 @@ export interface CompletedEpic {
   landingPrNumber: number | null;
   landingPrUrl: string | null;
   landingState: EpicLandingState;
+  // Migration-awareness checkpoint (#645): migration file paths detected in the landing PR
+  // (empty when none / detection unavailable) + the epoch the operator acknowledged them (null
+  // until acknowledged). A non-empty `migrationPaths` with a null `migrationsAckedAt` gates the
+  // band row's clear behind an explicit acknowledgement — NEVER the autonomous completion flip.
+  migrationPaths: string[];
+  migrationsAckedAt: number | null;
 }
 
 export function buildRollup(

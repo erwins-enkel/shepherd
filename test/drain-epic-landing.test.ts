@@ -43,6 +43,9 @@ function fakeForge(opts: {
   subIssues: SubIssueRef[];
   prStatus?: (head: string) => Promise<PrStatus>;
   openPr?: (o: OpenPrInput) => Promise<PrStatus>;
+  /** When provided, the forge exposes prChangedPaths (GitHub-like); omit to model a host
+   *  without it (Gitea) — detection then degrades to off. */
+  prChangedPaths?: (prNumber: number) => Promise<string[]>;
 }): ForgeSpy {
   const openPrCalls: OpenPrInput[] = [];
   const prStatusCalls: string[] = [];
@@ -88,6 +91,7 @@ function fakeForge(opts: {
         : null,
     listSubIssues: async () => opts.subIssues,
     listBlockedBy: async () => [],
+    ...(opts.prChangedPaths ? { prChangedPaths: opts.prChangedPaths } : {}),
   };
   return { forge, openPrCalls, prStatusCalls };
 }
@@ -103,6 +107,7 @@ function makeHarness(opts: {
   subIssues: SubIssueRef[];
   prStatus?: (head: string) => Promise<PrStatus>;
   openPr?: (o: OpenPrInput) => Promise<PrStatus>;
+  prChangedPaths?: (prNumber: number) => Promise<string[]>;
   /** Skip recording the running epic_run row (e.g. testing tick() in isolation). */
   noEpicRun?: boolean;
   autoDrainEnabled?: boolean;
@@ -529,5 +534,116 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
     expect(row.landingState).toBe("open");
     expect(row.landingPrNumber).toBe(808);
     expect(h.spy.openPrCalls).toHaveLength(1); // still exactly one
+  });
+});
+
+describe("migration-awareness checkpoint at landing-open (#645)", () => {
+  const openWith = (number: number) => async () => ({
+    state: "open" as const,
+    number,
+    url: `https://github.com/o/r/pull/${number}`,
+    checks: "none" as const,
+    deployConfigured: false,
+  });
+
+  test("landing PR with migration files → paths persisted on the row + emitted", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: openWith(555),
+      prChangedPaths: async () => [
+        "src/foo.ts",
+        "server/migrations/001_init.sql",
+        "drizzle/0001.sql",
+        "README.md",
+      ],
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.migrationPaths).toEqual(["server/migrations/001_init.sql", "drizzle/0001.sql"]);
+    expect(row.migrationsAckedAt).toBe(null);
+    // the latest emit carries the detected paths so the chip appears live
+    expect(h.completedEmits.at(-1)!.migrationPaths).toEqual([
+      "server/migrations/001_init.sql",
+      "drizzle/0001.sql",
+    ]);
+  });
+
+  test("landing PR with NO migration files → no paths persisted", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: openWith(556),
+      prChangedPaths: async () => ["src/foo.ts", "ui/src/lib/api.ts", "README.md"],
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.migrationPaths).toEqual([]);
+  });
+
+  test("forge WITHOUT prChangedPaths (Gitea) → no paths, landing unaffected", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: openWith(557),
+      // no prChangedPaths → detection degrades to off
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(557);
+    expect(row.migrationPaths).toEqual([]);
+  });
+
+  test("prChangedPaths THROWS → landing still succeeds (fail-safe), no paths", async () => {
+    // console.warn "[drain] migration detection skipped…" is expected.
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      openPr: openWith(558),
+      prChangedPaths: async () => {
+        throw new Error("gh files down");
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open"); // landing unaffected by the detection failure
+    expect(row.landingPrNumber).toBe(558);
+    expect(row.migrationPaths).toEqual([]);
+  });
+
+  test("completion flip is INDEPENDENT of migrations: run goes idle even with migration files", async () => {
+    const h = makeHarness({
+      subIssues: [sub(320, false), sub(321, true)],
+      openPr: openWith(700),
+      prChangedPaths: async () => ["server/migrations/001.sql"],
+    });
+    h.store.recordEpicIntegrated(REPO, PARENT, 320, {
+      number: 9001,
+      url: "https://github.com/o/r/pull/9001",
+    });
+
+    await h.drain.pump(REPO);
+
+    // The autonomous running→idle flip happened regardless of the (unacknowledged) migrations.
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.migrationPaths).toEqual(["server/migrations/001.sql"]);
+    expect(row.migrationsAckedAt).toBe(null); // detected but NOT acknowledged — yet idle anyway
   });
 });

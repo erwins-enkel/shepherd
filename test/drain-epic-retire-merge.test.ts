@@ -220,6 +220,11 @@ describe("epic child retire → squash-merge into integration branch", () => {
 
     expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
     expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
+    // #645 (b): the branch the child squash-merged into is recorded for divergence detection.
+    expect(
+      h.store.listEpicIntegratedDetails(REPO, PARENT).find((d) => d.childNumber === CHILD)
+        ?.mergedBase,
+    ).toBe(EPIC_BRANCH);
     expect(h.store.get(s.id)?.status).toBe("archived");
     expect(h.archived).toEqual([s.id]);
     // Epic child path does NOT auto-close-link the issue (no ensureIssueLink).

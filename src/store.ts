@@ -390,6 +390,14 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
+    // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
+    // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
+    // repo, so a pin stored there would be inherited by the next epic and would outlive its own
+    // epic's landing. A dedicated row per epic stays correct across supersession + into landing.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_branch (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      branch TEXT NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_integrated (
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
@@ -406,6 +414,13 @@ export class SessionStore implements CapStore, CreditStore {
       landingAttempts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.migrateEpicCompletedColumns();
+    // #645: a child whose PR targets a base other than the pinned epic branch is parked here at
+    // retire (fail-closed: not merged, not integrated). Keyed per child; the row is the throttle
+    // anchor (bounds prReviewMeta to ≤1/child/~60s while stuck) and the assembleEpic warning source.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_base_mismatch (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      actualBase TEXT NOT NULL, prNumber INTEGER, checkedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -578,6 +593,32 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  /** Single source of truth for an epic's pinned integration-branch name (#645), keyed
+   *  PER EPIC `(repoPath, parentIssueNumber)`. The name derives from the parent title, but
+   *  the title can be edited mid-run — re-deriving everywhere would re-point new spawns +
+   *  the landing base and orphan children already merged on the old branch. So we pin it
+   *  once on first sight and read it forever: an existing pin is returned as-is; otherwise
+   *  `derived` is persisted for THIS epic and returned. Per-epic keying is load-bearing —
+   *  `epic_run` is one-row-per-repo and superseded when a new epic starts, so a repo-scoped
+   *  pin would be inherited by the next epic and would be wrong for a superseded epic's
+   *  still-pending landing PR. */
+  getOrInitEpicIntegrationBranch(
+    repoPath: string,
+    parentIssueNumber: number,
+    derived: string,
+  ): string {
+    const row = this.db
+      .query(`SELECT branch FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`)
+      .get(repoPath, parentIssueNumber) as { branch: string } | null;
+    if (row) return row.branch; // already pinned for this epic
+    this.db.run(
+      `INSERT INTO epic_branch (repoPath, parentIssueNumber, branch) VALUES (?,?,?)
+       ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
+      [repoPath, parentIssueNumber, derived],
+    );
+    return derived;
+  }
+
   /** Record that a child PR was squash-merged into the epic integration branch.
    *  Idempotent (PK upsert) — the drain may re-observe a merge across pumps.
    *  On conflict, updates only PR columns (guarded by COALESCE so a null re-observe
@@ -587,14 +628,24 @@ export class SessionStore implements CapStore, CreditStore {
     parentIssueNumber: number,
     childNumber: number,
     pr?: { number: number; url: string },
+    mergedBase?: string,
   ): void {
     this.db.run(
-      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt, prNumber, prUrl)
-       VALUES (?,?,?,?,?,?)
+      `INSERT INTO epic_integrated (repoPath, parentIssueNumber, childNumber, createdAt, prNumber, prUrl, mergedBase)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT DO UPDATE SET
          prNumber = COALESCE(excluded.prNumber, epic_integrated.prNumber),
-         prUrl = COALESCE(NULLIF(excluded.prUrl, ''), epic_integrated.prUrl)`,
-      [repoPath, parentIssueNumber, childNumber, Date.now(), pr?.number ?? null, pr?.url ?? null],
+         prUrl = COALESCE(NULLIF(excluded.prUrl, ''), epic_integrated.prUrl),
+         mergedBase = COALESCE(excluded.mergedBase, epic_integrated.mergedBase)`,
+      [
+        repoPath,
+        parentIssueNumber,
+        childNumber,
+        Date.now(),
+        pr?.number ?? null,
+        pr?.url ?? null,
+        mergedBase ?? null,
+      ],
     );
   }
 
@@ -610,10 +661,16 @@ export class SessionStore implements CapStore, CreditStore {
   listEpicIntegratedDetails(
     repoPath: string,
     parentIssueNumber: number,
-  ): { childNumber: number; prNumber: number | null; prUrl: string | null; mergedAt: number }[] {
+  ): {
+    childNumber: number;
+    prNumber: number | null;
+    prUrl: string | null;
+    mergedBase: string | null;
+    mergedAt: number;
+  }[] {
     return this.db
       .query(
-        `SELECT childNumber, prNumber, prUrl, createdAt AS mergedAt
+        `SELECT childNumber, prNumber, prUrl, mergedBase, createdAt AS mergedAt
          FROM epic_integrated WHERE repoPath = ? AND parentIssueNumber = ?
          ORDER BY childNumber`,
       )
@@ -621,7 +678,71 @@ export class SessionStore implements CapStore, CreditStore {
       childNumber: number;
       prNumber: number | null;
       prUrl: string | null;
+      mergedBase: string | null;
       mergedAt: number;
+    }[];
+  }
+
+  // ── epic base-mismatch markers (#645) ─────────────────────────────────────
+  /** Park a child whose PR targets the wrong base. Upsert — refreshes actualBase/prNumber/checkedAt
+   *  (checkedAt is the throttle anchor, so it must advance on every recheck). */
+  recordEpicBaseMismatch(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+    m: { actualBase: string; prNumber: number | null; checkedAt: number },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_base_mismatch (repoPath, parentIssueNumber, childNumber, actualBase, prNumber, checkedAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         actualBase = excluded.actualBase,
+         prNumber = excluded.prNumber,
+         checkedAt = excluded.checkedAt`,
+      [repoPath, parentIssueNumber, childNumber, m.actualBase, m.prNumber, m.checkedAt],
+    );
+  }
+
+  /** Clear a child's base-mismatch marker (the PR was re-targeted / merged correctly). */
+  clearEpicBaseMismatch(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_base_mismatch WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      [repoPath, parentIssueNumber, childNumber],
+    );
+  }
+
+  /** A single child's marker (or null) — drives the doRetire throttle read. */
+  getEpicBaseMismatch(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+  ): { actualBase: string; prNumber: number | null; checkedAt: number } | null {
+    return this.db
+      .query(
+        `SELECT actualBase, prNumber, checkedAt FROM epic_base_mismatch
+         WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber, childNumber) as {
+      actualBase: string;
+      prNumber: number | null;
+      checkedAt: number;
+    } | null;
+  }
+
+  /** All parked children for one epic — fed into assembleEpic for the actionable warnings. */
+  listEpicBaseMismatches(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { childNumber: number; actualBase: string; prNumber: number | null }[] {
+    return this.db
+      .query(
+        `SELECT childNumber, actualBase, prNumber FROM epic_base_mismatch
+         WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY childNumber`,
+      )
+      .all(repoPath, parentIssueNumber) as {
+      childNumber: number;
+      actualBase: string;
+      prNumber: number | null;
     }[];
   }
 
@@ -667,35 +788,14 @@ export class SessionStore implements CapStore, CreditStore {
     landingPrUrl: string | null;
     landingState: EpicLandingState;
     landingAttempts: number;
+    migrationPaths: string[];
+    migrationsAckedAt: number | null;
   }[] {
-    if (repoPath !== undefined) {
-      return this.db
-        .query(
-          `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
-                  landingPrNumber, landingPrUrl, landingState, landingAttempts
-           FROM epic_completed WHERE dismissedAt IS NULL AND repoPath = ?
-           ORDER BY completedAt DESC`,
-        )
-        .all(repoPath) as {
-        repoPath: string;
-        parentIssueNumber: number;
-        parentTitle: string;
-        completedAt: number;
-        childrenJson: string;
-        landingPrNumber: number | null;
-        landingPrUrl: string | null;
-        landingState: EpicLandingState;
-        landingAttempts: number;
-      }[];
-    }
-    return this.db
-      .query(
-        `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
-                landingPrNumber, landingPrUrl, landingState, landingAttempts
-         FROM epic_completed WHERE dismissedAt IS NULL
-         ORDER BY completedAt DESC`,
-      )
-      .all() as {
+    const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
+                landingPrNumber, landingPrUrl, landingState, landingAttempts,
+                migrationPathsJson, migrationsAckedAt
+         FROM epic_completed WHERE dismissedAt IS NULL`;
+    type Raw = {
       repoPath: string;
       parentIssueNumber: number;
       parentTitle: string;
@@ -705,7 +805,19 @@ export class SessionStore implements CapStore, CreditStore {
       landingPrUrl: string | null;
       landingState: EpicLandingState;
       landingAttempts: number;
-    }[];
+      migrationPathsJson: string | null;
+      migrationsAckedAt: number | null;
+    };
+    const rows =
+      repoPath !== undefined
+        ? (this.db
+            .query(`${sql} AND repoPath = ? ORDER BY completedAt DESC`)
+            .all(repoPath) as Raw[])
+        : (this.db.query(`${sql} ORDER BY completedAt DESC`).all() as Raw[]);
+    return rows.map(({ migrationPathsJson, ...rest }) => ({
+      ...rest,
+      migrationPaths: parseFindings(migrationPathsJson),
+    }));
   }
 
   /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
@@ -724,6 +836,29 @@ export class SessionStore implements CapStore, CreditStore {
       `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
       [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Persist the migration paths detected in a completed epic's landing PR (#645). Stored as a
+   *  JSON array; an empty array clears any prior detection. Direct UPDATE, mirroring
+   *  {@link setEpicLandingPr}'s style. */
+  setEpicMigrationPaths(repoPath: string, parentIssueNumber: number, paths: string[]): void {
+    this.db.run(
+      `UPDATE epic_completed SET migrationPathsJson = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [JSON.stringify(paths), repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Acknowledge a completed epic's landing-PR migrations (#645): stamp `migrationsAckedAt` AND
+   *  dismiss the row in one operator action. `migrationsAckedAt` is the durable audit record of
+   *  WHEN the human acknowledged; the coupled `dismissedAt` is what actually clears the band and
+   *  prevents a re-prompt (listEpicCompleted filters `dismissedAt IS NULL`). */
+  ackEpicMigrations(repoPath: string, parentIssueNumber: number): void {
+    const now = Date.now();
+    this.db.run(
+      `UPDATE epic_completed SET migrationsAckedAt = ?, dismissedAt = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [now, now, repoPath, parentIssueNumber],
     );
   }
 
@@ -1565,6 +1700,9 @@ export class SessionStore implements CapStore, CreditStore {
     };
     add("prNumber", `prNumber INTEGER`);
     add("prUrl", `prUrl TEXT`);
+    // #645: the branch the child actually squash-merged into. Nullable — pre-existing rows
+    // backfill to NULL and never fire divergence warnings (forward-looking only; no backfill).
+    add("mergedBase", `mergedBase TEXT`);
   }
 
   private migrateEpicCompletedColumns(): void {
@@ -1579,6 +1717,15 @@ export class SessionStore implements CapStore, CreditStore {
     add("landingPrUrl", `landingPrUrl TEXT`);
     add("landingState", `landingState TEXT NOT NULL DEFAULT 'pending'`);
     add("landingAttempts", `landingAttempts INTEGER NOT NULL DEFAULT 0`);
+    // Migration-awareness checkpoint (#645). migrationPathsJson: paths of migration files
+    // detected in the landing PR (JSON array). migrationsAckedAt: a durable audit timestamp
+    // recording WHEN a human acknowledged those migrations — written alongside dismissedAt by
+    // ackEpicMigrations. It is a record, NOT a gate: re-prompt suppression is the coupled
+    // dismissedAt (listEpicCompleted filters `dismissedAt IS NULL`), so an acked row is hidden
+    // by the dismiss, never by this column. Both nullable: absence = no detection ran / not
+    // yet acknowledged.
+    add("migrationPathsJson", `migrationPathsJson TEXT`);
+    add("migrationsAckedAt", `migrationsAckedAt INTEGER`);
   }
 
   private migrateReviewColumns(): void {

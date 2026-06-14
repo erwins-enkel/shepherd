@@ -53,6 +53,7 @@
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
+    onackmigrationsepic = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -136,6 +137,8 @@
     doneSelectedId?: string | null;
     // a done row was picked → page selects it + shows its DoneRecapPanel in the main area
     ondoneselect?: (id: string) => void;
+    // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
+    onackmigrationsepic?: (repoPath: string, parent: number) => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -699,7 +702,12 @@
       {/if}
     {/if}
     {#if filter !== "done"}
-      <IntegratedEpicsBand epics={completedEpics} ondismiss={ondismissepic ?? (() => {})} {nowMs} />
+      <IntegratedEpicsBand
+        epics={completedEpics}
+        ondismiss={ondismissepic ?? (() => {})}
+        onackmigrations={onackmigrationsepic ?? (() => {})}
+        {nowMs}
+      />
     {/if}
   </div>
 </div>

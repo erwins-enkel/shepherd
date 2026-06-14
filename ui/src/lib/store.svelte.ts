@@ -273,6 +273,12 @@ export class HerdStore {
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
+        // Drop the recap from the live cache on archive. DELIBERATELY re-populated later:
+        // the post-archive `session:recap` finalize event re-adds this id (and the Done
+        // lens calls recaps.load() to repopulate archived recaps from /api/recaps). This is
+        // SAFE because the live Herd renders from the `sessions` array (which dropped the
+        // session above), so a lingering recap entry can't resurrect a live row — and the
+        // Done lens WANTS the recap. Do NOT "fix" the re-add, or the Done lens goes blank.
         recaps.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
         break;

@@ -786,4 +786,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_pwa_install_title",
     bodyKey: "feat_pwa_install_body",
   },
+  {
+    // The DONE filter button lives in the always-visible Herd header, so a coachmark
+    // anchor is reliably mounted — point at it via targetId + use:coachTarget.
+    id: "done-lens",
+    sinceVersion: "1.30.0",
+    titleKey: "feat_done_lens_title",
+    bodyKey: "feat_done_lens_body",
+    targetId: "done-lens",
+  },
 ];

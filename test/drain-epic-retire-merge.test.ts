@@ -77,7 +77,7 @@ function makeHarness(
   opts: {
     mergeImpl?: () => Promise<void>;
     epicStatus?: "running" | "paused" | "idle";
-    archiveImpl?: (id: string) => number;
+    archiveImpl?: (id: string) => number | Promise<number>;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -132,7 +132,7 @@ function makeHarness(
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: (id: string): number => {
+    archive: async (id: string): Promise<number> => {
       if (opts.archiveImpl) return opts.archiveImpl(id);
       store.archive(id);
       return 1;

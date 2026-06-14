@@ -46,7 +46,7 @@ export interface AutoMergeDeps {
     "get" | "list" | "getRepoConfig" | "getReview" | "setAutoMergeState" | "setAutopilotState"
   >;
   service: {
-    archive(id: string): number;
+    archive(id: string): Promise<number>;
     reply(id: string, text: string): boolean;
     /** SessionService.resume (async — the awaited result decides; truthy = resumed). */
     resume(id: string): unknown;

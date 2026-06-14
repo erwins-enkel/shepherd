@@ -784,6 +784,11 @@ export async function getRecaps(): Promise<Record<string, Recap>> {
   return getJson("/api/recaps", "recaps");
 }
 
+/** Sessions archived within the Done-lens window (last 48h), newest-first. */
+export async function getDoneSessions(): Promise<Session[]> {
+  return getJson("/api/sessions/done", "done sessions");
+}
+
 /** Trigger a recap regeneration for a session. Returns `{status}` from the server. */
 export async function regenerateRecap(id: string): Promise<{ status: string }> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/recap/regenerate`, {

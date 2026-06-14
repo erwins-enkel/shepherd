@@ -1247,5 +1247,16 @@
   "integrated_epics_landing_failed": "Couldn't open the landing PR — retrying",
   "feat_epic_landing_pr_title": "Epics land via a final PR",
   "feat_epic_landing_pr_body": "When an epic's children are all integrated, Shepherd opens a final PR that lands the whole epic and closes the parent issue — surfaced as a link in the Integrated-epics band.",
-  "integrated_epics_landing_pr_merged": "Landing PR #{number} — merged"
+  "integrated_epics_landing_pr_merged": "Landing PR #{number} — merged",
+  "recap_changed_files": "Changed files",
+  "recap_unavailable": "No recap available for this session.",
+  "recap_issue": "Issue #{n}",
+  "herd_done_filter": "✓ Done",
+  "herd_done_title": "Show finished (archived) sessions and their recaps",
+  "herd_done_empty": "No finished sessions yet.",
+  "done_recap_finished": "Finished {ago} ago",
+  "done_recap_panel_aria": "Recap for {desig}",
+  "done_back_to_list": "‹ Back to done",
+  "feat_done_lens_title": "Done lens",
+  "feat_done_lens_body": "Filter the Herd to your finished and merged sessions, then open any one to review its read-only recap of what happened."
 }

@@ -323,12 +323,18 @@ export class SessionStore implements CapStore, CreditStore {
       headline TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
       openItems TEXT NOT NULL DEFAULT '[]',
+      changedFiles TEXT NOT NULL DEFAULT '[]',
       spawnSessionId TEXT NOT NULL DEFAULT '',
       cwd TEXT NOT NULL DEFAULT '',
       model TEXT,
       spawnedAt INTEGER NOT NULL,
       generatedAt INTEGER,
       updatedAt INTEGER NOT NULL)`);
+    // migrate recaps that predate the changedFiles column (existing rows default to none)
+    const recapCols = this.db.query(`PRAGMA table_info(recaps)`).all() as { name: string }[];
+    if (!recapCols.some((c) => c.name === "changedFiles")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN changedFiles TEXT NOT NULL DEFAULT '[]'`);
+    }
     // Exact reviewer-cost attribution. Keyed by the *reviewer's* forced --session-id (which
     // locates its transcript), NOT the task — and deliberately carries NO foreign key to
     // `sessions`. `reviews`/`plan_gates` are keyed by the task sessionId and get deleted on
@@ -839,6 +845,18 @@ export class SessionStore implements CapStore, CreditStore {
     ).map((r) => this.hydrate(r));
   }
 
+  /** Archived sessions retired since `sinceMs`, newest-first — drives the read-only
+   *  "recently done" surface (recaps survive worktree teardown). */
+  listRecentlyArchived(sinceMs: number): Session[] {
+    return (
+      this.db
+        .query(
+          `SELECT ${COLS} FROM sessions WHERE status = 'archived' AND archivedAt >= ? ORDER BY archivedAt DESC`,
+        )
+        .all(sinceMs) as any[]
+    ).map((r) => this.hydrate(r));
+  }
+
   update(
     id: string,
     patch: Partial<
@@ -1202,6 +1220,14 @@ export class SessionStore implements CapStore, CreditStore {
     } catch {
       openItems = [];
     }
+    let changedFiles: string[] = [];
+    try {
+      const parsed = JSON.parse(r.changedFiles);
+      if (Array.isArray(parsed))
+        changedFiles = parsed.filter((x): x is string => typeof x === "string");
+    } catch {
+      changedFiles = [];
+    }
     return {
       sessionId: r.sessionId,
       state: r.state,
@@ -1210,6 +1236,7 @@ export class SessionStore implements CapStore, CreditStore {
       headline: r.headline ?? "",
       body: r.body ?? "",
       openItems,
+      changedFiles,
       spawnSessionId: r.spawnSessionId ?? "",
       cwd: r.cwd ?? "",
       model: r.model ?? null,
@@ -1222,7 +1249,7 @@ export class SessionStore implements CapStore, CreditStore {
   getRecap(sessionId: string): Recap | null {
     const r = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
@@ -1232,12 +1259,13 @@ export class SessionStore implements CapStore, CreditStore {
 
   putRecap(recap: Recap): void {
     this.db.run(
-      `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems,
+      `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
          spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
          verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
-         openItems=excluded.openItems, spawnSessionId=excluded.spawnSessionId,
+         openItems=excluded.openItems, changedFiles=excluded.changedFiles,
+         spawnSessionId=excluded.spawnSessionId,
          cwd=excluded.cwd, model=excluded.model, spawnedAt=excluded.spawnedAt,
          generatedAt=excluded.generatedAt, updatedAt=excluded.updatedAt`,
       [
@@ -1248,6 +1276,7 @@ export class SessionStore implements CapStore, CreditStore {
         recap.headline ?? "",
         recap.body ?? "",
         JSON.stringify(recap.openItems ?? []),
+        JSON.stringify(recap.changedFiles ?? []),
         recap.spawnSessionId ?? "",
         recap.cwd ?? "",
         recap.model ?? null,
@@ -1262,7 +1291,7 @@ export class SessionStore implements CapStore, CreditStore {
   snapshotRecaps(): Record<string, Recap> {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state != 'empty'`,
       )
@@ -1276,7 +1305,7 @@ export class SessionStore implements CapStore, CreditStore {
   generatingRecaps(): Recap[] {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems,
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )
@@ -1454,6 +1483,10 @@ export class SessionStore implements CapStore, CreditStore {
       );
       this.db.run(
         `DELETE FROM issue_log WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM recaps WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);

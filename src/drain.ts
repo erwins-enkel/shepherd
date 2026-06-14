@@ -100,7 +100,10 @@ export interface DrainDeps {
     | "listEpicCompleted"
     | "setEpicLandingPr"
   >;
-  service: { create(input: CreateSessionInput): Promise<Session>; archive(id: string): number };
+  service: {
+    create(input: CreateSessionInput): Promise<Session>;
+    archive(id: string): Promise<number>;
+  };
   resolveForge: (repoPath: string) => GitForge | null;
   prCache: { snapshot(): Record<string, GitState> };
   usage: { limits(now: number): UsageLimits };
@@ -840,7 +843,7 @@ export class DrainService {
         url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
       });
       try {
-        this.deps.service.archive(decision.sessionId);
+        await this.deps.service.archive(decision.sessionId);
       } catch (err) {
         // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This
         // is recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below,
@@ -881,7 +884,7 @@ export class DrainService {
     // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
     // session that didn't actually archive.
     try {
-      this.deps.service.archive(decision.sessionId);
+      await this.deps.service.archive(decision.sessionId);
     } catch (err) {
       console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
       return;

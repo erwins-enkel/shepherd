@@ -51,8 +51,12 @@ type Stage =
   | "awaitingMerge"
   | "active";
 
-/** The herd rail's list filter: everything, only sessions awaiting the operator, or only research tasks. */
-export type HerdFilter = "all" | "ready" | "research";
+/** The herd rail's list filter: everything, only sessions awaiting the operator, only
+ *  research tasks, or the Done lens (archived/finished sessions). "done" is NOT a live-list
+ *  filter — the page renders the separate `doneSessions` list for it; here it falls through
+ *  to the live filtering's default (returns the live set untouched, so no crash if it ever
+ *  reaches shownSessions). */
+export type HerdFilter = "all" | "ready" | "research" | "done";
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
  *  awaiting the operator (not running, not under review); "research" keeps only sessions

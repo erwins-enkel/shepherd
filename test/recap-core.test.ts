@@ -117,6 +117,7 @@ const baseRecap = (over: Partial<Recap> = {}): Recap => ({
   headline: "done",
   body: "",
   openItems: [],
+  changedFiles: [],
   spawnSessionId: "spawn-1",
   cwd: "/tmp/x",
   model: null,

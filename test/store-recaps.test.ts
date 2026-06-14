@@ -10,6 +10,7 @@ const r = (over: Partial<Recap> = {}): Recap => ({
   headline: "",
   body: "",
   openItems: [],
+  changedFiles: [],
   spawnSessionId: "spawn-1",
   cwd: "/tmp/recap-1",
   model: "claude-sonnet-4-5",
@@ -108,6 +109,31 @@ test("recaps: openItems with bad JSON in DB defaults to []", () => {
   );
   const got = s.getRecap("s-bad");
   expect(got?.openItems).toEqual([]);
+});
+
+test("recaps: changedFiles round-trips through put→get / snapshot / generating", () => {
+  const s = new SessionStore(":memory:");
+  const files = ["src/store.ts", "src/types.ts", "test/store-recaps.test.ts"];
+  // generating row carries changedFiles — guards the finalize() {...r} spread that
+  // sources from generatingRecaps(); a dropped column there silently loses them.
+  s.putRecap(r({ sessionId: "s1", state: "generating", changedFiles: files }));
+  expect(s.getRecap("s1")?.changedFiles).toEqual(files);
+  expect(s.generatingRecaps()[0]?.changedFiles).toEqual(files);
+
+  s.putRecap(
+    r({ sessionId: "s2", state: "ready", verdict: "ready", headline: "done", changedFiles: files }),
+  );
+  expect(s.snapshotRecaps()["s2"]?.changedFiles).toEqual(files);
+});
+
+test("recaps: changedFiles with bad JSON in DB defaults to []", () => {
+  const s = new SessionStore(":memory:");
+  s["db"].run(
+    `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
+       spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
+     VALUES ('s-bad', 'ready', 'sha', 'ready', 'h', 'b', '[]', 'NOT_JSON', '', '/tmp', null, 1, null, 1)`,
+  );
+  expect(s.getRecap("s-bad")?.changedFiles).toEqual([]);
 });
 
 test("recaps: model field stores null correctly", () => {

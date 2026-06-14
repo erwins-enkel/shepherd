@@ -106,6 +106,12 @@ export interface ServiceDeps {
   detectEgressBackend?: () => EgressBackend;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
+  /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
+   *  exists; bounded + swallowed so it can never block teardown. Absent → no hook. */
+  beforeArchive?: (s: Session) => Promise<void>;
+  /** Hard cap on the beforeArchive hook (ms) so a stuck git can never permanently stall
+   *  teardown / the merge train. Defaults to 15_000; tests inject a tiny value. */
+  beforeArchiveTimeoutMs?: number;
 }
 
 /**
@@ -1149,7 +1155,7 @@ export class SessionService {
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
       try {
-        this.archive(newSession.id);
+        await this.archive(newSession.id);
       } catch {
         /* ignore cleanup error; surface the original failure */
       }
@@ -1787,7 +1793,7 @@ export class SessionService {
    * leftovers actually reaped (the intersection), so bulk callers can report a count
    * that reflects what was killed rather than what was requested.
    */
-  archive(id: string, reapKeys?: string[]): number {
+  async archive(id: string, reapKeys?: string[]): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;
     let reaped = 0;
@@ -1798,6 +1804,21 @@ export class SessionService {
       reaped = hit.length;
     }
     this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
+    // Best-effort pre-teardown hook (recap generation): the recap generator reads the
+    // worktree to build its prompt, so it MUST run while the worktree still exists.
+    // Race a 15s timeout so a stuck git can never permanently stall teardown / the merge
+    // train, and swallow any rejection — recap must never block teardown.
+    if (this.deps.beforeArchive) {
+      const timeoutMs = this.deps.beforeArchiveTimeoutMs ?? 15_000;
+      try {
+        await Promise.race([
+          this.deps.beforeArchive(s),
+          new Promise<void>((r) => setTimeout(r, timeoutMs)),
+        ]);
+      } catch {
+        /* best-effort: recap must never block teardown */
+      }
+    }
     if (s.isolated)
       this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
     // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
@@ -1833,7 +1854,7 @@ export class SessionService {
    * the rest, so each is isolated: a failed id is skipped and left out of `cleared`,
    * so the caller emits archived events for exactly the rows that really went away.
    */
-  archiveMany(ids: string[]): { cleared: string[]; leftovers: number } {
+  async archiveMany(ids: string[]): Promise<{ cleared: string[]; leftovers: number }> {
     const cleared: string[] = [];
     let leftovers = 0;
     for (const id of ids) {
@@ -1841,7 +1862,7 @@ export class SessionService {
       if (!s) continue;
       const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
       try {
-        leftovers += this.archive(id, keys); // count what was reaped, not what was detected
+        leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
         cleared.push(id);
       } catch {
         // skip this one; its row stays active and gets no archived event

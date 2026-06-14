@@ -58,6 +58,7 @@ function makeRecap(over: Partial<Recap> = {}): Recap {
     headline: "",
     body: "",
     openItems: [],
+    changedFiles: [],
     spawnSessionId: "spawn-1",
     cwd: "/tmp/recap-s1",
     model: "sonnet",
@@ -650,16 +651,145 @@ test("in-flight guard: second generate call for same session mid-await does not 
   expect(herdr.started.length).toBe(1); // only ONE spawn happened
 });
 
-// ── forget tests ──────────────────────────────────────────────────────────────
+// ── changedFiles capture ────────────────────────────────────────────────────────
 
-test("forget: reaps generating row + drops recap from store", async () => {
+test("generate: non-empty diff → generating row captures changedFiles", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    makeTmpDir: () => "/tmp/recap-changed",
+  });
+
+  const result = await svc.generate(s);
+  expect(result).toBe("started");
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("generating");
+  expect(r?.changedFiles).toEqual(["src/foo.ts"]); // from NON_EMPTY_DIFF
+});
+
+test("generate: empty diff → empty row has changedFiles = []", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    makeTmpDir: () => "/tmp/recap-changed-empty",
+  });
+
+  const result = await svc.generate(s);
+  expect(result).toBe("empty");
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("empty");
+  expect(r?.changedFiles).toEqual([]);
+});
+
+// ── considerForArchive tests ──────────────────────────────────────────────────────
+
+test("considerForArchive: existing recap at current head → 'skip', no spawn", async () => {
+  const s = makeSession({ status: "done" });
+  const existingRecap = makeRecap({ state: "ready", headSha: "sha-head", verdict: "ready" });
+  const store = makeStore([s], [existingRecap]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("skip");
+  expect(herdr.started.length).toBe(0);
+});
+
+test("considerForArchive: no existing recap → generates", async () => {
+  const s = makeSession({ status: "done" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+    makeTmpDir: () => "/tmp/recap-archive-gen",
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
+});
+
+test("considerForArchive: auto:true (drain) with no recap → generates (NOT skipped)", async () => {
+  const s = makeSession({ status: "done", auto: true });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+    makeTmpDir: () => "/tmp/recap-archive-auto",
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("started"); // key difference from considerSession: auto is NOT skipped
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
+});
+
+test("considerForArchive: headSha throws → 'error', no throw, no spawn", async () => {
+  const s = makeSession({ status: "done" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = new RecapService({
+    store: store as any,
+    herdr: herdr as any,
+    onChange: () => {},
+    model: "sonnet",
+    now: () => 200_000,
+    timeoutMs: 300_000,
+    headSha: async () => {
+      throw new Error("worktree gone");
+    },
+    computeDiff: async () => NON_EMPTY_DIFF as any,
+    readTranscript: (): ActivityEntry[] => [],
+    readPlan: () => "",
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/recap-archive-err",
+    cleanup: () => {},
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("error");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")).toBeNull();
+});
+
+// ── onArchived tests ──────────────────────────────────────────────────────────────
+
+test("onArchived: keeps in-flight generating row (no reap, no drop)", async () => {
   const rec = makeRecap({
     state: "generating",
-    cwd: "/tmp/recap-forget",
-    spawnSessionId: "sp3",
+    cwd: "/tmp/recap-onarchived",
+    spawnSessionId: "sp-oa",
   });
   const store = makeStore([], [rec]);
-  const herdr = makeHerdr([{ cwd: "/tmp/recap-forget", terminalId: "t-forget" }]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-onarchived", terminalId: "t-oa" }]);
   const cleaned: string[] = [];
 
   const svc = buildSvc({
@@ -669,18 +799,34 @@ test("forget: reaps generating row + drops recap from store", async () => {
     cleanup: (d) => cleaned.push(d),
   });
 
-  svc.forget("s1");
-  expect(store.getRecap("s1")).toBeNull();
-  expect(herdr.stopped).toContain("t-forget");
-  expect(cleaned).toContain("/tmp/recap-forget");
+  svc.onArchived("s1");
+
+  // Row persists for the Done lens; spawn allowed to finish (no stop, no cleanup, no drop).
+  expect(store.getRecap("s1")).not.toBeNull();
+  expect(store.getRecap("s1")?.state).toBe("generating");
+  expect(herdr.stopped).not.toContain("t-oa");
+  expect(cleaned).not.toContain("/tmp/recap-onarchived");
 });
 
-test("forget: no existing recap → no crash", async () => {
-  const store = makeStore([]);
+test("onArchived: clears debounce so a later re-stamp is clean", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
   const herdr = makeHerdr();
-  const svc = buildSvc({ store, herdr, nowFn: () => 200_000 });
-  svc.forget("s1"); // should not throw
-  expect(store.getRecap("s1")).toBeNull();
+  let t = 100_000;
+  const svc = buildSvc({ store, herdr, nowFn: () => t, idleThresholdMs: 120_000 });
+
+  await svc.sweep(); // stamp set at 100_000
+  svc.onArchived("s1"); // clears the debounce entry
+
+  // Re-stamp: a single settled sweep right after the clear should NOT fire (needs a
+  // fresh debounce window), proving the entry was cleared (no stale stamp survived).
+  t = 110_000;
+  await svc.sweep(); // re-stamp at 110_000, idleMs=0 → no spawn
+  expect(herdr.started.length).toBe(0);
+
+  t = 240_000; // idleMs from 110_000 = 130_000 >= threshold → now fires
+  await svc.sweep();
+  expect(herdr.started.length).toBe(1);
 });
 
 // ── git/diff failure self-heals to "error" (must NOT throw out of bare-void sweep) ──

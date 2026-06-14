@@ -4,7 +4,7 @@ import { settleMergedSession, type MergeTeardownDeps } from "../src/merge-teardo
 function deps(over: Partial<MergeTeardownDeps> = {}): MergeTeardownDeps {
   return {
     resolveForge: () => ({ closeIssue: mock(async () => {}) }) as any,
-    archive: mock(() => 1),
+    archive: mock(async () => 1),
     dropPrCache: mock(() => {}),
     emitArchived: mock(() => {}),
     retainClaim: mock(() => {}),

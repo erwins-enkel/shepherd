@@ -140,7 +140,7 @@ function makeHarness(
     credits?: UsageLimitsType["credits"];
     mergeImpl?: () => Promise<void>;
     listIssuesImpl?: () => Promise<Issue[]>;
-    archiveImpl?: (id: string) => number;
+    archiveImpl?: (id: string) => number | Promise<number>;
     onArchived?: (h: Harness, id: string) => void;
     addIssueLabelImpl?: (n: number, label: string) => Promise<void>;
     closeIssueImpl?: (n: number) => Promise<void>;
@@ -222,7 +222,7 @@ function makeHarness(
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: (id: string): number => {
+    archive: async (id: string): Promise<number> => {
       if (opts.archiveImpl) return opts.archiveImpl(id);
       store.archive(id);
       return 1;
@@ -691,7 +691,7 @@ test("ensureIssueLink failure is best-effort: retire still archives and emits ev
       create: async () => {
         throw new Error("should not spawn");
       },
-      archive: (id: string): number => {
+      archive: async (id: string): Promise<number> => {
         store.archive(id);
         return 1;
       },
@@ -785,7 +785,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
           issueNumber: input.issueRef?.number ?? null,
         });
       },
-      archive: (id: string): number => {
+      archive: async (id: string): Promise<number> => {
         store.archive(id);
         return 1;
       },

@@ -159,7 +159,7 @@ function makeHarness(
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: (id: string): number => {
+    archive: async (id: string): Promise<number> => {
       store.archive(id);
       return 1;
     },

@@ -434,6 +434,10 @@ export const SESSION_RETENTION_DAYS = 30;
 export const SESSION_RETENTION_MS = SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 export const SESSION_RETENTION_KEEP = 250;
 
+// "Done" lens window: sessions archived within this window are surfaced in the
+// in-app Done lens (read-only recap review). Independent of SESSION_RETENTION_*.
+export const DONE_LENS_WINDOW_MS = 48 * 60 * 60 * 1000; // 48h
+
 // reviewer_spawns rows (critic/plan-gate cost-attribution records, issue #502) are
 // deliberately decoupled from session lifecycle so they outlive archive/prune — but they
 // still need a ceiling. 90 days > SESSION_RETENTION_DAYS so a cost report can still attribute

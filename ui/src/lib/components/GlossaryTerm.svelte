@@ -121,8 +121,17 @@
     if (isCoarse()) return;
     openTooltip();
   }
-  function onBlur() {
+  function onBlur(e: FocusEvent) {
     if (isCoarse()) return;
+    // Don't close if focus moved into the tooltip (e.g. keyboard Tab to the Wikipedia link).
+    if (popEl?.contains(e.relatedTarget as Node)) return;
+    close();
+  }
+
+  // Wikipedia link blur — close only when focus leaves both the popover and the trigger button.
+  function onWikiBlur(e: FocusEvent) {
+    const target = e.relatedTarget as Node | null;
+    if (popEl?.contains(target) || btnEl?.contains(target)) return;
     close();
   }
 
@@ -158,18 +167,32 @@
     onpointerenter={onPointerenter}
     onpointerleave={onPointerleave}
     onfocus={onFocus}
-    onblur={onBlur}
+    onblur={(e) => onBlur(e)}
     onclick={onClick}>{label}</button
   >
 
   <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
        position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
-       Non-blocking anchored popover — no scrim (exempt per CLAUDE.md). -->
-  <div id={tooltipId} bind:this={popEl} class="gloss-tooltip" role="tooltip" popover="manual">
+       Non-blocking anchored popover — no scrim (exempt per CLAUDE.md).
+       role="dialog" (without aria-modal) for external terms that contain a link;
+       role="tooltip" for internal-only terms that contain no interactive children. -->
+  <div
+    id={tooltipId}
+    bind:this={popEl}
+    class="gloss-tooltip"
+    role={term.kind === "external" ? "dialog" : "tooltip"}
+    aria-label={term.kind === "external" ? label : undefined}
+    popover="manual"
+  >
     <p class="gt-body">{(m as unknown as Record<string, () => string>)[term.bodyKey]()}</p>
     {#if term.kind === "external" && wikiHref}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external Wikipedia URL -->
-      <a class="gt-wiki" href={wikiHref} target="_blank" rel="noopener"
+      <a
+        class="gt-wiki"
+        href={wikiHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onblur={onWikiBlur}
         >{(m as unknown as Record<string, () => string>)["gloss_wikipedia_link"]()}</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->

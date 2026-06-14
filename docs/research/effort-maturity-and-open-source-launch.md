@@ -23,13 +23,14 @@
 | License                    | **Apache-2.0** (already set)                   | `package.json`, `LICENSE`                |
 | Primary authors            | Patrick Lenz (lead), Kai Osthoff               | `git shortlog`                           |
 
-**Derived velocity:** ~39 merged PRs/day, ~157 commits/day, ~2 releases/day, ~256 net LOC/PR.
+**Derived velocity:** ~40 merged PRs/day (596/15), ~157 commits/day, ~2 releases/day, ~253 net
+LOC/PR (151k/596). _All per-PR/per-day figures derive from the same 596 merged-PR count._
 For a two-person human team this cadence is implausible — which is the central fact of the analysis.
 
 ### 1.2 The defining fact: Shepherd is built by Shepherd
 
 The velocity above is not human throughput. Shepherd is **self-hosted mission control that spawns
-and steers a herd of interactive `claude` agents**, and the overwhelming majority of those ~590 PRs
+and steers a herd of interactive `claude` agents**, and the overwhelming majority of those ~596 PRs
 were authored by agents running _under Shepherd, building Shepherd_, behind Shepherd's own gates.
 The repo is its own most demanding customer. That is the proof point, and it should anchor both the
 maturity verdict and the launch story:
@@ -42,7 +43,7 @@ maturity verdict and the launch story:
 - The dogfooding is total: the discipline features exist _because_ uncontrolled parallel agent work
   visibly erodes quality, and they were hardened against the project's own output.
 
-This reframes the velocity from "suspiciously fast" to "the product working." 590 reviewed,
+This reframes the velocity from "suspiciously fast" to "the product working." 596 reviewed,
 gated, released PRs in 15 days **is the demo.**
 
 ### 1.3 Effort assessment
@@ -116,7 +117,7 @@ to open-source; the launch is a **positioning and risk-framing exercise**, not a
 
 ### 2.1 Core narrative (the one thing to land)
 
-**Headline (decided): "Shepherd builds Shepherd."** The artifact is the pitch — ~590 reviewed,
+**Headline (decided): "Shepherd builds Shepherd."** The artifact is the pitch — ~596 reviewed,
 gated PRs in 15 days, agents building the product behind the product's own review gates. Lead with
 the proof, not the adjective; it has a ring and it is true.
 
@@ -177,7 +178,7 @@ to set expectations and protect the brand.
 > operator run a whole herd in parallel — watching status and steering by typing, exactly like a
 > human at a terminal. Around those sessions it builds the discipline parallel agent work erodes:
 > every plan and PR faces adversarial review, and nothing merges while behind its base. Shepherd
-> built itself this way — ~590 reviewed, gated PRs in 15 days.
+> built itself this way — ~596 reviewed, gated PRs in 15 days.
 
 **Show HN title options:**
 
@@ -186,7 +187,7 @@ to set expectations and protect the brand.
 
 **X/Twitter launch thread (skeleton, 6 posts):**
 
-1. Hook + artifact: "150k LOC, 590 reviewed PRs, 31 releases — in 15 days. Built by a herd of Claude
+1. Hook + artifact: "150k LOC, 596 reviewed PRs, 31 releases — in 15 days. Built by a herd of Claude
    Code agents, behind their own review gates. Open-sourcing Shepherd today. 🧵"
 2. The problem: you can already run many `claude` sessions; _you_ become the bottleneck and quality
    erodes. Screenshot of the multi-pane HUD.
@@ -215,7 +216,7 @@ stock photography, no gradient SaaS hero, no rounded-pastel illustration.
   "observe + steer" in one motion.
 - **Pipeline diagram:** plan → plan gate → implement → CI → critic → merge train → main, as a clean
   telemetry-style flow (D2/SVG, monospace labels). Sells pillar 2.
-- **"Built by itself" data card:** a single dense stat panel (15 days · 590 PRs · 31 releases · 278
+- **"Built by itself" data card:** a single dense stat panel (15 days · 596 PRs · 31 releases · 278
   tests · all gated) styled as an instrument readout. Becomes the shareable OG image.
 - **Mobile shot:** the herd on a phone — proves the "check at 2am from anywhere" claim.
 - **OG/social card:** the data card or hero shot + tagline; 1200×630, monospace, green accent.
@@ -269,7 +270,7 @@ This is the one decision the rest of the launch bends around, and your two choic
   a "we read this as permitted, do you agree?" conversation could happen in private. Launching cold
   means the first time Anthropic engages may be _in public, on your HN thread_. The framing has to
   be defensible on its own, with no backchannel to soften it.
-- **The headline flaunts the contested behaviour.** "Agents shipped 590 PRs on a subscription" is a
+- **The headline flaunts the contested behaviour.** "Agents shipped 596 PRs on a subscription" is a
   vivid, screenshot-able instance of automated/largely-unattended subscription use — precisely what
   audit R1 says no Anthropic clause blesses, and what the metered Agent SDK credit (live 2026-06-15)
   signals is _intended_ to flow through a different, capped channel. The better the demo lands, the
@@ -304,7 +305,7 @@ job is to surface it faithfully, not to spin it. Concretely:
 The headline and the contested footing must be **decoupled** so the proof doesn't depend on the
 ambiguity:
 
-- **The self-build proves the _gates_, not the puppeting.** Frame the 590-PR metric as "PRs that
+- **The self-build proves the _gates_, not the puppeting.** Frame the 596-PR metric as "PRs that
   survived adversarial review," i.e. evidence the _discipline_ works — which is footing-agnostic.
   The story is about quality control, not about which auth channel paid for the tokens.
 - **Be ready to say it runs on footing B too.** If pressed ("isn't your whole demo a ToS

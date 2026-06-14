@@ -1286,5 +1286,7 @@
   "settings_auth_key_verify_not_authenticated": "Der Schlüssel hat sich nicht authentifiziert.",
   "settings_auth_key_verify_error_generic": "Schlüssel konnte nicht geprüft werden.",
   "feat_api_key_verify_title": "API-Schlüssel verifizieren",
-  "feat_api_key_verify_body": "Prüfe, ob dein gespeicherter Anthropic-API-Schlüssel einen gestarteten Agenten tatsächlich authentifiziert — direkt in Einstellungen → Sitzung, bevor er beim ersten Einsatz versagt."
+  "feat_api_key_verify_body": "Prüfe, ob dein gespeicherter Anthropic-API-Schlüssel einen gestarteten Agenten tatsächlich authentifiziert — direkt in Einstellungen → Sitzung, bevor er beim ersten Einsatz versagt.",
+  "feat_readiness_install_commands_title": "Kopierfertige Setup-Befehle in Readiness",
+  "feat_readiness_install_commands_body": "Die Readiness-Empfehlung listet jetzt die exakten Installationsbefehle für den Paketmanager deines Repos auf, sodass jede fehlende Schutzregel ohne Nachschlagen übernommen werden kann."
 }

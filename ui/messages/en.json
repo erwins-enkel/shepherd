@@ -1286,5 +1286,7 @@
   "settings_auth_key_verify_not_authenticated": "The key did not authenticate.",
   "settings_auth_key_verify_error_generic": "Could not verify the key.",
   "feat_api_key_verify_title": "Verify your API key",
-  "feat_api_key_verify_body": "Check that your saved Anthropic API key actually authenticates a spawned agent — right from Settings → Session, before it fails on first use."
+  "feat_api_key_verify_body": "Check that your saved Anthropic API key actually authenticates a spawned agent — right from Settings → Session, before it fails on first use.",
+  "feat_readiness_install_commands_title": "Copy-paste setup commands in Readiness",
+  "feat_readiness_install_commands_body": "The Readiness prescription now lists the exact install commands for your repo's package manager, so each missing guardrail can be adopted without looking the steps up."
 }

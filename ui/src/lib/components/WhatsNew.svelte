@@ -5,6 +5,7 @@
   import { getLocale } from "$lib/i18n";
   import { releaseDates } from "$lib/build-info";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
+  import GlossaryText from "$lib/components/GlossaryText.svelte";
 
   let {
     entries,
@@ -102,7 +103,9 @@
                     {(m as unknown as Record<string, () => string>)[entry.titleKey]()}
                   </h4>
                   <p class="entry-body">
-                    {(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
+                    <GlossaryText
+                      text={(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
+                    />
                   </p>
                 </li>
               {/each}

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { computePosition, flip, shift, offset, autoUpdate } from "@floating-ui/dom";
+  import { anchorPopover } from "$lib/floating-anchor";
   import { coachTargets } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import GlossaryText from "$lib/components/GlossaryText.svelte";
 
   let {
     targetId,
@@ -45,31 +46,9 @@
       return;
     }
 
-    // Start Floating UI autoUpdate. autoUpdate re-runs computePosition whenever the
-    // reference or floating element moves, resizes, or the window scrolls/resizes.
-    // It returns a cleanup function that removes all its internal listeners.
-    const stopAutoUpdate = autoUpdate(target, popEl, () => {
-      computePosition(target, popEl!, {
-        placement: "bottom",
-        middleware: [offset(8), flip(), shift({ padding: 8 })],
-      }).then(({ x, y }) => {
-        if (popEl) {
-          popEl.style.left = x + "px";
-          popEl.style.top = y + "px";
-        }
-      });
-    });
-
-    // Return cleanup: tear down autoUpdate listeners AND hide the popover.
-    // Called when targetId changes, popEl changes, or the component unmounts.
-    return () => {
-      stopAutoUpdate();
-      try {
-        popEl?.hidePopover();
-      } catch {
-        // Already hidden or detached — ignore
-      }
-    };
+    // Position + autoUpdate, with cleanup that tears down listeners and hides the
+    // popover so session switches / target changes never leak or anchor a detached node.
+    return anchorPopover(target, popEl, 8);
   });
 
   // Dismiss on Escape or pointer-down outside the popover.
@@ -107,7 +86,9 @@
   aria-label={(m as unknown as Record<string, () => string>)[titleKey]()}
 >
   <p class="coachmark-title">{(m as unknown as Record<string, () => string>)[titleKey]()}</p>
-  <p class="coachmark-body">{(m as unknown as Record<string, () => string>)[bodyKey]()}</p>
+  <p class="coachmark-body">
+    <GlossaryText text={(m as unknown as Record<string, () => string>)[bodyKey]()} />
+  </p>
   <button class="coachmark-btn" onclick={onseen}>{m.coachmark_dismiss()}</button>
 </div>
 

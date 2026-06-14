@@ -70,3 +70,14 @@ It's a heuristic with deliberate holes — review still has to catch what it can
 - **UI-glob scope.** Only `ui/src/lib/components/**` + `ui/src/routes/**` count as user-facing. A feature surfacing UX purely through other `ui/src/lib/` code (`api.ts`, stores, actions) without touching those paths is **not** detected.
 - **Opt-out is branch-global.** A single `[no-feature-entry]` anywhere in the range (any commit subject or body) disables the gate for the **whole PR range**, not just the commit carrying it — so don't use it on a branch that also ships a real surfacing feature.
 - **Range-level, so it can over-fire.** The check doesn't bind the UI diff to the specific `feat` commit. A branch mixing a server-only `feat:` with an unrelated UI-touching `fix:` trips the gate even though the feature ships no UX. This is fail-safe (it errs toward demanding an entry) and recoverable — add the entry, or use `[no-feature-entry]` if neither change truly surfaces UX.
+
+## Glossary (REQUIRED when marking UI terms)
+
+Shepherd UI text can mark defined terms with a dashed underline; hovering or tapping opens a tooltip. The glossary registry (`ui/src/lib/glossary.ts`) is the single source of truth. **Any new Shepherd-specific or non-obvious term introduced in UI text must have a registry entry and EN+DE message keys in the same PR as the first marker.**
+
+1. **Add a registry entry** in `ui/src/lib/glossary.ts`: `{ id, kind: "internal" | "external", termKey: "gloss_<id>_term", bodyKey: "gloss_<id>_def", wikipedia?: { en, de } }`. Internal terms (Shepherd concepts) carry an in-app definition only. External (industry-standard) terms additionally require a per-locale Wikipedia article slug (`wikipedia.en` + `wikipedia.de`).
+2. **Add `gloss_<id>_term` and `gloss_<id>_def`** to **both** `ui/messages/en.json` and `de.json` (the same parity rule as Internationalization above — `check:i18n` enforces it).
+3. **Mark terms in plain-text message values** using `[[id|Label]]` — e.g. `"...your [[epic|epic]] is now..."`. No HTML, no `{@html}`; `<GlossaryText>` parses the markers at render time and emits `<GlossaryTerm>` components.
+4. **Confirm the definition before it ships.** The author proposes the EN and DE definition text; the reviewer (or the Critic agent) explicitly confirms it is accurate and well-phrased before the PR merges. Good UX depends on getting the explanation right — automated gates cannot catch misleading definitions.
+
+**Gate:** `scripts/check-glossary.mjs` enforces referential integrity: every `[[id|…]]` marker must resolve to a registry entry, every `termKey`/`bodyKey` referenced in the registry must exist in both locale catalogs, and every `external` term must have both `wikipedia.en` and `wikipedia.de` slugs. It runs in the **PR hygiene** CI workflow and the pre-push hook. It asserts presence and structure, not prose quality — that's on author + review.

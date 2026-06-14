@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.30.0](https://github.com/erwins-enkel/shepherd/compare/v1.29.0...v1.30.0) (2026-06-14)
+
+
+### Features
+
+* **auth:** ship API-key auth mode (footing B) as a first-class opt-in ([#660](https://github.com/erwins-enkel/shepherd/issues/660)) ([#664](https://github.com/erwins-enkel/shepherd/issues/664)) ([f79796b](https://github.com/erwins-enkel/shepherd/commit/f79796b5df17868f465b81ecf8f63028dba05c44))
+* **auth:** verify-key step for api-key auth ([#671](https://github.com/erwins-enkel/shepherd/issues/671)) ([#681](https://github.com/erwins-enkel/shepherd/issues/681)) ([5002aff](https://github.com/erwins-enkel/shepherd/commit/5002affd894bcc34ddc892eeb831439b07449f41))
+* **epic:** epic-branch guardrails + migration checkpoint — close out [#645](https://github.com/erwins-enkel/shepherd/issues/645) learnings ([#677](https://github.com/erwins-enkel/shepherd/issues/677)) ([59673e2](https://github.com/erwins-enkel/shepherd/commit/59673e2a98fdc3ec400db532c37b6dae6b50b0eb))
+* **epic:** land the epic via a final epic/#→default PR ([#635](https://github.com/erwins-enkel/shepherd/issues/635)) ([#661](https://github.com/erwins-enkel/shepherd/issues/661)) ([ee33482](https://github.com/erwins-enkel/shepherd/commit/ee334822f59dc663198d08b8dbae5fa14120bf76))
+* **onboarding-harness:** commit status + release gate (CI traceability) ([#672](https://github.com/erwins-enkel/shepherd/issues/672)) ([147d0cb](https://github.com/erwins-enkel/shepherd/commit/147d0cb42674ce129f961943455127980c1f96f0))
+* **onboarding-harness:** file a rolling GitHub issue on nightly regressions ([#670](https://github.com/erwins-enkel/shepherd/issues/670)) ([7ddef15](https://github.com/erwins-enkel/shepherd/commit/7ddef150f3826fce2e3dd36ee11f39f87b935aa8))
+* **readiness:** PM-aware install commands in the prescription ([#675](https://github.com/erwins-enkel/shepherd/issues/675)) ([bbe8827](https://github.com/erwins-enkel/shepherd/commit/bbe88277fcaded4d56bfbebe641071d24878064a))
+* **recap:** durable session recap + in-app Done lens ([#665](https://github.com/erwins-enkel/shepherd/issues/665)) ([e00b1b3](https://github.com/erwins-enkel/shepherd/commit/e00b1b3727ad1ae099fc6f926f2c0daf2277fbcf))
+* **ui:** add version + README/docs link to the mobile gear menu ([#676](https://github.com/erwins-enkel/shepherd/issues/676)) ([ec29f40](https://github.com/erwins-enkel/shepherd/commit/ec29f40c14c5149d37a24303dd5e034d1723e2b1))
+* **ui:** detect PWA install state in Diagnostics, nudge mobile users to install ([#662](https://github.com/erwins-enkel/shepherd/issues/662)) ([#667](https://github.com/erwins-enkel/shepherd/issues/667)) ([9018bf3](https://github.com/erwins-enkel/shepherd/commit/9018bf3f2df3cbc5876b8e14948088960dc2d8ed))
+* **ui:** make Claude's suggested slash commands tappable in the terminal ([#680](https://github.com/erwins-enkel/shepherd/issues/680)) ([c736c6c](https://github.com/erwins-enkel/shepherd/commit/c736c6cb75506ac750977bbfc1292513a6601b93))
+* **ui:** surface theme & contrast in the mobile gear menu ([#658](https://github.com/erwins-enkel/shepherd/issues/658)) ([18bd693](https://github.com/erwins-enkel/shepherd/commit/18bd6931c2223856c6b5af1658123c1c0beac7e0))
+
+
+### Bug Fixes
+
+* **onboarding-harness:** make the harness actually run end-to-end ([#663](https://github.com/erwins-enkel/shepherd/issues/663)) ([0fff07e](https://github.com/erwins-enkel/shepherd/commit/0fff07e25d21085adb5279dca1a76a119193e734))
+* **onboarding-harness:** make the release gate fresh-green + deterministic-scoped ([#674](https://github.com/erwins-enkel/shepherd/issues/674)) ([6940127](https://github.com/erwins-enkel/shepherd/commit/694012780cebf158d0804cefe1669af147e64993))
+* **plan-panel:** canonical top bar + full-bleed sheet on mobile ([#679](https://github.com/erwins-enkel/shepherd/issues/679)) ([03ce5da](https://github.com/erwins-enkel/shepherd/commit/03ce5da8edd0154f30149bbd3e08549e01e04ac8))
+* **recap:** explain why a finished session has no recap ([#682](https://github.com/erwins-enkel/shepherd/issues/682)) ([eea1f60](https://github.com/erwins-enkel/shepherd/commit/eea1f601115d0d5f5d27f15d752727484a9bcfac))
+* **ui:** full-bleed terminal view on phones, drop side borders ([#659](https://github.com/erwins-enkel/shepherd/issues/659)) ([1a34294](https://github.com/erwins-enkel/shepherd/commit/1a3429443f8f11e51cffada8daf5f84964ff1f9d))
+* **ui:** merge REPO label into New Task head row on mobile ([#653](https://github.com/erwins-enkel/shepherd/issues/653)) ([6be9312](https://github.com/erwins-enkel/shepherd/commit/6be9312c51e1eff3690896b7ad42915ac92103f1))
+* **viewport:** windowed fling velocity for smoother mobile terminal scroll ([#655](https://github.com/erwins-enkel/shepherd/issues/655)) ([730fa5d](https://github.com/erwins-enkel/shepherd/commit/730fa5def14c04b48bcde9a72e32df1922dbe986))
+* Zeit-Popover stops claiming 'Du bist dran!' while a PR awaits the merger ([#539](https://github.com/erwins-enkel/shepherd/issues/539)) ([#650](https://github.com/erwins-enkel/shepherd/issues/650)) ([5301ae0](https://github.com/erwins-enkel/shepherd/commit/5301ae09efbf6f668ead6b9b050f67cc5fca09c0))
+
+
+### Documentation
+
+* de-stale egress "not yet implemented" claims ([#601](https://github.com/erwins-enkel/shepherd/issues/601) shipped [#551](https://github.com/erwins-enkel/shepherd/issues/551)) ([#652](https://github.com/erwins-enkel/shepherd/issues/652)) ([affff31](https://github.com/erwins-enkel/shepherd/commit/affff31122ee016fb2b262ddf236c36097ea5250))
+* **research:** claude/anthropic tos compliance audit of shepherd ([#646](https://github.com/erwins-enkel/shepherd/issues/646)) ([19ef801](https://github.com/erwins-enkel/shepherd/commit/19ef801c0ff8299c53d34ac67d1c0cf0b1cd43ac))
+* **sandbox:** close audit R3/R4 residuals — document in-membrane token readability + attended/research egress posture ([#648](https://github.com/erwins-enkel/shepherd/issues/648)) ([#654](https://github.com/erwins-enkel/shepherd/issues/654)) ([ce6a450](https://github.com/erwins-enkel/shepherd/commit/ce6a4501258905dfa9eade68d8f5543d76d89a62))
+* **tos:** frame interactive-puppeting as position; offer sanctioned auth path (R1, [#647](https://github.com/erwins-enkel/shepherd/issues/647)) ([#657](https://github.com/erwins-enkel/shepherd/issues/657)) ([1e63204](https://github.com/erwins-enkel/shepherd/commit/1e63204ee27087a63368abda8653f3d4cc3c13e6))
+
 ## [1.29.0](https://github.com/erwins-enkel/shepherd/compare/v1.28.0...v1.29.0) (2026-06-13)
 
 

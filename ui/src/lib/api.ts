@@ -196,6 +196,15 @@ export async function cloneRepo(url: string): Promise<RepoEntry> {
   return postJson<RepoEntry>("/api/repos", { url }, "clone");
 }
 
+/** Fork a GitHub repo under the user's account and clone it locally.
+ *  `target` is `owner/repo` or a GitHub URL. On a hard failure throws with
+ *  `err.message` set to the server's `error` field (a `forkrepo_failed_*` code),
+ *  so the modal can strip the prefix and map to its `msg(code)` switch — same
+ *  contract as `cloneRepo`. */
+export async function forkRepo(target: string): Promise<RepoEntry> {
+  return postJson<RepoEntry>("/api/repos/fork", { target }, "fork");
+}
+
 /** Create a new local git project (optionally with a GitHub remote).
  *  On success returns a `RepoEntry` plus an optional `warning` when the local repo
  *  was created but the GitHub step failed (partial success — the modal treats this as

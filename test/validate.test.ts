@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   validateCreate,
   validateCloneUrl,
+  validateForkTarget,
   validateNewProject,
   isAuthorized,
   originAllowed,
@@ -527,6 +528,69 @@ test("validateCreate rejects an issueRef with a non-http url", () => {
 });
 
 import { validateSteers, validateBroadcast } from "../src/validate";
+
+// ── validateForkTarget ────────────────────────────────────────────────────────
+
+test("validateForkTarget: bare owner/repo shorthand → repo passed through, name from slug", () => {
+  const r = validateForkTarget("dannymcc/may");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.repo).toBe("dannymcc/may");
+    expect(r.value.name).toBe("may");
+  }
+});
+
+test("validateForkTarget: owner/repo.git shorthand strips .git for both repo and name", () => {
+  const r = validateForkTarget("dannymcc/may.git");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.repo).toBe("dannymcc/may");
+    expect(r.value.name).toBe("may");
+  }
+});
+
+test("validateForkTarget: https URL → full URL passed to gh, name from slug", () => {
+  const r = validateForkTarget("https://github.com/dannymcc/may");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.repo).toBe("https://github.com/dannymcc/may");
+    expect(r.value.name).toBe("may");
+  }
+});
+
+test("validateForkTarget: scp-style git@ URL accepted, name from slug", () => {
+  const r = validateForkTarget("git@github.com:dannymcc/may.git");
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.name).toBe("may");
+});
+
+test("validateForkTarget: empty / non-string → _url", () => {
+  expect(validateForkTarget("").ok).toBe(false);
+  expect(validateForkTarget("   ").ok).toBe(false);
+  expect(validateForkTarget(123).ok).toBe(false);
+  expect(validateForkTarget(null).ok).toBe(false);
+});
+
+test("validateForkTarget: bare single segment (no owner) rejected as _url", () => {
+  const r = validateForkTarget("just-a-repo");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("forkrepo_failed_url");
+});
+
+test("validateForkTarget: ftp:// and other schemes rejected as _url", () => {
+  expect(validateForkTarget("ftp://github.com/owner/repo").ok).toBe(false);
+  expect(validateForkTarget("file:///etc/passwd").ok).toBe(false);
+});
+
+test("validateForkTarget: traversal segment in a URL rejected as _outside", () => {
+  const r = validateForkTarget("https://github.com/owner/..");
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("forkrepo_failed_outside");
+});
+
+test("validateForkTarget: leading-dash repo (would be a gh flag) rejected", () => {
+  expect(validateForkTarget("-flag/repo").ok).toBe(false);
+});
 
 // ── validateCloneUrl ──────────────────────────────────────────────────────────
 

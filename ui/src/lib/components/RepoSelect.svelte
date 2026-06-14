@@ -11,6 +11,7 @@
     value,
     onchange,
     onclone,
+    onfork,
     onnewproject,
     windowDays,
   }: {
@@ -18,6 +19,7 @@
     value: string;
     onchange: (path: string) => void;
     onclone?: () => void;
+    onfork?: () => void;
     onnewproject?: () => void;
     /** Day count the server computed recentAgentCount over — named in the per-row label. */
     windowDays: number;
@@ -273,6 +275,21 @@
           }}
         >
           {m.clonerepo_trigger()}
+        </button>
+      {/if}
+      {#if onfork}
+        <!-- coachTarget id "fork-row" must match FeatureAnnouncement.targetId in feature-announcements.ts -->
+        <button
+          type="button"
+          class="rs-clone-row"
+          use:coachTarget={"fork-row"}
+          onclick={() => {
+            open = false;
+            filter = "";
+            onfork?.();
+          }}
+        >
+          {m.forkrepo_trigger()}
         </button>
       {/if}
       {#if onnewproject}

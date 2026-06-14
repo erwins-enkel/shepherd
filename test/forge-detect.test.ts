@@ -29,6 +29,24 @@ test("detectForge resolves a github.com origin to a github forge with the slug",
   expect(forge!.slug).toBe("acme/widget");
 });
 
+test("detectForge fork mode: origin=fork + upstream=original → forge targets the upstream slug", () => {
+  // The topology `gh repo fork --clone` produces: origin = the user's fork,
+  // upstream = the original. The forge must target upstream so issues/PRs/checks
+  // and the PR base all point at the repo the contributor works against.
+  git("remote", "add", "origin", "https://github.com/kai/widget.git");
+  git("remote", "add", "upstream", "https://github.com/acme/widget.git");
+  const forge = detectForge(dir, {});
+  expect(forge!.kind).toBe("github");
+  expect(forge!.slug).toBe("acme/widget"); // upstream, not the fork
+});
+
+test("detectForge: upstream remote with the SAME slug as origin → not fork mode (origin slug)", () => {
+  git("remote", "add", "origin", "https://github.com/acme/widget.git");
+  git("remote", "add", "upstream", "https://github.com/acme/widget.git");
+  const forge = detectForge(dir, {});
+  expect(forge!.slug).toBe("acme/widget");
+});
+
 test("detectForge returns null for a repo without an origin remote", () => {
   expect(detectForge(dir, {})).toBeNull();
 });

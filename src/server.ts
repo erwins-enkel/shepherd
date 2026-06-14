@@ -17,6 +17,7 @@ import {
   validateCreate,
   validateRelaunchOverrides,
   validateCloneUrl,
+  validateForkTarget,
   validateNewProject,
   isAuthorized,
   originAllowed,
@@ -39,6 +40,7 @@ import {
   cloneRepo,
   createProject,
   listGithubOwners,
+  forkRepo,
   type GhRunner,
   type GhOutRunner,
 } from "./repos";
@@ -1931,6 +1933,25 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   return json(r.entry, 201);
 }
 
+// HTTP status per fork-failure code; anything unlisted falls back to 422.
+const FORK_ERROR_STATUS: Record<string, number> = {
+  forkrepo_failed_url: 400,
+  forkrepo_failed_outside: 400,
+  forkrepo_failed_exists: 409,
+  forkrepo_failed_timeout: 504,
+};
+
+async function forkRepoFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { target?: unknown } | null;
+  const parsed = validateForkTarget(body?.target);
+  if (!parsed.ok) return json({ error: parsed.error }, FORK_ERROR_STATUS[parsed.error] ?? 400);
+  const r = await forkRepo(parsed.value, config.repoRoot, ghRunner);
+  if (!r.ok) return json({ error: r.error }, FORK_ERROR_STATUS[r.error] ?? 422);
+  return json(r.entry, 201);
+}
+
 // HTTP status per new-project-failure code; anything unlisted falls back to 422.
 const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_slug: 400,
@@ -1979,6 +2000,10 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
       return json({ repos, recentWindowDays: RECENT_WINDOW_DAYS });
     }
     if (req.method === "POST") return cloneRepoFromRequest(req);
+  }
+  // POST /api/repos/fork — fork a GitHub repo under the user's account + clone it.
+  if (parts[0] === "api" && parts[1] === "repos" && parts[2] === "fork" && !parts[3]) {
+    if (req.method === "POST") return forkRepoFromRequest(req, deps.newProjectGhRunner);
   }
   return null;
 }

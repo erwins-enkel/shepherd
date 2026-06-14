@@ -85,6 +85,7 @@
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import CloneRepo from "$lib/components/CloneRepo.svelte";
+  import ForkRepo from "$lib/components/ForkRepo.svelte";
   import NewProject from "$lib/components/NewProject.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
@@ -146,6 +147,7 @@
   let showSettings = $state(false);
   let settingsTab = $state<"workspace" | "session" | "device" | "diagnose">("workspace");
   let showClone = $state(false);
+  let showFork = $state(false);
   let showNewProject = $state(false);
   let showBroadcast = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
@@ -1826,6 +1828,12 @@
       showNew = false;
       showClone = true;
     }}
+    onfork={() => {
+      // Same handoff contract as onclone: ForkRepo.ondone reopens NewTask.
+      resetCompose();
+      showNew = false;
+      showFork = true;
+    }}
     onnewproject={() => {
       // Same as onclone: NewProject.ondone reopens NewTask, so drop any stale
       // relaunch/compose seed first to avoid an unintended relaunch.
@@ -1853,6 +1861,10 @@
       showSettings = false;
       showClone = true;
     }}
+    onfork={() => {
+      showSettings = false;
+      showFork = true;
+    }}
     onwhatsnew={() => {
       showSettings = false;
       showWhatsNew = true;
@@ -1867,6 +1879,19 @@
     onclose={() => (showClone = false)}
     ondone={(entry) => {
       showClone = false;
+      composeRepoPath = entry.path;
+      showNew = true;
+    }}
+    repoRootDisplay={settings?.repoRootDisplay}
+  />
+{/if}
+
+{#if showFork}
+  <!-- Same flow as CloneRepo: ondone reopens NewTask preselected on the forked repo. -->
+  <ForkRepo
+    onclose={() => (showFork = false)}
+    ondone={(entry) => {
+      showFork = false;
       composeRepoPath = entry.path;
       showNew = true;
     }}

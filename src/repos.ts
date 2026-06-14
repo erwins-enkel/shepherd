@@ -470,3 +470,118 @@ async function pushToGitHub(
 
   return undefined;
 }
+
+// ── forkRepo ──────────────────────────────────────────────────────────────────
+
+/** Default gh runner for fork: promisified execFile wrapped in a 120s timeout
+ *  (forking + cloning can be slow — matches cloneRepo's 120s budget).
+ *  On timeout, rejects with an error whose `code` is `"_timeout"` so
+ *  classifyForkError maps it to `forkrepo_failed_timeout`. */
+const defaultForkRunner: GhRunner = async (args) => {
+  const TIMEOUT_MS = 120_000;
+  const timeoutErr = Object.assign(new Error("gh fork timed out"), { code: "_timeout" });
+  await Promise.race([
+    execFileAsync("gh", args, { maxBuffer: 4 * 1024 * 1024 }).then(() => undefined),
+    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), TIMEOUT_MS)),
+  ]);
+};
+
+type ForkErrorPredicate = (e: unknown, stderr: string) => boolean;
+const FORK_ERROR_TABLE: Array<[ForkErrorPredicate, string]> = [
+  // Explicit timeout code set by the default runner
+  [(e) => (e as any).code === "_timeout", "forkrepo_failed_timeout"],
+  // killed by SIGTERM (e.g. from an execFileSync timeout option)
+  [(e) => !!(e as any).killed && (e as any).signal === "SIGTERM", "forkrepo_failed_timeout"],
+  // gh not installed
+  [
+    (e, s) => (e as any).code === "ENOENT" || s.includes("command not found"),
+    "forkrepo_failed_gh_missing",
+  ],
+  // gh auth failures / insufficient permission to fork
+  [
+    (_, s) =>
+      s.includes("not logged") ||
+      s.includes("auth status") ||
+      s.includes("gh auth login") ||
+      s.includes("authentication") ||
+      s.includes("you are not logged") ||
+      s.includes("permission") ||
+      s.includes("403"),
+    "forkrepo_failed_auth",
+  ],
+  // repo not found / unreachable host / bad slug
+  [
+    (_, s) =>
+      s.includes("not found") ||
+      s.includes("could not resolve host") ||
+      s.includes("does not exist") ||
+      s.includes("no such") ||
+      s.includes("unable to access"),
+    "forkrepo_failed_url",
+  ],
+];
+
+/**
+ * Classify an error from forkRepo into a stable `forkrepo_failed_*` code.
+ * Mirrors classifyProjectError / classifyCloneError — lowercase stderr first.
+ */
+export function classifyForkError(e: unknown): string {
+  const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+  for (const [predicate, code] of FORK_ERROR_TABLE) {
+    if (predicate(e, stderr)) return code;
+  }
+  return "forkrepo_failed_generic";
+}
+
+/**
+ * Fork a GitHub repo under the authenticated user's account and clone it into
+ * `<repoRoot>/<input.name>`. Uses `gh repo fork <repo> --clone`, which sets
+ * `origin` = the fork and `upstream` = the original (default remote), so PRs from
+ * the worktrees target upstream automatically. Idempotent: an existing fork is
+ * synced and still cloned.
+ *
+ * Returns `{ ok: true, entry }` on success, or `{ ok: false, error }` with a
+ * `forkrepo_failed_*` code. Forking always requires `gh` auth, so a not-logged-in
+ * state is reported as `forkrepo_failed_auth` (not a generic failure).
+ *
+ * @param ghRunner - Injectable async runner for `gh` CLI calls (default: 120s timeout).
+ */
+export async function forkRepo(
+  input: { repo: string; name: string },
+  repoRoot: string,
+  ghRunner?: GhRunner,
+): Promise<{ ok: true; entry: RepoEntry } | { ok: false; error: string }> {
+  const runner = ghRunner ?? defaultForkRunner;
+
+  // Step 1: resolve paths + containment + existence checks (defense-in-depth)
+  const root = resolve(expandHome(repoRoot));
+  const target = join(root, input.name);
+  const inside = target === root || target.startsWith(root + sep);
+  if (!inside) return { ok: false, error: "forkrepo_failed_outside" };
+  if (existsSync(target)) return { ok: false, error: "forkrepo_failed_exists" };
+
+  // Step 2: auth pre-check (forking always requires a logged-in gh)
+  try {
+    await runner(["auth", "status"]);
+  } catch (e) {
+    const code = classifyForkError(e);
+    return {
+      ok: false,
+      error:
+        code === "forkrepo_failed_gh_missing"
+          ? "forkrepo_failed_gh_missing"
+          : "forkrepo_failed_auth",
+    };
+  }
+
+  // Step 3: fork + clone. Git-clone flags after `--` route the destination dir to
+  // `git clone <forkURL> <target>`, so it lands directly in repoRoot/<name>.
+  try {
+    await runner(["repo", "fork", input.repo, "--clone", "--", target]);
+  } catch (e) {
+    return { ok: false, error: classifyForkError(e) };
+  }
+
+  const entry: RepoEntry = { name: input.name, path: target, display: toDisplay(target) };
+  return { ok: true, entry };
+}

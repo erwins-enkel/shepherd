@@ -123,6 +123,8 @@ interface GhPr {
   headRefOid?: string;
   reviews?: GhReview[];
   reviewRequests?: { login?: string }[];
+  isCrossRepository?: boolean;
+  headRepositoryOwner?: { login?: string };
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -153,13 +155,21 @@ export class GithubForge implements GitForge {
   readonly kind = "github" as const;
   readonly mergeMethod: MergeMethod;
   readonly deployWorkflow: string | null;
+  /** In fork mode, the owner of the fork (origin) repo — the `<user>` half of
+   *  {@link forkSlug}. Used to qualify `pr create --head <forkOwner>:<branch>` and
+   *  to disambiguate `prStatus`'s cross-repo match. Undefined for non-fork repos. */
+  private readonly forkOwner?: string;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
     private readonly run: GhRunner = defaultRunner,
+    /** Fork (origin) slug when the repo is a fork (`slug` = upstream). Drives the
+     *  fork-aware PR head qualifier and the `canPush` probe target. */
+    private readonly forkSlug?: string,
   ) {
     this.mergeMethod = cfg.mergeMethod ?? "squash";
     this.deployWorkflow = cfg.deployWorkflow ?? null;
+    this.forkOwner = forkSlug?.split("/")[0] || undefined;
   }
 
   async listIssues(): Promise<Issue[]> {
@@ -441,6 +451,12 @@ export class GithubForge implements GitForge {
 
   async prStatus(headBranch: string): Promise<PrStatus> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
+    // `gh pr list --head` matches by bare branch ref name — it does NOT accept the
+    // `<owner>:<branch>` qualifier (verified, gh 2.83.2: it silently returns []).
+    // A bare `--head` DOES surface cross-repo (fork) PRs (verified against a real
+    // fork PR), so in fork mode we keep the bare head, widen the limit, and request
+    // `headRepositoryOwner`/`isCrossRepository` to pick the PR whose head lives on
+    // OUR fork — otherwise a same-named branch on another fork could match first.
     const out = await this.run([
       "pr",
       "list",
@@ -451,12 +467,14 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests,isCrossRepository,headRepositoryOwner",
       "--limit",
-      "1",
+      this.forkOwner ? "30" : "1",
     ]);
     const prs = JSON.parse(out || "[]") as GhPr[];
-    const pr = prs[0];
+    const pr = this.forkOwner
+      ? prs.find((p) => p.headRepositoryOwner?.login === this.forkOwner)
+      : prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     const state = pr.state.toLowerCase() as PrStatus["state"];
     const createdAt = Date.parse(pr.createdAt ?? "");
@@ -542,9 +560,14 @@ export class GithubForge implements GitForge {
    *  THROWS on a probe failure (network/auth/unrecognised output) so the caller
    *  can treat that as retryable rather than silently as "no access". */
   async canPush(): Promise<boolean> {
+    // Fork mode: `this.slug` is the upstream (read-only to a contributor), but the
+    // user pushes branches and opens PRs from their fork — so probe the FORK
+    // (`forkSlug`). Probing upstream would report READf→false and silently disable
+    // the adopt-PR flow (gitignore-adopt.ts) on every fork (READ → false).
+    const probeSlug = this.forkSlug ?? this.slug;
     // `this.run` throwing (offline/unauth) and JSON.parse throwing (garbled)
     // both propagate as probe failures — intentionally not caught here.
-    const out = await this.run(["repo", "view", this.slug, "--json", "viewerPermission"]);
+    const out = await this.run(["repo", "view", probeSlug, "--json", "viewerPermission"]);
     const { viewerPermission } = JSON.parse(out || "{}") as { viewerPermission?: string };
     switch (viewerPermission) {
       case "ADMIN":
@@ -584,13 +607,18 @@ export class GithubForge implements GitForge {
   }
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {
+    // Fork mode: the PR is created against the upstream (`this.slug`) but its head
+    // lives on the fork, so qualify it as `<forkOwner>:<branch>`. `gh pr create`
+    // supports this syntax (verified, gh 2.83.2); a bare branch would resolve the
+    // head against the upstream and fail.
+    const head = this.forkOwner ? `${this.forkOwner}:${o.head}` : o.head;
     const args = [
       "pr",
       "create",
       "--repo",
       this.slug,
       "--head",
-      o.head,
+      head,
       "--base",
       o.base,
       "--title",

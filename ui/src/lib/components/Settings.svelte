@@ -86,6 +86,7 @@
     onclose,
     onsaved,
     onclone,
+    onfork,
     herdrUpdate = null,
     onherdrupdate,
     onwhatsnew,
@@ -95,6 +96,7 @@
     onclose?: () => void;
     onsaved?: (root: string) => void;
     onclone?: () => void;
+    onfork?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
     onwhatsnew?: () => void;
@@ -624,6 +626,11 @@
       {#if onclone}
         <button type="button" class="clone-trigger" onclick={() => onclone?.()}
           >{m.clonerepo_trigger()}</button
+        >
+      {/if}
+      {#if onfork}
+        <button type="button" class="clone-trigger" onclick={() => onfork?.()}
+          >{m.forkrepo_trigger()}</button
         >
       {/if}
     </div>

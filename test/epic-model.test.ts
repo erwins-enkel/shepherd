@@ -182,4 +182,45 @@ describe("epic-branch divergence warnings (#645)", () => {
     const e = assembleEpic(input({ divergentBranches: [] }));
     expect(e.warnings.some((w) => w.includes("divergent epic branch"))).toBe(false);
   });
+
+  // (Task 2) PR base-mismatch — actionable remedy
+  test("base-mismatch → warning naming gh pr edit … --base <pinned> and 'epic blocked'", () => {
+    const e = assembleEpic(
+      input({ baseMismatches: [{ childNumber: 320, actualBase: "main", prNumber: 42 }] }),
+    );
+    const w = e.warnings.find((x) => x.includes("child #320"));
+    expect(w).toBeDefined();
+    expect(w).toContain("targets `main`");
+    expect(w).toContain("epic/327-epic"); // the pinned branch
+    expect(w).toContain("gh pr edit 42 --base epic/327-epic");
+    expect(w).toContain("epic blocked until fixed");
+  });
+  test("base-mismatch with null prNumber → warning omits the gh-edit hint but still blocks", () => {
+    const e = assembleEpic(
+      input({ baseMismatches: [{ childNumber: 320, actualBase: "main", prNumber: null }] }),
+    );
+    const w = e.warnings.find((x) => x.includes("child #320"))!;
+    expect(w).toContain("epic blocked until fixed");
+    expect(w).not.toContain("gh pr edit");
+    // no double-space and no dangling "PR " followed by another space when prNumber is null
+    expect(w).not.toMatch(/PR\s\s/);
+    expect(w).toContain("child #320 PR targets");
+    expect(w).not.toContain("  ");
+  });
+  test("base-mismatch with empty actualBase → 'unknown base' phrasing, no empty backticks", () => {
+    const e = assembleEpic(
+      input({ baseMismatches: [{ childNumber: 320, actualBase: "", prNumber: 42 }] }),
+    );
+    const w = e.warnings.find((x) => x.includes("child #320"))!;
+    expect(w).toContain("targets an unknown base");
+    expect(w).not.toContain("``"); // no empty backtick pair
+    expect(w).toContain("gh pr edit 42 --base epic/327-epic"); // remedy retained
+    expect(w).toContain("epic blocked until fixed");
+  });
+  test("no base-mismatch entries → NO base-mismatch warning", () => {
+    const e1 = assembleEpic(input({ baseMismatches: [] }));
+    const e2 = assembleEpic(input({})); // undefined
+    expect(e1.warnings.some((w) => w.includes("epic blocked until fixed"))).toBe(false);
+    expect(e2.warnings.some((w) => w.includes("epic blocked until fixed"))).toBe(false);
+  });
 });

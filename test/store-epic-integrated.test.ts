@@ -92,3 +92,41 @@ test("3-arg recordEpicIntegrated + listEpicIntegrated Set behavior unchanged", (
   expect(details[0]!.prNumber).toBeNull();
   expect(details[0]!.prUrl).toBeNull();
 });
+
+test("epic base-mismatch markers: record/get/list/clear round-trip (#645)", () => {
+  const s = new SessionStore(":memory:");
+  // absent → null / empty
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toBeNull();
+  expect(s.listEpicBaseMismatches("/r", 327)).toEqual([]);
+
+  s.recordEpicBaseMismatch("/r", 327, 320, { actualBase: "main", prNumber: 42, checkedAt: 1000 });
+  const got = s.getEpicBaseMismatch("/r", 327, 320);
+  expect(got).toEqual({ actualBase: "main", prNumber: 42, checkedAt: 1000 });
+
+  // upsert refreshes actualBase/prNumber/checkedAt (checkedAt is the throttle anchor)
+  s.recordEpicBaseMismatch("/r", 327, 320, { actualBase: "dev", prNumber: 42, checkedAt: 2000 });
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toEqual({
+    actualBase: "dev",
+    prNumber: 42,
+    checkedAt: 2000,
+  });
+
+  // null prNumber is allowed
+  s.recordEpicBaseMismatch("/r", 327, 321, { actualBase: "main", prNumber: null, checkedAt: 3000 });
+  const list = s.listEpicBaseMismatches("/r", 327);
+  expect(list).toEqual([
+    { childNumber: 320, actualBase: "dev", prNumber: 42 },
+    { childNumber: 321, actualBase: "main", prNumber: null },
+  ]);
+
+  // scoped by repo + parent
+  expect(s.listEpicBaseMismatches("/other", 327)).toEqual([]);
+  expect(s.listEpicBaseMismatches("/r", 999)).toEqual([]);
+
+  // clear removes only the one child
+  s.clearEpicBaseMismatch("/r", 327, 320);
+  expect(s.getEpicBaseMismatch("/r", 327, 320)).toBeNull();
+  expect(s.listEpicBaseMismatches("/r", 327)).toEqual([
+    { childNumber: 321, actualBase: "main", prNumber: null },
+  ]);
+});

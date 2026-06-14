@@ -40,6 +40,11 @@ const EPIC_BLOCKED_BY_CONCURRENCY = 8;
  *  keeps `gh api matching-refs` off the per-pump hot path. */
 const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
 
+/** #645 (Task 2): once a child's PR is found targeting the wrong base, don't re-pay the
+ *  `prReviewMeta` API call on every pump while the operator hasn't fixed it — recheck at most
+ *  this often per child. Bounds the cost to ≤1 call/child/~60s while a child stays blocked. */
+const EPIC_BASE_RECHECK_TTL_MS = 60_000;
+
 /** Cap on epic-landing-PR open attempts (#635, Stage B). A failed `openPr` flips the
  *  `epic_completed` row to `landingState:'error'` and increments `landingAttempts`; the
  *  autonomous tick retries until this many failures, then PARKS the row in `error` —
@@ -109,6 +114,10 @@ export interface DrainDeps {
     | "recordEpicCompleted"
     | "listEpicCompleted"
     | "setEpicLandingPr"
+    | "recordEpicBaseMismatch"
+    | "clearEpicBaseMismatch"
+    | "getEpicBaseMismatch"
+    | "listEpicBaseMismatches"
   >;
   service: {
     create(input: CreateSessionInput): Promise<Session>;
@@ -274,6 +283,8 @@ export class DrainService {
       run.parentIssueNumber,
       persistedBranch,
     );
+    // (Task 2) children parked at retire because their PR targets the wrong base.
+    const baseMismatches = this.deps.store.listEpicBaseMismatches(repoPath, run.parentIssueNumber);
     return assembleEpic({
       repoPath,
       run,
@@ -291,6 +302,7 @@ export class DrainService {
       persistedBranch,
       integratedBases,
       divergentBranches,
+      baseMismatches,
     });
   }
 
@@ -880,6 +892,121 @@ export class DrainService {
   }
 
   /**
+   * #645 (Task 2): verify an epic child's PR base before retire merges it into the integration
+   * branch. The child is only *told* (advisory prompt/steer) to open its PR with
+   * `--base <integration branch>`; nothing forces it. Returns `true` when retire must FAIL CLOSED
+   * (do not merge/record/archive/drop-claim) — either the PR targets the wrong base, the probe
+   * failed, or a fresh mismatch marker is throttling the recheck. `false` ⇒ base verified (or the
+   * forge can't tell — Gitea has no `prReviewMeta`, so behavior is unchanged). Side effects: parks
+   * / clears the `epic_base_mismatch` marker (the throttle anchor + assembleEpic warning source).
+   */
+  private async epicChildBaseBlocked(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    s: Session,
+    decision: Extract<DrainDecision, { kind: "retire" }>,
+  ): Promise<boolean> {
+    if (!forge.prReviewMeta) return false; // Gitea: can't tell — preserve today's behavior exactly.
+    const child = s.issueNumber!;
+    // Throttle: a fresh (<60s) marker means we already found the wrong base recently — stay blocked
+    // without re-paying the prReviewMeta call. Bounds it to ≤1 call/child/~60s while stuck.
+    const existing = this.deps.store.getEpicBaseMismatch(repoPath, parent, child);
+    if (existing && this.now() - existing.checkedAt < EPIC_BASE_RECHECK_TTL_MS) return true;
+    let actual: string | undefined;
+    try {
+      actual = (await forge.prReviewMeta(decision.prNumber))?.baseRefName;
+    } catch (err) {
+      // Probe failure is not a green light — stay blocked (do NOT merge into the wrong place on a
+      // transient API error). Refresh the marker so the throttle still applies.
+      console.warn(
+        `[drain] epic child base-check pr#${decision.prNumber} (issue #${child}) failed; staying blocked:`,
+        err,
+      );
+      this.deps.store.recordEpicBaseMismatch(repoPath, parent, child, {
+        actualBase: existing?.actualBase ?? "",
+        prNumber: decision.prNumber,
+        checkedAt: this.now(),
+      });
+      return true;
+    }
+    if (actual !== s.baseBranch) {
+      this.deps.store.recordEpicBaseMismatch(repoPath, parent, child, {
+        actualBase: actual ?? "",
+        prNumber: decision.prNumber,
+        checkedAt: this.now(),
+      });
+      console.warn(
+        `[drain] epic child pr#${decision.prNumber} (issue #${child}) targets \`${actual ?? "?"}\`, not the epic branch \`${s.baseBranch}\` — blocked until re-targeted`,
+      );
+      return true; // fail closed: child stays un-integrated; dependents stay blocked.
+    }
+    this.deps.store.clearEpicBaseMismatch(repoPath, parent, child); // matched — clear stale marker.
+    return false;
+  }
+
+  /**
+   * Epic-child retire (base already verified by {@link epicChildBaseBlocked}): squash-merge the PR
+   * INTO its integration branch, record it as integrated so dependents unblock (no GitHub issue
+   * auto-close — the child issue stays open until the epic→default PR lands), then archive. The
+   * claim is RETAINED (releasing would re-spawn the still-open issue). A merge throw leaves the
+   * session live for next-tick retry (no record/archive); an archive throw is recoverable — the
+   * integration is already recorded and the pr-poller reaps the merged PR.
+   */
+  private async retireEpicChild(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    s: Session,
+    decision: Extract<DrainDecision, { kind: "retire" }>,
+  ): Promise<void> {
+    try {
+      // deleteBranch removes the child's MERGED head (task) branch on origin — standard post-merge
+      // hygiene. It is the PR's head, never the integration branch (the base), so the accumulating
+      // integration branch is untouched.
+      await forge.merge(decision.prNumber, { method: "squash", deleteBranch: true });
+    } catch (err) {
+      console.warn(
+        `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
+        err,
+      );
+      return; // leave the session live; next tick retries. Do NOT record or archive.
+    }
+    this.deps.store.recordEpicIntegrated(
+      repoPath,
+      parent,
+      s.issueNumber!,
+      {
+        number: decision.prNumber,
+        url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
+      },
+      s.baseBranch, // #645 (b): the branch this child actually squash-merged into
+    );
+    try {
+      await this.deps.service.archive(decision.sessionId);
+    } catch (err) {
+      // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
+      // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
+      // session stays live AND polled (pr-poller skips only archived rows). The poller re-observes
+      // the merged PR and settles it via reapMerged → settleMergedSession (archive + teardown) —
+      // the same path any out-of-band merge takes. That recovery closes the child issue instead of
+      // keeping it open, but the integration is already recorded above, so dependents unblock
+      // either way. The session can NOT be re-selected by the retire gate (readyToRetire requires
+      // state==="open"; the PR is merged), hence the poller is the recovery, not a retry.
+      console.warn(
+        `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
+        err,
+      );
+      return;
+    }
+    // Keep the claim: the child issue stays open until the epic lands; releasing would let it
+    // re-spawn. Mirrors the non-epic retire path.
+    this.retainClaimOnArchive.add(decision.sessionId);
+    this.deps.dropPrCache(decision.sessionId);
+    this.deps.emitArchived(decision.sessionId);
+  }
+
+  /**
    * Retire a ready session: ensure the PR links its issue (so the forge
    * auto-closes the issue when a human merges), then archive the session
    * (stops the pane, removes the worktree, marks the row archived). The open,
@@ -900,51 +1027,13 @@ export class DrainService {
     const epicRun = this.deps.store.getEpicRun(repoPath);
     const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
     if (epicActive && s?.issueNumber != null && isEpicIntegrationBranch(s.baseBranch)) {
-      try {
-        // deleteBranch removes the child's MERGED head (task) branch on origin — standard
-        // post-merge hygiene. It is the PR's head, never the integration branch (the base),
-        // so the accumulating integration branch is untouched.
-        await forge.merge(decision.prNumber, { method: "squash", deleteBranch: true });
-      } catch (err) {
-        console.warn(
-          `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
-          err,
-        );
-        return; // leave the session live; next tick retries. Do NOT record or archive.
-      }
-      this.deps.store.recordEpicIntegrated(
-        repoPath,
-        epicRun!.parentIssueNumber,
-        s.issueNumber,
-        {
-          number: decision.prNumber,
-          url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
-        },
-        s.baseBranch, // #645 (b): the branch this child actually squash-merged into
-      );
-      try {
-        await this.deps.service.archive(decision.sessionId);
-      } catch (err) {
-        // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This
-        // is recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below,
-        // so the session stays live AND polled (pr-poller skips only archived rows). The poller
-        // re-observes the merged PR and settles it via reapMerged → settleMergedSession (archive
-        // + teardown) — the same path any out-of-band merge takes. That recovery closes the child
-        // issue instead of keeping it open, but the integration is already recorded above, so
-        // dependents unblock either way. The session can NOT be re-selected by the retire gate
-        // (readyToRetire requires state==="open"; the PR is merged), hence the poller is the
-        // recovery, not a retry of this path.
-        console.warn(
-          `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
-          err,
-        );
+      // #645 (Task 2): enforce the child PR's actual base against the integration branch. On
+      // mismatch (or while throttled-blocked from a prior mismatch) this returns true → fail
+      // closed: skip merge/record/archive/claim-drop so the child stays un-integrated and the
+      // operator re-targets the PR (the remedy is surfaced via assembleEpic warnings).
+      if (await this.epicChildBaseBlocked(forge, repoPath, epicRun!.parentIssueNumber, s, decision))
         return;
-      }
-      // Keep the claim: the child issue stays open until the epic lands; releasing would let it
-      // re-spawn. Mirrors the non-epic retire path below.
-      this.retainClaimOnArchive.add(decision.sessionId);
-      this.deps.dropPrCache(decision.sessionId);
-      this.deps.emitArchived(decision.sessionId);
+      await this.retireEpicChild(forge, repoPath, epicRun!.parentIssueNumber, s, decision);
       return;
     }
     // Best-effort issue link: a failure must NOT block teardown.

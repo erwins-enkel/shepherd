@@ -43,6 +43,10 @@ export interface AssembleInput {
   /** Stray `epic/*` host branches that reference the parent number but are NOT the pinned
    *  branch (computed + throttled in drain.buildEpic). Each surfaces a warning (c). */
   divergentBranches?: string[];
+  /** (Task 2) children parked at retire because their PR targets a base other than the pinned
+   *  epic branch (`epic_base_mismatch`, read in drain.buildEpic). Each surfaces an actionable,
+   *  remedy-naming warning — the epic is BLOCKED until the operator re-targets the PR. */
+  baseMismatches?: { childNumber: number; actualBase: string; prNumber: number | null }[];
 }
 
 interface ResolvedGraph {
@@ -139,30 +143,7 @@ export function assembleEpic(input: AssembleInput): Epic {
     return child;
   });
 
-  // ── #645 epic-branch divergence warnings ──────────────────────────────────
-  // (a) title drift: the live title now derives a different canonical name than the pinned one.
-  const canonical = epicIntegrationBranch(input.parent.number, input.parent.title);
-  if (canonical !== input.persistedBranch) {
-    warnings.push(
-      `epic branch pinned to \`${input.persistedBranch}\`; current title derives \`${canonical}\` (title edited — children stay on the pinned branch)`,
-    );
-  }
-  // (b) integrated-child drift: a child squash-merged into a branch other than the pinned one.
-  if (input.integratedBases) {
-    for (const [n, base] of input.integratedBases) {
-      if (base && base !== input.persistedBranch) {
-        warnings.push(
-          `child #${n} merged into \`${base}\`, not the pinned \`${input.persistedBranch}\``,
-        );
-      }
-    }
-  }
-  // (c) host-branch drift: a stray epic/* ref references this epic but isn't the pinned branch.
-  for (const b of input.divergentBranches ?? []) {
-    warnings.push(
-      `divergent epic branch \`${b}\` references epic #${input.parent.number} but is not the pinned \`${input.persistedBranch}\``,
-    );
-  }
+  warnings.push(...divergenceWarnings(input));
 
   return {
     repoPath: input.repoPath,
@@ -173,4 +154,49 @@ export function assembleEpic(input: AssembleInput): Epic {
     warnings,
     run: input.run,
   };
+}
+
+/** #645 epic-branch divergence warnings (pure — the drain reads forge/store and passes the inputs
+ *  in). (a) live title now derives a different canonical name than the pinned branch; (b) an
+ *  integrated child squash-merged into a non-pinned base; (c) a stray host `epic/*` ref references
+ *  this epic; (Task 2) a child parked at retire because its PR targets the wrong base — the warning
+ *  names the exact remedy (`gh pr edit … --base <pinned>`) and the epic is blocked until fixed. */
+function divergenceWarnings(input: AssembleInput): string[] {
+  const out: string[] = [];
+  const pinned = input.persistedBranch;
+  // (a) title drift
+  const canonical = epicIntegrationBranch(input.parent.number, input.parent.title);
+  if (canonical !== pinned) {
+    out.push(
+      `epic branch pinned to \`${pinned}\`; current title derives \`${canonical}\` (title edited — children stay on the pinned branch)`,
+    );
+  }
+  // (b) integrated-child drift
+  for (const [n, base] of input.integratedBases ?? []) {
+    if (base && base !== pinned) {
+      out.push(`child #${n} merged into \`${base}\`, not the pinned \`${pinned}\``);
+    }
+  }
+  // (c) host-branch drift
+  for (const b of input.divergentBranches ?? []) {
+    out.push(
+      `divergent epic branch \`${b}\` references epic #${input.parent.number} but is not the pinned \`${pinned}\``,
+    );
+  }
+  // (Task 2) base-mismatch
+  for (const mm of input.baseMismatches ?? []) out.push(baseMismatchWarning(mm, pinned));
+  return out;
+}
+
+/** (Task 2) One actionable base-mismatch warning: names the wrong base + the exact `gh pr edit`
+ *  remedy (omitted when the PR number is unknown) and that the epic is blocked until re-targeted. */
+function baseMismatchWarning(
+  mm: { childNumber: number; actualBase: string; prNumber: number | null },
+  pinned: string,
+): string {
+  const pr = mm.prNumber != null ? ` #${mm.prNumber}` : "";
+  const edit =
+    mm.prNumber != null ? ` — re-target it (gh pr edit ${mm.prNumber} --base ${pinned})` : "";
+  const target = mm.actualBase ? `targets \`${mm.actualBase}\`` : "targets an unknown base";
+  return `child #${mm.childNumber} PR${pr} ${target}, not the epic branch \`${pinned}\`${edit} — epic blocked until fixed`;
 }

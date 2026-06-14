@@ -407,6 +407,13 @@ export class SessionStore implements CapStore, CreditStore {
       landingAttempts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.migrateEpicCompletedColumns();
+    // #645: a child whose PR targets a base other than the pinned epic branch is parked here at
+    // retire (fail-closed: not merged, not integrated). Keyed per child; the row is the throttle
+    // anchor (bounds prReviewMeta to ≤1/child/~60s while stuck) and the assembleEpic warning source.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_base_mismatch (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      actualBase TEXT NOT NULL, prNumber INTEGER, checkedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -665,6 +672,69 @@ export class SessionStore implements CapStore, CreditStore {
       prUrl: string | null;
       mergedBase: string | null;
       mergedAt: number;
+    }[];
+  }
+
+  // ── epic base-mismatch markers (#645) ─────────────────────────────────────
+  /** Park a child whose PR targets the wrong base. Upsert — refreshes actualBase/prNumber/checkedAt
+   *  (checkedAt is the throttle anchor, so it must advance on every recheck). */
+  recordEpicBaseMismatch(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+    m: { actualBase: string; prNumber: number | null; checkedAt: number },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_base_mismatch (repoPath, parentIssueNumber, childNumber, actualBase, prNumber, checkedAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         actualBase = excluded.actualBase,
+         prNumber = excluded.prNumber,
+         checkedAt = excluded.checkedAt`,
+      [repoPath, parentIssueNumber, childNumber, m.actualBase, m.prNumber, m.checkedAt],
+    );
+  }
+
+  /** Clear a child's base-mismatch marker (the PR was re-targeted / merged correctly). */
+  clearEpicBaseMismatch(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_base_mismatch WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      [repoPath, parentIssueNumber, childNumber],
+    );
+  }
+
+  /** A single child's marker (or null) — drives the doRetire throttle read. */
+  getEpicBaseMismatch(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+  ): { actualBase: string; prNumber: number | null; checkedAt: number } | null {
+    return this.db
+      .query(
+        `SELECT actualBase, prNumber, checkedAt FROM epic_base_mismatch
+         WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber, childNumber) as {
+      actualBase: string;
+      prNumber: number | null;
+      checkedAt: number;
+    } | null;
+  }
+
+  /** All parked children for one epic — fed into assembleEpic for the actionable warnings. */
+  listEpicBaseMismatches(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { childNumber: number; actualBase: string; prNumber: number | null }[] {
+    return this.db
+      .query(
+        `SELECT childNumber, actualBase, prNumber FROM epic_base_mismatch
+         WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY childNumber`,
+      )
+      .all(repoPath, parentIssueNumber) as {
+      childNumber: number;
+      actualBase: string;
+      prNumber: number | null;
     }[];
   }
 

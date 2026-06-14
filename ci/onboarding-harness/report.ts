@@ -12,6 +12,16 @@ function classify(r: ScenarioResult): "PASS" | "DETECTION GAP" | "ADVICE GAP" | 
   return r.detection.detected ? "ADVICE GAP" : "DETECTION GAP";
 }
 
+/** Scenarios that represent a real regression worth flagging — a missed/
+ *  misclassified defect (DETECTION GAP) or coaching that didn't heal it (ADVICE
+ *  GAP). PASS and by-design DETECTION-ONLY are NOT gaps. */
+export function gapScenarios(results: ScenarioResult[]): ScenarioResult[] {
+  return results.filter((r) => {
+    const k = classify(r);
+    return k === "DETECTION GAP" || k === "ADVICE GAP";
+  });
+}
+
 function tableRow(r: ScenarioResult, klass: ReturnType<typeof classify>): string {
   return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`;
 }

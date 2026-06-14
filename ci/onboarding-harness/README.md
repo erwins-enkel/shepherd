@@ -59,6 +59,16 @@ systemctl --user enable --now shepherd-onboarding.timer
 
 The timer fires nightly at 03:30 and writes the gap report to the working directory.
 
+## Accountability (GitHub issue)
+
+The `.service` sets `SHEPHERD_ONBOARDING_REPORT_ISSUE=1`, so the nightly **files its outcome to GitHub** as a single rolling issue (label `onboarding-regression`) whose lifecycle mirrors the regression:
+
+- **gap found, no open issue** → opens one (body = the gap report)
+- **gap persists** → refreshes the issue body to the latest report + adds a dated comment (an auditable timeline)
+- **run goes clean** → closes the issue ("regression resolved")
+
+So a finding can't rot in an overwritten file — it surfaces as an open, trackable issue until the harness is green again. Only **full** runs report (a single `--scenario` never opens/closes the issue, since it checks just one defect); the env-gate keeps manual/ad-hoc full runs side-effect-free. Requires `gh` authenticated on the host. Dedup relies on the daily cadence (GitHub's label list is eventually-consistent, so back-to-back runs within seconds could double-file — irrelevant 24h apart).
+
 ## Release gate
 
 Before tagging a release, run:

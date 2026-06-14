@@ -131,60 +131,70 @@
     aria-label={m.planpanel_title()}
     use:dialog={{ onclose }}
   >
-    <div class="chead">
-      <span class="micro">{m.planpanel_title()}</span>
-      <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
-    </div>
+    <!-- Canonical top bar: a back chevron returns to the session view, the session
+         title rides in the middle (mirrors Viewport's mobile header). Replaces the
+         lone ✕ so the dialog reads like every other full-screen view on mobile. -->
+    <header class="chead">
+      <button type="button" class="back" onclick={onclose} aria-label={m.planpanel_back_aria()}
+        >‹</button
+      >
+      <div class="htitle">
+        <span class="micro">{m.planpanel_title()}</span>
+        <span class="sname" title={session.name}>{session.name}</span>
+      </div>
+    </header>
 
-    <section class="plan">
-      {#if planHtml}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
-        <div class="md">{@html planHtml}</div>
-      {:else}
-        <p class="empty">{m.planpanel_empty()}</p>
-      {/if}
-    </section>
-
-    {#if gate}
-      <section class="verdict">
-        <div class="micro">{m.planpanel_verdict()}</div>
-        {#if gate.summary}
-          <p class="summary">{gate.summary}</p>
-        {/if}
-        {#if bodyHtml}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->
-          <div class="md">{@html bodyHtml}</div>
-        {/if}
-        {#if gate.findings.length > 0}
-          <div class="micro findings-head">{m.planpanel_findings()}</div>
-          <ul class="findings">
-            {#each gate.findings as f, i (i)}
-              <li>{f}</li>
-            {/each}
-          </ul>
+    <div class="body">
+      <section class="plan">
+        {#if planHtml}
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
+          <div class="md">{@html planHtml}</div>
+        {:else}
+          <p class="empty">{m.planpanel_empty()}</p>
         {/if}
       </section>
-    {/if}
 
-    {#if outcome === "unchanged"}
-      <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
-    {:else if outcome === "error"}
-      <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
-    {/if}
-
-    <div class="actions">
-      {#if canReviewNow}
-        <button type="button" class="review" onclick={review} disabled={inFlight}>
-          {#if inFlight}
-            <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
-          {:else}
-            {m.planpanel_review_now()}
+      {#if gate}
+        <section class="verdict">
+          <div class="micro">{m.planpanel_verdict()}</div>
+          {#if gate.summary}
+            <p class="summary">{gate.summary}</p>
           {/if}
-        </button>
+          {#if bodyHtml}
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->
+            <div class="md">{@html bodyHtml}</div>
+          {/if}
+          {#if gate.findings.length > 0}
+            <div class="micro findings-head">{m.planpanel_findings()}</div>
+            <ul class="findings">
+              {#each gate.findings as f, i (i)}
+                <li>{f}</li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
       {/if}
-      <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
-        {m.planpanel_go()}
-      </button>
+
+      {#if outcome === "unchanged"}
+        <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
+      {:else if outcome === "error"}
+        <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
+      {/if}
+
+      <div class="actions">
+        {#if canReviewNow}
+          <button type="button" class="review" onclick={review} disabled={inFlight}>
+            {#if inFlight}
+              <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
+            {:else}
+              {m.planpanel_review_now()}
+            {/if}
+          </button>
+        {/if}
+        <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
+          {m.planpanel_go()}
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -204,8 +214,17 @@
     width: min(640px, 92vw);
     max-height: 86vh;
     overflow-y: auto;
+    /* lock horizontal axis: long code/plan text wraps or scrolls inside its own
+       block (.md pre), never swings the whole sheet sideways on touch. */
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
+    display: flex;
+    flex-direction: column;
+  }
+  /* scrollable content below the sticky top bar */
+  .body {
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -231,23 +250,55 @@
     border-left: 0;
     border-top: 0;
   }
+  /* sticky top bar — same idiom as Viewport's .vp-head / BacklogView's .overlay-head:
+     back control left, title alongside, a hairline rule under it. */
   .chead {
     display: flex;
     align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 12px;
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
+    position: sticky;
+    top: 0;
+    z-index: 1;
   }
-  .x {
-    margin-left: auto;
+  /* canonical back chevron — mirrors Viewport's .back */
+  .back {
     background: transparent;
-    border: 0;
-    color: var(--color-muted);
-    cursor: pointer;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
     font: inherit;
+    font-size: var(--fs-xl);
+    line-height: 1;
+    padding: 2px 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .back:hover {
+    background: var(--color-hover);
+  }
+  .htitle {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
   }
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+  /* session title — ellipsizes within the bar so it never widens the sheet */
+  .sname {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .plan,
   .verdict {
@@ -365,5 +416,25 @@
     color: var(--color-faint);
     border-color: var(--color-line);
     box-shadow: none;
+  }
+
+  /* phone: a full-bleed sheet, edge to edge — no side margins, no corner brackets,
+     nothing to swing sideways. Matches the LeftoverDialog full-screen idiom. */
+  @media (max-width: 768px) {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .card {
+      width: 100%;
+      max-width: 100%;
+      max-height: none;
+      height: 100dvh;
+      border: 0;
+    }
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
   }
 </style>

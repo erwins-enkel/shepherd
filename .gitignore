@@ -27,6 +27,9 @@ dist/
 # Agent-declared live-preview port hint (transient, never committed)
 .shepherd-preview
 
+# Onboarding-harness gap report — generated into cwd by ci/onboarding-harness/run.ts
+onboarding-gap-report.md
+
 # Self-hosted CI runner: never commit a filled-in env; keep the example tracked
 # (the global `.env.*` rule above would otherwise swallow .env.example).
 ci/self-hosted-runner/.env

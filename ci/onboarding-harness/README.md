@@ -71,11 +71,18 @@ So a finding can't rot in an overwritten file — it surfaces as an open, tracka
 
 The same full run also publishes a **commit status** (`onboarding-harness` context, success/failure) on the tested SHA, so every nightly leaves a visible green/red record on the commit — even a clean run that files no issue — linked to the regression issue when red.
 
+**Scope — the verdict (issue, status, exit code) is the deterministic GATE subset only** (`structured` AND not `detectionOnly` — the same scenarios `onboarding-gate.sh` runs). A prose/agent gap (e.g. `git-missing`, whose distro-specific fix runs through the LLM agent) or a detection-only scenario shows in the report but **never** opens the issue, flips the status to red, or fails the run — it can't auto-heal unattended, so it must not block releases. The full gap report still lists every scenario.
+
 ## Release gate
 
 Because the harness needs Incus (a self-hosted host), it **cannot run in GitHub-hosted CI**, and exposing the host's Incus socket to the sandboxed self-hosted runners (which execute untrusted PR code) would defeat their isolation. So enforcement is split: the **host executes** the harness nightly and publishes the verdict to GitHub (the rolling issue + commit status above); **CI consults** it.
 
-`.github/workflows/onboarding-release-gate.yml` runs on release-please's release PR and **fails if an `onboarding-regression` issue is open** — i.e. it blocks shipping a release over a known-red onboarding harness. It only reads an issue (no Incus), runs on a hosted runner, and is robust to `main` moving (it consults the rolling issue, not a per-SHA status). To make it actually block the merge, add `onboarding-release-gate` to the branch's **required status checks** (a repo setting). It reflects the last nightly, so a host that's been down for days can leave the signal stale.
+`.github/workflows/onboarding-release-gate.yml` runs on release-please's release PR and requires the harness to be **fresh-green** before a release can ship. Two checks, each blocking (fail closed), covering distinct failure modes:
+
+1. **No open `onboarding-regression` issue** — an open one means an _active regression_ (and catches a red run whose status-publish failed but whose issue still opened).
+2. **A fresh green `onboarding-harness` commit status** — the nightly stamps that status on the main SHA it tested; main moves on, so the gate walks recent commits to the latest such status and requires `success` **and** age < 48h. Missing or stale ⇒ blocked, so a **host that's been down for days can't slip a release through** on "no open issue alone" (the staleness hole). This is what makes the commit status load-bearing rather than decorative.
+
+It only reads issues/statuses (no Incus), runs on a hosted runner. To make it actually block the merge, add `onboarding-release-gate` to the branch's **required status checks** (a repo setting).
 
 ### Manual subset gate
 

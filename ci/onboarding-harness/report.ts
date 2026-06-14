@@ -12,24 +12,23 @@ function classify(r: ScenarioResult): "PASS" | "DETECTION GAP" | "ADVICE GAP" | 
   return r.detection.detected ? "ADVICE GAP" : "DETECTION GAP";
 }
 
-/** Scenarios that represent a real regression worth flagging — a missed/
- *  misclassified defect (DETECTION GAP) or coaching that didn't heal it (ADVICE
- *  GAP). PASS and by-design DETECTION-ONLY are NOT gaps. */
-export function gapScenarios(results: ScenarioResult[]): ScenarioResult[] {
-  return results.filter((r) => {
-    const k = classify(r);
-    return k === "DETECTION GAP" || k === "ADVICE GAP";
-  });
+/** Gate regressions: a gate-eligible (deterministic) scenario that didn't reach
+ *  green. These — and only these — drive the release verdict (status + issue).
+ *  Prose/agent + detection-only scenarios are reported but never gate. */
+export function gateGapScenarios(results: ScenarioResult[]): ScenarioResult[] {
+  return results.filter((r) => r.gateEligible && !r.reachedGreen);
 }
 
-/** One-line outcome for a commit-status description (≤140 chars on the wire). */
+/** One-line GATE outcome for a commit-status description (≤140 chars on the
+ *  wire) — scoped to the deterministic subset, so an informational prose/agent
+ *  gap (e.g. git-missing) doesn't flip the release verdict. */
 export function statusDescription(results: ScenarioResult[]): string {
-  const applicable = results.filter((r) => !r.detectionOnly);
-  const green = applicable.filter((r) => r.reachedGreen).length;
-  const gaps = gapScenarios(results);
+  const gate = results.filter((r) => r.gateEligible);
+  const green = gate.filter((r) => r.reachedGreen).length;
+  const gaps = gateGapScenarios(results);
   return gaps.length === 0
-    ? `${green}/${applicable.length} scenarios green`
-    : `${gaps.length} gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}`;
+    ? `${green}/${gate.length} gate scenarios green`
+    : `${gaps.length} gate gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}`;
 }
 
 function tableRow(r: ScenarioResult, klass: ReturnType<typeof classify>): string {

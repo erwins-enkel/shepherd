@@ -82,7 +82,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "git-missing",
-    image: "images:alpine/3.20",
+    image: "images:alpine/3.21",
     seed: ["apk del git 2>/dev/null || true", "rm -f /usr/bin/git"],
     expect: [{ id: "git", state: "error" }],
     // prose: git install is distro-specific; no single verbatim one-liner covers

@@ -26,7 +26,13 @@ async function runScenario(
   scenario: Scenario,
   tarball: string,
 ): Promise<ScenarioResult> {
-  const base = { scenarioId: scenario.id, image: scenario.image };
+  const base = {
+    scenarioId: scenario.id,
+    image: scenario.image,
+    // Part of the deterministic release gate iff structured AND not detection-only
+    // (mirrors onboarding-gate.sh). Prose/agent + detection-only never gate.
+    gateEligible: scenario.coaching === "structured" && !scenario.detectionOnly,
+  };
   let detection: DetectionResult | undefined;
   try {
     await seedInstance(driver, scenario, tarball);
@@ -193,12 +199,12 @@ async function main() {
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
 
-  // Non-zero exit if any APPLY-ABLE scenario failed to reach green (detection-only
-  // scenarios are excluded). Consumed by the Phase 2 gate.
-  const applicable = results.filter((r) => !r.detectionOnly);
-  const ok = applicable.every((r) => r.reachedGreen);
-  await maybeReportRun(results, report, only, ok);
-  process.exit(ok ? 0 : 1);
+  // Verdict = the deterministic GATE subset only (structured, non-detection-only —
+  // same as onboarding-gate.sh). A prose/agent gap (git-missing) or a detection-only
+  // scenario shows in the report but never fails the run or blocks a release.
+  const gateOk = results.filter((r) => r.gateEligible).every((r) => r.reachedGreen);
+  await maybeReportRun(results, report, only, gateOk);
+  process.exit(gateOk ? 0 : 1);
 }
 
 void main();

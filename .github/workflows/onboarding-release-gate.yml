@@ -24,17 +24,65 @@ jobs:
     if: ${{ startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Block the release if the onboarding harness is red
+      - name: Require the onboarding harness to be fresh-green
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # Max age of the latest nightly verdict before it's "stale" (nightly is
+          # daily, so this allows one missed run of slack).
+          MAX_AGE_SECONDS: "172800" # 48h
         run: |
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" \
-            --label onboarding-regression --state open --json url --jq 'length')
-          echo "open onboarding-regression issues: $open"
-          if [ "$open" -gt 0 ]; then
-            url=$(gh issue list --repo "$GITHUB_REPOSITORY" \
-              --label onboarding-regression --state open --json url --jq '.[0].url')
-            echo "::error::Onboarding harness is RED — resolve the regression before releasing: $url"
+          set -euo pipefail
+
+          # Two signals from the nightly host run cover two distinct failure modes;
+          # either one blocks the release (fail closed):
+          #
+          #   1. an open `onboarding-regression` issue  → an ACTIVE regression
+          #      (also catches a red run whose status-publish failed but whose
+          #       issue still opened).
+          #   2. the latest `onboarding-harness` commit status is not a FRESH
+          #      success → the harness isn't verified-green recently, e.g. the
+          #      Incus host has been DOWN (no run at all leaves no fresh status).
+          #
+          # The status is the load-bearing freshness/liveness signal; the issue is
+          # the human-facing active-regression signal.
+
+          # (1) Active regression?
+          if [ "$(gh issue list --repo "$REPO" --label onboarding-regression --state open --json url --jq 'length')" -gt 0 ]; then
+            url=$(gh issue list --repo "$REPO" --label onboarding-regression --state open --json url --jq '.[0].url')
+            echo "::error::Onboarding harness is RED (open regression issue) — resolve before releasing: $url"
             exit 1
           fi
-          echo "Onboarding harness is green (no open regression issue) — release may proceed."
+
+          # (2) Fresh green status? The nightly stamps an `onboarding-harness` status
+          # on the main SHA it tested; main moves on (this repo lands dozens of
+          # commits/day), so walk commits NEWEST-FIRST within a generous time window
+          # — `since` + `--paginate`, so a busy day can't truncate the search the way
+          # a fixed commit count would — and take the first status found. Then require
+          # success + age < MAX_AGE_SECONDS. Missing or stale ⇒ fail closed (we can't
+          # confirm a recent green run, e.g. the Incus host is down).
+          since=$(date -u -d '96 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          latest=""
+          for sha in $(gh api --paginate "repos/$REPO/commits?sha=main&since=$since&per_page=100" --jq '.[].sha'); do
+            latest=$(gh api "repos/$REPO/commits/$sha/statuses" \
+              --jq '[.[] | select(.context=="onboarding-harness")] | sort_by(.created_at) | last // empty')
+            [ -n "$latest" ] && break
+          done
+          if [ -z "$latest" ]; then
+            echo "::error::No onboarding-harness status on recent main commits — has the nightly run? Refusing to release unverified."
+            exit 1
+          fi
+
+          state=$(printf '%s' "$latest" | jq -r .state)
+          created=$(printf '%s' "$latest" | jq -r .created_at)
+          age=$(( $(date -u +%s) - $(date -u -d "$created" +%s) ))
+          echo "latest onboarding-harness status: $state at $created (age ${age}s)"
+          if [ "$state" != "success" ]; then
+            echo "::error::Latest onboarding-harness status is '$state' — the harness is not green."
+            exit 1
+          fi
+          if [ "$age" -gt "$MAX_AGE_SECONDS" ]; then
+            echo "::error::Latest onboarding-harness status is stale (> ${MAX_AGE_SECONDS}s) — the nightly may not be running. Refusing to release on a stale signal."
+            exit 1
+          fi
+          echo "Onboarding harness is fresh-green — release may proceed."

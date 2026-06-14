@@ -7,7 +7,7 @@
 // Wikipedia article (en + de slugs) for deeper reading.  Do NOT hardcode
 // display text here — all user-facing strings live in the message catalogs.
 
-export type GlossaryTerm = {
+type GlossaryTerm = {
   id: string;
   kind: "internal" | "external";
   termKey: string;
@@ -15,7 +15,7 @@ export type GlossaryTerm = {
   wikipedia?: { en: string; de: string };
 };
 
-export const glossary: readonly GlossaryTerm[] = [
+const glossary: readonly GlossaryTerm[] = [
   {
     id: "epic",
     kind: "internal",

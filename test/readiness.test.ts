@@ -2,7 +2,14 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeReadiness, GUARDRAILS, type GuardrailId } from "../src/readiness";
+import {
+  analyzeReadiness,
+  GUARDRAILS,
+  INSTALL_STEPS,
+  PM_VERBS,
+  pickPackageManager,
+  type GuardrailId,
+} from "../src/readiness";
 
 let dir: string;
 
@@ -24,6 +31,24 @@ function pkg(obj: Record<string, unknown>) {
 function present(id: GuardrailId, report: { checks: { id: GuardrailId; present: boolean }[] }) {
   return report.checks.find((c) => c.id === id)?.present ?? false;
 }
+
+test("pickPackageManager: packageManager field wins over any lockfile", () => {
+  expect(pickPackageManager("pnpm@9.1.0", () => true)).toBe("pnpm");
+  expect(pickPackageManager("yarn@4.0.0", () => true)).toBe("yarn");
+});
+
+test("pickPackageManager: falls back to the root lockfile", () => {
+  expect(pickPackageManager(undefined, (rel) => rel === "bun.lock")).toBe("bun");
+  expect(pickPackageManager(undefined, (rel) => rel === "bun.lockb")).toBe("bun");
+  expect(pickPackageManager(undefined, (rel) => rel === "pnpm-lock.yaml")).toBe("pnpm");
+  expect(pickPackageManager(undefined, (rel) => rel === "yarn.lock")).toBe("yarn");
+  expect(pickPackageManager(undefined, (rel) => rel === "package-lock.json")).toBe("npm");
+});
+
+test("pickPackageManager: no field and no lockfile → npm fallback", () => {
+  expect(pickPackageManager(undefined, () => false)).toBe("npm");
+  expect(pickPackageManager("weird@1", () => false)).toBe("npm");
+});
 
 test("a repo without package.json is not applicable to the JS/TS baseline", () => {
   const r = analyzeReadiness(dir);
@@ -186,4 +211,46 @@ test("adopt-list (absent guardrails sorted by leverage) leads with pre-push CI m
     .sort((a, b) => b.weight - a.weight)
     .map((c) => c.id);
   expect(adopt[0]).toBe("pre_push_ci");
+});
+
+test("prescription lists PM-correct install commands for missing guardrails (bun)", () => {
+  pkg({ name: "bare" });
+  write("bun.lock", "");
+  const r = analyzeReadiness(dir);
+  expect(r.claudeMd).toContain("$ bun add -d eslint @eslint/js");
+  expect(r.claudeMd).toContain("$ bun add -d prettier");
+  expect(r.claudeMd).toContain("$ bunx husky init");
+});
+
+test("prescription uses the npm verbs when the repo is npm", () => {
+  pkg({ name: "bare" });
+  write("package-lock.json", "{}");
+  const r = analyzeReadiness(dir);
+  expect(r.claudeMd).toContain("$ npm i -D eslint @eslint/js");
+  expect(r.claudeMd).not.toContain("bun add");
+});
+
+test("a bare bun repo emits exactly the installable-guardrail commands, all bun", () => {
+  pkg({ name: "bare" });
+  write("bun.lock", "");
+  const r = analyzeReadiness(dir);
+  const cmdLines = r.claudeMd
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("$ "));
+  // Derived from the source of truth — no magic count to drift.
+  const expected = GUARDRAILS.flatMap((g) => INSTALL_STEPS[g.id](PM_VERBS.bun)).map(
+    (c) => `$ ${c}`,
+  );
+  expect(cmdLines.sort()).toEqual(expected.sort());
+  expect(INSTALL_STEPS.ci(PM_VERBS.bun)).toEqual([]);
+  expect(INSTALL_STEPS.agent_instructions(PM_VERBS.bun)).toEqual([]);
+  expect(INSTALL_STEPS.dependency_automation(PM_VERBS.bun)).toEqual([]);
+});
+
+test("a present guardrail emits no install command for itself", () => {
+  pkg({ name: "x", devDependencies: { eslint: "^9" }, scripts: { lint: "eslint ." } });
+  write("package-lock.json", "{}");
+  const r = analyzeReadiness(dir);
+  expect(r.claudeMd).not.toContain("$ npm i -D eslint @eslint/js");
 });

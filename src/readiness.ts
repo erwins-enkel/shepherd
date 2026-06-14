@@ -28,6 +28,8 @@ export type GuardrailId =
   | "dependency_automation"
   | "agent_instructions";
 
+export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
+
 export interface GuardrailCheck {
   id: GuardrailId;
   /** True when the guardrail is configured in the target repo. */
@@ -58,6 +60,8 @@ interface RepoScan {
   has: (rel: string) => boolean;
   /** Returns matching basenames in `subdir` (empty if missing). */
   glob: (subdir: string, test: (name: string) => boolean) => string[];
+  /** Detected package manager — drives the install verbs in the prescription. */
+  pm: PackageManager;
 }
 
 interface GuardrailDef {
@@ -249,12 +253,37 @@ function findPackageRoots(dir: string): string[] {
     .sort();
 }
 
-/** Merges one package.json's deps + scripts into the accumulators (first script wins). */
-function collectManifest(file: string, deps: Set<string>, scripts: Record<string, string>) {
+/**
+ * Resolves the target repo's package manager from its `packageManager` field
+ * (highest authority), else a root lockfile, else `npm` (universal fallback).
+ * Pure: `has(rel)` is the scan's root-aware existence probe, so detection spans
+ * the repo root and any package subdir without re-reading the tree.
+ */
+export function pickPackageManager(
+  field: string | undefined,
+  has: (rel: string) => boolean,
+): PackageManager {
+  const name = field?.split("@")[0]?.trim();
+  if (name === "bun" || name === "pnpm" || name === "yarn" || name === "npm") return name;
+  if (has("bun.lock") || has("bun.lockb")) return "bun";
+  if (has("pnpm-lock.yaml")) return "pnpm";
+  if (has("yarn.lock")) return "yarn";
+  if (has("package-lock.json")) return "npm";
+  return "npm";
+}
+
+/** Merges one package.json's deps + scripts (+ first packageManager) into the accumulators. */
+function collectManifest(
+  file: string,
+  deps: Set<string>,
+  scripts: Record<string, string>,
+  meta: { packageManager?: string },
+) {
   let pkg: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     scripts?: Record<string, string>;
+    packageManager?: string;
   } = {};
   try {
     pkg = JSON.parse(readFileSync(file, "utf8"));
@@ -265,6 +294,7 @@ function collectManifest(file: string, deps: Set<string>, scripts: Record<string
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);
   for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) scripts[name] ??= cmd;
+  meta.packageManager ??= pkg.packageManager;
 }
 
 function scanRepo(dir: string): RepoScan | null {
@@ -273,28 +303,26 @@ function scanRepo(dir: string): RepoScan | null {
 
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
-  for (const root of pkgRoots) collectManifest(join(dir, root, "package.json"), deps, scripts);
+  const meta: { packageManager?: string } = {};
+  for (const root of pkgRoots)
+    collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
   // Repo-level markers (.husky, .github/workflows, CLAUDE.md) stay at the
   // root, so file checks span the repo root + each package dir.
   const roots = pkgRoots[0] === "" ? pkgRoots : ["", ...pkgRoots];
-  return {
-    dir,
-    deps,
-    scripts,
-    has: (rel) => roots.some((root) => existsSync(join(dir, root, rel))),
-    glob: (subdir, test) => {
-      const names = new Set<string>();
-      for (const root of roots) {
-        try {
-          for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
-        } catch {
-          // missing dir in this root
-        }
+  const has = (rel: string) => roots.some((root) => existsSync(join(dir, root, rel)));
+  const glob = (subdir: string, test: (name: string) => boolean) => {
+    const names = new Set<string>();
+    for (const root of roots) {
+      try {
+        for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
+      } catch {
+        // missing dir in this root
       }
-      return [...names];
-    },
+    }
+    return [...names];
   };
+  return { dir, deps, scripts, has, glob, pm: pickPackageManager(meta.packageManager, has) };
 }
 
 export function analyzeReadiness(dir: string): ReadinessReport {
@@ -334,9 +362,16 @@ function generateClaudeMd(scan: RepoScan, checks: GuardrailCheck[]): string {
   const isTs = scan.deps.has("typescript") || scan.has("tsconfig.json");
   const stack = isTs ? "TypeScript" : "JavaScript";
   const missing = checks.filter((c) => !c.present).sort((a, b) => b.weight - a.weight);
+  const verbs = PM_VERBS[scan.pm];
 
   const adoptLines = missing.length
-    ? missing.map((c) => `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`).join("\n")
+    ? missing
+        .map((c) => {
+          const head = `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`;
+          const cmds = INSTALL_STEPS[c.id](verbs);
+          return cmds.length ? `${head}\n${cmds.map((cmd) => `    $ ${cmd}`).join("\n")}` : head;
+        })
+        .join("\n")
     : "- None — your deterministic guardrails already cover the baseline.";
 
   return `# House rules for AI agents (${stack})
@@ -404,4 +439,34 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
     "without it the whole tree is re-checked or skipped; staged-only keeps the hook fast.",
   commit_lint: "without it you correct commit message format by hand.",
   dead_code_audit: "without it dead exports and unused deps accrete and you spot them by eye.",
+};
+
+/** Dev-add + exec verbs per package manager (verbatim — feed the generated artifact). */
+export const PM_VERBS: Record<PackageManager, { add: string; exec: string }> = {
+  bun: { add: "bun add -d", exec: "bunx" },
+  pnpm: { add: "pnpm add -D", exec: "pnpm dlx" },
+  yarn: { add: "yarn add -D", exec: "yarn dlx" },
+  npm: { add: "npm i -D", exec: "npx" },
+};
+
+/**
+ * Concrete install steps per guardrail for the detected package manager. An empty
+ * array means there is no package to install — the guardrail is satisfied by
+ * creating a file (a CI workflow, a CLAUDE.md, a dependabot config), so the
+ * prescription keeps only its prose line. Exhaustive Record so a new guardrail is
+ * forced to declare its steps (matches TOOLING_LABEL / CHURN_PLAIN).
+ */
+export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string }) => string[]> = {
+  pre_push_ci: (v) => [`${v.add} husky`, `${v.exec} husky init`],
+  git_hooks: (v) => [`${v.add} husky`, `${v.exec} husky init`],
+  type_checker: (v) => [`${v.add} typescript`, `${v.exec} tsc --init`],
+  linter: (v) => [`${v.add} eslint @eslint/js`],
+  formatter: (v) => [`${v.add} prettier`],
+  test_runner: (v) => [`${v.add} vitest`],
+  lint_staged: (v) => [`${v.add} lint-staged`],
+  commit_lint: (v) => [`${v.add} @commitlint/cli @commitlint/config-conventional`],
+  dead_code_audit: (v) => [`${v.add} fallow`],
+  agent_instructions: () => [],
+  ci: () => [],
+  dependency_automation: () => [],
 };

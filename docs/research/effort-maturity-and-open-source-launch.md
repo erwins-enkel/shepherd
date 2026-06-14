@@ -116,7 +116,11 @@ to open-source; the launch is a **positioning and risk-framing exercise**, not a
 
 ### 2.1 Core narrative (the one thing to land)
 
-**"Run a herd of real Claude Code agents — and ship only what survives review."**
+**Headline (decided): "Shepherd builds Shepherd."** The artifact is the pitch — ~590 reviewed,
+gated PRs in 15 days, agents building the product behind the product's own review gates. Lead with
+the proof, not the adjective; it has a ring and it is true.
+
+Supporting line: **"Run a herd of real Claude Code agents — and ship only what survives review."**
 
 The launch is not "another agent dashboard." Two ideas, in this order:
 
@@ -125,8 +129,10 @@ The launch is not "another agent dashboard." Two ideas, in this order:
 2. **Opinionated shipping discipline** — plan gate, critic, merge train, hygiene gates institutionalize
    the engineering rigor that uncontrolled parallel agents erode.
 
-The unifying proof: **Shepherd built itself this way** — ~590 gated PRs in 15 days, behind its own
-bar. Lead with the artifact, not the adjective.
+> **Headline ↔ ToS coupling (read §2.9).** "Shepherd builds Shepherd" is the strongest possible
+> proof _and_ a live demonstration of large-scale automated subscription use — exactly the behaviour
+> R1 leaves unresolved. Keeping the headline means the ToS framing in §2.9 is no longer optional
+> polish; it is the thing that makes the headline safe to say. The two decisions are one decision.
 
 ### 2.2 Audience segments (in priority order)
 
@@ -253,7 +259,92 @@ can't drift from the product.
 | T+1            | LinkedIn eng-leader post + the "builds itself" mini-doc; respond to HN thread; capture FAQ from real questions into README.                                  |
 | T+2..7         | Newsletter outreach; iterate copy from what landed; open "good first issue" set to convert interest into contributors (bus-factor mitigation).               |
 
-### 2.9 Launch risks & mitigations
+### 2.9 ToS framing — the load-bearing decision (elaborated)
+
+This is the one decision the rest of the launch bends around, and your two choices —
+**launch independently** (no Anthropic heads-up) and **"Shepherd builds Shepherd" as the headline**
+— both _raise_ its stakes, not lower them:
+
+- **Independent launch removes the relationship buffer.** If you'd coordinated with Anthropic first,
+  a "we read this as permitted, do you agree?" conversation could happen in private. Launching cold
+  means the first time Anthropic engages may be _in public, on your HN thread_. The framing has to
+  be defensible on its own, with no backchannel to soften it.
+- **The headline flaunts the contested behaviour.** "Agents shipped 590 PRs on a subscription" is a
+  vivid, screenshot-able instance of automated/largely-unattended subscription use — precisely what
+  audit R1 says no Anthropic clause blesses, and what the metered Agent SDK credit (live 2026-06-15)
+  signals is _intended_ to flow through a different, capped channel. The better the demo lands, the
+  louder the "wait, is that allowed?" reply.
+
+So the framing isn't damage control bolted on at the end — it is what lets you keep the headline.
+
+#### The spectrum (and why only one option survives the brand)
+
+| Posture                     | What you'd say                                                                                                 | Verdict                                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Compliance-confident**    | "We type like a human, so it's fine."                                                                          | ✗ Reject. The repo's own audit calls this a _position, not settled fact_. Overclaiming is the single thing that breaks "earned" — and invites a takedown. |
+| **Silent / omit**           | Don't mention ToS; just ship.                                                                                  | ✗ Reject. HN finds it in comment #2. Silence reads as evasion or ignorance; both fatal.                                                                   |
+| **Compliance-first**        | Lead with footing B (API key); treat sub use as niche.                                                         | ~ Safe but self-defeating — it guts the "your own subscription / interactive substrate" thesis _and_ the self-build headline.                             |
+| **Transparency-forward** ✅ | "Here's our honest read of an open question — and a clearly-compliant mode if you can't accept the ambiguity." | **Recommended.** On-brand ("earned"), pre-empts the gotcha by saying it first, and is _already what the repo ships_.                                      |
+
+**Recommendation: transparency-forward, with footing B kept visibly one click away.** You are not
+inventing a posture — `docs/research/tos-position-and-auth-paths.md` already states it. Marketing's
+job is to surface it faithfully, not to spin it. Concretely:
+
+1. **Say the open question out loud, first.** Frame R1 as honestly unresolved: subscription
+   keystroke-puppeting for automated work is Shepherd's good-faith reading, **not** Anthropic-confirmed.
+   Link the audit. Owning the ambiguity is disarming; defending a clearance you don't have is not.
+2. **Put the clearly-compliant path right next to it.** Footing B (API key → Commercial Terms,
+   no-train-by-default, shipped v1.30.0) is the answer to "but I can't run my business on an
+   ambiguity." It converts the risk from a dealbreaker into a _choice the operator owns_.
+3. **Never overclaim.** No "fully compliant," no "Anthropic-approved," no "loophole." The honest
+   register _is_ the credibility.
+
+#### Reconciling the headline with the framing (so both can stand)
+
+The headline and the contested footing must be **decoupled** so the proof doesn't depend on the
+ambiguity:
+
+- **The self-build proves the _gates_, not the puppeting.** Frame the 590-PR metric as "PRs that
+  survived adversarial review," i.e. evidence the _discipline_ works — which is footing-agnostic.
+  The story is about quality control, not about which auth channel paid for the tokens.
+- **Be ready to say it runs on footing B too.** If pressed ("isn't your whole demo a ToS
+  violation?"), the clean answer is: the pipeline is identical under the Commercial API key — the
+  proof of discipline doesn't require subscription puppeting at all. That single sentence removes
+  the headline's exposure.
+
+#### Independent-launch posture (good-faith, non-adversarial)
+
+Launching without coordinating does **not** mean launching combatively. Keep the door open so that
+_if_ Anthropic notices, the public record already reads as good faith:
+
+- The repo already contains a **drafted question to Anthropic** (`tos-position-and-auth-paths.md` §5).
+  Keep it public and link it — it signals "we want to be told," not "we're dodging."
+- Tone toward Anthropic stays respectful throughout: "we'd genuinely welcome a definitive answer and
+  will comply with it." Never frame the model as beating the terms.
+- Decide in advance the response if Anthropic asks you to stop: footing B (and footing C, the
+  explicitly-permitted metered Agent SDK path) are your graceful-degradation answers, not a fight.
+
+#### Canonical pinned answer (pre-write; pin on HN + paste into the README FAQ)
+
+> **"Is this against Anthropic's Terms?"** Honest answer: the terms don't directly address it.
+> Shepherd drives the official, unmodified `claude` CLI by typing into a real interactive session —
+> it never uses the Agent SDK or `claude -p`. Our good-faith reading is that interactive use is
+> permitted; that's our _position_, not an Anthropic ruling, and we say so in our published ToS
+> audit [link]. If you can't accept that ambiguity, Shepherd ships an API-key mode (Commercial
+> Terms, no-train-by-default) that sidesteps the question entirely. We've drafted the question to
+> Anthropic [link] and will comply with whatever they answer.
+
+#### Do / don't (hand this to anyone writing launch copy)
+
+| Do                                                             | Don't                                         |
+| -------------------------------------------------------------- | --------------------------------------------- |
+| "Our good-faith reading / our position"                        | "Fully ToS-compliant" / "Anthropic-approved"  |
+| "The terms don't directly address this; here's our read"       | "We found a loophole" / "technically allowed" |
+| "Drives the official, unmodified CLI — no SDK, no `claude -p`" | "We bypass / get around the limits"           |
+| "Can't accept the ambiguity? Use API-key mode."                | Hiding footing B or burying the audit         |
+| Link the audit + the drafted Anthropic question                | Imply Anthropic has blessed it                |
+
+### 2.10 Launch risks & mitigations
 
 - **ToS blowback (primary).** Mitigate with radical transparency: publish the audit, lead with the
   honest "stated position, not confirmed" framing, surface the API-key footing prominently. Do **not**
@@ -267,14 +358,23 @@ can't drift from the product.
 - **Velocity skepticism ("AI slop").** Counter with the gates, the 278 tests, and the published
   process — the answer to "how is this not slop" is the entire discipline pillar.
 
-### 2.10 Unresolved questions (need your call before T-1)
+### 2.11 Questions — decided & still open
 
-1. ToS framing — lead **with** the compliance audit (transparency-forward), or keep it one click
-   away and lead purely on product? Recommend transparency-forward (on-brand, defuses the attack).
-2. Coordinate with Anthropic before launch (heads-up / relationship), or launch independently?
-3. Primary launch channel — Show HN as the spearhead (recommended) vs. X-thread-first?
-4. Make the "Shepherd builds Shepherd" claim **the** headline, or supporting evidence? (Headline =
-   higher reward + higher skepticism.)
-5. Ship video #4 (ToS walkthrough) at launch, or hold it? It defuses but also amplifies the topic.
-6. Repo home — stays at `erwins-enkel/shepherd`, or moves to a neutral/branded org for launch?
-7. Naming/positioning of footing B at launch — feature-equal, or "for the compliance-cautious"?
+**Decided (this round):**
+
+- ✅ **ToS framing** → transparency-forward, footing B visibly one click away (elaborated in §2.9).
+- ✅ **Anthropic coordination** → launch independently. Posture stays good-faith/non-adversarial;
+  keep the drafted Anthropic question public (§2.9).
+- ✅ **Headline** → "Shepherd builds Shepherd" is _the_ headline (coupled to the ToS framing, §2.1).
+- ✅ **Repo home** → stays at `erwins-enkel/shepherd`.
+
+**Still open (need your call before T-1):**
+
+1. Primary launch channel — Show HN as the spearhead (recommended) vs. X-thread-first?
+2. Ship video #4 (ToS walkthrough) at launch, or hold it? It defuses but also amplifies the topic.
+   _Given the independent launch + the contested headline, lean toward shipping it — it front-runs
+   the gotcha in your own calm voice rather than letting the thread set the tone._
+3. Footing B at launch — present it feature-equal, or explicitly "for the compliance-cautious"? (The
+   §2.9 framing assumes the latter: default A, B as the clearly-compliant opt-in.)
+4. Does the "Shepherd builds Shepherd" demo/mini-doc (video #2) run on footing A or footing B? Running
+   the _public_ proof on B removes the headline's ToS exposure entirely (§2.9) — worth considering.

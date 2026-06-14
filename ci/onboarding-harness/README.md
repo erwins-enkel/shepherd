@@ -69,9 +69,17 @@ The `.service` sets `SHEPHERD_ONBOARDING_REPORT_ISSUE=1`, so the nightly **files
 
 So a finding can't rot in an overwritten file — it surfaces as an open, trackable issue until the harness is green again. Only **full** runs report (a single `--scenario` never opens/closes the issue, since it checks just one defect); the env-gate keeps manual/ad-hoc full runs side-effect-free. Requires `gh` authenticated on the host. Dedup relies on the daily cadence (GitHub's label list is eventually-consistent, so back-to-back runs within seconds could double-file — irrelevant 24h apart).
 
+The same full run also publishes a **commit status** (`onboarding-harness` context, success/failure) on the tested SHA, so every nightly leaves a visible green/red record on the commit — even a clean run that files no issue — linked to the regression issue when red.
+
 ## Release gate
 
-Before tagging a release, run:
+Because the harness needs Incus (a self-hosted host), it **cannot run in GitHub-hosted CI**, and exposing the host's Incus socket to the sandboxed self-hosted runners (which execute untrusted PR code) would defeat their isolation. So enforcement is split: the **host executes** the harness nightly and publishes the verdict to GitHub (the rolling issue + commit status above); **CI consults** it.
+
+`.github/workflows/onboarding-release-gate.yml` runs on release-please's release PR and **fails if an `onboarding-regression` issue is open** — i.e. it blocks shipping a release over a known-red onboarding harness. It only reads an issue (no Incus), runs on a hosted runner, and is robust to `main` moving (it consults the rolling issue, not a per-SHA status). To make it actually block the merge, add `onboarding-release-gate` to the branch's **required status checks** (a repo setting). It reflects the last nightly, so a host that's been down for days can leave the signal stale.
+
+### Manual subset gate
+
+Before tagging a release you can also run the deterministic subset directly:
 
 ```bash
 scripts/onboarding-gate.sh

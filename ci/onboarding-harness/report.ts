@@ -22,6 +22,16 @@ export function gapScenarios(results: ScenarioResult[]): ScenarioResult[] {
   });
 }
 
+/** One-line outcome for a commit-status description (≤140 chars on the wire). */
+export function statusDescription(results: ScenarioResult[]): string {
+  const applicable = results.filter((r) => !r.detectionOnly);
+  const green = applicable.filter((r) => r.reachedGreen).length;
+  const gaps = gapScenarios(results);
+  return gaps.length === 0
+    ? `${green}/${applicable.length} scenarios green`
+    : `${gaps.length} gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}`;
+}
+
 function tableRow(r: ScenarioResult, klass: ReturnType<typeof classify>): string {
   return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`;
 }

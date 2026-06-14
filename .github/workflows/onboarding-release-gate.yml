@@ -1,0 +1,40 @@
+name: Onboarding release gate
+
+# Block a release while the onboarding harness is red.
+#
+# The harness needs Incus (a self-hosted host), so it CANNOT run in CI — it runs
+# nightly on the Incus host and keeps one rolling `onboarding-regression` issue
+# open whenever a scenario regresses (closing it when green again). This gate
+# consults that issue when release-please's release PR is opened/updated, so a
+# release can't ship over a known onboarding regression. It only READS an issue —
+# no Incus, no host access — so it is safe and runs on a hosted runner (kept off
+# the CI_RUNNER toggle so it stays reliable when the self-hosted runner is down,
+# matching release-please.yml).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  issues: read
+  contents: read
+
+jobs:
+  onboarding-release-gate:
+    # Only the release-please release PR is gated; every other PR is unaffected.
+    if: ${{ startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block the release if the onboarding harness is red
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label onboarding-regression --state open --json url --jq 'length')
+          echo "open onboarding-regression issues: $open"
+          if [ "$open" -gt 0 ]; then
+            url=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+              --label onboarding-regression --state open --json url --jq '.[0].url')
+            echo "::error::Onboarding harness is RED — resolve the regression before releasing: $url"
+            exit 1
+          fi
+          echo "Onboarding harness is green (no open regression issue) — release may proceed."

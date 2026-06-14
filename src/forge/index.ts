@@ -47,6 +47,14 @@ function remoteUrl(repoDir: string, remote: string): string | null {
  * contributor works against) while carrying the `origin` slug as `forkSlug` (the
  * write target — pushes, the `pr create --head` qualifier, and the `canPush`
  * probe). This is exactly the topology `gh repo fork --clone` produces.
+ *
+ * The trigger leans on the git convention that a remote literally named `upstream`
+ * is the repo `origin` was forked from — the dominant (and `gh`'s own) meaning. A
+ * repo that keeps a differing-slug `upstream` for some OTHER purpose while actually
+ * working within `origin` will read upstream's issues/PRs and target PRs there;
+ * that is intentional (we follow the convention rather than a network fork-check,
+ * which detectForge — sync and hot-path cached — must avoid). Rename the remote to
+ * opt out.
  */
 export function detectForge(repoDir: string, map: ForgeMap): GitForge | null {
   const origin = remoteUrl(repoDir, "origin");

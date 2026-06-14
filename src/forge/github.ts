@@ -123,7 +123,6 @@ interface GhPr {
   headRefOid?: string;
   reviews?: GhReview[];
   reviewRequests?: { login?: string }[];
-  isCrossRepository?: boolean;
   headRepositoryOwner?: { login?: string };
 }
 
@@ -455,8 +454,15 @@ export class GithubForge implements GitForge {
     // `<owner>:<branch>` qualifier (verified, gh 2.83.2: it silently returns []).
     // A bare `--head` DOES surface cross-repo (fork) PRs (verified against a real
     // fork PR), so in fork mode we keep the bare head, widen the limit, and request
-    // `headRepositoryOwner`/`isCrossRepository` to pick the PR whose head lives on
-    // OUR fork — otherwise a same-named branch on another fork could match first.
+    // `headRepositoryOwner` to pick the PR whose head lives on OUR fork — otherwise a
+    // same-named branch on another fork could match first.
+    //
+    // The 30 cap bounds the (cheap) poll while tolerating other forks opening a PR
+    // for the same branch ref. The only way to miss our PR is 30+ DISTINCT forks
+    // each opening an upstream PR from an identically-named branch; Shepherd branches
+    // are `shepherd/<session>`, so this is effectively impossible. If it ever bites,
+    // prStatus returns state:none and a duplicate PR could be opened — acceptable vs.
+    // unbounded paging on a hot path.
     const out = await this.run([
       "pr",
       "list",
@@ -467,7 +473,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests,isCrossRepository,headRepositoryOwner",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests,headRepositoryOwner",
       "--limit",
       this.forkOwner ? "30" : "1",
     ]);
@@ -562,8 +568,8 @@ export class GithubForge implements GitForge {
   async canPush(): Promise<boolean> {
     // Fork mode: `this.slug` is the upstream (read-only to a contributor), but the
     // user pushes branches and opens PRs from their fork — so probe the FORK
-    // (`forkSlug`). Probing upstream would report READf→false and silently disable
-    // the adopt-PR flow (gitignore-adopt.ts) on every fork (READ → false).
+    // (`forkSlug`). Probing upstream would report READ → false and silently disable
+    // the adopt-PR flow (gitignore-adopt.ts) on every fork.
     const probeSlug = this.forkSlug ?? this.slug;
     // `this.run` throwing (offline/unauth) and JSON.parse throwing (garbled)
     // both propagate as probe failures — intentionally not caught here.

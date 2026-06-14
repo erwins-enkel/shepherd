@@ -33,7 +33,6 @@ function prEntry(owner: string, extra: Record<string, unknown> = {}) {
     headRefOid: "abc123",
     reviews: [],
     reviewRequests: [],
-    isCrossRepository: true,
     headRepositoryOwner: { login: owner },
     ...extra,
   };

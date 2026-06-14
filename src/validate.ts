@@ -421,6 +421,35 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const issueRef = validateIssueRef(obj.issueRef);
   if (!issueRef.ok) return issueRef;
 
+  const options = validateOptions(obj);
+  if (!options.ok) return options;
+
+  return {
+    ok: true,
+    value: {
+      repoPath: repoPath.value,
+      baseBranch: baseBranch.value,
+      prompt: prompt.value,
+      model: model.value,
+      images: images.value,
+      issueRef: issueRef.value,
+      // mergeTrainPrs is number[] | undefined; consumers read it via truthiness /
+      // `?? null`, so an explicit undefined is equivalent to omitting the key.
+      ...options.value,
+    },
+  };
+}
+
+/** Optional create-time overrides, bundled so validateCreate stays flat (below the
+ *  complexity gate). Validator order is preserved, so first-error precedence is
+ *  identical to inlining these. */
+function validateOptions(obj: Record<string, unknown>): Field<{
+  planGateEnabled: boolean | null | undefined;
+  autopilotEnabled: boolean | null | undefined;
+  sandboxProfile: SandboxProfile | null | undefined;
+  research: boolean;
+  mergeTrainPrs: number[] | undefined;
+}> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
 
@@ -436,24 +465,13 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
-  return {
-    ok: true,
-    value: {
-      repoPath: repoPath.value,
-      baseBranch: baseBranch.value,
-      prompt: prompt.value,
-      model: model.value,
-      images: images.value,
-      issueRef: issueRef.value,
-      planGateEnabled: planGateEnabled.value,
-      autopilotEnabled: autopilotEnabled.value,
-      sandboxProfile: sandboxProfile.value,
-      research: research.value,
-      // value is number[] | undefined; consumers read it via truthiness / `?? null`,
-      // so an explicit undefined is equivalent to omitting the key.
-      mergeTrainPrs: mergeTrainPrs.value,
-    },
-  };
+  return field({
+    planGateEnabled: planGateEnabled.value,
+    autopilotEnabled: autopilotEnabled.value,
+    sandboxProfile: sandboxProfile.value,
+    research: research.value,
+    mergeTrainPrs: mergeTrainPrs.value,
+  });
 }
 
 /** planGateEnabled — optional per-task override; absent/null → inherit the repo default. */

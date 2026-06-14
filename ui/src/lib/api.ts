@@ -456,18 +456,6 @@ export async function setReadyToMerge(id: string, ready: boolean): Promise<void>
   if (!r.ok) throw await failed(r, "ready");
 }
 
-/** Flag a launched merge train's scoped ready PRs as "merging". Fire-and-forget
- *  shape like setReadyToMerge — live state returns via the session:merging WS
- *  event; marking is cosmetic, so a failure must not abort the train launch. */
-export async function startMergeTrain(ids: string[], trainId: string): Promise<void> {
-  const r = await fetch("/api/merge-train/start", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ ids, trainId }),
-  });
-  if (!r.ok) throw await failed(r, "merge-train");
-}
-
 export async function listIssues(
   repoPath: string,
 ): Promise<{ slug: string | null; webUrl: string | null; issues: Issue[] }> {

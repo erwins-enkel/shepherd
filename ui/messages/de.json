@@ -669,7 +669,6 @@
   "toast_clear_merged_failed": "Gemergte Sessions konnten nicht aufgeräumt werden",
   "toast_merge_train_no_prs": "Keine merge-bereiten PRs für einen Merge-Train vorhanden",
   "toast_merge_train_failed": "Merge-Train konnte nicht gestartet werden",
-  "toast_merge_train_mark_failed": "Merge-Train gestartet, aber das Markieren der PRs ist fehlgeschlagen.",
   "toast_merged": "{name} gemergt",
   "toast_update_main_offer": "PR gemergt. Deinen lokalen Standard-Branch aktualisieren?",
   "toast_update_main_action": "Aktualisieren",

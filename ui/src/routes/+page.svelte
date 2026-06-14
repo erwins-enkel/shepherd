@@ -5,7 +5,6 @@
   import {
     listSessions,
     createSession,
-    startMergeTrain,
     archiveSession,
     relaunchSession,
     stageRelaunchImages,
@@ -78,7 +77,6 @@
     collectReadyPrs,
     mergeTrainCreateInput,
     pickTrainRepo,
-    sessionsForPrNumbers,
   } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
@@ -529,15 +527,6 @@
         try {
           const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
           selectedId = s.id;
-          // Mark this repo's ready PR-sessions as "merging" so the list shows them
-          // in-flight. Derived from the same scoped `prs` array the train works
-          // through — single source of truth, no separate filter needed.
-          // Fire-and-forget + fail-soft: a marking error must not abort the launch —
-          // the train (session s) is already running.
-          startMergeTrain(
-            prs.map((p) => p.sessionId),
-            s.id,
-          ).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {
@@ -550,8 +539,8 @@
   /** Launch a merge train scoped to a hand-picked set of PRs from the backlog
    *  PRs panel. Unlike onmergetrain (which auto-collects ready sessions), the
    *  operator chose these PRs directly, so the kickoff prompt uses the
-   *  hand-picked framing. Matching ready-to-merge sessions are marked "merging";
-   *  backlog-only PRs (no session) still ride along in the prompt. */
+   *  hand-picked framing. The server marks participant PRs "merging" from the
+   *  passed mergeTrainPrs; backlog-only PRs still ride along in the prompt. */
   function onlaunchtrain(repoPath: string, prs: PullRequest[]) {
     if (prs.length < 2) return; // UI gates at >=2; defensive guard
     // Don't launch yet — open the confirm modal (renders above the still-mounted
@@ -567,18 +556,6 @@
         try {
           const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
           selectedId = s.id;
-          // Mark any ready-to-merge sessions whose open PR is in this selection as
-          // "merging" (same coupling as onmergetrain). Composed review predicate
-          // matches onmergetrain. Fire-and-forget + fail-soft; skip when none match.
-          const ids = sessionsForPrNumbers(
-            repoPath,
-            prs.map((p) => p.number),
-            store.sessions,
-            store.git,
-            (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
-          );
-          if (ids.length > 0)
-            startMergeTrain(ids, s.id).catch(() => toasts.info(m.toast_merge_train_mark_failed()));
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {

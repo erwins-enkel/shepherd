@@ -750,6 +750,7 @@ export interface CreateInput {
   autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
+  mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
 }
 
 /** Selectable claude model aliases; null = claude's own default. */

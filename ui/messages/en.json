@@ -669,7 +669,6 @@
   "toast_clear_merged_failed": "Couldn't clear merged sessions",
   "toast_merge_train_no_prs": "No ready-to-merge PRs to run a merge train on",
   "toast_merge_train_failed": "Couldn't start the merge train",
-  "toast_merge_train_mark_failed": "Merge train started, but marking its PRs failed.",
   "toast_merged": "Merged {name}",
   "toast_update_main_offer": "PR merged. Update your local default branch?",
   "toast_update_main_action": "Update",

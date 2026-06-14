@@ -1,11 +1,12 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, realpathSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
 import { config, clampCap, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX } from "../src/config";
+import type { AuthMode } from "../src/auth-mode";
 
 let tmp: string;
 let savedRoot: string;
@@ -16,6 +17,9 @@ let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
 let savedExtraCredits: number;
+let savedAuthMode: AuthMode;
+let savedAuthApiKeyHelperPath: string | null;
+let savedHome: string | undefined;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -29,9 +33,14 @@ beforeEach(() => {
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
   savedExtraCredits = config.extraCreditsDrainCeiling;
+  savedAuthMode = config.authMode;
+  savedAuthApiKeyHelperPath = config.authApiKeyHelperPath;
+  savedHome = process.env.HOME;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
   config.rootCeiling = tmp;
+  // redirect HOME so putAnthropicApiKey writes into our temp dir, not ~/.shepherd
+  process.env.HOME = tmp;
 });
 
 afterEach(() => {
@@ -43,6 +52,10 @@ afterEach(() => {
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
   config.extraCreditsDrainCeiling = savedExtraCredits;
+  config.authMode = savedAuthMode;
+  config.authApiKeyHelperPath = savedAuthApiKeyHelperPath;
+  if (savedHome !== undefined) process.env.HOME = savedHome;
+  else delete process.env.HOME;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -388,4 +401,140 @@ test("PUT /api/settings rejects a non-number extraCreditsDrainCeiling", async ()
   const res = await put(app, { extraCreditsDrainCeiling: "lots" });
   expect(res.status).toBe(400);
   expect(config.extraCreditsDrainCeiling).toBe(0); // unchanged on failure
+});
+
+// ── authMode ──────────────────────────────────────────────────────────────────
+
+test("GET /api/settings includes authMode and hasApiKey, never key/path", async () => {
+  config.authMode = "subscription";
+  config.authApiKeyHelperPath = null;
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.authMode).toBe("subscription");
+  expect(body.hasApiKey).toBe(false);
+  // must NOT expose the raw key or helper path
+  expect("authApiKeyHelperPath" in body).toBe(false);
+  expect("anthropicApiKey" in body).toBe(false);
+});
+
+test("GET /api/settings hasApiKey is true when helper path is set", async () => {
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = "/some/path/helper.sh";
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  const body = await res.json();
+  expect(body.authMode).toBe("api-key");
+  expect(body.hasApiKey).toBe(true);
+  expect("authApiKeyHelperPath" in body).toBe(false);
+});
+
+test("PUT /api/settings sets authMode to 'api-key', persists, returns shape", async () => {
+  config.authMode = "subscription";
+  config.authApiKeyHelperPath = null;
+  const { app, store } = harness();
+  const res = await put(app, { authMode: "api-key" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.authMode).toBe("api-key");
+  expect(typeof body.hasApiKey).toBe("boolean");
+  expect(config.authMode as string).toBe("api-key"); // live
+  expect(store.getSetting("authMode")).toBe("api-key"); // persisted
+});
+
+test("PUT /api/settings sets authMode to 'subscription', persists", async () => {
+  config.authMode = "api-key";
+  const { app, store } = harness();
+  const res = await put(app, { authMode: "subscription" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).authMode).toBe("subscription");
+  expect(config.authMode as string).toBe("subscription");
+  expect(store.getSetting("authMode")).toBe("subscription");
+});
+
+test("PUT /api/settings allows switching to api-key with no key configured", async () => {
+  config.authMode = "subscription";
+  config.authApiKeyHelperPath = null;
+  const { app } = harness();
+  const res = await put(app, { authMode: "api-key" });
+  expect(res.status).toBe(200);
+  // hasApiKey reflects no key is set yet
+  expect((await res.json()).hasApiKey).toBe(false);
+});
+
+test("PUT /api/settings rejects an unknown authMode value → 400", async () => {
+  config.authMode = "subscription";
+  const { app } = harness();
+  for (const bad of ["oauth", "api_key", "", 42, null, true]) {
+    const res = await put(app, { authMode: bad });
+    expect(res.status).toBe(400);
+  }
+  expect(config.authMode).toBe("subscription"); // unchanged on failure
+});
+
+// ── anthropicApiKey ───────────────────────────────────────────────────────────
+
+test("PUT anthropicApiKey writes helper, sets config path, returns {hasApiKey:true} — no key/path in response", async () => {
+  config.authApiKeyHelperPath = null;
+  const { app, store } = harness();
+  const res = await put(app, { anthropicApiKey: "sk-ant-api03-testkey" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.hasApiKey).toBe(true);
+  // NEVER expose raw key or path
+  expect("authApiKeyHelperPath" in body).toBe(false);
+  expect("anthropicApiKey" in body).toBe(false);
+  // config updated
+  expect(config.authApiKeyHelperPath).not.toBeNull();
+  // persisted (we store the path; path must NOT contain the key text)
+  const persisted = store.getSetting("authApiKeyHelperPath");
+  expect(persisted).not.toBeNull();
+  expect(persisted).not.toContain("sk-ant-api03-testkey");
+  // helper file must exist
+  expect(existsSync(config.authApiKeyHelperPath!)).toBe(true);
+});
+
+test("PUT anthropicApiKey trims whitespace from the key", async () => {
+  config.authApiKeyHelperPath = null;
+  const { app } = harness();
+  const res = await put(app, { anthropicApiKey: "  sk-ant-api03-trimmed  " });
+  expect(res.status).toBe(200);
+  expect(config.authApiKeyHelperPath).not.toBeNull();
+});
+
+test("PUT anthropicApiKey with null clears helper, returns {hasApiKey:false}", async () => {
+  // first set a key
+  config.authApiKeyHelperPath = null;
+  const { app, store } = harness();
+  await put(app, { anthropicApiKey: "sk-ant-api03-somekey" });
+  const pathAfterSet = config.authApiKeyHelperPath;
+  expect(pathAfterSet).not.toBeNull();
+
+  // now clear it
+  const res = await put(app, { anthropicApiKey: null });
+  expect(res.status).toBe(200);
+  expect((await res.json()).hasApiKey).toBe(false);
+  expect(config.authApiKeyHelperPath).toBeNull();
+  expect(store.getSetting("authApiKeyHelperPath")).toBe(""); // marked cleared
+  // file should be gone
+  expect(existsSync(pathAfterSet!)).toBe(false);
+});
+
+test("PUT anthropicApiKey with empty string clears helper", async () => {
+  config.authApiKeyHelperPath = null;
+  const { app } = harness();
+  await put(app, { anthropicApiKey: "sk-ant-api03-somekey" });
+  const res = await put(app, { anthropicApiKey: "" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).hasApiKey).toBe(false);
+  expect(config.authApiKeyHelperPath).toBeNull();
+});
+
+test("PUT anthropicApiKey with non-string/non-null value → 400", async () => {
+  const { app } = harness();
+  for (const bad of [42, true, {}, []]) {
+    const res = await put(app, { anthropicApiKey: bad });
+    expect(res.status).toBe(400);
+  }
 });

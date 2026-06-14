@@ -1,9 +1,36 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { StandalonePrCriticService } from "../src/standalone-critic";
 import { CRITIC_THINKING_TOKENS } from "../src/critic-core";
 import { CRITIC_REVIEW_MARKER } from "../src/forge/types";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
 import type { PrReview } from "../src/types";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -35,7 +62,7 @@ const OPEN_META: PrReviewMeta = {
 interface Spies {
   posted: { n: number; event: string; body: string }[];
   comments: { n: number; body: string }[];
-  started: { name: string; cwd: string; argv: string[] }[];
+  started: { name: string; cwd: string; argv: string[]; env?: Record<string, string> }[];
   stopped: string[];
   removed: string[];
   created: { branch: string; sha: string; slug?: string; pullRef?: string }[];
@@ -143,8 +170,8 @@ function makeDeps(
         (opts.epicCompleted ?? []).filter((r) => repoPath === undefined || r.repoPath === repoPath),
     },
     herdr: {
-      start: (name: string, cwd: string, argv: string[]) => {
-        spies.started.push({ name, cwd, argv });
+      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        spies.started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
       },
       stop: (t: string) => spies.stopped.push(t),
@@ -161,6 +188,7 @@ function makeDeps(
         return { worktreePath: "/review-wt", branch: null, isolated: true };
       },
       remove: (p: string) => spies.removed.push(p),
+      gitCommonDir: () => "/fake-git-common",
     },
     resolveForge: opts.forge ?? (() => makeForge(spies)),
     repos: () => opts.repos ?? ["/r"],
@@ -178,6 +206,14 @@ function makeDeps(
     // no real git: keep base unknown so the scope backstop is skipped (findings pass through)
     computePatchId: async () => ({ patchId: "p1", baseSha: null, files: [] }),
     readUsage: async () => null,
+    // default: backend null → wrapArgv passthrough = current (pre-sandbox) behavior, so existing
+    // tests stay green without spawning the real bwrap probe. membraneEnv stub keeps host paths out.
+    detectBackend: () => null,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
     ...over,
   };
   return { deps, spies, reviews };
@@ -612,4 +648,59 @@ test("two enabled repos: the round-robin offset rotates which repo is considered
   await svc.sweep(); // offset 1 → /b, /a
   await svc.sweep(); // offset 0 → /a, /b
   expect(considered).toEqual(["/a", "/b", "/b", "/a", "/a", "/b"]);
+});
+
+// ── 10. api-key auth membrane (7th spawn path, mirrors review.test) ───────────
+
+test("api-key mode (passthrough host): apiKeyHelper in argv + CLAUDE_CONFIG_DIR env", async () => {
+  // detectBackend()→null on the test host → no membrane → passthrough env carries the mirror dir.
+  await withAuth("api-key", "/helper.sh", async () => {
+    const { deps, spies } = makeDeps({ detectBackend: () => null });
+    const svc = new StandalonePrCriticService(deps as any);
+    await svc.sweep();
+    expect(spies.started).toHaveLength(1);
+    const argv = spies.started[0]!.argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!).apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(spies.started[0]!.env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
+});
+
+test("api-key without a configured key fails closed (no spawn, worktree reaped)", async () => {
+  await withAuth("api-key", null, async () => {
+    const { deps, spies } = makeDeps();
+    const svc = new StandalonePrCriticService(deps as any);
+    await svc.sweep();
+    expect(spies.started).toHaveLength(0);
+    expect(spies.removed).toEqual(["/review-wt"]);
+  });
+});
+
+test("bwrap backend present: critic spawn is wrapped + isolated, credential masked", async () => {
+  await withAuth("api-key", "/helper.sh", async () => {
+    const { deps, spies } = makeDeps({
+      detectBackend: () => "bwrap",
+      membraneEnv: () => ({
+        claudeDir: "/fake/.claude",
+        home: "/fake/home",
+        nodeBinReal: "/fake/bin/node",
+      }),
+    });
+    const svc = new StandalonePrCriticService(deps as any);
+    await svc.sweep();
+    expect(spies.started).toHaveLength(1);
+    const argv = spies.started[0]!.argv;
+    expect(argv[0]).toBe("bwrap");
+    // membrane uses isolated:true → worktree + gitCommonDir binds, not the whole repo.
+    expect(argv).toContain("/review-wt");
+    expect(argv).toContain("/fake-git-common");
+    expect(argv).not.toContain("/r"); // not the whole-repo bind
+    // api-key maskCredentials: NO `.credentials.json` rw bind anywhere — the credential is masked.
+    expect(argv.some((a) => a.includes(".credentials.json"))).toBe(false);
+    // inner reviewer argv follows the "--" separator (not another bwrap).
+    const sep = argv.indexOf("--");
+    expect(sep).toBeGreaterThan(0);
+    expect(argv[sep + 1]).not.toBe("bwrap");
+    // membrane masks creds in place → no passthrough CLAUDE_CONFIG_DIR env.
+    expect(spies.started[0]!.env).toBeUndefined();
+  });
 });

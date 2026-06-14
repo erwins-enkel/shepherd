@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   config,
@@ -74,6 +74,7 @@ import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import { normalizeDefaultModelSetting } from "./default-model";
+import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { RecapService } from "./recap";
 
@@ -130,6 +131,20 @@ const savedDm = store.getSetting("defaultModel");
 if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
+}
+// a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
+const savedAm = store.getSetting("authMode");
+if (savedAm !== null) {
+  const v = normalizeAuthModeSetting(savedAm);
+  if (v !== null) config.authMode = v;
+}
+// restore the apiKeyHelper path if the file still exists on disk; self-heal if it was deleted.
+const savedHelperPath = store.getSetting("authApiKeyHelperPath");
+if (savedHelperPath !== null && savedHelperPath !== "") {
+  if (existsSync(savedHelperPath)) {
+    config.authApiKeyHelperPath = savedHelperPath;
+  }
+  // if the file is gone, leave config null — dangling path self-heals silently
 }
 
 // A UI-set extra-credit drain ceiling (persisted) overrides the env seed; a missing

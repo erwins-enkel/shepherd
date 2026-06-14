@@ -263,6 +263,15 @@ export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesC
 export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
   patchSettings<{ defaultModel: string }>({ defaultModel: model });
 
+// Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
+export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>
+  patchSettings({ authMode: mode });
+
+// Set (or clear, with null) the Anthropic API key. The server stores only the path
+// to a helper it writes; the raw key never round-trips back to the client.
+export const putAnthropicApiKey = (key: string | null): Promise<{ hasApiKey: boolean }> =>
+  patchSettings({ anthropicApiKey: key });
+
 // Persist the account-wide extra-credit (paid overage) spend ceiling. Auto-drain/autopilot
 // pauses when measured spend strictly exceeds it; 0 = pause on any spend. The server
 // validates a non-negative number and returns the stored value.

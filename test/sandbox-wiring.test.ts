@@ -561,6 +561,7 @@ const NO_USAGE: UsageLimits = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 function defaultRepoConfig() {

@@ -15,7 +15,7 @@
  * `*-bind-try` for every host-variable path so an absent source is skipped
  * rather than hard-failing the spawn.
  */
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
@@ -67,6 +67,17 @@ export interface PathProbeDeps {
   run?: (cmd: string, args: string[]) => { status: number };
   /** Existence probe; default fs.existsSync. */
   exists?: (p: string) => boolean;
+  /** Directory listing; default a safe readdirSync wrapper returning [] on error. */
+  readdir?: (p: string) => string[];
+}
+
+/** readdirSync that returns [] on any error (missing dir, perms). */
+function safeReaddir(p: string): string[] {
+  try {
+    return readdirSync(p);
+  } catch {
+    return [];
+  }
 }
 
 /** detectBackend additionally needs a probe environment to build a self-test membrane. */
@@ -157,6 +168,16 @@ export interface MembraneInputs {
    *  caller builds this via `collectPassthroughEnv`. HOME/PATH/TERM are always set
    *  separately and must NOT be included here. */
   extraEnv?: Record<string, string>;
+  /** api-key mode: bind this helper script RO so claude can exec it. RESIDUAL:
+   *  cat-able by an in-sandbox agent (host hygiene only, same class as audit R3/R4)
+   *  — NOT in-membrane secrecy. */
+  apiKeyHelperPath?: string | null;
+  /** api-key mode: present <claudeDir>/.credentials.json as GENUINELY ABSENT
+   *  inside the sandbox (not an empty /dev/null overlay) by binding every child
+   *  of claudeDir individually EXCEPT the credential file — matching the
+   *  credential-less CLAUDE_CONFIG_DIR mirror (auth-config-dir.ts). Also skips
+   *  the rw credentials bind. So no "Use custom API key?"/re-auth prompt fires. */
+  maskCredentials?: boolean;
 }
 
 /**
@@ -226,6 +247,28 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
 }
 
 /**
+ * api-key mode base binds for the claude config dir, presenting
+ * `.credentials.json` as GENUINELY ABSENT (not an empty /dev/null overlay).
+ *
+ * bwrap cannot hide a single child of a whole-dir bind, so instead of binding
+ * `claudeDir` wholesale we `--dir` the mount point (so it exists even when the
+ * dir is empty) then bind every child RO individually EXCEPT the credential
+ * file. The OAuth token simply does not exist inside the sandbox — exactly the
+ * shape of the credential-less CLAUDE_CONFIG_DIR mirror (auth-config-dir.ts),
+ * so no "Use custom API key?"/re-auth prompt can fire on empty/invalid creds.
+ * Entries are sorted for deterministic, testable output.
+ */
+function maskedClaudeDirBinds(claudeDir: string, readdir: (p: string) => string[]): string[] {
+  const flags = ["--dir", claudeDir];
+  for (const entry of readdir(claudeDir)
+    .filter((e) => e !== ".credentials.json")
+    .sort()) {
+    flags.push("--ro-bind-try", `${claudeDir}/${entry}`, `${claudeDir}/${entry}`);
+  }
+  return flags;
+}
+
+/**
  * The frozen, host-derived membrane flag list (validated against real claude
  * 2.1.173 on the reference host). Returns the bwrap argv PREFIX flags only —
  * `wrapArgv` appends `-- <innerArgv>`.
@@ -236,9 +279,27 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
  */
 export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps = {}): string[] {
   const exists = deps.exists ?? existsSync;
+  const readdir = deps.readdir ?? safeReaddir;
   const home = inputs.home;
   const claudeDir = inputs.claudeDir;
   const term = inputs.term ?? "xterm-256color";
+
+  // Claude config dir base bind(s). Two shapes:
+  //  - subscription/default: the whole dir RO in one bind — byte-for-byte unchanged.
+  //  - api-key (maskCredentials): per-child RO binds EXCEPT `.credentials.json`, so
+  //    the OAuth token is GENUINELY ABSENT inside the sandbox (matching the
+  //    credential-less CLAUDE_CONFIG_DIR mirror in auth-config-dir.ts) rather than
+  //    an empty overlay — an empty/invalid creds file could trip a re-auth prompt.
+  const claudeDirBaseBinds: string[] = inputs.maskCredentials
+    ? maskedClaudeDirBinds(claudeDir, readdir)
+    : ["--ro-bind", claudeDir, claudeDir];
+
+  // Subscription/default: rw `--bind-try` so OAuth token refresh writes back.
+  // api-key (maskCredentials): EMPTY — the credential is absent (see above), there
+  // is no `.credentials.json` bind of any kind.
+  const credentialFlags: string[] = inputs.maskCredentials
+    ? []
+    : ["--bind-try", `${claudeDir}/.credentials.json`, `${claudeDir}/.credentials.json`];
 
   const f: string[] = [
     // ── base read-only root ──────────────────────────────────────────────
@@ -277,9 +338,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "/run/systemd/resolve",
     "/run/systemd/resolve",
     // ── claude config: base RO (auth + commands + skills) ────────────────
-    "--ro-bind",
-    claudeDir,
-    claudeDir,
+    // Subscription: whole-dir RO. api-key: per-child RO minus `.credentials.json`.
+    ...claudeDirBaseBinds,
     // RW: agent writes transcript; host reads it after.
     "--bind",
     `${claudeDir}/projects`,
@@ -293,10 +353,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "--bind-try",
     `${claudeDir}/shell-snapshots`,
     `${claudeDir}/shell-snapshots`,
-    // RW: OAuth token refresh writes back.
-    "--bind-try",
-    `${claudeDir}/.credentials.json`,
-    `${claudeDir}/.credentials.json`,
+    // OAuth credential: rw bind (subscription) or nothing (api-key mask: absent).
+    ...credentialFlags,
     // RW persisted: trust/onboarding state (else non-interactive auto hangs on onboarding).
     "--bind-try",
     `${home}/.claude.json`,
@@ -316,6 +374,14 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── commit identity + gh token ───────────────────────────────────────────
   f.push("--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`);
   f.push("--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`);
+
+  // ── api-key helper (api-key mode only) ────────────────────────────────────
+  // Bind the apiKeyHelper script RO at the SAME path so the `apiKeyHelper` entry
+  // in --settings resolves inside the sandbox. Omitted (guarded) in subscription
+  // mode so flags stay byte-identical.
+  if (typeof inputs.apiKeyHelperPath === "string" && inputs.apiKeyHelperPath.length > 0) {
+    f.push("--ro-bind-try", inputs.apiKeyHelperPath, inputs.apiKeyHelperPath);
+  }
 
   // ── worktree / git store ─────────────────────────────────────────────────
   if (inputs.isolated) {

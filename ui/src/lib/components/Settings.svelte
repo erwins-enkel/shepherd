@@ -8,6 +8,8 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putAuthMode,
+    putAnthropicApiKey,
     putExtraCreditsDrainCeiling,
     listDirs,
     getDiagnostics,
@@ -148,6 +150,11 @@
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
+  let authMode = $state("subscription"); // how spawned agents authenticate
+  let authModeSaved = "subscription"; // last server-confirmed value, for revert on failure
+  let authBusy = $state(false);
+  let hasApiKey = $state(false); // whether a key is configured (boolean only; key never sent)
+  let apiKeyInput = $state(""); // write-only paste field; cleared after save, never prefilled
   let extraCreditsCeiling = $state(0); // account-wide extra-credit spend ceiling (0 = pause on any)
   let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
   let extraCreditsBusy = $state(false);
@@ -246,6 +253,62 @@
       });
     } finally {
       defaultModelBusy = false;
+    }
+  }
+
+  async function saveAuthMode() {
+    if (authBusy) return;
+    authBusy = true;
+    try {
+      const r = await putAuthMode(authMode);
+      authMode = r.authMode;
+      authModeSaved = r.authMode;
+      hasApiKey = r.hasApiKey;
+    } catch {
+      // revert to the last server-confirmed value; surface the failure persistently.
+      authMode = authModeSaved;
+      toasts.info(m.settings_auth_mode_save_failed(), {
+        key: "auth-mode",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function saveApiKey() {
+    if (authBusy || apiKeyInput.trim() === "") return;
+    authBusy = true;
+    try {
+      const r = await putAnthropicApiKey(apiKeyInput.trim());
+      hasApiKey = r.hasApiKey;
+      apiKeyInput = ""; // never retain the key in component state
+    } catch {
+      toasts.info(m.settings_auth_key_save_failed(), {
+        key: "auth-key",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function clearApiKey() {
+    if (authBusy) return;
+    authBusy = true;
+    try {
+      const r = await putAnthropicApiKey(null);
+      hasApiKey = r.hasApiKey;
+    } catch {
+      toasts.info(m.settings_auth_key_save_failed(), {
+        key: "auth-key",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      authBusy = false;
     }
   }
 
@@ -358,6 +421,9 @@
       planReviewCyclesSaved = s.planReviewCyclesCap;
       defaultModel = s.defaultModel;
       defaultModelSaved = s.defaultModel;
+      authMode = s.authMode;
+      authModeSaved = s.authMode;
+      hasApiKey = s.hasApiKey;
       extraCreditsCeiling = s.extraCreditsDrainCeiling;
       extraCreditsCeilingSaved = s.extraCreditsDrainCeiling;
       await browse(s.repoRoot);
@@ -626,6 +692,52 @@
         </select>
         {#if isPremiumModel}
           <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
+        {/if}
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_auth_mode_title()}</span>
+        <p class="hint">{m.settings_auth_mode_hint()}</p>
+        <select
+          class="model-select"
+          bind:value={authMode}
+          disabled={authBusy}
+          aria-label={m.settings_auth_mode_title()}
+          onchange={saveAuthMode}
+        >
+          <option value="subscription">{m.settings_auth_mode_subscription()}</option>
+          <option value="api-key">{m.settings_auth_mode_apikey()}</option>
+        </select>
+        {#if authMode === "api-key"}
+          <div class="apikey">
+            {#if hasApiKey}
+              <p class="key-status">{m.settings_auth_key_saved()}</p>
+              <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
+                {m.settings_auth_key_clear()}
+              </button>
+            {/if}
+            <div class="key-entry">
+              <input
+                type="password"
+                class="model-select key-input"
+                bind:value={apiKeyInput}
+                disabled={authBusy}
+                placeholder={m.settings_auth_key_placeholder()}
+                aria-label={m.settings_auth_key_label()}
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="gbtn"
+                disabled={authBusy || apiKeyInput.trim() === ""}
+                onclick={saveApiKey}
+              >
+                {m.settings_auth_key_save()}
+              </button>
+            </div>
+            {#if !hasApiKey}
+              <p class="premium-warn">{m.settings_auth_key_missing_warning()}</p>
+            {/if}
+          </div>
         {/if}
       </div>
       <div class="rc">
@@ -1174,6 +1286,50 @@
     font-size: var(--fs-meta);
     margin: 0;
     font-weight: 500;
+  }
+  .apikey {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: stretch;
+  }
+  .key-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .key-input {
+    flex: 1 1 16rem;
+    align-self: auto;
+  }
+  .key-status {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .toggle {
     display: flex;

@@ -86,6 +86,7 @@ import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
 import { normalizeDefaultModelSetting, normalizeRepoDefaultModelSetting } from "./default-model";
+import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import {
   type SandboxProfile,
   SANDBOX_PROFILES,
@@ -2003,6 +2004,10 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
+      // auth footing for spawned agents; "subscription" (default) or "api-key".
+      authMode: config.authMode,
+      // whether an apiKeyHelper script is configured; NEVER expose the key or path.
+      hasApiKey: config.authApiKeyHelperPath !== null,
     });
   }
   if (req.method === "PUT") {
@@ -2028,6 +2033,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
+  ["authMode", putAuthMode],
+  ["anthropicApiKey", putAnthropicApiKey],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -2092,6 +2099,35 @@ function putExtraCreditsDrainCeiling(value: unknown, deps: Ctx["deps"]): Respons
   config.extraCreditsDrainCeiling = value; // live: next drain assembly reads it
   deps.store.setSetting("extra_credits_drain_ceiling", String(value)); // persist across restarts
   return json({ extraCreditsDrainCeiling: config.extraCreditsDrainCeiling });
+}
+
+// Switching to api-key without a key configured is allowed; spawns fail closed until a key is supplied.
+function putAuthMode(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeAuthModeSetting(value);
+  if (v === null) return json({ error: "authMode must be 'subscription' or 'api-key'" }, 400);
+  config.authMode = v; // live: next spawn picks it up
+  deps.store.setSetting("authMode", v); // persist across restarts
+  return json({ authMode: config.authMode, hasApiKey: config.authApiKeyHelperPath !== null });
+}
+
+function putAnthropicApiKey(value: unknown, deps: Ctx["deps"]): Response {
+  if (value !== null && typeof value !== "string") {
+    return json({ error: "anthropicApiKey must be a string or null" }, 400);
+  }
+  const dir = join(homedir(), ".shepherd");
+  if (typeof value === "string" && value.trim().length > 0) {
+    // SET — write helper, store path; NEVER echo key or path
+    const path = writeApiKeyHelper(value.trim(), dir);
+    config.authApiKeyHelperPath = path;
+    deps.store.setSetting("authApiKeyHelperPath", path);
+    return json({ hasApiKey: true });
+  } else {
+    // CLEAR (null or empty string)
+    clearApiKeyHelper(dir);
+    config.authApiKeyHelperPath = null;
+    deps.store.setSetting("authApiKeyHelperPath", ""); // mark cleared
+    return json({ hasApiKey: false });
+  }
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

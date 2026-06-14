@@ -1,6 +1,29 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { DistillerService } from "../src/distiller";
 import { SessionStore } from "../src/store";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 function seedSignals(store: SessionStore, repo: string, n: number) {
   for (let i = 0; i < n; i++) {
@@ -147,6 +170,69 @@ test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare
   expect(argv).toContain('{"disableAllHooks":true}');
   // the prompt is the trailing positional (last arg), after --permission-mode dontAsk
   expect(argv.length).toBeGreaterThan(mode + 2);
+});
+
+function spawnCapture(store: SessionStore) {
+  const cap: { argv: string[]; env?: Record<string, string>; starts: number; removed: number } = {
+    argv: [],
+    env: undefined,
+    starts: 0,
+    removed: 0,
+  };
+  const deps = {
+    store,
+    herdr: {
+      start: (_n: string, _c: string, a: string[], env?: Record<string, string>) => {
+        cap.argv = a;
+        cap.env = env;
+        cap.starts++;
+        return { terminalId: "d1" };
+      },
+      stop: () => {},
+    } as any,
+    scratch: { create: () => ({ dir: "/scratch" }), remove: () => cap.removed++ },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 3,
+    writeSignals: () => {},
+    readProposals: () => null,
+  };
+  return { deps, cap };
+}
+
+test("distill spawn: subscription mode — --settings unchanged + no env 4th arg", () => {
+  withAuth("subscription", "/ignored.sh", () => {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const { deps, cap } = spawnCapture(store);
+    new DistillerService(deps as any).distillNow("/r");
+    expect(cap.argv).toContain('{"disableAllHooks":true}');
+    expect(cap.env).toBeUndefined();
+  });
+});
+
+test("distill spawn: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", () => {
+  withAuth("api-key", "/helper.sh", () => {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const { deps, cap } = spawnCapture(store);
+    new DistillerService(deps as any).distillNow("/r");
+    const settings = JSON.parse(cap.argv[cap.argv.indexOf("--settings") + 1]!);
+    expect(settings.disableAllHooks).toBe(true);
+    expect(settings.apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(cap.env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
+});
+
+test("distill spawn: api-key without a configured key fails closed (no spawn, scratch cleaned)", () => {
+  withAuth("api-key", null, () => {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const { deps, cap } = spawnCapture(store);
+    new DistillerService(deps as any).distillNow("/r");
+    expect(cap.starts).toBe(0);
+    expect(cap.removed).toBe(1); // allocated scratch dir cleaned up
+  });
 });
 
 test("tick finalizes and reaps a run that times out without proposals", async () => {

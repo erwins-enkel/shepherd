@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
 import { normalizeDefaultModelSetting } from "./default-model";
+import { normalizeAuthModeSetting } from "./auth-mode";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
@@ -383,6 +384,12 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Operator auth footing for spawned agents. 'subscription' (default) = subscription OAuth;
+  // 'api-key' = bill against an Anthropic API key. Persisted + UI-configurable; env seeds a fresh DB.
+  authMode: normalizeAuthModeSetting(process.env.SHEPHERD_AUTH_MODE) ?? "subscription",
+  // Path to the apiKeyHelper script (written by Shepherd when the operator supplies a key).
+  // null = no key configured. The raw key is NEVER stored — only this script path.
+  authApiKeyHelperPath: (process.env.SHEPHERD_API_KEY_HELPER_PATH ?? null) as string | null,
   // Account-wide extra-credit (paid pay-as-you-go overage) spend ceiling, in account
   // currency units. Auto-drain/autopilot pauses when measured spend strictly exceeds it.
   // Persisted + UI-configurable; env seeds a fresh DB. Default 0 = pause on ANY spend.

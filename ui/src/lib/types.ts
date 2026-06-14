@@ -35,6 +35,10 @@ export interface Settings {
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
+  /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */
+  authMode: string;
+  /** Whether an Anthropic API key is configured. The key itself is NEVER sent. */
+  hasApiKey: boolean;
   /** Max PR-critic auto-address rounds before escalating to a human (global). */
   prReviewCyclesCap: number;
   /** Display-only: lower bound for prReviewCyclesCap (drives the stepper's min). */
@@ -535,6 +539,8 @@ export interface UsageLimits {
   credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
+  /** true in api-key auth mode: usage tracking is subscription-only, meters carry no data. */
+  subscriptionOnly: boolean;
 }
 
 export interface UpdateCommit {

@@ -18,6 +18,7 @@
  * patch-id churn/revert set mirrors ReviewService's clean-resets-[] / findings-appends logic so an
  * identical-diff rebase is skipped and a revert-to-an-earlier-buggy-diff is re-reviewed.
  */
+import { homedir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -25,6 +26,12 @@ import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import { isEpicIntegrationBranch } from "./epic-branch";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeyMembraneFields,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   prReviewPrompt,
@@ -37,6 +44,15 @@ import {
   CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
+import {
+  detectBackend as realDetectBackend,
+  wrapArgv,
+  safeRealpath,
+  collectPassthroughEnv,
+  type SandboxBackend,
+  type MembraneInputs,
+} from "./sandbox";
+import { config } from "./config";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
  *  finalize needs without re-querying — mirrors ReviewService's InFlight, minus the streak/note
@@ -72,7 +88,7 @@ export interface StandalonePrCriticDeps {
     | "listEpicCompleted"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
-  worktree: Pick<WorktreeMgr, "createDetached" | "remove">;
+  worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   /** Candidate repos to consider each sweep. The sweep itself filters to those with
    *  `criticAllPrs` ON (read live, so a toggle takes effect on the next sweep). */
@@ -102,6 +118,16 @@ export interface StandalonePrCriticDeps {
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
   /** Injectable reader of a finished reviewer's token totals (default: readSessionUsage). */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable sandbox backend probe seam (tests inject `() => null` so no real bwrap is
+   *  spawned). Presence-checked (not `??`) because the seam legitimately returns null. */
+  detectBackend?: () => SandboxBackend;
+  /** Injectable membrane env seam (tests inject a stub so no host paths are touched). */
+  membraneEnv?: () => {
+    claudeDir: string;
+    home: string;
+    nodeBinReal: string;
+    extraEnv?: Record<string, string>;
+  };
 }
 
 export class StandalonePrCriticService {
@@ -125,6 +151,33 @@ export class StandalonePrCriticService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
+
+  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-
+   *  checked (not `??`) because the seam legitimately returns null (no backend). */
+  private detectBackend(): SandboxBackend {
+    if (this.deps.detectBackend) return this.deps.detectBackend();
+    return realDetectBackend({
+      home: homedir(),
+      claudeDir: config.claudeDir,
+      nodeBinReal: safeRealpath(config.nodeBin),
+    });
+  }
+
+  /** Membrane env: injected seam (tests) or real host values. */
+  private membraneEnv(): {
+    claudeDir: string;
+    home: string;
+    nodeBinReal: string;
+    extraEnv?: Record<string, string>;
+  } {
+    if (this.deps.membraneEnv) return this.deps.membraneEnv();
+    return {
+      claudeDir: config.claudeDir,
+      home: homedir(),
+      nodeBinReal: safeRealpath(config.nodeBin),
+      extraEnv: collectPassthroughEnv(),
+    };
+  }
 
   constructor(private deps: StandalonePrCriticDeps) {
     this.now = deps.now ?? Date.now;
@@ -356,56 +409,116 @@ export class StandalonePrCriticService {
       // Resolve the base for the prompt: the concrete fingerprinted SHA when we have it (so the
       // review diffs the identical base the skip decision used), else the base branch name.
       const diffBase = baseSha ?? meta.baseRefName;
-      const { argv, sessionId: criticSessionId } = readonlyReviewerArgv(
-        this.deps.model ?? null,
-        prReviewPrompt(diffBase, pr.title, meta.body),
-        // Same extended thinking budget as the session critic (#604): the standalone PR critic
-        // runs the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
-        CRITIC_THINKING_TOKENS,
-      );
-
-      let terminalId: string;
-      try {
-        terminalId = this.deps.herdr.start(
-          `pr-critic ${repoPath}#${pr.number}`,
-          wt.worktreePath,
-          argv,
-        ).terminalId;
-      } catch (err) {
-        this.log(`[pr-critic] spawn failed for ${repoPath}#${pr.number}: ${String(err)}`);
-        this.deps.worktree.remove(wt.worktreePath);
-        return;
-      }
-
-      this.inFlight.set(key, {
-        repoPath,
-        prNumber: pr.number,
-        branch: pr.headRefName!,
-        headSha: pr.headSha!,
+      // Fail-closed guard + membrane-wrapped spawn + spawn-row record live in spawnAndRecord (keeps
+      // begin under the cognitive budget). Returns false when nothing spawned (fail-closed / spawn
+      // error) — the worktree is reaped inside, so begin just bails.
+      await this.spawnAndRecord(repoPath, pr, wt.worktreePath, diffBase, meta.body, key, {
         patchId,
         baseSha,
         files,
-        worktreePath: wt.worktreePath,
-        terminalId,
-        criticSessionId,
-        startedAt: this.now(),
         priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
-      });
-      // Persist the spawn row now (totals NULL until finalize) so review burn is attributable even
-      // if the run crashes/times out before a verdict (issue #502). The taskSessionId column is
-      // opaque TEXT with no FK to `sessions`, so a synthetic `pr:<repo>#<n>` is safe — it just
-      // labels the cost as belonging to this PR, not a managed session.
-      this.deps.store.recordReviewerSpawn({
-        reviewerSessionId: criticSessionId,
-        taskSessionId: `pr:${repoPath}#${pr.number}`,
-        kind: "review",
-        worktreePath: wt.worktreePath,
-        model: this.deps.model ?? null,
-        spawnedAt: this.now(),
       });
     } finally {
       this.starting.delete(key);
     }
+  }
+
+  /**
+   * Build the membrane-wrapped critic argv and spawn it, recording the in-flight run + spawn row on
+   * success. Extracted from begin() so begin stays under the complexity budget. Fail-closed: in
+   * api-key mode with no configured key it logs, reaps the worktree, and returns without spawning
+   * (never bills the subscription) — mirrors ReviewService.begin. On a spawn error it likewise reaps
+   * and returns. The FS membrane matches ReviewService (#601): an isolated worktree gets per-task
+   * binds (worktree + git common dir), not the whole repo; wrapArgv degrades to passthrough when no
+   * bwrap backend (no behavior change on backend-less hosts), and api-key mode masks the OAuth
+   * credential + binds the helper (passthrough carries a credential-less CLAUDE_CONFIG_DIR instead).
+   */
+  private async spawnAndRecord(
+    repoPath: string,
+    pr: PullRequest,
+    worktreePath: string,
+    diffBase: string,
+    prBody: string,
+    key: string,
+    fp: {
+      patchId: string;
+      baseSha: string | null;
+      files: string[];
+      priorReviewedPatchIds: string[];
+    },
+  ): Promise<void> {
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      this.log(
+        `[pr-critic] ${repoPath}#${pr.number} api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)`,
+      );
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
+    const { argv, sessionId: criticSessionId } = readonlyReviewerArgv(
+      this.deps.model ?? null,
+      prReviewPrompt(diffBase, pr.title, prBody),
+      // Same extended thinking budget as the session critic (#604): the standalone PR critic runs
+      // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
+      CRITIC_THINKING_TOKENS,
+    );
+    const backend = this.detectBackend();
+    const env = this.membraneEnv();
+    const membrane: MembraneInputs = {
+      worktreePath,
+      gitCommonDir: this.deps.worktree.gitCommonDir(worktreePath),
+      isolated: true,
+      repoPath,
+      claudeDir: env.claudeDir,
+      home: env.home,
+      nodeBinReal: env.nodeBinReal,
+      extraEnv: env.extraEnv,
+      // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
+      ...apiKeyMembraneFields(),
+    };
+    const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
+
+    let terminalId: string;
+    try {
+      terminalId = this.deps.herdr.start(
+        `pr-critic ${repoPath}#${pr.number}`,
+        worktreePath,
+        wrapped,
+        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a credential-less
+        // mirror; with a backend the membrane masks creds in place.
+        apiKeyPassthroughEnv(backend !== null),
+      ).terminalId;
+    } catch (err) {
+      this.log(`[pr-critic] spawn failed for ${repoPath}#${pr.number}: ${String(err)}`);
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
+
+    this.inFlight.set(key, {
+      repoPath,
+      prNumber: pr.number,
+      branch: pr.headRefName!,
+      headSha: pr.headSha!,
+      patchId: fp.patchId,
+      baseSha: fp.baseSha,
+      files: fp.files,
+      worktreePath,
+      terminalId,
+      criticSessionId,
+      startedAt: this.now(),
+      priorReviewedPatchIds: fp.priorReviewedPatchIds,
+    });
+    // Persist the spawn row now (totals NULL until finalize) so review burn is attributable even if
+    // the run crashes/times out before a verdict (issue #502). The taskSessionId column is opaque
+    // TEXT with no FK to `sessions`, so a synthetic `pr:<repo>#<n>` is safe — it just labels the cost
+    // as belonging to this PR, not a managed session.
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: criticSessionId,
+      taskSessionId: `pr:${repoPath}#${pr.number}`,
+      kind: "review",
+      worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: this.now(),
+    });
   }
 
   /** The 15s finalize poll. Mirror ReviewService.tick: for each in-flight run not already

@@ -1,5 +1,24 @@
 import { expect, test } from "bun:test";
 import { readonlyReviewerArgv } from "../src/reviewer-argv";
+import { config } from "../src/config";
+
+// Temporarily set config auth fields, always restoring them.
+function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  try {
+    config.authMode = mode;
+    config.authApiKeyHelperPath = helper;
+    fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
+
+function settingsOf(argv: string[]): Record<string, unknown> {
+  return JSON.parse(argv[argv.indexOf("--settings") + 1]!);
+}
 
 test("--settings includes enableAllProjectMcpServers and disableAllHooks", () => {
   const { argv: a } = readonlyReviewerArgv(null, "some prompt");
@@ -94,6 +113,36 @@ test("reviewer never bypasses permissions and pins dontAsk", () => {
     expect(permIdx).toBeGreaterThan(-1);
     expect(argv[permIdx + 1]).toBe("dontAsk");
   }
+});
+
+// ── api-key auth-mode wiring ────────────────────────────────────────────────
+
+test("subscription mode: --settings carries NO apiKeyHelper (byte-for-byte)", () => {
+  withAuth("subscription", "/should/be/ignored.sh", () => {
+    const { argv } = readonlyReviewerArgv(null, "p");
+    const s = settingsOf(argv);
+    expect(s.apiKeyHelper).toBeUndefined();
+    // unchanged from the pre-api-key shape
+    expect(s).toEqual({ disableAllHooks: true, enableAllProjectMcpServers: true });
+  });
+});
+
+test("api-key mode (configured): --settings folds in apiKeyHelper after existing keys", () => {
+  withAuth("api-key", "/helper.sh", () => {
+    const { argv } = readonlyReviewerArgv(null, "p");
+    const s = settingsOf(argv);
+    expect(s.apiKeyHelper).toBe("/helper.sh");
+    // existing reviewer invariants untouched
+    expect(s.disableAllHooks).toBe(true);
+    expect(s.enableAllProjectMcpServers).toBe(true);
+  });
+});
+
+test("api-key mode (unconfigured): no apiKeyHelper key emitted", () => {
+  withAuth("api-key", null, () => {
+    const s = settingsOf(readonlyReviewerArgv(null, "p").argv);
+    expect(s.apiKeyHelper).toBeUndefined();
+  });
 });
 
 test("reviewer allowlist excludes write/exec/outbound tools", () => {

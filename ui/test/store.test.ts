@@ -65,6 +65,7 @@ test("applies usage:limits", () => {
       credits: null,
       stale: false,
       calibratedAt: 5,
+      subscriptionOnly: false,
     },
   });
   expect(store.usageLimits?.session5h?.pct).toBe(12);

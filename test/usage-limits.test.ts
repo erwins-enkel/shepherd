@@ -18,6 +18,7 @@ import {
   type UsageProbe,
 } from "../src/usage-limits";
 import { AccountUsageIndex } from "../src/usage";
+import { config } from "../src/config";
 
 const NOW = Date.parse("2026-05-30T18:00:00.000Z");
 
@@ -429,6 +430,7 @@ const mkLimits = (weekPct: number | null): UsageLimits => ({
   credits: null,
   stale: false,
   calibratedAt: NOW,
+  subscriptionOnly: false,
 });
 
 test("calibrateDelay: week pct above watch threshold escalates cadence", () => {
@@ -445,4 +447,49 @@ test("calibrateDelay: week pct below threshold stays daily", () => {
 
 test("calibrateDelay: null week window stays daily", () => {
   expect(calibrateDelay(mkLimits(null))).toBe(CALIBRATE_INTERVAL_MS);
+});
+
+// ── api-key mode: subscription-only flag + probe never spawned ───────────────
+
+/** Probe whose scrape() throws (or increments a call counter) to catch stray spawns. */
+class ThrowingProbe implements UsageProbe {
+  calls = 0;
+  async scrape(): Promise<string | null> {
+    this.calls++;
+    throw new Error("probe must not be called in api-key mode");
+  }
+}
+
+test("calibrate short-circuits in api-key mode without calling the probe", async () => {
+  const prior = config.authMode;
+  try {
+    config.authMode = "api-key";
+    const probe = new ThrowingProbe();
+    const svc = new UsageLimitsService(fakeIndex(100), new MemCaps(), probe, new MemCredits());
+    const result = await svc.calibrate(NOW);
+    expect(result).toBe(false);
+    expect(probe.calls).toBe(0);
+  } finally {
+    config.authMode = prior;
+  }
+});
+
+test("limits() subscriptionOnly is true in api-key mode, false in subscription mode", () => {
+  const prior = config.authMode;
+  try {
+    const svc = new UsageLimitsService(
+      fakeIndex(0),
+      new MemCaps(),
+      new StubProbe(null),
+      new MemCredits(),
+    );
+
+    config.authMode = "api-key";
+    expect(svc.limits(NOW).subscriptionOnly).toBe(true);
+
+    config.authMode = "subscription";
+    expect(svc.limits(NOW).subscriptionOnly).toBe(false);
+  } finally {
+    config.authMode = prior;
+  }
 });

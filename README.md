@@ -47,6 +47,15 @@ live pane). Auth is the operator's own login; no token relay, no impersonation, 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
 
+Operators who need a clearly-compliant path — or who cannot accept the R1 ambiguity around
+keystroke-puppeting of interactive sessions — can opt into **API-key auth (footing B)** in Settings
+→ Session. In this mode Shepherd still drives genuine interactive `claude` sessions (NOT `claude -p`
+/ Agent SDK); only the auth changes from subscription OAuth to a metered Anthropic API key under the
+Commercial Terms, which explicitly exempts automated use from the §3 bot/script prohibition and is
+no-train-by-default. This closes both the R1 ambiguity and the R5 training-exposure. See
+[`docs/research/tos-position-and-auth-paths.md`](docs/research/tos-position-and-auth-paths.md) for
+the full evaluation.
+
 ## Your `/commands` come with you
 
 Because Shepherd attaches to a **genuine interactive `claude` session** running against your own
@@ -145,7 +154,7 @@ Shepherd can wrap each spawned `claude` process in an OS-level filesystem/proces
 
 - SSH-remote repos cannot `git push` from inside the membrane (the `~/.ssh` key dir is excluded). Use an HTTPS remote with the `gh` token instead.
 - MCP servers whose dependencies live outside the bound `$HOME` paths (e.g. a server installed in an arbitrary prefix) may fail to load inside the membrane.
-- The membrane relies on **OAuth/subscription auth** (`~/.claude/.credentials.json`, which it binds). `--clearenv` deliberately strips `ANTHROPIC_API_KEY` (and all other env), so a `claude` install that authenticates via that env var rather than OAuth will fail to authenticate inside `standard`/`autonomous` — and the node/git backend self-test won't catch it. This matches Shepherd's subscription-only ToS model; use OAuth login.
+- The membrane relies on **OAuth/subscription auth** (`~/.claude/.credentials.json`, which it binds) in the default **subscription mode**. `--clearenv` deliberately strips `ANTHROPIC_API_KEY` (and all other env), so a `claude` install that authenticates purely via that env var rather than OAuth will fail to authenticate inside `standard`/`autonomous`. In **api-key mode** (Settings → Session) this is reversed: the membrane instead masks the subscription credential with an empty overlay and injects the key via an `apiKeyHelper` script bound into the sandbox — the key is never passed as a raw env var.
 
 The membrane bind set is **host-derived** — Shepherd probes the node/claude install locations and `gh`/gitconfig paths at startup and uses `--bind-try` for optional paths, so no hardcoded path list needs maintenance.
 

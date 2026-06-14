@@ -1,12 +1,39 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { classifyStop, classifierPrompt, VERDICT_FILE } from "../src/autopilot-llm";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 function makeDeps(over: Partial<import("../src/autopilot-llm").ClassifierDeps> = {}) {
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[]) => {
-        calls.started = { name, cwd, argv };
+      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        calls.started = { name, cwd, argv, env };
         return { terminalId: "term_c", cwd } as any;
       },
       stop: () => {
@@ -63,6 +90,41 @@ test("classifyStop: parses a gate verdict; spawns haiku, dontAsk, Write-only", a
   expect(calls.started.argv[calls.started.argv.length - 1]).toContain("task");
   expect(calls.stopped).toBe(true);
   expect(calls.cleaned).toBe(true);
+});
+
+test("classifyStop: subscription mode — --settings unchanged + no env 4th arg", async () => {
+  const { calls } = await withAuth("subscription", "/ignored.sh", async () => {
+    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    await classifyStop(["…"], "task", d.deps, "l");
+    return d;
+  });
+  const argv = calls.started.argv;
+  const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
+  expect(settings).toEqual({ disableAllHooks: true });
+  expect(calls.started.env).toBeUndefined();
+});
+
+test("classifyStop: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {
+  const { calls } = await withAuth("api-key", "/helper.sh", async () => {
+    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    await classifyStop(["…"], "task", d.deps, "l");
+    return d;
+  });
+  const argv = calls.started.argv;
+  const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
+  expect(settings.disableAllHooks).toBe(true);
+  expect(settings.apiKeyHelper).toBe("/helper.sh");
+  expect(Object.keys(calls.started.env)).toEqual(["CLAUDE_CONFIG_DIR"]);
+});
+
+test("classifyStop: api-key without configured key fails closed → SURFACE, no spawn", async () => {
+  const { result, calls } = await withAuth("api-key", null, async () => {
+    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    const r = await classifyStop(["…"], "task", d.deps, "l");
+    return { result: r, calls: d.calls };
+  });
+  expect(result).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
 });
 
 test("classifyStop: unknown/surface on timeout (null verdict)", async () => {

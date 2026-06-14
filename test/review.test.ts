@@ -1,6 +1,33 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
 import type { Session, ReviewVerdict } from "../src/types";
 
@@ -104,7 +131,7 @@ function makeDeps(
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
-  const started: { name: string; cwd: string; argv: string[] }[] = [];
+  const started: { name: string; cwd: string; argv: string[]; env?: Record<string, string> }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
   const bumped: { id: string; headSha: string }[] = []; // bumpReviewHead calls (rebase-skip)
@@ -140,8 +167,8 @@ function makeDeps(
         completedSpawns.push({ id, u, at }),
     },
     herdr: {
-      start: (name: string, cwd: string, argv: string[]) => {
-        started.push({ name, cwd, argv });
+      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
       },
       stop: (t: string) => stopped.push(t),
@@ -347,6 +374,36 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
     env: { MAX_THINKING_TOKENS: String(CRITIC_THINKING_TOKENS) },
   });
   expect(argv).toContain("--safe-mode");
+});
+
+test("critic: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
+  await withAuth("subscription", "/ignored.sh", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    const argv = started[0]!.argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!).apiKeyHelper).toBeUndefined();
+    expect(started[0]!.env).toBeUndefined();
+  });
+});
+
+test("critic: api-key mode (passthrough host) — apiKeyHelper + CLAUDE_CONFIG_DIR env", async () => {
+  // detectBackend()→null on the test host → no membrane → passthrough env carries the mirror dir.
+  await withAuth("api-key", "/helper.sh", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    const argv = started[0]!.argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!).apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(started[0]!.env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
+});
+
+test("critic: api-key without a configured key fails closed (no spawn, worktree reaped)", async () => {
+  await withAuth("api-key", null, async () => {
+    const { deps: d, started, removed } = makeDeps({});
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(0);
+    expect(removed).toEqual(["/review-wt"]);
+  });
 });
 
 test("task prompt survives the variadic allowlist (not swallowed → no task → timeout)", async () => {

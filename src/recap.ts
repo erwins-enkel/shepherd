@@ -27,6 +27,12 @@ import { computeDiff } from "./diff";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
 import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeySettingsFragment,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
+import {
   parseRecapVerdict,
   buildTranscriptDigest,
   buildRecapPrompt,
@@ -106,6 +112,8 @@ function defaultCleanup(cwd: string): void {
  *   --permission-mode dontAsk <prompt>
  * NOTE: --allowedTools is variadic and eats tokens until the next flag, so
  * --permission-mode must follow it and the prompt must be last. Don't reorder.
+ * Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
+ * apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR.
  */
 function recapArgv(model: string | null, prompt: string): { argv: string[]; sessionId: string } {
   const sessionId = randomUUID();
@@ -114,7 +122,8 @@ function recapArgv(model: string | null, prompt: string): { argv: string[]; sess
     "--session-id",
     sessionId,
     "--settings",
-    '{"disableAllHooks":true}',
+    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
+    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
     "--disable-slash-commands",
     "--allowedTools",
     "Write",
@@ -350,6 +359,13 @@ export class RecapService {
    * A synchronous in-flight guard prevents double-spawn if regenerate races sweep.
    */
   async generate(session: Session, knownHead?: string): Promise<"started" | "empty" | "error"> {
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[recap] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      return "error";
+    }
     const { id, worktreePath, baseBranch, branch, claudeSessionId } = session;
 
     // Synchronous guard: if already mid-flight for this session, bail immediately.
@@ -418,7 +434,7 @@ export class RecapService {
       // Spawn.
       const cwd = this._makeTmpDir();
       try {
-        this.deps.herdr.start(`recap ${session.desig}`, cwd, argv);
+        this.deps.herdr.start(`recap ${session.desig}`, cwd, argv, apiKeyPassthroughEnv(false));
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so next settle can retry

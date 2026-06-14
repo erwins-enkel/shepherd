@@ -396,3 +396,51 @@ test("async runner throws fast (no spawn) while maintenance is active", async ()
     maintenance.end();
   }
 });
+
+// -- env param tests --
+
+function extractPost(calls: string[][]): string[] {
+  const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
+  return startCall.slice(startCall.indexOf("--") + 1);
+}
+
+test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE=…, claude, …]", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"]);
+  const post = extractPost(calls);
+  expect(post).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude", "go"]);
+});
+
+test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by key, before argv", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x", FOO: "bar" });
+  const post = extractPost(calls);
+  // Keys sorted: CLAUDE_CONFIG_DIR < FOO
+  expect(post).toEqual([
+    "env",
+    "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CONFIG_DIR=/x",
+    "FOO=bar",
+    "claude",
+    "go",
+  ]);
+});
+
+test("start with empty env {}: wrapped is identical to no-env case", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"], {});
+  const post = extractPost(calls);
+  expect(post).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude", "go"]);
+});

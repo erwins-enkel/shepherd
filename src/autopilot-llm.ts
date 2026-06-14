@@ -4,6 +4,12 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { HerdrDriver } from "./herdr";
 import type { AutopilotVerdict, AutopilotKind } from "./types";
+import {
+  isApiKeyMode,
+  isApiKeyConfigured,
+  apiKeySettingsFragment,
+  apiKeyPassthroughEnv,
+} from "./spawn-auth";
 
 /** The file the classifier agent writes its verdict JSON to, in its temp cwd. */
 export const VERDICT_FILE = ".shepherd-autopilot.json";
@@ -88,7 +94,8 @@ function defaultCleanup(cwd: string): void {
  * (src/namer-llm.ts) and critic: clean context (disableAllHooks + disable-slash-commands),
  * subscription OAuth (NOT --bare), bare `Write` (scoped Write denied under dontAsk),
  * and --permission-mode dontAsk LAST (after the variadic --allowedTools, before the
- * trailing prompt). Don't reorder.
+ * trailing prompt). Don't reorder. In api-key auth mode the key arrives via apiKeyHelper
+ * in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR — still NOT --bare.
  */
 function classifierArgv(model: string | null, prompt: string): string[] {
   const argv = [
@@ -96,7 +103,8 @@ function classifierArgv(model: string | null, prompt: string): string[] {
     "--session-id",
     randomUUID(),
     "--settings",
-    '{"disableAllHooks":true}',
+    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
+    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
     "--disable-slash-commands",
     "--allowedTools",
     "Write",
@@ -163,13 +171,22 @@ export async function classifyStop(
     pollMs = 1_000,
   } = deps;
 
+  // Fail closed: api-key mode without a configured key must NOT bill the subscription —
+  // surface to the operator rather than auto-classifying on the wrong footing.
+  if (isApiKeyMode() && !isApiKeyConfigured()) return SURFACE;
+
   let cwd: string | null = null;
   let terminalId: string | null = null;
   try {
     cwd = makeTmpDir();
     const prompt = classifierPrompt(tail, taskPrompt);
     try {
-      terminalId = deps.herdr.start(label, cwd, classifierArgv(model, prompt)).terminalId;
+      terminalId = deps.herdr.start(
+        label,
+        cwd,
+        classifierArgv(model, prompt),
+        apiKeyPassthroughEnv(false),
+      ).terminalId;
     } catch {
       return SURFACE; // herdr/claude unavailable → surface (don't auto-proceed blind)
     }

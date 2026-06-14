@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { apiKeySettingsFragment } from "./spawn-auth";
 
 /** Build the argv for a read-only adversarial reviewer agent (PR critic + plan reviewer share it).
  *  Deliberately NOT --dangerously-skip-permissions: the agent inspects UNTRUSTED input (a PR diff
@@ -31,6 +32,10 @@ export function readonlyReviewerArgv(
     enableAllProjectMcpServers: true,
   };
   if (thinkingTokens) settings.env = { MAX_THINKING_TOKENS: String(thinkingTokens) };
+  // api-key mode folds in `apiKeyHelper` AFTER the existing keys (stable key order;
+  // subscription spreads {} → byte-identical JSON). The membrane masks the OAuth
+  // credential in place for the wrapped reviewer; see spawn-auth + review.ts/plan-gate.ts.
+  Object.assign(settings, apiKeySettingsFragment());
   const argv = [
     "claude",
     "--session-id",
@@ -43,8 +48,11 @@ export function readonlyReviewerArgv(
     // inherited hook (also gsd/herdr/ensure-deps — none of which the reviewer
     // needs); --disable-slash-commands removes skills entirely.
     // NOT --bare: it refuses OAuth/keychain auth (strictly ANTHROPIC_API_KEY),
-    // and shepherd runs on subscription OAuth with no API key — --bare would
+    // and shepherd defaults to subscription OAuth with no API key — --bare would
     // break the reviewer's auth. --settings keeps OAuth while disabling hooks.
+    // In api-key auth mode the key is supplied via `apiKeyHelper` in --settings
+    // (folded in above) and the membrane masks the operator's OAuth credential —
+    // still NOT --bare (the helper path is honored without it).
     // enableAllProjectMcpServers pre-approves the repo's project .mcp.json so the
     // interactive "new MCP servers found" gate never renders (see the MCP block
     // below for why it's necessary AND why it is COUPLED to --safe-mode).

@@ -1,7 +1,34 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach, afterEach } from "bun:test";
 import { RecapService } from "../src/recap";
 import type { Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+async function withAuth<T>(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    return await fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -126,10 +153,15 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
 type FakePaneEntry = { cwd: string; terminalId: string };
 
 type FakeHerdr = {
-  started: { label: string; cwd: string; argv: string[] }[];
+  started: { label: string; cwd: string; argv: string[]; env?: Record<string, string> }[];
   stopped: string[];
   livePanes: FakePaneEntry[];
-  start: (label: string, cwd: string, argv: string[]) => { terminalId: string };
+  start: (
+    label: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ) => { terminalId: string };
   stop: (id: string) => void;
   list: () => FakePaneEntry[];
 };
@@ -139,9 +171,9 @@ function makeHerdr(livePanes: FakePaneEntry[] = []): FakeHerdr {
     started: [],
     stopped: [],
     livePanes,
-    start: (label, cwd, argv) => {
+    start: (label, cwd, argv, env) => {
       const tid = `tid-${h.started.length + 1}`;
-      h.started.push({ label, cwd, argv });
+      h.started.push({ label, cwd, argv, env });
       h.livePanes.push({ cwd, terminalId: tid });
       return { terminalId: tid };
     },
@@ -516,6 +548,59 @@ test("regenerate: forces spawn even for auto:true (drain)", async () => {
   expect(result).toBe("started");
   expect(herdr.started.length).toBe(1);
   expect(store.getRecap("s1")?.state).toBe("generating");
+});
+
+// ── api-key auth-mode wiring ────────────────────────────────────────────────
+
+test("generate: subscription mode — --settings unchanged + no env 4th arg", async () => {
+  await withAuth("subscription", "/ignored.sh", async () => {
+    const s = makeSession({ status: "idle" });
+    const herdr = makeHerdr();
+    const svc = buildSvc({
+      store: makeStore([s]),
+      herdr,
+      nowFn: () => 1,
+      makeTmpDir: () => "/tmp/r",
+    });
+    await svc.regenerate(s);
+    const argv = herdr.started[0]!.argv;
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!)).toEqual({ disableAllHooks: true });
+    expect(herdr.started[0]!.env).toBeUndefined();
+  });
+});
+
+test("generate: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {
+  await withAuth("api-key", "/helper.sh", async () => {
+    const s = makeSession({ status: "idle" });
+    const herdr = makeHerdr();
+    const svc = buildSvc({
+      store: makeStore([s]),
+      herdr,
+      nowFn: () => 1,
+      makeTmpDir: () => "/tmp/r",
+    });
+    await svc.regenerate(s);
+    const argv = herdr.started[0]!.argv;
+    const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
+    expect(settings.disableAllHooks).toBe(true);
+    expect(settings.apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(herdr.started[0]!.env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
+});
+
+test("generate: api-key without a configured key fails closed → 'error', no spawn", async () => {
+  await withAuth("api-key", null, async () => {
+    const s = makeSession({ status: "idle" });
+    const herdr = makeHerdr();
+    const svc = buildSvc({
+      store: makeStore([s]),
+      herdr,
+      nowFn: () => 1,
+      makeTmpDir: () => "/tmp/r",
+    });
+    expect(await svc.regenerate(s)).toBe("error");
+    expect(herdr.started.length).toBe(0);
+  });
 });
 
 test("regenerate: replaces an existing ready row", async () => {

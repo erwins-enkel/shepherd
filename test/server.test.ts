@@ -52,7 +52,14 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     events,
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
+    limits: () => ({
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    }),
   };
   const distiller = { distillNow: () => {} };
   return { store, service, events, usageLimits, distiller };
@@ -73,6 +80,7 @@ test("GET /api/usage/limits returns the limits snapshot", async () => {
     credits: null,
     stale: true,
     calibratedAt: null,
+    subscriptionOnly: false,
   });
 });
 
@@ -115,6 +123,7 @@ test("POST /api/usage/refresh without refreshUsage falls back to current limits 
     credits: null,
     stale: true,
     calibratedAt: null,
+    subscriptionOnly: false,
   });
 });
 
@@ -237,7 +246,14 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
     reaper: fullReaper,
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
+    limits: () => ({
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    }),
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };
@@ -1253,7 +1269,14 @@ function clearMergedHarness() {
     },
   };
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
+    limits: () => ({
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    }),
   };
   const app = makeApp({ store, service, events, usageLimits, prCache } as any);
   const mk = (name: string, state: string) => {
@@ -1862,7 +1885,14 @@ function harnessWithPreviewStop({
     preview: { devPortFor },
   });
   const usageLimits = {
-    limits: () => ({ session5h: null, week: null, credits: null, stale: true, calibratedAt: null }),
+    limits: () => ({
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    }),
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };

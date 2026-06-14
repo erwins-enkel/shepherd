@@ -444,6 +444,98 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);
   });
 
+  test("subscription (no api-key fields): rw .credentials.json bind, no helper, no /dev/null overlay", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    // rw credential bind present (today's behavior)
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(true);
+    // no /dev/null overlay of the credential
+    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(
+      false,
+    );
+  });
+
+  test("no api-key fields => BYTE-IDENTICAL to a bare fakeMembrane (deep equal)", () => {
+    // Explicit nulls/false must produce the exact same flags as omitting them.
+    const bare = buildMembraneFlags(fakeMembrane(), detDeps);
+    const explicit = buildMembraneFlags(
+      fakeMembrane({ apiKeyHelperPath: null, maskCredentials: false }),
+      detDeps,
+    );
+    expect(explicit).toEqual(bare);
+  });
+
+  test("maskCredentials: .credentials.json ABSENT (per-child binds, no whole-dir bind, no overlay), helper RO", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ maskCredentials: true, apiKeyHelperPath: "/h/x.sh" }),
+      {
+        ...detDeps,
+        readdir: () => [
+          ".credentials.json",
+          "skills",
+          "settings.json",
+          "projects",
+          "statsig",
+          "CLAUDE.md",
+        ],
+      },
+    );
+    // NO whole-dir RO bind of claudeDir (replaced by per-child binds).
+    expect(hasTriple(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude")).toBe(false);
+    // The mount point still exists via --dir.
+    const di = f.indexOf("--dir");
+    expect(di).toBeGreaterThanOrEqual(0);
+    expect(f[di + 1]).toBe("/home/me/.claude");
+    // NO bind of .credentials.json of ANY kind — the file is absent.
+    expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(
+      false,
+    );
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(false);
+    expect(
+      hasTriple(
+        f,
+        "--ro-bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(false);
+    // Per-child RO binds present for the non-credential entries.
+    expect(
+      hasTriple(f, "--ro-bind-try", "/home/me/.claude/skills", "/home/me/.claude/skills"),
+    ).toBe(true);
+    expect(
+      hasTriple(
+        f,
+        "--ro-bind-try",
+        "/home/me/.claude/settings.json",
+        "/home/me/.claude/settings.json",
+      ),
+    ).toBe(true);
+    expect(
+      hasTriple(f, "--ro-bind-try", "/home/me/.claude/CLAUDE.md", "/home/me/.claude/CLAUDE.md"),
+    ).toBe(true);
+    // helper bound RO at the same path inside the sandbox
+    expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
+  });
+
+  test("apiKeyHelperPath empty/whitespace-guard: empty string => no helper bind", () => {
+    const f = buildMembraneFlags(fakeMembrane({ apiKeyHelperPath: "" }), detDeps);
+    expect(f.some((x) => x === "")).toBe(false);
+  });
+
   test("membrane guard: key invariants hold and no --network flags present (no egress plumbing in membrane)", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     // Must still contain all the hardening flags.

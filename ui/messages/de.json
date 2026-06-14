@@ -1258,5 +1258,20 @@
   "done_recap_panel_aria": "Zusammenfassung für {desig}",
   "done_back_to_list": "‹ Zurück zu Fertig",
   "feat_done_lens_title": "Fertig-Ansicht",
-  "feat_done_lens_body": "Filtere die Herde auf deine abgeschlossenen und gemergten Sitzungen und öffne eine davon, um die schreibgeschützte Zusammenfassung des Verlaufs anzusehen."
+  "feat_done_lens_body": "Filtere die Herde auf deine abgeschlossenen und gemergten Sitzungen und öffne eine davon, um die schreibgeschützte Zusammenfassung des Verlaufs anzusehen.",
+  "settings_auth_mode_title": "Authentifizierung",
+  "settings_auth_mode_hint": "Wie gestartete Agenten sich authentifizieren. Der API-Schlüssel-Modus rechnet API-Nutzung zu Verbrauchspreisen unter den Commercial Terms ab statt über dein Abonnement.",
+  "settings_auth_mode_subscription": "Abonnement (OAuth)",
+  "settings_auth_mode_apikey": "Anthropic-API-Schlüssel",
+  "settings_auth_mode_save_failed": "Authentifizierungsmodus konnte nicht geändert werden",
+  "settings_auth_key_label": "Anthropic-API-Schlüssel",
+  "settings_auth_key_placeholder": "sk-ant-…",
+  "settings_auth_key_save": "Speichern",
+  "settings_auth_key_saved": "API-Schlüssel konfiguriert",
+  "settings_auth_key_clear": "Schlüssel entfernen",
+  "settings_auth_key_missing_warning": "Der API-Schlüssel-Modus ist gewählt, aber kein Schlüssel hinterlegt — Agenten-Starts pausieren, bis du einen hinzufügst.",
+  "settings_auth_key_save_failed": "API-Schlüssel konnte nicht gespeichert werden",
+  "usage_subscription_only": "Nutzungserfassung nur im Abonnement — siehe die Anthropic-Konsole.",
+  "feat_api_key_auth_title": "API-Schlüssel-Authentifizierung",
+  "feat_api_key_auth_body": "Aktiviere die Abrechnung gestarteter Agenten über einen Anthropic-API-Schlüssel (Commercial Terms) statt über dein Abonnement — Einstellungen → Sitzung."
 }

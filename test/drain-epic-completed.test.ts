@@ -14,6 +14,7 @@ const NO_USAGE: UsageLimitsType = {
   credits: null,
   stale: false,
   calibratedAt: null,
+  subscriptionOnly: false,
 };
 
 /** A forge whose epic has the given native sub-issues (closed flag drives "merged"). */

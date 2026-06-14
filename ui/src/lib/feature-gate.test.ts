@@ -111,6 +111,24 @@ describe("computeNewEntries", () => {
   });
 });
 
+describe("catalog has no duplicate ids — union-merge safeguard", () => {
+  // feature-announcements.ts uses git's built-in `union` merge driver (.gitattributes)
+  // to auto-resolve the append-to-tail conflicts every feature PR creates. The one
+  // failure mode `union` can't catch: two branches appending the SAME entry get both
+  // copies kept silently instead of conflicting. A duplicate `id` is the signature of
+  // that — fail loudly here so CI turns red instead of shipping a doubled What's-New
+  // entry. (Each entry carries its own titleKey/bodyKey, so a duplicated entry trips
+  // the id check; ids are the catalog's stable identity.)
+  it("every entry id is unique", () => {
+    const ids = featureAnnouncements.map((e) => e.id);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    expect(
+      dupes,
+      `duplicate feature-announcement id(s): ${[...new Set(dupes)].join(", ")}`,
+    ).toEqual([]);
+  });
+});
+
 describe("catalog key parity — all titleKey/bodyKey exist in en.json", () => {
   const enKeys = new Set(Object.keys(enMessages));
 

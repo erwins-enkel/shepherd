@@ -26,6 +26,16 @@
 ui/messages/*.json        merge=i18n-union
 extension/messages/*.json merge=i18n-union
 
+# Feature-announcement catalog: same append-to-tail churn as the message catalogs
+# (every feature PR appends one entry before the closing `];`), so concurrent
+# branches collide on the tail hunk on every rebase. It's a TS module, not JSON,
+# so the key-aware i18n-union driver can't parse it — instead use git's built-in
+# `union` driver, which keeps BOTH sides of a conflicting hunk. Append-only inserts
+# then auto-resolve. The one risk `union` introduces — two branches adding the SAME
+# entry, silently duplicated rather than conflicted — is caught loudly by the
+# duplicate-id guard in ui/src/lib/feature-gate.test.ts (CI verify + pre-push).
+ui/src/lib/feature-announcements.ts merge=union
+
 # Vendored, minified inlang/Paraglide plugins (copied verbatim into ui/ and
 # extension/). Not our source — mark generated + vendored so linguist and code
 # analysis skip them and diffs collapse. Hand-editing them would diverge from the

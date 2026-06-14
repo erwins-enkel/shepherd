@@ -8,8 +8,8 @@ import { seedInstance } from "./seed";
 import { bootShepherd, probeDiagnostics } from "./probe";
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
-import { buildGapReport } from "./report";
-import { reportToGitHub } from "./issue";
+import { buildGapReport, statusDescription } from "./report";
+import { reportToGitHub, publishStatus } from "./issue";
 import { remediationsFor } from "./remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 
@@ -122,6 +122,31 @@ function acquireHostLock(): () => void {
   return release;
 }
 
+/** Accountability + traceability: on a FULL run (never a single `--scenario`,
+ *  which checks one defect and must not open/close the rolling issue or stamp a
+ *  verdict), report the outcome to GitHub — a rolling regression issue AND a
+ *  commit status on the tested SHA, so every run leaves a visible green/red record
+ *  and even a clean run is observable. Opt-in via env so manual full runs stay
+ *  side-effect-free; the nightly service sets it. Best-effort: a gh failure is
+ *  logged loudly but never masks the run result. */
+async function maybeReportRun(
+  results: ScenarioResult[],
+  report: string,
+  only: string | null | undefined,
+  ok: boolean,
+): Promise<void> {
+  if (only || process.env.SHEPHERD_ONBOARDING_REPORT_ISSUE !== "1") return;
+  try {
+    const outcome = await reportToGitHub(results, report, new Date().toISOString());
+    console.log(`[github] issue: ${outcome.summary}`);
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    await publishStatus(sha, ok, statusDescription(results), outcome.issueUrl);
+    console.log(`[github] status: ${ok ? "success" : "failure"} on ${sha.slice(0, 7)}`);
+  } catch (err) {
+    console.error(`[github] reporting failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function main() {
   // Maintenance: reap ALL harness instances across runs AND clear a stale lock
   // left by a hard-killed (SIGKILL) run (manual recovery only).
@@ -168,25 +193,12 @@ async function main() {
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
 
-  // Accountability: on a FULL run (never a single `--scenario`, which only checks
-  // one defect and must not open/close the rolling issue), file the outcome to
-  // GitHub. Opt-in via env so manual full runs stay side-effect-free; the nightly
-  // service sets it. A gh failure is logged loudly but never masks the run result.
-  if (!only && process.env.SHEPHERD_ONBOARDING_REPORT_ISSUE === "1") {
-    try {
-      const action = await reportToGitHub(results, report, new Date().toISOString());
-      console.log(`[github] ${action}`);
-    } catch (err) {
-      console.error(
-        `[github] failed to file accountability issue: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
   // Non-zero exit if any APPLY-ABLE scenario failed to reach green (detection-only
   // scenarios are excluded). Consumed by the Phase 2 gate.
   const applicable = results.filter((r) => !r.detectionOnly);
-  process.exit(applicable.every((r) => r.reachedGreen) ? 0 : 1);
+  const ok = applicable.every((r) => r.reachedGreen);
+  await maybeReportRun(results, report, only, ok);
+  process.exit(ok ? 0 : 1);
 }
 
 void main();

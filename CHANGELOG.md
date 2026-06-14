@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.31.0](https://github.com/erwins-enkel/shepherd/compare/v1.30.0...v1.31.0) (2026-06-14)
+
+
+### Features
+
+* **backlog:** link repo name to its forge in detail-pane headers ([#691](https://github.com/erwins-enkel/shepherd/issues/691)) ([b1cce28](https://github.com/erwins-enkel/shepherd/commit/b1cce286d585e3957c404052e2598a41d76120e4))
+* **glossary:** inline term tooltips for UI jargon (internal + Wikipedia) ([#683](https://github.com/erwins-enkel/shepherd/issues/683)) ([112ed56](https://github.com/erwins-enkel/shepherd/commit/112ed5601d91e4e63c8a4a023990a22ba38d4810))
+* **newproject:** let users pick the GitHub owner (personal or org) ([#690](https://github.com/erwins-enkel/shepherd/issues/690)) ([50d104a](https://github.com/erwins-enkel/shepherd/commit/50d104a2376d27c16f55533f12f5a32a0f8c2ffe))
+* **repos:** add "Fork a GitHub repo" with upstream-aware forge ([#687](https://github.com/erwins-enkel/shepherd/issues/687)) ([9e0fd4f](https://github.com/erwins-enkel/shepherd/commit/9e0fd4f81a8412c029ef67543466bd236ed24f36))
+
+
+### Bug Fixes
+
+* **merge-train:** launch driver with autopilot off regardless of repo default ([#686](https://github.com/erwins-enkel/shepherd/issues/686)) ([5e9d105](https://github.com/erwins-enkel/shepherd/commit/5e9d105b76e0685dfdd4057cd3520ba0b55b4e6f))
+* **merge-train:** server-derived participant marking that doesn't lose the status marker ([#689](https://github.com/erwins-enkel/shepherd/issues/689)) ([c37f018](https://github.com/erwins-enkel/shepherd/commit/c37f018cd8769d0ba9338ca00b1580346c411aa1))
+* **onboarding-harness:** classify pre-detection throws as HARNESS ERROR, not detection gaps ([#684](https://github.com/erwins-enkel/shepherd/issues/684)) ([bc4c91a](https://github.com/erwins-enkel/shepherd/commit/bc4c91a1e5a0ab9da929d01b632221b15155d611))
+
+
+### Documentation
+
+* **research:** effort/maturity analysis + open-source launch plan ([#688](https://github.com/erwins-enkel/shepherd/issues/688)) ([0a0aa82](https://github.com/erwins-enkel/shepherd/commit/0a0aa8249b2194db56306cf59687297fe3df6715))
+
 ## [1.30.0](https://github.com/erwins-enkel/shepherd/compare/v1.29.0...v1.30.0) (2026-06-14)
 
 

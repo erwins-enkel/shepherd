@@ -29,7 +29,7 @@ export const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_pr_def",
     wikipedia: {
       en: "Distributed_version_control#Pull_requests",
-      de: "Distributed_Versionsverwaltung",
+      de: "Pull-Request",
     },
   },
   {

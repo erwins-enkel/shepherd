@@ -1005,6 +1005,8 @@
   "newproject_visibility_group": "Sichtbarkeit",
   "newproject_visibility_private": "Privat",
   "newproject_visibility_public": "Öffentlich",
+  "newproject_owner_label": "Besitzer",
+  "newproject_owner_personal": "{login} (persönliches Konto)",
   "newproject_kickoff_label": "Starten mit",
   "newproject_kickoff_prd": "PRD-Briefing (Standard)",
   "newproject_submit": "Projekt anlegen & starten",
@@ -1296,5 +1298,7 @@
   "integrated_epics_ack_migrations": "Migrationen bestätigen & schließen",
   "integrated_epics_ack_migrations_failed": "Migrationen konnten nicht bestätigt werden — erneut versuchen",
   "feat_epic_migrations_title": "Epic-Landungen melden nicht ausgeführte Migrationen",
-  "feat_epic_migrations_body": "Wenn der Landing-PR eines Epics Datenbankmigrationen hinzufügt, zeigt das Band 'Integrierte Epics' jetzt einen Warn-Chip mit der Dateianzahl — der Harness führt sie nie aus, prüfe sie also vor dem Merge. Vor dem Schließen der Zeile musst du die Migrationen bestätigen."
+  "feat_epic_migrations_body": "Wenn der Landing-PR eines Epics Datenbankmigrationen hinzufügt, zeigt das Band 'Integrierte Epics' jetzt einen Warn-Chip mit der Dateianzahl — der Harness führt sie nie aus, prüfe sie also vor dem Merge. Vor dem Schließen der Zeile musst du die Migrationen bestätigen.",
+  "feat_newproject_owner_title": "Besitzer für neues GitHub-Repo wählen",
+  "feat_newproject_owner_body": "Wenn du ein Projekt mit GitHub-Repository anlegst, kannst du jetzt wählen, ob es unter deinem persönlichen Konto oder einer deiner Organisationen landet — der Dialog listet jede Organisation auf, der du angehörst, statt immer dein Konto zu nehmen."
 }

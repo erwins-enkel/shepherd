@@ -770,6 +770,36 @@ test("validateNewProject: bad visibility → newproject_failed_generic", () => {
   if (!r.ok) expect(r.error).toBe("newproject_failed_generic");
 });
 
+test("validateNewProject: owner defaults to '' when absent", () => {
+  const r = validateNewProject({ name: "cool-proj" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.owner).toBe("");
+});
+
+test("validateNewProject: valid org owner passes and is echoed", () => {
+  const r = validateNewProject({ name: "my-app", owner: "acme-corp" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.owner).toBe("acme-corp");
+});
+
+test("validateNewProject: empty-string owner normalizes to '' (personal)", () => {
+  const r = validateNewProject({ name: "my-app", owner: "" }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.owner).toBe("");
+});
+
+test("validateNewProject: owner with illegal chars → newproject_failed_generic", () => {
+  const r = validateNewProject({ name: "my-app", owner: "bad/owner" }, root);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("newproject_failed_generic");
+});
+
+test("validateNewProject: owner too long → newproject_failed_generic", () => {
+  const r = validateNewProject({ name: "my-app", owner: "a".repeat(40) }, root);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("newproject_failed_generic");
+});
+
 test("validateNewProject: non-boolean createRemote → newproject_failed_generic", () => {
   const r = validateNewProject({ name: "my-app", createRemote: "yes" }, root);
   expect(r.ok).toBe(false);

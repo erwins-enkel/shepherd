@@ -20,7 +20,9 @@ import {
   classifyCloneError,
   createProject,
   classifyProjectError,
+  listGithubOwners,
   type GhRunner,
+  type GhOutRunner,
 } from "../src/repos";
 import { realpathSync } from "node:fs";
 
@@ -379,6 +381,73 @@ test("createProject: remote success with stub runner → ok:true, no warning", a
   } finally {
     cleanup();
   }
+});
+
+/** An explicit owner creates the repo as `<owner>/<name>`. */
+test("createProject: owner set → gh repo create uses 'owner/name'", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const calls: string[][] = [];
+    const stubRunner: GhRunner = async (args) => {
+      calls.push(args);
+    };
+
+    const result = await createProject(
+      { name: "team-app", idea: "", createRemote: true, visibility: "private", owner: "acme-corp" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    // repo create is the second call; the positional repo arg is owner/name
+    expect(calls[1]![0]).toBe("repo");
+    expect(calls[1]![2]).toBe("acme-corp/team-app");
+  } finally {
+    cleanup();
+  }
+});
+
+/** An empty owner lets gh default to the personal account (bare name). */
+test("createProject: empty owner → gh repo create uses bare name", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const calls: string[][] = [];
+    const stubRunner: GhRunner = async (args) => {
+      calls.push(args);
+    };
+
+    const result = await createProject(
+      { name: "solo-app", idea: "", createRemote: true, visibility: "private", owner: "" },
+      repoRoot,
+      stubRunner,
+    );
+    expect(result.ok).toBe(true);
+    expect(calls[1]![2]).toBe("solo-app");
+  } finally {
+    cleanup();
+  }
+});
+
+/** listGithubOwners: login + orgs parsed from gh stdout. */
+test("listGithubOwners: returns login and orgs", async () => {
+  const runner: GhOutRunner = async (args) => {
+    if (args[1] === "user") return "octocat\n";
+    if (args[1] === "user/orgs") return "acme-corp\nwidgets-inc\n";
+    return "";
+  };
+  const owners = await listGithubOwners(runner);
+  expect(owners.login).toBe("octocat");
+  expect(owners.orgs).toEqual(["acme-corp", "widgets-inc"]);
+});
+
+/** listGithubOwners: an org-list failure degrades to login + no orgs. */
+test("listGithubOwners: org-list failure → login with empty orgs", async () => {
+  const runner: GhOutRunner = async (args) => {
+    if (args[1] === "user") return "octocat\n";
+    throw Object.assign(new Error("missing read:org scope"), { stderr: "HTTP 403" });
+  };
+  const owners = await listGithubOwners(runner);
+  expect(owners.login).toBe("octocat");
+  expect(owners.orgs).toEqual([]);
 });
 
 /** Stub rejects with "name already exists" → ok:true + warning:newproject_failed_gh_exists + dir kept. */

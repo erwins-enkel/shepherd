@@ -208,8 +208,23 @@ export async function createProject(input: {
   idea: string;
   createRemote: boolean;
   visibility: "private" | "public";
+  owner?: string;
 }): Promise<RepoEntry & { warning?: string }> {
   return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
+}
+
+/** GitHub owners a new repo can be created under: the authenticated login plus the
+ *  user's orgs. `login` is null when gh is unavailable/unauthed — callers then offer
+ *  the personal account only (no owner picker). Never throws (degrades to no owners). */
+export async function getGithubOwners(): Promise<{ login: string | null; orgs: string[] }> {
+  try {
+    return await getJson<{ login: string | null; orgs: string[] }>(
+      "/api/github/owners",
+      "github_owners",
+    );
+  } catch {
+    return { login: null, orgs: [] };
+  }
 }
 
 export async function getSettings(): Promise<Settings> {

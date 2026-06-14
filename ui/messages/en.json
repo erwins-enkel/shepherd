@@ -1005,6 +1005,8 @@
   "newproject_visibility_group": "Visibility",
   "newproject_visibility_private": "Private",
   "newproject_visibility_public": "Public",
+  "newproject_owner_label": "Owner",
+  "newproject_owner_personal": "{login} (personal account)",
   "newproject_kickoff_label": "Kickoff with",
   "newproject_kickoff_prd": "PRD brief (default)",
   "newproject_submit": "Create project & start",
@@ -1296,5 +1298,7 @@
   "integrated_epics_ack_migrations": "Acknowledge migrations & dismiss",
   "integrated_epics_ack_migrations_failed": "Couldn't acknowledge the migrations — try again",
   "feat_epic_migrations_title": "Epic landings flag unrun migrations",
-  "feat_epic_migrations_body": "When an epic's landing PR adds database migrations, the Integrated-epics band now shows a warning chip with the file count — the harness never runs them, so verify them before merging. Clearing the row asks you to acknowledge the migrations first."
+  "feat_epic_migrations_body": "When an epic's landing PR adds database migrations, the Integrated-epics band now shows a warning chip with the file count — the harness never runs them, so verify them before merging. Clearing the row asks you to acknowledge the migrations first.",
+  "feat_newproject_owner_title": "Choose the owner for a new GitHub repo",
+  "feat_newproject_owner_body": "When you create a project with a GitHub repository, you can now pick whether it lands under your personal account or one of your organizations — the dialog lists every org you belong to instead of always defaulting to your account."
 }

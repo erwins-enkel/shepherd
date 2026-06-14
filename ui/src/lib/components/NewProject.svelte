@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createProject, getCommands } from "$lib/api";
+  import { createProject, getCommands, getGithubOwners } from "$lib/api";
   import type { RepoEntry } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
@@ -34,6 +34,13 @@
   let idea = $state("");
   let createRemote = $state(false);
   let visibility = $state<"private" | "public">("private");
+  // GitHub owner: "" → personal account, otherwise an org slug. Owners are fetched
+  // lazily the first time the GitHub box is checked; the picker only renders when the
+  // user belongs to at least one org (otherwise there's nothing to choose).
+  let owner = $state("");
+  let ownerLogin = $state<string | null>(null);
+  let ownerOrgs = $state<string[]>([]);
+  let ownersLoaded = $state(false);
   // String sentinel for the select bind — avoids Svelte 5 reference-equality bug with object values.
   // "__prd__" → { kind: "prd" }, any other value → { kind: "command", name: value }.
   let kickoffValue = $state<string>("__prd__");
@@ -54,6 +61,19 @@
   });
 
   const canSubmit = $derived(name.trim().length > 0 && !nameInvalid && !submitting);
+
+  // Lazily enumerate the GitHub owners the first time the box is checked. Set the
+  // guard before awaiting so a toggle storm can't fire overlapping requests, and so a
+  // failed fetch (gh missing/unauthed) doesn't retry — it just degrades to no picker.
+  $effect(() => {
+    if (createRemote && !ownersLoaded) {
+      ownersLoaded = true;
+      getGithubOwners().then(({ login, orgs }) => {
+        ownerLogin = login;
+        ownerOrgs = orgs;
+      });
+    }
+  });
 
   onMount(async () => {
     try {
@@ -113,6 +133,7 @@
         idea: trimmedIdea,
         createRemote,
         visibility,
+        owner: createRemote ? owner : "",
       });
       ondone(entry, resolveKickoff(), trimmedIdea);
     } catch (err) {
@@ -201,6 +222,16 @@
           <span class="micro">{m.newproject_visibility_public()}</span>
         </label>
       </div>
+
+      {#if ownerOrgs.length > 0}
+        <label class="micro" for="np-owner">{m.newproject_owner_label()}</label>
+        <select id="np-owner" bind:value={owner}>
+          <option value="">{m.newproject_owner_personal({ login: ownerLogin ?? "" })}</option>
+          {#each ownerOrgs as org (org)}
+            <option value={org}>{org}</option>
+          {/each}
+        </select>
+      {/if}
     {/if}
 
     <!-- Kickoff selection -->

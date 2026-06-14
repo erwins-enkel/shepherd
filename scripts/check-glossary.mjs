@@ -41,7 +41,9 @@ if (!arrayMatch) {
 const arrayBody = arrayMatch[1];
 
 // Split into individual object blobs — each term starts with "{"
-const termBlobs = arrayBody.split(/\},?\s*\{/).map((b) => b.replace(/^\s*\{/, "").replace(/\}\s*$/, ""));
+const termBlobs = arrayBody
+  .split(/\},?\s*\{/)
+  .map((b) => b.replace(/^\s*\{/, "").replace(/\}\s*$/, ""));
 
 /** @type {Array<{ id: string; kind: string; termKey: string; bodyKey: string; wikipedia?: { en: string; de: string } }>} */
 const terms = termBlobs
@@ -53,8 +55,12 @@ const terms = termBlobs
 
     if (!id || !kind || !termKey || !bodyKey) return null;
 
-    const wikiMatch = blob.match(/wikipedia:\s*\{[^}]*\ben:\s*["']([^"']*?)["'][^}]*\bde:\s*["']([^"']*?)["'][^}]*\}/s);
-    const wikiMatchAlt = blob.match(/wikipedia:\s*\{[^}]*\bde:\s*["']([^"']*?)["'][^}]*\ben:\s*["']([^"']*?)["'][^}]*\}/s);
+    const wikiMatch = blob.match(
+      /wikipedia:\s*\{[^}]*\ben:\s*["']([^"']*?)["'][^}]*\bde:\s*["']([^"']*?)["'][^}]*\}/s,
+    );
+    const wikiMatchAlt = blob.match(
+      /wikipedia:\s*\{[^}]*\bde:\s*["']([^"']*?)["'][^}]*\ben:\s*["']([^"']*?)["'][^}]*\}/s,
+    );
 
     let wikipedia;
     if (wikiMatch) {

@@ -14,6 +14,7 @@
     onlaunchtrain,
     onclose,
     epics = undefined,
+    inTrainPrs = new Set(),
     target = null,
   }: {
     payload: BacklogPayload | null;
@@ -26,6 +27,9 @@
     onclose: () => void;
     /** Live epic record from the store, threaded to BacklogView → IssuesPanel. */
     epics?: Record<string, Epic>;
+    /** PR identity keys (`${repoPath}#${number}`) owned by a running merge train,
+     *  threaded to BacklogView → PrsPanel → PrRow for the in-train badge + merge lock. */
+    inTrainPrs?: Set<string>;
     /** EPIC-badge target (repo + issue), forwarded to BacklogView to drive
      *  selection + epic expansion. */
     target?: { repoPath: string; issueNumber: number } | null;
@@ -62,6 +66,7 @@
         {onadopt}
         {onlaunchtrain}
         {epics}
+        {inTrainPrs}
         {target}
       />
     </div>

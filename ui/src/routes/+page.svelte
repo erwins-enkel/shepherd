@@ -75,6 +75,7 @@
   import type { HerdFilter } from "$lib/components/herd-partition";
   import {
     collectReadyPrs,
+    isMerging,
     mergeTrainCreateInput,
     pickTrainRepo,
   } from "$lib/components/merge-train";
@@ -114,6 +115,26 @@
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
+  // PR identity keys (`${repoPath}#${number}`) currently owned by a running merge
+  // train — a session that's flagged merging and has an open PR number. Threaded
+  // down to the backlog PRs panel so each in-train row shows a badge + its manual
+  // merge button is disabled (the train owns the merge).
+  // NB: isMerging is called WITHOUT nowMs on purpose. Marks appear/disappear on
+  // `session:merging` store events (not the clock), so this re-derives only when
+  // the store changes — passing nowMs would rebuild the Set every 1s tick and
+  // re-render every backlog PR row for a 24h-backstop boundary that never bites
+  // in practice (cf. the partition's same nowMs-avoidance choice).
+  const inTrainPrs = $derived(
+    new Set(
+      store.sessions
+        .filter((s) => isMerging(s))
+        .map((s) => {
+          const n = store.git[s.id]?.number;
+          return n != null ? `${s.repoPath}#${n}` : null;
+        })
+        .filter((k): k is string => k !== null),
+    ),
+  );
   let selectedId = $state<string | null>(null);
   // Monotonic tick bumped when a row's Preview badge is clicked; passed to the
   // Viewport so it switches to its Preview tab. A counter (not a boolean) so a
@@ -1468,6 +1489,7 @@
               {onlaunchtrain}
               flow={true}
               epics={store.epics}
+              {inTrainPrs}
             />
           {/if}
         </div>
@@ -1619,6 +1641,7 @@
             {onadopt}
             {onlaunchtrain}
             epics={store.epics}
+            {inTrainPrs}
           />
         {:else if selected}
           <Viewport
@@ -1931,6 +1954,7 @@
     {onlaunchtrain}
     onclose={() => (showBacklog = false)}
     epics={store.epics}
+    {inTrainPrs}
     target={epicTarget}
   />
 {/if}

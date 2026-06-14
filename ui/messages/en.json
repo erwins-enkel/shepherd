@@ -1315,5 +1315,6 @@
   "feat_fork_repo_title": "Fork a repo to contribute upstream",
   "feat_fork_repo_body": "The repo picker now has a “Fork a GitHub repo” option next to Clone. Paste owner/repo (or a URL) and Shepherd forks it under your account, clones it, and wires the remotes so pull requests you open target the original (upstream) repo — the way to contribute to a project you don't have write access to.",
   "feat_backlog_repo_link_title": "Repo name links to its forge",
-  "feat_backlog_repo_link_body": "The repository name in the backlog Issues, PRs, and Actions headers now links straight to the repo on its forge."
+  "feat_backlog_repo_link_body": "The repository name in the backlog Issues, PRs, and Actions headers now links straight to the repo on its forge.",
+  "prrow_in_train_title": "a merge train is landing this PR"
 }

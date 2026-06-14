@@ -20,6 +20,7 @@
     type DiagnosticCheck,
   } from "$lib/types";
   import DiagnoseRows from "$lib/components/DiagnoseRows.svelte";
+  import PwaInstallRow from "$lib/components/PwaInstallRow.svelte";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -775,6 +776,9 @@
         <p class="hint">{m.diagnostics_subtitle()}</p>
       </div>
       <DiagnoseRows checks={diagChecks} />
+      <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
+           row renders independently of the server snapshot's load/fail/empty state. -->
+      <PwaInstallRow />
       {#if diagError}
         <p class="hint err">{diagError}</p>
       {/if}

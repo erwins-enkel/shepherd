@@ -1188,7 +1188,7 @@
   "diagnostics_state_optional": "Optional",
   "diagnostics_hint_pwa_ios": "Auf iOS funktionieren Shepherds Push-Benachrichtigungen nur, wenn die App zum Home-Bildschirm hinzugefügt ist — in einem Safari-Tab bekommst du keine. Tippe auf „Teilen“ und dann „Zum Home-Bildschirm“.",
   "diagnostics_hint_pwa_android": "Installiere Shepherd für ein App-Symbol, eine Vollbild-Ansicht und ein Push-Abo, das die Speicherbereinigung des Browsers übersteht. Öffne das Browser-Menü → „App installieren“ / „Zum Startbildschirm hinzufügen“.",
-  "diagnostics_hint_pwa_optional": "Push-Benachrichtigungen funktionieren in diesem Browser bereits ohne Installation. Shepherd zu installieren ist hier optional — es ergänzt ein App-Symbol, eine Vollbild-Ansicht und ein Push-Abo, das die Speicherbereinigung übersteht.",
+  "diagnostics_hint_pwa_optional": "Shepherd in diesem Browser zu installieren ist optional. Wo es unterstützt wird, ergänzt es ein App-Symbol, eine Vollbild-Ansicht und Push-Benachrichtigungen, die die Speicherbereinigung des Browsers überstehen.",
   "feat_pwa_install_title": "Installations-Hinweis in der Diagnose",
   "feat_pwa_install_body": "Die Diagnose zeigt jetzt, ob Shepherd zu deinem Home-Bildschirm hinzugefügt ist. Auf iPhone/iPad funktionieren Push-Benachrichtigungen nur installiert — die neue Zeile sagt dir, wenn dir etwas entgeht und wie du es behebst.",
   "mergetrain_confirm_title": "Merge-Train starten",

@@ -70,9 +70,10 @@ describe("pwaRowState", () => {
     expect(pwaRowState()).toBe("optional");
   });
 
-  it("does not mistake a touch-capable desktop Mac for an iPad", () => {
-    // A desktop Mac with a touch device attached: Mac UA but no real iOS platform.
-    setEnv({ platform: "MacIntel", ua: DESKTOP_UA, maxTouchPoints: 0 });
+  it("does not mistake a non-touch desktop Mac (Mac UA) for an iPad", () => {
+    // A real desktop Mac reports the same Macintosh UA as iPadOS; only maxTouchPoints
+    // tells them apart, so 0 touch points must stay optional, not route to iOS.
+    setEnv({ platform: "MacIntel", ua: IPADOS_UA, maxTouchPoints: 0 });
     expect(pwaRowState()).toBe("optional");
   });
 });

@@ -51,6 +51,61 @@ describe("buildGapReport", () => {
     expect(md).toContain("ADVICE GAP");
   });
 
+  it("classifies a pre-detection throw (image-not-found / boot crash) as HARNESS ERROR, not a detection gap, and excludes it from the denominator", () => {
+    const md = buildGapReport([
+      {
+        scenarioId: "git-missing",
+        image: "images:alpine/3.21",
+        // The catch-block sentinel: threw in seed/boot before detection ran, so
+        // detection never evaluated Shepherd (no misses recorded).
+        detection: { scenarioId: "git-missing", detected: false, misses: [] },
+        appliedVia: "skipped",
+        reachedGreen: false,
+        gateEligible: false,
+        error: "incus launch failed: image couldn't be found",
+      },
+      {
+        scenarioId: "gh-unauthed",
+        image: "i",
+        detection: { scenarioId: "gh-unauthed", detected: true, misses: [] },
+        appliedVia: "agent",
+        reachedGreen: true,
+        gateEligible: false,
+      },
+    ]);
+    expect(md).toContain("HARNESS ERROR");
+    expect(md).toContain("## Harness errors");
+    expect(md).toContain("incus launch failed: image couldn't be found");
+    // The instance never booted — it is NOT a product detection gap.
+    expect(md).not.toContain("DETECTION GAP");
+    expect(md).not.toContain("## Gaps");
+    // Excluded from the green ratio: a scenario that couldn't boot didn't get a
+    // fair attempt, so it must not drag the denominator (would read as a regression).
+    expect(md).toContain("1 / 1 scenarios reached green");
+    expect(md).toContain("1 harness error");
+  });
+
+  it("keeps a post-detection apply error (real detection miss recorded) as a DETECTION GAP, not a harness error", () => {
+    const md = buildGapReport([
+      {
+        scenarioId: "tailscale-missing",
+        image: "i",
+        detection: {
+          scenarioId: "tailscale-missing",
+          detected: false,
+          misses: [{ id: "tailscale", want: "error", got: "absent" }],
+        },
+        appliedVia: "agent",
+        reachedGreen: false,
+        gateEligible: false,
+        error: "agent gave up",
+      },
+    ]);
+    expect(md).toContain("DETECTION GAP");
+    expect(md).not.toContain("HARNESS ERROR");
+    expect(md).toContain("0 / 1 scenarios reached green"); // stays in the denominator
+  });
+
   it("classifies a by-design no-apply scenario as DETECTION-ONLY and excludes it from the denominator", () => {
     const md = buildGapReport([
       {

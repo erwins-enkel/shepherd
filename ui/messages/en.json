@@ -548,6 +548,7 @@
   "plangate_error": "REVIEW ERR",
   "plangate_title": "Pre-execution plan gate",
   "planpanel_title": "Pre-execution plan",
+  "planpanel_back_aria": "Back to session",
   "planpanel_empty": "No plan written yet.",
   "planpanel_verdict": "Reviewer verdict",
   "planpanel_findings": "Requested changes",

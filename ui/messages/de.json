@@ -548,6 +548,7 @@
   "plangate_error": "PRÜFFEHLER",
   "plangate_title": "Plan-Gate vor der Ausführung",
   "planpanel_title": "Plan vor der Ausführung",
+  "planpanel_back_aria": "Zurück zur Session",
   "planpanel_empty": "Noch kein Plan geschrieben.",
   "planpanel_verdict": "Prüfer-Urteil",
   "planpanel_findings": "Angeforderte Änderungen",

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computePosition, flip, shift, offset, autoUpdate } from "@floating-ui/dom";
+  import { anchorPopover } from "$lib/floating-anchor";
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { glossaryById } from "$lib/glossary";
@@ -37,26 +37,7 @@
       return;
     }
 
-    const stopAutoUpdate = autoUpdate(btnEl, popEl, () => {
-      computePosition(btnEl!, popEl!, {
-        placement: "bottom",
-        middleware: [offset(6), flip(), shift({ padding: 8 })],
-      }).then(({ x, y }) => {
-        if (popEl) {
-          popEl.style.left = x + "px";
-          popEl.style.top = y + "px";
-        }
-      });
-    });
-
-    return () => {
-      stopAutoUpdate();
-      try {
-        popEl?.hidePopover();
-      } catch {
-        // Already hidden or detached — ignore.
-      }
-    };
+    return anchorPopover(btnEl, popEl, 6);
   });
 
   // Dismiss on Esc, outside pointerdown, and scroll/resize (capture phase).

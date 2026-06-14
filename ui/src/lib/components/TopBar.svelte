@@ -15,6 +15,7 @@
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import { REPO_URL, version } from "$lib/build-info";
 
   type TallyStatus = "running" | "idle" | "blocked";
 
@@ -906,6 +907,24 @@
             <span class="menu-glyph" aria-hidden="true">⚙</span>
             <span class="menu-label">{m.settings_title()}</span>
           </button>
+          {#if mobile}
+            <!-- Mobile footer: a jump to Shepherd's home (the repo's README + docs) and the
+                 running build version. Desktop surfaces these in the ActionBar footer +
+                 Settings → About instead, so they're folded into the gear menu only here. -->
+            <div class="menu-sep" role="separator"></div>
+            <a
+              class="menu-item"
+              href={REPO_URL}
+              target="_blank"
+              rel="external noreferrer noopener"
+              role="menuitem"
+              onclick={() => closeMenu()}
+            >
+              <span class="menu-glyph" aria-hidden="true">↗</span>
+              <span class="menu-label">{m.topbar_menu_docs()}</span>
+            </a>
+            <div class="menu-foot micro">v{version}</div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -1192,6 +1211,13 @@
     height: 1px;
     margin: 3px 2px;
     background: var(--color-line);
+  }
+  /* Build-version footer under the mobile menu's docs link — a quiet, non-interactive
+     line, so it stays understated next to the tappable rows above it. */
+  .menu-foot {
+    padding: 6px 12px 2px;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
   }
   /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
      agents merely work; red (.alert) only when something is blocked, so red stays

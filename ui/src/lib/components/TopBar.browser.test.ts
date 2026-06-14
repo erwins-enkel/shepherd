@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import { REPO_URL, version } from "$lib/build-info";
 
 // Mock api so the manual /usage refresh path never fires a real network call —
 // individual tests stub refreshUsage's resolution/rejection per case.
@@ -729,6 +730,11 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.settings_title() }))
       .toBeInTheDocument();
+    // mobile footer: a link to Shepherd's home (README + docs) and the build version
+    const docs = page.getByRole("menuitem", { name: m.topbar_menu_docs() });
+    await expect.element(docs).toBeInTheDocument();
+    await expect.element(docs).toHaveAttribute("href", REPO_URL);
+    await expect.element(page.getByText(`v${version}`)).toBeInTheDocument();
   });
 
   it("desktop: the gear menu omits the quick theme/contrast controls", async () => {
@@ -747,6 +753,10 @@ describe("TopBar — idle gear opens Settings directly", () => {
       .toBeInTheDocument();
     await expect
       .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
+      .not.toBeInTheDocument();
+    // the docs link + version footer are mobile-only too (desktop has the ActionBar footer)
+    await expect
+      .element(page.getByRole("menuitem", { name: m.topbar_menu_docs() }))
       .not.toBeInTheDocument();
   });
 });

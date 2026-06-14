@@ -1288,5 +1288,8 @@
   "feat_api_key_verify_title": "Verify your API key",
   "feat_api_key_verify_body": "Check that your saved Anthropic API key actually authenticates a spawned agent — right from Settings → Session, before it fails on first use.",
   "feat_readiness_install_commands_title": "Copy-paste setup commands in Readiness",
-  "feat_readiness_install_commands_body": "The Readiness prescription now lists the exact install commands for your repo's package manager, so each missing guardrail can be adopted without looking the steps up."
+  "feat_readiness_install_commands_body": "The Readiness prescription now lists the exact install commands for your repo's package manager, so each missing guardrail can be adopted without looking the steps up.",
+  "topbar_menu_docs": "README & docs",
+  "feat_mobile_menu_docs_title": "Docs & version in the mobile menu",
+  "feat_mobile_menu_docs_body": "On phones the gear menu now links straight to Shepherd's home — the README and docs — and shows the build version you're running."
 }

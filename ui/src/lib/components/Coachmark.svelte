@@ -2,6 +2,7 @@
   import { computePosition, flip, shift, offset, autoUpdate } from "@floating-ui/dom";
   import { coachTargets } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import GlossaryText from "$lib/components/GlossaryText.svelte";
 
   let {
     targetId,
@@ -107,7 +108,9 @@
   aria-label={(m as unknown as Record<string, () => string>)[titleKey]()}
 >
   <p class="coachmark-title">{(m as unknown as Record<string, () => string>)[titleKey]()}</p>
-  <p class="coachmark-body">{(m as unknown as Record<string, () => string>)[bodyKey]()}</p>
+  <p class="coachmark-body">
+    <GlossaryText text={(m as unknown as Record<string, () => string>)[bodyKey]()} />
+  </p>
   <button class="coachmark-btn" onclick={onseen}>{m.coachmark_dismiss()}</button>
 </div>
 

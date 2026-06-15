@@ -199,6 +199,27 @@ export class HerdDigestService {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
   }
 
+  // ── reapGenerating ───────────────────────────────────────────────────────────
+
+  /**
+   * Reap an existing generating row for this dayKey (stop its pane + clean its tmpdir).
+   * Called before a forced regenerate launches a replacement, so the old in-flight
+   * spawn doesn't leak: putHerdDigest will overwrite the row (same dayKey PK) with the
+   * new cwd/spawnSessionId, after which tick() could never finalize the orphan.
+   * No-op when there's no generating row (mirrors RecapService.reapGenerating). No row
+   * drop needed — putHerdDigest overwrites by dayKey.
+   */
+  private reapGenerating(dayKey: string): void {
+    const existing = this.deps.store.getHerdDigest(dayKey);
+    if (!existing || existing.state !== "generating") return;
+    try {
+      this.deps.herdr.stop(this.resolveTerminal(existing.cwd));
+    } catch {
+      /* best-effort */
+    }
+    this._cleanup(existing.cwd);
+  }
+
   // ── sweep ──────────────────────────────────────────────────────────────────────
 
   /**
@@ -264,6 +285,11 @@ export class HerdDigestService {
 
     this.inFlight.add(dayKey);
     try {
+      // Reap any in-flight row for this dayKey first (forced regenerate over a
+      // generating row): stop its orphaned pane + clean its tmpdir before the
+      // replacement spawn overwrites the row (same dayKey PK). No-op otherwise.
+      this.reapGenerating(dayKey);
+
       const sessions = this.deps.store.list({ activeOnly: true });
       if (sessions.length === 0) return "empty";
 

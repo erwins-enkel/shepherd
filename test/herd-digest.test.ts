@@ -416,6 +416,52 @@ test("regenerate: forces a new generation even when today's digest is ready", as
   expect(d?.cwd).toBe("/tmp/rundown-regen");
 });
 
+test("regenerate: forced over an in-flight (generating) row → reaps OLD pane+tmpdir, spawns replacement", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const generating: HerdDigest = {
+    dayKey,
+    state: "generating",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    attentionFingerprint: {},
+    spawnSessionId: "old-sp",
+    cwd: "/tmp/rundown-old-inflight",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: null,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([makeSession()], [generating]);
+  // Register the OLD spawn's live pane so resolveTerminal finds it.
+  const herdr = makeHerdr([{ cwd: "/tmp/rundown-old-inflight", terminalId: "old-tid" }]);
+  const cleaned: string[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    makeTmpDir: () => "/tmp/rundown-new-inflight",
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  const result = await svc.regenerate();
+  expect(result).toBe("started");
+
+  // OLD pane stopped + OLD tmpdir cleaned (orphan reaped, not leaked).
+  expect(herdr.stopped).toContain("old-tid");
+  expect(cleaned).toContain("/tmp/rundown-old-inflight");
+
+  // A replacement spawn launched and overwrote the row with the NEW cwd/spawn.
+  expect(herdr.started.length).toBe(1);
+  expect(herdr.started[0]!.cwd).toBe("/tmp/rundown-new-inflight");
+  const d = store.getHerdDigest(dayKey);
+  expect(d?.state).toBe("generating");
+  expect(d?.cwd).toBe("/tmp/rundown-new-inflight");
+  expect(d?.spawnSessionId).not.toBe("old-sp");
+});
+
 // ── argv shape (variadic-allowedTools trap) ──────────────────────────────────────
 
 test("argv: --model sonnet, --permission-mode AFTER --allowedTools, prompt last", async () => {

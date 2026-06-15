@@ -261,9 +261,9 @@ describe("NewTask plan-gate inheritance", () => {
     mockGetRepoConfig.mockReturnValue(d.promise);
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repoPath } });
 
-    // in flight: disabled + loading hint
+    // in flight: disabled + loading hint (both gate + autopilot show it, so match the first)
     await expect.poll(() => planGateBox().disabled).toBe(true);
-    await expect.element(page.getByText(m.common_loading())).toBeInTheDocument();
+    await expect.element(page.getByText(m.common_loading()).first()).toBeInTheDocument();
 
     d.resolve(repoConfig(true));
     await expect.poll(() => planGateBox().disabled).toBe(false);
@@ -287,6 +287,51 @@ describe("NewTask plan-gate inheritance", () => {
     await fillAndSubmit();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
+  });
+});
+
+describe("NewTask autopilot override", () => {
+  const autopilotBox = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+      el.closest("label")?.textContent?.includes(m.newtask_autopilot_label()),
+    )!;
+  const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
+
+  async function fillAndSubmit() {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => submitBtn().disabled).toBe(false);
+    submitBtn().click();
+  }
+
+  it("submits autopilotEnabled:null when untouched (inherits the repo default)", async () => {
+    const repoPath = "/repo/ap-untouched";
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    // box mirrors the autopilot-ON default once config settles
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: null });
+  });
+
+  it("submits explicit false when the user unticks an autopilot-ON repo", async () => {
+    const repoPath = "/repo/ap-opt-out";
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+    autopilotBox().click(); // untick → explicit opt-out for this task
+    expect(autopilotBox().checked).toBe(false);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false });
   });
 });
 

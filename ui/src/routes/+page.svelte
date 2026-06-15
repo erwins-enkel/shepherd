@@ -1087,6 +1087,7 @@
     images: string[];
     issueRef?: IssueRef;
     planGateEnabled: boolean | null;
+    autopilotEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
     research: boolean;
   }) {

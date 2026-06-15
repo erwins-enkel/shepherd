@@ -51,6 +51,7 @@
       images: string[];
       issueRef?: IssueRef;
       planGateEnabled: boolean | null;
+      autopilotEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
       research: boolean;
     }) => Promise<void> | void;
@@ -107,6 +108,12 @@
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   let planGate = $state(false);
   let planGateTouched = $state(false);
+  // Autopilot override: defaults to the selected repo's stored flag until the user
+  // toggles it. `autopilotTouched` pins a manual choice so switching repos doesn't
+  // clobber it. Lets a single task opt out of "drive autonomously to a PR" — e.g. to
+  // discuss/iterate and approve each step yourself — without changing the repo default.
+  let autopilot = $state(false);
+  let autopilotTouched = $state(false);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   let research = $state(false);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
@@ -215,6 +222,15 @@
   $effect(() => {
     // mirror the repo default until the user makes a manual choice
     if (!planGateTouched) planGate = planGateDefault;
+  });
+
+  // Same seed-from-repo-default pattern for the autopilot override.
+  const autopilotDefault = $derived(repoPath ? repoConfig.isAutopilotEnabled(repoPath) : false);
+  const autopilotLoading = $derived(
+    !!repoPath && !autopilotTouched && !repoConfig.isConfigSettled(repoPath),
+  );
+  $effect(() => {
+    if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
@@ -409,6 +425,7 @@
             }
           : undefined,
         planGateEnabled: planGateTouched ? planGate : null,
+        autopilotEnabled: autopilotTouched ? autopilot : null,
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
         research,
       });
@@ -614,6 +631,21 @@
           <span class="pg-label">{m.newtask_plan_gate_label()}</span>
           <span class="pg-hint">
             {planGateLoading ? m.common_loading() : m.newtask_plan_gate_hint()}
+          </span>
+        </span>
+      </label>
+
+      <label class="plan-gate" use:coachTarget={"task-autopilot"}>
+        <input
+          type="checkbox"
+          bind:checked={autopilot}
+          onchange={() => (autopilotTouched = true)}
+          disabled={autopilotLoading}
+        />
+        <span class="pg-text">
+          <span class="pg-label">{m.newtask_autopilot_label()}</span>
+          <span class="pg-hint">
+            {autopilotLoading ? m.common_loading() : m.newtask_autopilot_hint()}
           </span>
         </span>
       </label>

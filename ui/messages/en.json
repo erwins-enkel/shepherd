@@ -540,6 +540,8 @@
   "criticbadge_final_title": "Addressing the last allowed round; no more rounds after this.",
   "newtask_plan_gate_label": "Plan gate",
   "newtask_plan_gate_hint": "Grill + adversarial review before the agent runs",
+  "newtask_autopilot_label": "Autopilot to PR",
+  "newtask_autopilot_hint": "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting.",
   "plangate_planning": "PLANNING",
   "plangate_reviewing": "REVIEWING…",
   "plangate_changes": "REWORK · {round}/{cap}",
@@ -1327,5 +1329,7 @@
   "gloss_critic_def": "Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is green and posts a verdict.",
   "gloss_wikipedia_link": "Read on Wikipedia",
   "feat_glossary_title": "Glossary tooltips",
-  "feat_glossary_body": "Terms in What's-New and coachmarks now have a dashed underline — hover or tap to see what they mean, with a Wikipedia link for industry-standard terms."
+  "feat_glossary_body": "Terms in What's-New and coachmarks now have a dashed underline — hover or tap to see what they mean, with a Wikipedia link for industry-standard terms.",
+  "feat_task_autopilot_title": "Per-task Autopilot override",
+  "feat_task_autopilot_body": "The New Task dialog now has an \"Autopilot to PR\" checkbox. It starts from the repo's Autopilot setting, but you can turn it off for a single task you'd rather discuss and approve step by step — without changing the repo-wide default."
 }

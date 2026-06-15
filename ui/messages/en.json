@@ -1336,5 +1336,12 @@
   "feat_task_autopilot_title": "Per-task Autopilot override",
   "feat_task_autopilot_body": "The New Task dialog now has an \"Autopilot to PR\" checkbox. It starts from the repo's Autopilot setting, but you can turn it off for a single task you'd rather discuss and approve step by step — without changing the repo-wide default.",
   "feat_newtask_infotips_title": "Tidier task-option explanations",
-  "feat_newtask_infotips_body": "Plan gate, Autopilot to PR, and Research task each got a small \"i\" — hover (or tap on mobile) to read what it does, instead of a paragraph crowding the dialog. Autopilot also shows the repo's standing default right beside it, so it's clear how the repo normally handles it before you change it for one task."
+  "feat_newtask_infotips_body": "Plan gate, Autopilot to PR, and Research task each got a small \"i\" — hover (or tap on mobile) to read what it does, instead of a paragraph crowding the dialog. Autopilot also shows the repo's standing default right beside it, so it's clear how the repo normally handles it before you change it for one task.",
+  "diagnostics_fix": "Fix",
+  "diagnostics_fix_confirm_title": "Run this command?",
+  "diagnostics_fix_confirm_body": "Shepherd will run this command on the server as your user:",
+  "diagnostics_fix_confirm_run": "Run",
+  "diagnostics_fix_running": "Running…",
+  "diagnostics_fix_failed": "Fix failed — the command did not complete. Try running it manually.",
+  "diagnostics_fix_success": "Fixed — re-checked."
 }

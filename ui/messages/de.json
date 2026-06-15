@@ -1336,5 +1336,12 @@
   "feat_task_autopilot_title": "Autopilot-Override pro Aufgabe",
   "feat_task_autopilot_body": "Der Dialog „Neue Aufgabe“ hat jetzt eine Checkbox „Autopilot bis zum PR“. Sie startet mit der Autopilot-Einstellung des Repos, lässt sich aber für eine einzelne Aufgabe ausschalten, die du lieber Schritt für Schritt besprechen und freigeben möchtest — ohne den repoweiten Standard zu ändern.",
   "feat_newtask_infotips_title": "Aufgeräumtere Erklärungen der Aufgaben-Optionen",
-  "feat_newtask_infotips_body": "Plan-Gate, Autopilot bis zum PR und Recherche-Aufgabe haben jetzt je ein kleines „i“ — mit Maus drüberfahren (oder am Handy antippen), um zu lesen, was es tut, statt eines Absatzes, der den Dialog vollstopft. Bei Autopilot steht direkt daneben der Repo-Standard, damit klar ist, wie das Repo es normalerweise handhabt, bevor du es für eine einzelne Aufgabe änderst."
+  "feat_newtask_infotips_body": "Plan-Gate, Autopilot bis zum PR und Recherche-Aufgabe haben jetzt je ein kleines „i“ — mit Maus drüberfahren (oder am Handy antippen), um zu lesen, was es tut, statt eines Absatzes, der den Dialog vollstopft. Bei Autopilot steht direkt daneben der Repo-Standard, damit klar ist, wie das Repo es normalerweise handhabt, bevor du es für eine einzelne Aufgabe änderst.",
+  "diagnostics_fix": "Beheben",
+  "diagnostics_fix_confirm_title": "Diesen Befehl ausführen?",
+  "diagnostics_fix_confirm_body": "Shepherd führt diesen Befehl auf dem Server als dein Benutzer aus:",
+  "diagnostics_fix_confirm_run": "Ausführen",
+  "diagnostics_fix_running": "Wird ausgeführt…",
+  "diagnostics_fix_failed": "Beheben fehlgeschlagen — der Befehl wurde nicht abgeschlossen. Führe ihn manuell aus.",
+  "diagnostics_fix_success": "Behoben — neu geprüft."
 }

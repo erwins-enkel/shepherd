@@ -444,3 +444,175 @@ test("start with empty env {}: wrapped is identical to no-env case", () => {
   const post = extractPost(calls);
   expect(post).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude", "go"]);
 });
+
+// -- panes() tests --
+
+const PANE_LIST = JSON.stringify({
+  result: {
+    type: "pane_list",
+    panes: [
+      {
+        agent_status: "unknown",
+        cwd: "/home/patrick",
+        focused: false,
+        foreground_cwd: "/home/patrick",
+        label: "plan-review TASK-368",
+        pane_id: "w65:p2",
+        revision: 0,
+        tab_id: "w65:t2",
+        terminal_id: "term_abc",
+        workspace_id: "w65",
+      },
+      {
+        agent_status: "working",
+        cwd: "/wt/agent",
+        focused: true,
+        foreground_cwd: "/wt/agent",
+        label: "some-task",
+        pane_id: "w65:p3",
+        revision: 1,
+        tab_id: "w65:t3",
+        terminal_id: "term_xyz",
+        workspace_id: "w65",
+      },
+    ],
+  },
+});
+
+const PANE_LIST_MISSING_FIELDS = JSON.stringify({
+  result: {
+    type: "pane_list",
+    panes: [
+      {
+        pane_id: "w1:p1",
+        tab_id: "w1:t1",
+        // label, cwd, agent_status intentionally absent
+      },
+    ],
+  },
+});
+
+test("panes() parses multi-pane reply into HerdrPane[] with correct field mapping", () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "pane" && args[1] === "list" ? PANE_LIST : FIXTURE,
+  );
+  const p = d.panes();
+  expect(p.length).toBe(2);
+  expect(p[0]).toMatchObject({
+    paneId: "w65:p2",
+    tabId: "w65:t2",
+    label: "plan-review TASK-368",
+    cwd: "/home/patrick",
+    agentStatus: "unknown",
+  });
+  expect(p[1]).toMatchObject({
+    paneId: "w65:p3",
+    tabId: "w65:t3",
+    label: "some-task",
+    cwd: "/wt/agent",
+    agentStatus: "working",
+  });
+});
+
+test("panes() applies defensive defaults when optional fields are absent", () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "pane" && args[1] === "list" ? PANE_LIST_MISSING_FIELDS : FIXTURE,
+  );
+  const p = d.panes();
+  expect(p.length).toBe(1);
+  expect(p[0]).toMatchObject({
+    paneId: "w1:p1",
+    tabId: "w1:t1",
+    label: "",
+    cwd: "",
+    agentStatus: "unknown",
+  });
+});
+
+test("panes() returns [] when result.panes is absent", () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "pane" && args[1] === "list" ? JSON.stringify({ result: {} }) : FIXTURE,
+  );
+  expect(d.panes()).toEqual([]);
+});
+
+// -- paneForegroundProcs() tests --
+
+const HUSK_PROC_REPLY = JSON.stringify({
+  result: {
+    process_info: {
+      foreground_process_group_id: 4005163,
+      foreground_processes: [
+        {
+          argv: ["/usr/bin/zsh"],
+          cmdline: "/usr/bin/zsh",
+          cwd: "/home/patrick",
+          name: "zsh",
+          pid: 4005163,
+        },
+      ],
+      pane_id: "w65:p3",
+      shell_pid: 4005163,
+    },
+    type: "pane_process_info",
+  },
+});
+
+const LIVE_PROC_REPLY = JSON.stringify({
+  result: {
+    process_info: {
+      foreground_process_group_id: 5001000,
+      foreground_processes: [
+        { name: "claude", pid: 5001000 },
+        { name: "npm", pid: 5001001 },
+        { name: "node-MainThread", pid: 5001002 },
+      ],
+      pane_id: "w65:p4",
+      shell_pid: 5000900,
+    },
+    type: "pane_process_info",
+  },
+});
+
+test("paneForegroundProcs() returns ['zsh'] for a husk pane", async () => {
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async (args) => {
+      expect(args).toEqual(["pane", "process-info", "--pane", "w65:p3"]);
+      return HUSK_PROC_REPLY;
+    },
+  );
+  const procs = await d.paneForegroundProcs("w65:p3");
+  expect(procs).toEqual(["zsh"]);
+});
+
+test("paneForegroundProcs() returns multi-name list for a live pane", async () => {
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async () => LIVE_PROC_REPLY,
+  );
+  const procs = await d.paneForegroundProcs("w65:p4");
+  expect(procs).toEqual(["claude", "npm", "node-MainThread"]);
+});
+
+test("paneForegroundProcs() returns [] on unparseable reply (JSON parse failure)", async () => {
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async () => "not valid json at all",
+  );
+  const procs = await d.paneForegroundProcs("w65:p2");
+  expect(procs).toEqual([]);
+});
+
+test("paneForegroundProcs() propagates a thrown runner error (does not swallow)", async () => {
+  const cliErr = new Error("herdr: unknown subcommand pane process-info");
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async () => {
+      throw cliErr;
+    },
+  );
+  await expect(d.paneForegroundProcs("w65:p2")).rejects.toThrow(
+    "herdr: unknown subcommand pane process-info",
+  );
+});

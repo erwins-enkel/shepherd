@@ -1,0 +1,219 @@
+import { describe, expect, it } from "bun:test";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  PREREQS,
+  provision,
+  selectPrereqCommand,
+  needsInstall,
+  decideServicePath,
+  guidanceNextSteps,
+  type Runner,
+} from "../deploy/provision";
+import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
+
+describe("needsInstall (version-guard predicate)", () => {
+  it("flags a missing tool (null version) for install", () => {
+    expect(needsInstall(null, BUN_MIN_VERSION)).toBe(true);
+  });
+
+  it("flags a below-floor tool for install", () => {
+    expect(needsInstall("0.5.0", HERDR_MIN_VERSION)).toBe(true);
+    expect(needsInstall("19.9.0", NODE_MIN_VERSION)).toBe(true);
+  });
+
+  it("skips a tool at the floor", () => {
+    expect(needsInstall(NODE_MIN_VERSION, NODE_MIN_VERSION)).toBe(false);
+  });
+
+  it("skips a tool above the floor", () => {
+    expect(needsInstall("24.0.0", NODE_MIN_VERSION)).toBe(false);
+    expect(needsInstall("1.3.0", BUN_MIN_VERSION)).toBe(false);
+  });
+
+  it("presence-only (no floor) installs only when absent", () => {
+    expect(needsInstall(null, undefined)).toBe(true);
+    expect(needsInstall("anything", undefined)).toBe(false);
+  });
+});
+
+describe("selectPrereqCommand", () => {
+  it("returns the autoFix command for an inadequate (missing) tool", () => {
+    const bun = PREREQS.find((p) => p.bin === "bun")!;
+    const cmd = selectPrereqCommand(bun, { version: null });
+    expect(cmd).toContain("bun.sh/install");
+  });
+
+  it("returns nothing for an adequate tool (above floor)", () => {
+    const bun = PREREQS.find((p) => p.bin === "bun")!;
+    expect(selectPrereqCommand(bun, { version: "1.3.0" })).toBeUndefined();
+  });
+
+  it("returns nothing for an adequate presence-only tool (claude present)", () => {
+    const claude = PREREQS.find((p) => p.bin === "claude")!;
+    expect(selectPrereqCommand(claude, { version: "1.0.0" })).toBeUndefined();
+  });
+
+  it("selects an install for a below-floor herdr", () => {
+    const herdr = PREREQS.find((p) => p.bin === "herdr")!;
+    const cmd = selectPrereqCommand(herdr, { version: "0.1.0" });
+    expect(cmd).toContain("herdr.dev/install.sh");
+  });
+
+  it("never selects tailscale (guidance-only) — it is not a prereq", () => {
+    expect(PREREQS.some((p) => p.bin === "tailscale")).toBe(false);
+  });
+});
+
+describe("decideServicePath", () => {
+  it("linux + SHEPHERD_NO_SERVICE unset ⇒ service path", () => {
+    const d = decideServicePath("linux", undefined);
+    expect(d.service).toBe(true);
+    expect(d.degradedBanner).toBe(false);
+  });
+
+  it("linux + SHEPHERD_NO_SERVICE='' ⇒ service path", () => {
+    expect(decideServicePath("linux", "").service).toBe(true);
+  });
+
+  it("linux + SHEPHERD_NO_SERVICE set ⇒ no-service path", () => {
+    const d = decideServicePath("linux", "1");
+    expect(d.service).toBe(false);
+    expect(d.degradedBanner).toBe(false);
+  });
+
+  it("darwin ⇒ no-service path + degraded banner", () => {
+    const d = decideServicePath("darwin", undefined);
+    expect(d.service).toBe(false);
+    expect(d.degradedBanner).toBe(true);
+  });
+
+  it("darwin ignores SHEPHERD_NO_SERVICE (still no-service + banner)", () => {
+    const d = decideServicePath("darwin", "1");
+    expect(d.service).toBe(false);
+    expect(d.degradedBanner).toBe(true);
+  });
+});
+
+function recorder() {
+  const calls: string[][] = [];
+  const opts: ({ env?: NodeJS.ProcessEnv } | undefined)[] = [];
+  const run: Runner = (cmd, args, o) => {
+    calls.push([cmd, ...args]);
+    opts.push(o);
+  };
+  return { calls, opts, run };
+}
+
+// All prereqs adequate → no prereq install runs; only node-gyp + the branch work.
+const adequateProbe = () => "999.0.0";
+
+describe("provision orchestration (injected runner, no real installs)", () => {
+  it("skips adequate prereqs and never installs tailscale", () => {
+    const { calls, run } = recorder();
+    provision({
+      run,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1" },
+      repo: "/repo",
+    });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("bun.sh/install"))).toBe(false);
+    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(false);
+    expect(flat.some((c) => c.includes("tailscale.com/install"))).toBe(false);
+  });
+
+  it("installs a missing/below-floor prereq via its verbatim command", () => {
+    const { calls, run } = recorder();
+    // herdr below floor, rest adequate
+    const probe = (bin: string) => (bin === "herdr" ? "0.1.0" : "999.0.0");
+    provision({ run, probe, platform: "linux", env: { SHEPHERD_NO_SERVICE: "1" }, repo: "/repo" });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(true);
+  });
+
+  it("always lays the node-gyp safety net", () => {
+    const { calls, run } = recorder();
+    provision({
+      run,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1" },
+      repo: "/repo",
+    });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("bun add -g node-gyp"))).toBe(true);
+  });
+
+  it("service path installs+enables the unit and delegates build to update.sh", () => {
+    const { calls, run } = recorder();
+    provision({ run, probe: adequateProbe, platform: "linux", env: { USER: "me" }, repo: "/repo" });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("systemd/user/shepherd.service"))).toBe(true);
+    expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
+    expect(flat.some((c) => c.includes("enable-linger"))).toBe(true);
+    expect(flat.some((c) => c === "systemctl --user enable shepherd")).toBe(true);
+    expect(flat.some((c) => c.includes("deploy/update.sh"))).toBe(true);
+    // service path must NOT duplicate update.sh's deps/build
+    expect(flat.some((c) => c.includes("ui && bun run build"))).toBe(false);
+  });
+
+  it("no-service path builds directly and never touches systemd", () => {
+    const { calls, run } = recorder();
+    provision({
+      run,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1" },
+      repo: "/repo",
+    });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+    expect(flat.some((c) => c.includes("update.sh"))).toBe(false);
+    expect(flat.some((c) => c.includes("/ui") && c.includes("bun run build"))).toBe(true);
+    // honors the injected repo root (not process cwd)
+    expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
+    expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
+  });
+
+  it("runs the build steps with ~/.bun/bin on PATH (node-gyp/node-pty rebuild)", () => {
+    const { calls, opts, run } = recorder();
+    provision({
+      run,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1", PATH: "/usr/bin" },
+      repo: "/repo",
+    });
+    // find the bun install / build steps and assert their env PATH carries .bun/bin
+    const buildIdxs = calls
+      .map((c, i) => ({ c: c.join(" "), i }))
+      .filter(({ c }) => c.includes("bun install") || c.includes("bun run build"))
+      .map(({ i }) => i);
+    expect(buildIdxs.length).toBeGreaterThan(0);
+    for (const i of buildIdxs) {
+      const path = opts[i]?.env?.PATH ?? "";
+      expect(path).toContain(`${join(homedir(), ".bun", "bin")}`);
+    }
+  });
+
+  it("darwin takes no-service path (no systemd)", () => {
+    const { calls, run } = recorder();
+    provision({ run, probe: adequateProbe, platform: "darwin", env: {}, repo: "/repo" });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+    expect(flat.some((c) => c.includes("/ui") && c.includes("bun run build"))).toBe(true);
+  });
+});
+
+describe("guidanceNextSteps", () => {
+  it("includes the local URL and the human-secret follow-ups", () => {
+    const steps = guidanceNextSteps().join("\n");
+    expect(steps).toContain("http://localhost:7330");
+    expect(steps.toLowerCase()).toContain("claude");
+    expect(steps).toContain("gh auth login");
+    expect(steps).toContain("tailscale serve");
+    expect(steps).toContain("SHEPHERD_ALLOWED_HOSTS");
+  });
+});

@@ -540,6 +540,8 @@
   "criticbadge_final_title": "Bearbeitet die letzte erlaubte Runde; danach folgt keine weitere.",
   "newtask_plan_gate_label": "Plan-Gate",
   "newtask_plan_gate_hint": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
+  "newtask_autopilot_label": "Autopilot bis zum PR",
+  "newtask_autopilot_hint": "Diese Aufgabe autonom bis zum PR durchziehen. Aus, um mitzudiskutieren, zu iterieren und jeden Schritt selbst freizugeben. Übernimmt standardmäßig die Autopilot-Einstellung des Repos.",
   "plangate_planning": "PLANUNG",
   "plangate_reviewing": "PRÜFUNG…",
   "plangate_changes": "REWORK · {round}/{cap}",
@@ -1327,5 +1329,7 @@
   "gloss_critic_def": "Shepherds isolierter, nur-lesender Review-Agent, der den Diff eines PRs prüft, sobald die CI grün ist, und ein Urteil abgibt.",
   "gloss_wikipedia_link": "Auf Wikipedia weiterlesen",
   "feat_glossary_title": "Glossar-Tooltips",
-  "feat_glossary_body": "Begriffe in What's-New und Coachmarks sind jetzt gestrichelt unterstrichen — fahre darüber oder tippe, um die Bedeutung zu sehen, mit Wikipedia-Link für Fachbegriffe."
+  "feat_glossary_body": "Begriffe in What's-New und Coachmarks sind jetzt gestrichelt unterstrichen — fahre darüber oder tippe, um die Bedeutung zu sehen, mit Wikipedia-Link für Fachbegriffe.",
+  "feat_task_autopilot_title": "Autopilot-Override pro Aufgabe",
+  "feat_task_autopilot_body": "Der Dialog „Neue Aufgabe“ hat jetzt eine Checkbox „Autopilot bis zum PR“. Sie startet mit der Autopilot-Einstellung des Repos, lässt sich aber für eine einzelne Aufgabe ausschalten, die du lieber Schritt für Schritt besprechen und freigeben möchtest — ohne den repoweiten Standard zu ändern."
 }

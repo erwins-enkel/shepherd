@@ -195,6 +195,57 @@
     };
   });
 
+  // On touch the panel becomes a centered fixed modal sheet over a dimming scrim
+  // (see the pointer:coarse block in the stylesheet). Give it the same dialog
+  // semantics as the sibling findings sheet (.review-pop) so keyboard/AT users get
+  // parity: aria-modal, initial focus, a Tab focus-trap, and focus restoration.
+  // On desktop it stays a non-modal anchored popover (no scrim), so none apply.
+  let touch = $state(false);
+  $effect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    touch = mq.matches;
+    const onChange = () => (touch = mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  });
+
+  // Move focus into the sheet on open and restore it to the opener (the pill) when
+  // the panel unmounts — touch only; on desktop the popover is non-modal.
+  $effect(() => {
+    if (!touch || !popEl) return;
+    const opener = document.activeElement as HTMLElement | null;
+    popEl.focus();
+    return () => {
+      if (opener?.isConnected) opener.focus();
+    };
+  });
+
+  // Minimal Tab focus-trap, mirroring GitRail's .review-pop trap. Focusables are
+  // enumerated at trap time so dynamically-rendered rows are included; the panel
+  // container itself (tabindex="-1") is excluded by the selector.
+  function trapTab(e: KeyboardEvent) {
+    if (!touch || e.key !== "Tab" || !popEl) return;
+    const nodes = popEl.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (nodes.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || active === popEl) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || active === popEl) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const prev = roles;
     roles = { ...roles, [role]: value }; // optimistic
@@ -218,8 +269,11 @@
 <div
   class={["auto-pop", { "flip-up": flipUp }]}
   role="dialog"
+  aria-modal={touch ? "true" : undefined}
   aria-label={m.automation_panel_title()}
+  tabindex="-1"
   bind:this={popEl}
+  onkeydown={trapTab}
 >
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>

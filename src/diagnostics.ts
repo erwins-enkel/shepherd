@@ -69,8 +69,12 @@ const REMEDIATION_DRAIN_CAP = 1 << 20; // 1 MiB
  *  (`detached`), drain stdout/stderr into a bounded sink (so a noisy install can't
  *  ENOBUFS or block on a full pipe), and SIGKILL the whole group on timeout. Resolves
  *  on exit 0, rejects otherwise — the rejection message is generic (no captured
- *  output / paths / identity ever reaches the caller). */
-function defaultRunRemediation(cmd: string): Promise<void> {
+ *  output / paths / identity ever reaches the caller). `timeoutMs` is injectable so
+ *  tests can exercise the timeout/group-kill path without waiting the real budget. */
+export function defaultRunRemediation(
+  cmd: string,
+  timeoutMs: number = REMEDIATION_TIMEOUT_MS,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const child = spawn("sh", ["-c", cmd], { detached: true });
     let drained = 0;
@@ -88,7 +92,7 @@ function defaultRunRemediation(cmd: string): Promise<void> {
         /* group already gone */
       }
       reject(new Error("remediation timed out"));
-    }, REMEDIATION_TIMEOUT_MS);
+    }, timeoutMs);
     child.on("error", (err) => {
       if (settled) return;
       settled = true;

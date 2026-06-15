@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { DiagnosticsService, type DiagnosticsDeps } from "../src/diagnostics";
+import {
+  DiagnosticsService,
+  defaultRunRemediation,
+  type DiagnosticsDeps,
+} from "../src/diagnostics";
 import { DIAGNOSTICS_TTL_MS } from "../src/config";
 import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
@@ -463,5 +467,24 @@ describe("DiagnosticsService.fix", () => {
       },
     });
     await expect(svc.fix("bun", 0)).rejects.toThrow("remediation exited 1");
+  });
+});
+
+// The real spawn-based runner — the riskiest code (detached group, timeout SIGKILL,
+// double-settle guard). Exercised here against actual short-lived `sh` commands; the
+// timeout path uses an injected tiny budget so it doesn't wait the real 120s.
+describe("defaultRunRemediation (real spawn)", () => {
+  it("resolves when the command exits 0", async () => {
+    await expect(defaultRunRemediation("exit 0")).resolves.toBeUndefined();
+  });
+
+  it("rejects with the exit code on non-zero exit", async () => {
+    await expect(defaultRunRemediation("exit 3")).rejects.toThrow("remediation exited 3");
+  });
+
+  it("times out and group-kills a long-running command", async () => {
+    // `sleep 30` would outlive the test; the 50ms budget fires the timeout path,
+    // SIGKILLs the process group, and rejects — proving the budget is honored.
+    await expect(defaultRunRemediation("sleep 30", 50)).rejects.toThrow("remediation timed out");
   });
 });

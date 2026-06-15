@@ -1345,5 +1345,6 @@
   "diagnostics_fix_failed": "Beheben fehlgeschlagen — der Befehl wurde nicht abgeschlossen. Führe ihn manuell aus.",
   "diagnostics_fix_success": "Behoben — neu geprüft.",
   "feat_diagnose_fix_title": "Ein-Klick-Behebung in der Diagnose",
-  "feat_diagnose_fix_body": "Wenn Einstellungen → Diagnose eine fehlende Voraussetzung mit bekanntem Installationsbefehl meldet — bun, node, herdr oder claude — kannst du sie jetzt direkt beheben: Ein Beheben-Button führt den genauen Befehl (zur Bestätigung vorab angezeigt) auf dem Server aus und prüft erneut. Schritte mit Login, etwa gh und tailscale, verweisen weiterhin auf eine Anleitung."
+  "feat_diagnose_fix_body": "Wenn Einstellungen → Diagnose eine fehlende Voraussetzung mit bekanntem Installationsbefehl meldet — bun, node, herdr oder claude — kannst du sie jetzt direkt beheben: Ein Beheben-Button führt den genauen Befehl (zur Bestätigung vorab angezeigt) auf dem Server aus und prüft erneut. Schritte mit Login, etwa gh und tailscale, verweisen weiterhin auf eine Anleitung.",
+  "diagnostics_fix_unresolved": "Der Befehl wurde ausgeführt, aber der Check ist weiterhin nicht OK — möglicherweise ist ein manueller Schritt oder ein Neustart nötig."
 }

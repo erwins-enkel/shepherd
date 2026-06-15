@@ -214,7 +214,15 @@ export function reapOrphanTabsLegacy(herdr: ReapableHerdr): string[] {
  * too — so a hex-shaped suffix could in principle alias real user work; (d)'s strict
  * hex/uuid shape plus the session-path spare (e) keep that from being reaped.
  *
- * **Three spare reasons:**
+ * **Full spare/reap coverage matrix** (an unowned candidate is reaped only if it survives
+ * every spare below):
+ *  - **pre-`inflight` begin() window** — each reviewer service's `begin()` does
+ *    `createDetached` (mints the `-review-<tag>` dir on disk) and only LATER `inflight.set`
+ *    then `recordReviewerSpawn`. In that window the dir exists, matches the tag shape, is
+ *    NOT in `protectedPaths`, has NO `reviewer_spawns` row, and hosts no live `claude` yet —
+ *    a mid-begin checkout. Covered by the **directory-age guard**: a candidate whose dir is
+ *    younger than `graceMs` (or that can't be stat'd → fail-closed) is spared. Checked
+ *    BEFORE the `scanAlive` probe so a not-yet-running spawn is held by age alone.
  *  - **owned in memory (`protectedPaths`)** — paths a reviewer service currently holds.
  *    Spared REGARDLESS of age or `/proc` liveness. This is the #631 regression guard: a
  *    re-adopted plan-gate orphan has a DEAD reviewer `claude` AND an OLD uncompleted
@@ -223,13 +231,18 @@ export function reapOrphanTabsLegacy(herdr: ReapableHerdr): string[] {
  *    `inflightWorktrees()` into this set.
  *  - **live store session (`sessionWorktreePaths`, guard e)** — any path backing a live
  *    user session is spared even if its name happens to match the tag shape.
- *  - **recent uncompleted spawn** — a `reviewer_spawns` row with `completedAt == null`
- *    whose `spawnedAt` is within `graceMs`: a spawn that may still be wiring up its
- *    worktree before the owning service records it as inflight.
+ *  - **live `claude` under the dir (`scanAlive`)** — one cheap `/proc` pass; a candidate
+ *    hosting a live `claude` is spared (`sparedLive`).
+ *  - **recent uncompleted spawn (the `graceMs` grace)** — a `reviewer_spawns` row with
+ *    `completedAt == null` whose `spawnedAt` is within `graceMs`. INVARIANT:
+ *    `recordReviewerSpawn` runs AFTER `inflight.set`, so a row NEVER precedes in-memory
+ *    tracking — the grace therefore does NOT cover the pre-`inflight` window (the age guard
+ *    does). It spares a recently-spawned reviewer whose path is not (yet/any longer) in
+ *    `inflight`, e.g. across a restart before re-adoption, or a review/critic spawn that
+ *    isn't re-adopted.
+ *  - **old + ownerless** — survives every spare above → reaped.
  *
- * Liveness for the remaining (non-owned) candidates comes from the injected
- * {@link scanClaudeAliveByWorktree} — one cheap `/proc` pass; a candidate hosting a
- * live `claude` is spared (`sparedLive`). Everything else is removed.
+ * Too-young/unstattable and live-session spares are counted under `sparedOwned`.
  *
  * Fully dependency-injected (no direct fs/proc/store calls) so it is unit-testable
  * without a real filesystem, `/proc`, or store. The real wiring into `index.ts` is a
@@ -253,8 +266,12 @@ export interface ReapWorktreesDeps {
     spawnedAt: number;
   }>;
   now: () => number;
-  /** Grace window for a recent uncompleted spawn (spare if `spawnedAt > now()-graceMs`). */
+  /** Grace window for a recent uncompleted spawn (spare if `spawnedAt > now()-graceMs`).
+   *  Also the dir-age threshold: a candidate dir younger than `graceMs` is spared. */
   graceMs: number;
+  /** Dir mtime in epoch-ms, or `null` if it can't be stat'd (→ fail-closed spare). Injected
+   *  so the function stays I/O-free + unit-testable; the caller wraps `statSync(p).mtimeMs`. */
+  dirMtime: (path: string) => number | null;
   /** Worktree removal wrapper (`worktree.remove`). */
   remove: (worktreePath: string) => void;
 }
@@ -304,6 +321,13 @@ function recentSpawnPaths(
   return recent;
 }
 
+/** A candidate too young to reap (or unstattable): spares a mid-begin checkout in the
+ *  pre-`inflight` begin() window. Fail-closed — `null` mtime (can't stat) is spared. */
+function isTooYoung(path: string, deps: ReapWorktreesDeps): boolean {
+  const mtime = deps.dirMtime(path);
+  return mtime === null || deps.now() - mtime < deps.graceMs;
+}
+
 export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktreesResult {
   // 1. Candidate paths: tag-shape matches under every parent, de-duped.
   const candidates = gatherReviewCandidates(deps.parents, deps.listDir);
@@ -321,7 +345,8 @@ export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktrees
   let sparedOwned = 0;
   let sparedLive = 0;
   for (const path of candidates) {
-    if (owned(path)) {
+    // owned → too-young (spare a mid-begin dir before the alive check) → alive → else reap.
+    if (owned(path) || isTooYoung(path, deps)) {
       sparedOwned++;
       continue;
     }

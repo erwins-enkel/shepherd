@@ -326,6 +326,8 @@ function mkDeps(overrides: Partial<ReapWorktreesDeps> & { names?: string[] } = {
     listReviewerSpawns: overrides.listReviewerSpawns ?? (() => []),
     now: overrides.now ?? (() => 1_000_000),
     graceMs: overrides.graceMs ?? 60_000,
+    // Default to epoch (very old) so age guard never fires → existing reap-tests still reap.
+    dirMtime: overrides.dirMtime ?? (() => 0),
     remove: overrides.remove ?? ((p) => void removed.push(p)),
   };
   return { deps, removed };
@@ -429,6 +431,35 @@ test("session spare (guard e): a hex-tag dir backing a live session is spared", 
   expect(r.reaped).toEqual([]);
   expect(removed).toEqual([]);
   expect(r.sparedOwned).toBe(1);
+});
+
+test("dir-age guard: a too-young (mid-begin) candidate is spared, not reaped (TOCTOU)", () => {
+  // now=1_000_000, grace=60_000 → a dir mtime'd at now-grace/2 (970_000) is < graceMs old.
+  // It matches the tag regex, is not owned, not alive, has no recent spawn row (the
+  // pre-inflight begin() window), yet must be spared by the directory-age guard.
+  const name = `shepherd-review-${HEX8}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    dirMtime: () => 1_000_000 - 60_000 / 2, // 970_000 — younger than graceMs
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedOwned).toBe(1);
+  expect(r.sparedLive).toBe(0);
+});
+
+test("dir-age guard: an unstattable candidate (dirMtime null) is spared fail-closed", () => {
+  const name = `shepherd-review-${HEX8}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    dirMtime: () => null, // can't stat → fail closed, spare
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedOwned).toBe(1);
+  expect(r.sparedLive).toBe(0);
 });
 
 test("non-tag-shape user session ignored: non-hex suffix is not a candidate", () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   config,
@@ -560,8 +560,11 @@ const planGate = new PlanGateService({
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   cap: () => config.planReviewCyclesCap,
 });
-// Grace window for a recent uncompleted reviewer_spawns row: covers the begin() spawn-window
-// before the owning service records the path in `inflight` (protectedPaths covers the rest).
+// Grace window for a recent uncompleted reviewer_spawns row: spares a recently-spawned reviewer
+// whose path is not currently in `inflight` (e.g. a restart-orphan before re-adoption). It does
+// NOT cover the pre-`inflight` begin() window — recordReviewerSpawn runs AFTER inflight.set — so
+// that window is covered instead by the directory-age guard in reapStaleReviewWorktrees, which
+// reuses this same value as the dir-age threshold.
 const REVIEW_WORKTREE_GRACE_MS = 15 * 60 * 1000;
 
 // Disk-driven stale reviewer-worktree sweep (#721): reaps `*-review-*` checkouts under each
@@ -598,6 +601,13 @@ const sweepStaleReviewWorktrees = () => {
       listReviewerSpawns: () => store.listReviewerSpawns(),
       now: Date.now,
       graceMs: REVIEW_WORKTREE_GRACE_MS,
+      dirMtime: (p) => {
+        try {
+          return statSync(p).mtimeMs;
+        } catch {
+          return null;
+        }
+      },
       remove: (p) => worktree.remove(p),
     });
     if (r.reaped.length)

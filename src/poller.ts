@@ -14,15 +14,17 @@ const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
 /**
  * Notification `notification_type`s that assert an awaiting-input edge (Phase 1,
- * issue #704). Deliberately a small, named constant: under
- * `--dangerously-skip-permissions` (how Shepherd spawns every agent)
- * `Notification(permission_prompt)` may NEVER fire, and the real pausing cases
- * (`AskUserQuestion`, `ExitPlanMode`) emit an UNVERIFIED notification_type. The
- * Phase-0 spike must confirm which type(s) those actually emit and ADD them here;
- * until then this set may simply never match in practice, in which case the block
- * trigger stays dormant and detection cleanly degrades to the existing
- * `herdr-blocked → classifyBlocked` fallback — the intended no-regression path.
- * `idle_prompt` is deliberately NOT here (idle is handled by herdr mapping).
+ * issue #704). Deliberately a small, named constant because under
+ * `--dangerously-skip-permissions` (how Shepherd spawns every agent) tool-permission
+ * prompts are suppressed, so it was unclear whether the real pausing cases emit a
+ * usable edge. CONFIRMED by the Phase-0 live spike (2026-06-15): an `AskUserQuestion`
+ * pause fires `Notification(permission_prompt)` even under skip-permissions — so this
+ * set matches that (the common interactive-pause) case. `ExitPlanMode`/plan-approval
+ * is not yet confirmed; ADD its type here once a spike observes it. If a pausing case
+ * emits no matching type, the block trigger simply stays dormant for it and detection
+ * cleanly degrades to the existing `herdr-blocked → classifyBlocked` fallback — the
+ * intended no-regression path. `idle_prompt` is deliberately NOT here (idle is handled
+ * by herdr mapping).
  */
 const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
 

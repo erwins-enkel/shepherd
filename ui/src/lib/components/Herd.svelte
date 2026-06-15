@@ -4,6 +4,7 @@
   import EmptyHerd from "./EmptyHerd.svelte";
   import EpicGroupHeader from "./EpicGroupHeader.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
+  import RundownPanel from "./RundownPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -53,6 +54,7 @@
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
+    onrundownitem = undefined,
     onackmigrationsepic = undefined,
   }: {
     sessions: Session[];
@@ -137,6 +139,9 @@
     doneSelectedId?: string | null;
     // a done row was picked → page selects it + shows its DoneRecapPanel in the main area
     ondoneselect?: (id: string) => void;
+    // a Rundown digest item with a sessionId was clicked → page leaves the Rundown lens
+    // and selects that live session (deep-link). Same mechanism a rail click uses.
+    onrundownitem?: (id: string) => void;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
   } = $props();
@@ -297,6 +302,17 @@
           onstatusfilter?.(null);
         }}>{m.herd_done_filter()}</button
       >
+      <button
+        type="button"
+        class="micro fbtn"
+        class:active={statusFilter == null && filter === "rundown"}
+        title={m.herd_rundown_title()}
+        aria-pressed={statusFilter == null && filter === "rundown"}
+        onclick={() => {
+          filter = "rundown";
+          onstatusfilter?.(null);
+        }}>{m.herd_rundown_filter()}</button
+      >
       {#if statusFilter != null}
         <!-- aria-label carries status + clear action; the visible "✕" glyph would
            otherwise be read aloud without conveying what the chip does -->
@@ -322,7 +338,10 @@
     </div>
   </div>
   <div class="units" class:flow>
-    {#if filter === "done"}
+    {#if filter === "rundown"}
+      <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
+      <RundownPanel onitemselect={onrundownitem} />
+    {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
       {#if doneList.length === 0}
@@ -701,7 +720,7 @@
         {/each}
       {/if}
     {/if}
-    {#if filter !== "done"}
+    {#if filter !== "done" && filter !== "rundown"}
       <IntegratedEpicsBand
         epics={completedEpics}
         ondismiss={ondismissepic ?? (() => {})}

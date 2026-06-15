@@ -43,6 +43,7 @@
     onhalt,
     needsYou = 0,
     ontriage,
+    onrundown,
     update = null,
     onupdate,
     herdrUpdate = null,
@@ -65,6 +66,8 @@
     onhalt?: () => void;
     needsYou?: number;
     ontriage?: () => void;
+    /** Called when the ☰ RUNDOWN control is clicked — selects the Rundown lens. */
+    onrundown?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
@@ -582,6 +585,21 @@
     </div>
   {/if}
   <div class="rightside">
+    <!-- ☰ RUNDOWN: opens the daily Herd Rundown digest lens. Compact (icon + label
+         dropped to a glyph) on phones and the touch-desktop badge crunch, mirroring
+         the NEEDS YOU badge's compact pattern. -->
+    <button
+      class="rundown-btn"
+      class:compact={mobile || compactBadges}
+      type="button"
+      onclick={() => onrundown?.()}
+      title={m.topbar_rundown()}
+      aria-label={m.topbar_rundown()}
+      use:coachTarget={"herd-rundown"}
+    >
+      <span class="rd-glyph" aria-hidden="true">☰</span>
+      {#if !(mobile || compactBadges)}<span class="rd-label">{m.topbar_rundown()}</span>{/if}
+    </button>
     {#if needsYou > 0}
       <button
         class="needsyou"
@@ -1037,6 +1055,45 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+  /* ☰ RUNDOWN: a quiet neutral chrome control — the rundown is informational, not an
+     attention state, so it stays muted (no red/green/amber semantic hue) and only
+     warms to amber on hover, matching the bar's other neutral controls (gear). */
+  .rundown-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 5px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .rundown-btn:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .rundown-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .rundown-btn .rd-glyph {
+    font-size: var(--fs-lg);
+    line-height: 1;
+  }
+  /* Compact (phone + touch-desktop crunch): icon-only, ≥44px tap target. */
+  .rundown-btn.compact {
+    justify-content: center;
+    min-width: 44px;
+    padding: 8px 10px;
+    letter-spacing: 0;
   }
   /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
      working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
@@ -1766,6 +1823,7 @@
     .gear,
     .needsyou,
     .needsyou.compact,
+    .rundown-btn,
     .gauge-btn,
     .update-badge {
       min-height: 44px;

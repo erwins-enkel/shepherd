@@ -52,11 +52,11 @@ type Stage =
   | "active";
 
 /** The herd rail's list filter: everything, only sessions awaiting the operator, only
- *  research tasks, or the Done lens (archived/finished sessions). "done" is NOT a live-list
- *  filter — the page renders the separate `doneSessions` list for it; here it falls through
- *  to the live filtering's default (returns the live set untouched, so no crash if it ever
- *  reaches shownSessions). */
-export type HerdFilter = "all" | "ready" | "research" | "done";
+ *  research tasks, the Done lens (archived/finished sessions), or the Rundown lens (the
+ *  daily Herd Rundown digest). "done" and "rundown" are NOT live-list filters — the page
+ *  swaps in a dedicated panel for each; shownSessions returns [] for "rundown" (panel-only,
+ *  no session list) and falls through to the live set for "done" (handled by the page). */
+export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown";
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
  *  awaiting the operator (not running, not under review); "research" keeps only sessions
@@ -75,6 +75,8 @@ export function shownSessions(
       (s) => displayStatus(s, workingBlocked) !== "running" && !inReview(s.id),
     );
   if (filter === "research") return sessions.filter((s) => s.research);
+  // Rundown is a panel-only lens (the digest, no session list) — show no rows.
+  if (filter === "rundown") return [];
   return sessions;
 }
 

@@ -186,16 +186,12 @@ interface ProvisionOpts {
   fileIO?: FileIO;
 }
 
-export function provision(opts: ProvisionOpts = {}): void {
-  const run = opts.run ?? defaultRunner;
-  const probe = opts.probe ?? probeVersion;
-  const fileIO = opts.fileIO ?? defaultFileIO;
-  const platform = opts.platform ?? process.platform;
-  const env = opts.env ?? process.env;
-  const repo = opts.repo ?? process.cwd();
-  const home = homedir();
-
-  // ── 1. prereqs (table-driven, idempotent) ──────────────────────────────────
+/** Step 1 — table-driven prereq install loop (idempotent; skips adequate tools). */
+export function installPrereqs(
+  probe: (bin: string) => string | null,
+  run: Runner,
+  env: NodeJS.ProcessEnv,
+): void {
   log("checking prerequisites");
   for (const prereq of PREREQS) {
     const version = probe(prereq.bin);
@@ -207,55 +203,88 @@ export function provision(opts: ProvisionOpts = {}): void {
     log(`  ${prereq.bin}: installing`);
     run("bash", ["-c", cmd], { env });
   }
+}
 
-  // ── 2. node-gyp safety net (replicates ci/onboarding-harness/seed.ts) ────────
-  // node-pty's install rebuilds via node-gyp on prebuilt-less distros; ensure it's
-  // present and that ~/.bun/bin + ~/.local/bin are on the PATH the later bun install
-  // sees. User-writable locations only — NO /usr/local/bin / sudo.
+/** Step 2 — node-gyp safety net (replicates ci/onboarding-harness/seed.ts).
+ * node-pty's install rebuilds via node-gyp on prebuilt-less distros; ensure it's
+ * present and that ~/.bun/bin + ~/.local/bin are on the PATH the later bun install
+ * sees. User-writable locations only — NO /usr/local/bin / sudo. Returns the build
+ * env (env + augmented PATH) used by every later build step. */
+export function ensureNodeGyp(
+  run: Runner,
+  env: NodeJS.ProcessEnv,
+  home: string,
+): NodeJS.ProcessEnv {
   log("ensuring node-gyp (node-pty build dep)");
   const bunBin = join(home, ".bun", "bin");
   const localBin = join(home, ".local", "bin");
   run("bash", ["-c", "bun add -g node-gyp"], { env });
-  const buildEnv: NodeJS.ProcessEnv = {
-    ...env,
-    PATH: `${bunBin}:${localBin}:${env.PATH ?? ""}`,
-  };
+  return { ...env, PATH: `${bunBin}:${localBin}:${env.PATH ?? ""}` };
+}
 
-  // ── 3. service vs no-service ────────────────────────────────────────────────
+/** Linux service path: template+write the systemd user unit, daemon-reload,
+ * enable-linger, enable, then build+start via deploy/update.sh. Fail-closed: throws
+ * if $USER is unset (enable-linger needs it). */
+export function installService(
+  repo: string,
+  run: Runner,
+  fileIO: FileIO,
+  env: NodeJS.ProcessEnv,
+  home: string,
+  buildEnv: NodeJS.ProcessEnv,
+): void {
+  log("installing systemd user unit");
+  const unitDir = join(home, ".config", "systemd", "user");
+  run("mkdir", ["-p", unitDir]);
+  // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
+  // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
+  // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.
+  const unitSrc = fileIO.read(join(repo, "deploy", "shepherd.service"));
+  fileIO.write(join(unitDir, "shepherd.service"), templateUnit(unitSrc, repo));
+  run("systemctl", ["--user", "daemon-reload"]);
+  const user = env.USER;
+  if (!user) throw new Error("cannot enable-linger: $USER is not set");
+  run("loginctl", ["enable-linger", user]);
+  run("systemctl", ["--user", "enable", "shepherd"]);
+  // update.sh does deps → UI build → restart (starts the now-enabled unit) → health.
+  log("building + starting via deploy/update.sh");
+  run("bash", [join(repo, "deploy", "update.sh")], { env: buildEnv });
+}
+
+/** No-service path (harness e2e + macOS): deps + UI install + UI build only.
+ * Do NOT touch systemd. (The harness boots Shepherd directly afterward.) */
+export function buildOnly(repo: string, run: Runner, buildEnv: NodeJS.ProcessEnv): void {
+  log("installing deps (root + ui)");
+  run("bash", ["-c", `cd "${repo}" && bun install`], { env: buildEnv });
+  run("bash", ["-c", `cd "${repo}/ui" && bun install`], { env: buildEnv });
+  log("building UI");
+  run("bash", ["-c", `cd "${repo}/ui" && bun run build`], { env: buildEnv });
+}
+
+export function provision(opts: ProvisionOpts = {}): void {
+  const run = opts.run ?? defaultRunner;
+  const probe = opts.probe ?? probeVersion;
+  const fileIO = opts.fileIO ?? defaultFileIO;
+  const platform = opts.platform ?? process.platform;
+  const env = opts.env ?? process.env;
+  const repo = opts.repo ?? process.cwd();
+  const home = homedir();
+
+  installPrereqs(probe, run, env);
+  const buildEnv = ensureNodeGyp(run, env, home);
+
   const decision = decideServicePath(platform, env.SHEPHERD_NO_SERVICE);
-
   if (decision.service) {
-    log("installing systemd user unit");
-    const unitDir = join(home, ".config", "systemd", "user");
-    run("mkdir", ["-p", unitDir]);
-    // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
-    // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
-    // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.
-    const unitSrc = fileIO.read(join(repo, "deploy", "shepherd.service"));
-    fileIO.write(join(unitDir, "shepherd.service"), templateUnit(unitSrc, repo));
-    run("systemctl", ["--user", "daemon-reload"]);
-    const user = env.USER;
-    if (!user) throw new Error("cannot enable-linger: $USER is not set");
-    run("loginctl", ["enable-linger", user]);
-    run("systemctl", ["--user", "enable", "shepherd"]);
-    // update.sh does deps → UI build → restart (starts the now-enabled unit) → health.
-    log("building + starting via deploy/update.sh");
-    run("bash", [join(repo, "deploy", "update.sh")], { env: buildEnv });
+    installService(repo, run, fileIO, env, home, buildEnv);
   } else {
-    // No-service path (harness e2e + macOS): deps + UI build + node-gyp net only.
-    // Do NOT touch systemd. (The harness boots Shepherd directly afterward.)
-    log("installing deps (root + ui)");
-    run("bash", ["-c", `cd "${repo}" && bun install`], { env: buildEnv });
-    run("bash", ["-c", `cd "${repo}/ui" && bun install`], { env: buildEnv });
-    log("building UI");
-    run("bash", ["-c", `cd "${repo}/ui" && bun run build`], { env: buildEnv });
+    buildOnly(repo, run, buildEnv);
   }
 
   if (decision.degradedBanner) {
     for (const line of MACOS_DEGRADED_BANNER) process.stdout.write(`\x1b[33m${line}\x1b[0m\n`);
   }
 
-  // ── 4. final summary + guidance ─────────────────────────────────────────────
+  // final summary + guidance
   process.stdout.write("\n");
   for (const line of guidanceNextSteps()) process.stdout.write(`${line}\n`);
 }

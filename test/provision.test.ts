@@ -10,6 +10,10 @@ import {
   decideServicePath,
   guidanceNextSteps,
   templateUnit,
+  installPrereqs,
+  ensureNodeGyp,
+  installService,
+  buildOnly,
   type FileIO,
   type Runner,
 } from "../deploy/provision";
@@ -274,6 +278,51 @@ describe("provision orchestration (injected runner, no real installs)", () => {
     const flat = calls.map((c) => c.join(" "));
     expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
     expect(flat.some((c) => c.includes("/ui") && c.includes("bun run build"))).toBe(true);
+  });
+});
+
+describe("extracted helpers (direct)", () => {
+  it("installPrereqs skips adequate tools and installs inadequate ones", () => {
+    const { calls, run } = recorder();
+    const probe = (bin: string) => (bin === "herdr" ? "0.1.0" : "999.0.0");
+    installPrereqs(probe, run, { FOO: "bar" });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(true);
+    expect(flat.some((c) => c.includes("bun.sh/install"))).toBe(false);
+  });
+
+  it("ensureNodeGyp installs node-gyp and returns build env with ~/.bun/bin on PATH", () => {
+    const { calls, run } = recorder();
+    const buildEnv = ensureNodeGyp(run, { PATH: "/usr/bin" }, "/home/op");
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("bun add -g node-gyp"))).toBe(true);
+    expect(buildEnv.PATH).toContain("/home/op/.bun/bin");
+    expect(buildEnv.PATH).toContain("/home/op/.local/bin");
+    expect(buildEnv.PATH).toContain("/usr/bin");
+  });
+
+  it("installService templates+writes the unit, enables, delegates build, throws without $USER", () => {
+    const { calls, writes, run, fileIO } = recorder();
+    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" });
+    const flat = calls.map((c) => c.join(" "));
+    expect([...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd.service"))).toBe(true);
+    expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
+    expect(flat.some((c) => c.includes("enable-linger"))).toBe(true);
+    expect(flat.some((c) => c.includes("deploy/update.sh"))).toBe(true);
+
+    const fresh = recorder();
+    expect(() =>
+      installService("/repo", fresh.run, fresh.fileIO, {}, "/home/op", { PATH: "/x" }),
+    ).toThrow(/\$USER/);
+  });
+
+  it("buildOnly installs deps + builds UI with the build env, no systemd", () => {
+    const { calls, run } = recorder();
+    buildOnly("/repo", run, { PATH: "/x" });
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
+    expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
+    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
   });
 });
 

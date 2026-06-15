@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { IncusDriver } from "./incus";
-import { remediationsFor } from "./remediations";
+import { remediationsFor } from "../../src/remediations";
 import type { DiagnosticsSnapshot } from "../../src/types";
 
 export interface CoachingLine {

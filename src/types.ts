@@ -210,6 +210,11 @@ export interface DiagnosticCheck {
   id: string;
   state: DiagnosticState;
   hintKey: string;
+  /** A non-secret public install command (e.g. "curl -fsSL https://bun.sh/install | bash")
+   *  the operator can one-click-run via POST /api/diagnostics/fix. Set ONLY on non-ok,
+   *  auto-fixable checks (autoFixCommandFor resolved) — never on `ok` checks and never on
+   *  guidance-only ones (tailscale). Still no stdout/tokens/paths/identity ever cross here. */
+  remediation?: string;
 }
 
 /** The full diagnostics payload returned by GET /api/diagnostics and pushed on

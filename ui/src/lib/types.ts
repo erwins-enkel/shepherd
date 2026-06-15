@@ -660,6 +660,10 @@ export interface DiagnosticCheck {
   id: string;
   state: DiagnosticState;
   hintKey: string;
+  /** A non-secret public install command the operator can one-click-run via the Fix
+   *  button. Present only on non-ok, auto-fixable checks (server sets it; guidance-only
+   *  rows like tailscale and ok rows have none → no Fix button). */
+  remediation?: string;
 }
 export interface DiagnosticsSnapshot {
   checks: DiagnosticCheck[];

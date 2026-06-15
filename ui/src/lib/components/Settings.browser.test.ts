@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Settings as SettingsPayload } from "$lib/types";
+import type { Settings as SettingsPayload, DiagnosticCheck } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { getSettings, verifyApiKey, putAnthropicApiKey } from "$lib/api";
+import { getSettings, verifyApiKey, putAnthropicApiKey, fixDiagnostic } from "$lib/api";
+import { toasts } from "$lib/toasts.svelte";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
 // land on api-key mode WITH a key configured, so the api-key block + Verify button
@@ -16,6 +17,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     getSettings: vi.fn(),
     listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
     getDiagnostics: vi.fn(async () => ({ checks: [] })),
+    fixDiagnostic: vi.fn(),
     verifyApiKey: vi.fn(),
     putAnthropicApiKey: vi.fn(),
     putAuthMode: vi.fn(async () => ({ authMode: "api-key", hasApiKey: true })),
@@ -43,6 +45,7 @@ const { default: Settings } = await import("./Settings.svelte");
 const mockGetSettings = vi.mocked(getSettings);
 const mockVerify = vi.mocked(verifyApiKey);
 const mockPutKey = vi.mocked(putAnthropicApiKey);
+const mockFix = vi.mocked(fixDiagnostic);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -176,5 +179,75 @@ describe("Settings api-key verify", () => {
     await vi.waitFor(() => expect(mockVerify).toHaveBeenCalled());
     // …and its verdict renders inline.
     await expect.element(page.getByText(m.settings_auth_key_verify_ok())).toBeInTheDocument();
+  });
+});
+
+// Regression guard for the issue's "no false success" criterion (PR #703): the green
+// "Fixed" toast must only fire when the RE-PROBED snapshot shows the targeted check ok.
+// A command that exits 0 but leaves the check non-ok (e.g. installer succeeds but its
+// binary isn't on the server PATH) must surface the persistent "unresolved" toast, not
+// a fake success.
+describe("Settings diagnose one-click fix toast", () => {
+  const bunBroken = (): DiagnosticCheck => ({
+    id: "bun",
+    state: "error",
+    hintKey: "diagnostics_hint_bun_missing",
+    remediation: "curl -fsSL https://bun.sh/install | bash",
+  });
+
+  function mountDiagnose() {
+    render(Settings, {
+      initialTab: "diagnose",
+      initialDiagnostics: [bunBroken()],
+      onclose: noop,
+      onsaved: noop,
+    });
+  }
+
+  async function clickFixThenRun() {
+    await page.getByRole("button", { name: m.diagnostics_fix(), exact: true }).click();
+    await page.getByRole("button", { name: m.diagnostics_fix_confirm_run(), exact: true }).click();
+  }
+
+  beforeEach(() => {
+    mockFix.mockReset();
+    toasts.items = []; // singleton store — clear so each assertion sees only its own toast
+  });
+
+  it("shows the success toast when the re-probe clears the check", async () => {
+    mockFix.mockResolvedValue({
+      checks: [{ id: "bun", state: "ok", hintKey: "diagnostics_hint_bun_ok" }],
+      generatedAt: 1,
+      overall: "ok",
+    });
+    mountDiagnose();
+    await clickFixThenRun();
+
+    await vi.waitFor(() => expect(mockFix).toHaveBeenCalledWith("bun"));
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.diagnostics_fix_success())).toBe(true),
+    );
+    expect(toasts.items.some((t) => t.text === m.diagnostics_fix_unresolved())).toBe(false);
+  });
+
+  it("shows the persistent unresolved toast (NOT success) when the check is still non-ok after exit 0", async () => {
+    // Command resolved (2xx), but the re-probe still reports bun as error.
+    mockFix.mockResolvedValue({
+      checks: [bunBroken()],
+      generatedAt: 1,
+      overall: "error",
+    });
+    mountDiagnose();
+    await clickFixThenRun();
+
+    await vi.waitFor(() => expect(mockFix).toHaveBeenCalledWith("bun"));
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.diagnostics_fix_unresolved())).toBe(true),
+    );
+    // The critical assertion: no green "Fixed" toast on an unresolved check.
+    expect(toasts.items.some((t) => t.text === m.diagnostics_fix_success())).toBe(false);
+    // And the unresolved toast is persistent (no auto-dismiss) — durationMs unset.
+    const t = toasts.items.find((x) => x.text === m.diagnostics_fix_unresolved())!;
+    expect(t.durationMs).toBeUndefined();
   });
 });

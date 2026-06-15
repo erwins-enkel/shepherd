@@ -704,6 +704,19 @@ export async function getDiagnostics(refresh = false): Promise<DiagnosticsSnapsh
   return r.json();
 }
 
+/** Run the verbatim remediation for a diagnostics check, then return the re-probed
+ *  snapshot. Throws (via failed/apiError) on a non-2xx — the caller surfaces it as an
+ *  explicit failure, never a silent pass. */
+export async function fixDiagnostic(checkId: string): Promise<DiagnosticsSnapshot> {
+  const r = await fetch("/api/diagnostics/fix", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ checkId }),
+  });
+  if (!r.ok) throw await failed(r, "diagnostics fix");
+  return r.json();
+}
+
 /** Trigger `herdr update` (restarts herdr → ends live sessions → restarts shepherd). */
 export async function applyHerdrUpdate(): Promise<void> {
   const r = await fetch("/api/herdr-update", { method: "POST", headers: JSON_HEADERS });

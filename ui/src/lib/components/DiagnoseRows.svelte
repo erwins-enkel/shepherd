@@ -1,12 +1,46 @@
 <script lang="ts">
   import type { DiagnosticCheck } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { dialog } from "$lib/a11yDialog";
+  import { SvelteSet } from "svelte/reactivity";
 
   let {
     checks,
     failed = false,
     onretry,
-  }: { checks: DiagnosticCheck[] | null; failed?: boolean; onretry?: () => void } = $props();
+    onfix,
+  }: {
+    checks: DiagnosticCheck[] | null;
+    failed?: boolean;
+    onretry?: () => void;
+    /** Parent-owned: run the check's remediation, update state, surface failure toast. */
+    onfix?: (checkId: string) => Promise<void>;
+  } = $props();
+
+  // The check whose Fix button was clicked → renders the confirm modal. null = closed.
+  let confirming = $state<DiagnosticCheck | null>(null);
+  // ids currently running a fix (button disabled + "Running…"); cleared on settle.
+  const busyIds = new SvelteSet<string>();
+
+  // A Fix button shows iff the check is non-ok AND the server attached a remediation
+  // command — guidance-only rows (tailscale) and ok rows carry none → no button.
+  function fixable(check: DiagnosticCheck): boolean {
+    return check.state !== "ok" && !!check.remediation;
+  }
+
+  async function runFix() {
+    const check = confirming;
+    if (!check) return;
+    confirming = null;
+    busyIds.add(check.id);
+    try {
+      await onfix?.(check.id);
+    } catch {
+      // Parent surfaces the failure toast; we only clear busy so the row is retryable.
+    } finally {
+      busyIds.delete(check.id);
+    }
+  }
 
   // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access.
   const msg = m as unknown as Record<string, () => string>;
@@ -53,6 +87,18 @@
         {#if check.state !== "ok"}
           <p class="hint">{hint(check.hintKey)}</p>
         {/if}
+        {#if onfix && fixable(check)}
+          <div class="fix-wrap">
+            <button
+              type="button"
+              class="fix micro"
+              disabled={busyIds.has(check.id)}
+              onclick={() => (confirming = check)}
+            >
+              {busyIds.has(check.id) ? m.diagnostics_fix_running() : m.diagnostics_fix()}
+            </button>
+          </div>
+        {/if}
       </div>
     {/each}
     {#if allOk}
@@ -68,6 +114,40 @@
   </div>
 {:else}
   <div class="all-ok micro">{m.common_loading()}</div>
+{/if}
+
+{#if confirming}
+  {@const cmd = confirming.remediation}
+  <!-- Blocking confirm: scoped .overlay supplies position/scrim; the global .overlay
+       rule (app.css) layers the blur so the diagnose tab recedes behind it. -->
+  <div
+    class="overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) confirming = null;
+    }}
+  >
+    <div
+      class="card"
+      role="dialog"
+      aria-modal="true"
+      aria-label={m.diagnostics_fix_confirm_title()}
+      use:dialog={{ onclose: () => (confirming = null) }}
+    >
+      <span class="micro chead">{m.diagnostics_fix_confirm_title()}</span>
+      <p class="desc">{m.diagnostics_fix_confirm_body()}</p>
+      <!-- Verbatim command — data, not chrome → never translated. -->
+      <code class="cmd">{cmd}</code>
+      <div class="actions">
+        <button type="button" class="ghost micro" onclick={() => (confirming = null)}>
+          {m.common_cancel()}
+        </button>
+        <button type="button" class="run micro" onclick={runFix}>
+          {m.diagnostics_fix_confirm_run()}
+        </button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -129,5 +209,103 @@
   .retry:hover {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  .fix-wrap {
+    margin: 2px 0 0 22px;
+  }
+  .fix {
+    background: none;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .fix:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .fix:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  /* Blocking confirm modal — scrim + (global) blur per the design rule. */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--color-scrim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+  }
+  .card {
+    width: min(440px, 92vw);
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-panel);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chead {
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .desc {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    line-height: 1.4;
+  }
+  .cmd {
+    display: block;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+    border-radius: 2px;
+    padding: 8px 10px;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--fs-meta);
+    color: var(--color-ink-bright);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .ghost,
+  .run {
+    border: 1px solid var(--color-line-bright);
+    background: transparent;
+    color: var(--color-ink);
+    padding: 9px 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font: inherit;
+    font-size: var(--fs-meta);
+    cursor: pointer;
+  }
+  .run {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  @media (max-width: 768px) {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .card {
+      width: 100%;
+      height: 100dvh;
+      border: 0;
+      overflow-y: auto;
+    }
   }
 </style>

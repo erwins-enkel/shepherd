@@ -10,7 +10,7 @@ import type { Scenario } from "./types";
  *  - **Green-able** — the seeded defect can be coached back to `ok` unattended.
  *    `coaching: "structured"` uses the deterministic verbatim-remediation path
  *    (LLM-free, release-gate-eligible) and MUST have a matching REMEDIATIONS entry
- *    in remediations.ts; `coaching: "prose"` uses the agent path (e.g. git, whose
+ *    in src/remediations.ts; `coaching: "prose"` uses the agent path (e.g. git, whose
  *    install is distro-specific with no single one-liner — the agent picks apt/
  *    apk/dnf). Success = the scenario's expected checks are `ok` after the apply.
  *  - **Detection-only** (`detectionOnly: true`) — the defect is detectable but its

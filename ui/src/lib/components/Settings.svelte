@@ -14,6 +14,7 @@
     putExtraCreditsDrainCeiling,
     listDirs,
     getDiagnostics,
+    fixDiagnostic,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import {
@@ -183,6 +184,35 @@
       diagError = m.diagnostics_rerun_error();
     } finally {
       diagBusy = false;
+    }
+  }
+
+  // One-click fix: run the check's remediation server-side, re-render from the
+  // re-probed snapshot. Fail closed on two levels: a non-2xx surfaces a persistent,
+  // deduped failure toast (and rethrows so DiagnoseRows clears busy); a 2xx whose
+  // re-probe shows the target check STILL not ok (the command exited 0 but didn't
+  // clear it) surfaces a persistent "unresolved" toast — never a green success.
+  async function fixCheck(checkId: string) {
+    try {
+      const snap = await fixDiagnostic(checkId);
+      diagChecks = snap.checks;
+      const cleared = snap.checks.find((c) => c.id === checkId)?.state === "ok";
+      if (cleared) {
+        toasts.info(m.diagnostics_fix_success(), { duration: 3000 });
+      } else {
+        toasts.info(m.diagnostics_fix_unresolved(), {
+          duration: null,
+          alert: true,
+          key: `diagnose-fix:${checkId}`,
+        });
+      }
+    } catch {
+      toasts.info(m.diagnostics_fix_failed(), {
+        duration: null,
+        alert: true,
+        key: `diagnose-fix:${checkId}`,
+      });
+      throw new Error("fix failed");
     }
   }
 
@@ -957,7 +987,7 @@
         <span class="micro">{m.diagnostics_title()}</span>
         <p class="hint">{m.diagnostics_subtitle()}</p>
       </div>
-      <DiagnoseRows checks={diagChecks} />
+      <DiagnoseRows checks={diagChecks} onfix={fixCheck} />
       <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
            row renders independently of the server snapshot's load/fail/empty state. -->
       <PwaInstallRow />

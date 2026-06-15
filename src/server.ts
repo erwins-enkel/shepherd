@@ -105,7 +105,7 @@ import {
   isSandboxProfile,
   SandboxAutoRefused,
 } from "./sandbox";
-import { validateHookEvent, type HookEvent } from "./hooks-ingest";
+import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
 import { fingerprintDiffCount } from "./rundown-core";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -196,7 +196,13 @@ export interface AppDeps {
   /** Phase-0 hook ingest ring buffer (issue #704); absent in tests/envs that skip it.
    *  `record` is observe-only here — it forwards to signals only when Task 3 wires
    *  `onSignal` (the `hooksSignals` flag). */
-  hooks?: { record(id: string, ev: HookEvent): void; snapshot(id: string): HookEvent[] };
+  hooks?: {
+    record(id: string, ev: HookEvent): void;
+    snapshot(id: string): HookEvent[];
+    /** Every tracked session's sub-agent roster, keyed by sessionId (Phase 3, #710);
+     *  served at `GET /api/subagents` for a global bootstrap, mirror of `activity`. */
+    allSubagentsSnapshot(): Record<string, SubagentEntry[]>;
+  };
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
@@ -342,6 +348,13 @@ function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
     return json(deps.workingBlocked?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleSubagentsSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "subagents" && !parts[2]) {
+    return json(deps.hooks?.allSubagentsSnapshot() ?? {});
   }
   return null;
 }
@@ -3544,6 +3557,7 @@ const ROUTE_HANDLERS = [
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
   handleWorkingBlockedSnapshot,
+  handleSubagentsSnapshot,
   handlePreviewSnapshot,
   handleReviews,
   handlePlanGates,

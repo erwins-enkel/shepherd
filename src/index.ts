@@ -388,6 +388,15 @@ if (config.hooksSignals && !config.hooksIngest) {
     // record() ring-buffers + logs them regardless of the sink, so they're measurable.
   });
 }
+// Phase-3 sub-agent fan-out push (issue #710): every roster mutation pushes the session's
+// updated roster over the WS as `session:subagents`. Gated only by `config.hooksIngest`
+// (independent of `hooksSignals`) — the roster is its own state, maintained by record()
+// whenever Subagent* events arrive, so the fan-out lives wherever ingest does.
+if (config.hooksIngest) {
+  hookIngest.setSubagentSink((id, roster) =>
+    events.emit("session:subagents", { id, subagents: roster }),
+  );
+}
 // Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
 // single FIFO queue already guarantees this op completes before any register/unregister
 // enqueued after poller.start(), so awaiting only risks stalling boot up to count×5s

@@ -68,6 +68,7 @@ import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
+import { HookIngest } from "./hooks-ingest";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -961,6 +962,10 @@ const backlogPoller = new BacklogPoller(
 setTimeout(() => void backlogPoller.tick(), 3_000);
 backlogPoller.start();
 
+// Phase-0 push-hook ingest (issue #704), observe-only: no `onSignal` yet — Task 3 wires
+// the poller-forwarding closure when `config.hooksSignals` is on.
+const hookIngest = new HookIngest();
+
 const server = serve(
   {
     store,
@@ -984,6 +989,7 @@ const server = serve(
     push,
     presence,
     poller,
+    hooks: hookIngest,
     reviewCache: {
       snapshot: () => reviewService.snapshot(),
       reviewing: () => reviewService.reviewingIds(),

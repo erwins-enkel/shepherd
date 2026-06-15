@@ -542,6 +542,9 @@
   "newtask_plan_gate_hint": "Grill + adversarial review before the agent runs",
   "newtask_autopilot_label": "Autopilot to PR",
   "newtask_autopilot_hint": "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting.",
+  "newtask_autopilot_repo_default_on": "Repo default: on",
+  "newtask_autopilot_repo_default_off": "Repo default: off",
+  "newtask_info_aria": "Explain: {topic}",
   "plangate_planning": "PLANNING",
   "plangate_reviewing": "REVIEWING…",
   "plangate_changes": "REWORK · {round}/{cap}",
@@ -1331,5 +1334,7 @@
   "feat_glossary_title": "Glossary tooltips",
   "feat_glossary_body": "Terms in What's-New and coachmarks now have a dashed underline — hover or tap to see what they mean, with a Wikipedia link for industry-standard terms.",
   "feat_task_autopilot_title": "Per-task Autopilot override",
-  "feat_task_autopilot_body": "The New Task dialog now has an \"Autopilot to PR\" checkbox. It starts from the repo's Autopilot setting, but you can turn it off for a single task you'd rather discuss and approve step by step — without changing the repo-wide default."
+  "feat_task_autopilot_body": "The New Task dialog now has an \"Autopilot to PR\" checkbox. It starts from the repo's Autopilot setting, but you can turn it off for a single task you'd rather discuss and approve step by step — without changing the repo-wide default.",
+  "feat_newtask_infotips_title": "Tidier task-option explanations",
+  "feat_newtask_infotips_body": "Plan gate, Autopilot to PR, and Research task each got a small \"i\" — hover (or tap on mobile) to read what it does, instead of a paragraph crowding the dialog. Autopilot also shows the repo's standing default right beside it, so it's clear how the repo normally handles it before you change it for one task."
 }

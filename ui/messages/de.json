@@ -542,6 +542,9 @@
   "newtask_plan_gate_hint": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen",
   "newtask_autopilot_label": "Autopilot bis zum PR",
   "newtask_autopilot_hint": "Diese Aufgabe autonom bis zum PR durchziehen. Aus, um mitzudiskutieren, zu iterieren und jeden Schritt selbst freizugeben. Übernimmt standardmäßig die Autopilot-Einstellung des Repos.",
+  "newtask_autopilot_repo_default_on": "Repo-Standard: an",
+  "newtask_autopilot_repo_default_off": "Repo-Standard: aus",
+  "newtask_info_aria": "Erklärung: {topic}",
   "plangate_planning": "PLANUNG",
   "plangate_reviewing": "PRÜFUNG…",
   "plangate_changes": "REWORK · {round}/{cap}",
@@ -1331,5 +1334,7 @@
   "feat_glossary_title": "Glossar-Tooltips",
   "feat_glossary_body": "Begriffe in What's-New und Coachmarks sind jetzt gestrichelt unterstrichen — fahre darüber oder tippe, um die Bedeutung zu sehen, mit Wikipedia-Link für Fachbegriffe.",
   "feat_task_autopilot_title": "Autopilot-Override pro Aufgabe",
-  "feat_task_autopilot_body": "Der Dialog „Neue Aufgabe“ hat jetzt eine Checkbox „Autopilot bis zum PR“. Sie startet mit der Autopilot-Einstellung des Repos, lässt sich aber für eine einzelne Aufgabe ausschalten, die du lieber Schritt für Schritt besprechen und freigeben möchtest — ohne den repoweiten Standard zu ändern."
+  "feat_task_autopilot_body": "Der Dialog „Neue Aufgabe“ hat jetzt eine Checkbox „Autopilot bis zum PR“. Sie startet mit der Autopilot-Einstellung des Repos, lässt sich aber für eine einzelne Aufgabe ausschalten, die du lieber Schritt für Schritt besprechen und freigeben möchtest — ohne den repoweiten Standard zu ändern.",
+  "feat_newtask_infotips_title": "Aufgeräumtere Erklärungen der Aufgaben-Optionen",
+  "feat_newtask_infotips_body": "Plan-Gate, Autopilot bis zum PR und Recherche-Aufgabe haben jetzt je ein kleines „i“ — mit Maus drüberfahren (oder am Handy antippen), um zu lesen, was es tut, statt eines Absatzes, der den Dialog vollstopft. Bei Autopilot steht direkt daneben der Repo-Standard, damit klar ist, wie das Repo es normalerweise handhabt, bevor du es für eine einzelne Aufgabe änderst."
 }

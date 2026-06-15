@@ -1638,7 +1638,7 @@ export class SessionStore implements CapStore, CreditStore {
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate" | "recap";
+    kind: "review" | "plan_gate" | "recap" | "rundown";
     worktreePath: string;
     model: string | null;
     spawnedAt: number;

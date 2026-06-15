@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
   BUN_MIN_VERSION,
@@ -6,10 +6,12 @@ import {
   DIAGNOSTICS_TTL_MS,
   HERDR_MIN_VERSION,
   NODE_MIN_VERSION,
+  REMEDIATION_TIMEOUT_MS,
   config,
   findServedPort,
 } from "./config";
 import { compareSemver } from "./herdr-update";
+import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 
@@ -39,6 +41,10 @@ export interface DiagnosticsDeps {
    *  `findServedPort`. Both a direct `tailscale serve` mapping and a Tailscale
    *  Service mapping are detected. Reject ⇒ treated as "not serving". */
   runServeStatus?: () => Promise<string>;
+  /** Run a verbatim remediation command (a shell pipeline like `curl … | bash`).
+   *  Resolves on exit 0; rejects on non-zero exit or timeout. Default spawns a
+   *  detached process group and SIGKILLs the whole group on timeout. Injected in tests. */
+  runRemediation?: (cmd: string) => Promise<void>;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -53,6 +59,50 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
     if (STATE_RANK[c.state] > STATE_RANK[worst]) worst = c.state;
   }
   return worst;
+}
+
+/** Cap on drained child output: just enough to keep a noisy `curl | bash` install
+ *  from blocking on a full pipe, then dropped. NEVER surfaced to the client. */
+const REMEDIATION_DRAIN_CAP = 1 << 20; // 1 MiB
+
+/** Default `runRemediation`: spawn the verbatim command in its OWN process group
+ *  (`detached`), drain stdout/stderr into a bounded sink (so a noisy install can't
+ *  ENOBUFS or block on a full pipe), and SIGKILL the whole group on timeout. Resolves
+ *  on exit 0, rejects otherwise — the rejection message is generic (no captured
+ *  output / paths / identity ever reaches the caller). */
+function defaultRunRemediation(cmd: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn("sh", ["-c", cmd], { detached: true });
+    let drained = 0;
+    const drain = (chunk: Buffer) => {
+      if (drained < REMEDIATION_DRAIN_CAP) drained += chunk.length; // count then drop
+    };
+    child.stdout?.on("data", drain);
+    child.stderr?.on("data", drain);
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      try {
+        process.kill(-child.pid!, "SIGKILL"); // negative pid ⇒ kill the whole group
+      } catch {
+        /* group already gone */
+      }
+      reject(new Error("remediation timed out"));
+    }, REMEDIATION_TIMEOUT_MS);
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`remediation exited ${code}`));
+    });
+  });
 }
 
 /**
@@ -74,6 +124,7 @@ export class DiagnosticsService {
   private runGhAuth: () => Promise<void>;
   private resolveHost: () => Promise<string | null>;
   private runServeStatus: () => Promise<string>;
+  private runRemediation: (cmd: string) => Promise<void>;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -106,6 +157,7 @@ export class DiagnosticsService {
         });
         return stdout.toString();
       });
+    this.runRemediation = deps.runRemediation ?? defaultRunRemediation;
   }
 
   /** Parse a (major.minor.patch) out of arbitrary `--version` output; null if none. */
@@ -257,6 +309,14 @@ export class DiagnosticsService {
     const checks = await Promise.all(
       this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout)),
     );
+    // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
+    // attach the key when a command exists (guidance-only / ok stay absent), so
+    // payload-purity expectations hold.
+    for (const c of checks) {
+      if (c.state === "ok") continue;
+      const cmd = autoFixCommandFor(c.hintKey);
+      if (cmd) c.remediation = cmd;
+    }
     const snapshot: DiagnosticsSnapshot = {
       checks,
       generatedAt: now,
@@ -273,5 +333,19 @@ export class DiagnosticsService {
       return Promise.resolve(this.last);
     }
     return this.check(now);
+  }
+
+  /** Run the verbatim remediation for `checkId`'s current hintKey, then force a fresh
+   *  probe and return the new snapshot. Throws if the check is unknown or has no
+   *  auto-fix command (guidance-only / prose-only). A failing command REJECTS
+   *  (fail-closed) — the caller maps that to an explicit failure, never a false pass. */
+  async fix(checkId: string, now: number): Promise<DiagnosticsSnapshot> {
+    const snapshot = await this.current(now);
+    const check = snapshot.checks.find((c) => c.id === checkId);
+    if (!check) throw new Error(`unknown check ${checkId}`);
+    const cmd = autoFixCommandFor(check.hintKey);
+    if (!cmd) throw new Error(`no remediation for ${checkId}`);
+    await this.runRemediation(cmd); // rejection propagates → fail closed
+    return this.check(now); // forced re-probe reflects the fix
   }
 }

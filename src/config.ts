@@ -45,6 +45,11 @@ export const DIAGNOSTICS_TTL_MS = 60_000;
 // Per-probe exec timeout: a timed-out probe RESOLVES to its defined non-OK state
 // (never rejects the Promise.all), so one hung binary can't stall the batch.
 export const DIAGNOSTICS_PROBE_TIMEOUT_MS = 5_000;
+// Time budget for an in-app remediation command (POST /api/diagnostics/fix). Far
+// larger than a probe — these are real `curl | bash` installs. On timeout the whole
+// process GROUP is SIGKILLed (see diagnostics.ts runRemediation) so no reparented
+// grandchild survives to flip a later probe green behind a reported failure.
+export const REMEDIATION_TIMEOUT_MS = 120_000;
 // module-local seed defaults, used by the config seeds + boot-override fallbacks only.
 const PR_REVIEW_CYCLES_DEFAULT = 3;
 const PLAN_REVIEW_CYCLES_DEFAULT = 5;

@@ -146,7 +146,7 @@ export interface AppDeps {
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
-  diagnostics?: Pick<DiagnosticsService, "current" | "check">;
+  diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -1925,6 +1925,36 @@ async function handleDiagnostics({ req, parts, url, deps }: Ctx): Promise<Respon
   return json(snapshot);
 }
 
+/** POST /api/diagnostics/fix {checkId} → run the verbatim remediation for that
+ *  check server-side (operator's own user), re-probe, and return the fresh snapshot
+ *  (also pushed on `diagnostics:status` so every client + the TopBar pip refresh).
+ *  Fail-closed: an unknown / guidance-only check is 409; a failed/timed-out command
+ *  is 502 — never a 2xx. CSRF/token already enforced by the global request guards. */
+async function handleDiagnosticsFix({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "diagnostics" && parts[2] === "fix" && !parts[3])) {
+    return null;
+  }
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  if (!deps.diagnostics) return json({ error: "diagnostics unavailable" }, 503);
+  const body = (await req.json().catch(() => null)) as { checkId?: string } | null;
+  const checkId = body?.checkId;
+  if (!checkId) return json({ error: "missing checkId" }, 400);
+  let snapshot;
+  try {
+    snapshot = await deps.diagnostics.fix(checkId, Date.now());
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    // unknown check / guidance-only ⇒ not fixable (409); anything else is a failed
+    // or timed-out command (502). Never a 2xx on failure.
+    if (msg.startsWith("unknown check ") || msg.startsWith("no remediation for ")) {
+      return json({ error: msg }, 409);
+    }
+    return json({ error: "remediation failed" }, 502);
+  }
+  deps.events.emit("diagnostics:status", snapshot);
+  return json(snapshot);
+}
+
 /** GET → current "star us on GitHub?" nudge status (safe `{shouldPrompt:false}`
  *  default when the service isn't wired). POST {action} → dismiss / snooze / star. */
 function handleStarPrompt({ req, parts, deps }: Ctx): Response | Promise<Response> | null {
@@ -3505,6 +3535,7 @@ const ROUTE_HANDLERS = [
   handleUpdate,
   handleHerdrUpdate,
   handleDiagnostics,
+  handleDiagnosticsFix,
   handleStarPrompt,
   handleUploads,
   handleRepos,

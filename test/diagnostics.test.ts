@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { DiagnosticsService, type DiagnosticsDeps } from "../src/diagnostics";
 import { DIAGNOSTICS_TTL_MS } from "../src/config";
+import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
 
 // ── injected-runner helpers ────────────────────────────────────────────────────
@@ -47,10 +48,15 @@ function byId(checks: DiagnosticCheck[], id: string): DiagnosticCheck {
   return c;
 }
 
-// Probe-payload purity: a check carries EXACTLY id/state/hintKey, nothing else.
+// Probe-payload purity: a check carries id/state/hintKey + (optionally) the
+// non-secret `remediation` command — and NOTHING else (no stdout/tokens/paths).
 function assertPure(check: DiagnosticCheck) {
-  expect(Object.keys(check).sort()).toEqual(["hintKey", "id", "state"]);
+  const allowed = new Set(["hintKey", "id", "remediation", "state"]);
+  for (const k of Object.keys(check)) expect(allowed.has(k)).toBe(true);
+  expect(typeof check.id).toBe("string");
+  expect(typeof check.state).toBe("string");
   expect(typeof check.hintKey).toBe("string");
+  if ("remediation" in check) expect(typeof check.remediation).toBe("string");
 }
 
 describe("DiagnosticsService probes", () => {
@@ -368,5 +374,94 @@ describe("DiagnosticsService TTL caching", () => {
     await svc.check(1000);
     await svc.check(1000); // same `now`, still re-runs
     expect(calls).toBe(2);
+  });
+});
+
+describe("DiagnosticsService remediation annotation", () => {
+  it("check() sets remediation on a non-ok auto-fixable check, absent on ok checks", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
+    });
+    const snap = await svc.check(0);
+    const bun = byId(snap.checks, "bun");
+    expect(bun.state).toBe("error");
+    expect(bun.remediation).toBe(REMEDIATIONS.diagnostics_hint_bun_missing!);
+    assertPure(bun);
+    // every ok check stays bare (no remediation key)
+    for (const c of snap.checks) {
+      if (c.state === "ok") expect("remediation" in c).toBe(false);
+    }
+  });
+
+  it("check() does NOT set remediation on guidance-only tailscale (even when error)", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), resolveHost: async () => null });
+    const c = byId((await svc.check(0)).checks, "tailscale");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_missing");
+    expect("remediation" in c).toBe(false);
+    assertPure(c);
+  });
+});
+
+describe("DiagnosticsService.fix", () => {
+  it("happy path: runs the verbatim command, re-probes, returns the fresh snapshot", async () => {
+    let installed = false;
+    const calls: string[] = [];
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      // bun missing until the remediation "installs" it, then healthy.
+      runVersion: async (bin, args) => {
+        if (bin === "bun") {
+          if (!installed) throw new Error("ENOENT");
+          return "1.3.10";
+        }
+        return versionRunner({ ...HEALTHY_VERSIONS })!(bin, args);
+      },
+      runRemediation: async (cmd) => {
+        calls.push(cmd);
+        installed = true;
+      },
+    });
+    const snap = await svc.fix("bun", 0);
+    expect(calls).toEqual([REMEDIATIONS.diagnostics_hint_bun_missing!]);
+    const bun = byId(snap.checks, "bun");
+    expect(bun.state).toBe("ok");
+  });
+
+  it("throws for an unknown checkId (runner never called)", async () => {
+    let called = false;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runRemediation: async () => {
+        called = true;
+      },
+    });
+    await expect(svc.fix("nope", 0)).rejects.toThrow("unknown check nope");
+    expect(called).toBe(false);
+  });
+
+  it("throws for a guidance-only check (tailscale) — runner not called", async () => {
+    let called = false;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      resolveHost: async () => null, // tailscale → error, hintKey tailscale_missing
+      runRemediation: async () => {
+        called = true;
+      },
+    });
+    await expect(svc.fix("tailscale", 0)).rejects.toThrow("no remediation for tailscale");
+    expect(called).toBe(false);
+  });
+
+  it("propagates a runner rejection (fail-closed)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
+      runRemediation: async () => {
+        throw new Error("remediation exited 1");
+      },
+    });
+    await expect(svc.fix("bun", 0)).rejects.toThrow("remediation exited 1");
   });
 });

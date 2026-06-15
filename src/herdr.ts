@@ -346,9 +346,10 @@ export class HerdrDriver {
   /**
    * Best-effort teardown of the agent backing a terminal id. Closes the agent's whole
    * TAB, not just its pane: every agent gets its own dedicated tab, so closing only the
-   * pane left an empty husk tab behind. Resolves the tab id FRESH from the live list
-   * (herdr tab ids are positional and renumber on close, so a stored id would drift).
-   * No-op if the agent has already left the list — the orphan sweep reaps that husk.
+   * pane left an empty husk tab behind. Resolves `terminalId → current tabId` FRESH from
+   * the live list — the live list is the source of truth; the agent may have ended or been
+   * relabeled, so a cached tabId may be stale. No-op if the agent has already left the
+   * list — the orphan sweep reaps that husk.
    */
   stop(terminalId: string): void {
     const agent = this.list().find((a) => a.terminalId === terminalId);
@@ -359,8 +360,9 @@ export class HerdrDriver {
   /**
    * Rename a live agent and its dedicated tab so a background re-name (the LLM namer)
    * is reflected in the herdr UI, not just shepherd's DB. Resolves the agent (and its
-   * tabId) FRESH from the live list by terminal id. Best-effort: a dead/already-renamed
-   * agent must never crash the caller, so every step is guarded.
+   * tabId) FRESH from the live list by terminal id — the live list is the source of truth;
+   * a cached tabId may be stale. Best-effort: a dead/already-renamed agent must never
+   * crash the caller, so every step is guarded.
    */
   relabel(terminalId: string, newName: string): void {
     let agent;

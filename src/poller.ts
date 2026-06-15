@@ -17,13 +17,13 @@ const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
  * issue #704). Deliberately a small, named constant because under
  * `--dangerously-skip-permissions` (how Shepherd spawns every agent) tool-permission
  * prompts are suppressed, so it was unclear whether the real pausing cases emit a
- * usable edge. CONFIRMED by the Phase-0 live spike (2026-06-15): an `AskUserQuestion`
- * pause fires `Notification(permission_prompt)` even under skip-permissions — so this
- * set matches that (the common interactive-pause) case. `ExitPlanMode`/plan-approval
- * is not yet confirmed; ADD its type here once a spike observes it. If a pausing case
- * emits no matching type, the block trigger simply stays dormant for it and detection
- * cleanly degrades to the existing `herdr-blocked → classifyBlocked` fallback — the
- * intended no-regression path. `idle_prompt` is deliberately NOT here (idle is handled
+ * usable edge. CONFIRMED by the Phase-0 live spike (2026-06-15): BOTH interactive-pause
+ * cases — an `AskUserQuestion` pause AND an `ExitPlanMode`/plan-approval prompt — fire
+ * `Notification(permission_prompt)` even under skip-permissions, so this single type
+ * covers them. If some future pausing case emitted a different type, the block trigger
+ * would simply stay dormant for it and detection would cleanly degrade to the
+ * existing `herdr-blocked → classifyBlocked` fallback — the intended no-regression
+ * path. `idle_prompt` is deliberately NOT here (idle is handled
  * by herdr mapping).
  */
 const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);

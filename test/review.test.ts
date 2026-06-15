@@ -1899,3 +1899,16 @@ test("critic spawn degrades to unwrapped when backend is null", async () => {
   const argv = started[0]!.argv;
   expect(argv[0]).not.toBe("bwrap"); // passthrough — identical to pre-sandbox behavior
 });
+
+test("inflightWorktrees: empty before any review starts", () => {
+  const { deps: d } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  expect(svc.inflightWorktrees()).toEqual([]);
+});
+
+test("inflightWorktrees: returns worktree path after consider() spawns a review", async () => {
+  const { deps: d } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(svc.inflightWorktrees()).toEqual(["/review-wt"]);
+});

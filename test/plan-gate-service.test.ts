@@ -745,3 +745,14 @@ test("adoptOrphans resolves the reviewer terminal by worktree cwd for reaping", 
   await h.svc.tick();
   expect(stopped).toContain("rev-term-9"); // reaped the resolved live reviewer terminal
 });
+
+test("inflightWorktrees: empty before any review starts", () => {
+  const h = harness();
+  expect(h.svc.inflightWorktrees()).toEqual([]);
+});
+
+test("inflightWorktrees: returns worktree path after consider() spawns a review", async () => {
+  const h = harness();
+  await h.svc.consider(planningSession() as any);
+  expect(h.svc.inflightWorktrees()).toEqual(["/wt-detached"]);
+});

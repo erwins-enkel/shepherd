@@ -283,12 +283,14 @@ fireTmpSweep("boot");
 // shepherd restart cleared the in-memory review tracking. Run once on boot, then hourly.
 const sweepOrphanTabs = () => {
   if (maintenance.active) return;
-  try {
-    const closed = reapOrphanTabs(herdr);
-    if (closed.length) console.warn(`[tabs] reaped ${closed.length} orphan helper tab(s)`);
-  } catch (err) {
-    console.warn("[tabs] orphan sweep failed:", err);
-  }
+  // NOTE: reapOrphanTabs is now async + debounced (#721). This minimal call site keeps the
+  // boot/hourly sweep firing and preserves the prior logging intent; the full two-sweep
+  // debounce (threading `shellOnly` back in) + worktree wiring lands in the follow-up task.
+  void reapOrphanTabs(herdr)
+    .then((r) => {
+      if (r.closed.length) console.warn(`[tabs] reaped ${r.closed.length} orphan helper tab(s)`);
+    })
+    .catch((err) => console.warn("[tabs] orphan sweep failed:", err));
 };
 setTimeout(sweepOrphanTabs, 5_000);
 setInterval(sweepOrphanTabs, 60 * 60 * 1000);

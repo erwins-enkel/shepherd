@@ -2,7 +2,10 @@ import type { HerdrDriver } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 
-export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
+export type ReapableHerdr = Pick<
+  HerdrDriver,
+  "list" | "tabs" | "closeTab" | "panes" | "paneForegroundProcs"
+>;
 
 /** Labels shepherd authors for its short-lived helper agents. A tab with one of these
  *  labels but no live agent is an orphaned husk (the probe/critic ended without its tab
@@ -60,30 +63,120 @@ function tabNumber(tabId: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Foreground process names that mean "just an idle shell" (a husk PTY). A helper pane
+ *  whose foreground is *only* one of these has nothing running in it. */
+const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash"]);
+
+/** Breakdown of one reconciliation sweep. */
+export interface ReapResult {
+  /** Tab ids actually closed this sweep. */
+  closed: string[];
+  /** Helper panes spared because their foreground held a non-shell proc (claude/node/etc.). */
+  sparedLive: number;
+  /** Helper panes spared because process-info threw OR was empty/undeterminable (fail-closed). */
+  sparedError: number;
+  /** Tab ids that were shell-only THIS sweep — feed back as `prevShellOnly` next sweep to debounce. */
+  shellOnly: Set<string>;
+}
+
 /**
- * Reconciliation sweep: close any usage-probe / review / namer / distill helper tab that no
- * live agent backs. The teardown paths (herdr.stop / start rollback) stop most leaks at the source;
- * this is the durable safety net for husks they can't reach — agents that crashed out of
- * `agent list`, or anything orphaned across a shepherd restart (which clears in-memory
- * review tracking). Returns the ids it closed.
+ * Reconciliation sweep: close any usage-probe / review / namer / distill helper tab whose
+ * pane is a husk — an idle shell with no agent process running in it. The teardown paths
+ * (herdr.stop / start rollback) stop most leaks at the source; this is the durable safety
+ * net for husks they can't reach — agents that crashed, or anything orphaned across a
+ * shepherd restart (which clears in-memory review tracking). Returns a {@link ReapResult}.
  *
- * Safe against false positives: `herdr.start()` is synchronous and fully registers the
- * agent in `agent list` before yielding the event loop, so a labeled tab with no backing
- * agent is unambiguously dead — never a mid-start probe/review.
+ * **Husk signal = per-pane process liveness (ground truth), not list-absence.** Under
+ * herdr 0.7 an exited helper agent leaves its pane alive as an idle `zsh`, and that pane
+ * STILL appears in `agent list` (#721) — so the old "absent from `agent list` ⇒ orphan"
+ * signal never fires. Instead we ask herdr for each helper pane's foreground processes:
+ *
+ * - **non-shell proc present** (`claude` / `node` / `node-MainThread` / …) → live → spare
+ *   (`sparedLive`).
+ * - **process-info throws** (transient read failure / quirk) → spare (`sparedError`). A
+ *   per-pane throw is NOT a capability miss and does NOT trigger the legacy fallback.
+ * - **empty proc list** (undeterminable) → spare fail-closed (`sparedError`); we never
+ *   reap on no evidence.
+ * - **shell-only** (`procs.length > 0 && procs.every(SHELLS.has)`) → husk CANDIDATE this
+ *   sweep.
+ *
+ * **Two-sweep debounce.** herdr's own PTY is a `zsh` that runs the agent command, so a
+ * just-spawned agent is briefly shell-only during its pre-`exec` window. To avoid reaping
+ * that, a husk candidate is only closed when it was *also* shell-only on the previous sweep
+ * (its tabId was in `prevShellOnly`). A first-time shell-only sighting is recorded in the
+ * returned `shellOnly` set (caller threads it back in) but not closed.
+ *
+ * **Capability fallback for old herdr (0.6).** If `herdr.panes()` itself throws — the
+ * `pane`/`pane process-info` subcommands are absent — we fall back to
+ * {@link reapOrphanTabsLegacy}, the list-absence signal, which is *correct* on 0.6 because
+ * a finished helper there DOES drop out of `agent list`. Only a `panes()` throw triggers
+ * the fallback; a per-pane `paneForegroundProcs` throw is `sparedError` (see above).
  *
  * Closes in descending tab-number order. The behaviour under each herdr version:
  *
  * - **herdr ≤0.6** (positional ids, e.g. `workspace:N`): ids re-densify on close, so
  *   closing highest-number-first keeps each remaining snapshotted target id valid — only
- *   already-closed, higher-numbered tabs shift.
+ *   already-closed, higher-numbered tabs shift. (Relevant on the legacy fallback path.)
  * - **herdr 0.7** (#569, stable ids e.g. `w1:t1`): closed ids don't retarget, so close
  *   order is irrelevant. `tabNumber()` returns `0` for every 0.7 id, making the sort a
- *   harmless no-op (order-preserving on ties).
- *
- * Net: correct under both; the sort is load-bearing on 0.6.10 (still deployed) and
- * inert on 0.7.
+ *   harmless no-op (order-preserving on ties). Kept pending the id-cleanup issue #714.
  */
-export function reapOrphanTabs(herdr: ReapableHerdr): string[] {
+export async function reapOrphanTabs(
+  herdr: ReapableHerdr,
+  prevShellOnly: Set<string> = new Set(),
+): Promise<ReapResult> {
+  let panes: ReturnType<ReapableHerdr["panes"]>;
+  try {
+    panes = herdr.panes();
+  } catch {
+    // herdr 0.6: no `pane` subcommand. List-absence IS the correct husk signal there.
+    return {
+      closed: reapOrphanTabsLegacy(herdr),
+      sparedLive: 0,
+      sparedError: 0,
+      shellOnly: prevShellOnly,
+    };
+  }
+
+  let sparedLive = 0;
+  let sparedError = 0;
+  const shellOnly = new Set<string>();
+  const toReap = new Set<string>(); // tabIds, deduped (helper tab is single-pane, but be defensive)
+
+  for (const p of panes) {
+    if (!isShepherdHelperLabel(p.label)) continue;
+    let procs: string[];
+    try {
+      procs = await herdr.paneForegroundProcs(p.paneId);
+    } catch {
+      sparedError++; // transient process-info failure — spare, do not fall back
+      continue;
+    }
+    if (procs.length === 0) {
+      sparedError++; // undeterminable — fail closed, never reap on no evidence
+      continue;
+    }
+    if (!procs.every((n) => SHELLS.has(n))) {
+      sparedLive++; // a non-shell proc is running — live agent
+      continue;
+    }
+    // shell-only: husk candidate this sweep
+    shellOnly.add(p.tabId);
+    if (prevShellOnly.has(p.tabId)) toReap.add(p.tabId); // debounce: shell-only twice running
+  }
+
+  const orderedReap = [...toReap].sort((a, b) => tabNumber(b) - tabNumber(a));
+  for (const tabId of orderedReap) herdr.closeTab(tabId);
+  return { closed: orderedReap, sparedLive, sparedError, shellOnly };
+}
+
+/**
+ * Legacy (herdr ≤0.6) husk signal: a helper-labeled tab absent from `agent list` is an
+ * orphan. Correct only where a finished helper actually leaves `agent list` (pre-0.7);
+ * reached via the capability fallback in {@link reapOrphanTabs} when `panes()` is absent.
+ * Returns the ids it closed, in descending tab-number order (see {@link tabNumber}).
+ */
+export function reapOrphanTabsLegacy(herdr: ReapableHerdr): string[] {
   const liveTabIds = new Set(
     herdr
       .list()

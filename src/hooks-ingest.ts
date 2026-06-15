@@ -93,6 +93,44 @@ const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 
 /**
+ * Normalize a PostToolUse / PostToolUseFailure body. Reads the tool name and derives the
+ * ok/error status: the field is `tool_output` (doc-corrected) with a defensive fallback to
+ * `tool_response`; a non-zero `exit_code` is an error, and the *Failure event is itself an
+ * error regardless of code. Extracted from `validateHookEvent` to keep that dispatcher flat.
+ */
+function parseToolUseEvent(
+  eventName: string,
+  b: Record<string, unknown>,
+  sessionId: string,
+): RawHookEvent {
+  const toolName = str(b.tool_name);
+  // Doc-corrected: the field is `tool_output`; defensively fall back to `tool_response`.
+  const output = obj(b.tool_output) ?? obj(b.tool_response);
+  const exitCode = num(output?.exit_code);
+  // exit_code !== 0 ⇒ error; the *Failure event is itself an error regardless of code.
+  const status: "ok" | "error" =
+    eventName === "PostToolUseFailure" || (exitCode !== undefined && exitCode !== 0)
+      ? "error"
+      : "ok";
+  return { event: eventName, sessionId, toolName, status, exitCode };
+}
+
+/**
+ * Normalize a Notification body. The `notification_type` strings are spike-validated, not
+ * assumed: an absent/unknown type is flagged `unknown` so it's logged + recorded but never
+ * silently disables a signal. Extracted from `validateHookEvent` to keep it flat.
+ */
+function parseNotificationEvent(
+  eventName: string,
+  b: Record<string, unknown>,
+  sessionId: string,
+): RawHookEvent {
+  const notificationType = str(b.notification_type);
+  const message = str(b.message);
+  return { event: eventName, sessionId, notificationType, message, unknown: !notificationType };
+}
+
+/**
  * Pure, total validator over an untrusted hook body. Returns null for non-objects or a
  * missing/non-string `session_id` (the only hard requirement). Reads `hook_event_name`
  * and derives a normalized event. UNKNOWN event/notification types are NOT dropped —
@@ -108,24 +146,11 @@ export function validateHookEvent(body: unknown): RawHookEvent | null {
   const eventName = str(b.hook_event_name) ?? "";
 
   if (eventName === "PostToolUse" || eventName === "PostToolUseFailure") {
-    const toolName = str(b.tool_name);
-    // Doc-corrected: the field is `tool_output`; defensively fall back to `tool_response`.
-    const output = obj(b.tool_output) ?? obj(b.tool_response);
-    const exitCode = num(output?.exit_code);
-    // exit_code !== 0 ⇒ error; the *Failure event is itself an error regardless of code.
-    const status: "ok" | "error" =
-      eventName === "PostToolUseFailure" || (exitCode !== undefined && exitCode !== 0)
-        ? "error"
-        : "ok";
-    return { event: eventName, sessionId, toolName, status, exitCode };
+    return parseToolUseEvent(eventName, b, sessionId);
   }
 
   if (eventName === "Notification") {
-    const notificationType = str(b.notification_type);
-    const message = str(b.message);
-    // The `notification_type` strings are spike-validated, not assumed: flag an
-    // absent/unknown type so it's logged + recorded but never silently disables a signal.
-    return { event: eventName, sessionId, notificationType, message, unknown: !notificationType };
+    return parseNotificationEvent(eventName, b, sessionId);
   }
 
   if (eventName === "SessionStart") {
@@ -196,6 +221,27 @@ export class HookIngest {
     this.#onSubagents = cb;
   }
 
+  /**
+   * Emit the per-event structured log line (and the loud `unknown`-type warn). Pure
+   * logging — no state, no forwarding. Extracted from `record()` so its many `?? "-"`
+   * field renders don't dominate that method's complexity; identical output, relocated.
+   */
+  #logEvent(sessionId: string, ev: HookEvent): void {
+    const latencyMs = Date.now() - ev.receivedAt;
+    console.log(
+      `[hooks] ${ev.event} session=${sessionId} match=${ev.match === false ? "mismatch" : "ok"} ` +
+        `latencyMs=${latencyMs} tool=${ev.toolName ?? "-"} status=${ev.status ?? "-"} ` +
+        `ntype=${ev.notificationType ?? "-"} exit=${ev.exitCode ?? "-"}` +
+        ` src=${ev.source ?? "-"} reason=${ev.reason ?? "-"} stopActive=${ev.stopHookActive ?? "-"}` +
+        ` agentId=${ev.agentId ?? "-"} agentType=${ev.agentType ?? "-"}`,
+    );
+    if (ev.unknown) {
+      console.warn(
+        `[hooks] unknown event/notification type — event=${ev.event} ntype=${ev.notificationType ?? "-"} session=${sessionId}`,
+      );
+    }
+  }
+
   /** Push an event, log it, and (only on a matched session) forward to signals. */
   record(sessionId: string, ev: HookEvent): void {
     try {
@@ -204,19 +250,7 @@ export class HookIngest {
       if (buf.length > RING_CAP) buf.splice(0, buf.length - RING_CAP);
       this.#buffers.set(sessionId, buf);
 
-      const latencyMs = Date.now() - ev.receivedAt;
-      console.log(
-        `[hooks] ${ev.event} session=${sessionId} match=${ev.match === false ? "mismatch" : "ok"} ` +
-          `latencyMs=${latencyMs} tool=${ev.toolName ?? "-"} status=${ev.status ?? "-"} ` +
-          `ntype=${ev.notificationType ?? "-"} exit=${ev.exitCode ?? "-"}` +
-          ` src=${ev.source ?? "-"} reason=${ev.reason ?? "-"} stopActive=${ev.stopHookActive ?? "-"}` +
-          ` agentId=${ev.agentId ?? "-"} agentType=${ev.agentType ?? "-"}`,
-      );
-      if (ev.unknown) {
-        console.warn(
-          `[hooks] unknown event/notification type — event=${ev.event} ntype=${ev.notificationType ?? "-"} session=${sessionId}`,
-        );
-      }
+      this.#logEvent(sessionId, ev);
 
       // Fail-closed on the untrusted session_id: a mismatch is observe-only.
       if (ev.match !== false) {

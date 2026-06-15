@@ -635,20 +635,26 @@
         </span>
       </label>
 
-      <label class="plan-gate" use:coachTarget={"task-autopilot"}>
-        <input
-          type="checkbox"
-          bind:checked={autopilot}
-          onchange={() => (autopilotTouched = true)}
-          disabled={autopilotLoading}
-        />
-        <span class="pg-text">
-          <span class="pg-label">{m.newtask_autopilot_label()}</span>
-          <span class="pg-hint">
-            {autopilotLoading ? m.common_loading() : m.newtask_autopilot_hint()}
+      <!-- Relaunch intentionally CARRIES the original session's autopilot value
+           (server-side, src/service.ts relaunch()), so RelaunchOverrides has no
+           autopilotEnabled field and the override wouldn't take effect here.
+           Hide the control in relaunch so it never implies an override it can't honor. -->
+      {#if !relaunch}
+        <label class="plan-gate" use:coachTarget={"task-autopilot"}>
+          <input
+            type="checkbox"
+            bind:checked={autopilot}
+            onchange={() => (autopilotTouched = true)}
+            disabled={autopilotLoading}
+          />
+          <span class="pg-text">
+            <span class="pg-label">{m.newtask_autopilot_label()}</span>
+            <span class="pg-hint">
+              {autopilotLoading ? m.common_loading() : m.newtask_autopilot_hint()}
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      {/if}
 
       <label class="plan-gate">
         <input

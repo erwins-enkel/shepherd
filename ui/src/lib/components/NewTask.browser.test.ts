@@ -333,6 +333,16 @@ describe("NewTask autopilot override", () => {
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false });
   });
+
+  it("hides the checkbox in relaunch mode (relaunch carries the original's value)", async () => {
+    const repoPath = "/repo/ap-relaunch";
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
+    render(NewTask, { props: base({ relaunch: true, initialRepoPath: repoPath }) });
+
+    // plan-gate still renders in relaunch (it IS overridable); autopilot does not
+    await expect.poll(() => document.querySelector(".plan-gate")).toBeTruthy();
+    expect(autopilotBox()).toBeUndefined();
+  });
 });
 
 describe("NewTask research toggle", () => {

@@ -513,3 +513,56 @@ test("generate: active sessions with attention signals → spawns; reviewerSpawn
   expect(store.reviewerSpawns[0]!.kind).toBe("rundown");
   expect(store.reviewerSpawns[0]!.taskSessionId).toBe("");
 });
+
+// ── currentAttentionFingerprint ──────────────────────────────────────────────────
+
+test("currentAttentionFingerprint: classifies live caches; folds in stall + train state", () => {
+  const blocked = makeSession({ id: "s1", status: "blocked" });
+  const running = makeSession({ id: "s2", status: "running" });
+  const stalledSess = makeSession({ id: "s3", status: "running" });
+  const store = makeStore([blocked, running, stalledSess]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    snapshots: () => ({
+      git: { s2: { checks: "failure" } as any },
+      reviews: {},
+      gates: {},
+      recaps: {},
+    }),
+    stalledSessionIds: () => new Set(["s3"]),
+    mergeTrainState: () => ({ queuedPrs: [], bySession: {} }),
+  });
+
+  const fp = svc.currentAttentionFingerprint();
+  expect(fp.s1).toContain("blocked-decision");
+  expect(fp.s2).toContain("ci-red"); // git.checks=failure
+  expect(fp.s3).toContain("stalled"); // injected stall set
+});
+
+test("currentAttentionFingerprint: drift vs a stored digest is measurable via fingerprintDiffCount", async () => {
+  const { fingerprintDiffCount } = await import("../src/rundown-core");
+  const s2 = makeSession({ id: "s2", status: "running" });
+  const store = makeStore([s2]);
+  const herdr = makeHerdr();
+  // Stored snapshot: s2 was merely in-flight.
+  const stored = { s2: ["in-flight"] };
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    // Now s2 has gone CI-red.
+    snapshots: () => ({
+      git: { s2: { checks: "failure" } as any },
+      reviews: {},
+      gates: {},
+      recaps: {},
+    }),
+  });
+  const current = svc.currentAttentionFingerprint();
+  expect(fingerprintDiffCount(stored, current)).toBeGreaterThan(0);
+  // Identical → 0.
+  expect(fingerprintDiffCount(current, current)).toBe(0);
+});

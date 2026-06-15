@@ -78,6 +78,9 @@ import { normalizeDefaultModelSetting } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { RecapService } from "./recap";
+import { HerdDigestService } from "./herd-digest";
+import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
+import { jsonlPathFor } from "./usage";
 import { verifyApiKey } from "./verify-key";
 
 const execFileAsync = promisify(execFile);
@@ -607,6 +610,8 @@ setInterval(() => {
   void standaloneCritic.tick();
   void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
   void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
+  void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
+  void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
 }, 15_000);
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
@@ -777,6 +782,19 @@ const autoMerge = new AutoMergeService({
   rebaseCap: config.autoMergeRebaseCap,
 });
 
+// Per-session merge-train error flags, derived live from the automerge:status stream so
+// the Herd Rundown can fold a stuck train run into a session's attention signals without a
+// forge round-trip (AutoMergeService.snapshot() is async). A "merge_error"/"rebase_cap"
+// status marks its session; any other state for that session clears it.
+const mergeErrorSessions = new Set<string>();
+events.subscribe((event, data) => {
+  if (event !== "automerge:status") return;
+  const s = data as { state: string | null; sessionId: string | null };
+  if (!s.sessionId) return;
+  if (s.state === "merge_error" || s.state === "rebase_cap") mergeErrorSessions.add(s.sessionId);
+  else mergeErrorSessions.delete(s.sessionId);
+});
+
 // Drive the merge train off the same poller/critic events the rest of the system emits.
 events.subscribe((event, data) => {
   if (event === "session:git") {
@@ -801,6 +819,42 @@ setInterval(() => {
   if (maintenance.active) return;
   void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
 }, 30_000);
+
+// Herd Rundown: a once-daily synthesized "what needs a human right now?" digest across the
+// whole live herd. All inputs are injected accessors over the same in-memory caches the rest
+// of the system reads, so the service never reaches into live state directly:
+//   snapshots          → the four per-session caches (git/reviews/gates/recaps)
+//   stalledSessionIds  → transcript-derived stall set (read ONLY inside generate(), never the
+//                        15s tick/sweep — a bounded sync transcript-tail read per active
+//                        running session, mirroring the poller's stall candidate)
+//   mergeTrainState    → live queued PRs (service.liveTrainPrs) + per-session train errors
+//                        (mergeErrorSessions, fed by the automerge:status stream above)
+const herdDigestService = new HerdDigestService({
+  store,
+  herdr,
+  isActive: () => presence.isActive(),
+  onChange: (digest) => events.emit("herd:digest", { digest }),
+  snapshots: () => ({
+    git: prPoller.snapshot(),
+    reviews: reviewService.snapshot(),
+    gates: planGate.snapshot(),
+    recaps: recapService.snapshot(),
+  }),
+  stalledSessionIds: () => {
+    const now = Date.now();
+    const stalled = new Set<string>();
+    for (const s of store.list({ activeOnly: true })) {
+      if (s.status !== "running" || !s.claudeSessionId) continue;
+      const snap = readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+      if (snap && isStalled(snap, now, DEFAULT_STALL)) stalled.add(s.id);
+    }
+    return stalled;
+  },
+  mergeTrainState: () => ({
+    queuedPrs: service.liveTrainPrs(),
+    bySession: Object.fromEntries([...mergeErrorSessions].map((id) => [id, { error: true }])),
+  }),
+});
 
 const draftReconcile = new DraftReconcileService({
   store,
@@ -1025,6 +1079,11 @@ const server = serve(
     planGate: { consider: (s) => planGate.consider(s) },
     recapCache: { snapshot: () => recapService.snapshot() },
     recap: { regenerate: (s) => recapService.regenerate(s) },
+    herdDigest: {
+      snapshot: () => herdDigestService.snapshot(),
+      currentFingerprint: () => herdDigestService.currentAttentionFingerprint(),
+      regenerate: () => herdDigestService.regenerate(),
+    },
     verifyKey: () => verifyApiKey({ herdr }),
     backlog,
     // After a backlog merge, force-refresh the repo's counts past the read-TTL and

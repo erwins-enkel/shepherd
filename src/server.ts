@@ -106,6 +106,7 @@ import {
   SandboxAutoRefused,
 } from "./sandbox";
 import { validateHookEvent, type HookEvent } from "./hooks-ingest";
+import { fingerprintDiffCount } from "./rundown-core";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -216,6 +217,16 @@ export interface AppDeps {
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
+  /** Herd Rundown digest — the daily cross-session attention synthesis. Absent in tests
+   *  that don't exercise it. `snapshot` is the latest stored digest (null when none yet);
+   *  `currentFingerprint` re-derives the herd's live attention surface so the GET route can
+   *  compute `staleCount` (drift since the digest was generated); `regenerate` forces a
+   *  fresh spawn. */
+  herdDigest?: {
+    snapshot(): import("./types").HerdDigest | null;
+    currentFingerprint(): Record<string, string[]>;
+    regenerate(): Promise<"started" | "in-flight" | "empty" | "error">;
+  };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
   verifyKey?: () => Promise<VerifyKeyResult>;
@@ -374,6 +385,31 @@ function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
     if (!parts[2]) return json(deps.recapCache?.snapshot() ?? {});
   }
+  return null;
+}
+
+// GET /api/herd/digest — the latest Herd Rundown digest, with a route-computed `staleCount`
+// (how many attention-bearing sessions' signal sets changed since it was generated). null when
+// no digest exists yet (mirrors the recap empty pattern). staleCount is cheap: it re-derives the
+// CURRENT fingerprint from the in-memory caches (pure classification, no spawn) and diffs it
+// against the stored one.
+// POST /api/herd/digest/regenerate — force a fresh daily digest; 202 with {status}.
+async function handleHerdDigest({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "herd" && parts[2] === "digest")) return null;
+
+  if (req.method === "POST" && parts[3] === "regenerate") {
+    const status = (await deps.herdDigest?.regenerate()) ?? "error";
+    return json({ ok: true, status }, 202);
+  }
+
+  if (req.method === "GET" && !parts[3]) {
+    const digest = deps.herdDigest?.snapshot() ?? null;
+    if (!digest) return json(null);
+    const current = deps.herdDigest?.currentFingerprint() ?? {};
+    const staleCount = fingerprintDiffCount(digest.attentionFingerprint, current);
+    return json({ ...digest, staleCount });
+  }
+
   return null;
 }
 
@@ -3512,6 +3548,7 @@ const ROUTE_HANDLERS = [
   handleReviews,
   handlePlanGates,
   handleRecaps,
+  handleHerdDigest,
   handleDrain,
   handleAutoMerge,
   handleEpicsList,

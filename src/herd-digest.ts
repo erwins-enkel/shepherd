@@ -455,6 +455,40 @@ export class HerdDigestService {
     }
   }
 
+  // ── currentAttentionFingerprint ───────────────────────────────────────────────
+
+  /**
+   * Fingerprint the herd's CURRENT attention surface from the live in-memory caches,
+   * with the SAME logic generate() uses at spawn time. The route diffs a stored digest's
+   * `attentionFingerprint` against this to derive `staleCount` (how far the herd drifted).
+   * Cheap + pure-classification: no spawn, no DB write; reads the injected snapshots once.
+   * `stalledSessionIds`/`mergeTrainState` are optional, so a herd missing them still scores.
+   */
+  currentAttentionFingerprint(): Record<string, string[]> {
+    const now = this.now();
+    const sessions = this.deps.store.list({ activeOnly: true });
+    const snap = this.deps.snapshots();
+    const stalled = this.deps.stalledSessionIds?.() ?? new Set<string>();
+    const train = this.deps.mergeTrainState?.();
+    return attentionFingerprint(
+      sessions.map((s) => ({
+        sessionId: s.id,
+        signals: classifyAttention(
+          s,
+          {
+            git: snap.git[s.id],
+            review: snap.reviews[s.id],
+            gate: snap.gates[s.id],
+            recap: snap.recaps[s.id],
+            train: train?.bySession[s.id],
+            stalled: stalled.has(s.id),
+          },
+          now,
+        ).signals,
+      })),
+    );
+  }
+
   // ── snapshot ─────────────────────────────────────────────────────────────────
 
   /** Latest digest for client bootstrap (null when none generated yet). */

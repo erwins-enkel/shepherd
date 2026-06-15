@@ -57,6 +57,7 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
+  import { herdDigest } from "$lib/herd-digest.svelte";
   import { doneSessions } from "$lib/done.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -949,6 +950,7 @@
     reviews.load();
     planGates.load();
     recaps.load();
+    herdDigest.load();
     learnings.load();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().

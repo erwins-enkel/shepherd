@@ -111,19 +111,56 @@ re-synthesize and re-present.
 
 ### 6. Merge on approval
 
-For each approved PR, in order:
+> **NEVER move the home base's checked-out branch.** The primary working
+> directory (where the Shepherd server runs and the New Task form reads its
+> default base branch) is the **home base**. Shepherd cuts every new task branch
+> from the home base's checked-out `HEAD`, so a `git checkout` / `git switch` /
+> `git checkout -B` there silently re-bases any task spawned **mid-train** onto a
+> throwaway branch (`mt-…`) instead of `main`/`dev`. That task then loses its
+> autopilot/critic/plan-gate wiring because its base ref vanishes when the train
+> finishes and the branch is deleted — and the New Task form is opaque, so the
+> operator won't notice. Do **all** rebasing in an **isolated scratch worktree**;
+> the home base stays on its original branch for the entire train.
+
+**Set up once, before the loop** — capture the home-base branch and add a
+scratch worktree (never reused by Shepherd sessions):
+
+```bash
+HOME_BASE=$(git rev-parse --abbrev-ref HEAD)            # e.g. "main" — must not change
+git fetch --quiet origin main
+WT="$(git rev-parse --show-toplevel)/../.merge-train-wt"
+git worktree add --detach "$WT" origin/main            # scratch tree, HEAD detached
+```
+
+For each approved PR, in order — operate **only inside `$WT`**, never `cd` or
+`checkout` in the home base:
 
 1. Ensure it's rebased on the latest `main`. If behind, rebase its branch onto
-   `origin/main` and force-push (or `gh pr update-branch` where a clean
-   fast-forward applies); never `git merge main` into it (hygiene gate).
+   `origin/main` **inside the scratch worktree** and force-push; never
+   `git merge main` into it (hygiene gate):
+   ```bash
+   git -C "$WT" fetch --quiet origin main <headRefName>
+   git -C "$WT" checkout -B mt-<n> origin/<headRefName>
+   git -C "$WT" rebase origin/main                       # resolve conflicts here
+   git -C "$WT" push --force-with-lease origin mt-<n>:<headRefName>
+   ```
 2. Confirm gates are green: CI passing, branch hygiene clean, i18n parity.
-3. Merge: `gh pr merge <n> --squash --delete-branch`.
+3. Merge: `gh pr merge <n> --squash --delete-branch` (server-side — run from
+   anywhere; it does not touch the home base's HEAD).
 4. **Re-check the remaining queue**: `git fetch origin main`, recompute
    behind-counts and overlaps for the not-yet-merged PRs. Main just moved — a PR
    that was fresh may now conflict.
 5. On **any** failure (CI flips red, conflict, rebase fails), **stop the train**:
    drop that PR, report it, and continue only with PRs unaffected by it. Never
    force a merge past a red gate.
+
+**Tear down after the loop** — remove the scratch worktree and assert the home
+base never moved:
+
+```bash
+git worktree remove --force "$WT"
+[ "$(git rev-parse --abbrev-ref HEAD)" = "$HOME_BASE" ] || echo "WARNING: home base moved off $HOME_BASE"
+```
 
 Report a final summary: what merged, what was held, and any follow-ups.
 
@@ -145,3 +182,5 @@ Report a final summary: what merged, what was held, and any follow-ups.
   we don't want is still a `drop`.
 - Re-evaluate after every merge; concurrent agents make a stale plan dangerous.
 - A red gate removes a PR from the train; it never gets bypassed.
+- Never move the home base's checked-out branch — rebase in an isolated scratch
+  worktree so tasks spawned mid-train still cut from the correct base.

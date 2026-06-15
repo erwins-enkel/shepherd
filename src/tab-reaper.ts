@@ -22,7 +22,13 @@ function isShepherdHelperLabel(label: string): boolean {
   );
 }
 
-/** herdr tab ids are "workspace:N" with N a positional index. */
+/**
+ * Parses the positional `workspace:N` index used by herdr **≤0.6**, where tab ids are
+ * `"workspace:N"` with N a dense integer that re-numbers on close. Under herdr 0.7 stable
+ * ids (e.g. `w1:t1`) the last `:`-segment is not numeric, so this returns `0` for every
+ * tab — which is fine (see `reapOrphanTabs`). Retained until herdr 0.7 is the deployed
+ * floor, at which point this helper and the `.sort()` in `reapOrphanTabs` can be removed.
+ */
 function tabNumber(tabId: string): number {
   const n = Number.parseInt(tabId.split(":").at(-1) ?? "", 10);
   return Number.isFinite(n) ? n : 0;
@@ -39,9 +45,17 @@ function tabNumber(tabId: string): number {
  * agent in `agent list` before yielding the event loop, so a labeled tab with no backing
  * agent is unambiguously dead — never a mid-start probe/review.
  *
- * Closes highest tab-number first: herdr re-densifies tab numbers when a tab closes, so
- * descending order guarantees each remaining target id stays valid (only already-closed,
- * higher-numbered tabs shift).
+ * Closes in descending tab-number order. The behaviour under each herdr version:
+ *
+ * - **herdr ≤0.6** (positional ids, e.g. `workspace:N`): ids re-densify on close, so
+ *   closing highest-number-first keeps each remaining snapshotted target id valid — only
+ *   already-closed, higher-numbered tabs shift.
+ * - **herdr 0.7** (#569, stable ids e.g. `w1:t1`): closed ids don't retarget, so close
+ *   order is irrelevant. `tabNumber()` returns `0` for every 0.7 id, making the sort a
+ *   harmless no-op (order-preserving on ties).
+ *
+ * Net: correct under both; the sort is load-bearing on 0.6.10 (still deployed) and
+ * inert on 0.7.
  */
 export function reapOrphanTabs(herdr: ReapableHerdr): string[] {
   const liveTabIds = new Set(

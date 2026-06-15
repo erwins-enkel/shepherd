@@ -11,11 +11,11 @@ import type { GitState } from "./forge/types";
 export const RUNDOWN_VERDICT_FILE = ".shepherd-rundown.json";
 
 // Clamp bounds for the parsed verdict (also encoded in the prompt's length guidance).
-export const RUNDOWN_OVERNIGHT_MAX = 280;
-export const RUNDOWN_TRAIN_MAX = 200;
+const RUNDOWN_OVERNIGHT_MAX = 280;
+const RUNDOWN_TRAIN_MAX = 200;
 export const RUNDOWN_LABEL_MAX = 140;
 export const RUNDOWN_DECISIONS_CAP = 6;
-export const RUNDOWN_CIREWORK_CAP = 6;
+const RUNDOWN_CIREWORK_CAP = 6;
 export const RUNDOWN_FOCUSNEXT_CAP = 3;
 export const RUNDOWN_DEFAULT_TOPN = 40;
 
@@ -75,6 +75,41 @@ export interface ClassifyCaches {
   stalled?: boolean;
 }
 
+/** Ordered (signal, predicate) rules. classifyAttention pushes each signal whose predicate
+ *  holds, in this exact order — Tier-1 codes first, then Tier-2, then Tier-3 — so the emitted
+ *  `signals` array order is stable. Splitting the predicates out of classifyAttention keeps
+ *  that function a simple loop; the tiering comment lives with the SIGNAL_TIER map above. */
+const ATTENTION_RULES: Array<{
+  signal: SignalCode;
+  when: (s: Session, c: ClassifyCaches, now: number) => boolean;
+}> = [
+  // Tier 1: CRITICAL — forward progress blocked on the operator.
+  {
+    signal: "blocked-decision",
+    when: (s) => s.status === "blocked" || Boolean(s.autopilotPaused && s.autopilotQuestion),
+  },
+  { signal: "plan-rework", when: (_s, c) => c.gate?.decision === "changes_requested" },
+  { signal: "critic-rework", when: (_s, c) => c.review?.decision === "changes_requested" },
+  { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
+  // Tier 2: HIGH — needs a look soon, not yet a hard stop.
+  // awaiting-merge: operator's turn — the server has handed the PR off to a merger.
+  { signal: "awaiting-merge", when: (_s, c) => c.git?.handoff === "merger" },
+  { signal: "stalled", when: (_s, c) => Boolean(c.stalled) },
+  { signal: "recap-attention", when: (_s, c) => c.recap?.verdict === "needs_attention" },
+  { signal: "train-error", when: (_s, c) => Boolean(c.train?.error) },
+  // Tier 3: NORMAL — routine in-flight / queued work.
+  // ready-merge: PR is ready but not yet handed to a merger (Tier 2 takes over once it is).
+  {
+    signal: "ready-merge",
+    when: (s, c) => s.readyToMerge && c.git?.handoff !== "merger",
+  },
+  {
+    signal: "in-flight",
+    when: (s) => s.status === "running" || s.status === "idle",
+  },
+  { signal: "merging", when: (s, _c, now) => isMerging(s, now) },
+];
+
 /** Classify a single session's attention demand into a tier + its raw signal codes.
  *  Pure: every input is already-derived state, no I/O. A session may carry multiple
  *  signals; its tier is the most urgent (lowest) of them. Returns `tier: null` when the
@@ -85,28 +120,9 @@ export function classifyAttention(
   now: number = Date.now(),
 ): { tier: AttentionTier | null; signals: SignalCode[] } {
   const signals: SignalCode[] = [];
-  const { git, review, gate, recap, train, stalled } = caches;
-
-  // ── Tier 1: CRITICAL — forward progress blocked on the operator ──
-  if (session.status === "blocked" || (session.autopilotPaused && session.autopilotQuestion)) {
-    signals.push("blocked-decision");
+  for (const rule of ATTENTION_RULES) {
+    if (rule.when(session, caches, now)) signals.push(rule.signal);
   }
-  if (gate?.decision === "changes_requested") signals.push("plan-rework");
-  if (review?.decision === "changes_requested") signals.push("critic-rework");
-  if (git?.checks === "failure") signals.push("ci-red");
-
-  // ── Tier 2: HIGH — needs a look soon, not yet a hard stop ──
-  // Operator's turn: the server has handed the PR off to a merger.
-  if (git?.handoff === "merger") signals.push("awaiting-merge");
-  if (stalled) signals.push("stalled");
-  if (recap?.verdict === "needs_attention") signals.push("recap-attention");
-  if (train?.error) signals.push("train-error");
-
-  // ── Tier 3: NORMAL — routine in-flight / queued work ──
-  // Informational: PR is ready but not yet handed to a merger (Tier 2 takes over once it is).
-  if (session.readyToMerge && git?.handoff !== "merger") signals.push("ready-merge");
-  if (session.status === "running" || session.status === "idle") signals.push("in-flight");
-  if (isMerging(session, now)) signals.push("merging");
 
   if (signals.length === 0) return { tier: null, signals: [] };
   const tier = signals.reduce<AttentionTier>(
@@ -195,6 +211,72 @@ export interface AssembleInput {
 /** Sentinel rank for a repo with no backlog priority — sorts after any ranked repo within a tier. */
 const NO_BACKLOG_RANK = Number.MAX_SAFE_INTEGER;
 
+// Order WITHIN equal tier: higher-priority repo (lower backlogRank) first, then oldest first.
+// Tier is always primary, so a higher-priority repo never jumps ahead of a more-urgent tier —
+// bottlenecks (Tier 1) still outrank routine work regardless of backlog priority.
+const byTierRankAge = (a: AssembledSession, b: AssembledSession) =>
+  a.tier - b.tier || a.backlogRank - b.backlogRank || b.ageMs - a.ageMs;
+
+/** Classify one live session and map it to an AssembledSession, or null when it bears no
+ *  attention signal (tier null) or is archived. Pulls this session's caches out of the
+ *  per-field maps in `input`. */
+function toAssembledSession(
+  s: Session,
+  input: AssembleInput,
+  now: number,
+): AssembledSession | null {
+  if (s.status === "archived") return null;
+  const git = input.git?.[s.id];
+  const review = input.reviews?.[s.id];
+  const gate = input.gates?.[s.id];
+  const recap = input.recaps?.[s.id];
+  const { tier, signals } = classifyAttention(
+    s,
+    { git, review, gate, recap, train: input.trains?.[s.id], stalled: input.stalled?.has(s.id) },
+    now,
+  );
+  if (tier === null) return null;
+  const item: AssembledSession = {
+    desig: s.desig,
+    sessionId: s.id,
+    repo: s.repoPath,
+    tier,
+    signals,
+    ageMs: Math.max(0, now - s.createdAt),
+    backlogRank: input.backlogRank?.[s.repoPath] ?? NO_BACKLOG_RANK,
+  };
+  if (git?.number != null) item.prNumber = git.number;
+  if (git?.url) item.prUrl = git.url;
+  if (review?.findings?.length) item.findings = review.findings;
+  if (gate && gate.decision === "changes_requested") item.planRound = gate.round;
+  return item;
+}
+
+/** Trim a tier/rank/age-sorted list to `topN` with a HARD GUARANTEE that every Tier-1 session
+ *  survives; remaining budget is filled with Tier-2 then Tier-3 in order. Returns the kept set
+ *  (re-sorted uniformly) plus the count of Tier-2/Tier-3 dropped. */
+function applyBudget(
+  ranked: AssembledSession[],
+  topN: number,
+): {
+  kept: AssembledSession[];
+  truncatedTier2: number;
+  truncatedTier3: number;
+} {
+  const tier1 = ranked.filter((s) => s.tier === 1);
+  const rest = ranked.filter((s) => s.tier !== 1);
+  const budget = Math.max(0, topN - tier1.length);
+  const kept = [...tier1, ...rest.slice(0, budget)];
+  const dropped = rest.slice(budget);
+  // Re-sort the kept set so output is uniformly tier/backlog-rank/age ordered.
+  kept.sort(byTierRankAge);
+  return {
+    kept,
+    truncatedTier2: dropped.filter((s) => s.tier === 2).length,
+    truncatedTier3: dropped.filter((s) => s.tier === 3).length,
+  };
+}
+
 /** Pure builder: classify every session, order by tier then age (older first within a
  *  tier), and trim to `topN` — but with a HARD GUARANTEE that every Tier-1 session is
  *  included unconditionally; remaining budget is filled with Tier-2 then Tier-3 by
@@ -206,50 +288,12 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
 
   const ranked: AssembledSession[] = [];
   for (const s of input.sessions) {
-    if (s.status === "archived") continue;
-    const git = input.git?.[s.id];
-    const review = input.reviews?.[s.id];
-    const gate = input.gates?.[s.id];
-    const recap = input.recaps?.[s.id];
-    const { tier, signals } = classifyAttention(
-      s,
-      { git, review, gate, recap, train: input.trains?.[s.id], stalled: input.stalled?.has(s.id) },
-      now,
-    );
-    if (tier === null) continue;
-    const item: AssembledSession = {
-      desig: s.desig,
-      sessionId: s.id,
-      repo: s.repoPath,
-      tier,
-      signals,
-      ageMs: Math.max(0, now - s.createdAt),
-      backlogRank: input.backlogRank?.[s.repoPath] ?? NO_BACKLOG_RANK,
-    };
-    if (git?.number != null) item.prNumber = git.number;
-    if (git?.url) item.prUrl = git.url;
-    if (review?.findings?.length) item.findings = review.findings;
-    if (gate && gate.decision === "changes_requested") item.planRound = gate.round;
-    ranked.push(item);
+    const item = toAssembledSession(s, input, now);
+    if (item) ranked.push(item);
   }
-
-  // Order WITHIN equal tier: higher-priority repo (lower backlogRank) first, then oldest first.
-  // Tier is always primary, so a higher-priority repo never jumps ahead of a more-urgent tier —
-  // bottlenecks (Tier 1) still outrank routine work regardless of backlog priority.
-  const byTierRankAge = (a: AssembledSession, b: AssembledSession) =>
-    a.tier - b.tier || a.backlogRank - b.backlogRank || b.ageMs - a.ageMs;
   ranked.sort(byTierRankAge);
 
-  // Tier-1 always survives; fill the rest of the budget with tier 2 then 3 in order.
-  const tier1 = ranked.filter((s) => s.tier === 1);
-  const rest = ranked.filter((s) => s.tier !== 1);
-  const budget = Math.max(0, topN - tier1.length);
-  const kept = [...tier1, ...rest.slice(0, budget)];
-  const dropped = rest.slice(budget);
-  const truncatedTier2 = dropped.filter((s) => s.tier === 2).length;
-  const truncatedTier3 = dropped.filter((s) => s.tier === 3).length;
-  // Re-sort the kept set so output is uniformly tier/backlog-rank/age ordered.
-  kept.sort(byTierRankAge);
+  const { kept, truncatedTier2, truncatedTier3 } = applyBudget(ranked, topN);
 
   return {
     generatedFor: input.generatedFor,

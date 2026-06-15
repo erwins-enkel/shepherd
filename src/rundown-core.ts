@@ -96,13 +96,15 @@ export function classifyAttention(
   if (git?.checks === "failure") signals.push("ci-red");
 
   // ── Tier 2: HIGH — needs a look soon, not yet a hard stop ──
-  if (git?.handoff === "merger" || session.readyToMerge) signals.push("awaiting-merge");
+  // Operator's turn: the server has handed the PR off to a merger.
+  if (git?.handoff === "merger") signals.push("awaiting-merge");
   if (stalled) signals.push("stalled");
   if (recap?.verdict === "needs_attention") signals.push("recap-attention");
   if (train?.error) signals.push("train-error");
 
   // ── Tier 3: NORMAL — routine in-flight / queued work ──
-  if (session.readyToMerge && !signals.includes("awaiting-merge")) signals.push("ready-merge");
+  // Informational: PR is ready but not yet handed to a merger (Tier 2 takes over once it is).
+  if (session.readyToMerge && git?.handoff !== "merger") signals.push("ready-merge");
   if (session.status === "running" || session.status === "idle") signals.push("in-flight");
   if (isMerging(session, now)) signals.push("merging");
 
@@ -161,6 +163,9 @@ export interface AssembledHerdState {
   generatedFor: string;
   overnightDelta: { mergedPrs: number[]; archivedSessions: { id: string; desig: string }[] };
   sessions: AssembledSession[];
+  /** Count of Tier-2 sessions elided by the topN budget (0 when none dropped). Tier-1 is
+   *  never dropped, so a positive count here means a HIGH-attention session is hidden. */
+  truncatedTier2: number;
   /** Count of Tier-3 sessions elided by the topN budget (0 when none dropped). */
   truncatedTier3: number;
 }
@@ -183,7 +188,8 @@ export interface AssembleInput {
 /** Pure builder: classify every session, order by tier then age (older first within a
  *  tier), and trim to `topN` — but with a HARD GUARANTEE that every Tier-1 session is
  *  included unconditionally; remaining budget is filled with Tier-2 then Tier-3 by
- *  tier/age. Any Tier-3 dropped is reported via `truncatedTier3`. Data-only (no prose). */
+ *  tier/age. Any Tier-2/Tier-3 dropped is reported via `truncatedTier2`/`truncatedTier3`
+ *  (Tier-1 is never dropped). Data-only (no prose). */
 export function assembleHerdState(input: AssembleInput): AssembledHerdState {
   const now = input.now ?? Date.now();
   const topN = input.topN ?? RUNDOWN_DEFAULT_TOPN;
@@ -225,6 +231,7 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
   const budget = Math.max(0, topN - tier1.length);
   const kept = [...tier1, ...rest.slice(0, budget)];
   const dropped = rest.slice(budget);
+  const truncatedTier2 = dropped.filter((s) => s.tier === 2).length;
   const truncatedTier3 = dropped.filter((s) => s.tier === 3).length;
   // Re-sort the kept set so output is uniformly tier/age ordered.
   kept.sort((a, b) => a.tier - b.tier || b.ageMs - a.ageMs);
@@ -233,6 +240,7 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
     generatedFor: input.generatedFor,
     overnightDelta: input.overnightDelta,
     sessions: kept,
+    truncatedTier2,
     truncatedTier3,
   };
 }
@@ -259,9 +267,12 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     "lead with the most urgent.",
   ];
 
-  if (assembled.truncatedTier3 > 0) {
+  if (assembled.truncatedTier2 > 0 || assembled.truncatedTier3 > 0) {
+    const parts: string[] = [];
+    if (assembled.truncatedTier2 > 0) parts.push(`${assembled.truncatedTier2} Tier-2 (HIGH)`);
+    if (assembled.truncatedTier3 > 0) parts.push(`${assembled.truncatedTier3} Tier-3`);
     lines.push(
-      `NOTE: ${assembled.truncatedTier3} lower-priority (Tier-3) session(s) were elided to fit the budget —`,
+      `NOTE: ${parts.join(" and ")} lower-priority session(s) were elided to fit the budget —`,
       'do NOT claim "all clear" or that the herd is fully idle.',
     );
   }

@@ -4,6 +4,7 @@ import {
   parseRundownVerdict,
   classifyAttention,
   assembleHerdState,
+  buildRundownPrompt,
   fingerprintDiffCount,
   attentionFingerprint,
   isMerging,
@@ -138,8 +139,10 @@ test("classifyAttention: each signal maps to the correct tier", () => {
   expect(c(session(), { review: { decision: "changes_requested" } as any }).tier).toBe(1);
   expect(c(session({ status: "idle" }), { git: git({ checks: "failure" }) }).tier).toBe(1);
 
-  expect(c(session({ status: "idle", readyToMerge: true })).signals).toContain("awaiting-merge");
   expect(c(session({ status: "idle" }), { git: git({ handoff: "merger" }) }).tier).toBe(2);
+  expect(c(session({ status: "idle" }), { git: git({ handoff: "merger" }) }).signals).toContain(
+    "awaiting-merge",
+  );
   expect(c(session({ status: "idle" }), { stalled: true }).tier).toBe(2);
   expect(
     c(session({ status: "idle" }), { recap: { verdict: "needs_attention" } as any }).tier,
@@ -159,7 +162,26 @@ test("classifyAttention: ci-red + ready-merge resolves to tier 1 (most urgent wi
   );
   expect(r.tier).toBe(1);
   expect(r.signals).toContain("ci-red");
+  expect(r.signals).toContain("ready-merge");
+});
+
+test("classifyAttention: readyToMerge without merger handoff → ready-merge (tier 3)", () => {
+  const r = classifyAttention(session({ status: "idle", readyToMerge: true }), {}, NOW);
+  expect(r.tier).toBe(3);
+  expect(r.signals).toContain("ready-merge");
+  expect(r.signals).not.toContain("awaiting-merge");
+});
+
+test("classifyAttention: merger handoff → awaiting-merge (tier 2), not ready-merge", () => {
+  // readyToMerge set too, but handoff to merger promotes it to Tier 2.
+  const r = classifyAttention(
+    session({ status: "idle", readyToMerge: true }),
+    { git: git({ handoff: "merger" }) },
+    NOW,
+  );
+  expect(r.tier).toBe(2);
   expect(r.signals).toContain("awaiting-merge");
+  expect(r.signals).not.toContain("ready-merge");
 });
 
 // ── assembleHerdState — Tier-1 never dropped by top-N ─────────────────────────
@@ -188,6 +210,52 @@ test("assembleHerdState: Tier-1 always kept, only Tier-3 dropped, truncatedTier3
   expect(out.truncatedTier3).toBe(8);
   // Tier-1 first in output
   expect(out.sessions[0]!.tier).toBe(1);
+});
+
+test("assembleHerdState: Tier-1 overflow drops a Tier-2, truncatedTier2 set", () => {
+  const sessions: Session[] = [];
+  // 3 Tier-1 (blocked)
+  for (let i = 0; i < 3; i++)
+    sessions.push(session({ id: `t1-${i}`, desig: `T1-${i}`, status: "blocked" }));
+  // 2 Tier-2 (stalled)
+  for (let i = 0; i < 2; i++)
+    sessions.push(session({ id: `t2-${i}`, desig: `T2-${i}`, status: "idle" }));
+
+  const out = assembleHerdState({
+    sessions,
+    stalled: new Set(["t2-0", "t2-1"]),
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+    topN: 3, // budget: 3 tier1 forced, 0 left → both tier2 dropped
+  });
+
+  expect(out.sessions.filter((s) => s.tier === 1).length).toBe(3);
+  expect(out.sessions.filter((s) => s.tier === 2).length).toBe(0);
+  expect(out.truncatedTier2).toBe(2);
+  expect(out.truncatedTier3).toBe(0);
+});
+
+test("buildRundownPrompt: not-all-clear guard fires when truncatedTier2>0 with truncatedTier3==0", () => {
+  const sessions: Session[] = [];
+  for (let i = 0; i < 3; i++)
+    sessions.push(session({ id: `t1-${i}`, desig: `T1-${i}`, status: "blocked" }));
+  sessions.push(session({ id: "t2-0", desig: "T2-0", status: "idle" }));
+
+  const out = assembleHerdState({
+    sessions,
+    stalled: new Set(["t2-0"]),
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+    topN: 3,
+  });
+  expect(out.truncatedTier2).toBe(1);
+  expect(out.truncatedTier3).toBe(0);
+
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain('do NOT claim "all clear"');
+  expect(prompt).toContain("Tier-2 (HIGH)");
 });
 
 // ── fingerprint diff ─────────────────────────────────────────────────────────

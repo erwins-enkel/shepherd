@@ -181,9 +181,10 @@ For the cold-start case (nothing installed yet). It mirrors the very install scr
 
 1. Detect OS/arch; refuse politely on unsupported platforms (the membrane + harness are Linux-first;
    macOS works for the core but `bwrap` sandboxing and tailscale-serve previews differ).
-2. Install missing prerequisites using the **shared remediation commands** (Surface A and the harness
-   read the same `src/remediations.ts` table — single source of truth for "how to install bun/node/
-   herdr/claude").
+2. Install missing prerequisites using the **shared remediation commands** from the same
+   `src/remediations.ts` table (single source of truth for "how to install bun/node/herdr/claude").
+   See "Can it be a `curl … | bash` one-liner?" below for the chicken-and-egg this raises (a piped
+   script has no checkout yet, so it can't `import` the table at the moment it needs it).
 3. Clone the repo to `~/Work/shepherd` (the unit's `WorkingDirectory=%h/Work/shepherd`).
 4. Run the existing `deploy/update.sh` logic (deps → UI build → unit install → health check). The
    bootstrap is essentially `provision-prereqs + first-clone + update.sh`.
@@ -195,6 +196,43 @@ Constraints: it must be **idempotent** (re-runnable), must **not** clobber an ex
 or checkout without consent, and the prereq installs are third-party `curl|bash` — which is the
 status-quo trust model Shepherd already lives with, but should be surfaced honestly in the README
 (the OSS-launch doc's "radical transparency" posture applies here too).
+
+#### Can it be a `curl … | bash` one-liner?
+
+Yes — that's the intended shape, and it's idiomatic for this project: the prereq commands the
+installer runs are themselves `curl -fsSL … | bash` (bun.sh, herdr.dev, claude.ai). It works off the
+raw GitHub URL on day one, no domain required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
+# later, optionally, a vanity:  curl -fsSL https://shepherd.dev/install.sh | bash
+```
+
+Piping through `| bash` adds three mechanics worth designing for explicitly:
+
+1. **Chicken-and-egg vs. the single source of truth.** A piped script has no checkout and no Bun
+   yet, so it **cannot** `import src/remediations.ts` — the very table meant to be canonical. Two
+   resolutions:
+   - **Thin bootstrap, then hand off (recommended).** The piped script does only the minimum —
+     install git + Bun, clone the repo — then runs a repo-internal `bun run install` that reads the
+     shared table for everything else. One source of truth preserved; the piped part is tiny and
+     rarely changes.
+   - **Generate-and-inline.** Emit `install.sh` at release time from `src/remediations.ts` so the
+     published script has the commands baked in. No runtime dependency, but it needs a generator
+     **and** a CI sync-check, or it silently drifts — the exact rot this report warns about
+     elsewhere.
+2. **Interactive auth can't run inside a pipe.** With `| bash`, the script's stdin _is_ the script,
+   so `claude` login, `gh auth login`, and `tailscale` login (all interactive secrets) can't prompt
+   normally. Either read from `</dev/tty` when a terminal is present, or — cleaner — finish the
+   non-interactive parts and print the next steps. This is the same fixable-vs-guidance-only split
+   drawn in §6; nothing auto-runs a credential flow.
+3. **Trust + idempotency.** It runs unconfined, as the operator's user, _before_ any sandbox exists
+   — the same trust model as the bun/herdr installers, but state it honestly in the README. And it
+   must be safe to re-run (never clobber an existing `~/.shepherd/` or checkout without consent).
+
+Net: fully `curl|bash`-able, but the "one canonical command table" goal pushes toward the **thin
+piped bootstrap that hands off to the cloned repo**, rather than one large standalone script kept in
+sync by codegen.
 
 ### Surface B — in-app remediation in the DIAGNOSE tab (the "piggyback")
 

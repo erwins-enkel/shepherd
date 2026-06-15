@@ -1473,13 +1473,14 @@
     text-transform: uppercase;
     color: var(--color-ink-bright);
   }
-  /* Desktop hosts the theme switcher in the ActionBar; only surface it here on
-     mobile, where the ActionBar hides it and the top bar no longer carries it.
-     The high-contrast toggle (also ActionBar-only on desktop) rides along — it's
-     the readability lift for using the app outdoors / in bright sunlight. */
+  /* The theme switcher and high-contrast toggle live in the Settings dialog on
+     every viewport so the menu reads identically on mobile and desktop — desktop
+     additionally mirrors the theme switcher in the ActionBar for quick access. */
   .theme-row,
   .contrast-row {
-    display: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .contrast-row .hint {
     color: var(--color-faint);
@@ -1511,8 +1512,9 @@
     color: var(--color-amber);
     background: var(--color-inset);
   }
-  /* The about blurb shows everywhere; the version / commit / repo rows surface
-     only on mobile — desktop reads them from the ActionBar footer. */
+  /* The about block — blurb plus the version / commit / repo rows — shows on
+     every viewport; desktop additionally surfaces the same metadata in the
+     ActionBar footer. */
   .about {
     display: flex;
     flex-direction: column;
@@ -1527,7 +1529,7 @@
     margin: 0;
   }
   .about-grid {
-    display: none;
+    display: grid;
     grid-template-columns: auto 1fr;
     gap: 4px 14px;
     margin: 0;
@@ -1555,15 +1557,6 @@
     .overlay {
       align-items: stretch;
       justify-content: stretch;
-    }
-    .theme-row,
-    .contrast-row {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .about-grid {
-      display: grid;
     }
     .card {
       width: 100%;

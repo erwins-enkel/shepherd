@@ -201,9 +201,9 @@ export function resetPluginIdsCacheForTests(): void {
  * untrimmed spawns keep today's exact overlay.
  *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
- * Notification/SessionStart/Stop/SessionEnd HTTP hooks pointing at this session's ingest route
- * (see buildHooksFragment). Flag off → key omitted entirely, so the overlay JSON stays
- * byte-for-byte identical to today.
+ * Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
+ * this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
+ * overlay JSON stays byte-for-byte identical to today.
  */
 export function spawnSettingsOverlay(
   opts: {

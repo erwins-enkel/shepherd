@@ -12,6 +12,7 @@ import { buildGapReport, statusDescription } from "./report";
 import { reportToGitHub, publishStatus } from "./issue";
 import { remediationsFor } from "../../src/remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
+import type { DiagnosticsSnapshot } from "../../src/types";
 
 /** `git archive` the current HEAD into a tarball the seed engine pushes. */
 function buildTarball(): string {
@@ -24,12 +25,80 @@ function buildTarball(): string {
 /** Local repo path to the installer the install-e2e scenario stages + runs. */
 const INSTALL_SCRIPT = join(import.meta.dir, "..", "..", "deploy", "install.sh");
 
+/** Base fields every ScenarioResult carries, computed once per run. */
+type ScenarioBase = {
+  scenarioId: string;
+  image: string;
+  gateEligible: boolean;
+};
+
+/** Inverse flow: bare host → real deploy/install.sh → assert it reaches green.
+ *  No seeded defect, no baseline; `expect` is the target-ok set. The install is a
+ *  deterministic, LLM-free apply, so it reuses the "verbatim" appliedVia. Throws
+ *  fail-closed on a non-zero install. */
+async function runInstallE2E(
+  driver: IncusDriver,
+  scenario: Scenario,
+  base: ScenarioBase,
+  tarball: string,
+): Promise<ScenarioResult> {
+  await seedInstance(driver, scenario, tarball, INSTALL_SCRIPT);
+  const install = await driver.exec(scenario.id, [
+    "sh",
+    "-c",
+    // SHEPHERD_DIR=/opt/shepherd so probe.ts's hardcoded `cd /opt/shepherd`
+    // finds it; NO_SERVICE skips systemd (no PID 1 in a fresh exec session).
+    // install.sh is `#!/usr/bin/env bash` + `set -o pipefail`; run it with bash,
+    // not sh — on Ubuntu /bin/sh is dash, which aborts at `set -o pipefail`.
+    "SHEPHERD_SRC=/root/shepherd.tar SHEPHERD_NO_SERVICE=1 SHEPHERD_DIR=/opt/shepherd bash /root/install.sh",
+  ]);
+  if (install.code !== 0) {
+    throw new Error(`install.sh failed in ${scenario.id}:\n${install.stderr || install.stdout}`);
+  }
+  await bootShepherd(driver, scenario.id);
+  const after = await probeDiagnostics(driver, scenario.id);
+  const detection = assertDetection(after, scenario.id, scenario.expect);
+  return {
+    ...base,
+    detection,
+    appliedVia: "verbatim",
+    reachedGreen: detection.detected,
+    installE2E: true,
+  };
+}
+
+/** Pick + run the standard-path remediation: detection-only (by design or
+ *  agent-incompatible), verbatim, or agent. Returns the chosen `appliedVia` and
+ *  whether this was a detection-only (no-apply) run. */
+async function applyDispatch(
+  driver: IncusDriver,
+  scenario: Scenario,
+  before: DiagnosticsSnapshot,
+): Promise<{ appliedVia: ScenarioResult["appliedVia"]; detectionOnly: boolean }> {
+  if (scenario.detectionOnly) {
+    // Defect detectable but unfixable unattended (needs human/secret) — verify
+    // detection only, never apply.
+    console.log(`[${scenario.id}] detection-only by design — no apply`);
+    return { appliedVia: "skipped", detectionOnly: true };
+  }
+  if (remediationsFor(before).length > 0) {
+    await applyVerbatim(driver, scenario.id, before);
+    return { appliedVia: "verbatim", detectionOnly: false };
+  }
+  if (scenario.agentIncompatible) {
+    console.log(`[${scenario.id}] agent-incompatible, no verbatim fix — detection-only`);
+    return { appliedVia: "skipped", detectionOnly: true };
+  }
+  await applyAgent(driver, scenario.id, before);
+  return { appliedVia: "agent", detectionOnly: false };
+}
+
 export async function runScenario(
   driver: IncusDriver,
   scenario: Scenario,
   tarball: string,
 ): Promise<ScenarioResult> {
-  const base = {
+  const base: ScenarioBase = {
     scenarioId: scenario.id,
     image: scenario.image,
     // Part of the deterministic release gate iff structured AND not detection-only
@@ -38,62 +107,14 @@ export async function runScenario(
   };
   let detection: DetectionResult | undefined;
   try {
-    if (scenario.installE2E) {
-      // Inverse flow: bare host → real deploy/install.sh → assert it reaches green.
-      // No seeded defect, no baseline; `expect` is the target-ok set. The install
-      // is a deterministic, LLM-free apply, so it reuses the "verbatim" appliedVia.
-      await seedInstance(driver, scenario, tarball, INSTALL_SCRIPT);
-      const install = await driver.exec(scenario.id, [
-        "sh",
-        "-c",
-        // SHEPHERD_DIR=/opt/shepherd so probe.ts's hardcoded `cd /opt/shepherd`
-        // finds it; NO_SERVICE skips systemd (no PID 1 in a fresh exec session).
-        // install.sh is `#!/usr/bin/env bash` + `set -o pipefail`; run it with bash,
-        // not sh — on Ubuntu /bin/sh is dash, which aborts at `set -o pipefail`.
-        "SHEPHERD_SRC=/root/shepherd.tar SHEPHERD_NO_SERVICE=1 SHEPHERD_DIR=/opt/shepherd bash /root/install.sh",
-      ]);
-      if (install.code !== 0) {
-        throw new Error(
-          `install.sh failed in ${scenario.id}:\n${install.stderr || install.stdout}`,
-        );
-      }
-      await bootShepherd(driver, scenario.id);
-      const after = await probeDiagnostics(driver, scenario.id);
-      detection = assertDetection(after, scenario.id, scenario.expect);
-      return {
-        ...base,
-        detection,
-        appliedVia: "verbatim",
-        reachedGreen: detection.detected,
-        installE2E: true,
-      };
-    }
+    if (scenario.installE2E) return await runInstallE2E(driver, scenario, base, tarball);
 
     await seedInstance(driver, scenario, tarball);
     await bootShepherd(driver, scenario.id);
     const before = await probeDiagnostics(driver, scenario.id);
     detection = assertDetection(before, scenario.id, scenario.expect);
 
-    const verbatim = remediationsFor(before);
-    let appliedVia: ScenarioResult["appliedVia"];
-    let detectionOnly = false;
-    if (scenario.detectionOnly) {
-      // Defect detectable but unfixable unattended (needs human/secret) — verify
-      // detection only, never apply.
-      console.log(`[${scenario.id}] detection-only by design — no apply`);
-      appliedVia = "skipped";
-      detectionOnly = true;
-    } else if (verbatim.length > 0) {
-      await applyVerbatim(driver, scenario.id, before);
-      appliedVia = "verbatim";
-    } else if (scenario.agentIncompatible) {
-      console.log(`[${scenario.id}] agent-incompatible, no verbatim fix — detection-only`);
-      appliedVia = "skipped";
-      detectionOnly = true;
-    } else {
-      await applyAgent(driver, scenario.id, before);
-      appliedVia = "agent";
-    }
+    const { appliedVia, detectionOnly } = await applyDispatch(driver, scenario, before);
     const after = detectionOnly ? before : await probeDiagnostics(driver, scenario.id);
     // Success is SCOPED to the checks this scenario broke: a throw-away instance
     // never has a fully-healthy host (no tailnet, no gh login, etc.), so the global

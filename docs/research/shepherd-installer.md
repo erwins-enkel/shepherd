@@ -172,7 +172,52 @@ installer itself release-gated.
 
 ---
 
-## 5. Design — the two-surface installer
+## 5. OS support — what an installer can actually target
+
+This is the biggest scoping constraint, and it's **architectural, not cosmetic**: Shepherd is
+Linux-first to the point of being effectively Linux-only for its full feature set. The server has
+**zero `process.platform` branching** (the only OS-specific string in `src/` is a linuxbrew path in
+`src/sandbox.ts:217`) — it simply assumes a Linux host. The load-bearing subsystems are all
+Linux-kernel features:
+
+- **Sandbox membrane** — `SandboxBackend = "bwrap" | null` (`src/sandbox.ts:62`); bubblewrap +
+  unprivileged user namespaces, Linux-only. `detectBackend` runs an actual wrapped probe, not just
+  `bwrap --version` (`src/sandbox.ts:111-148`). No backend ⇒ membrane silently absent.
+- **Egress allowlist** — `slirp4netns` + `nftables` + `dnsmasq` in a rootless netns
+  (`src/egress.ts`, `src/egress-watch.ts`), all Linux-only.
+- **Deployment** — systemd **user** units (`deploy/shepherd.service`, `enable-linger`,
+  `systemctl --user`). No launchd plist or Windows-service equivalent exists.
+- **Regression proof** — the onboarding harness boots **Incus** (Linux containers)
+  (`ci/onboarding-harness/`), so it can only validate a **Linux** install path.
+
+| OS                  | Core (Bun + UI + PTY) | bwrap membrane | netns egress | Service install          | Verdict                                                                                                                                 |
+| ------------------- | --------------------- | -------------- | ------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux (systemd)** | ✓                     | ✓              | ✓            | systemd user unit        | **Full + the only harness-proven target.** The installer's real audience.                                                               |
+| **macOS**           | ✓ (core runs)         | ✗ no bwrap     | ✗            | launchd plist (none yet) | **Core-only, degraded:** `trusted` profile only, `auto=true` drain **refused** (needs `autonomous`/egress), no automated install proof. |
+| **Windows**         | only via **WSL2**     | ✓ in WSL2      | ✓ in WSL2    | systemd-in-WSL2          | Native Windows is **not** a target; WSL2 is just Linux — route users there.                                                             |
+
+The remediation table itself is **mostly portable** — `bun.sh`, `fnm`, and `claude.ai` installers
+all cover macOS + Linux — but the `tailscale` install (`… | sh`, Linux; macOS is the App Store/brew
+app), the service-install step, and the sandbox/egress enablement are Linux-specific.
+
+**Installer implications:**
+
+1. The supported-OS matrix is a **product decision**, not a script detail. Today the product is
+   implicitly "Linux + systemd + unprivileged userns" because nothing exists to make it otherwise.
+2. **Surface A step 5 (systemd unit) is Linux-only.** A real macOS target needs a launchd plist that
+   doesn't exist — out of scope unless macOS becomes a supported platform.
+3. **No automated proof off Linux.** The Incus harness can't test a macOS path, so a macOS installer
+   would ship unverified — a strong argument for Linux-only v1.
+4. **`curl|bash` should detect-and-decide early** (Surface A step 1): on non-Linux, either refuse
+   with a clear message (recommended for v1) or proceed **core-only behind a loud degraded banner**
+   that names what's missing (membrane, egress, auto-drain, serve-based previews).
+
+**Recommendation:** scope installer **v1 to Linux (systemd + userns)** — the only fully-featured,
+harness-proven target — detect macOS and refuse or offer an explicitly-labeled core-only path, and
+route Windows users to WSL2. This matches the membrane/egress/harness reality instead of promising a
+portability the product doesn't have.
+
+## 6. Design — the two-surface installer
 
 ### Surface A — pre-install bootstrap (`deploy/install.sh`, `curl … | bash`)
 
@@ -225,7 +270,7 @@ Piping through `| bash` adds three mechanics worth designing for explicitly:
    so `claude` login, `gh auth login`, and `tailscale` login (all interactive secrets) can't prompt
    normally. Either read from `</dev/tty` when a terminal is present, or — cleaner — finish the
    non-interactive parts and print the next steps. This is the same fixable-vs-guidance-only split
-   drawn in §6; nothing auto-runs a credential flow.
+   drawn in §7; nothing auto-runs a credential flow.
 3. **Trust + idempotency.** It runs unconfined, as the operator's user, _before_ any sandbox exists
    — the same trust model as the bun/herdr installers, but state it honestly in the README. And it
    must be safe to re-run (never clobber an existing `~/.shepherd/` or checkout without consent).
@@ -271,7 +316,7 @@ ship without a harness remediation and only the gate would (eventually) notice.
 
 ---
 
-## 6. What is NOT auto-installable (must stay guidance-only)
+## 7. What is NOT auto-installable (must stay guidance-only)
 
 | Check / state                   | Why not auto-fixable                                                                            | Installer behavior                               |
 | ------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -285,7 +330,7 @@ inventing a parallel one.
 
 ---
 
-## 7. Security & trust considerations
+## 8. Security & trust considerations
 
 - **In-app command execution is a real escalation of the DIAGNOSE tab's authority** (read-only →
   can-run-shell). Mitigations: (a) only verbatim, table-defined commands — never free-form or
@@ -303,7 +348,7 @@ inventing a parallel one.
 
 ---
 
-## 8. Suggested phasing
+## 9. Suggested phasing
 
 1. **Keystone refactor** — move `REMEDIATIONS` + the fixable/guidance split to `src/remediations.ts`;
    point the harness at it. No behavior change; pure consolidation. (Small, low-risk, unblocks both
@@ -318,15 +363,16 @@ inventing a parallel one.
 
 ---
 
-## 9. Open questions (need a product call)
+## 10. Open questions (need a product call)
 
 1. **Scope of v1** — ship only Surface B (in-app Fix, finishing setup for users who already cloned),
    or also Surface A (`curl|bash` cold-start) for the OSS launch? _(Recommend B first — small,
    reuses the on-screen surface; A next as the launch lever.)_
 2. **`install.sh` hosting** — committed in-repo and run via raw GitHub URL, or a vanity
    `shepherd.dev/install.sh`? (The latter matches herdr/bun/claude but needs a domain.)
-3. **macOS support in v1**, or Linux-only to match the membrane + harness coverage, with macOS as
-   best-effort core-only?
+3. **OS scope of v1** (see §5) — Linux-only (the only fully-featured, harness-proven target), or
+   also a labeled core-only macOS path? Recommendation in §5 is Linux-first + refuse/degrade
+   elsewhere; this question is whether that's acceptable for launch.
 4. **In-app Fix confirmation depth** — single confirm-the-command dialog, or a per-command
    allowlist toggle in Settings for operators who want it gated harder?
 5. Should the installer **offer** (not auto-run) the `autonomous`-profile prerequisites (`bwrap` +

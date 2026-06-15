@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { REMEDIATIONS, remediationsFor } from "../../ci/onboarding-harness/remediations";
+import {
+  autoFixCommandFor,
+  GUIDANCE_ONLY,
+  REMEDIATIONS,
+  remediationsFor,
+} from "../../src/remediations";
 import type { DiagnosticsSnapshot } from "../../src/types";
 
 describe("remediations catalog", () => {
@@ -24,5 +29,19 @@ describe("remediations catalog", () => {
       overall: "error",
     };
     expect(remediationsFor(snap)).toEqual([REMEDIATIONS["diagnostics_hint_bun_missing"]!]);
+  });
+
+  it("autoFixCommandFor returns the command for an auto-fixable hintKey", () => {
+    expect(autoFixCommandFor("diagnostics_hint_bun_missing")).toBe(
+      REMEDIATIONS.diagnostics_hint_bun_missing,
+    );
+  });
+
+  it("autoFixCommandFor gates guidance-only hints to undefined even when they have a REMEDIATIONS entry", () => {
+    // tailscale has a verbatim install command but it never clears the check
+    // (needs an interactive tailnet login), so it's guidance-only, not auto-fix.
+    expect(REMEDIATIONS.diagnostics_hint_tailscale_missing).toBeDefined();
+    expect(GUIDANCE_ONLY.has("diagnostics_hint_tailscale_missing")).toBe(true);
+    expect(autoFixCommandFor("diagnostics_hint_tailscale_missing")).toBeUndefined();
   });
 });

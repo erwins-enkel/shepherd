@@ -10,7 +10,7 @@ import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport, statusDescription } from "./report";
 import { reportToGitHub, publishStatus } from "./issue";
-import { remediationsFor } from "./remediations";
+import { remediationsFor } from "../../src/remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 
 /** `git archive` the current HEAD into a tarball the seed engine pushes. */
